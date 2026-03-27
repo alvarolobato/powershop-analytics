@@ -1,0 +1,36 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Local credentials (never commit)
+local/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated reports and data (contain real business data)
+docs/reports/*.html
+docs/reports/*.json
+docs/sample-data/
+docs/schema-discovery.md
+docs/data-dictionary.md
+docs/sample-queries.md
+docs/stock-analysis.md
+
+# Runtime/temp
+*.log
+tmp/
+_*.py
+_*.json
