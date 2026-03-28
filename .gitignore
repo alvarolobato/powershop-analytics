@@ -20,14 +20,10 @@ local/
 .DS_Store
 Thumbs.db
 
-# Generated reports and data (contain real business data)
+# Generated reports and sample data (contain real business data)
 docs/reports/*.html
 docs/reports/*.json
 docs/sample-data/
-docs/schema-discovery.md
-docs/data-dictionary.md
-docs/sample-queries.md
-docs/stock-analysis.md
 
 # Runtime/temp
 *.log
