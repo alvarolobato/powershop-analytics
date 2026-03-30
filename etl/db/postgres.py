@@ -30,7 +30,7 @@ def _load_watermarks_ddl() -> str:
 
     Result is cached at module level so repeated watermark calls do not hit disk.
     """
-    sql = _SCHEMA_SQL_PATH.read_text()
+    sql = _SCHEMA_SQL_PATH.read_text(encoding="utf-8")
     start = sql.find("CREATE TABLE IF NOT EXISTS etl_watermarks")
     if start == -1:
         raise RuntimeError(

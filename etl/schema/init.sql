@@ -3,7 +3,10 @@
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
 --
 -- Type conventions:
---   4D REAL PKs  → NUMERIC  (NOT float8 — preserves .99 precision)
+--   4D REAL PKs  → NUMERIC  (unbounded precision; NOT float8 — avoids binary-float
+--                  artifacts on .99 suffix values like 10028816.641).
+--                  ETL must insert PK values as Python Decimal (not float) to prevent
+--                  precision loss before the value reaches PostgreSQL.
 --   Dates        → DATE
 --   Times        → TIME
 --   Text         → TEXT
@@ -363,10 +366,11 @@ CREATE TABLE IF NOT EXISTS ps_albaranes (
     modificada     DATE
 );
 
--- ps_facturas_compra: no reg_* PK found in 4D; full-refresh only.
--- A surrogate key is added for idempotent re-loads.
+-- ps_facturas_compra: no reg_* PK found in 4D; strategy is full-refresh only
+-- (TRUNCATE ... RESTART IDENTITY + INSERT).  The surrogate key is for internal
+-- reference only and is reset on each load — never used as a join key.
 CREATE TABLE IF NOT EXISTS ps_facturas_compra (
-    id             SERIAL  PRIMARY KEY,
+    id             INTEGER  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     fecha_factura  DATE,
     fecha_valor    DATE
 );
