@@ -5,7 +5,11 @@ Gotchas handled here:
 - Column names are returned UPPERCASE from 4D — normalize to lowercase.
 - Some columns have type 0 (unknown to p4d); SELECT * on those tables raises
   "Unrecognized 4D type: 0". Use get_queryable_columns() to filter them out.
-- PKs are REAL (float) with a .99 suffix — returned as float, preserved as-is.
+- PKs are REAL (float) with a .99 suffix — returned as Python float.
+  WARNING: floats must be converted to decimal.Decimal before inserting into
+  the NUMERIC pk columns in PostgreSQL to avoid precision loss (e.g. 10028816.641
+  stored as a float may round incorrectly).  Sync modules are responsible for
+  this conversion.
 - None values are passed through unchanged.
 """
 from __future__ import annotations

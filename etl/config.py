@@ -1,6 +1,7 @@
 """ETL configuration — loaded from environment variables via python-dotenv."""
 import os
 from dataclasses import dataclass, field
+from urllib.parse import quote_plus
 
 from dotenv import load_dotenv
 
@@ -48,9 +49,12 @@ def _get_postgres_dsn() -> str:
     port = os.environ.get("POSTGRES_PORT", "5432")
 
     if user and db:
+        # URL-encode user/password to handle reserved characters (@, :, /, etc.).
+        encoded_user = quote_plus(user)
         if password:
-            return f"postgresql://{user}:{password}@{host}:{port}/{db}"
-        return f"postgresql://{user}@{host}:{port}/{db}"
+            encoded_password = quote_plus(password)
+            return f"postgresql://{encoded_user}:{encoded_password}@{host}:{port}/{db}"
+        return f"postgresql://{encoded_user}@{host}:{port}/{db}"
 
     return ""
 
