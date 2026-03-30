@@ -147,12 +147,13 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
             execute_values(
                 cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows]
             )
-            affected = cur.rowcount
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    return affected
+    # Return len(rows) rather than cur.rowcount — execute_values paginates by
+    # page_size (default 100) and rowcount only reflects the last page.
+    return len(rows)
 
 
 def bulk_insert(conn, table: str, rows: list[dict]) -> int:
@@ -178,12 +179,12 @@ def bulk_insert(conn, table: str, rows: list[dict]) -> int:
             execute_values(
                 cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows]
             )
-            affected = cur.rowcount
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    return affected
+    # Return len(rows) — execute_values paginates and rowcount reflects last page only.
+    return len(rows)
 
 
 def truncate_and_insert(
@@ -239,12 +240,12 @@ def truncate_and_insert(
                 insert_stmt.as_string(cur),
                 [tuple(row[c] for c in columns) for row in rows],
             )
-            affected = cur.rowcount
         conn.commit()
     except Exception:
         conn.rollback()
         raise
-    return affected
+    # Return len(rows) — execute_values paginates and rowcount reflects last page only.
+    return len(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -304,9 +305,11 @@ def set_watermark(
 
     Commits on success; rolls back and re-raises on failure.
     """
-    if last_sync_at.tzinfo is None:
+    # A datetime is "naive" if tzinfo is None OR if utcoffset() returns None
+    # (some tzinfo subclasses can be set but still return None for utcoffset).
+    if last_sync_at.tzinfo is None or last_sync_at.utcoffset() is None:
         raise ValueError(
-            "set_watermark: last_sync_at must be a timezone-aware datetime. "
+            "set_watermark: last_sync_at must be a fully timezone-aware datetime. "
             "Use datetime(..., tzinfo=timezone.utc) or .replace(tzinfo=timezone.utc)."
         )
     # Normalize to UTC before writing so the stored value is unambiguous.
