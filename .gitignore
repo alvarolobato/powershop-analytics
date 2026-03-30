@@ -10,6 +10,10 @@ build/
 # Local credentials (never commit)
 local/
 
+# Environment files (contain secrets — .env.example is committed, .env is not)
+.env
+.env.local
+
 # IDE
 .idea/
 .vscode/
