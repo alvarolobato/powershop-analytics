@@ -13,7 +13,7 @@ def _postgres_available() -> bool:
     Misconfigured variables (e.g., invalid P4D_PORT) are allowed to fail the
     test rather than silently skip it.
 
-    Aligns with Config._get_postgres_dsn():
+    Aligns with etl.config._get_postgres_dsn() DSN resolution rules:
     - POSTGRES_DSN takes precedence.
     - Otherwise, POSTGRES_USER + POSTGRES_DB are the minimum required (password
       may be empty for local/passwordless auth).
