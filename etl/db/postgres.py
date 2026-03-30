@@ -10,15 +10,12 @@ surrounding operation that owns the commit/rollback.
 """
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from etl.config import Config
-
-logger = logging.getLogger(__name__)
 
 # Single source of truth for the etl_watermarks DDL: loaded from init.sql so
 # the in-memory definition never drifts from the file applied to the database.

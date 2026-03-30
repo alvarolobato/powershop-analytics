@@ -3,5 +3,4 @@ p4d
 # If deploying with a system libpq (e.g., for security patching), replace with
 # psycopg2 and install libpq-dev before building.
 psycopg2-binary
-schedule
 python-dotenv

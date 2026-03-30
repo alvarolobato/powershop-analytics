@@ -31,8 +31,9 @@ def _get_postgres_dsn() -> str:
 
     Precedence:
     1. POSTGRES_DSN — explicit full DSN (recommended for Docker deployments).
-    2. Assembled from POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB + optional
-       POSTGRES_HOST (default "localhost") / POSTGRES_PORT (default "5432").
+    2. Assembled from POSTGRES_USER + POSTGRES_DB (required) + optionally
+       POSTGRES_PASSWORD (empty means passwordless/local auth), POSTGRES_HOST
+       (default "localhost"), and POSTGRES_PORT (default "5432").
        This matches the split variables documented in .env.example so new users
        do not need to manually construct a DSN string.
 
@@ -78,6 +79,7 @@ class Config:
                 "PostgreSQL DSN is required but could not be determined. "
                 "Set POSTGRES_DSN to a full connection string (e.g. "
                 "'postgresql://user:password@host:5432/dbname'), "
-                "or set POSTGRES_USER + POSTGRES_PASSWORD + POSTGRES_DB "
-                "(matching the variables in .env.example)."
+                "or set POSTGRES_USER + POSTGRES_DB "
+                "(and optionally POSTGRES_PASSWORD for non-passwordless auth) "
+                "matching the variables in .env.example."
             )
