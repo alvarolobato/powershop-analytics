@@ -283,6 +283,13 @@ git worktree remove ../<repo>-<worktree-name>
 - Address all feedback, reply to each comment, then re-request review.
 - Only merge after Copilot has reviewed and there is no unresolved feedback.
 
-### Phase labels
+### Phase labels and execution order
 
-Issues are labelled by phase: `phase-1`, `phase-2`, ..., `phase-6`. Do not start a phase until the previous phase's issues are all merged.
+Issues are labelled by phase: `phase-1`, `phase-2`, ..., `phase-6`.
+
+**Execution rules for unattended agents:**
+- Phase 1 is sequential: P1-A then P1-B.
+- Phases 2+3 sync issues are independent of each other — run in batches of 2-3 after P1-B merges. Each sync issue only creates `etl/sync/<module>.py` + tests. **None touch `etl/main.py`** — P4 owns that file.
+- Phase 4 (scheduler) wires all sync modules into `main.py` and runs the first full data load. Requires all sync PRs merged.
+- Phase 5 (WrenAI MDL) requires P4 complete (data must be in PostgreSQL).
+- Phase 6 (docs) requires P5 complete.
