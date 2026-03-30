@@ -1,21 +1,27 @@
 """Pytest fixtures for ETL tests."""
+import os
+
 import pytest
 
 from etl.config import Config
 
 
 def _postgres_available() -> bool:
-    """Return True if a valid PostgreSQL configuration can be constructed.
+    """Return True if PostgreSQL appears to be configured in the environment.
 
-    Reuses the same DSN resolution/validation logic as Config so tests run
-    whenever a valid config exists — whether via POSTGRES_DSN or the split
-    POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB variables.
+    Tests are skipped only when no PostgreSQL configuration is present.
+    Misconfigurations (e.g., invalid P4D_PORT) are allowed to surface as test
+    failures so they are not silently swallowed by a broad except-ValueError.
     """
-    try:
-        Config()
-    except ValueError:
-        return False
-    return True
+    # Prefer a single explicit DSN.
+    if os.environ.get("POSTGRES_DSN", "").strip():
+        return True
+
+    # Fall back to split connection variables (matches .env.example pattern).
+    user = os.environ.get("POSTGRES_USER", "")
+    password = os.environ.get("POSTGRES_PASSWORD", "")
+    db = os.environ.get("POSTGRES_DB", "")
+    return bool(user and password and db)
 
 
 @pytest.fixture
