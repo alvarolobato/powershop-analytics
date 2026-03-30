@@ -1,6 +1,11 @@
 """Integration tests for PostgreSQL helpers.
 
-All tests require POSTGRES_DSN to be set and skip gracefully when it is not.
+Tests use the pg_conn fixture for database connectivity. They require either:
+- POSTGRES_DSN to be set, or
+- POSTGRES_USER + POSTGRES_DB (+ optionally POSTGRES_PASSWORD, POSTGRES_HOST,
+  POSTGRES_PORT) matching the split variables in .env.example.
+Tests skip gracefully when no supported configuration is available.
+
 Most tests create TEMPORARY tables via the pg_conn fixture to avoid polluting
 the real schema; these tables are cleaned up automatically when the test
 connection closes, even on test failures.

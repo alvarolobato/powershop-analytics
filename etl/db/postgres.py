@@ -28,7 +28,9 @@ _SCHEMA_SQL_PATH = Path(__file__).parent.parent / "schema" / "init.sql"
 def _load_watermarks_ddl() -> str:
     """Extract the CREATE TABLE IF NOT EXISTS etl_watermarks statement from init.sql.
 
-    Result is cached at module level so repeated watermark calls do not hit disk.
+    This helper only reads and parses the file.
+    Caching is handled by _get_watermarks_ddl() so repeated watermark calls
+    do not hit disk.
     """
     sql = _SCHEMA_SQL_PATH.read_text(encoding="utf-8")
     start = sql.find("CREATE TABLE IF NOT EXISTS etl_watermarks")
