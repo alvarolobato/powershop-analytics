@@ -16,9 +16,13 @@ from etl.db import postgres
 # ---------------------------------------------------------------------------
 
 def _create_temp_table(conn, table: str, col_defs: str) -> None:
-    """Create a session-scoped temporary table, replacing any existing one."""
+    """Create a session-scoped temporary table, replacing any existing one.
+
+    Qualifies the DROP with pg_temp to avoid accidentally dropping a permanent
+    table that happens to share the same name in a shared dev database.
+    """
     with conn.cursor() as cur:
-        cur.execute(f"DROP TABLE IF EXISTS {table}")
+        cur.execute(f"DROP TABLE IF EXISTS pg_temp.{table}")
         cur.execute(f"CREATE TEMP TABLE {table} ({col_defs})")
     conn.commit()
 

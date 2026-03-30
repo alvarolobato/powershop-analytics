@@ -1,4 +1,13 @@
-"""PostgreSQL connection and DML helpers for the ETL pipeline."""
+"""PostgreSQL connection and DML helpers for the ETL pipeline.
+
+Transaction policy
+------------------
+All DML helpers (upsert, bulk_insert, truncate_and_insert) commit after their
+batch so callers do not need to.  Watermark helpers (get_watermark,
+set_watermark) also commit so they can be used independently of ongoing ETL
+transactions.  _ensure_watermarks_table() does NOT commit on its own — it is
+always called from within get_watermark / set_watermark which handle the commit.
+"""
 from __future__ import annotations
 
 import logging
@@ -23,50 +32,6 @@ def get_connection(config: "Config"):
     conn = psycopg2.connect(config.postgres_dsn)
     conn.autocommit = False
     return conn
-
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _build_insert_sql(table: str, columns: list[str], pk_cols: list[str] | None = None) -> str:
-    """Build a parameterised INSERT (with optional ON CONFLICT clause).
-
-    Table and column identifiers are quoted with psycopg2.sql.Identifier to
-    prevent SQL injection and handle reserved-word collisions.
-    """
-    from psycopg2 import sql  # type: ignore[import-untyped]
-
-    col_ids = [sql.Identifier(c) for c in columns]
-    tbl_id = sql.Identifier(table)
-
-    if pk_cols is None:
-        # Plain INSERT
-        stmt = sql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s").format(
-            tbl=tbl_id,
-            cols=sql.SQL(", ").join(col_ids),
-        )
-    else:
-        update_cols = [c for c in columns if c not in pk_cols]
-        conflict_target = sql.SQL(", ").join(sql.Identifier(c) for c in pk_cols)
-        if update_cols:
-            set_clause = sql.SQL(", ").join(
-                sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(c))
-                for c in update_cols
-            )
-            on_conflict = sql.SQL("ON CONFLICT ({target}) DO UPDATE SET {sets}").format(
-                target=conflict_target, sets=set_clause
-            )
-        else:
-            on_conflict = sql.SQL("ON CONFLICT ({target}) DO NOTHING").format(
-                target=conflict_target
-            )
-        stmt = sql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s {on_conflict}").format(
-            tbl=tbl_id,
-            cols=sql.SQL(", ").join(col_ids),
-            on_conflict=on_conflict,
-        )
-    return stmt.as_string  # type: ignore[return-value]  # resolved at call site
 
 
 # ---------------------------------------------------------------------------
@@ -205,16 +170,18 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
 def _ensure_watermarks_table(conn) -> None:
     """Create the etl_watermarks table if it does not exist.
 
-    Does NOT commit — callers control transaction boundaries.
-    DDL is transactional in PostgreSQL so this is safe to include in a
-    surrounding transaction.
+    Does NOT commit.  Callers (get_watermark / set_watermark) issue the commit
+    after their own DML so all DDL + DML land in one transaction.
     """
     with conn.cursor() as cur:
         cur.execute(_ENSURE_WATERMARKS_SQL)
 
 
 def get_watermark(conn, table_name: str) -> datetime | None:
-    """Return the last_sync_at timestamp for *table_name*, or None if not set."""
+    """Return the last_sync_at timestamp for *table_name*, or None if not set.
+
+    Commits after the read so the connection stays in a clean state.
+    """
     _ensure_watermarks_table(conn)
     with conn.cursor() as cur:
         cur.execute(
@@ -234,7 +201,7 @@ def set_watermark(
     status: str = "ok",
     error_msg: str | None = None,
 ) -> None:
-    """Upsert the watermark record for *table_name*."""
+    """Upsert the watermark record for *table_name* and commit."""
     _ensure_watermarks_table(conn)
     with conn.cursor() as cur:
         cur.execute(
