@@ -109,37 +109,36 @@ class TestWatermark:
     def test_watermark(self, pg_conn):
         """Set a watermark, get it back, verify the value matches."""
         conn = pg_conn
-        # Drive table creation through the public API (avoids calling private helpers).
-        # get_watermark creates the table if it does not exist and returns None.
+
+        def _cleanup() -> None:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM etl_watermarks WHERE table_name = %s",
+                    (self.TABLE_NAME,),
+                )
+            conn.commit()
+
+        # Drive table creation through the public API (creates table if missing).
         _ = postgres.get_watermark(conn, self.TABLE_NAME)
 
-        # Clean up any leftover entry
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM etl_watermarks WHERE table_name = %s",
-                (self.TABLE_NAME,),
-            )
-        conn.commit()
+        # Clean up any leftover entry before assertions
+        _cleanup()
 
-        # Should be None before setting
-        wm = postgres.get_watermark(conn, self.TABLE_NAME)
-        assert wm is None
+        try:
+            # Should be None before setting
+            wm = postgres.get_watermark(conn, self.TABLE_NAME)
+            assert wm is None
 
-        ts = datetime(2026, 1, 15, 3, 0, 0, tzinfo=timezone.utc)
-        postgres.set_watermark(conn, self.TABLE_NAME, ts, rows_synced=42)
+            ts = datetime(2026, 1, 15, 3, 0, 0, tzinfo=timezone.utc)
+            postgres.set_watermark(conn, self.TABLE_NAME, ts, rows_synced=42)
 
-        wm = postgres.get_watermark(conn, self.TABLE_NAME)
-        assert wm is not None
-        # Compare as naive UTC if tz info differs between drivers
-        assert wm.replace(tzinfo=None) == ts.replace(tzinfo=None)
-
-        # Clean up
-        with conn.cursor() as cur:
-            cur.execute(
-                "DELETE FROM etl_watermarks WHERE table_name = %s",
-                (self.TABLE_NAME,),
-            )
-        conn.commit()
+            wm = postgres.get_watermark(conn, self.TABLE_NAME)
+            assert wm is not None
+            # Normalize both to UTC to avoid mismatches from PostgreSQL session TZ.
+            assert wm.astimezone(timezone.utc) == ts.astimezone(timezone.utc)
+        finally:
+            # Always clean up, even if assertions fail
+            _cleanup()
 
 
 class TestBulkInsert:

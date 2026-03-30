@@ -26,9 +26,11 @@ _SCHEMA_SQL_PATH = Path(__file__).parent.parent / "schema" / "init.sql"
 
 
 def _load_watermarks_ddl() -> str:
-    """Extract the CREATE TABLE IF NOT EXISTS etl_watermarks statement from init.sql."""
+    """Extract the CREATE TABLE IF NOT EXISTS etl_watermarks statement from init.sql.
+
+    Result is cached at module level so repeated watermark calls do not hit disk.
+    """
     sql = _SCHEMA_SQL_PATH.read_text()
-    # Find the block that starts with "CREATE TABLE IF NOT EXISTS etl_watermarks"
     start = sql.find("CREATE TABLE IF NOT EXISTS etl_watermarks")
     if start == -1:
         raise RuntimeError(
@@ -39,9 +41,17 @@ def _load_watermarks_ddl() -> str:
     return sql[start:end]
 
 
+# Cache the DDL string at import time so watermark operations don't re-read disk.
+_WATERMARKS_DDL: str = _load_watermarks_ddl()
+
+
 def _validate_rows(rows: list[dict], operation: str) -> list[str]:
-    """Return the column list; raise ValueError if rows have inconsistent keys."""
+    """Return the column list; raise ValueError if rows have inconsistent or empty keys."""
     columns = list(rows[0].keys())
+    if not columns:
+        raise ValueError(
+            f"{operation}: row dicts must not be empty — at least one column is required."
+        )
     expected = set(columns)
     for idx, row in enumerate(rows[1:], start=1):
         if set(row.keys()) != expected:
@@ -213,12 +223,12 @@ def truncate_and_insert(conn, table: str, rows: list[dict]) -> int:
 def _ensure_watermarks_table(conn) -> None:
     """Create the etl_watermarks table if it does not exist.
 
-    DDL is loaded from etl/schema/init.sql (single source of truth).
+    DDL is sourced from etl/schema/init.sql (single source of truth) and cached
+    at module import time (_WATERMARKS_DDL) so no file I/O occurs at runtime.
     Does NOT commit — callers own the transaction boundary.
     """
-    ddl = _load_watermarks_ddl()
     with conn.cursor() as cur:
-        cur.execute(ddl)
+        cur.execute(_WATERMARKS_DDL)
 
 
 def get_watermark(conn, table_name: str) -> datetime | None:
