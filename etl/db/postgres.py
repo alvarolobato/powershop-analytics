@@ -37,8 +37,13 @@ def _load_watermarks_ddl() -> str:
             f"etl_watermarks DDL not found in {_SCHEMA_SQL_PATH}. "
             "Ensure etl/schema/init.sql contains that CREATE TABLE statement."
         )
-    end = sql.find(";", start) + 1
-    return sql[start:end]
+    end_idx = sql.find(";", start)
+    if end_idx == -1:
+        raise RuntimeError(
+            f"etl_watermarks DDL in {_SCHEMA_SQL_PATH} is not terminated with a ';'. "
+            "Ensure the CREATE TABLE statement for etl_watermarks ends with a semicolon."
+        )
+    return sql[start : end_idx + 1]
 
 
 # Lazily cached DDL string — populated on first use by _ensure_watermarks_table().
@@ -253,8 +258,9 @@ def _ensure_watermarks_table(conn) -> None:
     after first successful load so repeated calls do not hit disk.
     Does NOT commit — callers own the transaction boundary.
 
-    Raises FileNotFoundError with a descriptive message if init.sql is not found
-    (e.g., when running in a Docker image that was not built from the repo root).
+    If etl/schema/init.sql is missing or the etl_watermarks statement is absent,
+    a RuntimeError is raised from _load_watermarks_ddl() with context about what
+    is wrong and how to fix it (e.g., missing file in a Docker image).
     """
     with conn.cursor() as cur:
         cur.execute(_get_watermarks_ddl())

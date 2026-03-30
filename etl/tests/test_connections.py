@@ -70,8 +70,14 @@ class TestUpsert:
         updated = [{"id": 2, "name": "beta_updated", "value": 99}]
         postgres.upsert(conn, self.TABLE, updated, pk_cols=["id"])
 
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
         with conn.cursor() as cur:
-            cur.execute(f"SELECT id, name, value FROM {self.TABLE} ORDER BY id")
+            cur.execute(
+                pgsql.SQL("SELECT id, name, value FROM {tbl} ORDER BY id").format(
+                    tbl=pgsql.Identifier(self.TABLE)
+                )
+            )
             result = cur.fetchall()
 
         assert len(result) == 3
@@ -97,8 +103,14 @@ class TestTruncateAndInsert:
         count = postgres.truncate_and_insert(conn, self.TABLE, rows2)
 
         assert count == 2
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
         with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM {self.TABLE}")
+            cur.execute(
+                pgsql.SQL("SELECT COUNT(*) FROM {tbl}").format(
+                    tbl=pgsql.Identifier(self.TABLE)
+                )
+            )
             (n,) = cur.fetchone()
         assert n == 2
 
@@ -157,7 +169,13 @@ class TestBulkInsert:
         count = postgres.bulk_insert(conn, self.TABLE, rows)
         assert count == 3
 
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
         with conn.cursor() as cur:
-            cur.execute(f"SELECT COUNT(*) FROM {self.TABLE}")
+            cur.execute(
+                pgsql.SQL("SELECT COUNT(*) FROM {tbl}").format(
+                    tbl=pgsql.Identifier(self.TABLE)
+                )
+            )
             (n,) = cur.fetchone()
         assert n == 3
