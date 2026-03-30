@@ -210,3 +210,79 @@ This project supports **Claude Code** and other AI assistants. All follow the sa
 ## GitHub access
 
 Use the [GitHub CLI](https://cli.github.com/) (`gh`) for all GitHub operations.
+
+---
+
+## Issue and PR format
+
+All GitHub issues in this project follow a single standard format. When creating issues, always use this template exactly.
+
+### Issue template
+
+```markdown
+# <Feature name>
+
+## Context
+- **Problem**: <what's wrong / missing; why it matters>
+- **Worktree**: <required: git worktree name for isolated execution, e.g. `wren-p1-compose`>
+- **Scope**: <what is in / out of scope>
+- **Constraints**: <perf, compatibility, no-breaking-changes, deps, etc.>
+- **Repo touchpoints**: <files/dirs likely involved, commands, datasets impacted>
+- **Definition of done**: <e.g., builds + tests pass; feature-specific checks>
+- **How is it going to be tested**: <testing strategy and specific test cases>
+
+## Tasks
+- [ ] 1) <task title> (owner: agent)
+  - **Change**: <precise behavior or code change>
+  - **Files**: <exact file paths>
+  - **Acceptance**: <how to verify; exact commands and expected output>
+  - **Spec update**: mark done + update remaining tasks/context as needed
+
+- [ ] 2) ... (owner: agent)
+
+- [ ] N-1) Run all checks and fix issues (owner: agent)
+  - **Change**: Run all tests, linting, type-checking, and formatting; fix any failures
+  - **Files**: any files with issues
+  - **Acceptance**: `docker compose run --rm etl python -m pytest && python -m ruff check etl/ && python -m mypy etl/`
+  - **Spec update**: mark done
+
+- [ ] N-1b) Review cycle (owner: agent)
+  - **Change**: Request Copilot review, address all feedback, re-request until no new feedback
+  - **How**: `gh pr create` then `gh pr review --request copilot`. Poll every 5 minutes: `gh pr reviews <PR#> --json state,author` until Copilot has reviewed. Address all comments with inline replies. Re-request after each round.
+  - **Acceptance**: Copilot review shows no unresolved comments
+  - **Spec update**: mark done
+
+- [ ] N) Create commit (owner: agent)
+  - **Change**: Stage all changes and create a descriptive commit
+  - **Files**: none (git operation)
+  - **Acceptance**: `git status` shows clean working tree; `git log -1` shows the new commit
+  - **Spec update**: mark done
+
+## Additional Context
+<append-only notes: discoveries, links, decisions, gotchas found during execution>
+```
+
+### Worktree workflow
+
+Each issue specifies a **worktree name**. Before starting work:
+```bash
+git worktree add ../<repo>-<worktree-name> -b <worktree-name>
+cd ../<repo>-<worktree-name>
+```
+Work in the worktree. When done, PR is merged and worktree is removed:
+```bash
+git worktree remove ../<repo>-<worktree-name>
+```
+
+### PR and review policy
+
+- Every piece of work goes through a PR, even solo work.
+- **Always request a Copilot review** on every PR: `gh pr review --request copilot`
+- If Copilot is not available via the UI, it IS available through the gh CLI — always try.
+- Poll for the review result every 5 minutes: `gh pr reviews <PR#> --json state,author,body`
+- Address all feedback, reply to each comment, then re-request review.
+- Only merge after Copilot has reviewed and there is no unresolved feedback.
+
+### Phase labels
+
+Issues are labelled by phase: `phase-1`, `phase-2`, ..., `phase-6`. Do not start a phase until the previous phase's issues are all merged.
