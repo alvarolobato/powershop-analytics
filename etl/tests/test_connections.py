@@ -1,9 +1,11 @@
 """Integration tests for PostgreSQL helpers.
 
 All tests require POSTGRES_DSN to be set and skip gracefully when it is not.
-Tests use session-scoped TEMPORARY tables to avoid polluting the real schema.
-Temporary tables are cleaned up automatically when the test connection closes,
-even on test failures.
+Most tests create TEMPORARY tables via the pg_conn fixture to avoid polluting
+the real schema; these tables are cleaned up automatically when the test
+connection closes, even on test failures.
+The watermark test intentionally operates on the real etl_watermarks table to
+exercise end-to-end behavior and cleans up after itself.
 """
 from __future__ import annotations
 
@@ -107,9 +109,9 @@ class TestWatermark:
     def test_watermark(self, pg_conn):
         """Set a watermark, get it back, verify the value matches."""
         conn = pg_conn
-        # Ensure the watermarks table exists before attempting a DELETE
-        postgres._ensure_watermarks_table(conn)
-        conn.commit()
+        # Drive table creation through the public API (avoids calling private helpers).
+        # get_watermark creates the table if it does not exist and returns None.
+        _ = postgres.get_watermark(conn, self.TABLE_NAME)
 
         # Clean up any leftover entry
         with conn.cursor() as cur:

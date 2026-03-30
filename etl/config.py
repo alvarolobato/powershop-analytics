@@ -38,6 +38,9 @@ class Config:
     )
 
     def __post_init__(self) -> None:
+        # Strip whitespace before validating — a whitespace-only value is treated
+        # as unset and produces a clear error rather than a confusing connection failure.
+        self.postgres_dsn = self.postgres_dsn.strip()
         if not self.postgres_dsn:
             raise ValueError(
                 "POSTGRES_DSN environment variable is required but not set. "

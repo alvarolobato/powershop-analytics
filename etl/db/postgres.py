@@ -87,6 +87,11 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
     columns = _validate_rows(rows, "upsert")
+    missing_pks = [c for c in pk_cols if c not in columns]
+    if missing_pks:
+        raise ValueError(
+            f"upsert: pk_cols {missing_pks} not found in row keys {columns}."
+        )
     update_cols = [c for c in columns if c not in pk_cols]
     conflict_target = pgsql.SQL(", ").join(pgsql.Identifier(c) for c in pk_cols)
     col_ids = [pgsql.Identifier(c) for c in columns]

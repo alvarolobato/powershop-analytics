@@ -7,7 +7,8 @@ from etl.config import Config
 
 
 def _postgres_available() -> bool:
-    return bool(os.environ.get("POSTGRES_DSN"))
+    dsn = os.environ.get("POSTGRES_DSN")
+    return bool(dsn and dsn.strip())
 
 
 @pytest.fixture
