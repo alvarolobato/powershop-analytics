@@ -274,10 +274,14 @@ def _ensure_watermarks_table(conn) -> None:
 def get_watermark(conn, table_name: str) -> datetime | None:
     """Return the last_sync_at timestamp for *table_name*, or None if not set.
 
-    The DDL ensure step may modify the schema (CREATE TABLE IF NOT EXISTS).
-    The SELECT itself does not commit — callers control transaction boundaries.
-    On DDL or SELECT failure the transaction is rolled back and the exception
-    is re-raised.
+    Commits on success (matching the module-level transaction policy for all
+    watermark helpers).  This makes the DDL ensure step durable and keeps the
+    connection in a clean state.  On failure, the transaction is rolled back
+    and the exception is re-raised.
+
+    Note: because this helper commits, do not call it inside a broader
+    transaction that must remain open.  Use a dedicated connection if you need
+    to combine a watermark read with other work in the same transaction.
     """
     try:
         _ensure_watermarks_table(conn)

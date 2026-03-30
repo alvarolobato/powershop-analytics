@@ -93,6 +93,7 @@ class TestUpsert:
 
 class TestTruncateAndInsert:
     TABLE = "etl_test_truncate"
+    TABLE_IDENTITY = "etl_test_truncate_identity"
 
     def test_truncate_and_insert(self, pg_conn):
         """Insert 3 rows, then truncate+insert 2, verify only 2 remain."""
@@ -120,6 +121,68 @@ class TestTruncateAndInsert:
             )
             (n,) = cur.fetchone()
         assert n == 2
+
+    def test_truncate_empty_rows(self, pg_conn):
+        """truncate_and_insert with empty rows truncates the table and returns 0."""
+        conn = pg_conn
+        _create_temp_table(conn, self.TABLE, "id INTEGER PRIMARY KEY, val TEXT")
+
+        # Seed 2 rows, then truncate to empty
+        rows = [{"id": i, "val": f"v{i}"} for i in range(1, 3)]
+        postgres.truncate_and_insert(conn, self.TABLE, rows)
+        count = postgres.truncate_and_insert(conn, self.TABLE, [])
+
+        assert count == 0
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+        with conn.cursor() as cur:
+            cur.execute(
+                pgsql.SQL("SELECT COUNT(*) FROM {tbl}").format(
+                    tbl=pgsql.Identifier(self.TABLE)
+                )
+            )
+            (n,) = cur.fetchone()
+        assert n == 0
+
+    def test_restart_identity(self, pg_conn):
+        """truncate_and_insert with restart_identity=True resets the identity sequence."""
+        conn = pg_conn
+        # TEMP tables with GENERATED ALWAYS AS IDENTITY require a real table in postgres
+        # — use a regular table and clean up in finally.
+        table = self.TABLE_IDENTITY
+        with conn.cursor() as cur:
+            cur.execute(f"DROP TABLE IF EXISTS {table}")
+            cur.execute(
+                f"CREATE TABLE {table} ("
+                "id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, val TEXT)"
+            )
+        conn.commit()
+        try:
+            rows1 = [{"val": "a"}, {"val": "b"}]
+            postgres.bulk_insert(conn, table, rows1)
+
+            # Truncate + restart identity, then insert 1 row
+            postgres.truncate_and_insert(
+                conn, table, [{"val": "c"}], restart_identity=True
+            )
+
+            from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+            with conn.cursor() as cur:
+                cur.execute(
+                    pgsql.SQL("SELECT id, val FROM {tbl}").format(
+                        tbl=pgsql.Identifier(table)
+                    )
+                )
+                result = cur.fetchall()
+
+            assert len(result) == 1
+            # After RESTART IDENTITY the first id should be 1 (not 3)
+            assert result[0][0] == 1
+        finally:
+            with conn.cursor() as cur:
+                cur.execute(f"DROP TABLE IF EXISTS {table}")
+            conn.commit()
 
 
 class TestWatermark:
