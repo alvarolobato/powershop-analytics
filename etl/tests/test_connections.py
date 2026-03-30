@@ -1,8 +1,9 @@
 """Integration tests for PostgreSQL helpers.
 
 All tests require POSTGRES_DSN to be set and skip gracefully when it is not.
-Tests use TEMPORARY tables (ON COMMIT DROP) to avoid polluting the real schema
-and to ensure automatic cleanup even on test failures.
+Tests use session-scoped TEMPORARY tables to avoid polluting the real schema.
+Temporary tables are cleaned up automatically when the test connection closes,
+even on test failures.
 """
 from __future__ import annotations
 
@@ -18,12 +19,24 @@ from etl.db import postgres
 def _create_temp_table(conn, table: str, col_defs: str) -> None:
     """Create a session-scoped temporary table, replacing any existing one.
 
-    Qualifies the DROP with pg_temp to avoid accidentally dropping a permanent
-    table that happens to share the same name in a shared dev database.
+    The DROP is qualified with pg_temp to avoid accidentally dropping a
+    permanent table that happens to share the same name.
+    The table name is quoted via psycopg2.sql.Identifier to handle edge cases.
     """
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+    tbl_id = pgsql.Identifier(table)
     with conn.cursor() as cur:
-        cur.execute(f"DROP TABLE IF EXISTS pg_temp.{table}")
-        cur.execute(f"CREATE TEMP TABLE {table} ({col_defs})")
+        cur.execute(
+            pgsql.SQL("DROP TABLE IF EXISTS pg_temp.{tbl}").format(tbl=tbl_id)
+        )
+        # col_defs is a literal string written in this test module — safe to interpolate.
+        cur.execute(
+            pgsql.SQL("CREATE TEMP TABLE {tbl} ({col_defs})").format(
+                tbl=tbl_id,
+                col_defs=pgsql.SQL(col_defs),
+            )
+        )
     conn.commit()
 
 
