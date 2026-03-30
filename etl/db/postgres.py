@@ -111,6 +111,8 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
+    if not pk_cols:
+        raise ValueError("upsert: pk_cols must not be empty.")
     columns = _validate_rows(rows, "upsert")
     missing_pks = [c for c in pk_cols if c not in columns]
     if missing_pks:
@@ -296,8 +298,23 @@ def set_watermark(
 ) -> None:
     """Upsert the watermark record for *table_name*.
 
+    *last_sync_at* must be timezone-aware.  Naive datetimes would be interpreted
+    by PostgreSQL's TIMESTAMPTZ column using the session time zone, which can
+    silently shift the watermark and break delta-sync logic.  A ValueError is
+    raised to make the contract explicit.
+
     Commits on success; rolls back and re-raises on failure.
     """
+    if last_sync_at.tzinfo is None:
+        raise ValueError(
+            "set_watermark: last_sync_at must be a timezone-aware datetime. "
+            "Use datetime(..., tzinfo=timezone.utc) or .replace(tzinfo=timezone.utc)."
+        )
+    # Normalize to UTC before writing so the stored value is unambiguous.
+    from datetime import timezone as _tz
+
+    last_sync_at = last_sync_at.astimezone(_tz.utc)
+
     try:
         _ensure_watermarks_table(conn)
         with conn.cursor() as cur:

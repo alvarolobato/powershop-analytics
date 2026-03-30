@@ -1,7 +1,7 @@
 """ETL configuration — loaded from environment variables via python-dotenv."""
 import os
 from dataclasses import dataclass, field
-from urllib.parse import quote_plus
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 
@@ -49,10 +49,12 @@ def _get_postgres_dsn() -> str:
     port = os.environ.get("POSTGRES_PORT", "5432")
 
     if user and db:
-        # URL-encode user/password to handle reserved characters (@, :, /, etc.).
-        encoded_user = quote_plus(user)
+        # Use quote(safe="") for URL userinfo component encoding.
+        # quote_plus() is NOT used — it encodes spaces as '+', which is only
+        # correct in query strings, not in URL authority sections.
+        encoded_user = quote(user, safe="")
         if password:
-            encoded_password = quote_plus(password)
+            encoded_password = quote(password, safe="")
             return f"postgresql://{encoded_user}:{encoded_password}@{host}:{port}/{db}"
         return f"postgresql://{encoded_user}@{host}:{port}/{db}"
 
