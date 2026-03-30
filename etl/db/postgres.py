@@ -41,8 +41,18 @@ def _load_watermarks_ddl() -> str:
     return sql[start:end]
 
 
-# Cache the DDL string at import time so watermark operations don't re-read disk.
-_WATERMARKS_DDL: str = _load_watermarks_ddl()
+# Lazily cached DDL string — populated on first use by _ensure_watermarks_table().
+# Loading lazily means a missing/unreadable schema file does not crash module
+# import and prevents all Postgres helpers from being unusable at startup.
+_WATERMARKS_DDL: str | None = None
+
+
+def _get_watermarks_ddl() -> str:
+    """Return the cached etl_watermarks DDL, loading it on first call."""
+    global _WATERMARKS_DDL
+    if _WATERMARKS_DDL is None:
+        _WATERMARKS_DDL = _load_watermarks_ddl()
+    return _WATERMARKS_DDL
 
 
 def _validate_rows(rows: list[dict], operation: str) -> list[str]:
@@ -170,21 +180,37 @@ def bulk_insert(conn, table: str, rows: list[dict]) -> int:
     return affected
 
 
-def truncate_and_insert(conn, table: str, rows: list[dict]) -> int:
+def truncate_and_insert(
+    conn,
+    table: str,
+    rows: list[dict],
+    *,
+    restart_identity: bool = False,
+) -> int:
     """TRUNCATE *table* then INSERT *rows* in a single transaction.
 
     Used for full-refresh tables (catalogs, small dimension tables).
+
+    Args:
+        restart_identity: If True, use TRUNCATE ... RESTART IDENTITY to reset
+            any GENERATED AS IDENTITY / SERIAL sequences.  Required for tables
+            like ps_facturas_compra that use a surrogate identity key.
+
     Commits on success; rolls back and re-raises on failure.
     Returns the number of rows inserted.
     """
     from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
 
     tbl_id = pgsql.Identifier(table)
+    restart_clause = pgsql.SQL(" RESTART IDENTITY") if restart_identity else pgsql.SQL("")
+    truncate_stmt = pgsql.SQL("TRUNCATE {tbl}{restart}").format(
+        tbl=tbl_id, restart=restart_clause
+    )
 
     if not rows:
         try:
             with conn.cursor() as cur:
-                cur.execute(pgsql.SQL("TRUNCATE {tbl}").format(tbl=tbl_id))
+                cur.execute(truncate_stmt)
             conn.commit()
         except Exception:
             conn.rollback()
@@ -201,7 +227,7 @@ def truncate_and_insert(conn, table: str, rows: list[dict]) -> int:
 
     try:
         with conn.cursor() as cur:
-            cur.execute(pgsql.SQL("TRUNCATE {tbl}").format(tbl=tbl_id))
+            cur.execute(truncate_stmt)
             execute_values(
                 cur,
                 insert_stmt.as_string(cur),
@@ -224,11 +250,14 @@ def _ensure_watermarks_table(conn) -> None:
     """Create the etl_watermarks table if it does not exist.
 
     DDL is sourced from etl/schema/init.sql (single source of truth) and cached
-    at module import time (_WATERMARKS_DDL) so no file I/O occurs at runtime.
+    after first successful load so repeated calls do not hit disk.
     Does NOT commit — callers own the transaction boundary.
+
+    Raises FileNotFoundError with a descriptive message if init.sql is not found
+    (e.g., when running in a Docker image that was not built from the repo root).
     """
     with conn.cursor() as cur:
-        cur.execute(_WATERMARKS_DDL)
+        cur.execute(_get_watermarks_ddl())
 
 
 def get_watermark(conn, table_name: str) -> datetime | None:

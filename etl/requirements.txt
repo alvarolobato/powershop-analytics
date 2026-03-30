@@ -2,5 +2,3 @@ p4d
 psycopg2-binary
 schedule
 python-dotenv
-ruff
-pytest
