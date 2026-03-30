@@ -102,7 +102,10 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     Table and column names are quoted via psycopg2.sql.Identifier.
     Commits on success; rolls back and re-raises on failure.
 
-    Returns the number of rows affected.
+    Returns the number of rows *attempted* (len(rows)).  This includes both
+    inserted and updated rows.  Rows that were skipped by DO NOTHING are still
+    counted.  If you need an exact inserted/updated count, use RETURNING 1 and
+    execute_values with fetch=True.
     """
     if not rows:
         return 0
@@ -271,7 +274,10 @@ def _ensure_watermarks_table(conn) -> None:
 def get_watermark(conn, table_name: str) -> datetime | None:
     """Return the last_sync_at timestamp for *table_name*, or None if not set.
 
-    Commits after the read so the connection stays in a clean state.
+    The DDL ensure step may modify the schema (CREATE TABLE IF NOT EXISTS).
+    The SELECT itself does not commit — callers control transaction boundaries.
+    On DDL or SELECT failure the transaction is rolled back and the exception
+    is re-raised.
     """
     try:
         _ensure_watermarks_table(conn)
@@ -281,6 +287,8 @@ def get_watermark(conn, table_name: str) -> datetime | None:
                 (table_name,),
             )
             row = cur.fetchone()
+        # Commit the DDL (IF NOT EXISTS is a no-op if the table already exists)
+        # so the table creation is durable before we return.
         conn.commit()
     except Exception:
         conn.rollback()

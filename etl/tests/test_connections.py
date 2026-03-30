@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from etl.db import postgres
 
 
@@ -184,3 +186,12 @@ class TestBulkInsert:
             )
             (n,) = cur.fetchone()
         assert n == 3
+
+
+class TestSetWatermarkNaiveDatetime:
+    def test_naive_datetime_raises(self, pg_conn):
+        """set_watermark must reject a naive datetime to prevent session-TZ ambiguity."""
+        conn = pg_conn
+        naive_ts = datetime(2026, 1, 15, 3, 0, 0)  # no tzinfo
+        with pytest.raises(ValueError, match="timezone-aware"):
+            postgres.set_watermark(conn, "_test_naive_ts", naive_ts, rows_synced=0)
