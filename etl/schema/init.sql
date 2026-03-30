@@ -363,7 +363,10 @@ CREATE TABLE IF NOT EXISTS ps_albaranes (
     modificada     DATE
 );
 
+-- ps_facturas_compra: no reg_* PK found in 4D; full-refresh only.
+-- A surrogate key is added for idempotent re-loads.
 CREATE TABLE IF NOT EXISTS ps_facturas_compra (
+    id             SERIAL  PRIMARY KEY,
     fecha_factura  DATE,
     fecha_valor    DATE
 );

@@ -26,6 +26,50 @@ def get_connection(config: "Config"):
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _build_insert_sql(table: str, columns: list[str], pk_cols: list[str] | None = None) -> str:
+    """Build a parameterised INSERT (with optional ON CONFLICT clause).
+
+    Table and column identifiers are quoted with psycopg2.sql.Identifier to
+    prevent SQL injection and handle reserved-word collisions.
+    """
+    from psycopg2 import sql  # type: ignore[import-untyped]
+
+    col_ids = [sql.Identifier(c) for c in columns]
+    tbl_id = sql.Identifier(table)
+
+    if pk_cols is None:
+        # Plain INSERT
+        stmt = sql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s").format(
+            tbl=tbl_id,
+            cols=sql.SQL(", ").join(col_ids),
+        )
+    else:
+        update_cols = [c for c in columns if c not in pk_cols]
+        conflict_target = sql.SQL(", ").join(sql.Identifier(c) for c in pk_cols)
+        if update_cols:
+            set_clause = sql.SQL(", ").join(
+                sql.SQL("{col} = EXCLUDED.{col}").format(col=sql.Identifier(c))
+                for c in update_cols
+            )
+            on_conflict = sql.SQL("ON CONFLICT ({target}) DO UPDATE SET {sets}").format(
+                target=conflict_target, sets=set_clause
+            )
+        else:
+            on_conflict = sql.SQL("ON CONFLICT ({target}) DO NOTHING").format(
+                target=conflict_target
+            )
+        stmt = sql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s {on_conflict}").format(
+            tbl=tbl_id,
+            cols=sql.SQL(", ").join(col_ids),
+            on_conflict=on_conflict,
+        )
+    return stmt.as_string  # type: ignore[return-value]  # resolved at call site
+
+
+# ---------------------------------------------------------------------------
 # DML helpers
 # ---------------------------------------------------------------------------
 
@@ -34,6 +78,7 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     """Batch-upsert *rows* into *table* using ON CONFLICT DO UPDATE.
 
     Uses psycopg2.extras.execute_values for efficiency.
+    Table and column names are quoted via psycopg2.sql.Identifier.
     Commits after the batch.
 
     Returns the number of rows affected.
@@ -41,24 +86,36 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     if not rows:
         return 0
 
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
     columns = list(rows[0].keys())
     update_cols = [c for c in columns if c not in pk_cols]
-    conflict_target = ", ".join(pk_cols)
+    conflict_target = pgsql.SQL(", ").join(pgsql.Identifier(c) for c in pk_cols)
+    col_ids = [pgsql.Identifier(c) for c in columns]
+    tbl_id = pgsql.Identifier(table)
 
     if update_cols:
-        update_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in update_cols)
-        on_conflict = f"ON CONFLICT ({conflict_target}) DO UPDATE SET {update_clause}"
+        set_clause = pgsql.SQL(", ").join(
+            pgsql.SQL("{col} = EXCLUDED.{col}").format(col=pgsql.Identifier(c))
+            for c in update_cols
+        )
+        on_conflict = pgsql.SQL("ON CONFLICT ({target}) DO UPDATE SET {sets}").format(
+            target=conflict_target, sets=set_clause
+        )
     else:
-        # All columns are part of the PK — nothing to update
-        on_conflict = f"ON CONFLICT ({conflict_target}) DO NOTHING"
+        on_conflict = pgsql.SQL("ON CONFLICT ({target}) DO NOTHING").format(
+            target=conflict_target
+        )
 
-    col_list = ", ".join(columns)
-    sql = f"INSERT INTO {table} ({col_list}) VALUES %s {on_conflict}"
+    stmt = pgsql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s {on_conflict}").format(
+        tbl=tbl_id,
+        cols=pgsql.SQL(", ").join(col_ids),
+        on_conflict=on_conflict,
+    )
 
     with conn.cursor() as cur:
-        execute_values(cur, sql, [tuple(row[c] for c in columns) for row in rows])
+        execute_values(cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows])
         affected = cur.rowcount
 
     conn.commit()
@@ -74,14 +131,17 @@ def bulk_insert(conn, table: str, rows: list[dict]) -> int:
     if not rows:
         return 0
 
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
     columns = list(rows[0].keys())
-    col_list = ", ".join(columns)
-    sql = f"INSERT INTO {table} ({col_list}) VALUES %s"
+    stmt = pgsql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s").format(
+        tbl=pgsql.Identifier(table),
+        cols=pgsql.SQL(", ").join(pgsql.Identifier(c) for c in columns),
+    )
 
     with conn.cursor() as cur:
-        execute_values(cur, sql, [tuple(row[c] for c in columns) for row in rows])
+        execute_values(cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows])
         affected = cur.rowcount
 
     conn.commit()
@@ -95,21 +155,31 @@ def truncate_and_insert(conn, table: str, rows: list[dict]) -> int:
     Commits after the operation.
     Returns the number of rows inserted.
     """
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+    tbl_id = pgsql.Identifier(table)
+
     if not rows:
         with conn.cursor() as cur:
-            cur.execute(f"TRUNCATE {table}")
+            cur.execute(pgsql.SQL("TRUNCATE {tbl}").format(tbl=tbl_id))
         conn.commit()
         return 0
 
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
     columns = list(rows[0].keys())
-    col_list = ", ".join(columns)
-    insert_sql = f"INSERT INTO {table} ({col_list}) VALUES %s"
+    insert_stmt = pgsql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s").format(
+        tbl=tbl_id,
+        cols=pgsql.SQL(", ").join(pgsql.Identifier(c) for c in columns),
+    )
 
     with conn.cursor() as cur:
-        cur.execute(f"TRUNCATE {table}")
-        execute_values(cur, insert_sql, [tuple(row[c] for c in columns) for row in rows])
+        cur.execute(pgsql.SQL("TRUNCATE {tbl}").format(tbl=tbl_id))
+        execute_values(
+            cur,
+            insert_stmt.as_string(cur),
+            [tuple(row[c] for c in columns) for row in rows],
+        )
         affected = cur.rowcount
 
     conn.commit()
@@ -133,9 +203,14 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
 
 
 def _ensure_watermarks_table(conn) -> None:
+    """Create the etl_watermarks table if it does not exist.
+
+    Does NOT commit — callers control transaction boundaries.
+    DDL is transactional in PostgreSQL so this is safe to include in a
+    surrounding transaction.
+    """
     with conn.cursor() as cur:
         cur.execute(_ENSURE_WATERMARKS_SQL)
-    conn.commit()
 
 
 def get_watermark(conn, table_name: str) -> datetime | None:
@@ -147,6 +222,7 @@ def get_watermark(conn, table_name: str) -> datetime | None:
             (table_name,),
         )
         row = cur.fetchone()
+    conn.commit()
     return row[0] if row else None
 
 

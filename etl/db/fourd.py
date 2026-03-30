@@ -10,10 +10,26 @@ Gotchas handled here:
 """
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from etl.config import Config
+
+# Allowlist pattern for 4D table/column names (letters, digits, underscores).
+# 4D table names in this project follow this pattern; reject anything that
+# does not match to prevent SQL injection via get_queryable_columns().
+_SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifier(name: str) -> str:
+    """Raise ValueError if *name* is not a safe SQL identifier."""
+    if not _SAFE_IDENTIFIER_RE.match(name):
+        raise ValueError(
+            f"Unsafe SQL identifier: {name!r}. "
+            "Only letters, digits, and underscores are allowed."
+        )
+    return name
 
 
 def get_connection(config: "Config"):  # type: ignore[return]
@@ -50,11 +66,15 @@ def safe_fetch(conn, sql: str) -> list[dict]:
     - Decodes bytes values to str.
     - None values are preserved.
     - Column names are normalised to lowercase (4D returns them uppercase).
+    - The cursor is always closed after fetching.
     """
     cursor = conn.cursor()
-    cursor.execute(sql)
-    columns = [desc[0].lower() for desc in cursor.description]
-    rows = cursor.fetchall()
+    try:
+        cursor.execute(sql)
+        columns = [desc[0].lower() for desc in cursor.description]
+        rows = cursor.fetchall()
+    finally:
+        cursor.close()
     return [dict(zip(columns, (_decode_value(v) for v in row))) for row in rows]
 
 
@@ -67,11 +87,18 @@ def get_queryable_columns(conn, table_name: str) -> list[str]:
 
     The returned names use the original casing from _USER_COLUMNS (which
     matches what 4D expects in SQL statements).
+
+    *table_name* is validated against a safe-identifier pattern to prevent
+    SQL injection (p4d does not support parameterised queries on system tables).
     """
+    _validate_identifier(table_name)
     sql = (
         f"SELECT COLUMN_NAME FROM _USER_COLUMNS "
         f"WHERE TABLE_NAME = '{table_name}' AND DATA_TYPE != 0"
     )
     cursor = conn.cursor()
-    cursor.execute(sql)
-    return [row[0] for row in cursor.fetchall()]
+    try:
+        cursor.execute(sql)
+        return [row[0] for row in cursor.fetchall()]
+    finally:
+        cursor.close()
