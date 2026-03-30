@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from etl.db.fourd import _validate_identifier, safe_fetch
+from etl.db.fourd import _validate_identifier, get_queryable_columns, safe_fetch
 
 
 # ---------------------------------------------------------------------------
@@ -143,3 +143,34 @@ class TestValidateIdentifier:
     def test_invalid_empty(self):
         with pytest.raises(ValueError, match="Unsafe SQL identifier"):
             _validate_identifier("")
+
+
+# ---------------------------------------------------------------------------
+# get_queryable_columns tests
+# ---------------------------------------------------------------------------
+
+
+class TestGetQueryableColumns:
+    """Test get_queryable_columns with a stub cursor (no real 4D connection)."""
+
+    def test_returns_column_names(self):
+        """Returns column names from the stub cursor rows."""
+        stub_rows = [("Codigo",), ("Descripcion",), ("Precio",)]
+        conn = _StubConn(
+            description=[("COLUMN_NAME",)],
+            rows=stub_rows,
+        )
+        result = get_queryable_columns(conn, "Articulos")
+        assert result == ["Codigo", "Descripcion", "Precio"]
+
+    def test_empty_result(self):
+        """Returns empty list when no queryable columns exist."""
+        conn = _StubConn(description=[("COLUMN_NAME",)], rows=[])
+        result = get_queryable_columns(conn, "SomeTable")
+        assert result == []
+
+    def test_invalid_table_name_raises(self):
+        """Rejects an unsafe table name before querying the cursor."""
+        conn = _StubConn(description=[("COLUMN_NAME",)], rows=[])
+        with pytest.raises(ValueError, match="Unsafe SQL identifier"):
+            get_queryable_columns(conn, "bad table'name")

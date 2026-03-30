@@ -25,6 +25,36 @@ def _get_p4d_port() -> int:
         ) from exc
 
 
+def _get_postgres_dsn() -> str:
+    """Return the PostgreSQL DSN.
+
+    Precedence:
+    1. POSTGRES_DSN — explicit full DSN (recommended for Docker deployments).
+    2. Assembled from POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB + optional
+       POSTGRES_HOST (default "localhost") / POSTGRES_PORT (default "5432").
+       This matches the split variables documented in .env.example so new users
+       do not need to manually construct a DSN string.
+
+    Returns an empty string if neither form is set (validated in __post_init__).
+    """
+    dsn = (os.environ.get("POSTGRES_DSN") or "").strip()
+    if dsn:
+        return dsn
+
+    user = os.environ.get("POSTGRES_USER", "")
+    password = os.environ.get("POSTGRES_PASSWORD", "")
+    db = os.environ.get("POSTGRES_DB", "")
+    host = os.environ.get("POSTGRES_HOST", "localhost")
+    port = os.environ.get("POSTGRES_PORT", "5432")
+
+    if user and db:
+        if password:
+            return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+        return f"postgresql://{user}@{host}:{port}/{db}"
+
+    return ""
+
+
 @dataclass
 class Config:
     p4d_host: str = field(default_factory=lambda: os.environ.get("P4D_HOST", ""))
@@ -33,17 +63,15 @@ class Config:
     p4d_password: str = field(
         default_factory=lambda: os.environ.get("P4D_PASSWORD", "")
     )
-    postgres_dsn: str = field(
-        default_factory=lambda: os.environ.get("POSTGRES_DSN", "")
-    )
+    postgres_dsn: str = field(default_factory=_get_postgres_dsn)
 
     def __post_init__(self) -> None:
-        # Strip whitespace before validating — a whitespace-only value is treated
-        # as unset and produces a clear error rather than a confusing connection failure.
         self.postgres_dsn = self.postgres_dsn.strip()
         if not self.postgres_dsn:
             raise ValueError(
-                "POSTGRES_DSN environment variable is required but not set. "
-                "Set it to a valid PostgreSQL connection string, e.g.: "
-                "postgresql://user:password@host:5432/dbname"
+                "PostgreSQL DSN is required but could not be determined. "
+                "Set POSTGRES_DSN to a full connection string (e.g. "
+                "'postgresql://user:password@host:5432/dbname'), "
+                "or set POSTGRES_USER + POSTGRES_PASSWORD + POSTGRES_DB "
+                "(matching the variables in .env.example)."
             )
