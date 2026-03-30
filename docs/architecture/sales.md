@@ -164,3 +164,24 @@ erDiagram
 - **Cajas** has 272 columns due to repeating groups: L1-L20 (line totals), A1-A20 (article counts), C1-C20 (category counts), plus morning/afternoon splits and multi-currency fields.
 - Sales support fiscal compliance: TBAI (Basque Country tax) and SAFT (Portugal audit file) fields on Ventas.
 - **Denormalization**: LineasVentas carries copies of Codigo, Descripcion, NumFamilia, NumDepartament, etc., from Articulos for reporting efficiency.
+
+## ETL Sync Strategy
+
+> Validated against production data 2026-03-30.
+
+**These tables are NOT append-only.** Historical records are modified retroactively for returns, TBAI fiscal corrections, payment flag updates, and export markers.
+
+| Table | Rows | Modifications since 2025-01-01 | Delta field | Strategy |
+|-------|------|-------------------------------|-------------|---------|
+| Ventas | 911,619 | 177,530 (19%) | `FechaModifica` | UPSERT delta |
+| LineasVentas | 1,689,796 | 356,505 (21%) | `FechaModifica` | UPSERT delta |
+| PagosVentas | 964,971 | 188,859 (20%) | `FechaModifica` | UPSERT delta |
+
+Daily volume: ~454 Ventas + ~897 LineasVentas new/modified per day.
+
+**Critical gotchas:**
+- `FechaDocumento` is **NULL for all records** in Ventas — never use as a delta field.
+- `FechaModifica` is the correct delta field (max = today, always updated on any change).
+- PKs (`RegVentas`, `RegLineas`, `RegPagos`) are REAL floats — store as `NUMERIC` in PostgreSQL to avoid precision loss.
+
+See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.

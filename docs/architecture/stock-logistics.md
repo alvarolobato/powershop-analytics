@@ -150,3 +150,26 @@ erDiagram
 - The **Logistics** module (Logistica, PackingList, LOGNivel1-3, LOGZonas) is defined but unused.
 - **Inventarios** (physical counts) is empty -- inventory data may be archived after reconciliation or performed via external systems.
 - Stock positions are primarily tracked in the **CCStock** table (Products domain), which uses a wide-format layout with stock quantities per size per store.
+
+## Stock via Exportaciones (preferred for ETL)
+
+The `Exportaciones` table (2,058,201 rows) is the preferred source for per-store, per-size stock in ETL and analytics. It was the export table used by the legacy VFP application and is actively maintained.
+
+**Structure:** One row per (article, store) pair. Columns `Talla1..Talla34` hold size labels; `Stock1..Stock34` hold corresponding quantities. Additional columns: `CCStock` (warehouse stock), `STStock` (total computed stock), `Tienda` (store name), `TiendaCodigo` (composite key), `FechaModifica`, `HoraModifica`.
+
+**Key gotcha — TiendaCodigo format:** The `TiendaCodigo` field is `"tienda/articulo"` (e.g. `"104/169"`), NOT just a store code. The compound `(Codigo, TiendaCodigo)` is the natural PK.
+
+**ETL normalization:** The wide format must be unpivoted to `(codigo, tienda_codigo, talla, stock)` rows for PostgreSQL. See [etl-sync-strategy.md](../etl-sync-strategy.md).
+
+## ETL Sync Strategy
+
+> Validated against production data 2026-03-30.
+
+| Table | Rows | Delta field | Strategy |
+|-------|------|-------------|---------|
+| Exportaciones | 2,058,201 | `FechaModifica` (NULLs exist for zero-stock articles) | UPSERT delta + unpivot |
+| Traspasos | 262,689 | `FechaS` (send date — no FechaModifica) | Append-only by `FechaS` |
+
+**Traspasos** is mostly historical: only 153 new rows since 2025-01-01. Records appear immutable once created. Append-only by `FechaS` is safe.
+
+See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.

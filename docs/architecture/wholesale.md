@@ -208,3 +208,30 @@ flowchart LR
 - **GCLinFacturas** closely mirrors GCLinAlbarane but at the invoice level. Both carry `Mes` (YYYYMM) for period filtering.
 - All header tables (GCPedidos, GCAlbaranes, GCFacturas) link to `Clientes` via `NumCliente` and to `GCComerciales` via `NumComercial`.
 - **GCLinPedidos** has 240 columns (the widest line table), likely due to size-level detail columns (quantities per size slot).
+
+## ETL Sync Strategy
+
+> Validated against production data 2026-03-30.
+
+| Table | Rows | Delta field | Strategy |
+|-------|------|-------------|---------|
+| GCAlbaranes | 48,948 | `Modifica` (~19 modified/day, ~833/month) | UPSERT delta |
+| GCLinAlbarane | 1,016,290 | **None** | Delete+reinsert via parent `Modifica` |
+| GCFacturas | 18,060 | `Modifica` (all rows populated) | UPSERT delta |
+| GCLinFacturas | 974,742 | **None** | Delete+reinsert via parent `Modifica` |
+| GCPedidos | 101 | `Modifica` | Full refresh (trivially small) |
+| GCLinPedidos | 2,645 | None | Full refresh (trivially small) |
+
+**Lines delta pattern** (no modification timestamp on line tables):
+```sql
+-- Fetch lines for recently changed delivery notes
+SELECT * FROM GCLinAlbarane
+WHERE NAlbaran IN (SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync)
+-- → DELETE + INSERT in PostgreSQL for those NAlbaran values
+```
+
+**FK corrections (important):**
+- `GCLinAlbarane.NAlbaran` → `GCAlbaranes.NAlbaran` (not RegAlbaran — these are different fields)
+- `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)
+
+See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.

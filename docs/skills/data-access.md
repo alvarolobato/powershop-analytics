@@ -39,6 +39,11 @@ conn = p4d.connect(
 - **Bytes in results**: Text fields may return `bytes` instead of `str` in Python 3.13+. Always decode: `v.decode('utf-8', errors='replace')`.
 - **Column name case**: Column names are returned uppercase from queries (e.g. `CODIGO` not `Codigo`), but must be specified in original case in SQL statements.
 - **Large table caution**: Tables like Tiendas (209 cols) with Picture/Blob columns can hang on `SELECT *`. Use explicit column lists.
+- **Ventas.FechaDocumento is NULL for all records**: Never use this field for date filtering or delta sync. Use `FechaModifica` (max = today) or `FechaCreacion` instead.
+- **LineasCompras does not exist**: The purchase order line table is `CCLineasCompr` (44K rows). It links to `Compras` via `NumPedido`, not a direct `NumCompra` field.
+- **Exportaciones.TiendaCodigo format**: This field is `"tienda/articulo"` (e.g. `"104/169"`), not just a store code. The compound `(Codigo, TiendaCodigo)` is the natural PK for this table.
+- **Ventas/LineasVentas/PagosVentas are NOT append-only**: 19–21% of historical records have been modified after creation (returns, TBAI corrections, payment flags). Always UPSERT by `FechaModifica` — never plain INSERT.
+- **PKs are REAL floats**: Store PKs as `NUMERIC` in PostgreSQL, not `FLOAT8`, to avoid precision loss on the `.99` suffix pattern (e.g. `RegVentas = 10028816.641`).
 
 ### CLI usage
 

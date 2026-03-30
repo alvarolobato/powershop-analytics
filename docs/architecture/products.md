@@ -139,3 +139,22 @@ erDiagram
 - **CCStock** uses a wide-format layout with 582 columns: `Stock1..Stock34` (stock per size slot), `Talla1..Talla34` (size labels), `PVP1..PVP7 x 34` (prices per tariff per size), `Minimo1..Minimo34`, `Compra1..Compra34`, `Rebaja1..Rebaja2 x 34`, `Ubicacion1..Ubicacion3 x 34`, and `Anulada1..Anulada34`.
 - Classification hierarchy: **DepaSeccFabr** (department) -> **FamiGrupMarc** (family) -> **SubfamModelo** (subfamily). Cross-classified by **CCOPMarcTrat** (brand), **CCOPTempTipo** (season), and **CCOPColores** (color).
 - Related tables in other domains: `Proveedores` (purchasing), `LineasVentas` and `GCLinAlbarane` reference `NumArticulo`.
+
+## ETL Sync Strategy
+
+> Validated against production data 2026-03-30.
+
+All product/catalog tables use **full refresh nightly** (truncate + insert).
+
+| Table | Rows | Reason for full refresh |
+|-------|------|------------------------|
+| Articulos | 41,264 | All 41K records have `FechaModifica >= 2025-03-26` due to a batch update — delta is ineffective |
+| FamiGrupMarc | 78 | Trivially small |
+| DepaSeccFabr | 10 | Trivially small |
+| CCOPColores | 99 | Trivially small |
+| CCOPTempTipo | 69 | Trivially small |
+| CCOPMarcTrat | ~147 | Trivially small |
+
+**Articulos column selection:** Do NOT use `SELECT *`. The 379 columns include BLOB/PICTURE types (DATA_TYPE 12 and 18) that slow queries. Select only the ~30–40 business-relevant columns explicitly.
+
+See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
