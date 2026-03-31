@@ -601,6 +601,34 @@ INSTRUCTIONS = [
             "¿Cuánto compramos al proveedor X?",
         ],
     },
+
+    # ── Field location rules (prevent wrong-table references) ────────
+    {
+        "instruction": "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
+        "questions": [
+            "¿Artículos más vendidos?",
+            "¿Unidades vendidas por producto?",
+            "¿Ventas por artículo sin devoluciones?",
+        ],
+    },
+    {
+        "instruction": "Cuando el usuario pide datos desglosados por tienda en columnas (tabla pivot/crosstab), NO generar CROSSTAB ni múltiples CASE WHEN por tienda. Generar una tabla plana con columnas (artículo, tienda, valor) agrupada por artículo y tienda. El usuario pivotará después. Ejemplo: SELECT p.ccrefejofacm AS \"Referencia\", p.descripcion AS \"Descripción\", lv.tienda AS \"Tienda\", SUM(lv.unidades) AS \"Unidades\" FROM ps_lineas_ventas lv JOIN ps_articulos p ON lv.codigo = p.codigo GROUP BY p.ccrefejofacm, p.descripcion, lv.tienda ORDER BY SUM(lv.unidades) DESC.",
+        "questions": [
+            "¿Ventas por tienda en columnas?",
+            "¿Unidades por artículo y tienda?",
+            "¿Desglose por tienda?",
+            "¿Tabla con código de tienda?",
+        ],
+    },
+    {
+        "instruction": "Cuando el usuario pida un cuadro de mandos, dashboard, o resumen ejecutivo, genera UNA consulta SQL que combine las métricas con subqueries escalares. Ejemplo: SELECT (SELECT SUM(total_si) FROM ps_ventas WHERE fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)) AS ventas_mes, (SELECT COUNT(DISTINCT reg_ventas) FROM ps_ventas WHERE fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)) AS tickets_mes. NUNCA respondas con texto explicativo — siempre genera SQL.",
+        "questions": [
+            "¿Cuadro de mandos?",
+            "¿Dashboard de ventas?",
+            "¿Resumen ejecutivo?",
+            "¿KPIs del mes?",
+        ],
+    },
 ]
 
 # ═══════════════════════════════════════════════════════════════════════
