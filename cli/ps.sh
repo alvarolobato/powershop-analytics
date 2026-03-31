@@ -18,8 +18,10 @@ usage() {
 Usage: ps <command> [options] [args]
 
 Available commands:
+  setup        First-time setup and prerequisites check
+  stack        Docker Compose stack management (up/down/status/logs/open/destroy)
+  etl          ETL operations (run/status/tables/logs)
   sql          4D SQL operations (schema, query, explore)
-  soap         SOAP web service operations
   config       Show current configuration
 
 Help commands:
@@ -27,9 +29,14 @@ Help commands:
   ps <command> --help      Show help for a command
 
 Examples:
-  ps sql schema            Discover database schema
+  ps setup                 First-time setup (create .env, symlink)
+  ps setup check           Verify prerequisites
+  ps stack up              Start all containers
+  ps stack status          Show container status
+  ps stack logs [svc]      Tail logs
+  ps etl run               Run ETL sync once
+  ps sql tables            List all 4D tables
   ps sql query "SELECT ..."  Run a read-only SQL query
-  ps sql tables            List all tables with row counts
   ps sql describe <table>  Show columns for a table
   ps config                Show loaded configuration
 EOF
