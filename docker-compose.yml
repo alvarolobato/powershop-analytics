@@ -1,10 +1,10 @@
 # PowerShop Analytics — full stack
-# Services: PostgreSQL mirror + ETL placeholder + WrenAI (5 containers)
+# Services: PostgreSQL mirror + ETL (nightly scheduler) + WrenAI (5 containers)
 #
 # Quick start:
 #   cp .env.example .env   # fill in your credentials
 #   docker compose up -d
-#   open http://localhost:3000
+#   open http://localhost:${HOST_PORT:-3000}
 
 volumes:
   pgdata:
@@ -42,17 +42,19 @@ services:
 
   # ---------------------------------------------------------------------------
   # ETL — extracts data from 4D and loads into PostgreSQL
-  # (stub: prints "ETL not yet implemented" and exits 0)
+  # Runs in scheduler mode by default (daily at ETL_CRON_HOUR, default 02:00).
+  # For a one-off sync: docker compose run --rm etl python main.py --once
   # ---------------------------------------------------------------------------
   etl:
     build: ./etl
-    restart: "no"
+    restart: unless-stopped
     environment:
       P4D_HOST: ${P4D_HOST:-}
       P4D_PORT: ${P4D_PORT:-19812}
       P4D_USER: ${P4D_USER:-}
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
+      ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
     networks:
       - wren
     depends_on:
@@ -170,7 +172,7 @@ services:
       NEXT_PUBLIC_TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       EXPERIMENTAL_ENGINE_RUST_VERSION: ${EXPERIMENTAL_ENGINE_RUST_VERSION:-false}
     ports:
-      - "3000:3000"
+      - "${HOST_PORT:-3000}:3000"
     volumes:
       - wren-data:/app/data
     networks:
