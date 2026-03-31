@@ -489,12 +489,50 @@ def main():
         print(f"  Error: {result['data']['deploy'].get('error', 'unknown')}", file=sys.stderr)
         sys.exit(1)
 
+    # ── 7. Index instructions + SQL pairs into qdrant via AI service ─
+    print("\n═══ Step 7: Index instructions + SQL pairs (AI service) ═══")
+    ai_url = url.replace(":3000", ":5555")  # AI service on port 5555
+
+    # Push instructions
+    ai_instructions = [
+        {"id": str(i + 1), "instruction": inst["instruction"], "questions": inst["questions"]}
+        for i, inst in enumerate(INSTRUCTIONS)
+    ]
+    try:
+        req = urllib.request.Request(
+            f"{ai_url}/v1/instructions",
+            data=json.dumps({"id": "push_instructions", "instructions": ai_instructions, "mdl_hash": "current"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        resp = urllib.request.urlopen(req, timeout=60)
+        print(f"  ✓ Indexed {len(ai_instructions)} instructions")
+    except Exception as e:
+        print(f"  ✗ Instructions indexing failed: {e}")
+
+    time.sleep(5)
+
+    # Push SQL pairs
+    ai_pairs = [
+        {"id": str(i + 1), "question": q, "sql": s}
+        for i, (q, s) in enumerate(SQL_PAIRS)
+    ]
+    try:
+        req = urllib.request.Request(
+            f"{ai_url}/v1/sql-pairs",
+            data=json.dumps({"id": "push_sql_pairs", "sql_pairs": ai_pairs, "mdl_hash": "current"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        resp = urllib.request.urlopen(req, timeout=60)
+        print(f"  ✓ Indexed {len(ai_pairs)} SQL pairs")
+    except Exception as e:
+        print(f"  ✗ SQL pairs indexing failed: {e}")
+
     print("\n✅ Done. WrenAI semantic model fully configured.")
     print(f"   Models: {len(MODEL_METADATA)} with descriptions")
     print(f"   Columns: {col_updated} with display names + descriptions")
     print(f"   Relations: {created} created")
-    print(f"   Instructions: {len(INSTRUCTIONS)}")
-    print(f"   SQL Pairs: {len(SQL_PAIRS)}")
+    print(f"   Instructions: {len(INSTRUCTIONS)} (SQLite + qdrant)")
+    print(f"   SQL Pairs: {len(SQL_PAIRS)} (SQLite + qdrant)")
 
 
 if __name__ == "__main__":
