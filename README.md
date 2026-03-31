@@ -105,7 +105,7 @@ docker compose run --rm etl python main.py --once
 
 ```
 4D Server (ERP)  →  ETL Python (nightly)  →  PostgreSQL  →  WrenAI (text-to-SQL)
-  SQL :19812                                   :5432          UI :3000
+  SQL :19812                                   :5432          UI :3000 (contenedor) / ${HOST_PORT:-3000} (host)
   SOAP :8080
 ```
 
