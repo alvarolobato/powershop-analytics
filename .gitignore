@@ -29,6 +29,9 @@ docs/reports/*.html
 docs/reports/*.json
 docs/sample-data/
 
+# Persistent bind-mount data (Docker volumes — never commit)
+data/
+
 # Runtime/temp
 *.log
 tmp/

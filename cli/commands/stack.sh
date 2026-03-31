@@ -24,6 +24,8 @@ Subcommands:
   logs [svc]      Show logs (follow); optional service name
   open            Open WrenAI UI in browser
   destroy         Stop containers and remove volumes (irreversible)
+  migrate         Migrate named volumes to bind-mount directories (one-time)
+  setup-wren      Auto-configure WrenAI: create PostgreSQL data source and deploy MDL
 EOF
 }
 
@@ -100,6 +102,16 @@ cmd_destroy() {
     fi
 }
 
+cmd_migrate() {
+    echo -e "${CYAN}Migrating named Docker volumes to bind-mount directories...${NC}"
+    "${REPO_ROOT}/scripts/migrate-volumes.sh"
+}
+
+cmd_setup_wren() {
+    echo -e "${CYAN}Configuring WrenAI data source and deploying MDL...${NC}"
+    "${REPO_ROOT}/scripts/wren-setup.sh" "$@"
+}
+
 SUBCMD="${1:-}"
 if [ -z "$SUBCMD" ] || [ "$SUBCMD" = "-h" ] || [ "$SUBCMD" = "--help" ]; then
     usage
@@ -108,13 +120,15 @@ fi
 shift
 
 case "$SUBCMD" in
-    up)      cmd_up ;;
-    down)    cmd_down ;;
-    restart) cmd_restart ;;
-    status)  cmd_status ;;
-    logs)    cmd_logs "${1:-}" ;;
-    open)    cmd_open ;;
-    destroy) cmd_destroy ;;
+    up)          cmd_up ;;
+    down)        cmd_down ;;
+    restart)     cmd_restart ;;
+    status)      cmd_status ;;
+    logs)        cmd_logs "${1:-}" ;;
+    open)        cmd_open ;;
+    destroy)     cmd_destroy ;;
+    migrate)     cmd_migrate ;;
+    setup-wren)  cmd_setup_wren "$@" ;;
     *)
         echo -e "${RED}ps stack: unknown subcommand '${SUBCMD}'${NC}" >&2
         usage >&2
