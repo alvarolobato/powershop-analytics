@@ -36,7 +36,9 @@ WrenAI es una herramienta de GenBI (text-to-SQL) auto-hospedada que permite hace
 ### Prerrequisitos
 
 - Docker y Docker Compose v2
-- Credenciales de acceso al servidor 4D (ver `credentials.conf.template`)
+- Credenciales de acceso al servidor 4D:
+  - Para el CLI local: configurar `~/.config/powershop-analytics/credentials.conf` (ver `credentials.conf.template`)
+  - Para el stack Docker (ETL/WrenAI): rellenar `P4D_HOST`, `P4D_USER` y `P4D_PASSWORD` en `.env`
 - API key de OpenRouter ([https://openrouter.ai](https://openrouter.ai))
 
 ### Inicio rápido
@@ -44,26 +46,28 @@ WrenAI es una herramienta de GenBI (text-to-SQL) auto-hospedada que permite hace
 ```bash
 # 1. Copiar y configurar variables de entorno
 cp .env.example .env
-# Editar .env: rellenar P4D_HOST, P4D_PASSWORD, OPENROUTER_API_KEY, POSTGRES_PASSWORD
+# Editar .env: rellenar P4D_HOST, P4D_USER, P4D_PASSWORD, OPENROUTER_API_KEY, POSTGRES_PASSWORD
 
 # 2. Levantar el stack
 docker compose up -d
 
 # 3. Ejecutar la carga inicial de datos (puede tardar 30-60 min)
-docker compose exec etl python -m etl.main --once
+docker compose run --rm etl python -m etl.main --once
 
-# 4. Abrir WrenAI
-open http://localhost:3000
+# 4. Abrir WrenAI en el navegador: http://localhost:<HOST_PORT>
+# (HOST_PORT se configura en .env, por defecto 3000)
+# macOS: open http://localhost:3000
+# Linux: xdg-open http://localhost:3000
 ```
 
 ### Configuración de OpenRouter
 
 - Base URL: `https://openrouter.ai/api/v1` (ya configurado en `docker-compose.yml`)
 - Modelo recomendado: `anthropic/claude-sonnet-4-20250514` (configurable via `WREN_LLM_MODEL` en `.env`)
-- Cambiar modelo: editar `WREN_LLM_MODEL` en `.env` y reiniciar:
+- Cambiar modelo: editar `WREN_LLM_MODEL` en `.env` y reiniciar los servicios de WrenAI:
 
 ```bash
-docker compose restart wren-ai-service
+docker compose restart wren-ai-service wren-ui
 ```
 
 ### Verificar la carga de datos
@@ -80,12 +84,12 @@ docker compose exec postgres psql -U postgres -d powershop -c \
 
 ### Sync nocturno
 
-El ETL se ejecuta automáticamente cada noche a las 2:00 (configurable via `ETL_CRON_HOUR` en `.env`).
+El ETL corre en modo scheduler dentro del contenedor `etl` (sin `--once`) y ejecuta la sincronización cada noche a la hora configurada en `ETL_CRON_HOUR` (por defecto: 2:00). El contenedor arranca automáticamente con `docker compose up -d`.
 
-Para ejecutar manualmente:
+Para ejecutar una sincronización puntual sin esperar al cron:
 
 ```bash
-docker compose exec etl python -m etl.main --once
+docker compose run --rm etl python -m etl.main --once
 ```
 
 ### Diagnóstico de problemas comunes
@@ -93,7 +97,7 @@ docker compose exec etl python -m etl.main --once
 | Problema | Causa | Solución |
 |----------|-------|----------|
 | ETL falla con "connection refused" a 4D | Servidor 4D no accesible | Verificar `P4D_HOST`, red, puertos 19812/8080 |
-| PostgreSQL no arranca | Puerto 5432 ocupado | `docker compose down && docker compose up -d` o cambiar el puerto |
+| PostgreSQL no arranca | Puerto 5432 ocupado | `docker compose down && docker compose up -d` o editar `docker-compose.yml` y cambiar el mapeo `5432:5432` por un puerto libre (ej. `15432:5432`) |
 | WrenAI UI no carga | Servicios no arrancados en orden | `docker compose restart` y esperar 30s |
 | "Invalid API key" en WrenAI | API key de OpenRouter incorrecta | Verificar `OPENROUTER_API_KEY` en `.env` |
 
