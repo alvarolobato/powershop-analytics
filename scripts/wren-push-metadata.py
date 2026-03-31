@@ -323,7 +323,7 @@ INSTRUCTIONS = [
 
     # ── Wholesale rules ────────────────────────────────────────────────
     {
-        "instruction": "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true y facturas canceladas con factura_anulada=true.",
+        "instruction": "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true.",
         "questions": [
             "¿Cuánto facturamos en mayorista?",
             "¿Cuál es la facturación B2B?",
@@ -340,7 +340,7 @@ INSTRUCTIONS = [
         ],
     },
     {
-        "instruction": "Los abonos mayoristas (ps_gc_albaranes con abono=true o ps_gc_facturas con abono=true) son notas de crédito por devoluciones. Para calcular facturación neta mayorista, excluirlos: WHERE abono = false AND factura_anulada = false.",
+        "instruction": "Los abonos mayoristas (ps_gc_albaranes con abono=true o ps_gc_facturas con abono=true) son notas de crédito por devoluciones. Para calcular facturación neta mayorista, excluirlos: WHERE abono = false.",
         "questions": [
             "¿Devoluciones de clientes mayoristas?",
             "¿Facturación neta mayorista?",
@@ -348,7 +348,7 @@ INSTRUCTIONS = [
         ],
     },
     {
-        "instruction": "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto. Excluir abono=true y factura_anulada=true.",
+        "instruction": "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto. Excluir abono=true.",
         "questions": [
             "¿Facturación por comercial?",
             "¿Qué comercial vende más?",
@@ -541,7 +541,7 @@ INSTRUCTIONS = [
         ],
     },
     {
-        "instruction": "n_albaran y n_factura NO son únicos en las tablas mayoristas. Múltiples documentos pueden compartir el mismo número (series diferentes, correcciones). No hacer JOINs ni filtros de unicidad basados en estos campos. Usar reg_albaran y reg_factura (PKs numéricas) para JOINs.",
+        "instruction": "n_albaran y n_factura NO son únicos en las tablas mayoristas. Múltiples documentos pueden compartir el mismo número (series diferentes, correcciones). No asumir unicidad ni hacer filtros de unicidad basados solo en estos campos. En las tablas de líneas del mirror (ps_gc_lin_albarane, ps_gc_lin_facturas), los JOINs líneas→cabecera deben hacerse por n_albaran/num_factura (únicos campos disponibles), pero sin asumir que sean únicos. Para JOINs entre cabeceras, usar reg_albaran y reg_factura (PKs numéricas) donde estén disponibles.",
         "questions": [
             "¿Por qué hay duplicados en n_albaran?",
             "¿Cómo hacer JOIN entre albaranes y líneas?",
@@ -720,15 +720,15 @@ SQL_PAIRS = [
     # ── Wholesale ──────────────────────────────────────────────────────
     (
         "¿Cuál es la facturación mayorista por comercial?",
-        'SELECT c."comercial" AS "Comercial", COUNT(DISTINCT f."n_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."abono" = false AND f."factura_anulada" = false GROUP BY c."comercial" ORDER BY "Facturación Neta" DESC',
+        'SELECT c."comercial" AS "Comercial", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."abono" = false GROUP BY c."comercial" ORDER BY "Facturación Neta" DESC',
     ),
     (
         "¿Facturación mayorista mensual del año actual?",
-        'SELECT DATE_TRUNC(\'month\', f."fecha_factura") AS "Mes", COUNT(*) AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" >= DATE_TRUNC(\'year\', CURRENT_DATE) AND f."abono" = false AND f."factura_anulada" = false GROUP BY DATE_TRUNC(\'month\', f."fecha_factura") ORDER BY "Mes"',
+        'SELECT DATE_TRUNC(\'month\', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" >= DATE_TRUNC(\'year\', CURRENT_DATE) AND f."abono" = false GROUP BY DATE_TRUNC(\'month\', f."fecha_factura") ORDER BY "Mes"',
     ),
     (
         "¿Cuáles son los principales clientes mayoristas por facturación?",
-        'SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."n_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false AND f."factura_anulada" = false GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20',
+        'SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20',
     ),
     (
         "¿Cuántos albaranes mayoristas se enviaron este mes?",
@@ -856,6 +856,7 @@ def validate_sql_pairs(dsn: str) -> None:
 
     print(f"\n═══ Validating {len(SQL_PAIRS)} SQL pairs against PostgreSQL ═══")
     conn = psycopg2.connect(dsn)
+    conn.autocommit = True  # Avoid "current transaction is aborted" after a failed EXPLAIN
     passed = failed = 0
     for question, sql in SQL_PAIRS:
         try:
@@ -1007,18 +1008,21 @@ def main():
     # ── 5. SQLite: SQL Pairs (example queries for RAG) — merge strategy
     print("\n═══ Step 5: SQL Pairs / Examples (SQLite) — merge strategy ═══")
     # For sql_pair there is no is_default field. Use question text to track source pairs.
-    # Delete only pairs whose question matches our known source questions.
+    # Delete ALL pairs (including duplicates) whose question matches any source question.
     # User pairs with different questions survive.
-    existing_pairs = {
-        row["question"]: row["id"]
-        for row in db.execute("SELECT id, question FROM sql_pair WHERE project_id = ?", (project_id,))
-    }
-    source_deleted = 0
-    for question, src_id in existing_pairs.items():
-        if question in SOURCE_QUESTIONS:
-            db.execute("DELETE FROM sql_pair WHERE id = ?", (src_id,))
-            source_deleted += 1
-    user_pairs_kept = sum(1 for q in existing_pairs if q not in SOURCE_QUESTIONS)
+    total_before = db.execute(
+        "SELECT COUNT(*) FROM sql_pair WHERE project_id = ?", (project_id,)
+    ).fetchone()[0]
+    if SOURCE_QUESTIONS:
+        placeholders = ",".join("?" for _ in SOURCE_QUESTIONS)
+        params = [project_id, *SOURCE_QUESTIONS]
+        source_deleted = db.execute(
+            f"DELETE FROM sql_pair WHERE project_id = ? AND question IN ({placeholders})",
+            params,
+        ).rowcount
+    else:
+        source_deleted = 0
+    user_pairs_kept = total_before - source_deleted
 
     for question, sql in SQL_PAIRS:
         db.execute(
@@ -1057,21 +1061,14 @@ def main():
         sys.exit(1)
 
     # ── 7. Index instructions + SQL pairs into qdrant via AI service ─
+    # NOTE: We do NOT delete the entire qdrant collection before re-indexing.
+    # Doing so would remove user-created instructions/SQL pairs from the retrieval
+    # index — breaking the "preserve user knowledge" promise. We POST only source
+    # entries using stable integer IDs (1..N). The AI service upserts by ID, so
+    # re-running this step simply updates the source entries without touching
+    # entries at higher IDs that belong to user-created knowledge.
     print("\n═══ Step 7: Index instructions + SQL pairs (AI service) ═══")
     ai_url = url.replace(":3000", ":5555")  # AI service on port 5555
-
-    # Clear old source entries and push all current source instructions
-    try:
-        req = urllib.request.Request(
-            f"{ai_url}/v1/instructions",
-            data=json.dumps({"id": "push_instructions", "instructions": [], "mdl_hash": "current"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="DELETE",
-        )
-        urllib.request.urlopen(req, timeout=30)
-        print("  Cleared old instructions index")
-    except Exception as e:
-        print(f"  Note: Could not clear instructions index (may not exist yet): {e}")
 
     ai_instructions = [
         {"id": str(i + 1), "instruction": inst["instruction"], "questions": inst["questions"]}
@@ -1084,24 +1081,11 @@ def main():
             headers={"Content-Type": "application/json"},
         )
         resp = urllib.request.urlopen(req, timeout=60)
-        print(f"  Indexed {len(ai_instructions)} instructions in qdrant")
+        print(f"  Indexed {len(ai_instructions)} source instructions in qdrant (user instructions preserved)")
     except Exception as e:
         print(f"  Instructions indexing failed: {e}")
 
     time.sleep(5)
-
-    # Clear old source SQL pairs and push current ones
-    try:
-        req = urllib.request.Request(
-            f"{ai_url}/v1/sql-pairs",
-            data=json.dumps({"id": "push_sql_pairs", "sql_pairs": [], "mdl_hash": "current"}).encode(),
-            headers={"Content-Type": "application/json"},
-            method="DELETE",
-        )
-        urllib.request.urlopen(req, timeout=30)
-        print("  Cleared old SQL pairs index")
-    except Exception as e:
-        print(f"  Note: Could not clear SQL pairs index (may not exist yet): {e}")
 
     ai_pairs = [
         {"id": str(i + 1), "question": q, "sql": s}
@@ -1114,7 +1098,7 @@ def main():
             headers={"Content-Type": "application/json"},
         )
         resp = urllib.request.urlopen(req, timeout=60)
-        print(f"  Indexed {len(ai_pairs)} SQL pairs in qdrant")
+        print(f"  Indexed {len(ai_pairs)} source SQL pairs in qdrant (user SQL pairs preserved)")
     except Exception as e:
         print(f"  SQL pairs indexing failed: {e}")
 

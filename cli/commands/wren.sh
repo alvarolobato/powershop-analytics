@@ -64,8 +64,18 @@ cmd_status() {
 
     # Count source knowledge in the script
     local n_instructions n_pairs
-    n_instructions=$(grep -c '"instruction":' "$WREN_SCRIPT" 2>/dev/null || echo "?")
-    n_pairs=$(grep -c "SQL_PAIRS = \[" "$WREN_SCRIPT" 2>/dev/null && python3 -c "
+    n_instructions=$(python3 -c "
+import ast
+with open('${WREN_SCRIPT}') as f:
+    src = f.read()
+tree = ast.parse(src)
+for node in ast.walk(tree):
+    if isinstance(node, ast.Assign):
+        for t in node.targets:
+            if isinstance(t, ast.Name) and t.id == 'INSTRUCTIONS':
+                print(len(node.value.elts))
+" 2>/dev/null || echo "?")
+    n_pairs=$(python3 -c "
 import ast
 with open('${WREN_SCRIPT}') as f:
     src = f.read()
