@@ -28,7 +28,7 @@ This is a **public repository** -- no credentials, customer data, or business-sp
 | `docs/skills/` | AI agent skills (domain-specific guides) |
 | `docs/etl-sync-strategy.md` | Validated sync strategy for all tables |
 | `local/` | Local config/credentials (git-ignored) |
-| `credentials.conf.template` | Template for credentials file |
+| `.env.example` | Template for environment variables |
 | `docker-compose.yml` | Full stack: PostgreSQL + ETL + WrenAI (6 containers) |
 | `.env.example` | Environment variable template (no real secrets) |
 
@@ -40,6 +40,19 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 
 | Command | Purpose |
 |---------|---------|
+| `ps setup` | First-time setup: create .env and repo symlink |
+| `ps setup check` | Verify prerequisites (Docker, .env, connectivity) |
+| `ps stack up` | Start all containers |
+| `ps stack down` | Stop all containers |
+| `ps stack restart` | Restart all containers |
+| `ps stack status` | Show container status and WrenAI UI health |
+| `ps stack logs [svc]` | Show logs (follow); optional service name |
+| `ps stack open` | Open WrenAI UI in browser |
+| `ps stack destroy` | Stop containers and remove volumes (with confirmation) |
+| `ps etl run` | Run ETL sync once |
+| `ps etl status` | Show watermark table (last sync per table) |
+| `ps etl tables` | Show row counts for synced tables |
+| `ps etl logs` | Show ETL container logs |
 | `ps sql tables` | List all 4D tables |
 | `ps sql describe <table>` | Show columns for a table |
 | `ps sql query "<SQL>"` | Run a read-only SQL query |
@@ -61,21 +74,20 @@ All automation should delegate work to the CLI. This ensures every operation is 
 
 ### Credential storage (single file, survives worktrees)
 
-**Recommended**: One file at `~/.config/powershop-analytics/.env` (standard `.env` format).
+**One file**: `~/.config/powershop-analytics/.env` (standard `.env` format). Copy from `.env.example`.
 
 This file is loaded by all three systems:
-- **CLI** (`load-env.sh`): loads `.env` then `credentials.conf` from `local/` or `~/.config/`
-- **ETL** (`config.py` via python-dotenv): loads from `~/.config/.env`, then `local/.env`, then `./.env`
+- **CLI** (`load-env.sh`): loads `~/.config/powershop-analytics/.env`, then `local/.env`
+- **ETL** (`config.py` via python-dotenv): loads from `./.env`, then `local/.env`, then `~/.config/powershop-analytics/.env`
 - **docker-compose**: symlink `.env` in the worktree → `~/.config/powershop-analytics/.env`
 
-Setup: `ln -sf ~/.config/powershop-analytics/.env .env`
+Run `ps setup` to create the file and symlink automatically.
 
 Priority (highest to lowest):
 1. **Environment variables** -- Direct override
 2. **`.env`** in worktree root -- standard for docker-compose (symlink to centralized)
 3. **`local/.env`** -- Worktree-specific override (git-ignored)
 4. **`~/.config/powershop-analytics/.env`** -- Centralized (shared across worktrees)
-5. **`~/.config/powershop-analytics/credentials.conf`** -- Legacy format (backward compat)
 
 ### Key environment variables
 

@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+# ps stack — Docker Compose stack management
+set -e
+
+REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+DC="docker compose -f ${REPO_ROOT}/docker-compose.yml"
+
+usage() {
+    cat <<EOF
+Usage: ps stack <subcommand> [args]
+
+Subcommands:
+  up              Start all containers
+  down            Stop all containers
+  restart         Restart all containers
+  status          Show container status
+  logs [svc]      Show logs (follow); optional service name
+  open            Open WrenAI UI in browser
+  destroy         Stop containers and remove volumes (irreversible)
+EOF
+}
+
+cmd_up() {
+    echo -e "${CYAN}Starting stack...${NC}"
+    $DC up -d
+    echo ""
+    echo -e "${GREEN}Stack is up.${NC} Run 'ps stack status' to check containers."
+}
+
+cmd_down() {
+    echo -e "${CYAN}Stopping stack...${NC}"
+    $DC down
+    echo -e "${GREEN}Stack stopped.${NC}"
+}
+
+cmd_restart() {
+    echo -e "${CYAN}Restarting stack...${NC}"
+    $DC restart
+    echo -e "${GREEN}Stack restarted.${NC}"
+}
+
+cmd_status() {
+    echo -e "${CYAN}Container status:${NC}"
+    $DC ps --format table
+    echo ""
+
+    # Check WrenAI UI
+    local host_port="${HOST_PORT:-3000}"
+    if curl -s --max-time 3 "http://localhost:${host_port}" >/dev/null 2>&1; then
+        echo -e "  ${GREEN}[UP]${NC}   WrenAI UI → http://localhost:${host_port}"
+    else
+        echo -e "  ${YELLOW}[DOWN]${NC} WrenAI UI not reachable at http://localhost:${host_port}"
+    fi
+}
+
+cmd_logs() {
+    local svc="${1:-}"
+    if [ -n "$svc" ]; then
+        $DC logs -f "$svc"
+    else
+        $DC logs -f
+    fi
+}
+
+cmd_open() {
+    local host_port="${HOST_PORT:-3000}"
+    local url="http://localhost:${host_port}"
+    echo -e "${CYAN}Opening WrenAI UI at ${url}${NC}"
+    case "$(uname -s)" in
+        Darwin)
+            open "$url"
+            ;;
+        Linux)
+            xdg-open "$url" 2>/dev/null || echo "Visit: ${url}"
+            ;;
+        *)
+            echo "Visit: ${url}"
+            ;;
+    esac
+}
+
+cmd_destroy() {
+    echo -e "${RED}WARNING: This will delete all data including PostgreSQL.${NC}"
+    printf "Continue? [y/N] "
+    read -r answer || answer=''
+    if [ "${answer}" = "y" ] || [ "${answer}" = "Y" ]; then
+        echo -e "${CYAN}Destroying stack and volumes...${NC}"
+        $DC down -v
+        echo -e "${GREEN}Stack destroyed.${NC}"
+    else
+        echo "Aborted."
+        exit 0
+    fi
+}
+
+SUBCMD="${1:-}"
+if [ -z "$SUBCMD" ] || [ "$SUBCMD" = "-h" ] || [ "$SUBCMD" = "--help" ]; then
+    usage
+    exit 0
+fi
+shift
+
+case "$SUBCMD" in
+    up)      cmd_up ;;
+    down)    cmd_down ;;
+    restart) cmd_restart ;;
+    status)  cmd_status ;;
+    logs)    cmd_logs "${1:-}" ;;
+    open)    cmd_open ;;
+    destroy) cmd_destroy ;;
+    *)
+        echo -e "${RED}ps stack: unknown subcommand '${SUBCMD}'${NC}" >&2
+        usage >&2
+        exit 1
+        ;;
+esac
