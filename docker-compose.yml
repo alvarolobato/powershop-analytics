@@ -170,7 +170,7 @@ services:
       NEXT_PUBLIC_TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       EXPERIMENTAL_ENGINE_RUST_VERSION: ${EXPERIMENTAL_ENGINE_RUST_VERSION:-false}
     ports:
-      - "3000:3000"
+      - "${HOST_PORT:-3000}:3000"
     volumes:
       - wren-data:/app/data
     networks:
