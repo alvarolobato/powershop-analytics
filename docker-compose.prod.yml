@@ -1,0 +1,206 @@
+# PowerShop Analytics — production stack
+# Uses the pre-built ETL image from Docker Hub instead of building locally.
+#
+# This file is intended for end-user deployments. Download via the installer:
+#   curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install.sh | bash
+#
+# Or manually:
+#   curl -L https://github.com/alvarolobato/powershop-analytics/releases/latest/download/docker-compose.prod.yml \
+#        -o docker-compose.yml
+#   cp .env.example .env && $EDITOR .env
+#   docker compose up -d
+#   open http://localhost:${HOST_PORT:-3000}
+#
+# Data is stored in bind-mount subdirectories under the project dir:
+#   ./data/postgres   — PostgreSQL data
+#   ./data/qdrant     — Qdrant vector store
+#   ./data/wren       — WrenAI shared config/state
+
+networks:
+  wren:
+    driver: bridge
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — mirror of the 4D source data
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      POSTGRES_DB: ${POSTGRES_DB:-powershop}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    networks:
+      - wren
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-powershop}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # ETL — extracts data from 4D and loads into PostgreSQL
+  # Pre-built image from Docker Hub; updated via `ps-analytics update`.
+  # Runs in scheduler mode by default (daily at ETL_CRON_HOUR, default 02:00).
+  # For a one-off sync: docker compose run --rm etl python -m etl.main --once
+  # ---------------------------------------------------------------------------
+  etl:
+    image: alvarolobato264/powershop-etl:latest
+    restart: unless-stopped
+    environment:
+      P4D_HOST: ${P4D_HOST:-}
+      P4D_PORT: ${P4D_PORT:-19812}
+      P4D_USER: ${P4D_USER:-}
+      P4D_PASSWORD: ${P4D_PASSWORD:-}
+      POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
+      ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
+    networks:
+      - wren
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # WrenAI — bootstrap (initialises shared data volume)
+  # ---------------------------------------------------------------------------
+  bootstrap:
+    image: ghcr.io/canner/wren-bootstrap:${WREN_BOOTSTRAP_VERSION:-0.1.5}
+    restart: on-failure
+    platform: ${PLATFORM:-linux/amd64}
+    environment:
+      DATA_PATH: /app/data
+    volumes:
+      - ./data/wren:/app/data
+    command: /bin/sh /app/init.sh
+    networks:
+      - wren
+
+  # ---------------------------------------------------------------------------
+  # WrenAI — engine (semantic/query layer)
+  # ---------------------------------------------------------------------------
+  wren-engine:
+    image: ghcr.io/canner/wren-engine:${WREN_ENGINE_VERSION:-0.22.0}
+    restart: on-failure
+    platform: ${PLATFORM:-linux/amd64}
+    expose:
+      - ${WREN_ENGINE_PORT:-8080}
+      - ${WREN_ENGINE_SQL_PORT:-7432}
+    volumes:
+      - ./data/wren:/usr/src/app/etc
+    networks:
+      - wren
+    depends_on:
+      - bootstrap
+
+  # ---------------------------------------------------------------------------
+  # WrenAI — ibis server (data source connectivity, incl. PostgreSQL)
+  # ---------------------------------------------------------------------------
+  ibis-server:
+    image: ghcr.io/canner/wren-engine-ibis:${IBIS_SERVER_VERSION:-0.22.0}
+    restart: on-failure
+    platform: ${PLATFORM:-linux/amd64}
+    expose:
+      - ${IBIS_SERVER_PORT:-8000}
+    environment:
+      WREN_ENGINE_ENDPOINT: http://wren-engine:${WREN_ENGINE_PORT:-8080}
+    networks:
+      - wren
+    depends_on:
+      - wren-engine
+
+  # ---------------------------------------------------------------------------
+  # WrenAI — AI service (LLM orchestration via OpenRouter)
+  # ---------------------------------------------------------------------------
+  wren-ai-service:
+    image: ghcr.io/canner/wren-ai-service:${WREN_AI_SERVICE_VERSION:-0.29.0}
+    restart: on-failure
+    platform: ${PLATFORM:-linux/amd64}
+    expose:
+      - ${WREN_AI_SERVICE_PORT:-5555}
+    ports:
+      - "${AI_SERVICE_FORWARD_PORT:-5555}:${WREN_AI_SERVICE_PORT:-5555}"
+    environment:
+      PYTHONUNBUFFERED: 1
+      CONFIG_PATH: /app/config.yaml
+      # OpenRouter credentials
+      OPENAI_API_BASE: https://openrouter.ai/api/v1
+      OPENAI_API_KEY: ${OPENROUTER_API_KEY:-}
+      LITELLM_API_BASE: https://openrouter.ai/api/v1
+      LITELLM_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Qdrant
+      QDRANT_HOST: qdrant
+      SHOULD_FORCE_DEPLOY: "1"
+      # Port — required by entrypoint.sh for uvicorn --port $WREN_AI_SERVICE_PORT
+      WREN_AI_SERVICE_PORT: ${WREN_AI_SERVICE_PORT:-5555}
+      # LLM model — required for ${WREN_LLM_MODEL:-...} substitution in wren-config.yaml
+      WREN_LLM_MODEL: ${WREN_LLM_MODEL:-openrouter/anthropic/claude-sonnet-4-20250514}
+      # Telemetry
+      WREN_AI_SERVICE_VERSION: ${WREN_AI_SERVICE_VERSION:-0.29.0}
+    volumes:
+      - ./wren-config.yaml:/app/config.yaml:ro
+      - ./data/wren:/app/data:ro
+    networks:
+      - wren
+    depends_on:
+      - qdrant
+      - wren-engine
+
+  # ---------------------------------------------------------------------------
+  # WrenAI — UI (web interface, port 3000)
+  # ---------------------------------------------------------------------------
+  wren-ui:
+    image: ghcr.io/canner/wren-ui:${WREN_UI_VERSION:-0.32.2}
+    restart: on-failure
+    platform: ${PLATFORM:-linux/amd64}
+    environment:
+      DB_TYPE: sqlite
+      SQLITE_FILE: /app/data/db.sqlite3
+      WREN_ENGINE_ENDPOINT: http://wren-engine:${WREN_ENGINE_PORT:-8080}
+      WREN_AI_ENDPOINT: http://wren-ai-service:${WREN_AI_SERVICE_PORT:-5555}
+      IBIS_SERVER_ENDPOINT: http://ibis-server:${IBIS_SERVER_PORT:-8000}
+      GENERATION_MODEL: ${WREN_LLM_MODEL:-anthropic/claude-sonnet-4-20250514}
+      # Telemetry
+      WREN_ENGINE_PORT: ${WREN_ENGINE_PORT:-8080}
+      WREN_AI_SERVICE_VERSION: ${WREN_AI_SERVICE_VERSION:-0.29.0}
+      WREN_UI_VERSION: ${WREN_UI_VERSION:-0.32.2}
+      WREN_ENGINE_VERSION: ${WREN_ENGINE_VERSION:-0.22.0}
+      WREN_PRODUCT_VERSION: ${WREN_PRODUCT_VERSION:-0.29.1}
+      USER_UUID: ${USER_UUID:-}
+      POSTHOG_API_KEY: ${POSTHOG_API_KEY:-phc_nhF32aj4xHXOZb0oqr2cn4Oy9uiWzz6CCP4KZmRq9aE}
+      POSTHOG_HOST: ${POSTHOG_HOST:-https://app.posthog.com}
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+      NEXT_PUBLIC_USER_UUID: ${USER_UUID:-}
+      NEXT_PUBLIC_POSTHOG_API_KEY: ${POSTHOG_API_KEY:-phc_nhF32aj4xHXOZb0oqr2cn4Oy9uiWzz6CCP4KZmRq9aE}
+      NEXT_PUBLIC_POSTHOG_HOST: ${POSTHOG_HOST:-https://app.posthog.com}
+      NEXT_PUBLIC_TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+      EXPERIMENTAL_ENGINE_RUST_VERSION: ${EXPERIMENTAL_ENGINE_RUST_VERSION:-false}
+    ports:
+      - "${HOST_PORT:-3000}:3000"
+    volumes:
+      - ./data/wren:/app/data
+    networks:
+      - wren
+    depends_on:
+      - wren-ai-service
+      - wren-engine
+
+  # ---------------------------------------------------------------------------
+  # Qdrant — vector store for WrenAI embeddings
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.11.0
+    restart: on-failure
+    expose:
+      - 6333
+      - 6334
+    volumes:
+      - ./data/qdrant:/qdrant/storage
+    networks:
+      - wren

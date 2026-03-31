@@ -1,0 +1,27 @@
+name: Release Assets
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  upload-assets:
+    name: Attach deploy artifacts to release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to upload release assets
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            docker-compose.prod.yml
+            wren-config.yaml
+            deploy/install.sh
+            deploy/install.ps1
+            deploy/ps-analytics
+            deploy/ps-analytics.cmd
