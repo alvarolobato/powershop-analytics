@@ -122,7 +122,7 @@ def get_queryable_columns(conn, table_name: str) -> list[str]:
     _validate_identifier(table_name)
     sql = (
         f"SELECT COLUMN_NAME FROM _USER_COLUMNS "
-        f"WHERE TABLE_NAME = '{table_name}' AND DATA_TYPE != 0"
+        f"WHERE TABLE_NAME = '{table_name}' AND DATA_TYPE <> 0"
     )
     cursor = conn.cursor()
     try:

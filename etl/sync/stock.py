@@ -197,17 +197,21 @@ def _normalize_expo_row(src: dict) -> list[dict]:
     return out
 
 
+def _get_store_codes(conn_4d) -> list[str]:
+    """Return the distinct Tienda codes from Exportaciones."""
+    rows = safe_fetch(conn_4d, "SELECT DISTINCT Tienda FROM Exportaciones")
+    return sorted(r["tienda"] for r in rows if r.get("tienda"))
+
+
 def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     """Extract Exportaciones from 4D, normalize, and upsert into ps_stock_tienda.
 
-    Uses LIMIT/OFFSET with a stable ORDER BY (Codigo, TiendaCodigo) to page
-    through the source table in a deterministic order when the source is quiescent.
-    Under concurrent inserts/deletes, LIMIT/OFFSET may skip or duplicate rows;
-    keyset pagination would be needed for strict consistency under concurrent writes.
+    Progressive approach: fetches one store at a time (~41K rows per store)
+    to avoid OOM on the full 2M-row table. Each store's data fits comfortably
+    in memory and is upserted immediately before moving to the next store.
 
-    Note: only the date portion of *since* is used in the 4D SQL filter;
-    any time component is silently ignored.  Pass a midnight-aligned datetime
-    (e.g., datetime(2026, 1, 1, tzinfo=timezone.utc)) to avoid confusion.
+    For delta syncs (since is set), only rows modified after the date are fetched
+    per store. For initial loads, all rows for each store are fetched.
 
     Args:
         conn_4d: P4D connection object.
@@ -218,14 +222,9 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     Returns:
         Total number of normalized rows attempted (upserted or updated).
     """
-    # For initial load (since=None) include rows where FechaModifica IS NULL to
-    # capture zero-stock articles that have never been modified.
     include_nulls = since is None
-
     where = _build_expo_where(since, include_nulls=include_nulls)
 
-    # COUNT is used for progress logging only — loop termination is driven by
-    # empty-batch detection to avoid missing rows added after this initial count.
     total_source = _count_expo(conn_4d, where)
     logger.info(
         "sync_stock: %d source rows to process %s",
@@ -233,53 +232,54 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
         f"({where})" if where else "(full)",
     )
 
+    # Get all store codes and process one store at a time (progressive)
+    stores = _get_store_codes(conn_4d)
+    logger.info("sync_stock: processing %d stores progressively", len(stores))
+
     total_processed = 0
-    pg_buffer: list[dict] = []
+    for store_idx, store_code in enumerate(stores):
+        # Build per-store query
+        store_filter = f"Tienda = '{store_code}'"
+        if where:
+            store_where = f"{where} AND {store_filter}"
+        else:
+            store_where = f"WHERE {store_filter}"
 
-    # Fetch ALL rows in a single query (no LIMIT/OFFSET).
-    # LIMIT/OFFSET is catastrophically slow on 4D for large offsets because
-    # it must scan all preceding rows. A single SELECT is much faster even
-    # for 2M rows — 4D streams the result set to the p4d cursor.
-    sql = f"SELECT {_EXPO_COLUMNS} FROM Exportaciones {where}".strip()
-    logger.info("sync_stock: executing query (single fetch, no pagination)...")
+        sql = f"SELECT {_EXPO_COLUMNS} FROM Exportaciones {store_where}".strip()
+        store_rows = safe_fetch(conn_4d, sql)
 
-    all_rows = safe_fetch(conn_4d, sql)
-    logger.info("sync_stock: fetched %d source rows from 4D", len(all_rows))
+        if not store_rows:
+            continue
 
-    for i, src_row in enumerate(all_rows):
-        pg_buffer.extend(_normalize_expo_row(src_row))
+        # Normalize and upsert this store's data
+        pg_buffer: list[dict] = []
+        for src_row in store_rows:
+            pg_buffer.extend(_normalize_expo_row(src_row))
 
-        # Flush when buffer reaches PG batch size.
-        while len(pg_buffer) >= _PG_BATCH:
-            chunk = pg_buffer[:_PG_BATCH]
-            del pg_buffer[:_PG_BATCH]
+        # Upsert in batches
+        store_processed = 0
+        for i in range(0, len(pg_buffer), _PG_BATCH):
+            chunk = pg_buffer[i : i + _PG_BATCH]
             attempted = upsert(
                 conn_pg,
                 "ps_stock_tienda",
                 chunk,
                 pk_cols=["codigo", "tienda_codigo", "talla"],
             )
-            total_processed += attempted
+            store_processed += attempted
 
-        if (i + 1) % 100000 == 0:
-            logger.info(
-                "sync_stock: normalized %d/%d source rows (%d PG rows so far)",
-                i + 1,
-                len(all_rows),
-                total_processed,
-            )
-
-    # Flush remaining buffer.
-    if pg_buffer:
-        attempted = upsert(
-            conn_pg,
-            "ps_stock_tienda",
-            pg_buffer,
-            pk_cols=["codigo", "tienda_codigo", "talla"],
+        total_processed += store_processed
+        logger.info(
+            "sync_stock: store %s (%d/%d): %d source rows → %d normalized rows (total: %d)",
+            store_code,
+            store_idx + 1,
+            len(stores),
+            len(store_rows),
+            store_processed,
+            total_processed,
         )
-        total_processed += attempted
 
-    logger.info("sync_stock: done — %d normalized rows processed", total_processed)
+    logger.info("sync_stock: done — %d normalized rows processed across %d stores", total_processed, len(stores))
     return total_processed
 
 
