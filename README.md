@@ -56,8 +56,8 @@ docker compose run --rm etl python -m etl.main --once
 
 # 4. Abrir WrenAI en el navegador: http://localhost:<HOST_PORT>
 # (HOST_PORT se configura en .env, por defecto 3000)
-# macOS: open http://localhost:3000
-# Linux: xdg-open http://localhost:3000
+# macOS: open http://localhost:<HOST_PORT>
+# Linux: xdg-open http://localhost:<HOST_PORT>
 ```
 
 ### Configuración de OpenRouter

@@ -46,7 +46,7 @@ services:
   # ---------------------------------------------------------------------------
   etl:
     build: ./etl
-    restart: "no"
+    restart: unless-stopped
     environment:
       P4D_HOST: ${P4D_HOST:-}
       P4D_PORT: ${P4D_PORT:-19812}
