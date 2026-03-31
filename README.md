@@ -52,7 +52,7 @@ cp .env.example .env
 docker compose up -d
 
 # 3. Ejecutar la carga inicial de datos (puede tardar 30-60 min)
-docker compose run --rm etl python -m etl.main --once
+docker compose run --rm etl python main.py --once
 
 # 4. Abrir WrenAI en el navegador: http://localhost:<HOST_PORT>
 # (HOST_PORT se configura en .env, por defecto 3000)
@@ -89,7 +89,7 @@ El ETL corre en modo scheduler dentro del contenedor `etl` (sin `--once`) y ejec
 Para ejecutar una sincronización puntual sin esperar al cron:
 
 ```bash
-docker compose run --rm etl python -m etl.main --once
+docker compose run --rm etl python main.py --once
 ```
 
 ### Diagnóstico de problemas comunes
