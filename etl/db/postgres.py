@@ -268,7 +268,7 @@ def truncate_and_insert(
     restart_clause = (
         pgsql.SQL(" RESTART IDENTITY") if restart_identity else pgsql.SQL("")
     )
-    truncate_stmt = pgsql.SQL("TRUNCATE {tbl}{restart}").format(
+    truncate_stmt = pgsql.SQL("TRUNCATE {tbl}{restart} CASCADE").format(
         tbl=tbl_id, restart=restart_clause
     )
 
