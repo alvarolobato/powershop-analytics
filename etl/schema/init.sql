@@ -482,7 +482,6 @@ BEGIN
   -- Wholesale: n_albaran and n_factura are NOT unique in the parent tables
   -- (multiple docs can share a number across series), so FK constraints are
   -- not possible.  The indexes on these columns (above) still accelerate JOINs.
-  END IF;
 
   -- Purchasing
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_lc_compras') THEN
