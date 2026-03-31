@@ -14,7 +14,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from etl.sync.stock import _normalize_expo_row, sync_stock, sync_traspasos
+from etl.sync.stock import _normalize_expo_row, _validate_since, sync_stock, sync_traspasos
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +156,29 @@ class TestNormalizeExpoRow:
             assert r["cc_stock"] == expected
 
 
+class TestValidateSince:
+    """Unit tests for _validate_since — no connections needed."""
+
+    def test_midnight_utc_passes(self):
+        dt = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        _validate_since(dt)  # should not raise
+
+    def test_non_midnight_raises(self):
+        dt = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
+        with pytest.raises(ValueError, match="non-zero time component"):
+            _validate_since(dt)
+
+    def test_microseconds_raises(self):
+        dt = datetime(2026, 1, 1, 0, 0, 0, 500000, tzinfo=timezone.utc)
+        with pytest.raises(ValueError, match="non-zero time component"):
+            _validate_since(dt)
+
+    def test_name_in_error_message(self):
+        dt = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
+        with pytest.raises(ValueError, match="my_param"):
+            _validate_since(dt, name="my_param")
+
+
 # ---------------------------------------------------------------------------
 # Integration tests (require P4D_HOST + PostgreSQL)
 # ---------------------------------------------------------------------------
@@ -165,8 +188,14 @@ class TestNormalizeExpoRow:
 # growing slower as more data accumulates.  Exportaciones rows are frequently
 # touched, so a 90-day window reliably has rows.
 def _integration_since() -> datetime:
+    """Return a midnight-aligned UTC datetime N days back (default 90).
+
+    Midnight-aligned because 4D SQL date filters only use the date portion —
+    passing a datetime with a non-zero time component would raise ValueError.
+    """
     days = int(os.environ.get("ETL_TEST_SINCE_DAYS", "90"))
-    return datetime.now(tz=timezone.utc) - timedelta(days=days)
+    today = datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return today - timedelta(days=days)
 
 
 _INTEGRATION_SINCE = _integration_since()

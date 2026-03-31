@@ -75,11 +75,27 @@ _EXPO_ORDER_BY = "ORDER BY Codigo, TiendaCodigo"
 _TWO_PLACES = Decimal("0.01")
 
 
+def _validate_since(since: datetime, name: str = "since") -> None:
+    """Raise ValueError if *since* has a non-zero time component.
+
+    The 4D SQL date filter uses {d 'YYYY-MM-DD'} and silently drops any time
+    portion.  Passing a non-midnight datetime is almost certainly a mistake —
+    callers likely expect sub-day precision that will not be applied.
+    """
+    if since.hour != 0 or since.minute != 0 or since.second != 0 or since.microsecond != 0:
+        raise ValueError(
+            f"{name}={since!r} has a non-zero time component, but 4D SQL date "
+            "filters only use the date portion (YYYY-MM-DD).  Pass a midnight-aligned "
+            "datetime, e.g. datetime(year, month, day, tzinfo=timezone.utc)."
+        )
+
+
 def _build_expo_where(since: datetime | None, *, include_nulls: bool = False) -> str:
     """Return a WHERE clause fragment for Exportaciones delta filtering.
 
     Only the date portion of *since* is used — 4D SQL date literals have no
-    time component.  Pass a date-aligned datetime to avoid confusion.
+    time component.  Pass a midnight-aligned datetime to avoid confusion.
+    Raises ValueError if *since* has a non-zero time component.
 
     - since=None: no filter (full load).
     - since=<datetime>: filter by FechaModifica > {d 'YYYY-MM-DD'}.
@@ -88,6 +104,7 @@ def _build_expo_where(since: datetime | None, *, include_nulls: bool = False) ->
     """
     if since is None:
         return ""
+    _validate_since(since, "since")
     date_str = since.strftime("%Y-%m-%d")
     cond = f"FechaModifica > {{d '{date_str}'}}"
     if include_nulls:
@@ -167,11 +184,13 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     """Extract Exportaciones from 4D, normalize, and upsert into ps_stock_tienda.
 
     Uses LIMIT/OFFSET with a stable ORDER BY (Codigo, TiendaCodigo) to page
-    through the source table deterministically, avoiding skipped or duplicated
-    rows across batches.
+    through the source table in a deterministic order when the source is quiescent.
+    Under concurrent inserts/deletes, LIMIT/OFFSET may skip or duplicate rows;
+    keyset pagination would be needed for strict consistency under concurrent writes.
 
     Note: only the date portion of *since* is used in the 4D SQL filter;
-    any time component is silently ignored.  Pass a date-aligned datetime.
+    any time component is silently ignored.  Pass a midnight-aligned datetime
+    (e.g., datetime(2026, 1, 1, tzinfo=timezone.utc)) to avoid confusion.
 
     Args:
         conn_4d: P4D connection object.
@@ -279,11 +298,14 @@ def _map_traspaso_row(src: dict) -> dict:
     such as trailing ...99999 digits from causing unexpected key differences.
     """
     reg = src.get("regtraspaso")
-    reg_decimal = (
-        Decimal(str(reg)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
-        if reg is not None
-        else None
-    )
+    if reg is None:
+        # ps_traspasos.reg_traspaso is NOT NULL PRIMARY KEY — fail fast with context
+        # rather than letting the database raise an opaque constraint violation.
+        raise ValueError(
+            f"_map_traspaso_row: source row is missing RegTraspaso "
+            f"(codigo={src.get('codigo')!r}, fechas={src.get('fechas')!r})"
+        )
+    reg_decimal = Decimal(str(reg)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
     return {
         "reg_traspaso": reg_decimal,
         "codigo": src.get("codigo"),
@@ -305,10 +327,11 @@ def _build_traspasos_where(since: datetime | None) -> str:
     """Return a WHERE clause fragment for Traspasos delta filtering.
 
     Only the date portion of *since* is used — 4D SQL date literals have no
-    time component.
+    time component.  Raises ValueError if *since* has a non-zero time component.
     """
     if since is None:
         return ""
+    _validate_since(since, "since")
     date_str = since.strftime("%Y-%m-%d")
     return f"WHERE FechaS > {{d '{date_str}'}}"
 
