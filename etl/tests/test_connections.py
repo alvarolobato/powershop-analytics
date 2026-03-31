@@ -15,6 +15,7 @@ in a finally block.
 The watermark test intentionally operates on the real etl_watermarks table to
 exercise end-to-end behavior and cleans up after itself.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -28,6 +29,7 @@ from etl.db import postgres
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _create_temp_table(conn, table: str, col_defs: str) -> None:
     """Create a session-scoped temporary table, replacing any existing one.
 
@@ -39,9 +41,7 @@ def _create_temp_table(conn, table: str, col_defs: str) -> None:
 
     tbl_id = pgsql.Identifier(table)
     with conn.cursor() as cur:
-        cur.execute(
-            pgsql.SQL("DROP TABLE IF EXISTS pg_temp.{tbl}").format(tbl=tbl_id)
-        )
+        cur.execute(pgsql.SQL("DROP TABLE IF EXISTS pg_temp.{tbl}").format(tbl=tbl_id))
         # col_defs is a literal string written in this test module — safe to interpolate.
         cur.execute(
             pgsql.SQL("CREATE TEMP TABLE {tbl} ({col_defs})").format(
@@ -55,6 +55,7 @@ def _create_temp_table(conn, table: str, col_defs: str) -> None:
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestUpsert:
     TABLE = "etl_test_upsert"
@@ -157,9 +158,7 @@ class TestTruncateAndInsert:
 
         tbl_id = pgsql.Identifier(table)
         with conn.cursor() as cur:
-            cur.execute(
-                pgsql.SQL("DROP TABLE IF EXISTS {tbl}").format(tbl=tbl_id)
-            )
+            cur.execute(pgsql.SQL("DROP TABLE IF EXISTS {tbl}").format(tbl=tbl_id))
             cur.execute(
                 pgsql.SQL(
                     "CREATE TABLE {tbl} "
@@ -177,9 +176,7 @@ class TestTruncateAndInsert:
             )
 
             with conn.cursor() as cur:
-                cur.execute(
-                    pgsql.SQL("SELECT id, val FROM {tbl}").format(tbl=tbl_id)
-                )
+                cur.execute(pgsql.SQL("SELECT id, val FROM {tbl}").format(tbl=tbl_id))
                 result = cur.fetchall()
 
             assert len(result) == 1
@@ -187,9 +184,7 @@ class TestTruncateAndInsert:
             assert result[0][0] == 1
         finally:
             with conn.cursor() as cur:
-                cur.execute(
-                    pgsql.SQL("DROP TABLE IF EXISTS {tbl}").format(tbl=tbl_id)
-                )
+                cur.execute(pgsql.SQL("DROP TABLE IF EXISTS {tbl}").format(tbl=tbl_id))
             conn.commit()
 
 

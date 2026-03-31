@@ -8,6 +8,7 @@ They cover the safety logic that is hardest to test via integration tests:
 - _validate_identifier rejecting unsafe strings
 - get_queryable_columns with a stub cursor
 """
+
 from __future__ import annotations
 
 import pytest
@@ -18,6 +19,7 @@ from etl.db.fourd import _validate_identifier, get_queryable_columns, safe_fetch
 # ---------------------------------------------------------------------------
 # Stub helpers
 # ---------------------------------------------------------------------------
+
 
 class _StubCursor:
     """Minimal cursor stub for testing safe_fetch and get_queryable_columns."""

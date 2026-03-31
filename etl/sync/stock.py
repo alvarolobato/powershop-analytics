@@ -37,6 +37,7 @@ Insert uses ON CONFLICT (reg_traspaso) DO NOTHING (via insert_ignore) so the
 operation is idempotent: re-running with an overlapping delta window or running an
 initial load twice will not cause PK violations or update existing rows.
 """
+
 from __future__ import annotations
 
 import logging
@@ -59,7 +60,14 @@ _PG_BATCH = 5000
 _MAX_TALLA = 34
 
 # Fixed columns to select from Exportaciones.
-_EXPO_FIXED_COLS = ["Codigo", "TiendaCodigo", "Tienda", "CCStock", "STStock", "FechaModifica"]
+_EXPO_FIXED_COLS = [
+    "Codigo",
+    "TiendaCodigo",
+    "Tienda",
+    "CCStock",
+    "STStock",
+    "FechaModifica",
+]
 
 # Talla + Stock columns in order.
 _EXPO_TALLA_COLS = [f"Talla{i}" for i in range(1, _MAX_TALLA + 1)]
@@ -85,7 +93,12 @@ def _validate_since(since: datetime, name: str = "since") -> None:
     pipeline.  Callers should pass midnight-aligned datetimes when possible,
     but the date-only filter is still correct for day-granularity delta syncs.
     """
-    if since.hour != 0 or since.minute != 0 or since.second != 0 or since.microsecond != 0:
+    if (
+        since.hour != 0
+        or since.minute != 0
+        or since.second != 0
+        or since.microsecond != 0
+    ):
         logger.debug(
             "%s=%r has a non-zero time component — only the date portion "
             "(YYYY-MM-DD) will be used in the 4D SQL filter.",
@@ -388,7 +401,9 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
         mapped = [_map_traspaso_row(r) for r in batch]
 
         # insert_ignore uses ON CONFLICT (reg_traspaso) DO NOTHING — idempotent.
-        attempted = insert_ignore(conn_pg, "ps_traspasos", mapped, pk_cols=["reg_traspaso"])
+        attempted = insert_ignore(
+            conn_pg, "ps_traspasos", mapped, pk_cols=["reg_traspaso"]
+        )
         total_attempted += attempted
         offset += len(batch)
         logger.debug(

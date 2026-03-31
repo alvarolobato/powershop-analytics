@@ -11,6 +11,7 @@ What is tested:
                            in ps_gc_albaranes (FK integrity check).
 - test_gc_pedidos_count:   Row count in ps_gc_pedidos is approximately 101.
 """
+
 from __future__ import annotations
 
 import os
@@ -60,7 +61,9 @@ def conn_4d():
 def conn_pg():
     """Yield a psycopg2 connection; skip if PostgreSQL is not configured."""
     if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available — skipping PostgreSQL tests")
+        pytest.skip(
+            "PostgreSQL configuration not available — skipping PostgreSQL tests"
+        )
 
     from etl.config import Config
     from etl.db import postgres

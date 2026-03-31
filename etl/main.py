@@ -11,6 +11,7 @@ Usage:
     python -m etl.main --once       # run full sync once and exit
     python -m etl.main              # run scheduler (daily at ETL_CRON_HOUR, default 2)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,7 +50,9 @@ def _init_schema(conn_pg) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _run_sync(name: str, sync_fn, conn_4d, conn_pg, uses_watermark: bool = False) -> int:
+def _run_sync(
+    name: str, sync_fn, conn_4d, conn_pg, uses_watermark: bool = False
+) -> int:
     """Run a single sync function with timing, watermark management, and error handling.
 
     Returns the number of rows synced (0 on error).  Errors are logged but do
@@ -71,7 +74,9 @@ def _run_sync(name: str, sync_fn, conn_4d, conn_pg, uses_watermark: bool = False
     except Exception as exc:
         duration_ms = int((time.time() - start) * 1000)
         try:
-            set_watermark(conn_pg, name, datetime.now(timezone.utc), 0, "error", str(exc))
+            set_watermark(
+                conn_pg, name, datetime.now(timezone.utc), 0, "error", str(exc)
+            )
         except Exception as wm_exc:
             logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
         logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
@@ -144,33 +149,47 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     _run_sync("tiendas", sync_tiendas, conn_4d, conn_pg, uses_watermark=False)
     _run_sync("clientes", sync_clientes, conn_4d, conn_pg, uses_watermark=False)
     _run_sync("proveedores", sync_proveedores, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("gc_comerciales", sync_gc_comerciales, conn_4d, conn_pg, uses_watermark=False)
+    _run_sync(
+        "gc_comerciales", sync_gc_comerciales, conn_4d, conn_pg, uses_watermark=False
+    )
 
     # ------------------------------------------------------------------
     # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)
     # ------------------------------------------------------------------
     _run_sync("ventas", sync_ventas, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync("lineas_ventas", sync_lineas_ventas, conn_4d, conn_pg, uses_watermark=True)
+    _run_sync(
+        "lineas_ventas", sync_lineas_ventas, conn_4d, conn_pg, uses_watermark=True
+    )
     _run_sync("pagos_ventas", sync_pagos_ventas, conn_4d, conn_pg, uses_watermark=True)
 
     # ------------------------------------------------------------------
     # 5. Wholesale (delta by Modifica for headers; full for pedidos lines)
     # ------------------------------------------------------------------
     _run_sync("gc_albaranes", sync_gc_albaranes, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync("gc_lin_albarane", sync_gc_lin_albarane, conn_4d, conn_pg, uses_watermark=True)
+    _run_sync(
+        "gc_lin_albarane", sync_gc_lin_albarane, conn_4d, conn_pg, uses_watermark=True
+    )
     _run_sync("gc_facturas", sync_gc_facturas, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync("gc_lin_facturas", sync_gc_lin_facturas, conn_4d, conn_pg, uses_watermark=True)
+    _run_sync(
+        "gc_lin_facturas", sync_gc_lin_facturas, conn_4d, conn_pg, uses_watermark=True
+    )
     _run_sync("gc_pedidos", sync_gc_pedidos, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("gc_lin_pedidos", sync_gc_lin_pedidos, conn_4d, conn_pg, uses_watermark=False)
+    _run_sync(
+        "gc_lin_pedidos", sync_gc_lin_pedidos, conn_4d, conn_pg, uses_watermark=False
+    )
 
     # ------------------------------------------------------------------
     # 6. Purchasing (full refresh)
     # ------------------------------------------------------------------
     _run_sync("compras", sync_compras, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("lineas_compras", sync_lineas_compras, conn_4d, conn_pg, uses_watermark=False)
+    _run_sync(
+        "lineas_compras", sync_lineas_compras, conn_4d, conn_pg, uses_watermark=False
+    )
     _run_sync("facturas", sync_facturas, conn_4d, conn_pg, uses_watermark=False)
     _run_sync("albaranes", sync_albaranes, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("facturas_compra", sync_facturas_compra, conn_4d, conn_pg, uses_watermark=False)
+    _run_sync(
+        "facturas_compra", sync_facturas_compra, conn_4d, conn_pg, uses_watermark=False
+    )
 
     # ------------------------------------------------------------------
     # 7. Stock (delta by FechaModifica) — last because Exportaciones is very slow (2M rows)

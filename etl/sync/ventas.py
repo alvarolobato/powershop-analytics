@@ -26,6 +26,7 @@ hundreds of thousands of rows.  Rows are fetched in BATCH_SIZE chunks using
 LIMIT/OFFSET with ORDER BY the PK column.  Each batch is upserted immediately so
 memory usage stays bounded.
 """
+
 from __future__ import annotations
 
 import logging
@@ -55,7 +56,9 @@ def _to_decimal(value: Any) -> Any:
     return value
 
 
-def _map_row(source: dict[str, Any], mapping: dict[str, str], numeric_keys: set[str]) -> dict[str, Any]:
+def _map_row(
+    source: dict[str, Any], mapping: dict[str, str], numeric_keys: set[str]
+) -> dict[str, Any]:
     """Rename and type-convert a single raw row.
 
     Keys absent from *mapping* are silently dropped.
@@ -148,7 +151,13 @@ _VENTAS_MAPPING: dict[str, str] = {
     "pedidoweb": "pedido_web",
 }
 
-_VENTAS_NUMERIC: set[str] = {"regventas", "ndocumento", "numcliente", "totalsi", "total"}
+_VENTAS_NUMERIC: set[str] = {
+    "regventas",
+    "ndocumento",
+    "numcliente",
+    "totalsi",
+    "total",
+}
 
 _LINEAS_MAPPING: dict[str, str] = {
     "reglineas": "reg_lineas",
@@ -246,7 +255,8 @@ def sync_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> in
     effective_since = since if since is not None else _EPOCH
     where = f"FechaModifica > {_date_literal(effective_since)}"
     return _sync_table(
-        conn_4d, conn_pg,
+        conn_4d,
+        conn_pg,
         sql_base=_SQL_VENTAS_BASE,
         where_clause=where,
         pk_col_4d="RegVentas",
@@ -257,7 +267,9 @@ def sync_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> in
     )
 
 
-def sync_lineas_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> int:
+def sync_lineas_ventas(
+    conn_4d: Any, conn_pg: Any, since: datetime | None = None
+) -> int:
     """Upsert-delta sync LineasVentas → ps_lineas_ventas.
 
     Args:
@@ -277,7 +289,8 @@ def sync_lineas_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None
     effective_since = since if since is not None else _EPOCH
     where = f"FechaModifica > {_date_literal(effective_since)}"
     return _sync_table(
-        conn_4d, conn_pg,
+        conn_4d,
+        conn_pg,
         sql_base=_SQL_LINEAS_BASE,
         where_clause=where,
         pk_col_4d="RegLineas",
@@ -308,7 +321,8 @@ def sync_pagos_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None)
     effective_since = since if since is not None else _EPOCH
     where = f"FechaModifica > {_date_literal(effective_since)}"
     return _sync_table(
-        conn_4d, conn_pg,
+        conn_4d,
+        conn_pg,
         sql_base=_SQL_PAGOS_BASE,
         where_clause=where,
         pk_col_4d="RegPagos",

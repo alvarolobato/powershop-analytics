@@ -18,6 +18,7 @@ PK precision warning
 PostgreSQL to avoid binary-float precision loss.  All PK/FK values are converted to
 decimal.Decimal before being passed to the PostgreSQL insert helpers.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal

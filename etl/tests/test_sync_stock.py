@@ -7,6 +7,7 @@ PostgreSQL connection (POSTGRES_DSN or POSTGRES_USER + POSTGRES_DB must be set).
 All integration tests skip gracefully when the required environment variables are absent.
 The 4D integration tests use a bounded date range to keep query time predictable.
 """
+
 from __future__ import annotations
 
 import os
@@ -14,7 +15,12 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from etl.sync.stock import _normalize_expo_row, _validate_since, sync_stock, sync_traspasos
+from etl.sync.stock import (
+    _normalize_expo_row,
+    _validate_since,
+    sync_stock,
+    sync_traspasos,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +189,7 @@ class TestValidateSince:
 # Integration tests (require P4D_HOST + PostgreSQL)
 # ---------------------------------------------------------------------------
 
+
 # Integration start date: configurable via ETL_TEST_SINCE_DAYS env var (default 90
 # days back from now) to keep the sync window bounded and prevent tests from
 # growing slower as more data accumulates.  Exportaciones rows are frequently
@@ -194,7 +201,9 @@ def _integration_since() -> datetime:
     passing a datetime with a non-zero time component would raise ValueError.
     """
     days = int(os.environ.get("ETL_TEST_SINCE_DAYS", "90"))
-    today = datetime.now(tz=timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    today = datetime.now(tz=timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     return today - timedelta(days=days)
 
 

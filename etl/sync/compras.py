@@ -19,6 +19,7 @@ PK precision warning
 PostgreSQL to avoid binary-float precision loss.  All PK/FK values are converted to
 decimal.Decimal before being passed to the PostgreSQL insert helpers.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -110,8 +111,7 @@ _FACTURAS_COMPRA_MAPPING: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _SQL_LINEAS_COMPRAS = (
-    "SELECT RegLineaCompra, NumPedido, NumTienda, Fecha, NumArticulo"
-    " FROM CCLineasCompr"
+    "SELECT RegLineaCompra, NumPedido, NumTienda, Fecha, NumArticulo FROM CCLineasCompr"
 )
 
 
@@ -305,9 +305,7 @@ def sync_facturas_compra(conn_4d: Any, conn_pg: Any) -> int:
             f"{expected}; discovered columns: {discovered}"
         )
 
-    sql = (
-        "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM FacturasCompra"
-    )
+    sql = "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM FacturasCompra"
 
     raw_rows = safe_fetch(conn_4d, sql)
     pg_rows = [_map_row(r, cols_map) for r in raw_rows]

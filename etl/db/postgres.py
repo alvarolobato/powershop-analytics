@@ -8,6 +8,7 @@ Watermark helpers (get_watermark, set_watermark) follow the same pattern.
 _ensure_watermarks_table() does NOT commit — it is always called as part of a
 surrounding operation that owns the commit/rollback.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -148,7 +149,9 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     try:
         with conn.cursor() as cur:
             execute_values(
-                cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows]
+                cur,
+                stmt.as_string(cur),
+                [tuple(row[c] for c in columns) for row in rows],
             )
         conn.commit()
     except Exception:
@@ -180,7 +183,9 @@ def bulk_insert(conn, table: str, rows: list[dict]) -> int:
     try:
         with conn.cursor() as cur:
             execute_values(
-                cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows]
+                cur,
+                stmt.as_string(cur),
+                [tuple(row[c] for c in columns) for row in rows],
             )
         conn.commit()
     except Exception:
@@ -226,7 +231,9 @@ def insert_ignore(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int
     try:
         with conn.cursor() as cur:
             execute_values(
-                cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows]
+                cur,
+                stmt.as_string(cur),
+                [tuple(row[c] for c in columns) for row in rows],
             )
         conn.commit()
     except Exception:
@@ -258,7 +265,9 @@ def truncate_and_insert(
     from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
 
     tbl_id = pgsql.Identifier(table)
-    restart_clause = pgsql.SQL(" RESTART IDENTITY") if restart_identity else pgsql.SQL("")
+    restart_clause = (
+        pgsql.SQL(" RESTART IDENTITY") if restart_identity else pgsql.SQL("")
+    )
     truncate_stmt = pgsql.SQL("TRUNCATE {tbl}{restart}").format(
         tbl=tbl_id, restart=restart_clause
     )
