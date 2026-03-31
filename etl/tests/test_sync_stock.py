@@ -5,12 +5,12 @@ Unit tests cover helpers such as _normalize_expo_row without any external connec
 Integration tests require both a 4D SQL connection (P4D_HOST must be set) and a
 PostgreSQL connection (POSTGRES_DSN or POSTGRES_USER + POSTGRES_DB must be set).
 All integration tests skip gracefully when the required environment variables are absent.
-The 4D integration tests use a small date range to keep query time reasonable.
+The 4D integration tests use a bounded date range to keep query time predictable.
 """
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -160,10 +160,16 @@ class TestNormalizeExpoRow:
 # Integration tests (require P4D_HOST + PostgreSQL)
 # ---------------------------------------------------------------------------
 
-# Fixed integration start date — keeps the sync window bounded so tests do
-# not grow slower over time as more data accumulates in the source systems.
-# Exportaciones rows are frequently touched, so this window reliably has rows.
-_INTEGRATION_SINCE = datetime(2026, 1, 1, tzinfo=timezone.utc)
+# Integration start date: configurable via ETL_TEST_SINCE_DAYS env var (default 90
+# days back from now) to keep the sync window bounded and prevent tests from
+# growing slower as more data accumulates.  Exportaciones rows are frequently
+# touched, so a 90-day window reliably has rows.
+def _integration_since() -> datetime:
+    days = int(os.environ.get("ETL_TEST_SINCE_DAYS", "90"))
+    return datetime.now(tz=timezone.utc) - timedelta(days=days)
+
+
+_INTEGRATION_SINCE = _integration_since()
 
 
 @pytest.fixture

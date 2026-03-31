@@ -183,17 +183,20 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
     where = _build_expo_where(since, include_nulls=include_nulls)
 
-    logger.info(
-        "sync_stock: counting Exportaciones rows %s", f"({where})" if where else "(full)"
-    )
+    # COUNT is used for progress logging only — loop termination is driven by
+    # empty-batch detection to avoid missing rows added after this initial count.
     total_source = _count_expo(conn_4d, where)
-    logger.info("sync_stock: %d source rows to process", total_source)
+    logger.info(
+        "sync_stock: %d source rows to process %s",
+        total_source,
+        f"({where})" if where else "(full)",
+    )
 
     total_processed = 0
     offset = 0
     pg_buffer: list[dict] = []
 
-    while offset < total_source:
+    while True:
         # Stable ORDER BY is required for LIMIT/OFFSET pagination to be deterministic.
         sql = (
             f"SELECT {_EXPO_COLUMNS} FROM Exportaciones "
@@ -202,7 +205,7 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
         batch = safe_fetch(conn_4d, sql)
         if not batch:
-            break
+            break  # no more rows — pagination complete
 
         for src_row in batch:
             pg_buffer.extend(_normalize_expo_row(src_row))
@@ -219,15 +222,14 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
             )
             total_processed += attempted
             logger.debug(
-                "sync_stock: processed %d normalized rows (offset %d / %d)",
+                "sync_stock: processed batch of %d normalized rows",
                 attempted,
-                offset,
-                total_source,
             )
 
         offset += len(batch)
         logger.info(
-            "sync_stock: fetched %d / %d source rows (%d normalized rows buffered)",
+            "sync_stock: fetched %d source rows so far (est. total %d, "
+            "%d normalized rows buffered)",
             offset,
             total_source,
             len(pg_buffer),
@@ -336,19 +338,19 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
     """
     where = _build_traspasos_where(since)
 
-    logger.info(
-        "sync_traspasos: counting rows %s", f"({where})" if where else "(full)"
-    )
+    # COUNT is used for progress logging only — loop termination is driven by
+    # empty-batch detection to avoid missing rows added after this initial count.
     total_source = _count_traspasos(conn_4d, where)
-    logger.info("sync_traspasos: %d rows to process", total_source)
-
-    if total_source == 0:
-        return 0
+    logger.info(
+        "sync_traspasos: %d rows to process %s",
+        total_source,
+        f"({where})" if where else "(full)",
+    )
 
     total_attempted = 0
     offset = 0
 
-    while offset < total_source:
+    while True:
         sql = (
             f"SELECT {_TRASPASOS_COLUMNS} FROM Traspasos "
             f"{where} {_TRASPASOS_ORDER_BY} LIMIT {_SOURCE_BATCH} OFFSET {offset}"
@@ -356,7 +358,7 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
         batch = safe_fetch(conn_4d, sql)
         if not batch:
-            break
+            break  # no more rows — pagination complete
 
         mapped = [_map_traspaso_row(r) for r in batch]
 
@@ -365,7 +367,7 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
         total_attempted += attempted
         offset += len(batch)
         logger.debug(
-            "sync_traspasos: processed %d / %d rows (batch attempted: %d)",
+            "sync_traspasos: fetched %d rows so far (est. total %d, batch attempted: %d)",
             offset,
             total_source,
             attempted,
