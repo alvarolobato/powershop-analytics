@@ -150,11 +150,18 @@ class TestTruncateAndInsert:
         # TEMP tables with GENERATED ALWAYS AS IDENTITY require a real table in postgres
         # — use a regular table and clean up in finally.
         table = self.TABLE_IDENTITY
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+        tbl_id = pgsql.Identifier(table)
         with conn.cursor() as cur:
-            cur.execute(f"DROP TABLE IF EXISTS {table}")
             cur.execute(
-                f"CREATE TABLE {table} ("
-                "id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, val TEXT)"
+                pgsql.SQL("DROP TABLE IF EXISTS {tbl}").format(tbl=tbl_id)
+            )
+            cur.execute(
+                pgsql.SQL(
+                    "CREATE TABLE {tbl} "
+                    "(id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, val TEXT)"
+                ).format(tbl=tbl_id)
             )
         conn.commit()
         try:
@@ -166,13 +173,9 @@ class TestTruncateAndInsert:
                 conn, table, [{"val": "c"}], restart_identity=True
             )
 
-            from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
-
             with conn.cursor() as cur:
                 cur.execute(
-                    pgsql.SQL("SELECT id, val FROM {tbl}").format(
-                        tbl=pgsql.Identifier(table)
-                    )
+                    pgsql.SQL("SELECT id, val FROM {tbl}").format(tbl=tbl_id)
                 )
                 result = cur.fetchall()
 
@@ -181,7 +184,9 @@ class TestTruncateAndInsert:
             assert result[0][0] == 1
         finally:
             with conn.cursor() as cur:
-                cur.execute(f"DROP TABLE IF EXISTS {table}")
+                cur.execute(
+                    pgsql.SQL("DROP TABLE IF EXISTS {tbl}").format(tbl=tbl_id)
+                )
             conn.commit()
 
 

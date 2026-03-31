@@ -274,29 +274,18 @@ def _ensure_watermarks_table(conn) -> None:
 def get_watermark(conn, table_name: str) -> datetime | None:
     """Return the last_sync_at timestamp for *table_name*, or None if not set.
 
-    Commits on success (matching the module-level transaction policy for all
-    watermark helpers).  This makes the DDL ensure step durable and keeps the
-    connection in a clean state.  On failure, the transaction is rolled back
-    and the exception is re-raised.
-
-    Note: because this helper commits, do not call it inside a broader
-    transaction that must remain open.  Use a dedicated connection if you need
-    to combine a watermark read with other work in the same transaction.
+    This helper does not manage transactions: it may perform DDL (via
+    _ensure_watermarks_table) and then issues a SELECT, but it neither commits
+    nor rolls back. Callers are responsible for transaction boundaries and it is
+    safe to call inside a broader transaction.
     """
-    try:
-        _ensure_watermarks_table(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT last_sync_at FROM etl_watermarks WHERE table_name = %s",
-                (table_name,),
-            )
-            row = cur.fetchone()
-        # Commit the DDL (IF NOT EXISTS is a no-op if the table already exists)
-        # so the table creation is durable before we return.
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
+    _ensure_watermarks_table(conn)
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT last_sync_at FROM etl_watermarks WHERE table_name = %s",
+            (table_name,),
+        )
+        row = cur.fetchone()
     return row[0] if row else None
 
 
