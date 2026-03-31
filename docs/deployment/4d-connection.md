@@ -87,4 +87,4 @@ A successful connection shows sync progress per table. A failure shows a connect
 
 ## Read-only guarantee
 
-The ETL only issues `SELECT` statements. The CLI (`ps sql query`) rejects any statement containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, or `TRUNCATE`. There is no write path to the 4D database.
+The ETL only issues `SELECT` statements. The CLI (`ps sql query`) is intended for read-only use and will refuse queries whose trimmed text begins with `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `CREATE`, or `TRUNCATE`, but this safeguard is not comprehensive; you must not run statements that modify data. There is no write path to the 4D database in the ETL.

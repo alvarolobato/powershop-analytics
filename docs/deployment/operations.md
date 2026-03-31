@@ -105,8 +105,9 @@ Data lives in bind mounts under the project directory. Back up the `data/` subdi
 tar -czf powershop-backup-$(date +%Y%m%d).tar.gz ~/.powershop-analytics/data/
 
 # Or just back up PostgreSQL:
-docker compose -f ~/.powershop-analytics/docker-compose.yml \
-  exec -T postgres \
+docker compose --project-directory ~/.powershop-analytics \
+  --env-file ~/.powershop-analytics/.env \
+  -f ~/.powershop-analytics/docker-compose.yml exec -T postgres \
   pg_dump -U postgres powershop > powershop-$(date +%Y%m%d).sql
 ```
 

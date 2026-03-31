@@ -13,7 +13,7 @@ Common causes:
 
 - **Missing `.env` variable** — the ETL or WrenAI service will exit immediately if a required variable is empty. Check that `P4D_HOST`, `P4D_USER`, `P4D_PASSWORD`, `OPENROUTER_API_KEY`, and `POSTGRES_PASSWORD` are set in `.env`.
 - **Port conflict** — if port 3000 or 5432 is in use by another process, the container will fail to bind. Change `HOST_PORT` or `AI_SERVICE_FORWARD_PORT` in `.env`, then `ps-analytics restart`. For PostgreSQL, you can change the host port mapping in `docker-compose.yml`.
-- **Docker not running** — `ps-analytics status` will fail silently. Make sure Docker Desktop (Windows/macOS) or the Docker daemon (Linux) is running.
+- **Docker not running** — `ps-analytics status` will exit with an error from Docker/Compose. Start Docker Desktop (Windows/macOS) or the Docker daemon (Linux), then re-run the command.
 
 ## ETL fails to connect to 4D
 
