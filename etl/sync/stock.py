@@ -115,12 +115,16 @@ def _normalize_expo_row(src: dict) -> list[dict]:
     tienda_codigo = src.get("tiendacodigo")
 
     if not codigo:
+        # Include only the key identifiers in the message, not the full wide row,
+        # to keep logs readable (Exportaciones rows have 74+ columns).
         raise ValueError(
-            f"_normalize_expo_row: source row has missing/empty Codigo: {src!r}"
+            f"_normalize_expo_row: source row has missing/empty Codigo "
+            f"(tiendacodigo={tienda_codigo!r}, fechamodifica={src.get('fechamodifica')!r})"
         )
     if not tienda_codigo:
         raise ValueError(
-            f"_normalize_expo_row: source row has missing/empty TiendaCodigo: {src!r}"
+            f"_normalize_expo_row: source row has missing/empty TiendaCodigo "
+            f"(codigo={codigo!r}, fechamodifica={src.get('fechamodifica')!r})"
         )
 
     # Convert shared fields once per source row (not per talla pair).

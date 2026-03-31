@@ -160,13 +160,19 @@ class TestNormalizeExpoRow:
 # Integration tests (require P4D_HOST + PostgreSQL)
 # ---------------------------------------------------------------------------
 
+# Use a narrow rolling window (90 days back from a fixed reference date) so
+# the integration tests do not grow slower over time as more data accumulates.
+# Exportaciones rows are frequently touched, so this window reliably has rows.
+_INTEGRATION_SINCE = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
-@pytest.fixture
+
+@pytest.fixture(scope="module")
 def fourd_conn():
-    """Yield a P4D connection; skip if P4D_HOST or PostgreSQL is not set.
+    """Yield a P4D connection (module-scoped); skip if either backend is absent.
 
     Both backends are required — guard with _both_available() to avoid
     constructing Config() (which validates PG env vars) when only P4D is set.
+    Module scope means the 4D connection is opened once for the whole module.
     """
     if not _both_available():
         pytest.skip(
@@ -182,22 +188,30 @@ def fourd_conn():
     conn.close()
 
 
+@pytest.fixture(scope="module")
+def synced_stock(fourd_conn, pg_conn):
+    """Run sync_stock once per module and return the attempted row count.
+
+    Tests that need a populated ps_stock_tienda can depend on this fixture
+    instead of calling sync_stock() individually — avoids repeating the
+    expensive 4D→PG extract for each test method.
+    """
+    attempted = sync_stock(fourd_conn, pg_conn, since=_INTEGRATION_SINCE)
+    return attempted
+
+
 class TestSyncStockIntegration:
     """Integration tests that require both 4D and PostgreSQL connections."""
 
-    def test_sync_stock_produces_rows(self, fourd_conn, pg_conn):
-        """Sync a date range that is guaranteed to have rows, verify table is populated."""
-        conn_pg = pg_conn
-        # 2025-01-01 is a broad-enough window to capture recent stock activity.
-        since = datetime(2025, 1, 1, tzinfo=timezone.utc)
-
-        attempted = sync_stock(fourd_conn, conn_pg, since=since)
+    def test_sync_stock_produces_rows(self, synced_stock, pg_conn):
+        """Verify that sync_stock processed rows and ps_stock_tienda is populated."""
+        attempted = synced_stock
         assert attempted > 0, (
-            "sync_stock returned 0 attempted rows for the 2025-01-01 window — "
+            f"sync_stock returned 0 attempted rows for the {_INTEGRATION_SINCE.date()} window — "
             "no stock data was found or the query window is too narrow"
         )
 
-        with conn_pg.cursor() as cur:
+        with pg_conn.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM ps_stock_tienda")
             (count_after,) = cur.fetchone()
 
@@ -206,11 +220,9 @@ class TestSyncStockIntegration:
             "rows were not written to PostgreSQL"
         )
 
-    def test_stock_no_empty_tallas(self, fourd_conn, pg_conn):
+    def test_stock_no_empty_tallas(self, synced_stock, pg_conn):
         """After sync, no rows in ps_stock_tienda should have empty talla."""
-        # Use a wide window to ensure rows are actually synced before checking.
-        since = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        attempted = sync_stock(fourd_conn, pg_conn, since=since)
+        attempted = synced_stock
         assert attempted > 0, (
             "sync_stock returned 0 rows — cannot validate talla filtering on empty table"
         )
@@ -236,7 +248,7 @@ class TestSyncStockIntegration:
             cur.execute("TRUNCATE ps_traspasos")
         conn_pg.commit()
 
-        inserted = sync_traspasos(fourd_conn, conn_pg, since=None)
+        attempted = sync_traspasos(fourd_conn, conn_pg, since=None)
 
         # Verify row count matches source.
         from etl.db.fourd import safe_fetch
@@ -248,7 +260,7 @@ class TestSyncStockIntegration:
             cur.execute("SELECT COUNT(*) FROM ps_traspasos")
             (pg_count,) = cur.fetchone()
 
-        assert inserted == pg_count
+        assert attempted == pg_count
         assert pg_count == source_count, (
             f"Traspasos count mismatch: 4D has {source_count}, "
             f"PostgreSQL has {pg_count}"

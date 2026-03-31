@@ -259,6 +259,67 @@ class TestBulkInsert:
         assert n == 3
 
 
+class TestInsertIgnore:
+    TABLE = "etl_test_insert_ignore"
+
+    def test_insert_ignore_new_rows(self, pg_conn):
+        """insert_ignore inserts new rows successfully."""
+        conn = pg_conn
+        _create_temp_table(
+            conn,
+            self.TABLE,
+            "id INTEGER PRIMARY KEY, val TEXT",
+        )
+
+        rows = [{"id": 1, "val": "a"}, {"id": 2, "val": "b"}]
+        count = postgres.insert_ignore(conn, self.TABLE, rows, pk_cols=["id"])
+        assert count == 2
+
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+        with conn.cursor() as cur:
+            cur.execute(
+                pgsql.SQL("SELECT COUNT(*) FROM {tbl}").format(
+                    tbl=pgsql.Identifier(self.TABLE)
+                )
+            )
+            (n,) = cur.fetchone()
+        assert n == 2
+
+    def test_insert_ignore_skips_duplicates(self, pg_conn):
+        """insert_ignore silently skips rows that conflict on pk_cols."""
+        conn = pg_conn
+        _create_temp_table(
+            conn,
+            self.TABLE,
+            "id INTEGER PRIMARY KEY, val TEXT",
+        )
+
+        # First insert
+        rows = [{"id": 1, "val": "original"}]
+        postgres.insert_ignore(conn, self.TABLE, rows, pk_cols=["id"])
+
+        # Second insert with same PK but different value — must not update the row.
+        rows_dup = [{"id": 1, "val": "should_be_ignored"}, {"id": 2, "val": "new"}]
+        count = postgres.insert_ignore(conn, self.TABLE, rows_dup, pk_cols=["id"])
+        assert count == 2  # attempted (not inserted count)
+
+        from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+        with conn.cursor() as cur:
+            cur.execute(
+                pgsql.SQL("SELECT id, val FROM {tbl} ORDER BY id").format(
+                    tbl=pgsql.Identifier(self.TABLE)
+                )
+            )
+            result = cur.fetchall()
+
+        assert len(result) == 2
+        # Row id=1 must still have the original value — not overwritten.
+        assert result[0] == (1, "original")
+        assert result[1] == (2, "new")
+
+
 class TestSetWatermarkNaiveDatetime:
     def test_naive_datetime_raises(self, pg_conn):
         """set_watermark must reject a naive datetime to prevent session-TZ ambiguity."""
