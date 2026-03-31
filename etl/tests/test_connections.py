@@ -6,9 +6,12 @@ Tests use the pg_conn fixture for database connectivity. They require either:
   POSTGRES_PORT) matching the split variables in .env.example.
 Tests skip gracefully when no supported configuration is available.
 
-Most tests create TEMPORARY tables via the pg_conn fixture to avoid polluting
-the real schema; these tables are cleaned up automatically when the test
-connection closes, even on test failures.
+Most tests create TEMPORARY tables to avoid polluting the real schema; these
+tables are cleaned up automatically when the test connection closes, even on
+test failures.
+test_restart_identity is an exception: GENERATED ALWAYS AS IDENTITY requires a
+real (non-temp) table, so it creates and drops a permanent table and cleans up
+in a finally block.
 The watermark test intentionally operates on the real etl_watermarks table to
 exercise end-to-end behavior and cleans up after itself.
 """

@@ -3,10 +3,11 @@
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
 --
 -- Type conventions:
---   4D REAL PKs  → NUMERIC  (unbounded precision; NOT float8 — avoids binary-float
+--   4D REAL PKs  → NUMERIC(20,2)  (fixed scale; NOT float8 — avoids binary-float
 --                  artifacts on .99 suffix values like 10028816.641).
 --                  ETL must insert PK values as Python Decimal (not float) to prevent
 --                  precision loss before the value reaches PostgreSQL.
+--   4D REAL FKs  → NUMERIC(20,2)  (same precision as the referenced PK)
 --   Dates        → DATE
 --   Times        → TIME
 --   Text         → TEXT
@@ -19,17 +20,17 @@
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS ps_articulos (
-    reg_articulo     NUMERIC      PRIMARY KEY,
+    reg_articulo     NUMERIC(20,2) PRIMARY KEY,
     codigo           TEXT,
     ccrefejofacm     TEXT,         -- "Referencia" — primary business identifier (e.g. "V26212484")
     descripcion      TEXT,
     codigo_barra     TEXT,
-    num_familia      NUMERIC,
-    num_departament  NUMERIC,
-    num_color        NUMERIC,
-    num_temporada    NUMERIC,
-    num_marca        NUMERIC,
-    num_proveedor    NUMERIC,
+    num_familia      NUMERIC(20,2),
+    num_departament  NUMERIC(20,2),
+    num_color        NUMERIC(20,2),
+    num_temporada    NUMERIC(20,2),
+    num_marca        NUMERIC(20,2),
+    num_proveedor    NUMERIC(20,2),
     precio_coste     NUMERIC(15,2),
     pr_coste_ne      NUMERIC(15,2),
     p_iva            NUMERIC(5,2),
@@ -43,7 +44,7 @@ CREATE TABLE IF NOT EXISTS ps_articulos (
 );
 
 CREATE TABLE IF NOT EXISTS ps_familias (
-    reg_familia      NUMERIC      PRIMARY KEY,
+    reg_familia      NUMERIC(20,2) PRIMARY KEY,
     clave            TEXT,
     fami_grup_marc   TEXT,
     coeficiente1     NUMERIC(8,4),
@@ -56,7 +57,7 @@ CREATE TABLE IF NOT EXISTS ps_familias (
 );
 
 CREATE TABLE IF NOT EXISTS ps_departamentos (
-    reg_departament  NUMERIC      PRIMARY KEY,
+    reg_departament  NUMERIC(20,2) PRIMARY KEY,
     clave            TEXT,
     depa_secc_fabr   TEXT,
     jo_iva           NUMERIC(5,2),
@@ -65,13 +66,13 @@ CREATE TABLE IF NOT EXISTS ps_departamentos (
 );
 
 CREATE TABLE IF NOT EXISTS ps_colores (
-    reg_color  NUMERIC  PRIMARY KEY,
+    reg_color  NUMERIC(20,2) PRIMARY KEY,
     clave      TEXT,
     color      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ps_temporadas (
-    reg_temporada    NUMERIC  PRIMARY KEY,
+    reg_temporada    NUMERIC(20,2) PRIMARY KEY,
     clave            TEXT,
     temporada_tipo   TEXT,
     temporada_activ  BOOLEAN,
@@ -82,7 +83,7 @@ CREATE TABLE IF NOT EXISTS ps_temporadas (
 );
 
 CREATE TABLE IF NOT EXISTS ps_marcas (
-    reg_marca          NUMERIC  PRIMARY KEY,
+    reg_marca          NUMERIC(20,2) PRIMARY KEY,
     clave              TEXT,
     marca_tratamien    TEXT,
     presupuesto        NUMERIC(15,2),
@@ -94,8 +95,8 @@ CREATE TABLE IF NOT EXISTS ps_marcas (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS ps_clientes (
-    reg_cliente      NUMERIC  PRIMARY KEY,
-    num_cliente      NUMERIC,
+    reg_cliente      NUMERIC(20,2) PRIMARY KEY,
+    num_cliente      NUMERIC(20,2),
     nombre           TEXT,
     nif              TEXT,
     email            TEXT,
@@ -108,13 +109,13 @@ CREATE TABLE IF NOT EXISTS ps_clientes (
 );
 
 CREATE TABLE IF NOT EXISTS ps_tiendas (
-    reg_tienda     NUMERIC  PRIMARY KEY,
+    reg_tienda     NUMERIC(20,2) PRIMARY KEY,
     codigo         TEXT,
     fecha_modifica DATE
 );
 
 CREATE TABLE IF NOT EXISTS ps_proveedores (
-    reg_proveedor  NUMERIC  PRIMARY KEY,
+    reg_proveedor  NUMERIC(20,2) PRIMARY KEY,
     nombre         TEXT,
     nif            TEXT,
     pais           TEXT,
@@ -122,7 +123,7 @@ CREATE TABLE IF NOT EXISTS ps_proveedores (
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_comerciales (
-    reg_comercial   NUMERIC  PRIMARY KEY,
+    reg_comercial   NUMERIC(20,2) PRIMARY KEY,
     comercial       TEXT,
     cif             TEXT,
     zona_comercial  TEXT,
@@ -139,15 +140,15 @@ CREATE TABLE IF NOT EXISTS ps_gc_comerciales (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS ps_ventas (
-    reg_ventas       NUMERIC      PRIMARY KEY,
-    n_documento      NUMERIC,
+    reg_ventas       NUMERIC(20,2) PRIMARY KEY,
+    n_documento      NUMERIC(20,2),
     serie_v          INTEGER,
     tienda           TEXT,
     fecha_creacion   DATE,
     fecha_modifica   DATE,
     total_si         NUMERIC(15,2),  -- VAT-exclusive total (use for analytics)
     total            NUMERIC(15,2),  -- VAT-inclusive total (do not use for revenue)
-    num_cliente      NUMERIC,
+    num_cliente      NUMERIC(20,2),
     codigo_cajero    TEXT,
     cajero_nombre    TEXT,
     tipo_venta       TEXT,
@@ -159,9 +160,9 @@ CREATE TABLE IF NOT EXISTS ps_ventas (
 );
 
 CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
-    reg_lineas          NUMERIC      PRIMARY KEY,
-    num_ventas          NUMERIC,
-    n_documento         NUMERIC,
+    reg_lineas          NUMERIC(20,2) PRIMARY KEY,
+    num_ventas          NUMERIC(20,2),
+    n_documento         NUMERIC(20,2),
     mes                 INTEGER,
     tienda              TEXT,
     codigo              TEXT,
@@ -176,8 +177,8 @@ CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
 );
 
 CREATE TABLE IF NOT EXISTS ps_pagos_ventas (
-    reg_pagos       NUMERIC      PRIMARY KEY,
-    num_ventas      NUMERIC,
+    reg_pagos       NUMERIC(20,2) PRIMARY KEY,
+    num_ventas      NUMERIC(20,2),
     forma           TEXT,
     codigo_forma    TEXT,
     importe_cob     NUMERIC(15,2),  -- "Importe Cobrado" — actual charged amount (use this)
@@ -208,7 +209,7 @@ CREATE TABLE IF NOT EXISTS ps_stock_tienda (
 
 -- Transfer movements between stores (append-only by fecha_s).
 CREATE TABLE IF NOT EXISTS ps_traspasos (
-    reg_traspaso    NUMERIC  PRIMARY KEY,
+    reg_traspaso    NUMERIC(20,2) PRIMARY KEY,
     codigo          TEXT,
     descripcion     TEXT,
     talla           TEXT,
@@ -231,9 +232,9 @@ CREATE TABLE IF NOT EXISTS ps_traspasos (
 -- Delta is derived from the parent header's Modifica field.
 
 CREATE TABLE IF NOT EXISTS ps_gc_albaranes (
-    reg_albaran     NUMERIC      PRIMARY KEY,
-    n_albaran       NUMERIC,
-    num_cliente     NUMERIC,
+    reg_albaran     NUMERIC(20,2) PRIMARY KEY,
+    n_albaran       NUMERIC(20,2),
+    num_cliente     NUMERIC(20,2),
     fecha_envio     DATE,
     fecha_valor     DATE,
     modifica        DATE,
@@ -242,14 +243,14 @@ CREATE TABLE IF NOT EXISTS ps_gc_albaranes (
     base3           NUMERIC(15,2),
     entregadas      NUMERIC(10,2),
     transportista   TEXT,
-    num_comercial   NUMERIC,
+    num_comercial   NUMERIC(20,2),
     temporada       TEXT
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_lin_albarane (
-    reg_linea        NUMERIC      PRIMARY KEY,
-    n_albaran        NUMERIC,   -- FK → ps_gc_albaranes.n_albaran (not reg_albaran)
-    num_albaran      NUMERIC,
+    reg_linea        NUMERIC(20,2) PRIMARY KEY,
+    n_albaran        NUMERIC(20,2),   -- FK → ps_gc_albaranes.n_albaran (not reg_albaran)
+    num_albaran      NUMERIC(20,2),
     codigo           TEXT,
     articulo         TEXT,
     descripcion      TEXT,
@@ -258,33 +259,33 @@ CREATE TABLE IF NOT EXISTS ps_gc_lin_albarane (
     unidades         NUMERIC(10,2),
     precio_neto      NUMERIC(15,2),
     total            NUMERIC(15,2),
-    num_cliente      NUMERIC,
-    num_familia      NUMERIC,
-    num_departament  NUMERIC,
-    num_temporada    NUMERIC,
-    num_marca        NUMERIC,
-    num_color        NUMERIC,
-    num_comercial    NUMERIC,
+    num_cliente      NUMERIC(20,2),
+    num_familia      NUMERIC(20,2),
+    num_departament  NUMERIC(20,2),
+    num_temporada    NUMERIC(20,2),
+    num_marca        NUMERIC(20,2),
+    num_color        NUMERIC(20,2),
+    num_comercial    NUMERIC(20,2),
     mes              INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_facturas (
-    reg_factura     NUMERIC      PRIMARY KEY,
-    n_factura       NUMERIC,
+    reg_factura     NUMERIC(20,2) PRIMARY KEY,
+    n_factura       NUMERIC(20,2),
     fecha_factura   DATE,
     modifica        DATE,
     base1           NUMERIC(15,2),
     base2           NUMERIC(15,2),
     base3           NUMERIC(15,2),
-    num_cliente     NUMERIC,
-    num_comercial   NUMERIC,
+    num_cliente     NUMERIC(20,2),
+    num_comercial   NUMERIC(20,2),
     abono           BOOLEAN,
     total_factura   NUMERIC(15,2)
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_lin_facturas (
-    reg_linea        NUMERIC      PRIMARY KEY,
-    num_factura      NUMERIC,   -- FK → ps_gc_facturas.n_factura (asymmetric naming)
+    reg_linea        NUMERIC(20,2) PRIMARY KEY,
+    num_factura      NUMERIC(20,2),   -- FK → ps_gc_facturas.n_factura (asymmetric naming)
     codigo           TEXT,
     descripcion      TEXT,
     unidades         NUMERIC(10,2),
@@ -293,21 +294,21 @@ CREATE TABLE IF NOT EXISTS ps_gc_lin_facturas (
     total_coste      NUMERIC(15,2),
     p_iva            NUMERIC(5,2),
     fecha_factura    DATE,
-    num_cliente      NUMERIC,
-    num_familia      NUMERIC,
-    num_departament  NUMERIC,
-    num_marca        NUMERIC,
-    num_color        NUMERIC,
-    num_comercial    NUMERIC,
+    num_cliente      NUMERIC(20,2),
+    num_familia      NUMERIC(20,2),
+    num_departament  NUMERIC(20,2),
+    num_marca        NUMERIC(20,2),
+    num_color        NUMERIC(20,2),
+    num_comercial    NUMERIC(20,2),
     mes              INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_pedidos (
-    reg_pedido       NUMERIC      PRIMARY KEY,
-    n_pedido         NUMERIC,
+    reg_pedido       NUMERIC(20,2) PRIMARY KEY,
+    n_pedido         NUMERIC(20,2),
     fecha_pedido     DATE,
     modifica         DATE,
-    num_cliente      NUMERIC,
+    num_cliente      NUMERIC(20,2),
     comercial        TEXT,
     total_pedido     NUMERIC(15,2),
     unidades         NUMERIC(10,2),
@@ -319,8 +320,8 @@ CREATE TABLE IF NOT EXISTS ps_gc_pedidos (
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_lin_pedidos (
-    reg_linea      NUMERIC      PRIMARY KEY,
-    num_pedido     NUMERIC,
+    reg_linea      NUMERIC(20,2) PRIMARY KEY,
+    num_pedido     NUMERIC(20,2),
     codigo         TEXT,
     descripcion    TEXT,
     unidades       NUMERIC(10,2),
@@ -337,7 +338,7 @@ CREATE TABLE IF NOT EXISTS ps_gc_lin_pedidos (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS ps_compras (
-    reg_pedido       NUMERIC  PRIMARY KEY,
+    reg_pedido       NUMERIC(20,2) PRIMARY KEY,
     fecha_pedido     DATE,
     fecha_recibido   DATE,
     modificada       DATE,
@@ -347,21 +348,21 @@ CREATE TABLE IF NOT EXISTS ps_compras (
 -- CCLineasCompr in 4D (NOT LineasCompras — that table does not exist).
 -- Links to Compras via NumPedido, and to Tiendas via NumTienda.
 CREATE TABLE IF NOT EXISTS ps_lineas_compras (
-    reg_linea_compra  NUMERIC  PRIMARY KEY,
-    num_pedido        NUMERIC,
-    num_tienda        NUMERIC,
+    reg_linea_compra  NUMERIC(20,2) PRIMARY KEY,
+    num_pedido        NUMERIC(20,2),
+    num_tienda        NUMERIC(20,2),
     fecha             DATE,
     num_articulo      NUMERIC
 );
 
 CREATE TABLE IF NOT EXISTS ps_facturas (
-    reg_factura     NUMERIC  PRIMARY KEY,
+    reg_factura     NUMERIC(20,2) PRIMARY KEY,
     fecha_factura   DATE,
     fecha_modifica  DATE
 );
 
 CREATE TABLE IF NOT EXISTS ps_albaranes (
-    reg_albaran    NUMERIC  PRIMARY KEY,
+    reg_albaran    NUMERIC(20,2) PRIMARY KEY,
     fecha_recibido DATE,
     modificada     DATE
 );
