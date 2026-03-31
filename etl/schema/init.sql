@@ -390,3 +390,142 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
     error_msg    TEXT,
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ============================================================
+-- Unique constraints required by wholesale FK targets
+-- (n_albaran and n_factura are not PKs but are used as FK targets)
+-- ============================================================
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_alb_nalbaran ON ps_gc_albaranes(n_albaran);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fac_nfactura  ON ps_gc_facturas(n_factura);
+
+-- ============================================================
+-- Indexes
+-- ============================================================
+
+-- FK indexes (JOIN acceleration)
+CREATE INDEX IF NOT EXISTS idx_lv_num_ventas   ON ps_lineas_ventas(num_ventas);
+CREATE INDEX IF NOT EXISTS idx_pv_num_ventas   ON ps_pagos_ventas(num_ventas);
+CREATE INDEX IF NOT EXISTS idx_lv_codigo       ON ps_lineas_ventas(codigo);
+
+-- Date indexes (delta queries, time filters)
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha_mod ON ps_ventas(fecha_modifica);
+CREATE INDEX IF NOT EXISTS idx_lv_fecha_mod     ON ps_lineas_ventas(fecha_modifica);
+CREATE INDEX IF NOT EXISTS idx_lv_mes           ON ps_lineas_ventas(mes);
+
+-- Store indexes (per-store analytics)
+CREATE INDEX IF NOT EXISTS idx_ventas_tienda ON ps_ventas(tienda);
+CREATE INDEX IF NOT EXISTS idx_lv_tienda     ON ps_lineas_ventas(tienda);
+
+-- Stock indexes
+CREATE INDEX IF NOT EXISTS idx_stock_codigo ON ps_stock_tienda(codigo);
+CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
+
+-- Wholesale FK indexes
+CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
+CREATE INDEX IF NOT EXISTS idx_glf_numfactura ON ps_gc_lin_facturas(num_factura);
+
+-- ============================================================
+-- Foreign key constraints (idempotent, NOT VALID DEFERRABLE)
+-- NOT VALID: skips validation of existing rows (safe for pre-loaded data).
+-- DEFERRABLE INITIALLY DEFERRED: checked at transaction end, not per-statement.
+-- ============================================================
+
+DO $$
+BEGIN
+  -- Retail sales
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_lv_ventas') THEN
+    ALTER TABLE ps_lineas_ventas ADD CONSTRAINT fk_lv_ventas
+      FOREIGN KEY (num_ventas) REFERENCES ps_ventas(reg_ventas)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pv_ventas') THEN
+    ALTER TABLE ps_pagos_ventas ADD CONSTRAINT fk_pv_ventas
+      FOREIGN KEY (num_ventas) REFERENCES ps_ventas(reg_ventas)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  -- Product hierarchy
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_art_familia') THEN
+    ALTER TABLE ps_articulos ADD CONSTRAINT fk_art_familia
+      FOREIGN KEY (num_familia) REFERENCES ps_familias(reg_familia)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_art_depto') THEN
+    ALTER TABLE ps_articulos ADD CONSTRAINT fk_art_depto
+      FOREIGN KEY (num_departament) REFERENCES ps_departamentos(reg_departament)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_art_color') THEN
+    ALTER TABLE ps_articulos ADD CONSTRAINT fk_art_color
+      FOREIGN KEY (num_color) REFERENCES ps_colores(reg_color)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_art_temp') THEN
+    ALTER TABLE ps_articulos ADD CONSTRAINT fk_art_temp
+      FOREIGN KEY (num_temporada) REFERENCES ps_temporadas(reg_temporada)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_art_marca') THEN
+    ALTER TABLE ps_articulos ADD CONSTRAINT fk_art_marca
+      FOREIGN KEY (num_marca) REFERENCES ps_marcas(reg_marca)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  -- Wholesale
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_gla_albaran') THEN
+    ALTER TABLE ps_gc_lin_albarane ADD CONSTRAINT fk_gla_albaran
+      FOREIGN KEY (n_albaran) REFERENCES ps_gc_albaranes(n_albaran)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_glf_factura') THEN
+    ALTER TABLE ps_gc_lin_facturas ADD CONSTRAINT fk_glf_factura
+      FOREIGN KEY (num_factura) REFERENCES ps_gc_facturas(n_factura)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+
+  -- Purchasing
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_lc_compras') THEN
+    ALTER TABLE ps_lineas_compras ADD CONSTRAINT fk_lc_compras
+      FOREIGN KEY (num_pedido) REFERENCES ps_compras(reg_pedido)
+      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  END IF;
+END $$;
+
+-- ============================================================
+-- ANALYZE (update planner statistics after initial load)
+-- ============================================================
+
+ANALYZE ps_articulos;
+ANALYZE ps_familias;
+ANALYZE ps_departamentos;
+ANALYZE ps_colores;
+ANALYZE ps_temporadas;
+ANALYZE ps_marcas;
+ANALYZE ps_clientes;
+ANALYZE ps_tiendas;
+ANALYZE ps_proveedores;
+ANALYZE ps_gc_comerciales;
+ANALYZE ps_ventas;
+ANALYZE ps_lineas_ventas;
+ANALYZE ps_pagos_ventas;
+ANALYZE ps_stock_tienda;
+ANALYZE ps_traspasos;
+ANALYZE ps_gc_albaranes;
+ANALYZE ps_gc_lin_albarane;
+ANALYZE ps_gc_facturas;
+ANALYZE ps_gc_lin_facturas;
+ANALYZE ps_gc_pedidos;
+ANALYZE ps_gc_lin_pedidos;
+ANALYZE ps_compras;
+ANALYZE ps_lineas_compras;
+ANALYZE ps_facturas;
+ANALYZE ps_albaranes;
+ANALYZE ps_facturas_compra;
+ANALYZE etl_watermarks;
