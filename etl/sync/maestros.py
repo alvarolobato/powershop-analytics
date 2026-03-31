@@ -75,13 +75,19 @@ def _discover_columns(conn_4d, table_name: str, exclude_types: tuple[int, ...] =
 
 # Mapping from lowercase 4D column names → PostgreSQL column names.
 # Only the columns present in ps_clientes (init.sql) are mapped.
+# Actual 4D column names discovered via _USER_COLUMNS:
+#   - NumCliente does not exist; Codigo is the client code
+#   - Nombre does not exist; NombreComercial is the commercial name (it's in safe cols)
+#   - NIF does not exist; CIF is the tax ID
+#   - Email does not exist (case-sensitive); 'email' (lowercase) is the column
+#   - CodigoPostal does not exist; Postal is the zip code
 _CLIENTES_MAP: dict[str, str] = {
     "regcliente": "reg_cliente",
-    "numcliente": "num_cliente",
-    "nombre": "nombre",
-    "nif": "nif",
-    "email": "email",
-    "codigopostal": "codigo_postal",
+    "codigo": "num_cliente",       # Codigo = client code (maps to num_cliente)
+    "nombrecomercial": "nombre",   # NombreComercial = business name (maps to nombre)
+    "cif": "nif",                  # CIF = tax ID (maps to nif)
+    "email": "email",              # email (lowercase in 4D)
+    "postal": "codigo_postal",     # Postal = zip code (maps to codigo_postal)
     "poblacion": "poblacion",
     "pais": "pais",
     "fechacreacion": "fecha_creacion",
@@ -94,11 +100,11 @@ _CLIENTES_MAP: dict[str, str] = {
 # it will be silently omitted by the discovery step.
 _CLIENTES_DESIRED = [
     "RegCliente",
-    "NumCliente",
-    "Nombre",
-    "NIF",
-    "Email",
-    "CodigoPostal",
+    "Codigo",           # client code → num_cliente
+    "NombreComercial",  # business name → nombre
+    "CIF",              # tax ID → nif
+    "email",            # email (lowercase in 4D)
+    "Postal",           # zip code → codigo_postal
     "Poblacion",
     "Pais",
     "FechaCreacion",

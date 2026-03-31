@@ -3,7 +3,7 @@ provider: litellm_llm
 timeout: 120
 models:
   - alias: default
-    model: ${WREN_LLM_MODEL:-anthropic/claude-sonnet-4-20250514}
+    model: openrouter/anthropic/claude-sonnet-4-20250514
     context_window_size: 200000
     kwargs:
       max_tokens: 4096
@@ -15,7 +15,7 @@ models:
 type: embedder
 provider: litellm_embedder
 models:
-  - model: openai/text-embedding-3-large
+  - model: openrouter/openai/text-embedding-3-large
     alias: default
     timeout: 120
 
