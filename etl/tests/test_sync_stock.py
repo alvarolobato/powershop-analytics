@@ -36,6 +36,7 @@ def _postgres_available() -> bool:
 
 
 def _both_available() -> bool:
+    """Return True only when both 4D and PostgreSQL are configured."""
     return _p4d_available() and _postgres_available()
 
 
@@ -128,6 +129,31 @@ class TestNormalizeExpoRow:
         result = _normalize_expo_row(row)
         assert result[0]["talla"] == "38"
 
+    def test_missing_codigo_raises(self):
+        """Missing Codigo should raise ValueError instead of silently producing empty key."""
+        row = self._make_row([("38", 1)])
+        row["codigo"] = None
+        with pytest.raises(ValueError, match="Codigo"):
+            _normalize_expo_row(row)
+
+    def test_missing_tienda_codigo_raises(self):
+        """Missing TiendaCodigo should raise ValueError instead of silently producing empty key."""
+        row = self._make_row([("38", 1)])
+        row["tiendacodigo"] = None
+        with pytest.raises(ValueError, match="TiendaCodigo"):
+            _normalize_expo_row(row)
+
+    def test_cc_stock_computed_once(self):
+        """cc_stock value is identical across all emitted rows (computed once per source row)."""
+        row = self._make_row([("36", 1), ("38", 2), ("40", 3)])
+        result = _normalize_expo_row(row)
+        assert len(result) == 3
+        from decimal import Decimal
+
+        expected = Decimal("10.0")
+        for r in result:
+            assert r["cc_stock"] == expected
+
 
 # ---------------------------------------------------------------------------
 # Integration tests (require P4D_HOST + PostgreSQL)
@@ -136,9 +162,16 @@ class TestNormalizeExpoRow:
 
 @pytest.fixture
 def fourd_conn():
-    """Yield a P4D connection; skip if P4D_HOST is not set."""
-    if not _p4d_available():
-        pytest.skip("P4D_HOST not set — skipping 4D integration tests")
+    """Yield a P4D connection; skip if P4D_HOST or PostgreSQL is not set.
+
+    Both backends are required — guard with _both_available() to avoid
+    constructing Config() (which validates PG env vars) when only P4D is set.
+    """
+    if not _both_available():
+        pytest.skip(
+            "P4D_HOST or PostgreSQL configuration not available — "
+            "skipping integration tests"
+        )
     from etl.config import Config
     from etl.db import fourd
 
@@ -148,26 +181,16 @@ def fourd_conn():
     conn.close()
 
 
-@pytest.fixture
-def pg_conn_stock(pg_conn):
-    """Use the shared pg_conn fixture; skip if PostgreSQL is not available."""
-    if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available — skipping PostgreSQL tests")
-    return pg_conn
-
-
 class TestSyncStockIntegration:
     """Integration tests that require both 4D and PostgreSQL connections."""
 
-    def test_sync_stock_produces_rows(self, fourd_conn, pg_conn_stock):
+    def test_sync_stock_produces_rows(self, fourd_conn, pg_conn):
         """Sync a narrow date range and verify ps_stock_tienda gets rows."""
-        conn_pg = pg_conn_stock
+        conn_pg = pg_conn
         # Use a recent date range narrow enough to be fast but wide enough to
-        # capture some recently modified stock rows.  Exportaciones rows always
-        # have FechaModifica populated for active articles.
+        # capture some recently modified stock rows.
         since = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-        count_before: int
         with conn_pg.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM ps_stock_tienda")
             (count_before,) = cur.fetchone()
@@ -183,14 +206,13 @@ class TestSyncStockIntegration:
         # update existing rows without changing count).
         assert count_after >= count_before
 
-    def test_stock_no_empty_tallas(self, fourd_conn, pg_conn_stock):
+    def test_stock_no_empty_tallas(self, fourd_conn, pg_conn):
         """After sync, no rows in ps_stock_tienda should have empty talla."""
         # Run a small initial sync first to ensure there are rows.
         since = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        sync_stock(fourd_conn, pg_conn_stock, since=since)
+        sync_stock(fourd_conn, pg_conn, since=since)
 
-        conn_pg = pg_conn_stock
-        with conn_pg.cursor() as cur:
+        with pg_conn.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) FROM ps_stock_tienda "
                 "WHERE talla IS NULL OR TRIM(talla) = ''"
@@ -202,11 +224,9 @@ class TestSyncStockIntegration:
             "normalization is not filtering them correctly"
         )
 
-    def test_traspasos_count(self, fourd_conn, pg_conn_stock):
+    def test_traspasos_count(self, fourd_conn, pg_conn):
         """Full sync of Traspasos: row count in PostgreSQL matches 4D count."""
-        from etl.db.fourd import safe_fetch
-
-        conn_pg = pg_conn_stock
+        conn_pg = pg_conn
 
         # Truncate before full sync to avoid duplicates from previous test runs.
         with conn_pg.cursor() as cur:
@@ -216,6 +236,8 @@ class TestSyncStockIntegration:
         inserted = sync_traspasos(fourd_conn, conn_pg, since=None)
 
         # Verify row count matches source.
+        from etl.db.fourd import safe_fetch
+
         source_rows = safe_fetch(fourd_conn, "SELECT COUNT(*) FROM Traspasos")
         source_count = int(next(iter(source_rows[0].values())))
 
