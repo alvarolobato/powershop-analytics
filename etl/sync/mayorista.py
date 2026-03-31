@@ -53,7 +53,7 @@ _NUMERIC_FIELDS = frozenset(
         "base1",
         "base2",
         "base3",
-        "entregadas",
+        "unidades",   # maps to ps_gc_albaranes.entregadas (Entregadas doesn't exist in GCAlbaranes)
         "numcomercial",
         # GCFacturas
         "regfactura",
@@ -126,7 +126,8 @@ _ALBARANES_MAPPING: dict[str, str] = {
     "base1": "base1",
     "base2": "base2",
     "base3": "base3",
-    "entregadas": "entregadas",
+    # GCAlbaranes uses 'Unidades' (not 'Entregadas' which doesn't exist in this table)
+    "unidades": "entregadas",
     "transportista": "transportista",
     "numcomercial": "num_comercial",
     "temporada": "temporada",
@@ -223,7 +224,7 @@ _LIN_PEDIDOS_MAPPING: dict[str, str] = {
 
 _SQL_ALBARANES_DELTA = (
     "SELECT RegAlbaran, NAlbaran, NumCliente, FechaEnvio, FechaValor,"
-    " Modifica, Base1, Base2, Base3, Entregadas, Transportista,"
+    " Modifica, Base1, Base2, Base3, Unidades, Transportista,"
     " NumComercial, Temporada"
     " FROM GCAlbaranes"
     " WHERE Modifica > {since}"
@@ -231,7 +232,7 @@ _SQL_ALBARANES_DELTA = (
 
 _SQL_ALBARANES_ALL = (
     "SELECT RegAlbaran, NAlbaran, NumCliente, FechaEnvio, FechaValor,"
-    " Modifica, Base1, Base2, Base3, Entregadas, Transportista,"
+    " Modifica, Base1, Base2, Base3, Unidades, Transportista,"
     " NumComercial, Temporada"
     " FROM GCAlbaranes"
 )

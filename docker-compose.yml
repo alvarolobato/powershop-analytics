@@ -134,6 +134,10 @@ services:
       # Qdrant
       QDRANT_HOST: qdrant
       SHOULD_FORCE_DEPLOY: "1"
+      # Port — required by entrypoint.sh for uvicorn --port $WREN_AI_SERVICE_PORT
+      WREN_AI_SERVICE_PORT: ${WREN_AI_SERVICE_PORT:-5555}
+      # LLM model — required for ${WREN_LLM_MODEL:-...} substitution in wren-config.yaml
+      WREN_LLM_MODEL: ${WREN_LLM_MODEL:-openrouter/anthropic/claude-sonnet-4-20250514}
       # Telemetry
       WREN_AI_SERVICE_VERSION: ${WREN_AI_SERVICE_VERSION:-0.29.0}
     volumes:

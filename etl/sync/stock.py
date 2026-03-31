@@ -76,17 +76,21 @@ _TWO_PLACES = Decimal("0.01")
 
 
 def _validate_since(since: datetime, name: str = "since") -> None:
-    """Raise ValueError if *since* has a non-zero time component.
+    """Log a warning if *since* has a non-zero time component and return silently.
 
     The 4D SQL date filter uses {d 'YYYY-MM-DD'} and silently drops any time
-    portion.  Passing a non-midnight datetime is almost certainly a mistake —
-    callers likely expect sub-day precision that will not be applied.
+    portion.  Watermarks stored by set_watermark() include a time component
+    (datetime.now(timezone.utc)), so raising here would break all delta syncs.
+    We log a warning instead so the behaviour is visible without breaking the
+    pipeline.  Callers should pass midnight-aligned datetimes when possible,
+    but the date-only filter is still correct for day-granularity delta syncs.
     """
     if since.hour != 0 or since.minute != 0 or since.second != 0 or since.microsecond != 0:
-        raise ValueError(
-            f"{name}={since!r} has a non-zero time component, but 4D SQL date "
-            "filters only use the date portion (YYYY-MM-DD).  Pass a midnight-aligned "
-            "datetime, e.g. datetime(year, month, day, tzinfo=timezone.utc)."
+        logger.debug(
+            "%s=%r has a non-zero time component — only the date portion "
+            "(YYYY-MM-DD) will be used in the 4D SQL filter.",
+            name,
+            since,
         )
 
 

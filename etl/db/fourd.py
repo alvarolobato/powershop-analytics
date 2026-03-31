@@ -1,6 +1,8 @@
 """4D SQL (P4D) connection helpers.
 
 Gotchas handled here:
+- Column names are returned as BYTES by the p4d driver (e.g. b'REGARTICULO').
+  safe_fetch() decodes them to lowercase str so callers always work with str keys.
 - Text fields may return bytes in Python 3.13+ — always decode.
 - Column names are returned UPPERCASE from 4D — normalize to lowercase.
 - Some columns have type 0 (unknown to p4d); SELECT * on those tables raises
@@ -58,24 +60,47 @@ def get_connection(config: "Config"):  # type: ignore[return]
 
 
 def _decode_value(v: Any) -> Any:
-    """Decode bytes to str; pass all other types through unchanged."""
+    """Decode bytes to str and strip NUL characters; pass other types through.
+
+    PostgreSQL rejects string literals containing NUL (0x00) characters with
+    "A string literal cannot contain NUL (0x00) characters."  Some 4D text
+    fields contain embedded NUL bytes (e.g. padding in fixed-length fields or
+    corrupted data).  Stripping them here is the safest fix — NUL bytes carry
+    no semantic meaning in these text fields.
+    """
     if isinstance(v, bytes):
-        return v.decode("utf-8", errors="replace")
+        decoded = v.decode("utf-8", errors="replace")
+        return decoded.replace("\x00", "")
+    if isinstance(v, str):
+        # Also strip NUL from native str values (p4d may return str with NUL).
+        return v.replace("\x00", "") if "\x00" in v else v
     return v
 
 
-def safe_fetch(conn, sql: str) -> list[dict]:
-    """Execute *sql* and return a list of dicts with lowercase keys.
+def _decode_column_name(name: Any) -> str:
+    """Decode a cursor description column name to a lowercase str.
 
+    p4d returns column names as bytes (e.g. b'REGARTICULO').  Decoding here
+    keeps all callers simple — they always receive plain str keys.
+    """
+    if isinstance(name, bytes):
+        return name.decode("utf-8", errors="replace").lower()
+    return str(name).lower()
+
+
+def safe_fetch(conn, sql: str) -> list[dict]:
+    """Execute *sql* and return a list of dicts with lowercase str keys.
+
+    - Column names are decoded from bytes to str and lowercased (p4d returns
+      them as uppercase bytes, e.g. b'REGARTICULO' → 'regarticulo').
     - Decodes bytes values to str.
     - None values are preserved.
-    - Column names are normalised to lowercase (4D returns them uppercase).
     - The cursor is always closed after fetching.
     """
     cursor = conn.cursor()
     try:
         cursor.execute(sql)
-        columns = [desc[0].lower() for desc in cursor.description]
+        columns = [_decode_column_name(desc[0]) for desc in cursor.description]
         rows = cursor.fetchall()
     finally:
         cursor.close()
