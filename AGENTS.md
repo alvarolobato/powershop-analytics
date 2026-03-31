@@ -58,6 +58,9 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps sql query "<SQL>"` | Run a read-only SQL query |
 | `ps sql sample <table> [n]` | Show n sample rows |
 | `ps sql count <table>` | Row count for a table |
+| `ps wren push` | Push source knowledge to WrenAI (40+ instructions, 50+ SQL pairs) |
+| `ps wren validate` | Validate all SQL pairs against PostgreSQL mirror |
+| `ps wren status` | Show instruction and SQL pair counts |
 | `ps config` | Show loaded configuration |
 
 ### CLI-first principle
@@ -132,6 +135,42 @@ All data lives in bind-mounted directories under `./data/`:
 - `./data/wren/` — WrenAI config, SQLite DB, MDL
 
 This survives `docker compose down` and container recreation. Only `docker compose down -v` or deleting `./data/` will destroy it.
+
+### Knowledge Management
+
+WrenAI has two knowledge channels that feed the RAG pipeline for text-to-SQL generation:
+
+#### Instructions (business rules)
+- Stored in SQLite `instruction` table + indexed in qdrant `instructions` collection
+- Source instructions: managed by `scripts/wren-push-metadata.py`, marked `is_default=1`
+- User instructions: created via WrenAI UI, marked `is_default=0` — **never touched by the script**
+- Current count: **40 source instructions** covering retail sales, wholesale, stock, customers, payments, margins, products, transfers, pricing, and data quality rules
+
+#### SQL Pairs (example query patterns)
+- Stored in SQLite `sql_pair` table + indexed in qdrant `sql_pairs` collection
+- Source pairs tracked by question text (deterministic). On update: delete matching, re-insert new.
+- User pairs with different question text survive updates.
+- Current count: **52 source SQL pairs** across all business domains
+
+#### Merge strategy
+Run `ps wren push` to update source knowledge without losing user entries:
+```bash
+ps wren push                     # update knowledge
+ps wren validate                 # test SQL pairs against PostgreSQL
+ps wren status                   # show counts
+```
+
+The script:
+1. Deletes `instruction` rows where `is_default=1`, inserts new source instructions with `is_default=1`
+2. Deletes `sql_pair` rows whose question matches any source question, inserts new source pairs
+3. Restarts wren-ui, deploys (re-indexes schema embeddings)
+4. POSTs instructions and SQL pairs to qdrant AI service
+
+#### Critical: deploy does NOT index instructions/sql_pairs
+`mutation { deploy(force: true) }` only re-indexes the schema (table/column embeddings). Instructions and SQL pairs require separate POST calls to the AI service at port 5555.
+
+#### Adding new knowledge
+To add new instructions or SQL pairs: add entries to `INSTRUCTIONS` or `SQL_PAIRS` in `scripts/wren-push-metadata.py`, then run `ps wren push`. All SQL in `SQL_PAIRS` must be valid PostgreSQL against `ps_*` mirror tables.
 
 ---
 

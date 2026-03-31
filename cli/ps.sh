@@ -22,6 +22,7 @@ Available commands:
   stack        Docker Compose stack management (up/down/status/logs/open/destroy)
   etl          ETL operations (run/status/tables/logs)
   sql          4D SQL operations (schema, query, explore)
+  wren         WrenAI knowledge management (push/validate/status)
   config       Show current configuration
 
 Help commands:
@@ -38,6 +39,9 @@ Examples:
   ps sql tables            List all 4D tables
   ps sql query "SELECT ..."  Run a read-only SQL query
   ps sql describe <table>  Show columns for a table
+  ps wren push             Push knowledge to WrenAI (merge strategy)
+  ps wren validate         Validate SQL pairs against PostgreSQL
+  ps wren status           Show knowledge counts
   ps config                Show loaded configuration
 EOF
 }
