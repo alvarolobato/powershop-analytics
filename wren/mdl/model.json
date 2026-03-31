@@ -28,7 +28,7 @@
           "name": "ccrefejofacm",
           "type": "VARCHAR",
           "expression": "ccrefejofacm",
-          "properties": {"description": "Referencia comercial — identificador principal de negocio (e.g. V26212484). Prefijo M = mayorista, sin M = retail"}
+          "properties": {"description": "Referencia comercial — identificador principal de negocio (e.g. V26212484). Prefijo M = mayorista (excepto MA = material sin inventario ni seguimiento), sin M = retail"}
         },
         {
           "name": "descripcion",
@@ -143,7 +143,14 @@
           "type": "BOOLEAN",
           "isCalculated": true,
           "expression": "LEFT(ccrefejofacm, 1) = 'M'",
-          "properties": {"description": "true si la referencia comercial empieza por M (línea mayorista)"}
+          "properties": {"description": "true si la referencia comercial empieza por M (línea mayorista). Incluye MA (material) — ver es_material para filtrar"}
+        },
+        {
+          "name": "es_material",
+          "type": "BOOLEAN",
+          "isCalculated": true,
+          "expression": "LEFT(ccrefejofacm, 2) = 'MA'",
+          "properties": {"description": "true si la referencia empieza por MA — material sin inventario ni seguimiento de stock. Excluir de análisis de stock, ventas e inventario. Son artículos auxiliares (bolsas, perchas, etc.) que no se rastrean."}
         }
       ],
       "properties": {"description": "Catálogo de productos y artículos"}

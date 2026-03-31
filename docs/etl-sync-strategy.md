@@ -13,6 +13,7 @@ This document defines the sync strategy for each table in the ETL pipeline from 
 - **`LineasCompras` does not exist.** The correct table name is `CCLineasCompr` (44K rows). Links to `Compras` via `NumPedido`.
 - **`Exportaciones.TiendaCodigo`** has the format `"tienda/articulo"` (e.g. `"104/169"`), not just a store code. The compound PK is `(Codigo, TiendaCodigo)`.
 - **PKs are REAL (float) with `.99` suffix** (e.g. `RegVentas = 10028816.641`). Store as `NUMERIC` in PostgreSQL, not `FLOAT8`, to avoid precision loss.
+- **Referencia prefix `MA` = material (no inventory).** Articles whose `CCRefeJOFACM` starts with `MA` are materials (bolsas, perchas, etc.) — no stock tracking, no inventory management. Exclude from stock analysis and sales KPIs. `M` (non-MA) = wholesale. No prefix = retail.
 - **All 41K Articulos have `FechaModifica >= 2025-03-26`** due to a batch update. Delta sync is ineffective; use full refresh.
 - **GCLinAlbarane and GCLinFacturas have no modification timestamp.** Delta is derived from the parent header's `Modifica` field via a parent-join strategy.
 
