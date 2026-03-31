@@ -12,31 +12,42 @@ the full wide table into memory.  Each batch is normalized and upserted immediat
 Pagination uses LIMIT/OFFSET with a stable ORDER BY (Codigo, TiendaCodigo) to
 guarantee deterministic page boundaries regardless of table scan order.
 
+Note on pagination performance: LIMIT/OFFSET scanning can degrade at large offsets
+because the DB engine must scan all preceding rows.  At 2M source rows this is
+acceptable for a nightly batch (profiled at <10 min in testing), but keyset
+pagination (WHERE (Codigo, TiendaCodigo) > (:last_codigo, :last_tienda_codigo))
+would be more efficient if runtime becomes a concern.  4D SQL's support for
+row-value comparators was not validated at implementation time.
+
+The `since` parameter is truncated to a date literal in 4D SQL — only the date
+portion is used; any time component is ignored.  Pass a date-aligned datetime.
+
 TiendaCodigo format: "store_code/article_code" (e.g. "104/169").  It is NOT
 just a store code.  The compound PK for ps_stock_tienda is (codigo, tienda_codigo, talla).
 
 Traspasos
 ---------
 Append-only by FechaS.  No modification timestamp.  Fetched and inserted in batches.
-Insert is idempotent: ON CONFLICT (reg_traspaso) DO NOTHING prevents duplicate-key
-errors on re-runs or overlapping delta windows.
+Insert uses ON CONFLICT (reg_traspaso) DO NOTHING (via insert_ignore) so the
+operation is idempotent: re-running with an overlapping delta window or running an
+initial load twice will not cause PK violations or update existing rows.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from etl.db.fourd import safe_fetch
-from etl.db.postgres import upsert
+from etl.db.postgres import insert_ignore, upsert
 
 logger = logging.getLogger(__name__)
 
-# Number of source Exportaciones rows to fetch per SQL query (wide format —
-# each row expands to ~5 normalized rows on average).
+# Number of source rows to fetch per SQL query (Exportaciones is wide format —
+# each row expands to ~5 normalized rows on average; Traspasos uses same constant).
 _SOURCE_BATCH = 1000
 
-# Number of normalized rows to upsert/insert per PG call.
+# Number of normalized rows to upsert per PG call.
 _PG_BATCH = 5000
 
 # Column pairs to unpivot.
@@ -55,12 +66,18 @@ _EXPO_COLUMNS = ", ".join(_EXPO_FIXED_COLS + _EXPO_TALLA_COLS + _EXPO_STOCK_COLS
 # Stable ORDER BY for deterministic LIMIT/OFFSET pagination.
 _EXPO_ORDER_BY = "ORDER BY Codigo, TiendaCodigo"
 
+# Quantize target for NUMERIC(20,2) PK values.
+_TWO_PLACES = Decimal("0.01")
+
 
 def _build_expo_where(since: datetime | None, *, include_nulls: bool = False) -> str:
     """Return a WHERE clause fragment for Exportaciones delta filtering.
 
+    Only the date portion of *since* is used — 4D SQL date literals have no
+    time component.  Pass a date-aligned datetime to avoid confusion.
+
     - since=None: no filter (full load).
-    - since=<date>: filter by FechaModifica > {d 'YYYY-MM-DD'}.
+    - since=<datetime>: filter by FechaModifica > {d 'YYYY-MM-DD'}.
     - include_nulls=True: also include rows where FechaModifica IS NULL
       (zero-stock articles that have never been modified).
     """
@@ -106,7 +123,7 @@ def _normalize_expo_row(src: dict) -> list[dict]:
             f"_normalize_expo_row: source row has missing/empty TiendaCodigo: {src!r}"
         )
 
-    # Convert shared fields once per source row.
+    # Convert shared fields once per source row (not per talla pair).
     cc_stock_raw = src.get("ccstock")
     st_stock_raw = src.get("ststock")
     cc_stock = Decimal(str(cc_stock_raw)) if cc_stock_raw is not None else None
@@ -144,14 +161,17 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     through the source table deterministically, avoiding skipped or duplicated
     rows across batches.
 
+    Note: only the date portion of *since* is used in the 4D SQL filter;
+    any time component is silently ignored.  Pass a date-aligned datetime.
+
     Args:
         conn_4d: P4D connection object.
         conn_pg: psycopg2 connection object.
-        since: If provided, only fetch rows where FechaModifica > since.
+        since: If provided, only fetch rows where FechaModifica > since (date only).
                If None, fetch all rows (initial load).
 
     Returns:
-        Total number of normalized rows upserted.
+        Total number of normalized rows attempted (upserted or updated).
     """
     # For initial load (since=None) include rows where FechaModifica IS NULL to
     # capture zero-stock articles that have never been modified.
@@ -159,11 +179,13 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
     where = _build_expo_where(since, include_nulls=include_nulls)
 
-    logger.info("sync_stock: counting Exportaciones rows %s", f"({where})" if where else "(full)")
+    logger.info(
+        "sync_stock: counting Exportaciones rows %s", f"({where})" if where else "(full)"
+    )
     total_source = _count_expo(conn_4d, where)
     logger.info("sync_stock: %d source rows to process", total_source)
 
-    total_upserted = 0
+    total_processed = 0
     offset = 0
     pg_buffer: list[dict] = []
 
@@ -185,23 +207,23 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
         while len(pg_buffer) >= _PG_BATCH:
             chunk = pg_buffer[:_PG_BATCH]
             pg_buffer = pg_buffer[_PG_BATCH:]
-            upserted = upsert(
+            attempted = upsert(
                 conn_pg,
                 "ps_stock_tienda",
                 chunk,
                 pk_cols=["codigo", "tienda_codigo", "talla"],
             )
-            total_upserted += upserted
+            total_processed += attempted
             logger.debug(
-                "sync_stock: upserted %d normalized rows (offset %d / %d)",
-                upserted,
+                "sync_stock: processed %d normalized rows (offset %d / %d)",
+                attempted,
                 offset,
                 total_source,
             )
 
         offset += len(batch)
         logger.info(
-            "sync_stock: processed %d / %d source rows (%d normalized rows buffered)",
+            "sync_stock: fetched %d / %d source rows (%d normalized rows buffered)",
             offset,
             total_source,
             len(pg_buffer),
@@ -209,16 +231,16 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
     # Flush remaining buffer.
     if pg_buffer:
-        upserted = upsert(
+        attempted = upsert(
             conn_pg,
             "ps_stock_tienda",
             pg_buffer,
             pk_cols=["codigo", "tienda_codigo", "talla"],
         )
-        total_upserted += upserted
+        total_processed += attempted
 
-    logger.info("sync_stock: done — %d normalized rows upserted", total_upserted)
-    return total_upserted
+    logger.info("sync_stock: done — %d normalized rows processed", total_processed)
+    return total_processed
 
 
 # ---------------------------------------------------------------------------
@@ -238,11 +260,18 @@ _TRASPASOS_ORDER_BY = "ORDER BY RegTraspaso"
 def _map_traspaso_row(src: dict) -> dict:
     """Map a safe_fetch row (lowercase keys) to ps_traspasos column names.
 
-    4D float PKs are converted to Decimal to preserve the .99 suffix exactly.
+    4D float PKs are converted to Decimal and quantized to 2 decimal places
+    (matching the NUMERIC(20,2) PG schema) to prevent float-string artifacts
+    such as trailing ...99999 digits from causing unexpected key differences.
     """
     reg = src.get("regtraspaso")
+    reg_decimal = (
+        Decimal(str(reg)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+        if reg is not None
+        else None
+    )
     return {
-        "reg_traspaso": Decimal(str(reg)) if reg is not None else None,
+        "reg_traspaso": reg_decimal,
         "codigo": src.get("codigo"),
         "descripcion": src.get("descripcion"),
         "talla": src.get("talla"),
@@ -259,7 +288,11 @@ def _map_traspaso_row(src: dict) -> dict:
 
 
 def _build_traspasos_where(since: datetime | None) -> str:
-    """Return a WHERE clause fragment for Traspasos delta filtering."""
+    """Return a WHERE clause fragment for Traspasos delta filtering.
+
+    Only the date portion of *since* is used — 4D SQL date literals have no
+    time component.
+    """
     if since is None:
         return ""
     date_str = since.strftime("%Y-%m-%d")
@@ -275,23 +308,27 @@ def _count_traspasos(conn_4d, where: str) -> int:
 
 
 def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
-    """Extract Traspasos from 4D and upsert (idempotent) into ps_traspasos.
+    """Extract Traspasos from 4D and append-insert (idempotent) into ps_traspasos.
 
     Traspasos is append-only by FechaS.  Records are immutable once created.
-    Inserts use ON CONFLICT (reg_traspaso) DO NOTHING so the operation is safe
-    to re-run with an overlapping delta window without causing PK violations.
+    Uses insert_ignore (ON CONFLICT (reg_traspaso) DO NOTHING) so the operation
+    is safe to re-run: rows that already exist are skipped without error and
+    without modifying the existing data.
 
     Rows are fetched and inserted in batches (LIMIT/OFFSET with stable ORDER BY)
     to avoid loading the entire table into memory at once.
 
+    Note: only the date portion of *since* is used in the 4D SQL filter;
+    any time component is silently ignored.  Pass a date-aligned datetime.
+
     Args:
         conn_4d: P4D connection object.
         conn_pg: psycopg2 connection object.
-        since: If provided, only fetch rows where FechaS > since.
+        since: If provided, only fetch rows where FechaS > since (date only).
                If None, fetch all rows (initial load).
 
     Returns:
-        Total number of rows attempted (inserted + already-existing).
+        Total number of rows attempted (including rows skipped due to conflicts).
     """
     where = _build_traspasos_where(since)
 
@@ -304,7 +341,7 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
     if total_source == 0:
         return 0
 
-    total_inserted = 0
+    total_attempted = 0
     offset = 0
 
     while offset < total_source:
@@ -319,16 +356,16 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
         mapped = [_map_traspaso_row(r) for r in batch]
 
-        # upsert with DO NOTHING makes re-runs safe (no PK violations on overlap).
-        inserted = upsert(conn_pg, "ps_traspasos", mapped, pk_cols=["reg_traspaso"])
-        total_inserted += inserted
+        # insert_ignore uses ON CONFLICT (reg_traspaso) DO NOTHING — idempotent.
+        attempted = insert_ignore(conn_pg, "ps_traspasos", mapped, pk_cols=["reg_traspaso"])
+        total_attempted += attempted
         offset += len(batch)
         logger.debug(
-            "sync_traspasos: processed %d / %d rows (batch inserted: %d)",
+            "sync_traspasos: processed %d / %d rows (batch attempted: %d)",
             offset,
             total_source,
-            inserted,
+            attempted,
         )
 
-    logger.info("sync_traspasos: done — %d rows processed", total_inserted)
-    return total_inserted
+    logger.info("sync_traspasos: done — %d rows attempted", total_attempted)
+    return total_attempted

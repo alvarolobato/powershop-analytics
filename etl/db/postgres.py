@@ -190,6 +190,52 @@ def bulk_insert(conn, table: str, rows: list[dict]) -> int:
     return len(rows)
 
 
+def insert_ignore(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
+    """Batch INSERT ... ON CONFLICT (pk_cols) DO NOTHING.
+
+    Idempotent append: rows that already exist (by pk_cols) are silently skipped.
+    Use for append-only tables where re-runs must not fail or modify existing rows.
+
+    Returns the number of rows *attempted* (len(rows)), including skipped ones.
+    Commits on success; rolls back and re-raises on failure.
+    """
+    if not rows:
+        return 0
+
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+    from psycopg2.extras import execute_values  # type: ignore[import-untyped]
+
+    if not pk_cols:
+        raise ValueError("insert_ignore: pk_cols must not be empty.")
+    columns = _validate_rows(rows, "insert_ignore")
+    missing_pks = [c for c in pk_cols if c not in columns]
+    if missing_pks:
+        raise ValueError(
+            f"insert_ignore: pk_cols {missing_pks} not found in row keys {columns}."
+        )
+
+    conflict_target = pgsql.SQL(", ").join(pgsql.Identifier(c) for c in pk_cols)
+    stmt = pgsql.SQL(
+        "INSERT INTO {tbl} ({cols}) VALUES %s ON CONFLICT ({target}) DO NOTHING"
+    ).format(
+        tbl=pgsql.Identifier(table),
+        cols=pgsql.SQL(", ").join(pgsql.Identifier(c) for c in columns),
+        target=conflict_target,
+    )
+
+    try:
+        with conn.cursor() as cur:
+            execute_values(
+                cur, stmt.as_string(cur), [tuple(row[c] for c in columns) for row in rows]
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    # Return len(rows) — execute_values paginates and rowcount reflects last page only.
+    return len(rows)
+
+
 def truncate_and_insert(
     conn,
     table: str,

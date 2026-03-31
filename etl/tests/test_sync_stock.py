@@ -1,10 +1,11 @@
-"""Integration tests for etl/sync/stock.py.
+"""Unit and integration tests for etl/sync/stock.py.
 
-These tests require both a 4D SQL connection (P4D_HOST must be set) and a
+Unit tests cover helpers such as _normalize_expo_row without any external connections.
+
+Integration tests require both a 4D SQL connection (P4D_HOST must be set) and a
 PostgreSQL connection (POSTGRES_DSN or POSTGRES_USER + POSTGRES_DB must be set).
-
-All tests skip gracefully when the required environment variables are absent.
-The 4D tests use a small date range to keep query time reasonable.
+All integration tests skip gracefully when the required environment variables are absent.
+The 4D integration tests use a small date range to keep query time reasonable.
 """
 from __future__ import annotations
 
@@ -185,32 +186,34 @@ class TestSyncStockIntegration:
     """Integration tests that require both 4D and PostgreSQL connections."""
 
     def test_sync_stock_produces_rows(self, fourd_conn, pg_conn):
-        """Sync a narrow date range and verify ps_stock_tienda gets rows."""
+        """Sync a date range that is guaranteed to have rows, verify table is populated."""
         conn_pg = pg_conn
-        # Use a recent date range narrow enough to be fast but wide enough to
-        # capture some recently modified stock rows.
+        # 2025-01-01 is a broad-enough window to capture recent stock activity.
         since = datetime(2025, 1, 1, tzinfo=timezone.utc)
 
-        with conn_pg.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM ps_stock_tienda")
-            (count_before,) = cur.fetchone()
-
-        upserted = sync_stock(fourd_conn, conn_pg, since=since)
-        assert upserted >= 0  # could be 0 if no rows since that date — not an error
+        attempted = sync_stock(fourd_conn, conn_pg, since=since)
+        assert attempted > 0, (
+            "sync_stock returned 0 attempted rows for the 2025-01-01 window — "
+            "no stock data was found or the query window is too narrow"
+        )
 
         with conn_pg.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM ps_stock_tienda")
             (count_after,) = cur.fetchone()
 
-        # If upserted > 0 then count must have grown or stayed same (upsert may
-        # update existing rows without changing count).
-        assert count_after >= count_before
+        assert count_after > 0, (
+            "ps_stock_tienda is empty after sync_stock — "
+            "rows were not written to PostgreSQL"
+        )
 
     def test_stock_no_empty_tallas(self, fourd_conn, pg_conn):
         """After sync, no rows in ps_stock_tienda should have empty talla."""
-        # Run a small initial sync first to ensure there are rows.
-        since = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        sync_stock(fourd_conn, pg_conn, since=since)
+        # Use a wide window to ensure rows are actually synced before checking.
+        since = datetime(2025, 1, 1, tzinfo=timezone.utc)
+        attempted = sync_stock(fourd_conn, pg_conn, since=since)
+        assert attempted > 0, (
+            "sync_stock returned 0 rows — cannot validate talla filtering on empty table"
+        )
 
         with pg_conn.cursor() as cur:
             cur.execute(
