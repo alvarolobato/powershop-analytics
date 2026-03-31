@@ -104,11 +104,13 @@ Data lives in bind mounts under the project directory. Back up the `data/` subdi
 # Linux/macOS — tar the data directory
 tar -czf powershop-backup-$(date +%Y%m%d).tar.gz ~/.powershop-analytics/data/
 
-# Or just back up PostgreSQL:
+# Or just back up PostgreSQL (reads POSTGRES_USER / POSTGRES_DB from .env):
+source ~/.powershop-analytics/.env
 docker compose --project-directory ~/.powershop-analytics \
   --env-file ~/.powershop-analytics/.env \
   -f ~/.powershop-analytics/docker-compose.yml exec -T postgres \
-  pg_dump -U postgres powershop > powershop-$(date +%Y%m%d).sql
+  bash -lc "pg_dump -U \"${POSTGRES_USER:-postgres}\" \"${POSTGRES_DB:-powershop}\"" \
+  > powershop-$(date +%Y%m%d).sql
 ```
 
 The ETL re-syncs all data from the 4D source on a full reload, so PostgreSQL is the only stateful store that needs backing up for analytics continuity. `./data/qdrant` and `./data/wren` contain WrenAI embeddings and config; losing them means WrenAI needs to re-index but no analytics data is lost.

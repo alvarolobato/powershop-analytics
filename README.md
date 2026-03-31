@@ -43,7 +43,7 @@ See **[docs/deployment/getting-started.md](docs/deployment/getting-started.md)**
 - [Operations](docs/deployment/operations.md) — CLI reference, monitoring, backups, updates
 - [Troubleshooting](docs/deployment/troubleshooting.md) — common issues and fixes
 
-### Development
+### For contributors
 
 - [AGENTS.md](AGENTS.md) — AI development guide
 - [docs/architecture/](docs/architecture/) — Data architecture diagrams (Mermaid ER)

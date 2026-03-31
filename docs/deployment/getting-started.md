@@ -30,7 +30,7 @@ irm https://github.com/alvarolobato/powershop-analytics/releases/latest/download
 2. Creates the project directory:
    - Linux/macOS: `~/.powershop-analytics/` (override with `PS_ANALYTICS_HOME`)
    - Windows: `%APPDATA%\powershop-analytics\` (override with `$env:PS_ANALYTICS_HOME`)
-3. Downloads `docker-compose.yml` and `wren-config.yaml` from the release.
+3. Downloads `docker-compose.prod.yml` (saved locally as `docker-compose.yml`) and `wren-config.yaml` from the release.
 4. Prompts for credentials and writes `.env`:
    - 4D server hostname/IP, username, password
    - PostgreSQL password (auto-generated if you press Enter)
