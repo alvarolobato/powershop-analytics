@@ -54,6 +54,7 @@ services:
       P4D_USER: ${P4D_USER:-}
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
+      ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
     networks:
       - wren
     depends_on:
