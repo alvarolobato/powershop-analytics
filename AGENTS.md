@@ -59,13 +59,23 @@ All automation should delegate work to the CLI. This ensures every operation is 
 
 ## Configuration
 
-### Credential storage (three-tier hierarchy)
+### Credential storage (single file, survives worktrees)
 
-1. **Environment variables** -- Direct override (highest priority)
-2. **`local/credentials.conf`** -- Worktree-specific (git-ignored)
-3. **`~/.config/powershop-analytics/credentials.conf`** -- Centralized (shared across worktrees, recommended)
+**Recommended**: One file at `~/.config/powershop-analytics/.env` (standard `.env` format).
 
-See `credentials.conf.template` for the expected format. The CLI loads credentials via `cli/commands/load-env.sh` before executing any command.
+This file is loaded by all three systems:
+- **CLI** (`load-env.sh`): loads `.env` then `credentials.conf` from `local/` or `~/.config/`
+- **ETL** (`config.py` via python-dotenv): loads from `~/.config/.env`, then `local/.env`, then `./.env`
+- **docker-compose**: symlink `.env` in the worktree → `~/.config/powershop-analytics/.env`
+
+Setup: `ln -sf ~/.config/powershop-analytics/.env .env`
+
+Priority (highest to lowest):
+1. **Environment variables** -- Direct override
+2. **`.env`** in worktree root -- standard for docker-compose (symlink to centralized)
+3. **`local/.env`** -- Worktree-specific override (git-ignored)
+4. **`~/.config/powershop-analytics/.env`** -- Centralized (shared across worktrees)
+5. **`~/.config/powershop-analytics/credentials.conf`** -- Legacy format (backward compat)
 
 ### Key environment variables
 
@@ -144,7 +154,7 @@ cp cli/ps ~/bin/ps-analytics  # or symlink
 
 ### No credentials in committed files
 
-Store all credentials in `~/.config/powershop-analytics/credentials.conf` or `local/credentials.conf`. The template file shows the format but contains no real secrets.
+Store all credentials in `~/.config/powershop-analytics/.env` (see `.env.example` for format). Symlink to the worktree with `ln -sf ~/.config/powershop-analytics/.env .env`.
 
 ### No customer/business data in committed files
 

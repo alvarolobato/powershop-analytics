@@ -1,11 +1,28 @@
-"""ETL configuration — loaded from environment variables via python-dotenv."""
+"""ETL configuration — loaded from environment variables via python-dotenv.
+
+File resolution order (first found wins):
+  1. .env in current directory (worktree-local, standard for docker-compose)
+  2. local/.env (repo-local override)
+  3. ~/.config/powershop-analytics/.env (centralized, survives worktrees)
+  4. ~/.config/powershop-analytics/credentials.conf (legacy, backward compat)
+"""
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.parse import quote
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load from centralized location first (lowest priority), then local overrides
+_CONFIG_DIR = Path.home() / ".config" / "powershop-analytics"
+for _candidate in [
+    _CONFIG_DIR / "credentials.conf",  # legacy
+    _CONFIG_DIR / ".env",              # centralized
+    Path("local/.env"),                # worktree-local override
+    Path(".env"),                       # standard docker-compose location
+]:
+    if _candidate.is_file():
+        load_dotenv(_candidate, override=True)
 
 
 def _get_p4d_port() -> int:

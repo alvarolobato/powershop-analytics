@@ -50,5 +50,7 @@ EOF
     fi
 }
 
-# Load credentials
+# Load credentials — .env takes priority over credentials.conf
+# Both formats are supported: .env (KEY=value) and credentials.conf (KEY='value')
+load_config ".env"
 load_config "credentials.conf"

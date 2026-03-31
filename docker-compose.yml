@@ -1,10 +1,13 @@
 # PowerShop Analytics — full stack
 # Services: PostgreSQL mirror + ETL (nightly scheduler) + WrenAI (5 containers)
 #
-# Quick start:
-#   cp .env.example .env   # fill in your credentials
+# Quick start (symlink to centralized credentials):
+#   ln -sf ~/.config/powershop-analytics/.env .env
 #   docker compose up -d
 #   open http://localhost:${HOST_PORT:-3000}
+#
+# Or copy .env.example and fill in manually:
+#   cp .env.example .env && $EDITOR .env
 
 volumes:
   pgdata:
