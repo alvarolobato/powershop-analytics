@@ -5,8 +5,8 @@ helpers are mocked via unittest.mock.
 
 Test coverage:
 - test_sync_order          : All sync functions are called in the correct
-                             topological order (catalog → masters → stock →
-                             ventas → mayorista → compras).
+                             topological order (catalog → masters → ventas →
+                             mayorista → compras → stock).
 - test_error_continues     : A failure in one sync function does not prevent
                              subsequent functions from running.
 - test_watermark_not_updated_on_error : When a sync function raises, set_watermark
@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 _WM_MODULE = "etl.db.postgres"
 
 # All sync targets that must be patched in every test, keyed by dotted path.
+# Order matches the pipeline in etl/main.py run_full_sync().
 _SYNC_TARGETS = [
     "etl.sync.articulos.sync_articulos",
     "etl.sync.articulos.sync_catalogos",
@@ -28,8 +29,6 @@ _SYNC_TARGETS = [
     "etl.sync.maestros.sync_clientes",
     "etl.sync.maestros.sync_proveedores",
     "etl.sync.maestros.sync_gc_comerciales",
-    "etl.sync.stock.sync_stock",
-    "etl.sync.stock.sync_traspasos",
     "etl.sync.ventas.sync_ventas",
     "etl.sync.ventas.sync_lineas_ventas",
     "etl.sync.ventas.sync_pagos_ventas",
@@ -44,6 +43,8 @@ _SYNC_TARGETS = [
     "etl.sync.compras.sync_facturas",
     "etl.sync.compras.sync_albaranes",
     "etl.sync.compras.sync_facturas_compra",
+    "etl.sync.stock.sync_stock",
+    "etl.sync.stock.sync_traspasos",
 ]
 
 # Short name derived from the dotted path (last segment).
@@ -118,10 +119,7 @@ def test_sync_order():
         "sync_clientes",
         "sync_proveedores",
         "sync_gc_comerciales",
-        # Stock
-        "sync_stock",
-        "sync_traspasos",
-        # Retail sales
+        # Retail sales (run before stock — stock is slow)
         "sync_ventas",
         "sync_lineas_ventas",
         "sync_pagos_ventas",
@@ -138,6 +136,9 @@ def test_sync_order():
         "sync_facturas",
         "sync_albaranes",
         "sync_facturas_compra",
+        # Stock last (Exportaciones is very slow — ~2M rows)
+        "sync_stock",
+        "sync_traspasos",
     ]
     assert call_order == expected_order
 
