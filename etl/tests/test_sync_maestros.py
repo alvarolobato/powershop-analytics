@@ -8,6 +8,8 @@ What is tested:
 - sync_clientes: row count in ps_clientes matches 4D Clientes (~27K rows)
 - sync_tiendas: row count in ps_tiendas matches 4D Tiendas (51 rows)
 - sync_tiendas: every ps_tiendas row has a non-empty codigo field
+- sync_proveedores: integration sync between 4D and PostgreSQL
+- sync_gc_comerciales: integration sync between 4D and PostgreSQL
 """
 from __future__ import annotations
 
@@ -17,7 +19,6 @@ import pytest
 
 from etl.config import Config
 from etl.db import fourd as fourd_db
-from etl.db import postgres as pg_db
 from etl.sync.maestros import (
     sync_clientes,
     sync_gc_comerciales,
@@ -45,14 +46,6 @@ def _postgres_available() -> bool:
     return bool(user and db)
 
 
-requires_p4d = pytest.mark.skipif(
-    not _p4d_available(),
-    reason="P4D_HOST not set — skipping 4D integration tests",
-)
-requires_pg = pytest.mark.skipif(
-    not _postgres_available(),
-    reason="PostgreSQL configuration not available — skipping PostgreSQL tests",
-)
 requires_both = pytest.mark.skipif(
     not (_p4d_available() and _postgres_available()),
     reason="Both P4D_HOST and PostgreSQL configuration are required for maestros integration tests",
@@ -71,17 +64,6 @@ def fourd_conn():
         pytest.skip("P4D_HOST not set")
     config = Config()
     conn = fourd_db.get_connection(config)
-    yield conn
-    conn.close()
-
-
-@pytest.fixture
-def pg_conn():
-    """Function-scoped PostgreSQL connection; skipped if config is absent."""
-    if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available")
-    config = Config()
-    conn = pg_db.get_connection(config)
     yield conn
     conn.close()
 

@@ -27,7 +27,7 @@ import logging
 from decimal import Decimal
 from typing import Any
 
-from etl.db.fourd import safe_fetch
+from etl.db.fourd import _validate_identifier, safe_fetch
 from etl.db.postgres import truncate_and_insert
 
 logger = logging.getLogger(__name__)
@@ -54,7 +54,11 @@ def _discover_columns(conn_4d, table_name: str, exclude_types: tuple[int, ...] =
     - 18 : PICTURE
 
     Returns original-casing column names (as stored in _USER_COLUMNS).
+
+    *table_name* is validated against the safe-identifier pattern used by
+    get_queryable_columns() in etl/db/fourd.py to prevent SQL injection.
     """
+    _validate_identifier(table_name)
     exclude_list = ", ".join(str(t) for t in exclude_types)
     sql = (
         f"SELECT COLUMN_NAME FROM _USER_COLUMNS "
@@ -116,6 +120,11 @@ def sync_clientes(conn_4d, conn_pg) -> int:
     if not cols_to_query:
         logger.error("sync_clientes: no queryable columns found in Clientes — aborting")
         return 0
+    if "RegCliente" not in cols_to_query:
+        logger.error(
+            "sync_clientes: required PK column RegCliente not available in Clientes — aborting"
+        )
+        return 0
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Clientes"
     logger.info("sync_clientes: querying 4D — %s", sql)
@@ -171,6 +180,12 @@ def sync_tiendas(conn_4d, conn_pg) -> int:
 
     if not cols_to_query:
         logger.error("sync_tiendas: no queryable columns found in Tiendas — aborting")
+        return 0
+    if "RegTienda" not in cols_to_query:
+        logger.error(
+            "sync_tiendas: required PK column RegTienda is not available or not selected "
+            "from Tiendas — aborting to avoid violating ps_tiendas.reg_tienda PRIMARY KEY"
+        )
         return 0
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Tiendas"
@@ -256,6 +271,12 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
 
     if not cols_to_query:
         logger.error("sync_proveedores: no queryable columns found in Proveedores — aborting")
+        return 0
+    if pk_col not in cols_to_query:
+        logger.error(
+            "sync_proveedores: primary key column %s is not queryable in Proveedores — aborting",
+            pk_col,
+        )
         return 0
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Proveedores"
