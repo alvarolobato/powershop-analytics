@@ -151,8 +151,6 @@ _LIN_ALBARANE_MAPPING: dict[str, str] = {
     "numtemporada": "num_temporada",
     "nummarca": "num_marca",
     "numcolor": "num_color",
-    "numcomercial": "num_comercial",
-    "mes": "mes",
 }
 
 _FACTURAS_MAPPING: dict[str, str] = {
@@ -244,8 +242,7 @@ _SQL_LIN_ALBARANE_PARENT_IDS = (
 _SQL_LIN_ALBARANE_BY_PARENT = (
     "SELECT RegLinea, NAlbaran, NumAlbaran, Codigo, Articulo, Descripcion,"
     " Color, FechaAlbaran, Unidades, PrecioNeto, Total, NumCliente,"
-    " NumFamilia, NumDepartament, NumTemporada, NumMarca, NumColor,"
-    " NumComercial, Mes"
+    " NumFamilia, NumDepartament, NumTemporada, NumMarca, NumColor"
     " FROM GCLinAlbarane"
     " WHERE NAlbaran IN ({placeholders})"
 )
@@ -253,8 +250,7 @@ _SQL_LIN_ALBARANE_BY_PARENT = (
 _SQL_LIN_ALBARANE_ALL = (
     "SELECT RegLinea, NAlbaran, NumAlbaran, Codigo, Articulo, Descripcion,"
     " Color, FechaAlbaran, Unidades, PrecioNeto, Total, NumCliente,"
-    " NumFamilia, NumDepartament, NumTemporada, NumMarca, NumColor,"
-    " NumComercial, Mes"
+    " NumFamilia, NumDepartament, NumTemporada, NumMarca, NumColor"
     " FROM GCLinAlbarane"
 )
 

@@ -28,9 +28,12 @@ memory usage stays bounded.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Number of rows fetched and upserted per round-trip.
 # Tuned to balance memory usage vs. round-trip overhead.
