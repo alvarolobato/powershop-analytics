@@ -1,9 +1,12 @@
 """ETL configuration — loaded from environment variables via python-dotenv.
 
-File resolution order (last loaded wins, i.e. later entries override earlier):
-  1. ~/.config/powershop-analytics/.env (centralized, survives worktrees)
+File resolution order (first loaded wins; later files only fill gaps):
+  1. .env in current directory (worktree-local, standard for docker-compose; highest priority)
   2. local/.env (repo-local override)
-  3. .env in current directory (worktree-local, standard for docker-compose)
+  3. ~/.config/powershop-analytics/.env (centralized, survives worktrees; lowest priority)
+
+Real environment variables (set before Python starts) always win because
+override=False never clobbers existing os.environ entries.
 """
 import os
 from dataclasses import dataclass, field
@@ -12,15 +15,16 @@ from urllib.parse import quote
 
 from dotenv import load_dotenv
 
-# Load from centralized location first (lowest priority), then local overrides
+# Load highest-priority file first; override=False means each subsequent file
+# only fills in keys not yet present in os.environ.
 _CONFIG_DIR = Path.home() / ".config" / "powershop-analytics"
 for _candidate in [
-    _CONFIG_DIR / ".env",   # centralized
-    Path("local/.env"),     # worktree-local override
-    Path(".env"),            # standard docker-compose location
+    Path(".env"),            # highest priority (worktree symlink → centralized, or docker-compose)
+    Path("local/.env"),      # worktree-local override
+    _CONFIG_DIR / ".env",    # centralized (lowest priority)
 ]:
     if _candidate.is_file():
-        load_dotenv(_candidate, override=True)
+        load_dotenv(_candidate, override=False)
 
 
 def _get_p4d_port() -> int:

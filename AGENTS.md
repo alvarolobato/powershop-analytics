@@ -78,7 +78,7 @@ All automation should delegate work to the CLI. This ensures every operation is 
 
 This file is loaded by all three systems:
 - **CLI** (`load-env.sh`): loads `~/.config/powershop-analytics/.env`, then `local/.env`
-- **ETL** (`config.py` via python-dotenv): loads from `~/.config/.env`, then `local/.env`, then `./.env`
+- **ETL** (`config.py` via python-dotenv): loads from `./.env`, then `local/.env`, then `~/.config/powershop-analytics/.env`
 - **docker-compose**: symlink `.env` in the worktree → `~/.config/powershop-analytics/.env`
 
 Run `ps setup` to create the file and symlink automatically.

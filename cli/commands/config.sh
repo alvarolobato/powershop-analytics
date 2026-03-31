@@ -43,15 +43,16 @@ echo "  Port: ${POSTGRES_PORT:-5432}"
 # Quick reachability check
 pg_host="${POSTGRES_HOST:-localhost}"
 pg_port="${POSTGRES_PORT:-5432}"
-if python3 -c "
+if python3 - "$pg_host" "$pg_port" <<'PYEOF' 2>/dev/null
 import socket, sys
 try:
-    s = socket.create_connection(('${pg_host}', ${pg_port}), timeout=2)
+    s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=2)
     s.close()
     sys.exit(0)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYEOF
+then
     echo -e "  Status: ${GREEN}reachable${NC}"
 else
     echo -e "  Status: ${YELLOW}not reachable${NC} (stack may be down)"

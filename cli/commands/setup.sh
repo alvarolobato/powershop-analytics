@@ -38,7 +38,12 @@ cmd_setup() {
     fi
 
     # Create .env symlink in repo root if missing
-    if [ ! -L "${REPO_ROOT}/.env" ]; then
+    if [ -f "${REPO_ROOT}/.env" ] && [ ! -L "${REPO_ROOT}/.env" ]; then
+        echo -e "${RED}[SKIP]${NC} ${REPO_ROOT}/.env exists as a regular file (not a symlink)."
+        echo -e "  To use the centralized config, back it up and re-run:"
+        echo -e "    mv ${REPO_ROOT}/.env ${REPO_ROOT}/.env.bak"
+        echo -e "    ps setup"
+    elif [ ! -L "${REPO_ROOT}/.env" ]; then
         ln -sf "${ENV_FILE}" "${REPO_ROOT}/.env"
         echo -e "${GREEN}Created${NC} symlink ${REPO_ROOT}/.env → ${ENV_FILE}"
     else
@@ -97,15 +102,16 @@ cmd_check() {
     local host="${P4D_HOST:-}"
     local port="${P4D_PORT:-19812}"
     if [ -n "${host}" ] && [ "${host}" != "your_4d_server_ip" ]; then
-        if python3 -c "
+        if python3 - "$host" "$port" <<'PYEOF' 2>/dev/null
 import socket, sys
 try:
-    s = socket.create_connection(('${host}', ${port}), timeout=3)
+    s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=3)
     s.close()
     sys.exit(0)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYEOF
+        then
             echo -e "  ${GREEN}[OK]${NC}  4D server ${host}:${port} is reachable"
         else
             echo -e "  ${YELLOW}[WARN]${NC} 4D server ${host}:${port} not reachable (network or server may be down)"
@@ -118,15 +124,16 @@ except Exception:
     local pg_host="${POSTGRES_HOST:-localhost}"
     local pg_port="${POSTGRES_PORT:-5432}"
     if docker compose -f "${REPO_ROOT}/docker-compose.yml" ps --quiet postgres 2>/dev/null | grep -q .; then
-        if python3 -c "
+        if python3 - "$pg_host" "$pg_port" <<'PYEOF' 2>/dev/null
 import socket, sys
 try:
-    s = socket.create_connection(('${pg_host}', ${pg_port}), timeout=3)
+    s = socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=3)
     s.close()
     sys.exit(0)
 except Exception:
     sys.exit(1)
-" 2>/dev/null; then
+PYEOF
+        then
             echo -e "  ${GREEN}[OK]${NC}  PostgreSQL ${pg_host}:${pg_port} is reachable"
         else
             echo -e "  ${YELLOW}[WARN]${NC} PostgreSQL ${pg_host}:${pg_port} not reachable"

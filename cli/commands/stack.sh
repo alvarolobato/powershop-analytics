@@ -89,7 +89,7 @@ cmd_open() {
 cmd_destroy() {
     echo -e "${RED}WARNING: This will delete all data including PostgreSQL.${NC}"
     printf "Continue? [y/N] "
-    read -r answer
+    read -r answer || answer=''
     if [ "${answer}" = "y" ] || [ "${answer}" = "Y" ]; then
         echo -e "${CYAN}Destroying stack and volumes...${NC}"
         $DC down -v
