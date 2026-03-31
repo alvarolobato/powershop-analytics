@@ -147,13 +147,7 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     _run_sync("gc_comerciales", sync_gc_comerciales, conn_4d, conn_pg, uses_watermark=False)
 
     # ------------------------------------------------------------------
-    # 3. Stock (delta by FechaModifica)
-    # ------------------------------------------------------------------
-    _run_sync("stock", sync_stock, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync("traspasos", sync_traspasos, conn_4d, conn_pg, uses_watermark=True)
-
-    # ------------------------------------------------------------------
-    # 4. Retail sales (delta by FechaModifica)
+    # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)
     # ------------------------------------------------------------------
     _run_sync("ventas", sync_ventas, conn_4d, conn_pg, uses_watermark=True)
     _run_sync("lineas_ventas", sync_lineas_ventas, conn_4d, conn_pg, uses_watermark=True)
@@ -177,6 +171,12 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     _run_sync("facturas", sync_facturas, conn_4d, conn_pg, uses_watermark=False)
     _run_sync("albaranes", sync_albaranes, conn_4d, conn_pg, uses_watermark=False)
     _run_sync("facturas_compra", sync_facturas_compra, conn_4d, conn_pg, uses_watermark=False)
+
+    # ------------------------------------------------------------------
+    # 7. Stock (delta by FechaModifica) — last because Exportaciones is very slow (2M rows)
+    # ------------------------------------------------------------------
+    _run_sync("stock", sync_stock, conn_4d, conn_pg, uses_watermark=True)
+    _run_sync("traspasos", sync_traspasos, conn_4d, conn_pg, uses_watermark=True)
 
     total_ms = int((time.time() - pipeline_start) * 1000)
     logger.info("=== Full sync completed in %d ms ===", total_ms)

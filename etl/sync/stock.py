@@ -221,27 +221,22 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     )
 
     total_processed = 0
-    offset = 0
     pg_buffer: list[dict] = []
 
-    while True:
-        # Stable ORDER BY is required for LIMIT/OFFSET pagination to be deterministic.
-        sql = (
-            f"SELECT {_EXPO_COLUMNS} FROM Exportaciones "
-            f"{where} {_EXPO_ORDER_BY} LIMIT {_SOURCE_BATCH} OFFSET {offset}"
-        ).strip()
+    # Fetch ALL rows in a single query (no LIMIT/OFFSET).
+    # LIMIT/OFFSET is catastrophically slow on 4D for large offsets because
+    # it must scan all preceding rows. A single SELECT is much faster even
+    # for 2M rows — 4D streams the result set to the p4d cursor.
+    sql = f"SELECT {_EXPO_COLUMNS} FROM Exportaciones {where}".strip()
+    logger.info("sync_stock: executing query (single fetch, no pagination)...")
 
-        batch = safe_fetch(conn_4d, sql)
-        if not batch:
-            break  # no more rows — pagination complete
+    all_rows = safe_fetch(conn_4d, sql)
+    logger.info("sync_stock: fetched %d source rows from 4D", len(all_rows))
 
-        for src_row in batch:
-            pg_buffer.extend(_normalize_expo_row(src_row))
+    for i, src_row in enumerate(all_rows):
+        pg_buffer.extend(_normalize_expo_row(src_row))
 
         # Flush when buffer reaches PG batch size.
-        # Use del pg_buffer[:_PG_BATCH] (in-place removal) rather than
-        # pg_buffer = pg_buffer[_PG_BATCH:] (copies remaining list each time)
-        # to avoid O(n) list copy overhead at ~10M normalized rows.
         while len(pg_buffer) >= _PG_BATCH:
             chunk = pg_buffer[:_PG_BATCH]
             del pg_buffer[:_PG_BATCH]
@@ -252,19 +247,14 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
                 pk_cols=["codigo", "tienda_codigo", "talla"],
             )
             total_processed += attempted
-            logger.debug(
-                "sync_stock: processed batch of %d normalized rows",
-                attempted,
-            )
 
-        offset += len(batch)
-        logger.info(
-            "sync_stock: fetched %d source rows so far (est. total %d, "
-            "%d normalized rows buffered)",
-            offset,
-            total_source,
-            len(pg_buffer),
-        )
+        if (i + 1) % 100000 == 0:
+            logger.info(
+                "sync_stock: normalized %d/%d source rows (%d PG rows so far)",
+                i + 1,
+                len(all_rows),
+                total_processed,
+            )
 
     # Flush remaining buffer.
     if pg_buffer:
