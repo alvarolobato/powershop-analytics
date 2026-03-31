@@ -12,6 +12,7 @@ What is tested
                                    ps_lineas_ventas (for the delta period) exists in
                                    ps_ventas.
 """
+
 from __future__ import annotations
 
 import os
@@ -62,7 +63,9 @@ def conn_4d():
 def conn_pg():
     """Yield a psycopg2 connection; skip if PostgreSQL is not configured."""
     if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available — skipping PostgreSQL tests")
+        pytest.skip(
+            "PostgreSQL configuration not available — skipping PostgreSQL tests"
+        )
 
     from etl.config import Config
     from etl.db import postgres
@@ -144,9 +147,7 @@ class TestSyncVentas:
             cur.execute("SELECT COUNT(*) FROM ps_ventas")
             total = cur.fetchone()[0]
 
-            cur.execute(
-                "SELECT COUNT(*) FROM ps_ventas WHERE total_si IS NOT NULL"
-            )
+            cur.execute("SELECT COUNT(*) FROM ps_ventas WHERE total_si IS NOT NULL")
             non_null = cur.fetchone()[0]
 
         if total == 0:
@@ -158,7 +159,9 @@ class TestSyncVentas:
             " Expected >= 90%."
         )
 
-    def test_lineas_fk_valid(self, conn_4d, conn_pg, yesterday, synced_ventas, synced_lineas):
+    def test_lineas_fk_valid(
+        self, conn_4d, conn_pg, yesterday, synced_ventas, synced_lineas
+    ):
         """All num_ventas values in ps_lineas_ventas (delta period) must exist in ps_ventas.
 
         This validates the FK chain: LineasVentas.NumVentas → Ventas.RegVentas.

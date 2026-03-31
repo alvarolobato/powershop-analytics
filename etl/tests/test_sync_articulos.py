@@ -9,6 +9,7 @@ What is tested:
 - No bytes values in ps_articulos (bytes-decoding regression guard).
 - ccrefejofacm is populated for at least 90 % of rows (referencia present).
 """
+
 from __future__ import annotations
 
 import os
@@ -58,7 +59,9 @@ def conn_4d():
 def conn_pg():
     """Yield a psycopg2 connection; skip if PostgreSQL is not configured."""
     if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available — skipping PostgreSQL tests")
+        pytest.skip(
+            "PostgreSQL configuration not available — skipping PostgreSQL tests"
+        )
 
     from etl.config import Config
     from etl.db import postgres

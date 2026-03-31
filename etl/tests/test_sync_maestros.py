@@ -11,6 +11,7 @@ What is tested:
 - sync_proveedores: integration sync between 4D and PostgreSQL
 - sync_gc_comerciales: integration sync between 4D and PostgreSQL
 """
+
 from __future__ import annotations
 
 import os

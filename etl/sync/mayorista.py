@@ -28,6 +28,7 @@ PK precision
 are converted to Decimal before insertion to avoid binary-float precision
 loss in PostgreSQL NUMERIC columns.
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,7 +54,7 @@ _NUMERIC_FIELDS = frozenset(
         "base1",
         "base2",
         "base3",
-        "unidades",   # maps to ps_gc_albaranes.entregadas (Entregadas doesn't exist in GCAlbaranes)
+        "unidades",  # maps to ps_gc_albaranes.entregadas (Entregadas doesn't exist in GCAlbaranes)
         "numcomercial",
         # GCFacturas
         "regfactura",
@@ -411,7 +412,9 @@ def sync_gc_lin_albarane(
     parent_sql = _SQL_LIN_ALBARANE_PARENT_IDS.format(since=_format_since(since))
     parent_rows = safe_fetch(conn_4d, parent_sql)
     if not parent_rows:
-        logger.info("sync_gc_lin_albarane: no parent albaranes modified since %s", since.date())
+        logger.info(
+            "sync_gc_lin_albarane: no parent albaranes modified since %s", since.date()
+        )
         return 0
 
     # NAlbaran values from 4D — may be float; convert to Decimal for PG
@@ -500,7 +503,9 @@ def sync_gc_lin_facturas(
     parent_sql = _SQL_LIN_FACTURAS_PARENT_IDS.format(since=_format_since(since))
     parent_rows = safe_fetch(conn_4d, parent_sql)
     if not parent_rows:
-        logger.info("sync_gc_lin_facturas: no parent facturas modified since %s", since.date())
+        logger.info(
+            "sync_gc_lin_facturas: no parent facturas modified since %s", since.date()
+        )
         return 0
 
     # NFactura values from 4D — may be float; convert to Decimal for PG

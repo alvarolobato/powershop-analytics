@@ -1,4 +1,5 @@
 """Pytest fixtures for ETL tests."""
+
 import os
 
 import pytest
@@ -34,7 +35,9 @@ def pg_conn():
     test will fail rather than skip — misconfiguration should surface as a failure.
     """
     if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available — skipping PostgreSQL tests")
+        pytest.skip(
+            "PostgreSQL configuration not available — skipping PostgreSQL tests"
+        )
 
     from etl.db import postgres
 

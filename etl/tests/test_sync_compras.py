@@ -9,6 +9,7 @@ What is tested:
 - Row count in ps_lineas_compras matches 4D CCLineasCompr after sync (~44,000).
 - FK integrity: all num_pedido values in ps_lineas_compras exist in ps_compras.
 """
+
 from __future__ import annotations
 
 import os
@@ -58,7 +59,9 @@ def conn_4d():
 def conn_pg():
     """Yield a psycopg2 connection; skip if PostgreSQL is not configured."""
     if not _postgres_available():
-        pytest.skip("PostgreSQL configuration not available — skipping PostgreSQL tests")
+        pytest.skip(
+            "PostgreSQL configuration not available — skipping PostgreSQL tests"
+        )
 
     from etl.config import Config
     from etl.db import postgres

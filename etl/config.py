@@ -8,6 +8,7 @@ File resolution order (first loaded wins; later files only fill gaps):
 Real environment variables (set before Python starts) always win because
 override=False never clobbers existing os.environ entries.
 """
+
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -19,9 +20,11 @@ from dotenv import load_dotenv
 # only fills in keys not yet present in os.environ.
 _CONFIG_DIR = Path.home() / ".config" / "powershop-analytics"
 for _candidate in [
-    Path(".env"),            # highest priority (worktree symlink → centralized, or docker-compose)
-    Path("local/.env"),      # worktree-local override
-    _CONFIG_DIR / ".env",    # centralized (lowest priority)
+    Path(
+        ".env"
+    ),  # highest priority (worktree symlink → centralized, or docker-compose)
+    Path("local/.env"),  # worktree-local override
+    _CONFIG_DIR / ".env",  # centralized (lowest priority)
 ]:
     if _candidate.is_file():
         load_dotenv(_candidate, override=False)

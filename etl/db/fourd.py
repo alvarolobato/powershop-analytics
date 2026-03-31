@@ -14,6 +14,7 @@ Gotchas handled here:
   this conversion.
 - None values are passed through unchanged.
 """
+
 from __future__ import annotations
 
 import re
@@ -47,9 +48,7 @@ def get_connection(config: "Config"):  # type: ignore[return]
     try:
         import p4d  # type: ignore[import-untyped]
     except ImportError as exc:
-        raise ImportError(
-            "p4d package is not installed. Run: pip install p4d"
-        ) from exc
+        raise ImportError("p4d package is not installed. Run: pip install p4d") from exc
 
     return p4d.connect(
         host=config.p4d_host,

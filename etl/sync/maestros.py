@@ -21,6 +21,7 @@ PK precision
 All PK/FK values are converted to Decimal before insertion to prevent
 binary-float precision loss when stored in PostgreSQL NUMERIC columns.
 """
+
 from __future__ import annotations
 
 import logging
@@ -45,7 +46,9 @@ def _to_decimal(value: Any) -> Decimal | None:
     return Decimal(str(value))
 
 
-def _discover_columns(conn_4d, table_name: str, exclude_types: tuple[int, ...] = (0, 12, 18)) -> list[str]:
+def _discover_columns(
+    conn_4d, table_name: str, exclude_types: tuple[int, ...] = (0, 12, 18)
+) -> list[str]:
     """Return safe column names for *table_name*, excluding blob/picture/unknown types.
 
     DATA_TYPE exclusions:
@@ -83,11 +86,11 @@ def _discover_columns(conn_4d, table_name: str, exclude_types: tuple[int, ...] =
 #   - CodigoPostal does not exist; Postal is the zip code
 _CLIENTES_MAP: dict[str, str] = {
     "regcliente": "reg_cliente",
-    "codigo": "num_cliente",       # Codigo = client code (maps to num_cliente)
-    "nombrecomercial": "nombre",   # NombreComercial = business name (maps to nombre)
-    "cif": "nif",                  # CIF = tax ID (maps to nif)
-    "email": "email",              # email (lowercase in 4D)
-    "postal": "codigo_postal",     # Postal = zip code (maps to codigo_postal)
+    "codigo": "num_cliente",  # Codigo = client code (maps to num_cliente)
+    "nombrecomercial": "nombre",  # NombreComercial = business name (maps to nombre)
+    "cif": "nif",  # CIF = tax ID (maps to nif)
+    "email": "email",  # email (lowercase in 4D)
+    "postal": "codigo_postal",  # Postal = zip code (maps to codigo_postal)
     "poblacion": "poblacion",
     "pais": "pais",
     "fechacreacion": "fecha_creacion",
@@ -100,11 +103,11 @@ _CLIENTES_MAP: dict[str, str] = {
 # it will be silently omitted by the discovery step.
 _CLIENTES_DESIRED = [
     "RegCliente",
-    "Codigo",           # client code → num_cliente
+    "Codigo",  # client code → num_cliente
     "NombreComercial",  # business name → nombre
-    "CIF",              # tax ID → nif
-    "email",            # email (lowercase in 4D)
-    "Postal",           # zip code → codigo_postal
+    "CIF",  # tax ID → nif
+    "email",  # email (lowercase in 4D)
+    "Postal",  # zip code → codigo_postal
     "Poblacion",
     "Pais",
     "FechaCreacion",
@@ -291,7 +294,8 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
     if pk_col is None:
         pk_col = "RegProveedor"
         logger.warning(
-            "sync_proveedores: could not discover Reg* PK column — defaulting to %s", pk_col
+            "sync_proveedores: could not discover Reg* PK column — defaulting to %s",
+            pk_col,
         )
     else:
         logger.info("sync_proveedores: discovered PK column: %s", pk_col)
@@ -309,7 +313,9 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
     cols_to_query = [c for c in desired if c in safe_cols]
 
     if not cols_to_query:
-        logger.error("sync_proveedores: no queryable columns found in Proveedores — aborting")
+        logger.error(
+            "sync_proveedores: no queryable columns found in Proveedores — aborting"
+        )
         return 0
     if pk_col not in cols_to_query:
         logger.error(
