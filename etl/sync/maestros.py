@@ -232,15 +232,44 @@ _PROVEEDORES_DESIRED = [
 
 
 def _discover_pk_proveedores(conn_4d) -> str | None:
-    """Discover the PK column for Proveedores by looking for Reg* columns."""
+    """Discover the PK column for Proveedores by looking for Reg* columns.
+
+    Selection is deterministic and constrained to queryable (safe) columns:
+    - Collect all Reg% columns present in _USER_COLUMNS.
+    - Intersect with _discover_columns() so we do not pick a column that is
+      filtered out by DATA_TYPE exclusions (type 0/12/18).
+    - Prefer an exact (case-insensitive) match to "RegProveedor".
+    - Otherwise pick the first candidate in a case-insensitive sort.
+    """
+    # Only consider columns that are queryable (no BLOB/PICTURE/unknown types).
+    safe_cols = {name.lower() for name in _discover_columns(conn_4d, "Proveedores")}
+
     sql = (
         "SELECT COLUMN_NAME FROM _USER_COLUMNS "
         "WHERE TABLE_NAME = 'Proveedores' AND COLUMN_NAME LIKE 'Reg%'"
     )
     rows = safe_fetch(conn_4d, sql)
-    if rows:
-        return rows[0]["column_name"]
-    return None
+    if not rows:
+        return None
+
+    # Intersect with safe columns.
+    candidates = [
+        row["column_name"]
+        for row in rows
+        if isinstance(row.get("column_name"), str)
+        and row["column_name"].lower() in safe_cols
+    ]
+
+    if not candidates:
+        return None
+
+    # Prefer exact RegProveedor (case-insensitive).
+    for col_name in candidates:
+        if col_name.lower() == "regproveedor":
+            return col_name
+
+    # Fall back to deterministic sort.
+    return sorted(candidates, key=lambda s: s.lower())[0]
 
 
 def sync_proveedores(conn_4d, conn_pg) -> int:
@@ -262,7 +291,11 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
         logger.info("sync_proveedores: discovered PK column: %s", pk_col)
 
     # Build desired list with the discovered PK.
+    # If the discovered PK differs from the default (RegProveedor), remove the
+    # default to avoid selecting two candidate PK columns and ambiguous mapping.
     desired = list(_PROVEEDORES_DESIRED)
+    if pk_col != "RegProveedor":
+        desired = [c for c in desired if c != "RegProveedor"]
     if pk_col not in desired:
         desired.insert(0, pk_col)
 
