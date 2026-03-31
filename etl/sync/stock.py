@@ -10,7 +10,12 @@ Batch processing is critical: Exportaciones has ~2M source rows.  We fetch in
 batches of 1000 source rows (configurable via _SOURCE_BATCH) to avoid loading
 the full wide table into memory.  Each batch is normalized and upserted immediately.
 Pagination uses LIMIT/OFFSET with a stable ORDER BY (Codigo, TiendaCodigo) to
-guarantee deterministic page boundaries regardless of table scan order.
+provide consistent page boundaries in the absence of concurrent modifications.
+Note: LIMIT/OFFSET is not fully safe against concurrent inserts/deletes — a row
+added or removed before the current OFFSET can shift later pages and cause some
+rows to be processed twice or skipped.  For a nightly ETL where Exportaciones is
+effectively quiescent this is acceptable; use keyset pagination if strict
+consistency under concurrent writes is required.
 
 Note on pagination performance: LIMIT/OFFSET scanning can degrade at large offsets
 because the DB engine must scan all preceding rows.  At 2M source rows this is
@@ -211,9 +216,12 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
             pg_buffer.extend(_normalize_expo_row(src_row))
 
         # Flush when buffer reaches PG batch size.
+        # Use del pg_buffer[:_PG_BATCH] (in-place removal) rather than
+        # pg_buffer = pg_buffer[_PG_BATCH:] (copies remaining list each time)
+        # to avoid O(n) list copy overhead at ~10M normalized rows.
         while len(pg_buffer) >= _PG_BATCH:
             chunk = pg_buffer[:_PG_BATCH]
-            pg_buffer = pg_buffer[_PG_BATCH:]
+            del pg_buffer[:_PG_BATCH]
             attempted = upsert(
                 conn_pg,
                 "ps_stock_tienda",

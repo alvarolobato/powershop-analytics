@@ -194,11 +194,30 @@ def fourd_conn():
     conn.close()
 
 
+def _require_integration_writes() -> None:
+    """Skip if ALLOW_DESTRUCTIVE_TESTS=1 is not set.
+
+    sync_stock() upserts into ps_stock_tienda (not a TRUNCATE, but it modifies
+    real data).  Guard with an explicit opt-in so tests are not accidentally run
+    against a non-test database.
+    """
+    if os.environ.get("ALLOW_DESTRUCTIVE_TESTS", "").strip() != "1":
+        pytest.skip(
+            "Set ALLOW_DESTRUCTIVE_TESTS=1 to run integration tests that write "
+            "to ps_stock_tienda / ps_traspasos"
+        )
+
+
 class TestSyncStockIntegration:
-    """Integration tests that require both 4D and PostgreSQL connections."""
+    """Integration tests that require both 4D and PostgreSQL connections.
+
+    All tests write to real schema tables (ps_stock_tienda, ps_traspasos).
+    Set ALLOW_DESTRUCTIVE_TESTS=1 to enable.
+    """
 
     def test_sync_stock_produces_rows(self, fourd_conn, pg_conn):
         """Verify that sync_stock processes rows and ps_stock_tienda is populated."""
+        _require_integration_writes()
         attempted = sync_stock(fourd_conn, pg_conn, since=_INTEGRATION_SINCE)
         assert attempted > 0, (
             f"sync_stock returned 0 attempted rows for the {_INTEGRATION_SINCE.date()} window — "
@@ -216,6 +235,7 @@ class TestSyncStockIntegration:
 
     def test_stock_no_empty_tallas(self, fourd_conn, pg_conn):
         """After sync, no rows in ps_stock_tienda should have empty talla."""
+        _require_integration_writes()
         attempted = sync_stock(fourd_conn, pg_conn, since=_INTEGRATION_SINCE)
         assert attempted > 0, (
             "sync_stock returned 0 rows — cannot validate talla filtering on empty table"
