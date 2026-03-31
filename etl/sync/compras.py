@@ -109,11 +109,6 @@ _FACTURAS_COMPRA_MAPPING: dict[str, str] = {
 # SQL queries
 # ---------------------------------------------------------------------------
 
-_SQL_COMPRAS = (
-    "SELECT RegPedido, FechaPedido, FechaRecibido, Modificada, NumProveedor"
-    " FROM Compras"
-)
-
 _SQL_LINEAS_COMPRAS = (
     "SELECT RegLineaCompra, NumPedido, NumTienda, Fecha, NumArticulo"
     " FROM CCLineasCompr"
@@ -162,8 +157,6 @@ def sync_compras(conn_4d: Any, conn_pg: Any) -> int:
     cols_map = {k: v for k, v in cols_map.items() if k in queryable_lower}
 
     selected = [k for k in _COMPRAS_MAPPING if k in queryable_lower]
-    sql = "SELECT " + ", ".join(selected) + " FROM Compras"
-    # Use original casing from queryable list for safe column names
     orig_case = {c.lower(): c for c in queryable}
     sql = "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM Compras"
 
@@ -302,9 +295,15 @@ def sync_facturas_compra(conn_4d: Any, conn_pg: Any) -> int:
     selected = [k for k in _FACTURAS_COMPRA_MAPPING if k in queryable_lower]
 
     if not selected:
-        # No matching columns found — truncate and return 0
-        truncate_and_insert(conn_pg, "ps_facturas_compra", [], restart_identity=True)
-        return 0
+        # No matching columns found — fail fast to avoid silently wiping the
+        # target table on a schema/mapping mismatch.
+        expected = sorted(_FACTURAS_COMPRA_MAPPING.keys())
+        discovered = sorted(queryable)
+        raise RuntimeError(
+            "sync_facturas_compra: no expected columns found in source table "
+            "'FacturasCompra'. Expected at least one of: "
+            f"{expected}; discovered columns: {discovered}"
+        )
 
     sql = (
         "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM FacturasCompra"

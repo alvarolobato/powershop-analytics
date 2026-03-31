@@ -76,10 +76,22 @@ def synced_compras(conn_4d, conn_pg):
     Module-scoped so each full-refresh runs only once across all tests in this
     module.
     """
-    from etl.sync.compras import sync_compras, sync_lineas_compras
+    from etl.sync.compras import (
+        sync_albaranes,
+        sync_compras,
+        sync_facturas,
+        sync_facturas_compra,
+        sync_lineas_compras,
+    )
 
     compras_count = sync_compras(conn_4d, conn_pg)
     lineas_count = sync_lineas_compras(conn_4d, conn_pg)
+
+    # Exercise remaining sync functions to detect schema/mapping drift early.
+    sync_facturas(conn_4d, conn_pg)
+    sync_albaranes(conn_4d, conn_pg)
+    sync_facturas_compra(conn_4d, conn_pg)
+
     return compras_count, lineas_count
 
 
