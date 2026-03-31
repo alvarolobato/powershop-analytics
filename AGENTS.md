@@ -100,8 +100,38 @@ Priority (highest to lowest):
 | `SOAP_URL` | SOAP endpoint URL |
 | `SOAP_WSDL` | WSDL URL |
 | `POSTGRES_DSN` | PostgreSQL connection string (ETL target) |
-| `OPENROUTER_API_KEY` | OpenRouter API key for WrenAI LLM |
+| `OPENROUTER_API_KEY` | OpenRouter API key for WrenAI LLM + embeddings |
 | `ETL_CRON_HOUR` | Hour to run nightly sync (default: 2) |
+| `WREN_LLM_MODEL` | LLM model for WrenAI text-to-SQL (default: anthropic/claude-sonnet-4) |
+
+---
+
+## WrenAI Configuration
+
+### LLM and Embeddings (via OpenRouter)
+
+WrenAI uses two AI providers, both routed through OpenRouter with a single API key:
+- **LLM**: `openrouter/anthropic/claude-sonnet-4` via litellm. Configured in `wren-config.yaml`.
+- **Embeddings**: `openai/text-embedding-3-large` via litellm. Note: litellm does NOT support the `openrouter/` prefix for embeddings — use `openai/` prefix with `OPENAI_API_BASE` set to `https://openrouter.ai/api/v1`.
+
+Model IDs must match OpenRouter's catalog exactly (e.g. `anthropic/claude-sonnet-4` not `anthropic/claude-sonnet-4-20250514`). Check https://openrouter.ai/models for valid IDs.
+
+### Semantic Model
+
+Relationships and models are managed through WrenAI's GraphQL API at `http://localhost:3000/api/graphql`:
+- `createRelation(data: { fromModelId, fromColumnId, toModelId, toColumnId, type })` — create relationship
+- `mutation { deploy(force: true) }` — deploy/re-index the semantic model
+
+The MDL JSON at `wren/mdl/model.json` is a reference but WrenAI community edition manages its own model internally via the UI/API, not by loading external JSON files.
+
+### Data Persistence
+
+All data lives in bind-mounted directories under `./data/`:
+- `./data/postgres/` — PostgreSQL data files
+- `./data/qdrant/` — Qdrant vector store
+- `./data/wren/` — WrenAI config, SQLite DB, MDL
+
+This survives `docker compose down` and container recreation. Only `docker compose down -v` or deleting `./data/` will destroy it.
 
 ---
 

@@ -45,7 +45,16 @@ conn = p4d.connect(
 - **LineasCompras does not exist**: The purchase order line table is `CCLineasCompr` (44K rows). It links to `Compras` via `NumPedido`, not a direct `NumCompra` field.
 - **Exportaciones.TiendaCodigo format**: This field is `"tienda/articulo"` (e.g. `"104/169"`), not just a store code. The compound `(Codigo, TiendaCodigo)` is the natural PK for this table.
 - **Ventas/LineasVentas/PagosVentas are NOT append-only**: 19–21% of historical records have been modified after creation (returns, TBAI corrections, payment flags). Always UPSERT by `FechaModifica` — never plain INSERT.
-- **PKs are REAL floats**: Store PKs as `NUMERIC` in PostgreSQL, not `FLOAT8`, to avoid precision loss on the `.99` suffix pattern (e.g. `RegVentas = 10028816.641`).
+- **PKs are REAL floats**: Store PKs as `NUMERIC(20,3)` in PostgreSQL, not `FLOAT8`, to avoid precision loss. Use 3 decimal places — some PKs have 3dp (e.g. `RegCliente = 4.152, 4.153`). NUMERIC(20,2) caused duplicate-key collisions. Always convert Python floats to `Decimal(str(value))` before inserting.
+- **4D SQL uses `<>` not `!=`**: The inequality operator in 4D SQL is `<>`. Using `!=` causes "Failed to parse statement". This applies to all SQL including system table queries like `_USER_COLUMNS WHERE DATA_TYPE <> 0`.
+- **NUL bytes in text fields**: 4D fixed-length text fields contain NUL padding (e.g. `'NEGRO\x00\x00'`). The ETL's `_decode_value()` strips `\x00`. If writing custom queries, always strip: `value.replace('\x00', '')`.
+- **GCLinAlbarane missing columns**: `NumComercial` and `Mes` columns do NOT exist in `GCLinAlbarane` (they DO exist in `GCLinFacturas`). Queries including these columns will fail silently with "Failed to execute statement".
+- **GCAlbaranes column name**: The table has `Unidades`, NOT `Entregadas`. The DDL maps it to `entregadas` in PostgreSQL for semantic clarity but the 4D query must use `Unidades`.
+- **n_albaran / n_factura are NOT unique**: Multiple albaranes/facturas can share the same document number across series/corrections. Do not create UNIQUE indexes on these columns. FK constraints from line tables to header tables cannot reference these columns.
+- **Large table fetching**: Single `SELECT` with no pagination is faster than `LIMIT/OFFSET` for 4D (which re-scans all preceding rows at each offset). For tables >1M rows, fetch progressively by a partition key (e.g. by store for Exportaciones). The p4d driver buffers the entire result set in memory — a 2M-row fetch will OOM a 512MB container.
+- **Exportaciones progressive sync**: Fetch one store at a time (`WHERE Tienda = 'X'`). 50 stores × ~41K rows each = ~80s per store. Total ~67 min vs OOM on single fetch.
+- **OpenRouter embedding routing**: litellm does NOT support `openrouter/` prefix for embeddings. Use `openai/text-embedding-3-large` with `OPENAI_API_BASE=https://openrouter.ai/api/v1` — litellm routes it correctly. The LLM uses `openrouter/anthropic/claude-sonnet-4`.
+- **TRUNCATE CASCADE needed**: PostgreSQL FK constraints block `TRUNCATE` on parent tables. Use `TRUNCATE ... CASCADE` for full-refresh tables that have FK-referencing children.
 
 ### CLI usage
 
