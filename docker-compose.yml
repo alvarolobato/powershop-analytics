@@ -130,7 +130,9 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       # Qdrant
       QDRANT_HOST: qdrant
-      SHOULD_FORCE_DEPLOY: "1"
+      # SHOULD_FORCE_DEPLOY removed — the entrypoint tries to connect to wren-ui
+      # which times out and crashes the container in a restart loop. We deploy via
+      # scripts/wren-push-metadata.py instead.
       # Port — required by entrypoint.sh for uvicorn --port $WREN_AI_SERVICE_PORT
       WREN_AI_SERVICE_PORT: ${WREN_AI_SERVICE_PORT:-5555}
       # LLM model — required for ${WREN_LLM_MODEL:-...} substitution in wren-config.yaml
