@@ -160,19 +160,19 @@ class TestNormalizeExpoRow:
 # Integration tests (require P4D_HOST + PostgreSQL)
 # ---------------------------------------------------------------------------
 
-# Use a narrow rolling window (90 days back from a fixed reference date) so
-# the integration tests do not grow slower over time as more data accumulates.
+# Fixed integration start date — keeps the sync window bounded so tests do
+# not grow slower over time as more data accumulates in the source systems.
 # Exportaciones rows are frequently touched, so this window reliably has rows.
 _INTEGRATION_SINCE = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def fourd_conn():
-    """Yield a P4D connection (module-scoped); skip if either backend is absent.
+    """Yield a P4D connection; skip if either backend is absent.
 
     Both backends are required — guard with _both_available() to avoid
     constructing Config() (which validates PG env vars) when only P4D is set.
-    Module scope means the 4D connection is opened once for the whole module.
+    Function scope (same as pg_conn) avoids pytest ScopeMismatch errors.
     """
     if not _both_available():
         pytest.skip(
@@ -188,24 +188,12 @@ def fourd_conn():
     conn.close()
 
 
-@pytest.fixture(scope="module")
-def synced_stock(fourd_conn, pg_conn):
-    """Run sync_stock once per module and return the attempted row count.
-
-    Tests that need a populated ps_stock_tienda can depend on this fixture
-    instead of calling sync_stock() individually — avoids repeating the
-    expensive 4D→PG extract for each test method.
-    """
-    attempted = sync_stock(fourd_conn, pg_conn, since=_INTEGRATION_SINCE)
-    return attempted
-
-
 class TestSyncStockIntegration:
     """Integration tests that require both 4D and PostgreSQL connections."""
 
-    def test_sync_stock_produces_rows(self, synced_stock, pg_conn):
-        """Verify that sync_stock processed rows and ps_stock_tienda is populated."""
-        attempted = synced_stock
+    def test_sync_stock_produces_rows(self, fourd_conn, pg_conn):
+        """Verify that sync_stock processes rows and ps_stock_tienda is populated."""
+        attempted = sync_stock(fourd_conn, pg_conn, since=_INTEGRATION_SINCE)
         assert attempted > 0, (
             f"sync_stock returned 0 attempted rows for the {_INTEGRATION_SINCE.date()} window — "
             "no stock data was found or the query window is too narrow"
@@ -220,9 +208,9 @@ class TestSyncStockIntegration:
             "rows were not written to PostgreSQL"
         )
 
-    def test_stock_no_empty_tallas(self, synced_stock, pg_conn):
+    def test_stock_no_empty_tallas(self, fourd_conn, pg_conn):
         """After sync, no rows in ps_stock_tienda should have empty talla."""
-        attempted = synced_stock
+        attempted = sync_stock(fourd_conn, pg_conn, since=_INTEGRATION_SINCE)
         assert attempted > 0, (
             "sync_stock returned 0 rows — cannot validate talla filtering on empty table"
         )
@@ -240,7 +228,18 @@ class TestSyncStockIntegration:
         )
 
     def test_traspasos_count(self, fourd_conn, pg_conn):
-        """Full sync of Traspasos: row count in PostgreSQL matches 4D count."""
+        """Full sync of Traspasos: row count in PostgreSQL matches 4D count.
+
+        Requires ALLOW_DESTRUCTIVE_TESTS=1 to protect against accidentally
+        running against a non-test database (this test truncates ps_traspasos).
+        """
+        allow = os.environ.get("ALLOW_DESTRUCTIVE_TESTS", "").strip()
+        if allow != "1":
+            pytest.skip(
+                "Set ALLOW_DESTRUCTIVE_TESTS=1 to run tests that truncate "
+                "production tables (test_traspasos_count)"
+            )
+
         conn_pg = pg_conn
 
         # Truncate before full sync to avoid duplicates from previous test runs.
