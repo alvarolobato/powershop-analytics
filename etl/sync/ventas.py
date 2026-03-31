@@ -83,42 +83,40 @@ def _sync_table(
     mapping: dict[str, str],
     numeric_keys: set[str],
 ) -> int:
-    """Fetch-and-upsert a single table using LIMIT/OFFSET pagination.
+    """Fetch all matching rows and upsert in batches.
 
-    Fetches one page at a time and upserts immediately so memory usage stays
-    bounded even for initial full loads (~1 M rows).
+    Single SELECT (no LIMIT/OFFSET) because 4D SQL OFFSET scanning is
+    catastrophically slow at large offsets — it re-scans all preceding rows.
+    The p4d driver buffers the full result set in memory, so a single query
+    for ~1M rows uses ~500MB peak but completes in minutes vs hours.
 
     Args:
         sql_base:     SELECT ... FROM table (no WHERE/ORDER/LIMIT).
         where_clause: Already-formatted WHERE clause (e.g. "FechaModifica > {d '...'}").
-        pk_col_4d:    4D column name used for ORDER BY (original casing).
+        pk_col_4d:    4D column name used for ORDER BY (original casing). Unused now but kept for API compat.
         pg_table:     Target PostgreSQL table name.
         pk_cols_pg:   PK column list for ON CONFLICT.
         mapping:      4D lowercase key → PG snake_case column mapping.
         numeric_keys: Source keys whose values should be Decimal-converted.
 
     Returns:
-        Total rows upserted across all pages.
+        Total rows upserted.
     """
     from etl.db.fourd import safe_fetch
     from etl.db.postgres import upsert
 
+    full_sql = f"{sql_base} WHERE {where_clause}"
+    logger.info("Fetching from 4D: %s", full_sql[:200])
+    all_rows = safe_fetch(conn_4d, full_sql)
+    logger.info("Fetched %d rows from 4D", len(all_rows))
+
     total = 0
-    offset = 0
-    while True:
-        paged_sql = (
-            f"{sql_base} WHERE {where_clause}"
-            f" ORDER BY {pk_col_4d}"
-            f" LIMIT {BATCH_SIZE} OFFSET {offset}"
-        )
-        batch = safe_fetch(conn_4d, paged_sql)
-        if not batch:
-            break
+    for i in range(0, len(all_rows), BATCH_SIZE):
+        batch = all_rows[i : i + BATCH_SIZE]
         pg_rows = [_map_row(r, mapping, numeric_keys) for r in batch]
         total += upsert(conn_pg, pg_table, pg_rows, pk_cols_pg)
-        if len(batch) < BATCH_SIZE:
-            break
-        offset += BATCH_SIZE
+        if (i + BATCH_SIZE) % 50_000 == 0:
+            logger.info("%s: upserted %d / %d rows", pg_table, total, len(all_rows))
     return total
 
 
