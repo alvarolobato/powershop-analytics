@@ -42,7 +42,8 @@ services:
 
   # ---------------------------------------------------------------------------
   # ETL — extracts data from 4D and loads into PostgreSQL
-  # (stub: prints "ETL not yet implemented" and exits 0)
+  # Runs in scheduler mode by default (daily at ETL_CRON_HOUR, default 02:00).
+  # For a one-off sync: docker compose run --rm etl python main.py --once
   # ---------------------------------------------------------------------------
   etl:
     build: ./etl
