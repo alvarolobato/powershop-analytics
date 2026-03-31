@@ -49,9 +49,9 @@ def _discover_columns(conn_4d, table_name: str, exclude_types: tuple[int, ...] =
     """Return safe column names for *table_name*, excluding blob/picture/unknown types.
 
     DATA_TYPE exclusions:
-    - 0  : unknown type (causes "Unrecognized 4D type" error in p4d)
-    - 12 : BLOB
-    - 18 : PICTURE
+    - 0  : unknown/unsupported type (causes "Unrecognized 4D type" error in p4d)
+    - 12 : picture/blob type
+    - 18 : blob type
 
     Returns original-casing column names (as stored in _USER_COLUMNS).
 
@@ -311,6 +311,18 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
             pk_col,
         )
         return 0
+
+    # Validate all dynamically selected column names before interpolating them
+    # into the SELECT clause to guard against invalid or unsafe metadata values.
+    for col in cols_to_query:
+        try:
+            _validate_identifier(col)
+        except ValueError:
+            logger.error(
+                "sync_proveedores: invalid column name %r discovered from metadata — aborting",
+                col,
+            )
+            return 0
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Proveedores"
     logger.info("sync_proveedores: querying 4D — %s", sql)
