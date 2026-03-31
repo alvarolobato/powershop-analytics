@@ -268,12 +268,20 @@ INSTRUCTIONS = [
         "questions": ["¿Cuántos artículos tenemos?", "¿Cuál es nuestro catálogo activo?"],
     },
     {
-        "instruction": "El campo fecha_creacion en Venta es la fecha de la venta. El campo fecha_documento está vacío (NULL) en todos los registros — NUNCA usarlo.",
-        "questions": ["¿Ventas de la semana pasada?", "¿Ventas de hoy?"],
+        "instruction": "El campo fecha_creacion en Venta es la fecha de la venta (tipo DATE, formato YYYY-MM-DD). Para filtrar por fecha usar comparaciones simples con DATE: fecha_creacion >= '2026-03-24' AND fecha_creacion < '2026-03-31'. NUNCA hacer CAST a TIMESTAMP WITH TIME ZONE — el campo ya es DATE y las comparaciones directas funcionan. El campo fecha_documento está vacío (NULL) en todos los registros — NUNCA usarlo.",
+        "questions": ["¿Ventas de la semana pasada?", "¿Ventas de hoy?", "¿Ventas de esta semana?"],
     },
     {
         "instruction": "El ticket medio se calcula como: SUM(total_si) / COUNT(DISTINCT reg_ventas) de la tabla Venta. Usar siempre total_si (sin IVA).",
         "questions": ["¿Cuál es el ticket medio?", "¿Cuánto gasta cada cliente de media?"],
+    },
+    {
+        "instruction": "En la tabla Venta, el campo tipo_documento contiene 'Ticket' para ventas normales y 'Albaran' para albaranes. NO contiene valores como 'V' o 'D'. Para filtrar devoluciones, usar el campo entrada: entrada=true son ventas, entrada=false son devoluciones. NO filtrar por tipo_documento='V' que no existe.",
+        "questions": ["¿Cuántas devoluciones?", "¿Ventas sin devoluciones?", "Ventas netas"],
+    },
+    {
+        "instruction": "La tabla Tienda solo tiene código (campo codigo) y no tiene campo de nombre/descripción. Al consultar ventas por tienda, mostrar el código de tienda directamente. Los códigos significativos son: 99=almacén central, 97=tienda online. El resto son códigos numéricos de tiendas físicas.",
+        "questions": ["¿Ventas por tienda?", "¿Qué tiendas venden más?"],
     },
 ]
 
@@ -289,6 +297,10 @@ SQL_PAIRS = [
     (
         "¿Cuáles son las ventas netas por tienda este mes?",
         'SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= DATE_TRUNC(\'month\', CURRENT_DATE) GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC',
+    ),
+    (
+        "¿Cuáles son las ventas de la semana pasada por tienda?",
+        'SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL \'7 days\' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC',
     ),
     (
         "¿Cuál es el ticket medio?",
@@ -312,7 +324,19 @@ SQL_PAIRS = [
     ),
     (
         "¿Cuántas devoluciones hubo este mes?",
-        'SELECT COUNT(*) AS "Devoluciones" FROM "public"."ps_ventas" WHERE "tipo_documento" = \'D\' AND "fecha_creacion" >= DATE_TRUNC(\'month\', CURRENT_DATE)',
+        'SELECT COUNT(*) AS "Devoluciones" FROM "public"."ps_ventas" WHERE "entrada" = false AND "fecha_creacion" >= DATE_TRUNC(\'month\', CURRENT_DATE)',
+    ),
+    (
+        "¿Cuáles son las ventas de hoy?",
+        'SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" = CURRENT_DATE GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC',
+    ),
+    (
+        "¿Cuánto vendimos ayer?",
+        'SELECT SUM("total_si") AS "Ventas Netas" FROM "public"."ps_ventas" WHERE "fecha_creacion" = CURRENT_DATE - INTERVAL \'1 day\'',
+    ),
+    (
+        "¿Qué artículos tienen más stock en el almacén central?",
+        'SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."tienda" = \'99\' GROUP BY s."codigo", p."ccrefejofacm", p."descripcion" ORDER BY "Stock" DESC LIMIT 20',
     ),
 ]
 
