@@ -163,26 +163,32 @@ class TestNormalizeExpoRow:
 
 
 class TestValidateSince:
-    """Unit tests for _validate_since — no connections needed."""
+    """Unit tests for _validate_since — no connections needed.
+
+    _validate_since logs a warning (not raises) when a non-midnight datetime is
+    passed, because watermarks from set_watermark() include a time component and
+    raising would break all delta syncs.  The 4D SQL filter uses only the date
+    portion ({d 'YYYY-MM-DD'}), so the behaviour is still correct.
+    """
 
     def test_midnight_utc_passes(self):
         dt = datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         _validate_since(dt)  # should not raise
 
-    def test_non_midnight_raises(self):
+    def test_non_midnight_does_not_raise(self):
+        """Non-midnight datetimes log a warning but do not raise."""
         dt = datetime(2026, 1, 1, 12, 30, 0, tzinfo=timezone.utc)
-        with pytest.raises(ValueError, match="non-zero time component"):
-            _validate_since(dt)
+        _validate_since(dt)  # should not raise
 
-    def test_microseconds_raises(self):
+    def test_microseconds_does_not_raise(self):
+        """Datetimes with microseconds log a warning but do not raise."""
         dt = datetime(2026, 1, 1, 0, 0, 0, 500000, tzinfo=timezone.utc)
-        with pytest.raises(ValueError, match="non-zero time component"):
-            _validate_since(dt)
+        _validate_since(dt)  # should not raise
 
-    def test_name_in_error_message(self):
+    def test_name_param_accepted(self):
+        """The name parameter is accepted without error."""
         dt = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
-        with pytest.raises(ValueError, match="my_param"):
-            _validate_since(dt, name="my_param")
+        _validate_since(dt, name="my_param")  # should not raise
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +204,7 @@ def _integration_since() -> datetime:
     """Return a midnight-aligned UTC datetime N days back (default 90).
 
     Midnight-aligned because 4D SQL date filters only use the date portion —
-    passing a datetime with a non-zero time component would raise ValueError.
+    passing a datetime with a non-zero time component logs a warning (date portion is still used).
     """
     days = int(os.environ.get("ETL_TEST_SINCE_DAYS", "90"))
     today = datetime.now(tz=timezone.utc).replace(
