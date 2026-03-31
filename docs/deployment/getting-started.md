@@ -39,7 +39,7 @@ irm https://github.com/alvarolobato/powershop-analytics/releases/latest/download
    - Linux/macOS: `/usr/local/bin/ps-analytics` or `~/.local/bin/ps-analytics`
    - Windows: `%LOCALAPPDATA%\powershop-analytics\ps-analytics.cmd`
 
-If `.env` already exists the installer skips the interactive prompts. Delete `.env` and re-run, or run `ps-analytics setup` to reconfigure.
+If `.env` already exists the installer skips the interactive prompts. To reconfigure, delete `.env` and re-run the installer (`install.sh` on Linux/macOS, `install.ps1` on Windows). On Linux/macOS you can also run `ps-analytics setup` to reconfigure interactively without re-running the full installer.
 
 ## Start the stack
 
@@ -60,7 +60,7 @@ Data is stored in bind mounts under the project directory:
 ps-analytics status
 ```
 
-This prints container status and checks whether the WrenAI UI is reachable. Wait 1–2 minutes after `up` for all services to initialise.
+On Linux and macOS this prints container status and checks whether the WrenAI UI is reachable; on Windows it prints container status and the WrenAI URL. Wait 1–2 minutes after `up` for all services to initialise.
 
 ## Open the WrenAI UI
 

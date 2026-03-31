@@ -13,7 +13,7 @@ All commands are run as `ps-analytics <command>`.
 | `ps-analytics up` | Start all 8 containers in the background |
 | `ps-analytics down` | Stop all containers (data is preserved) |
 | `ps-analytics restart` | Restart all containers |
-| `ps-analytics status` | Show container status and check WrenAI UI health |
+| `ps-analytics status` | Show container status and WrenAI UI URL (Linux/macOS also checks reachability) |
 | `ps-analytics logs [service]` | Follow logs for all services, or a specific one |
 | `ps-analytics open` | Open WrenAI UI in the default browser |
 
@@ -45,7 +45,7 @@ ps-analytics logs wren-ai-service   # AI service only
 
 | Command | What it does |
 |---------|--------------|
-| `ps-analytics setup` | Interactively reconfigure `.env` (backs up old `.env` to `.env.bak`) |
+| `ps-analytics setup` | Interactively reconfigure `.env` — Linux/macOS only; on Windows rerun `install.ps1` |
 | `ps-analytics update` | Pull latest release, update compose/config, restart stack |
 | `ps-analytics destroy` | Stop containers, remove Docker volumes, delete `./data/` (irreversible — requires typing `yes`) |
 | `ps-analytics open` | Open WrenAI UI in browser |
@@ -93,7 +93,8 @@ ps-analytics etl logs
 
 ```bash
 ps-analytics status
-# Output includes: WrenAI UI is reachable at http://localhost:3000
+# On Linux/macOS: output includes "WrenAI UI is reachable at http://localhost:3000"
+# On Windows: output includes just the URL "http://localhost:3000"
 ```
 
 ## Backup

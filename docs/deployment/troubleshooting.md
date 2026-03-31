@@ -24,7 +24,7 @@ ps-analytics etl logs
 
 - **Firewall** — port 19812 must be open from the Docker host to the 4D server. Test with `nc -zv <P4D_HOST> 19812`.
 - **4D SQL server not running** — must be started manually in the 4D Server admin console. See [4d-connection.md](4d-connection.md#starting-the-4d-sql-server).
-- **Wrong credentials** — re-check `P4D_HOST`, `P4D_USER`, `P4D_PASSWORD` in `.env`. Run `ps-analytics setup` to reconfigure.
+- **Wrong credentials** — re-check `P4D_HOST`, `P4D_USER`, `P4D_PASSWORD` in `.env`. Run `ps-analytics setup` to reconfigure (Linux/macOS); on Windows, rerun `install.ps1` (delete `.env` first to trigger the credential prompts).
 
 ## ETL hangs or times out
 

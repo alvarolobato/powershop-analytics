@@ -51,7 +51,7 @@ See **[docs/deployment/getting-started.md](docs/deployment/getting-started.md)**
 
 ## Development
 
-Clone the repo and use the development CLI (`ps`) against the 4D source directly:
+Clone the repo and use the development CLI (`cli/ps`) against the 4D source directly:
 
 ```bash
 git clone https://github.com/alvarolobato/powershop-analytics.git
@@ -62,13 +62,14 @@ python3 -m venv .venv && .venv/bin/pip install p4d
 cp .env.example ~/.config/powershop-analytics/.env
 # Edit with your P4D_HOST, P4D_USER, P4D_PASSWORD, OPENROUTER_API_KEY
 
-# Explore the 4D source
-ps sql tables
-ps sql describe Ventas
-ps sql query "SELECT COUNT(*) FROM Ventas"
+# Explore the 4D source (use cli/ps or add cli/ to PATH)
+./cli/ps sql tables
+./cli/ps sql describe Ventas
+./cli/ps sql query "SELECT COUNT(*) FROM Ventas"
 
-# Run tests
-docker compose run --rm etl python -m pytest
+# Run tests (uses dev dependencies, not the Docker image)
+.venv/bin/pip install -r etl/requirements-dev.txt
+.venv/bin/pytest
 ```
 
 **Note**: Schema discovery, sample data, and generated reports contain real business data and are git-ignored. Run `ps sql schema` to generate locally.

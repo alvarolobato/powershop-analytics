@@ -29,11 +29,17 @@ P4D_USER=your_user        # 4D SQL username
 P4D_PASSWORD=your_pass    # 4D SQL password
 ```
 
-The installer prompts for these values. To change them later, edit `.env` in the project directory and restart:
+The installer prompts for these values. To change them later:
 
 ```bash
-ps-analytics setup     # interactive reconfigure
-# or edit .env directly, then:
+# Linux/macOS: interactive reconfigure
+ps-analytics setup
+
+# Windows (PowerShell): delete .env and rerun the installer
+Remove-Item "$env:APPDATA\powershop-analytics\.env"
+irm https://github.com/alvarolobato/powershop-analytics/releases/latest/download/install.ps1 | iex
+
+# Or edit .env directly on any platform, then restart:
 ps-analytics restart
 ```
 
