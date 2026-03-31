@@ -396,8 +396,10 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
 -- ============================================================
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_alb_nalbaran ON ps_gc_albaranes(n_albaran);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_fac_nfactura  ON ps_gc_facturas(n_factura);
+-- n_albaran and n_factura are NOT unique (multiple albaranes/facturas can share
+-- the same document number across different series or corrections).
+CREATE INDEX IF NOT EXISTS idx_alb_nalbaran ON ps_gc_albaranes(n_albaran);
+CREATE INDEX IF NOT EXISTS idx_fac_nfactura  ON ps_gc_facturas(n_factura);
 
 -- ============================================================
 -- Indexes
@@ -477,17 +479,9 @@ BEGIN
       NOT VALID DEFERRABLE INITIALLY DEFERRED;
   END IF;
 
-  -- Wholesale
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_gla_albaran') THEN
-    ALTER TABLE ps_gc_lin_albarane ADD CONSTRAINT fk_gla_albaran
-      FOREIGN KEY (n_albaran) REFERENCES ps_gc_albaranes(n_albaran)
-      NOT VALID DEFERRABLE INITIALLY DEFERRED;
-  END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_glf_factura') THEN
-    ALTER TABLE ps_gc_lin_facturas ADD CONSTRAINT fk_glf_factura
-      FOREIGN KEY (num_factura) REFERENCES ps_gc_facturas(n_factura)
-      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  -- Wholesale: n_albaran and n_factura are NOT unique in the parent tables
+  -- (multiple docs can share a number across series), so FK constraints are
+  -- not possible.  The indexes on these columns (above) still accelerate JOINs.
   END IF;
 
   -- Purchasing
