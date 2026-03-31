@@ -1,0 +1,5 @@
+-r requirements.txt
+ruff
+pytest
+# schedule is used by the ETL scheduler (P4); include here for local development.
+schedule

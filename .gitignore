@@ -33,4 +33,5 @@ docs/sample-data/
 *.log
 tmp/
 _*.py
+!__init__.py
 _*.json
