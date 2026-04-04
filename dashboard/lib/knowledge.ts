@@ -54,7 +54,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "En la tabla Venta, el campo entrada indica si es venta (entrada=true) o devolución (entrada=false). Para calcular ventas netas siempre filtrar entrada=true y restar el importe de devoluciones. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.",
+      "En la tabla Venta, el campo entrada indica si es venta (entrada=true) o devolución (entrada=false). Para ventas brutas filtrar entrada=true. Para devoluciones filtrar entrada=false. Para calcular ventas netas, sumar ventas con entrada=true y restar el importe de devoluciones con entrada=false. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.",
     questions: [
       "¿Cuántas devoluciones hubo?",
       "¿Ventas netas sin devoluciones?",

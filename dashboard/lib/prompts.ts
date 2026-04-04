@@ -68,7 +68,7 @@ const WIDGET_TYPES = `
   "id": "w3",
   "type": "line_chart",
   "title": "Tendencia Semanal",
-  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND fecha_creacion >= CURRENT_DATE - INTERVAL '12 weeks' GROUP BY 1 ORDER BY 1",
+  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= CURRENT_DATE - INTERVAL '12 weeks' GROUP BY 1 ORDER BY 1",
   "x": "x",
   "y": "y"
 }
@@ -79,7 +79,7 @@ const WIDGET_TYPES = `
   "id": "w4",
   "type": "donut_chart",
   "title": "Mix por Familia",
-  "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+  "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
   "category": "category",
   "value": "value"
 }
@@ -90,7 +90,7 @@ const WIDGET_TYPES = `
   "id": "w5",
   "type": "table",
   "title": "Top 10 Artículos",
-  "sql": "SELECT p.ccrefejofacm AS \\"Referencia\\", p.descripcion AS \\"Descripción\\", SUM(lv.unidades) AS \\"Unidades\\", SUM(lv.total_si) AS \\"Importe\\" FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo WHERE v.entrada = true GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10"
+  "sql": "SELECT p.ccrefejofacm AS \\"Referencia\\", p.descripcion AS \\"Descripción\\", SUM(lv.unidades) AS \\"Unidades\\", SUM(lv.total_si) AS \\"Importe\\" FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10"
 }
 \`\`\`
 

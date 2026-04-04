@@ -38,7 +38,7 @@ describe("llm", () => {
       delete process.env.OPENROUTER_API_KEY;
       resetClient();
       await expect(generateDashboard("test")).rejects.toThrow(
-        "OPENROUTER_API_KEY is not set"
+        "OPENROUTER_API_KEY is not set. Set it in your environment or .env file."
       );
     });
 

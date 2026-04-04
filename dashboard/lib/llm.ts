@@ -16,7 +16,7 @@ function getApiKey(): string {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) {
     throw new Error(
-      "OPENROUTER_API_KEY is not set. Add it to ~/.config/powershop-analytics/.env"
+      "OPENROUTER_API_KEY is not set. Set it in your environment or .env file."
     );
   }
   return key;
