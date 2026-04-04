@@ -9,7 +9,7 @@
  */
 import { NextResponse } from "next/server";
 import { modifyDashboard } from "@/lib/llm";
-import { validateSpec, DashboardSpecSchema } from "@/lib/schema";
+import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 
 /**
  * Extract JSON from a string that may be wrapped in markdown code blocks.
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   const { spec, prompt } = body as Record<string, unknown>;
 
   // --- Validate required fields ---------------------------------------------
-  if (!spec) {
+  if (spec === undefined) {
     return NextResponse.json(
       { error: "Missing required field: spec" },
       { status: 400 },
@@ -79,9 +79,9 @@ export async function POST(request: Request) {
       prompt.trim(),
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown LLM error";
+    console.error("Failed to modify dashboard via LLM", err);
     return NextResponse.json(
-      { error: `LLM error: ${message}` },
+      { error: "Failed to modify dashboard", code: "LLM_MODIFY_FAILED" },
       { status: 500 },
     );
   }
@@ -98,7 +98,7 @@ export async function POST(request: Request) {
     );
   }
 
-  let updatedSpec;
+  let updatedSpec: DashboardSpec;
   try {
     updatedSpec = validateSpec(parsed);
   } catch {

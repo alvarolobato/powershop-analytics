@@ -140,8 +140,8 @@ describe("POST /api/dashboard/modify", () => {
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toMatch(/LLM error/i);
-    expect(json.error).toMatch(/rate limit/i);
+    expect(json.error).toBe("Failed to modify dashboard");
+    expect(json.code).toBe("LLM_MODIFY_FAILED");
   });
 
   it("returns 400 when LLM returns invalid JSON", async () => {
@@ -197,6 +197,14 @@ describe("POST /api/dashboard/modify", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toMatch(/must be a JSON object/i);
+  });
+
+  it("returns 400 with validation error when spec is null", async () => {
+    const res = await POST(makeRequest({ spec: null, prompt: "Cambiar algo" }));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/invalid dashboard spec/i);
   });
 
   it("does not expose raw LLM output in error responses", async () => {
