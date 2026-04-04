@@ -27,7 +27,7 @@ WHERE "stock" > 0 AND "tienda" <> '99'`,
           format: "number",
         },
         {
-          label: "Unidades en Almacen Central",
+          label: "Unidades en Almacén Central",
           sql: `SELECT COALESCE(SUM("stock"), 0) AS value
 FROM "public"."ps_stock_tienda"
 WHERE "stock" > 0 AND "tienda" = '99'`,
@@ -53,7 +53,7 @@ WHERE s."stock" > 0 AND p."anulado" = false`,
     {
       id: "stock-por-tienda",
       type: "bar_chart",
-      title: "Stock por Tienda (excluye almacen central)",
+      title: "Stock por Tienda (excluye almacén central)",
       sql: `SELECT "tienda" AS label, SUM("stock") AS value
 FROM "public"."ps_stock_tienda"
 WHERE "stock" > 0 AND "tienda" <> '99'
@@ -65,10 +65,10 @@ ORDER BY value DESC`,
     {
       id: "stock-bajo",
       type: "table",
-      title: "Articulos con Stock Bajo (< 5 unidades en alguna tienda)",
+      title: "Artículos con Stock Bajo (< 5 unidades en alguna tienda)",
       sql: `SELECT s."tienda" AS "Tienda",
        p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripcion",
+       p."descripcion" AS "Descripción",
        SUM(s."stock") AS "Stock"
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
@@ -82,17 +82,17 @@ LIMIT 50`,
     {
       id: "stock-sin-stock",
       type: "table",
-      title: "Articulos Sin Stock en Tiendas (con stock en almacen)",
+      title: "Artículos Sin Stock en Tiendas (con stock en almacén)",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripcion",
-       SUM(CASE WHEN s."tienda" = '99' THEN s."stock" ELSE 0 END) AS "Stock Almacen"
+       p."descripcion" AS "Descripción",
+       SUM(CASE WHEN s."tienda" = '99' THEN s."stock" ELSE 0 END) AS "Stock Almacén"
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
 WHERE p."anulado" = false
 GROUP BY p."ccrefejofacm", p."descripcion"
 HAVING SUM(CASE WHEN s."tienda" <> '99' THEN s."stock" ELSE 0 END) = 0
    AND SUM(CASE WHEN s."tienda" = '99' THEN s."stock" ELSE 0 END) > 0
-ORDER BY "Stock Almacen" DESC
+ORDER BY "Stock Almacén" DESC
 LIMIT 30`,
     },
     {

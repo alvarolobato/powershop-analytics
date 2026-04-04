@@ -133,8 +133,8 @@ describe("SQL rule compliance across all templates", () => {
 
   it("retail ventas queries exclude tienda 99", () => {
     for (const sql of allSql) {
-      if (/ps_ventas/.test(sql) && /tienda/.test(sql) && /GROUP BY/.test(sql)) {
-        expect(sql).toMatch(/<>\s*'99'/);
+      if (/ps_ventas/.test(sql) || /ps_lineas_ventas/.test(sql)) {
+        expect(sql).toMatch(/"?tienda"?\s*(<>|!=)\s*'99'/);
       }
     }
   });

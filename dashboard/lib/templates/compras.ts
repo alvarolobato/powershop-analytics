@@ -1,15 +1,15 @@
 /**
  * Template: Responsable de Compras
  *
- * Purchasing overview: monthly totals, top suppliers, recent purchase orders,
- * recent receptions, and purchase lines by store.
+ * Purchasing overview: monthly KPIs, top suppliers, recent purchase orders,
+ * recent receptions, and monthly purchase-order trends.
  */
 import type { DashboardSpec } from "@/lib/schema";
 
 export const name = "Responsable de Compras";
 
 export const description =
-  "Panel para el responsable de compras: pedidos del mes, proveedores activos, top proveedores, ultimas recepciones y lineas por tienda.";
+  "Panel para el responsable de compras: pedidos del mes, proveedores activos, top proveedores, ultimas recepciones y tendencia mensual de pedidos.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Compras",

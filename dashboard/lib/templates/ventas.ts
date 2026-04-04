@@ -81,9 +81,9 @@ ORDER BY x`,
     {
       id: "ventas-top-articulos",
       type: "table",
-      title: "Top 10 Articulos (mes actual)",
+      title: "Top 10 Artículos (mes actual)",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripcion",
+       p."descripcion" AS "Descripción",
        SUM(lv."unidades") AS "Unidades",
        SUM(lv."total_si") AS "Ventas Netas"
 FROM "public"."ps_lineas_ventas" lv

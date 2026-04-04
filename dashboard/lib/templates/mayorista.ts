@@ -2,14 +2,14 @@
  * Template: Director Mayorista
  *
  * Wholesale channel: invoicing KPIs, breakdown by sales rep, top clients,
- * pending delivery notes, and period comparison.
+ * recent delivery notes, and period comparison.
  */
 import type { DashboardSpec } from "@/lib/schema";
 
 export const name = "Director Mayorista";
 
 export const description =
-  "Panel para el director del canal mayorista: facturacion neta, desglose por comercial, top clientes, albaranes pendientes y comparativa de periodos.";
+  "Panel para el director del canal mayorista: facturacion neta, desglose por comercial, top clientes, albaranes recientes y comparativa de periodos.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
