@@ -436,7 +436,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Cuando el usuario pida un cuadro de mandos, dashboard, o resumen ejecutivo, genera UNA consulta SQL que combine las métricas con subqueries escalares. NUNCA respondas con texto explicativo — siempre genera SQL.",
+      "Cuando el usuario pida un cuadro de mandos, dashboard, o resumen ejecutivo, genera una especificación JSON de dashboard estructurada con múltiples widgets, cada uno con su propia consulta SQL. No respondas con texto explicativo libre ni con una única consulta SQL; incluye SQL solo dentro de los campos correspondientes de cada widget.",
     questions: [
       "¿Cuadro de mandos?",
       "¿Dashboard de ventas?",

@@ -78,6 +78,11 @@ describe("prompts", () => {
       expect(prompt).toContain("Test Dashboard");
     });
 
+    it("does not wrap current spec in markdown fences", () => {
+      expect(prompt).not.toContain("```json\n" + sampleSpec);
+      expect(prompt).toContain("Do not wrap your response in markdown fences");
+    });
+
     it("instructs to preserve existing widgets", () => {
       expect(prompt).toContain("Preserve all existing widgets");
     });
