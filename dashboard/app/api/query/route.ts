@@ -78,11 +78,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const message =
-      err instanceof Error ? err.message : "Unexpected error";
+    // For known PG syntax/relation errors, return 400 with the message.
+    // For truly unexpected errors, return 500 without leaking internals.
+    const pgErr = err as { code?: string; message?: string };
+    const isClientError =
+      pgErr.code === "42P01" || // undefined_table
+      pgErr.code === "42601" || // syntax_error
+      pgErr.code === "42703" || // undefined_column
+      pgErr.code === "42P02";   // undefined_parameter
+
+    if (isClientError) {
+      return NextResponse.json(
+        { error: `Query failed: ${pgErr.message}` },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
-      { error: `Query execution failed: ${message}` },
-      { status: 400 }
+      { error: "An unexpected error occurred while executing the query" },
+      { status: 500 }
     );
   }
 }

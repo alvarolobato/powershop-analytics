@@ -34,23 +34,28 @@ describe("validateReadOnly", () => {
     ).not.toThrow();
   });
 
-  // ─── Column/table names containing write keywords ───────────────────────
+  // ─── Column/table names containing write keyword substrings ──────────────
+  // Note: With the write-keyword check using \b word boundaries, column names
+  // like "updated_at" contain "update" but NOT as a standalone word (\bUPDATE\b
+  // does not match "updated_at" because "d" follows "update"). However, a
+  // column literally named "update" would match. This is acceptable — such
+  // column names are extremely rare and the safety tradeoff is worth it.
 
-  it("allows SELECT with column named updated_at (not a write operation)", () => {
+  it("allows SELECT with column named updated_at (substring, not a word match)", () => {
     expect(() =>
       validateReadOnly("SELECT updated_at FROM ps_ventas")
     ).not.toThrow();
   });
 
-  it("allows SELECT from table with 'create' in name", () => {
+  it("allows SELECT with created_items (substring, not a word match)", () => {
     expect(() =>
       validateReadOnly("SELECT * FROM ps_created_items")
     ).not.toThrow();
   });
 
-  it("allows SELECT with delete_flag column", () => {
+  it("allows SELECT with deleted flag (substring, not a word match)", () => {
     expect(() =>
-      validateReadOnly("SELECT delete_flag, inserted_at FROM ps_ventas")
+      validateReadOnly("SELECT is_deleted, inserted_at FROM ps_ventas")
     ).not.toThrow();
   });
 
@@ -123,14 +128,63 @@ describe("validateReadOnly", () => {
     );
   });
 
-  it("rejects multi-statement with write after select (semicolon injection)", () => {
-    // The statement starts with SELECT, so validateReadOnly allows it.
-    // PostgreSQL's statement_timeout and single-statement execution
-    // handle this at the driver level — pg.query only executes one statement.
-    // For extra safety, we still allow this through validation since pg
-    // will only execute the first statement.
+  it("rejects multi-statement SQL with semicolons", () => {
     expect(() =>
       validateReadOnly("SELECT 1; DROP TABLE ps_ventas")
-    ).not.toThrow();
+    ).toThrow(SqlValidationError);
+  });
+
+  it("rejects SELECT with trailing semicolon", () => {
+    expect(() =>
+      validateReadOnly("SELECT 1;")
+    ).toThrow(SqlValidationError);
+  });
+
+  // ─── Data-modifying CTEs ────────────────────────────────────────────────
+
+  it("rejects data-modifying CTE (WITH ... DELETE ... RETURNING)", () => {
+    expect(() =>
+      validateReadOnly(
+        "WITH deleted AS (DELETE FROM ps_ventas RETURNING *) SELECT * FROM deleted"
+      )
+    ).toThrow(SqlValidationError);
+  });
+
+  it("rejects data-modifying CTE (WITH ... INSERT ... RETURNING)", () => {
+    expect(() =>
+      validateReadOnly(
+        "WITH ins AS (INSERT INTO ps_ventas (id) VALUES (1) RETURNING *) SELECT * FROM ins"
+      )
+    ).toThrow(SqlValidationError);
+  });
+
+  it("rejects data-modifying CTE (WITH ... UPDATE ... RETURNING)", () => {
+    expect(() =>
+      validateReadOnly(
+        "WITH upd AS (UPDATE ps_ventas SET total_si = 0 RETURNING *) SELECT * FROM upd"
+      )
+    ).toThrow(SqlValidationError);
+  });
+
+  // ─── EXPLAIN ANALYZE with write ─────────────────────────────────────────
+
+  it("rejects EXPLAIN ANALYZE INSERT (executes the write)", () => {
+    expect(() =>
+      validateReadOnly("EXPLAIN ANALYZE INSERT INTO ps_ventas (id) VALUES (1)")
+    ).toThrow(SqlValidationError);
+  });
+
+  it("rejects EXPLAIN ANALYZE DELETE", () => {
+    expect(() =>
+      validateReadOnly("EXPLAIN ANALYZE DELETE FROM ps_ventas")
+    ).toThrow(SqlValidationError);
+  });
+
+  // ─── SELECT INTO ────────────────────────────────────────────────────────
+
+  it("rejects SELECT INTO (creates a new table)", () => {
+    expect(() =>
+      validateReadOnly("SELECT * INTO new_table FROM ps_ventas")
+    ).toThrow(SqlValidationError);
   });
 });

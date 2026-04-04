@@ -17,23 +17,68 @@ import { Pool, type PoolConfig } from "pg";
 const ALLOWED_PREFIXES = /^\s*(SELECT|WITH|EXPLAIN)\b/i;
 
 /**
+ * Write keywords that must not appear in CTEs or after EXPLAIN ANALYZE.
+ * Checked with word boundaries to catch data-modifying CTEs and
+ * EXPLAIN ANALYZE <write statement>.
+ */
+const WRITE_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b/i;
+
+/**
+ * SELECT ... INTO creates a new table — must be rejected.
+ * Matches SELECT ... INTO (but not INTO within a subquery alias).
+ */
+const SELECT_INTO = /\bSELECT\b[\s\S]*?\bINTO\s+(?!STRICT\b|TEMP\b|TEMPORARY\b)\w/i;
+
+/**
  * Validate that a SQL string is read-only.
  *
- * Uses an allowlist approach: only statements starting with SELECT, WITH,
- * or EXPLAIN are allowed. This avoids false positives from column/table
- * names that happen to contain words like "update" or "delete".
+ * Applies multiple layers of validation:
+ * 1. Must start with SELECT, WITH, or EXPLAIN (allowlist)
+ * 2. Must not contain semicolons (prevents multi-statement injection)
+ * 3. Must not contain write keywords anywhere (prevents data-modifying
+ *    CTEs like `WITH x AS (DELETE ... RETURNING ...) SELECT ...` and
+ *    `EXPLAIN ANALYZE INSERT ...`)
+ * 4. Must not use SELECT ... INTO (creates new tables)
  *
- * @throws Error if the SQL is not a read-only statement
+ * The database role should also enforce read-only access as defense in depth.
+ *
+ * @throws SqlValidationError if the SQL is not a read-only statement
  */
 export function validateReadOnly(sql: string): void {
   if (!sql || !sql.trim()) {
     throw new SqlValidationError("SQL query is empty");
   }
 
-  if (!ALLOWED_PREFIXES.test(sql.trim())) {
+  const trimmed = sql.trim();
+
+  // 1. Must start with an allowed keyword
+  if (!ALLOWED_PREFIXES.test(trimmed)) {
     throw new SqlValidationError(
       "Only SELECT, WITH, and EXPLAIN statements are allowed. " +
         "Write operations are rejected per read-only policy."
+    );
+  }
+
+  // 2. Reject multi-statement SQL (semicolons)
+  if (trimmed.includes(";")) {
+    throw new SqlValidationError(
+      "Multi-statement SQL is not allowed. Remove semicolons."
+    );
+  }
+
+  // 3. Reject write keywords anywhere in the query (catches data-modifying
+  //    CTEs and EXPLAIN ANALYZE <write>)
+  if (WRITE_KEYWORDS.test(trimmed)) {
+    throw new SqlValidationError(
+      "SQL contains a write keyword (INSERT, UPDATE, DELETE, DROP, ALTER, " +
+        "TRUNCATE, CREATE). Only pure read operations are allowed."
+    );
+  }
+
+  // 4. Reject SELECT ... INTO (creates tables)
+  if (SELECT_INTO.test(trimmed)) {
+    throw new SqlValidationError(
+      "SELECT INTO is not allowed — it creates a new table."
     );
   }
 }
@@ -66,6 +111,17 @@ export class ConnectionError extends Error {
 const QUERY_TIMEOUT_MS = 30_000;
 
 function getPoolConfig(): PoolConfig {
+  // POSTGRES_DSN takes priority (single connection string).
+  // Falls back to individual POSTGRES_* env vars.
+  const dsn = process.env.POSTGRES_DSN;
+  if (dsn) {
+    return {
+      connectionString: dsn,
+      max: 10,
+      statement_timeout: QUERY_TIMEOUT_MS,
+    };
+  }
+
   return {
     host: process.env.POSTGRES_HOST || "localhost",
     port: parseInt(process.env.POSTGRES_PORT || "5432", 10),

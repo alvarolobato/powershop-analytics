@@ -183,10 +183,10 @@ describe("POST /api/query", () => {
     expect(json.error).toContain("connection failed");
   });
 
-  // ─── Generic error (400) ──────────────────────────────────────────────
+  // ─── Client SQL errors (400) ───────────────────────────────────────────
 
-  it("returns 400 on generic SQL error", async () => {
-    mockQuery.mockRejectedValue(new Error('relation "nonexistent" does not exist'));
+  it("returns 400 on undefined table (PG 42P01)", async () => {
+    mockQuery.mockRejectedValue({ code: "42P01", message: 'relation "nonexistent" does not exist' });
 
     const res = await POST(
       makeRequest({ sql: "SELECT * FROM nonexistent" })
@@ -195,5 +195,29 @@ describe("POST /api/query", () => {
 
     const json = await res.json();
     expect(json.error).toContain("nonexistent");
+  });
+
+  it("returns 400 on syntax error (PG 42601)", async () => {
+    mockQuery.mockRejectedValue({ code: "42601", message: 'syntax error at or near "SELEC"' });
+
+    const res = await POST(
+      makeRequest({ sql: "SELECT SELEC FROM ps_ventas" })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  // ─── Unexpected error (500) ───────────────────────────────────────────
+
+  it("returns 500 on unexpected errors without leaking details", async () => {
+    mockQuery.mockRejectedValue(new Error("something internal went wrong"));
+
+    const res = await POST(
+      makeRequest({ sql: "SELECT * FROM ps_ventas" })
+    );
+    expect(res.status).toBe(500);
+
+    const json = await res.json();
+    expect(json.error).not.toContain("internal");
+    expect(json.error).toContain("unexpected");
   });
 });
