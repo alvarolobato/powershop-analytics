@@ -21,13 +21,13 @@ const ALLOWED_PREFIXES = /^\s*(SELECT|WITH|EXPLAIN)\b/i;
  * Checked with word boundaries to catch data-modifying CTEs and
  * EXPLAIN ANALYZE <write statement>.
  */
-const WRITE_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE)\b/i;
+const WRITE_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|MERGE)\b/i;
 
 /**
  * SELECT ... INTO creates a new table — must be rejected.
  * Matches SELECT ... INTO (but not INTO within a subquery alias).
  */
-const SELECT_INTO = /\bSELECT\b[\s\S]*?\bINTO\s+(?!STRICT\b|TEMP\b|TEMPORARY\b)\w/i;
+const SELECT_INTO = /\bSELECT\b[\s\S]*?\bINTO\s+\w/i;
 
 /**
  * Validate that a SQL string is read-only.

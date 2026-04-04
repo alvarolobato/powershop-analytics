@@ -32,6 +32,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return NextResponse.json(
+      { error: "JSON body must be an object" },
+      { status: 400 }
+    );
+  }
+
   const { sql } = body as { sql?: string };
 
   if (!sql || typeof sql !== "string" || !sql.trim()) {

@@ -28,7 +28,7 @@ function makeRequest(body: unknown): NextRequest {
 describe("POST /api/query", () => {
   beforeEach(async () => {
     mockQuery.mockReset();
-    mockEnd.mockReset();
+    mockEnd.mockClear();
     await resetPool();
   });
 
@@ -125,6 +125,18 @@ describe("POST /api/query", () => {
   });
 
   // ─── Bad SQL (400) ────────────────────────────────────────────────────
+
+  it("rejects null JSON body with 400", async () => {
+    const res = await POST(makeRequest(null));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain("object");
+  });
+
+  it("rejects array JSON body with 400", async () => {
+    const res = await POST(makeRequest([1, 2, 3]));
+    expect(res.status).toBe(400);
+  });
 
   it("rejects missing sql field with 400", async () => {
     const res = await POST(makeRequest({}));

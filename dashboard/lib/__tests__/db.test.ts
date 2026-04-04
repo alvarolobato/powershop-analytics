@@ -187,4 +187,32 @@ describe("validateReadOnly", () => {
       validateReadOnly("SELECT * INTO new_table FROM ps_ventas")
     ).toThrow(SqlValidationError);
   });
+
+  it("rejects SELECT INTO TEMP (also creates a table)", () => {
+    expect(() =>
+      validateReadOnly("SELECT * INTO TEMP new_table FROM ps_ventas")
+    ).toThrow(SqlValidationError);
+  });
+
+  it("rejects SELECT INTO TEMPORARY", () => {
+    expect(() =>
+      validateReadOnly("SELECT * INTO TEMPORARY new_table FROM ps_ventas")
+    ).toThrow(SqlValidationError);
+  });
+
+  // ─── MERGE ──────────────────────────────────────────────────────────────
+
+  it("rejects MERGE statement", () => {
+    expect(() =>
+      validateReadOnly("MERGE INTO ps_ventas USING source ON (ps_ventas.id = source.id)")
+    ).toThrow(SqlValidationError);
+  });
+
+  it("rejects data-modifying CTE with MERGE", () => {
+    expect(() =>
+      validateReadOnly(
+        "WITH src AS (SELECT 1 AS id) MERGE INTO ps_ventas USING src ON (ps_ventas.id = src.id)"
+      )
+    ).toThrow(SqlValidationError);
+  });
 });
