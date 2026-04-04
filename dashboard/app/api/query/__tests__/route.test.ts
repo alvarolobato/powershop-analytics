@@ -130,7 +130,7 @@ describe("POST /api/query", () => {
     const res = await POST(makeRequest(null));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain("object");
+    expect(json.error).toContain("objeto");
   });
 
   it("rejects array JSON body with 400", async () => {
@@ -164,7 +164,7 @@ describe("POST /api/query", () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain("Invalid JSON");
+    expect(json.error).toContain("JSON no válido");
   });
 
   // ─── Timeout (408) ────────────────────────────────────────────────────
@@ -230,6 +230,6 @@ describe("POST /api/query", () => {
 
     const json = await res.json();
     expect(json.error).not.toContain("internal");
-    expect(json.error).toContain("unexpected");
+    expect(json.error).toContain("inesperado");
   });
 });

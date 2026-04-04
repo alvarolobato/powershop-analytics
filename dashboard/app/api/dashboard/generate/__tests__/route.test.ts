@@ -96,7 +96,7 @@ describe("POST /api/dashboard/generate", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("empty");
+    expect(json.error).toContain("vacío");
   });
 
   it("returns 400 for whitespace-only prompt", async () => {
@@ -125,7 +125,7 @@ describe("POST /api/dashboard/generate", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain("Invalid JSON");
+    expect((await res.json()).error).toContain("JSON no válido");
   });
 
   // --- LLM errors ---

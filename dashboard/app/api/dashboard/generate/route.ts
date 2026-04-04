@@ -41,7 +41,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON in request body" },
+      { error: "Cuerpo JSON no válido" },
       { status: 400 },
     );
   }
@@ -54,7 +54,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     typeof (body as Record<string, unknown>).prompt !== "string"
   ) {
     return NextResponse.json(
-      { error: "Request body must include a 'prompt' string" },
+      { error: "El cuerpo debe incluir un campo 'prompt' de tipo texto" },
       { status: 400 },
     );
   }
@@ -62,7 +62,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   const prompt = ((body as Record<string, unknown>).prompt as string).trim();
   if (prompt.length === 0) {
     return NextResponse.json(
-      { error: "Prompt must not be empty" },
+      { error: "El prompt no puede estar vacío" },
       { status: 400 },
     );
   }
@@ -80,7 +80,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       message.includes("rate limit") || message.includes("429") ? 429 : 500;
 
     return NextResponse.json(
-      { error: `LLM error: ${message}` },
+      { error: `Error del modelo de IA: ${message}` },
       { status },
     );
   }
