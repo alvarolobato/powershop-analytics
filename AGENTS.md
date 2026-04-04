@@ -348,7 +348,7 @@ All GitHub issues in this project follow a single standard format. When creating
 
 - [ ] N-1b) Review cycle (owner: agent)
   - **Change**: Request Copilot review, address all feedback, re-request until no new feedback
-  - **How**: `gh pr create` then `gh pr review --request copilot`. Poll every 5 minutes: `gh pr reviews <PR#> --json state,author` until Copilot has reviewed. Address all comments with inline replies. Re-request after each round.
+  - **How**: `gh pr create` then request Copilot review via REST API: `gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`. Poll for review: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`. Address all comments with inline replies. Re-request after each round.
   - **Acceptance**: Copilot review shows no unresolved comments
   - **Spec update**: mark done
 
@@ -377,9 +377,13 @@ git worktree remove ../<repo>-<worktree-name>
 ### PR and review policy
 
 - Every piece of work goes through a PR, even solo work.
-- **Always request a Copilot review** on every PR: `gh pr review --request copilot`
-- If Copilot is not available via the UI, it IS available through the gh CLI — always try.
-- Poll for the review result every 5 minutes: `gh pr reviews <PR#> --json state,author,body`
+- **Always request a Copilot review** on every PR using the REST API:
+  ```bash
+  gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers \
+    --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+  ```
+  Do NOT use `gh pr review --request copilot` (doesn't work) or `gh pr edit --add-reviewer copilot` (can't resolve bot users). The REST API with `copilot-pull-request-reviewer[bot]` is the only working CLI method.
+- Poll for the review result: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`
 - Address all feedback, reply to each comment, then re-request review.
 - Only merge after Copilot has reviewed and there is no unresolved feedback.
 
