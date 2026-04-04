@@ -1,0 +1,336 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import ChatSidebar from "../ChatSidebar";
+import type { DashboardSpec } from "@/lib/schema";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const baseSpec: DashboardSpec = {
+  title: "Test Dashboard",
+  widgets: [
+    {
+      type: "number",
+      title: "Total",
+      sql: "SELECT 1",
+      format: "number",
+    },
+  ],
+};
+
+function mockFetchSuccess(newSpec: DashboardSpec) {
+  return vi.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve(newSpec),
+  });
+}
+
+function mockFetchError(status: number, error: string) {
+  return vi.fn().mockResolvedValue({
+    ok: false,
+    status,
+    json: () => Promise.resolve({ error }),
+  });
+}
+
+function mockFetchNetworkError() {
+  return vi.fn().mockRejectedValue(new Error("Network error"));
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+describe("ChatSidebar", () => {
+  let onSpecUpdate: ReturnType<typeof vi.fn>;
+  let onToggle: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    onSpecUpdate = vi.fn();
+    onToggle = vi.fn();
+    vi.restoreAllMocks();
+  });
+
+  // -----------------------------------------------------------------------
+  // Rendering
+  // -----------------------------------------------------------------------
+
+  it("renders input and send button when open", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    expect(screen.getByPlaceholderText(/ticket medio/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Enviar")).toBeInTheDocument();
+    expect(screen.getByText("Modificar Dashboard")).toBeInTheDocument();
+  });
+
+  it("shows reopen button when closed", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={false}
+        onToggle={onToggle}
+      />,
+    );
+
+    expect(screen.queryByText("Modificar Dashboard")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Abrir chat")).toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------
+  // Toggle
+  // -----------------------------------------------------------------------
+
+  it("calls onToggle when close button is clicked", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Cerrar chat"));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it("calls onToggle when reopen tab is clicked", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={false}
+        onToggle={onToggle}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText("Abrir chat"));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  // -----------------------------------------------------------------------
+  // Send message + success
+  // -----------------------------------------------------------------------
+
+  it("sends message and shows in history, calls onSpecUpdate on success", async () => {
+    const updatedSpec: DashboardSpec = {
+      title: "Updated Dashboard",
+      widgets: [
+        ...baseSpec.widgets,
+        { type: "number", title: "Nuevo", sql: "SELECT 2", format: "number" },
+      ],
+    };
+
+    globalThis.fetch = mockFetchSuccess(updatedSpec);
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(/ticket medio/i);
+    const sendBtn = screen.getByLabelText("Enviar");
+
+    // Type a message
+    await act(async () => {
+      fireEvent.change(textarea, {
+        target: { value: "Añade el ticket medio" },
+      });
+    });
+
+    // Send it
+    await act(async () => {
+      fireEvent.click(sendBtn);
+    });
+
+    // User message appears
+    expect(screen.getByText("Añade el ticket medio")).toBeInTheDocument();
+
+    // Wait for API response
+    await waitFor(() => {
+      expect(onSpecUpdate).toHaveBeenCalledWith(updatedSpec);
+    });
+
+    // Assistant message appears
+    await waitFor(() => {
+      expect(screen.getByText(/Dashboard actualizado/)).toBeInTheDocument();
+    });
+
+    // Verify fetch was called correctly
+    expect(globalThis.fetch).toHaveBeenCalledWith("/api/dashboard/modify", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spec: baseSpec, prompt: "Añade el ticket medio" }),
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // API error
+  // -----------------------------------------------------------------------
+
+  it("shows error message on API failure", async () => {
+    globalThis.fetch = mockFetchError(500, "LLM_MODIFY_FAILED");
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(/ticket medio/i);
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Haz algo" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Enviar"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Error: LLM_MODIFY_FAILED/)).toBeInTheDocument();
+    });
+
+    // onSpecUpdate should NOT have been called
+    expect(onSpecUpdate).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // Network error
+  // -----------------------------------------------------------------------
+
+  it("shows connection error on network failure", async () => {
+    globalThis.fetch = mockFetchNetworkError();
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/ticket medio/i), {
+        target: { value: "Prueba" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Enviar"));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/No se pudo conectar con el servidor/),
+      ).toBeInTheDocument();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Disabled while loading
+  // -----------------------------------------------------------------------
+
+  it("disables send button while loading", async () => {
+    // Never-resolving fetch to keep loading state
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/ticket medio/i), {
+        target: { value: "Test" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Enviar"));
+    });
+
+    // Send button should be disabled
+    expect(screen.getByLabelText("Enviar")).toBeDisabled();
+
+    // Loading indicator visible
+    expect(screen.getByLabelText("Procesando")).toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------
+  // Empty input
+  // -----------------------------------------------------------------------
+
+  it("does not send empty messages", () => {
+    globalThis.fetch = vi.fn();
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    // Send button disabled for empty input
+    expect(screen.getByLabelText("Enviar")).toBeDisabled();
+
+    fireEvent.click(screen.getByLabelText("Enviar"));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // Enter key sends
+  // -----------------------------------------------------------------------
+
+  it("sends on Enter key (without Shift)", async () => {
+    const updatedSpec: DashboardSpec = {
+      ...baseSpec,
+      title: "Modified",
+    };
+    globalThis.fetch = mockFetchSuccess(updatedSpec);
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(/ticket medio/i);
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Cambio" } });
+    });
+    await act(async () => {
+      fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    });
+
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalled();
+    });
+  });
+});
