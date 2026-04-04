@@ -27,14 +27,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body" },
+      { error: "Cuerpo JSON no válido" },
       { status: 400 }
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "JSON body must be an object" },
+      { error: "El cuerpo JSON debe ser un objeto" },
       { status: 400 }
     );
   }
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (!sql || typeof sql !== "string" || !sql.trim()) {
     return NextResponse.json(
-      { error: "Missing or empty 'sql' field" },
+      { error: "Falta el campo 'sql' o está vacío" },
       { status: 400 }
     );
   }
@@ -97,13 +97,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (isClientError) {
       return NextResponse.json(
-        { error: `Query failed: ${pgErr.message}` },
+        { error: "Error en la consulta SQL. Verifica la sintaxis." },
         { status: 400 }
       );
     }
 
     return NextResponse.json(
-      { error: "An unexpected error occurred while executing the query" },
+      { error: "Error inesperado al ejecutar la consulta" },
       { status: 500 }
     );
   }

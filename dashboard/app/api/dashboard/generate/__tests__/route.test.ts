@@ -96,7 +96,7 @@ describe("POST /api/dashboard/generate", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("empty");
+    expect(json.error).toContain("vacío");
   });
 
   it("returns 400 for whitespace-only prompt", async () => {
@@ -125,7 +125,7 @@ describe("POST /api/dashboard/generate", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toContain("Invalid JSON");
+    expect((await res.json()).error).toContain("JSON no válido");
   });
 
   // --- LLM errors ---
@@ -137,7 +137,7 @@ describe("POST /api/dashboard/generate", () => {
     const json = await res.json();
 
     expect(res.status).toBe(500);
-    expect(json.error).toContain("Connection timeout");
+    expect(json.error).toContain("Inténtalo de nuevo");
   });
 
   it("returns 429 when LLM throws a rate limit error", async () => {
@@ -145,6 +145,7 @@ describe("POST /api/dashboard/generate", () => {
 
     const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
     expect(res.status).toBe(429);
+    expect((await res.json()).error).toContain("Límite de uso");
   });
 
   it("returns 500 when LLM throws a non-Error value", async () => {
@@ -152,7 +153,7 @@ describe("POST /api/dashboard/generate", () => {
 
     const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
     expect(res.status).toBe(500);
-    expect((await res.json()).error).toContain("Unknown LLM error");
+    expect((await res.json()).error).toContain("Inténtalo de nuevo");
   });
 
   // --- Invalid LLM output ---
