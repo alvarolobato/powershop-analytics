@@ -13,6 +13,9 @@ interface TableWidgetProps {
 
 type SortDir = "asc" | "desc";
 
+/** Shared formatter to avoid per-cell allocations. */
+const cellFormatter = new Intl.NumberFormat("es-ES", { useGrouping: true });
+
 function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === "";
 }
@@ -79,15 +82,27 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
               {data.columns.map((col, idx) => (
                 <th
                   key={`${idx}-${col}`}
-                  onClick={() => handleSort(idx)}
-                  className="cursor-pointer px-3 py-2 text-left font-medium text-gray-600 hover:text-gray-900"
+                  className="px-3 py-2 text-left font-medium text-gray-600"
+                  aria-sort={
+                    sortCol === idx
+                      ? sortDir === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none"
+                  }
                 >
-                  {col}
-                  {sortCol === idx && (
-                    <span className="ml-1">
-                      {sortDir === "asc" ? "\u2191" : "\u2193"}
-                    </span>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleSort(idx)}
+                    className="inline-flex items-center hover:text-gray-900"
+                  >
+                    {col}
+                    {sortCol === idx && (
+                      <span className="ml-1">
+                        {sortDir === "asc" ? "\u2191" : "\u2193"}
+                      </span>
+                    )}
+                  </button>
                 </th>
               ))}
             </tr>
@@ -110,15 +125,15 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
 }
 
 function formatCell(value: unknown): string {
-  if (value === null || value === undefined) return "\u2014";
+  if (value === null || value === undefined || value === "") return "\u2014";
   if (typeof value === "number") {
-    return new Intl.NumberFormat("es-ES", { useGrouping: true }).format(value);
+    return cellFormatter.format(value);
   }
   // Handle numeric strings from PostgreSQL NUMERIC columns
-  if (typeof value === "string" && value !== "") {
+  if (typeof value === "string") {
     const num = Number(value);
     if (Number.isFinite(num)) {
-      return new Intl.NumberFormat("es-ES", { useGrouping: true }).format(num);
+      return cellFormatter.format(num);
     }
   }
   return String(value);

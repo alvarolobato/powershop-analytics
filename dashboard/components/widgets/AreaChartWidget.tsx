@@ -3,7 +3,7 @@
 import { Card, AreaChart } from "@tremor/react";
 import type { AreaChartWidget as AreaChartWidgetSpec } from "@/lib/schema";
 import type { WidgetData } from "./types";
-import { EMPTY_MESSAGE, resolveXY } from "./types";
+import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 
 interface AreaChartWidgetProps {
   widget: AreaChartWidgetSpec;
@@ -35,10 +35,12 @@ export function AreaChartWidget({ widget, data }: AreaChartWidgetProps) {
   }
 
   const { xIdx, yIdx, xCol, yCol } = resolved;
-  const chartData = data.rows.map((row) => ({
-    [xCol]: String(row[xIdx]),
-    [yCol]: Number(row[yIdx]),
-  }));
+  const chartData = data.rows
+    .filter((row) => safeNumber(row[yIdx]) !== null)
+    .map((row) => ({
+      [xCol]: String(row[xIdx]),
+      [yCol]: safeNumber(row[yIdx])!,
+    }));
 
   return (
     <Card className="p-4">

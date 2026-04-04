@@ -3,7 +3,7 @@
 import { Card, DonutChart } from "@tremor/react";
 import type { DonutChartWidget as DonutChartWidgetSpec } from "@/lib/schema";
 import type { WidgetData } from "./types";
-import { EMPTY_MESSAGE, resolveXY } from "./types";
+import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 
 interface DonutChartWidgetProps {
   widget: DonutChartWidgetSpec;
@@ -35,10 +35,12 @@ export function DonutChartWidget({ widget, data }: DonutChartWidgetProps) {
   }
 
   const { xIdx, yIdx } = resolved;
-  const chartData = data.rows.map((row) => ({
-    name: String(row[xIdx]),
-    value: Number(row[yIdx]),
-  }));
+  const chartData = data.rows
+    .filter((row) => row[xIdx] != null && row[xIdx] !== "" && safeNumber(row[yIdx]) !== null)
+    .map((row) => ({
+      name: String(row[xIdx]),
+      value: safeNumber(row[yIdx])!,
+    }));
 
   return (
     <Card className="p-4">

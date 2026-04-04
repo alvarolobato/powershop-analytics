@@ -33,3 +33,13 @@ export function resolveXY(
 
   return { xIdx, yIdx, xCol, yCol };
 }
+
+/**
+ * Safely coerce a value to number, returning null for nullish/non-finite.
+ * This prevents null/undefined/"" from silently becoming 0 in charts.
+ */
+export function safeNumber(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}

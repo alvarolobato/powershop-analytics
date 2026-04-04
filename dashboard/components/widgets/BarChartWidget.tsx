@@ -3,7 +3,7 @@
 import { Card, BarChart } from "@tremor/react";
 import type { BarChartWidget as BarChartWidgetSpec } from "@/lib/schema";
 import type { WidgetData } from "./types";
-import { EMPTY_MESSAGE, resolveXY } from "./types";
+import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 
 interface BarChartWidgetProps {
   widget: BarChartWidgetSpec;
@@ -35,10 +35,12 @@ export function BarChartWidget({ widget, data }: BarChartWidgetProps) {
   }
 
   const { xIdx, yIdx, xCol, yCol } = resolved;
-  const chartData = data.rows.map((row) => ({
-    [xCol]: row[xIdx],
-    [yCol]: Number(row[yIdx]),
-  }));
+  const chartData = data.rows
+    .filter((row) => safeNumber(row[yIdx]) !== null)
+    .map((row) => ({
+      [xCol]: row[xIdx],
+      [yCol]: safeNumber(row[yIdx])!,
+    }));
 
   return (
     <Card className="p-4">
