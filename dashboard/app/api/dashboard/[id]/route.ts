@@ -69,6 +69,7 @@ export async function GET(
 interface UpdateBody {
   spec?: unknown;
   prompt?: string;
+  name?: string;
 }
 
 export async function PUT(
@@ -101,7 +102,7 @@ export async function PUT(
     );
   }
 
-  const { spec, prompt } = body;
+  const { spec, prompt, name } = body;
 
   if (spec === undefined || spec === null) {
     return NextResponse.json(
@@ -168,13 +169,16 @@ export async function PUT(
       [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
     );
 
-    // Update the dashboard
+    // Update the dashboard (include name if provided)
+    const trimmedName = typeof name === "string" ? name.trim() : null;
     const updateResult = await client.query(
       `UPDATE dashboards
-       SET spec = $1, updated_at = NOW()
+       SET spec = $1, updated_at = NOW()${trimmedName ? ", name = $3" : ""}
        WHERE id = $2
        RETURNING id, name, description, spec, created_at, updated_at`,
-      [JSON.stringify(spec), id],
+      trimmedName
+        ? [JSON.stringify(spec), id, trimmedName]
+        : [JSON.stringify(spec), id],
     );
 
     await client.query("COMMIT");

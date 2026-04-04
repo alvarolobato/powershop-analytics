@@ -100,7 +100,7 @@ describe("Home (dashboard list page)", () => {
     expect(screen.getByText("Reintentar")).toBeInTheDocument();
   });
 
-  it("navigates to dashboard view on card click", async () => {
+  it("has links to dashboard view on cards", async () => {
     globalThis.fetch = mockFetchList(mockDashboards);
     render(<Home />);
 
@@ -108,8 +108,9 @@ describe("Home (dashboard list page)", () => {
       expect(screen.getByText("Ventas Marzo")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByTestId("dashboard-card-1"));
-    expect(mockPush).toHaveBeenCalledWith("/dashboard/1");
+    const cardLink = screen.getByTestId("dashboard-card-1");
+    expect(cardLink.tagName).toBe("A");
+    expect(cardLink.getAttribute("href")).toBe("/dashboard/1");
   });
 
   it("has a link to create new dashboard", async () => {

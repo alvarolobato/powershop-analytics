@@ -36,6 +36,8 @@ export default function ViewDashboard() {
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const saveCounter = useRef(0);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Load dashboard
@@ -77,7 +79,9 @@ export default function ViewDashboard() {
   // Save spec (and optionally name)
   const saveSpec = useCallback(
     async (spec: DashboardSpec, prompt?: string) => {
+      const thisCount = ++saveCounter.current;
       setSaving(true);
+      setSaveError(null);
       try {
         const res = await fetch(`/api/dashboard/${id}`, {
           method: "PUT",
@@ -86,11 +90,20 @@ export default function ViewDashboard() {
         });
         if (!res.ok) throw new Error("Error al guardar");
         const updated: DashboardRecord = await res.json();
-        setDashboard(updated);
-      } catch {
-        // Silently fail save -- the user still has their spec in local state
+        // Only apply if this is still the latest save
+        if (thisCount === saveCounter.current) {
+          setDashboard(updated);
+        }
+      } catch (err) {
+        if (thisCount === saveCounter.current) {
+          setSaveError(
+            err instanceof Error ? err.message : "Error al guardar",
+          );
+        }
       } finally {
-        setSaving(false);
+        if (thisCount === saveCounter.current) {
+          setSaving(false);
+        }
       }
     },
     [id],
@@ -98,17 +111,17 @@ export default function ViewDashboard() {
 
   // Handle chat modification
   const handleSpecUpdate = useCallback(
-    (newSpec: DashboardSpec) => {
+    (newSpec: DashboardSpec, prompt: string) => {
       setDashboard((prev) =>
         prev ? { ...prev, spec: newSpec } : prev,
       );
-      // Auto-save after chat modification
-      saveSpec(newSpec, "Chat modification");
+      // Auto-save after chat modification with the actual user prompt
+      saveSpec(newSpec, prompt);
     },
     [saveSpec],
   );
 
-  // Handle name edit
+  // Handle name edit — persist via PUT endpoint
   const handleNameSave = useCallback(async () => {
     const trimmed = nameValue.trim();
     if (!trimmed || !dashboard) {
@@ -119,11 +132,25 @@ export default function ViewDashboard() {
     setEditingName(false);
     if (trimmed === dashboard.name) return;
 
-    // Update name by saving current spec (the PUT endpoint updates the dashboard)
-    // We need a separate approach since PUT only updates spec.
-    // For now, update local state -- name editing is a nice-to-have.
     setDashboard((prev) => (prev ? { ...prev, name: trimmed } : prev));
-  }, [nameValue, dashboard]);
+    // Persist name change via the PUT endpoint
+    try {
+      const res = await fetch(`/api/dashboard/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ spec: dashboard.spec, name: trimmed }),
+      });
+      if (!res.ok) throw new Error("Error al guardar el nombre");
+      const updated: DashboardRecord = await res.json();
+      setDashboard(updated);
+    } catch {
+      // Revert on failure
+      setDashboard((prev) =>
+        prev ? { ...prev, name: dashboard.name } : prev,
+      );
+      setNameValue(dashboard.name);
+    }
+  }, [nameValue, dashboard, id]);
 
   // Handle manual save button
   const handleSave = useCallback(() => {
@@ -239,6 +266,9 @@ export default function ViewDashboard() {
         <div className="flex items-center gap-3">
           {saving && (
             <span className="text-xs text-gray-400">Guardando...</span>
+          )}
+          {saveError && (
+            <span className="text-xs text-red-500">{saveError}</span>
           )}
           <button
             onClick={handleSave}

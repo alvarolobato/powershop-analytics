@@ -16,7 +16,7 @@ export interface ChatMessage {
 
 export interface ChatSidebarProps {
   spec: DashboardSpec;
-  onSpecUpdate: (newSpec: DashboardSpec) => void;
+  onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -94,7 +94,7 @@ export default function ChatSidebar({
       }
 
       const newSpec: DashboardSpec = await res.json();
-      onSpecUpdate(newSpec);
+      onSpecUpdate(newSpec, trimmed);
 
       // Build a summary of what changed
       const widgetDelta = newSpec.widgets.length - spec.widgets.length;

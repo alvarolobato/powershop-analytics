@@ -168,7 +168,7 @@ describe("ChatSidebar", () => {
 
     // Wait for API response
     await waitFor(() => {
-      expect(onSpecUpdate).toHaveBeenCalledWith(updatedSpec);
+      expect(onSpecUpdate).toHaveBeenCalledWith(updatedSpec, "Añade el ticket medio");
     });
 
     // Assistant message appears

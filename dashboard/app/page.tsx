@@ -72,7 +72,7 @@ export default function Home() {
 
   const formatDate = (dateStr: string) => {
     try {
-      return new Date(dateStr).toLocaleDateString("es-ES", {
+      return new Date(dateStr).toLocaleString("es-ES", {
         day: "numeric",
         month: "short",
         year: "numeric",
@@ -147,11 +147,11 @@ export default function Home() {
           {dashboards.map((dashboard) => (
             <Card
               key={dashboard.id}
-              className="cursor-pointer hover:shadow-md transition-shadow relative group"
+              className="hover:shadow-md transition-shadow relative group"
             >
-              <div
-                onClick={() => router.push(`/dashboard/${dashboard.id}`)}
-                className="space-y-2"
+              <Link
+                href={`/dashboard/${dashboard.id}`}
+                className="block space-y-2"
                 data-testid={`dashboard-card-${dashboard.id}`}
               >
                 <Title>{dashboard.name}</Title>
@@ -161,12 +161,9 @@ export default function Home() {
                 <p className="text-xs text-gray-400">
                   {formatDate(dashboard.updated_at)}
                 </p>
-              </div>
+              </Link>
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDelete(dashboard.id);
-                }}
+                onClick={() => handleDelete(dashboard.id)}
                 disabled={deletingId === dashboard.id}
                 aria-label={`Eliminar ${dashboard.name}`}
                 className="absolute top-3 right-3 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"

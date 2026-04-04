@@ -35,7 +35,7 @@ export default function NewDashboard() {
       const spec: DashboardSpec = await genRes.json();
 
       // Auto-save with generated name
-      const name = spec.title || "Dashboard sin titulo";
+      const name = spec.title || "Dashboard sin título";
       const saveRes = await fetch("/api/dashboards", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
