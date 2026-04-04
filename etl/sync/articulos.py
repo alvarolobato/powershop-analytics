@@ -167,6 +167,11 @@ _SQL_ARTICULOS = (
     " PrecioCoste, PrCosteNe, PIva, Anulado, FechaCreacion, FechaModifica,"
     " Color, ClaveTemporada, Modelo, Sexo"
     " FROM Articulos"
+    " WHERE LEFT(CCRefeJOFACM, 2) <> 'MA'"
+)
+
+_SQL_MA_ARTICLE_CODES = (
+    "SELECT Codigo FROM Articulos WHERE LEFT(CCRefeJOFACM, 2) = 'MA'"
 )
 
 _SQL_FAMILIAS = (
@@ -199,8 +204,32 @@ _SQL_MARCAS = (
 # ---------------------------------------------------------------------------
 
 
+def get_ma_article_codes(conn_4d: Any) -> set[str]:
+    """Return the set of article codes (Codigo) whose CCRefeJOFACM starts with 'MA'.
+
+    These are material articles (bolsas, perchas, etc.) that have no inventory
+    tracking and are excluded from ETL sync.  The returned set is used by
+    line-table cleanup steps to cascade the MA exclusion to dependent tables
+    (ps_lineas_ventas, ps_stock_tienda, ps_gc_lin_albarane, ps_gc_lin_facturas).
+
+    Args:
+        conn_4d: An open p4d connection.
+
+    Returns:
+        Set of Codigo strings for MA-prefix articles.
+    """
+    from etl.db.fourd import safe_fetch
+
+    rows = safe_fetch(conn_4d, _SQL_MA_ARTICLE_CODES)
+    return {r["codigo"] for r in rows if r.get("codigo")}
+
+
 def sync_articulos(conn_4d: Any, conn_pg: Any) -> int:
     """Full-refresh ps_articulos from the 4D Articulos table.
+
+    MA-prefix articles (CCRefeJOFACM starting with 'MA') are excluded at the
+    source query level.  Any MA rows left over from previous syncs are also
+    deleted after the truncate+insert to ensure a clean state.
 
     Args:
         conn_4d: An open p4d connection.
@@ -214,7 +243,16 @@ def sync_articulos(conn_4d: Any, conn_pg: Any) -> int:
 
     raw_rows = safe_fetch(conn_4d, _SQL_ARTICULOS)
     pg_rows = [_map_row(r, _ARTICULOS_MAPPING) for r in raw_rows]
-    return truncate_and_insert(conn_pg, "ps_articulos", pg_rows)
+    count = truncate_and_insert(conn_pg, "ps_articulos", pg_rows)
+
+    # Safety net: remove any MA rows that survived from a previous sync run
+    # before this filter was applied.  truncate_and_insert already wipes the
+    # table, so in practice this is a no-op after the first clean run.
+    with conn_pg.cursor() as cur:
+        cur.execute("DELETE FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'")
+    conn_pg.commit()
+
+    return count
 
 
 def sync_catalogos(conn_4d: Any, conn_pg: Any) -> dict[str, int]:
