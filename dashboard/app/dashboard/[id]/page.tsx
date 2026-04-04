@@ -38,6 +38,7 @@ export default function ViewDashboard() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const saveCounter = useRef(0);
+  const latestSpecRef = useRef<DashboardSpec | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   // Load dashboard
@@ -67,6 +68,11 @@ export default function ViewDashboard() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  // Keep latestSpecRef in sync
+  useEffect(() => {
+    if (dashboard) latestSpecRef.current = dashboard.spec;
+  }, [dashboard]);
 
   // Focus input when editing name
   useEffect(() => {
@@ -135,12 +141,14 @@ export default function ViewDashboard() {
 
     setDashboard((prev) => (prev ? { ...prev, name: trimmed } : prev));
     // Persist name change via the PUT endpoint, coordinated with saveCounter
+    // Use latestSpecRef to avoid stale spec closure capture
+    const currentSpec = latestSpecRef.current ?? dashboard.spec;
     const thisCount = ++saveCounter.current;
     try {
       const res = await fetch(`/api/dashboard/${id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec: dashboard.spec, name: trimmed }),
+        body: JSON.stringify({ spec: currentSpec, name: trimmed, skipVersion: true }),
       });
       if (!res.ok) throw new Error("Error al guardar el nombre");
       const updated: DashboardRecord = await res.json();

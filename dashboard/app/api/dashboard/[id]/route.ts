@@ -70,6 +70,7 @@ interface UpdateBody {
   spec?: unknown;
   prompt?: string;
   name?: string;
+  skipVersion?: boolean;
 }
 
 export async function PUT(
@@ -102,7 +103,7 @@ export async function PUT(
     );
   }
 
-  const { spec, prompt, name } = body;
+  const { spec, prompt, name, skipVersion } = body;
 
   // Validate name type if provided
   if (name !== undefined && name !== null) {
@@ -172,12 +173,14 @@ export async function PUT(
       );
     }
 
-    // Save old spec as a version
-    await client.query(
-      `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
-       VALUES ($1, $2, $3)`,
-      [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
-    );
+    // Save old spec as a version (skip for name-only changes)
+    if (!skipVersion) {
+      await client.query(
+        `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
+         VALUES ($1, $2, $3)`,
+        [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
+      );
+    }
 
     // Update the dashboard (include name if provided)
     const trimmedName = typeof name === "string" ? name.trim() : null;
