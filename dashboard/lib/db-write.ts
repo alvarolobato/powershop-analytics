@@ -10,6 +10,7 @@ import { Pool, type PoolConfig, type QueryResultRow } from "pg";
 
 // ─── Pool configuration ─────────────────────────────────────────────────────
 
+const STATEMENT_TIMEOUT_MS = 30_000;
 const CONNECTION_TIMEOUT_MS = 5_000;
 
 function getPoolConfig(): PoolConfig {
@@ -18,6 +19,7 @@ function getPoolConfig(): PoolConfig {
     return {
       connectionString: dsn,
       max: 5,
+      statement_timeout: STATEMENT_TIMEOUT_MS,
       connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
     };
   }
@@ -29,6 +31,7 @@ function getPoolConfig(): PoolConfig {
     password: process.env.POSTGRES_PASSWORD || "",
     database: process.env.POSTGRES_DB || "powershop",
     max: 5,
+    statement_timeout: STATEMENT_TIMEOUT_MS,
     connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
   };
 }

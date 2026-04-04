@@ -66,6 +66,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Validate description type
+  if (description !== undefined && description !== null && typeof description !== "string") {
+    return NextResponse.json(
+      { error: "Invalid 'description' — must be a string" },
+      { status: 400 },
+    );
+  }
+
   // Validate spec
   if (spec === undefined || spec === null) {
     return NextResponse.json(

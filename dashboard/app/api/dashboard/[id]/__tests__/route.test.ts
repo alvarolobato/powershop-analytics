@@ -1,14 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// Mock pg module before importing anything that uses it
-const mockQuery = vi.fn();
+// Mock pg module before importing anything that uses it.
+// PUT uses pool.connect() for transactions; GET/DELETE use the sql() helper which calls pool.query().
+const mockPoolQuery = vi.fn();
 const mockEnd = vi.fn().mockResolvedValue(undefined);
+const mockClientQuery = vi.fn();
+const mockClientRelease = vi.fn();
 
 vi.mock("pg", () => {
   return {
     Pool: class MockPool {
-      query = mockQuery;
+      query = mockPoolQuery;
       end = mockEnd;
+      connect = vi.fn().mockResolvedValue({
+        query: mockClientQuery,
+        release: mockClientRelease,
+      });
     },
   };
 });
@@ -57,7 +64,9 @@ function makeDeleteRequest(): NextRequest {
 
 describe("GET /api/dashboard/[id]", () => {
   beforeEach(async () => {
-    mockQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockClear();
     mockEnd.mockClear();
     await resetPool();
   });
@@ -71,7 +80,7 @@ describe("GET /api/dashboard/[id]", () => {
       created_at: "2026-04-04T10:00:00Z",
       updated_at: "2026-04-04T10:00:00Z",
     };
-    mockQuery.mockResolvedValue({ rows: [dashboard] });
+    mockPoolQuery.mockResolvedValue({ rows: [dashboard] });
 
     const res = await GET(makeGetRequest(), makeContext("1"));
     const json = await res.json();
@@ -83,7 +92,7 @@ describe("GET /api/dashboard/[id]", () => {
   });
 
   it("returns 404 when not found", async () => {
-    mockQuery.mockResolvedValue({ rows: [] });
+    mockPoolQuery.mockResolvedValue({ rows: [] });
 
     const res = await GET(makeGetRequest(), makeContext("999"));
     const json = await res.json();
@@ -111,7 +120,7 @@ describe("GET /api/dashboard/[id]", () => {
   });
 
   it("returns 500 on database error", async () => {
-    mockQuery.mockRejectedValue(new Error("db down"));
+    mockPoolQuery.mockRejectedValue(new Error("db down"));
 
     const res = await GET(makeGetRequest(), makeContext("1"));
     expect(res.status).toBe(500);
@@ -120,18 +129,19 @@ describe("GET /api/dashboard/[id]", () => {
 
 describe("PUT /api/dashboard/[id]", () => {
   beforeEach(async () => {
-    mockQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockClear();
     mockEnd.mockClear();
     await resetPool();
   });
 
-  it("updates dashboard and saves old spec as version", async () => {
-    // First call: SELECT existing dashboard
-    // Second call: INSERT version
-    // Third call: UPDATE dashboard
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ id: 1, spec: VALID_SPEC }] })
-      .mockResolvedValueOnce({ rows: [] })
+  it("updates dashboard and saves old spec as version in a transaction", async () => {
+    // Transaction calls: BEGIN, SELECT FOR UPDATE, INSERT version, UPDATE dashboard, COMMIT
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 1, spec: VALID_SPEC }] }) // SELECT FOR UPDATE
+      .mockResolvedValueOnce({ rows: [] }) // INSERT version
       .mockResolvedValueOnce({
         rows: [{
           id: 1,
@@ -141,7 +151,8 @@ describe("PUT /api/dashboard/[id]", () => {
           created_at: "2026-04-04T10:00:00Z",
           updated_at: "2026-04-04T11:00:00Z",
         }],
-      });
+      }) // UPDATE
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const res = await PUT(makePutRequest({ spec: UPDATED_SPEC }), makeContext("1"));
     const json = await res.json();
@@ -149,35 +160,52 @@ describe("PUT /api/dashboard/[id]", () => {
     expect(res.status).toBe(200);
     expect(json.spec).toEqual(UPDATED_SPEC);
 
+    // Verify BEGIN was called
+    expect(mockClientQuery.mock.calls[0][0]).toBe("BEGIN");
+
+    // Verify SELECT FOR UPDATE
+    expect(mockClientQuery.mock.calls[1][0]).toContain("FOR UPDATE");
+
     // Verify version was saved with old spec
-    const versionInsertCall = mockQuery.mock.calls[1];
+    const versionInsertCall = mockClientQuery.mock.calls[2];
     expect(versionInsertCall[0]).toContain("INSERT INTO dashboard_versions");
     expect(versionInsertCall[1][0]).toBe(1); // dashboard_id
     expect(JSON.parse(versionInsertCall[1][1] as string)).toEqual(VALID_SPEC); // old spec
+
+    // Verify COMMIT was called
+    expect(mockClientQuery.mock.calls[4][0]).toBe("COMMIT");
+
+    // Verify client was released
+    expect(mockClientRelease).toHaveBeenCalled();
   });
 
   it("saves prompt in version when provided", async () => {
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ id: 1, spec: VALID_SPEC }] })
-      .mockResolvedValueOnce({ rows: [] })
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [{ id: 1, spec: VALID_SPEC }] }) // SELECT FOR UPDATE
+      .mockResolvedValueOnce({ rows: [] }) // INSERT version
       .mockResolvedValueOnce({
         rows: [{
           id: 1, name: "S", description: null, spec: UPDATED_SPEC,
           created_at: "2026-04-04T10:00:00Z", updated_at: "2026-04-04T11:00:00Z",
         }],
-      });
+      }) // UPDATE
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     await PUT(
       makePutRequest({ spec: UPDATED_SPEC, prompt: "Add margins" }),
       makeContext("1"),
     );
 
-    const versionInsertCall = mockQuery.mock.calls[1];
+    const versionInsertCall = mockClientQuery.mock.calls[2];
     expect(versionInsertCall[1][2]).toBe("Add margins"); // prompt
   });
 
   it("returns 404 when dashboard not found", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [] });
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] }) // BEGIN
+      .mockResolvedValueOnce({ rows: [] }) // SELECT FOR UPDATE (not found)
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
 
     const res = await PUT(makePutRequest({ spec: UPDATED_SPEC }), makeContext("999"));
     const json = await res.json();
@@ -220,23 +248,39 @@ describe("PUT /api/dashboard/[id]", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 for non-string prompt", async () => {
+    const res = await PUT(
+      makePutRequest({ spec: UPDATED_SPEC, prompt: 123 }),
+      makeContext("1"),
+    );
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.error).toContain("prompt");
+  });
+
   it("returns 500 on database error during update", async () => {
-    mockQuery.mockRejectedValue(new Error("db error"));
+    mockClientQuery.mockRejectedValue(new Error("db error"));
 
     const res = await PUT(makePutRequest({ spec: UPDATED_SPEC }), makeContext("1"));
     expect(res.status).toBe(500);
+
+    // Verify client was released even on error
+    expect(mockClientRelease).toHaveBeenCalled();
   });
 });
 
 describe("DELETE /api/dashboard/[id]", () => {
   beforeEach(async () => {
-    mockQuery.mockReset();
+    mockPoolQuery.mockReset();
+    mockClientQuery.mockReset();
+    mockClientRelease.mockClear();
     mockEnd.mockClear();
     await resetPool();
   });
 
   it("deletes an existing dashboard and returns 204", async () => {
-    mockQuery.mockResolvedValue({ rows: [{ id: 1 }] });
+    mockPoolQuery.mockResolvedValue({ rows: [{ id: 1 }] });
 
     const res = await DELETE(makeDeleteRequest(), makeContext("1"));
 
@@ -244,7 +288,7 @@ describe("DELETE /api/dashboard/[id]", () => {
   });
 
   it("returns 404 when dashboard not found", async () => {
-    mockQuery.mockResolvedValue({ rows: [] });
+    mockPoolQuery.mockResolvedValue({ rows: [] });
 
     const res = await DELETE(makeDeleteRequest(), makeContext("999"));
     const json = await res.json();
@@ -264,7 +308,7 @@ describe("DELETE /api/dashboard/[id]", () => {
   });
 
   it("returns 500 on database error", async () => {
-    mockQuery.mockRejectedValue(new Error("db error"));
+    mockPoolQuery.mockRejectedValue(new Error("db error"));
 
     const res = await DELETE(makeDeleteRequest(), makeContext("1"));
     expect(res.status).toBe(500);

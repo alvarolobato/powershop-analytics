@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { sql } from "@/lib/db-write";
+import { sql, getPool } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
 import { ZodError } from "zod";
 
@@ -110,6 +110,14 @@ export async function PUT(
     );
   }
 
+  // Validate prompt type
+  if (prompt !== undefined && prompt !== null && typeof prompt !== "string") {
+    return NextResponse.json(
+      { error: "Invalid 'prompt' — must be a string" },
+      { status: 400 },
+    );
+  }
+
   try {
     validateSpec(spec);
   } catch (err) {
@@ -122,14 +130,22 @@ export async function PUT(
     throw err;
   }
 
+  const normalizedPrompt =
+    typeof prompt === "string" ? prompt.trim() || null : null;
+
+  // Use a transaction to ensure version insert + dashboard update are atomic
+  const client = await getPool().connect();
   try {
-    // Fetch existing dashboard to save old spec as version
-    const existing = await sql(
-      `SELECT id, spec FROM dashboards WHERE id = $1`,
+    await client.query("BEGIN");
+
+    // Fetch existing dashboard (lock row for update)
+    const existingResult = await client.query(
+      `SELECT id, spec FROM dashboards WHERE id = $1 FOR UPDATE`,
       [id],
     );
 
-    if (existing.length === 0) {
+    if (existingResult.rows.length === 0) {
+      await client.query("ROLLBACK");
       return NextResponse.json(
         { error: "Dashboard not found" },
         { status: 404 },
@@ -137,14 +153,14 @@ export async function PUT(
     }
 
     // Save old spec as a version
-    await sql(
+    await client.query(
       `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
        VALUES ($1, $2, $3)`,
-      [id, JSON.stringify(existing[0].spec), prompt?.trim() || null],
+      [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
     );
 
     // Update the dashboard
-    const updated = await sql(
+    const updateResult = await client.query(
       `UPDATE dashboards
        SET spec = $1, updated_at = NOW()
        WHERE id = $2
@@ -152,12 +168,24 @@ export async function PUT(
       [JSON.stringify(spec), id],
     );
 
-    return NextResponse.json(updated[0]);
+    await client.query("COMMIT");
+
+    if (updateResult.rows.length === 0) {
+      return NextResponse.json(
+        { error: "Dashboard not found" },
+        { status: 404 },
+      );
+    }
+
+    return NextResponse.json(updateResult.rows[0]);
   } catch {
+    await client.query("ROLLBACK").catch(() => {});
     return NextResponse.json(
       { error: "Failed to update dashboard" },
       { status: 500 },
     );
+  } finally {
+    client.release();
   }
 }
 

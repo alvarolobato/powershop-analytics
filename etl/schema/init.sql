@@ -393,10 +393,10 @@ CREATE TABLE IF NOT EXISTS dashboards (
 
 CREATE TABLE IF NOT EXISTS dashboard_versions (
     id            SERIAL       PRIMARY KEY,
-    dashboard_id  INTEGER      REFERENCES dashboards(id) ON DELETE CASCADE,
+    dashboard_id  INTEGER      NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
     spec          JSONB        NOT NULL,
     prompt        TEXT,
-    created_at    TIMESTAMPTZ  DEFAULT NOW()
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
 -- ============================================================
