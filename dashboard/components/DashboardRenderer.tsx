@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
 import {
@@ -36,13 +36,37 @@ interface WidgetState {
 // Data fetching helper
 // ---------------------------------------------------------------------------
 
-async function fetchWidgetData(sql: string): Promise<WidgetData> {
+async function fetchWidgetData(
+  sql: string,
+  signal?: AbortSignal,
+): Promise<WidgetData> {
   const res = await fetch("/api/query", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sql }),
+    signal,
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) {
+    let message = "";
+    try {
+      const errorBody = await res.json();
+      if (
+        errorBody &&
+        typeof errorBody === "object" &&
+        "error" in errorBody &&
+        typeof errorBody.error === "string"
+      ) {
+        message = errorBody.error;
+      }
+    } catch {
+      try {
+        message = await res.text();
+      } catch {
+        message = "";
+      }
+    }
+    throw new Error(message || "Failed to fetch widget data");
+  }
   return res.json();
 }
 
@@ -54,8 +78,15 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
+  const abortRef = useRef<AbortController | null>(null);
 
   const fetchAll = useCallback(async (widgets: Widget[]) => {
+    // Abort any in-flight requests from a previous spec
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
+
     // Initialize all widgets to loading state
     const initial = new Map<number, WidgetState>();
     widgets.forEach((_, idx) => {
@@ -71,26 +102,31 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
           const itemResults = await Promise.all(
             widget.items.map(async (item): Promise<WidgetData | null> => {
               try {
-                return await fetchWidgetData(item.sql);
+                return await fetchWidgetData(item.sql, signal);
               } catch {
                 return null;
               }
             })
           );
-          setWidgetStates((prev) => {
-            const next = new Map(prev);
-            next.set(idx, { data: itemResults, loading: false, error: null });
-            return next;
-          });
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data: itemResults, loading: false, error: null });
+              return next;
+            });
+          }
         } else {
-          const data = await fetchWidgetData(widget.sql);
-          setWidgetStates((prev) => {
-            const next = new Map(prev);
-            next.set(idx, { data, loading: false, error: null });
-            return next;
-          });
+          const data = await fetchWidgetData(widget.sql, signal);
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data, loading: false, error: null });
+              return next;
+            });
+          }
         }
       } catch (err) {
+        if (signal.aborted) return;
         const message =
           err instanceof Error ? err.message : "Error al ejecutar la consulta";
         setWidgetStates((prev) => {
@@ -108,6 +144,9 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
     if (spec.widgets.length > 0) {
       fetchAll(spec.widgets);
     }
+    return () => {
+      abortRef.current?.abort();
+    };
   }, [spec, fetchAll]);
 
   return (

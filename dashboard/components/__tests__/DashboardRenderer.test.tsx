@@ -16,11 +16,11 @@ function mockFetchSuccess(data: Record<string, unknown>) {
   } as unknown as Response);
 }
 
-function mockFetchFailure(errorText: string, status = 500) {
+function mockFetchFailure(errorMessage: string, status = 500) {
   return vi.fn().mockResolvedValue({
     ok: false,
     status,
-    text: () => Promise.resolve(errorText),
+    json: () => Promise.resolve({ error: errorMessage }),
   } as unknown as Response);
 }
 
@@ -211,7 +211,7 @@ describe("DashboardRenderer", () => {
         return Promise.resolve({
           ok: false,
           status: 500,
-          text: () => Promise.resolve("Query timeout"),
+          json: () => Promise.resolve({ error: "Query timeout" }),
         } as unknown as Response);
       }
       return Promise.resolve({
