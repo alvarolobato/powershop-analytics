@@ -130,6 +130,7 @@ export default function ViewDashboard() {
       return;
     }
     setEditingName(false);
+    setNameValue(trimmed);
     if (trimmed === dashboard.name) return;
 
     setDashboard((prev) => (prev ? { ...prev, name: trimmed } : prev));

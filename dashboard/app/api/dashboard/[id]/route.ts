@@ -104,6 +104,16 @@ export async function PUT(
 
   const { spec, prompt, name } = body;
 
+  // Validate name type if provided
+  if (name !== undefined && name !== null) {
+    if (typeof name !== "string" || name.trim() === "") {
+      return NextResponse.json(
+        { error: "Invalid 'name' — must be a non-empty string" },
+        { status: 400 },
+      );
+    }
+  }
+
   if (spec === undefined || spec === null) {
     return NextResponse.json(
       { error: "Missing 'spec' field" },
