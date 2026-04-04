@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, Title, Text } from "@tremor/react";
 
@@ -21,7 +20,6 @@ interface DashboardSummary {
 // ---------------------------------------------------------------------------
 
 export default function Home() {
-  const router = useRouter();
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

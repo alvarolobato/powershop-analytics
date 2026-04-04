@@ -133,7 +133,8 @@ export default function ViewDashboard() {
     if (trimmed === dashboard.name) return;
 
     setDashboard((prev) => (prev ? { ...prev, name: trimmed } : prev));
-    // Persist name change via the PUT endpoint
+    // Persist name change via the PUT endpoint, coordinated with saveCounter
+    const thisCount = ++saveCounter.current;
     try {
       const res = await fetch(`/api/dashboard/${id}`, {
         method: "PUT",
@@ -142,13 +143,17 @@ export default function ViewDashboard() {
       });
       if (!res.ok) throw new Error("Error al guardar el nombre");
       const updated: DashboardRecord = await res.json();
-      setDashboard(updated);
+      if (thisCount === saveCounter.current) {
+        setDashboard(updated);
+      }
     } catch {
-      // Revert on failure
-      setDashboard((prev) =>
-        prev ? { ...prev, name: dashboard.name } : prev,
-      );
-      setNameValue(dashboard.name);
+      if (thisCount === saveCounter.current) {
+        // Revert on failure
+        setDashboard((prev) =>
+          prev ? { ...prev, name: dashboard.name } : prev,
+        );
+        setNameValue(dashboard.name);
+      }
     }
   }, [nameValue, dashboard, id]);
 

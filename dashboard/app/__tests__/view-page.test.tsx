@@ -33,7 +33,7 @@ vi.mock("@/components/ChatSidebar", () => ({
     onToggle,
   }: {
     spec: DashboardSpec;
-    onSpecUpdate: (s: DashboardSpec) => void;
+    onSpecUpdate: (s: DashboardSpec, prompt: string) => void;
     isOpen: boolean;
     onToggle: () => void;
   }) =>
@@ -188,9 +188,18 @@ describe("ViewDashboard page", () => {
   });
 
   it("allows inline name editing", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(dashboardRecord),
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      callCount++;
+      // First call = GET (load dashboard), subsequent = PUT (save name)
+      const record =
+        callCount === 1
+          ? dashboardRecord
+          : { ...dashboardRecord, name: "Nuevo Nombre" };
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve(record),
+      });
     });
 
     render(<ViewDashboard />);
