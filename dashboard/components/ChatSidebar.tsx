@@ -1,5 +1,6 @@
 "use client";
 
+import type { KeyboardEvent } from "react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { DashboardSpec } from "@/lib/schema";
 
@@ -72,9 +73,15 @@ export default function ChatSidebar({
       });
 
       if (!res.ok) {
+        // Log the raw server error for debugging, show Spanish message to user
         const errBody = await res.json().catch(() => null);
+        if (errBody?.error) {
+          console.error("Modify API error:", errBody.error);
+        }
         const errMsg =
-          errBody?.error ?? `Error del servidor (${res.status})`;
+          res.status >= 500
+            ? "Error interno del servidor. Inténtalo de nuevo."
+            : "No se pudo aplicar la modificación. Revisa tu petición.";
         setMessages((prev) => [
           ...prev,
           {
@@ -120,7 +127,7 @@ export default function ChatSidebar({
     }
   }, [input, loading, spec, onSpecUpdate]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();

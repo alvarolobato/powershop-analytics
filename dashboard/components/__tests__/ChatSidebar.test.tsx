@@ -47,11 +47,16 @@ function mockFetchNetworkError() {
 describe("ChatSidebar", () => {
   let onSpecUpdate: ReturnType<typeof vi.fn>;
   let onToggle: ReturnType<typeof vi.fn>;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     onSpecUpdate = vi.fn();
     onToggle = vi.fn();
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
   });
 
   // -----------------------------------------------------------------------
@@ -205,7 +210,7 @@ describe("ChatSidebar", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Error: LLM_MODIFY_FAILED/)).toBeInTheDocument();
+      expect(screen.getByText(/Error interno del servidor/)).toBeInTheDocument();
     });
 
     // onSpecUpdate should NOT have been called
