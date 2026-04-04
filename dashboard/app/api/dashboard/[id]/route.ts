@@ -69,6 +69,8 @@ export async function GET(
 interface UpdateBody {
   spec?: unknown;
   prompt?: string;
+  name?: string;
+  skipVersion?: boolean;
 }
 
 export async function PUT(
@@ -101,7 +103,17 @@ export async function PUT(
     );
   }
 
-  const { spec, prompt } = body;
+  const { spec, prompt, name, skipVersion } = body;
+
+  // Validate name type if provided
+  if (name !== undefined && name !== null) {
+    if (typeof name !== "string" || name.trim() === "") {
+      return NextResponse.json(
+        { error: "Invalid 'name' — must be a non-empty string" },
+        { status: 400 },
+      );
+    }
+  }
 
   if (spec === undefined || spec === null) {
     return NextResponse.json(
@@ -161,20 +173,25 @@ export async function PUT(
       );
     }
 
-    // Save old spec as a version
-    await client.query(
-      `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
-       VALUES ($1, $2, $3)`,
-      [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
-    );
+    // Save old spec as a version (skip for name-only changes)
+    if (!skipVersion) {
+      await client.query(
+        `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
+         VALUES ($1, $2, $3)`,
+        [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
+      );
+    }
 
-    // Update the dashboard
+    // Update the dashboard (include name if provided)
+    const trimmedName = typeof name === "string" ? name.trim() : null;
     const updateResult = await client.query(
       `UPDATE dashboards
-       SET spec = $1, updated_at = NOW()
+       SET spec = $1, updated_at = NOW()${trimmedName ? ", name = $3" : ""}
        WHERE id = $2
        RETURNING id, name, description, spec, created_at, updated_at`,
-      [JSON.stringify(spec), id],
+      trimmedName
+        ? [JSON.stringify(spec), id, trimmedName]
+        : [JSON.stringify(spec), id],
     );
 
     await client.query("COMMIT");
