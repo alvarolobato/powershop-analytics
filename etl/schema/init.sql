@@ -445,6 +445,10 @@ CREATE INDEX IF NOT EXISTS idx_stock_codigo ON ps_stock_tienda(codigo);
 CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 
 -- Wholesale FK indexes
+-- Dashboard indexes
+CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
+CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
+
 CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
 CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);
 CREATE INDEX IF NOT EXISTS idx_glf_numfactura ON ps_gc_lin_facturas(num_factura);
