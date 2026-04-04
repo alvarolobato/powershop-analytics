@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import ViewDashboard from "../dashboard/[id]/page";
 import type { DashboardSpec } from "@/lib/schema";
@@ -21,10 +21,23 @@ vi.mock("next/navigation", () => ({
 // Mock DashboardRenderer and ChatSidebar to avoid complex rendering
 // ---------------------------------------------------------------------------
 
+const rendererProps: { refreshKey?: number }[] = [];
+
 vi.mock("@/components/DashboardRenderer", () => ({
-  DashboardRenderer: ({ spec }: { spec: DashboardSpec }) => (
-    <div data-testid="dashboard-renderer">{spec.title}</div>
-  ),
+  DashboardRenderer: ({
+    spec,
+    refreshKey,
+  }: {
+    spec: DashboardSpec;
+    refreshKey?: number;
+  }) => {
+    rendererProps.push({ refreshKey });
+    return (
+      <div data-testid="dashboard-renderer" data-refresh-key={refreshKey}>
+        {spec.title}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/ChatSidebar", () => ({
@@ -74,10 +87,13 @@ describe("ViewDashboard page", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.useRealTimers();
     mockPush.mockReset();
+    rendererProps.length = 0;
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     globalThis.fetch = originalFetch;
   });
 
@@ -108,6 +124,16 @@ describe("ViewDashboard page", () => {
     // Save and Modify buttons
     expect(screen.getByText("Guardar")).toBeInTheDocument();
     expect(screen.getByText("Modificar")).toBeInTheDocument();
+
+    // Refresh controls
+    expect(screen.getByText("Actualizar")).toBeInTheDocument();
+    expect(screen.getByTestId("auto-refresh-toggle")).toBeInTheDocument();
+
+    // Export button
+    expect(screen.getByText("Exportar")).toBeInTheDocument();
+
+    // Last refreshed timestamp
+    expect(screen.getByTestId("last-refreshed")).toBeInTheDocument();
   });
 
   it("shows 404 when dashboard not found", async () => {
@@ -242,5 +268,202 @@ describe("ViewDashboard page", () => {
 
     fireEvent.click(screen.getByText("Volver a la lista"));
     expect(mockPush).toHaveBeenCalledWith("/");
+  });
+
+  // -----------------------------------------------------------------------
+  // Auto-refresh tests
+  // -----------------------------------------------------------------------
+
+  it("increments refreshKey when Actualizar button is clicked", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    // Initial refreshKey should be 0
+    const renderer = screen.getByTestId("dashboard-renderer");
+    expect(renderer.getAttribute("data-refresh-key")).toBe("0");
+
+    // Click Actualizar
+    fireEvent.click(screen.getByText("Actualizar"));
+
+    // refreshKey should now be 1
+    await waitFor(() => {
+      const updated = screen.getByTestId("dashboard-renderer");
+      expect(updated.getAttribute("data-refresh-key")).toBe("1");
+    });
+  });
+
+  it("shows interval selector when auto-refresh is toggled on", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    // Interval selector not visible initially
+    expect(screen.queryByTestId("refresh-interval-select")).not.toBeInTheDocument();
+
+    // Toggle auto-refresh on
+    fireEvent.click(screen.getByTestId("auto-refresh-toggle"));
+
+    // Interval selector appears
+    expect(screen.getByTestId("refresh-interval-select")).toBeInTheDocument();
+
+    // Countdown appears
+    expect(screen.getByTestId("countdown")).toBeInTheDocument();
+  });
+
+  it("hides countdown when auto-refresh is toggled off", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    // Toggle on
+    fireEvent.click(screen.getByTestId("auto-refresh-toggle"));
+    expect(screen.getByTestId("countdown")).toBeInTheDocument();
+
+    // Toggle off
+    fireEvent.click(screen.getByTestId("auto-refresh-toggle"));
+    expect(screen.queryByTestId("countdown")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("refresh-interval-select")).not.toBeInTheDocument();
+  });
+
+  it("auto-refreshes on interval", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<ViewDashboard />);
+
+    // With shouldAdvanceTime, waitFor works with fake timers
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    // Initial refreshKey = 0
+    expect(
+      screen.getByTestId("dashboard-renderer").getAttribute("data-refresh-key"),
+    ).toBe("0");
+
+    // Enable auto-refresh at 5 min
+    fireEvent.click(screen.getByTestId("auto-refresh-toggle"));
+    fireEvent.change(screen.getByTestId("refresh-interval-select"), {
+      target: { value: "5" },
+    });
+
+    // Advance 5 minutes
+    act(() => {
+      vi.advanceTimersByTime(5 * 60 * 1000);
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("dashboard-renderer").getAttribute("data-refresh-key"),
+      ).toBe("1");
+    });
+
+    vi.useRealTimers();
+  });
+
+  // -----------------------------------------------------------------------
+  // Export tests
+  // -----------------------------------------------------------------------
+
+  it("shows export dropdown with two options", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    // Dropdown not visible initially
+    expect(screen.queryByText("Copiar datos")).not.toBeInTheDocument();
+
+    // Click Exportar
+    fireEvent.click(screen.getByText("Exportar"));
+
+    // Dropdown options appear
+    expect(screen.getByText("Copiar datos")).toBeInTheDocument();
+    expect(screen.getByText("Imprimir / PDF")).toBeInTheDocument();
+  });
+
+  it("calls window.print when Imprimir / PDF is clicked", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    const printSpy = vi.fn();
+    vi.stubGlobal("print", printSpy);
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Exportar"));
+    fireEvent.click(screen.getByText("Imprimir / PDF"));
+
+    expect(printSpy).toHaveBeenCalledOnce();
+  });
+
+  it("copies data to clipboard when Copiar datos is clicked", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: writeTextMock },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Exportar"));
+    fireEvent.click(screen.getByText("Copiar datos"));
+
+    await waitFor(() => {
+      expect(writeTextMock).toHaveBeenCalledOnce();
+    });
+
+    // The copied text should contain the spec title
+    const copiedText = writeTextMock.mock.calls[0][0] as string;
+    expect(copiedText).toContain("Ventas Marzo");
+    expect(copiedText).toContain("Total");
   });
 });

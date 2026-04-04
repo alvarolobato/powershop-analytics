@@ -22,6 +22,9 @@ export interface DashboardRendererProps {
    *  on each render -- the component uses a stable JSON key internally to
    *  avoid unnecessary refetches. */
   spec: DashboardSpec;
+  /** When this value changes, all widget queries are re-executed.
+   *  Increment it to trigger a manual or auto-refresh. */
+  refreshKey?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +80,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -158,7 +161,9 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
     return () => {
       abortRef.current?.abort();
     };
-  }, [specKey, spec.widgets, fetchAll]);
+    // refreshKey is included so incrementing it re-runs all queries
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [specKey, spec.widgets, fetchAll, refreshKey]);
 
   return (
     <div>
