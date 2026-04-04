@@ -219,3 +219,57 @@ def test_watermark_not_updated_on_error():
     assert args[4] == "error", f"Expected status='error', got {args[4]!r}"
     assert len(args) > 5, "set_watermark was not called with error_msg"
     assert "simulated articulos error" in args[5]
+
+
+# ---------------------------------------------------------------------------
+# Test: MA cleanup is called after all syncs complete
+# ---------------------------------------------------------------------------
+
+
+def test_ma_cleanup_is_invoked():
+    """_cleanup_ma_linked_rows is called after all sync steps in run_full_sync."""
+    conn_4d = _make_conn()
+    conn_pg = _make_conn()
+    cleanup_called: list[bool] = []
+
+    def _cleanup_mock(c4d, cpg):
+        cleanup_called.append(True)
+
+    with ExitStack() as stack:
+        _apply_patches(stack, {})
+        stack.enter_context(
+            patch("etl.main._cleanup_ma_linked_rows", side_effect=_cleanup_mock)
+        )
+        from etl.main import run_full_sync
+
+        run_full_sync(conn_4d, conn_pg)
+
+    assert cleanup_called, "_cleanup_ma_linked_rows was not called by run_full_sync"
+
+
+def test_ma_cleanup_failure_does_not_abort_pipeline():
+    """A failure in _cleanup_ma_linked_rows is swallowed — the pipeline completes."""
+    conn_4d = _make_conn()
+    conn_pg = _make_conn()
+    stock_called: list[bool] = []
+
+    def _cleanup_boom(c4d, cpg):
+        raise RuntimeError("simulated MA cleanup failure")
+
+    def _track_stock(*args, **kwargs):
+        stock_called.append(True)
+        return 0
+
+    with ExitStack() as stack:
+        side_effects = {"sync_traspasos": _track_stock}
+        _apply_patches(stack, side_effects)
+        stack.enter_context(
+            patch("etl.main._cleanup_ma_linked_rows", side_effect=_cleanup_boom)
+        )
+        from etl.main import run_full_sync
+
+        # Must not raise
+        run_full_sync(conn_4d, conn_pg)
+
+    # sync_traspasos runs before cleanup — we verify the pipeline completed normally
+    assert stock_called, "sync_traspasos was not called; pipeline may have aborted"

@@ -483,7 +483,7 @@ INSTRUCTIONS = [
         ],
     },
     {
-        "instruction": "Los artículos cuya Referencia (ccrefejofacm) empieza por 'MA' son materiales (bolsas, perchas, envoltorios) que NO tienen seguimiento de inventario. Excluirlos de análisis de stock y ventas a menos que se pidan explícitamente: WHERE ccrefejofacm NOT LIKE 'MA%'. Los que empiezan por 'M' (sin 'MA') son mayoristas.",
+        "instruction": "Los artículos cuya Referencia (ccrefejofacm) empieza por 'MA' son materiales (bolsas, perchas, envoltorios) que NO tienen seguimiento de inventario. Estos artículos están EXCLUIDOS A NIVEL DE ETL — no existen en las tablas PostgreSQL (ps_articulos ni en las tablas de líneas). NO es necesario filtrar 'MA%' en ninguna consulta SQL sobre el mirror PostgreSQL. Los que empiezan por 'M' (sin 'MA') son artículos mayoristas.",
         "questions": [
             "¿Cuántos artículos tenemos?",
             "¿Catálogo activo de productos?",
@@ -688,7 +688,7 @@ SQL_PAIRS = [
     # ── Products ───────────────────────────────────────────────────────
     (
         "¿Cuáles son los 10 artículos más vendidos por importe?",
-        'SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Importe Neto", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND p."ccrefejofacm" NOT LIKE \'MA%\' GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Importe Neto" DESC LIMIT 10',
+        'SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Importe Neto", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Importe Neto" DESC LIMIT 10',
     ),
     (
         "¿Qué familias de producto venden más?",
@@ -700,7 +700,7 @@ SQL_PAIRS = [
     ),
     (
         "¿Ventas por temporada de la colección?",
-        'SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades", COUNT(DISTINCT p."ccrefejofacm") AS "Artículos" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND p."ccrefejofacm" NOT LIKE \'MA%\' GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC',
+        'SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades", COUNT(DISTINCT p."ccrefejofacm") AS "Artículos" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC',
     ),
     (
         "¿Ventas por marca?",
@@ -708,7 +708,7 @@ SQL_PAIRS = [
     ),
     (
         "¿Cuántos artículos activos hay en el catálogo?",
-        'SELECT COUNT(*) AS "Total Artículos", SUM(CASE WHEN "ccrefejofacm" NOT LIKE \'M%\' THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "ccrefejofacm" LIKE \'M%\' AND "ccrefejofacm" NOT LIKE \'MA%\' THEN 1 ELSE 0 END) AS "Mayorista", SUM(CASE WHEN "ccrefejofacm" LIKE \'MA%\' THEN 1 ELSE 0 END) AS "Materiales" FROM "public"."ps_articulos" WHERE "anulado" = false',
+        'SELECT COUNT(*) AS "Total Artículos", SUM(CASE WHEN "ccrefejofacm" IS NULL OR "ccrefejofacm" NOT LIKE \'M%\' THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "ccrefejofacm" LIKE \'M%\' THEN 1 ELSE 0 END) AS "Mayorista" FROM "public"."ps_articulos" WHERE "anulado" = false',
     ),
 
     # ── Stock ──────────────────────────────────────────────────────────
@@ -722,7 +722,7 @@ SQL_PAIRS = [
     ),
     (
         "¿Cuál es el valor del stock al coste?",
-        'SELECT SUM(s."stock" * p."precio_coste") AS "Valor al Coste", SUM(s."stock") AS "Unidades Totales", COUNT(DISTINCT s."codigo") AS "Referencias" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 AND p."anulado" = false AND p."ccrefejofacm" NOT LIKE \'MA%\'',
+        'SELECT SUM(s."stock" * p."precio_coste") AS "Valor al Coste", SUM(s."stock") AS "Unidades Totales", COUNT(DISTINCT s."codigo") AS "Referencias" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 AND p."anulado" = false',
     ),
     (
         "¿Stock por artículo y talla?",

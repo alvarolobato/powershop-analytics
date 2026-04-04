@@ -99,6 +99,60 @@ def _run_sync_catalogos(conn_4d, conn_pg) -> int:
 
 
 # ---------------------------------------------------------------------------
+# MA cascade cleanup
+# ---------------------------------------------------------------------------
+
+
+def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
+    """Delete rows from line-item tables that reference MA-prefix article codes.
+
+    MA articles (CCRefeJOFACM starting with 'MA') are excluded from ps_articulos
+    at the source query level.  However, line-item tables (lineas_ventas,
+    stock_tienda, gc_lin_albarane, gc_lin_facturas) are synced independently and
+    may still hold rows whose `codigo` belongs to an MA article.  This function
+    removes those rows so that all tables are MA-free after each sync run.
+
+    The cleanup is idempotent — safe to run multiple times; it is a no-op when
+    no MA rows are present.
+
+    Line tables covered:
+        ps_lineas_ventas, ps_stock_tienda, ps_gc_lin_albarane, ps_gc_lin_facturas
+    """
+    from etl.sync.articulos import get_ma_article_codes
+
+    ma_codes = get_ma_article_codes(conn_4d)
+    if not ma_codes:
+        logger.info("MA cleanup: no MA article codes found — nothing to clean up")
+        return
+
+    logger.info("MA cleanup: %d MA article codes to remove from line tables", len(ma_codes))
+
+    _MA_LINE_TABLES = [
+        "ps_lineas_ventas",
+        "ps_stock_tienda",
+        "ps_gc_lin_albarane",
+        "ps_gc_lin_facturas",
+    ]
+
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
+    ma_codes_list = list(ma_codes)
+    try:
+        with conn_pg.cursor() as cur:
+            for table in _MA_LINE_TABLES:
+                stmt = pgsql.SQL("DELETE FROM {} WHERE codigo = ANY(%s)").format(
+                    pgsql.Identifier(table)
+                )
+                cur.execute(stmt, (ma_codes_list,))
+                deleted = cur.rowcount
+                logger.info("MA cleanup: deleted %d rows from %s", deleted, table)
+        conn_pg.commit()
+    except Exception:
+        conn_pg.rollback()
+        raise
+
+
+# ---------------------------------------------------------------------------
 # Full sync pipeline
 # ---------------------------------------------------------------------------
 
@@ -196,6 +250,20 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     # ------------------------------------------------------------------
     _run_sync("stock", sync_stock, conn_4d, conn_pg, uses_watermark=True)
     _run_sync("traspasos", sync_traspasos, conn_4d, conn_pg, uses_watermark=True)
+
+    # ------------------------------------------------------------------
+    # 8. MA cascade cleanup — remove line-table rows referencing MA articles
+    # ------------------------------------------------------------------
+    # MA articles (CCRefeJOFACM starting with 'MA') are excluded from
+    # ps_articulos at the source query level.  Here we cascade that exclusion
+    # to line-item tables whose rows reference MA article codes via `codigo`.
+    # This is necessary because line tables use delta/upsert strategies that
+    # may have inserted MA-linked rows in previous sync runs before this filter.
+    # Failures are logged but do not abort the pipeline (consistent with _run_sync).
+    try:
+        _cleanup_ma_linked_rows(conn_4d, conn_pg)
+    except Exception:
+        logger.exception("MA cleanup failed; continuing with pipeline completion")
 
     total_ms = int((time.time() - pipeline_start) * 1000)
     logger.info("=== Full sync completed in %d ms ===", total_ms)
