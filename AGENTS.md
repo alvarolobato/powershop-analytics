@@ -5,11 +5,17 @@ Guidance for AI assistants. Use the **skills** ([docs/skills/skills.md](docs/ski
 
 ## Project Overview
 
-**PowerShop Analytics** extracts data from a vendor-managed PowerShop ERP (built on 4D database) and loads it into a PostgreSQL mirror for analytics via WrenAI (text-to-SQL). The extraction code runs in a Docker container on Linux.
+**PowerShop Analytics** is an AI-powered analytics platform for a retail/wholesale business. It extracts data from a vendor-managed PowerShop ERP (4D database), mirrors it into PostgreSQL, and provides two analytics interfaces:
+
+1. **WrenAI** — Ad-hoc single-question text-to-SQL ("¿Cuánto vendimos ayer?")
+2. **Dashboard App** — AI-generated multi-widget dashboards from natural language ("Créame un cuadro de mandos para ventas") — **NEW, in development**
 
 **Data source:** PowerShop 4D v18.0.6 at `YOUR_4D_SERVER_IP` (Windows, compiled mode).
 **Access paths:** P4D SQL driver (port 19812) for bulk extraction, SOAP web services (port 8080) for business-enriched data.
-**Target:** PostgreSQL (mirror) → WrenAI (GenBI / text-to-SQL, self-hosted). LLM via OpenRouter (OpenAI-compatible API).
+**Target:** PostgreSQL (mirror) → WrenAI + Dashboard App. LLM via OpenRouter (Claude Sonnet 4).
+
+**Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagrams and component details.
+**Decisions**: See [DECISIONS-AND-CHANGES.md](DECISIONS-AND-CHANGES.md) for rationale and changelog.
 
 This is a **public repository** -- no credentials, customer data, or business-specific data in committed files.
 
@@ -19,18 +25,21 @@ This is a **public repository** -- no credentials, customer data, or business-sp
 
 | Path | Purpose |
 |------|---------|
-| `cli/` | Unified CLI (`ps`) -- commands, dispatcher |
-| `cli/commands/` | Command implementations (sql.sh, config.sh, etc.) |
+| `dashboard/` | **Dashboard App** — Next.js + Tremor AI dashboard generator |
+| `cli/` | Unified CLI (`ps`) — commands, dispatcher |
+| `cli/commands/` | Command implementations (sql.sh, config.sh, stack.sh, etl.sh, wren.sh) |
 | `etl/` | Python ETL service — syncs 4D → PostgreSQL (nightly) |
-| `wren/mdl/` | WrenAI semantic model definitions (MDL JSON files) |
+| `scripts/` | Operational scripts (wren-push-metadata.py, migrate-volumes.sh, wren-setup.sh) |
+| `wren/mdl/` | WrenAI semantic model reference (MDL JSON) |
 | `docs/` | Documentation, schema discovery, architecture |
 | `docs/architecture/` | Domain ER diagrams + ETL sync strategy per domain |
 | `docs/skills/` | AI agent skills (domain-specific guides) |
-| `docs/etl-sync-strategy.md` | Validated sync strategy for all tables |
 | `local/` | Local config/credentials (git-ignored) |
-| `.env.example` | Template for environment variables |
-| `docker-compose.yml` | Full stack: PostgreSQL + ETL + WrenAI (6 containers) |
+| `data/` | Bind-mounted data (postgres, qdrant, wren) — git-ignored |
+| `docker-compose.yml` | Full stack: PostgreSQL + ETL + WrenAI + Dashboard App |
 | `.env.example` | Environment variable template (no real secrets) |
+| `ARCHITECTURE.md` | System architecture, component diagrams, data flow |
+| `DECISIONS-AND-CHANGES.md` | Decision log + changelog (always up to date) |
 
 ---
 

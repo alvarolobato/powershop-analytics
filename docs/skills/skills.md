@@ -6,6 +6,7 @@ This folder contains **skill documents** for AI agents working on the powershop-
 
 | Skill | Purpose | Use when |
 |-------|---------|----------|
+| **[dashboard-app.md](dashboard-app.md)** | Dashboard App architecture: Next.js + Tremor, dashboard spec format, LLM orchestration, widget types, API routes. | Building, modifying, or debugging the AI dashboard generator. |
 | **[data-access.md](data-access.md)** | How to connect to 4D via SQL (P4D) and SOAP (zeep). Connection patterns, query examples, gotchas. | Running SQL queries, exploring the schema, testing SOAP calls. |
 | **[4d-sql-dialect.md](4d-sql-dialect.md)** | Comprehensive 4D SQL dialect reference: data types, SELECT/JOIN/WHERE syntax, all functions, system tables, gotchas vs PostgreSQL/MySQL. | Writing SQL queries, looking up function syntax, understanding type mappings, troubleshooting 4D SQL behavior. |
 | **[cli.md](cli.md)** | CLI architecture: dispatcher, commands, load-env, adding new commands. | Modifying or extending the `ps` CLI. |
@@ -26,9 +27,21 @@ This folder contains **skill documents** for AI agents working on the powershop-
 
 ## Summary
 
+- **Dashboard App**: Use **dashboard-app** for building the AI dashboard generator (Next.js + Tremor).
 - **Data access**: Use **data-access** for connecting to 4D SQL or SOAP.
 - **SQL dialect**: Use **4d-sql-dialect** for 4D SQL syntax, functions, types, and differences from standard SQL.
 - **CLI**: Use **cli** for extending the command-line tool.
 - **Report generation**: Use **report-generation** to reproduce the BI report or create a new snapshot.
 - **ETL sync decisions**: Read **etl-sync-strategy.md** before implementing any sync — it has validated delta fields and PKs per table.
 - **Self-improvement**: Use **agent-efficiency** when guidance was missing.
+
+## Agent specializations for parallel work
+
+When implementing the Dashboard App, work can be split across specialized agents:
+
+| Agent | Scope | Key files |
+|-------|-------|-----------|
+| **Frontend** | Tremor widgets, dashboard renderer, chat sidebar, dashboard list UI | `dashboard/components/`, `dashboard/app/` |
+| **LLM/Backend** | Prompt engineering, OpenRouter client, spec generation/modification, knowledge context | `dashboard/lib/`, `dashboard/app/api/` |
+| **Data** | SQL execution, PostgreSQL queries, caching, dashboard persistence schema | `dashboard/lib/db.ts`, `etl/schema/init.sql` |
+| **Integration** | Dockerfile, docker-compose service, CLI commands, deployment | `dashboard/Dockerfile`, `docker-compose.yml`, `cli/` |
