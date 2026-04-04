@@ -12,70 +12,73 @@ import { z } from "zod";
 
 const KpiFormatSchema = z.enum(["currency", "number", "percent"]);
 
+/** Optional string that must be non-empty when provided. */
+const optStr = z.string().min(1).optional();
+
 const KpiItemSchema = z.object({
   label: z.string().min(1),
   sql: z.string().min(1),
   format: KpiFormatSchema,
-  prefix: z.string().optional(),
-});
+  prefix: optStr,
+}).strict();
 
 const KpiRowWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("kpi_row"),
   items: z.array(KpiItemSchema).min(1),
-});
+}).strict();
 
 const BarChartWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("bar_chart"),
   title: z.string().min(1),
   sql: z.string().min(1),
   x: z.string().min(1),
   y: z.string().min(1),
-});
+}).strict();
 
 const LineChartWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("line_chart"),
   title: z.string().min(1),
   sql: z.string().min(1),
-  x: z.string().optional(),
-  y: z.string().optional(),
-});
+  x: optStr,
+  y: optStr,
+}).strict();
 
 const AreaChartWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("area_chart"),
   title: z.string().min(1),
   sql: z.string().min(1),
-  x: z.string().optional(),
-  y: z.string().optional(),
-});
+  x: optStr,
+  y: optStr,
+}).strict();
 
 const DonutChartWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("donut_chart"),
   title: z.string().min(1),
   sql: z.string().min(1),
-  x: z.string().optional(),
-  y: z.string().optional(),
-});
+  x: optStr,
+  y: optStr,
+}).strict();
 
 const TableWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("table"),
   title: z.string().min(1),
   sql: z.string().min(1),
-});
+}).strict();
 
 const NumberWidgetSchema = z.object({
-  id: z.string().optional(),
+  id: optStr,
   type: z.literal("number"),
   title: z.string().min(1),
   sql: z.string().min(1),
   format: KpiFormatSchema,
-  prefix: z.string().optional(),
-});
+  prefix: optStr,
+}).strict();
 
 export const WidgetSchema = z.discriminatedUnion("type", [
   KpiRowWidgetSchema,
@@ -89,9 +92,9 @@ export const WidgetSchema = z.discriminatedUnion("type", [
 
 export const DashboardSpecSchema = z.object({
   title: z.string().min(1),
-  description: z.string().optional(),
+  description: z.string().min(1).optional(),
   widgets: z.array(WidgetSchema).min(1),
-});
+}).strict();
 
 // ---------------------------------------------------------------------------
 // TypeScript types (inferred from Zod — single source of truth)

@@ -237,6 +237,54 @@ describe("validateSpec — invalid inputs", () => {
     };
     expect(() => validateSpec(spec)).toThrow(ZodError);
   });
+
+  it("rejects empty string for optional id", () => {
+    const spec = {
+      title: "Bad",
+      widgets: [{ id: "", type: "table", title: "T", sql: "SELECT 1" }],
+    };
+    expect(() => validateSpec(spec)).toThrow(ZodError);
+  });
+
+  it("rejects empty string for optional prefix", () => {
+    const spec = {
+      title: "Bad",
+      widgets: [
+        {
+          type: "number",
+          title: "N",
+          sql: "SELECT 1",
+          format: "currency",
+          prefix: "",
+        },
+      ],
+    };
+    expect(() => validateSpec(spec)).toThrow(ZodError);
+  });
+
+  it("rejects unknown properties on widgets (strict mode)", () => {
+    const spec = {
+      title: "Bad",
+      widgets: [
+        {
+          type: "table",
+          title: "T",
+          sql: "SELECT 1",
+          extraField: "unexpected",
+        },
+      ],
+    };
+    expect(() => validateSpec(spec)).toThrow(ZodError);
+  });
+
+  it("rejects unknown properties on the dashboard spec (strict mode)", () => {
+    const spec = {
+      title: "Bad",
+      widgets: [{ type: "table", title: "T", sql: "SELECT 1" }],
+      theme: "dark",
+    };
+    expect(() => validateSpec(spec)).toThrow(ZodError);
+  });
 });
 
 // ---------------------------------------------------------------------------
