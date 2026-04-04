@@ -17,19 +17,14 @@ vi.mock("openai", () => {
 import { generateDashboard, modifyDashboard, resetClient } from "../llm";
 
 describe("llm", () => {
-  const originalEnv = process.env;
-
   beforeEach(() => {
-    process.env = {
-      ...originalEnv,
-      OPENROUTER_API_KEY: "test-key-123",
-    };
+    vi.stubEnv("OPENROUTER_API_KEY", "test-key-123");
     resetClient();
     mockCreate.mockReset();
   });
 
   afterEach(() => {
-    process.env = originalEnv;
+    vi.unstubAllEnvs();
     resetClient();
   });
 
@@ -109,7 +104,7 @@ describe("llm", () => {
     });
 
     it("uses custom model from DASHBOARD_LLM_MODEL", async () => {
-      process.env.DASHBOARD_LLM_MODEL = "anthropic/claude-opus-4";
+      vi.stubEnv("DASHBOARD_LLM_MODEL", "anthropic/claude-opus-4");
       resetClient();
       mockCreate.mockResolvedValue({
         choices: [{ message: { content: "{}" } }],
