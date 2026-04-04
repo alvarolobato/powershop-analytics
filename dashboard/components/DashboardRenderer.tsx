@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
 import {
@@ -18,6 +18,9 @@ import {
 // ---------------------------------------------------------------------------
 
 export interface DashboardRendererProps {
+  /** The dashboard specification to render. Callers may pass a new object
+   *  on each render -- the component uses a stable JSON key internally to
+   *  avoid unnecessary refetches. */
   spec: DashboardSpec;
 }
 
@@ -79,10 +82,13 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
     new Map()
   );
   const abortRef = useRef<AbortController | null>(null);
-  // Track the spec that widgetStates corresponds to, so we show skeletons
+  // Stable key derived from spec content (not referential identity) so
+  // parent re-renders that recreate the same spec object don't trigger refetches.
+  const specKey = useMemo(() => JSON.stringify(spec), [spec]);
+  // Track the specKey that widgetStates corresponds to, so we show skeletons
   // (not stale data) when spec changes before the effect runs.
-  const renderedSpecRef = useRef<DashboardSpec>(spec);
-  const specChanged = renderedSpecRef.current !== spec;
+  const renderedKeyRef = useRef<string>(specKey);
+  const specChanged = renderedKeyRef.current !== specKey;
 
   const fetchAll = useCallback(async (widgets: Widget[]) => {
     // Abort any in-flight requests from a previous spec
@@ -145,14 +151,14 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
   }, []);
 
   useEffect(() => {
-    renderedSpecRef.current = spec;
+    renderedKeyRef.current = specKey;
     if (spec.widgets.length > 0) {
       fetchAll(spec.widgets);
     }
     return () => {
       abortRef.current?.abort();
     };
-  }, [spec, fetchAll]);
+  }, [specKey, spec.widgets, fetchAll]);
 
   return (
     <div>
@@ -186,6 +192,9 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
                 <div className="rounded-lg border border-red-300 bg-red-50 p-4">
                   <p className="text-sm font-medium text-red-800">
                     Error en widget
+                    {widget.type !== "kpi_row" && "title" in widget
+                      ? `: ${widget.title}`
+                      : ""}
                   </p>
                   <p className="mt-1 text-sm text-red-600">{state.error}</p>
                 </div>

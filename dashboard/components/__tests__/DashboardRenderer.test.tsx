@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import "../widgets/__tests__/setup";
 import { DashboardRenderer } from "../DashboardRenderer";
@@ -119,14 +119,19 @@ const multiWidgetSpec: DashboardSpec = {
 
 beforeEach(() => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("DashboardRenderer", () => {
   it("renders title and description", async () => {
-    globalThis.fetch = mockFetchSuccess({
+    vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["tienda", "total"],
       rows: [["Madrid", 100]],
-    });
+    }));
 
     render(<DashboardRenderer spec={barSpec} />);
 
@@ -137,10 +142,10 @@ describe("DashboardRenderer", () => {
   });
 
   it("renders title without description when omitted", async () => {
-    globalThis.fetch = mockFetchSuccess({
+    vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["value"],
       rows: [[42]],
-    });
+    }));
 
     render(<DashboardRenderer spec={kpiSpec} />);
 
@@ -149,7 +154,7 @@ describe("DashboardRenderer", () => {
 
   it("shows loading skeleton initially", () => {
     // Make fetch hang indefinitely so we stay in loading state
-    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
 
     render(<DashboardRenderer spec={barSpec} />);
 
@@ -157,10 +162,10 @@ describe("DashboardRenderer", () => {
   });
 
   it("renders correct widget component for bar_chart", async () => {
-    globalThis.fetch = mockFetchSuccess({
+    vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["tienda", "total"],
       rows: [["Madrid", 100]],
-    });
+    }));
 
     render(<DashboardRenderer spec={barSpec} />);
 
@@ -171,7 +176,7 @@ describe("DashboardRenderer", () => {
 
   it("renders kpi_row with parallel fetches per item", async () => {
     let callCount = 0;
-    globalThis.fetch = vi.fn().mockImplementation(() => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
       callCount++;
       return Promise.resolve({
         ok: true,
@@ -181,7 +186,7 @@ describe("DashboardRenderer", () => {
             rows: [[callCount === 1 ? 5000 : 123]],
           }),
       } as unknown as Response);
-    });
+    }));
 
     render(<DashboardRenderer spec={kpiSpec} />);
 
@@ -191,13 +196,13 @@ describe("DashboardRenderer", () => {
     });
 
     // Should have called fetch for each KPI item
-    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it("shows error message on query failure without breaking other widgets", async () => {
     // First call fails, second succeeds
     let callIdx = 0;
-    globalThis.fetch = vi.fn().mockImplementation(() => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => {
       callIdx++;
       if (callIdx === 1) {
         return Promise.resolve({
@@ -214,7 +219,7 @@ describe("DashboardRenderer", () => {
             rows: [["A", 1]],
           }),
       } as unknown as Response);
-    });
+    }));
 
     const twoWidgetSpec: DashboardSpec = {
       title: "Mixed",
@@ -238,8 +243,8 @@ describe("DashboardRenderer", () => {
     render(<DashboardRenderer spec={twoWidgetSpec} />);
 
     await waitFor(() => {
-      // Error widget shows error message
-      expect(screen.getByText("Error en widget")).toBeInTheDocument();
+      // Error widget shows error message with widget title
+      expect(screen.getByText("Error en widget: Broken")).toBeInTheDocument();
       expect(screen.getByText("Query timeout")).toBeInTheDocument();
       // Working widget still renders
       expect(screen.getByText("Working")).toBeInTheDocument();
@@ -262,20 +267,20 @@ describe("DashboardRenderer", () => {
     const hackedSpec = { ...emptySpec, widgets: [] } as unknown as DashboardSpec;
 
     // Should not call fetch at all
-    globalThis.fetch = vi.fn();
+    vi.stubGlobal("fetch", vi.fn());
 
     render(<DashboardRenderer spec={hackedSpec} />);
 
     expect(screen.getByText("Vacio")).toBeInTheDocument();
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("widget-skeleton")).not.toBeInTheDocument();
   });
 
   it("renders all widget types correctly", async () => {
-    globalThis.fetch = mockFetchSuccess({
+    vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["x", "y"],
       rows: [["A", 42]],
-    });
+    }));
 
     render(<DashboardRenderer spec={multiWidgetSpec} />);
 
@@ -290,16 +295,20 @@ describe("DashboardRenderer", () => {
   });
 
   it("refetches when spec changes", async () => {
-    globalThis.fetch = mockFetchSuccess({
+    const fetchMock = mockFetchSuccess({
       columns: ["tienda", "total"],
       rows: [["Madrid", 100]],
     });
+    vi.stubGlobal("fetch", fetchMock);
 
     const { rerender } = render(<DashboardRenderer spec={barSpec} />);
 
     await waitFor(() => {
       expect(screen.getByText("Ventas por Tienda")).toBeInTheDocument();
     });
+
+    // Record call count after first spec's fetches
+    const callsAfterFirst = fetchMock.mock.calls.length;
 
     const newSpec: DashboardSpec = {
       title: "Nuevo Panel",
@@ -319,5 +328,13 @@ describe("DashboardRenderer", () => {
       expect(screen.getByText("Nuevo Panel")).toBeInTheDocument();
       expect(screen.getByText("Nuevo Numero")).toBeInTheDocument();
     });
+
+    // Verify additional fetch calls were made for the new spec
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    // The last call should contain the new widget's SQL
+    const lastCallBody = JSON.parse(
+      fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1].body
+    );
+    expect(lastCallBody.sql).toBe("SELECT 99");
   });
 });
