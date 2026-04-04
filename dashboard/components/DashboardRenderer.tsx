@@ -65,7 +65,7 @@ async function fetchWidgetData(
         message = "";
       }
     }
-    throw new Error(message || "Failed to fetch widget data");
+    throw new Error(message || "Error al obtener datos del widget");
   }
   return res.json();
 }
@@ -79,6 +79,10 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
     new Map()
   );
   const abortRef = useRef<AbortController | null>(null);
+  // Track the spec that widgetStates corresponds to, so we show skeletons
+  // (not stale data) when spec changes before the effect runs.
+  const renderedSpecRef = useRef<DashboardSpec>(spec);
+  const specChanged = renderedSpecRef.current !== spec;
 
   const fetchAll = useCallback(async (widgets: Widget[]) => {
     // Abort any in-flight requests from a previous spec
@@ -141,6 +145,7 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
   }, []);
 
   useEffect(() => {
+    renderedSpecRef.current = spec;
     if (spec.widgets.length > 0) {
       fetchAll(spec.widgets);
     }
@@ -162,7 +167,9 @@ export function DashboardRenderer({ spec }: DashboardRendererProps) {
       {/* Widget grid */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         {spec.widgets.map((widget, idx) => {
-          const state = widgetStates.get(idx);
+          // When spec has changed but the effect hasn't run yet,
+          // treat all widgets as loading to avoid stale data flash.
+          const state = specChanged ? undefined : widgetStates.get(idx);
           const isFullWidth =
             widget.type === "kpi_row" || widget.type === "table";
 

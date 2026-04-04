@@ -16,14 +16,6 @@ function mockFetchSuccess(data: Record<string, unknown>) {
   } as unknown as Response);
 }
 
-function mockFetchFailure(errorMessage: string, status = 500) {
-  return vi.fn().mockResolvedValue({
-    ok: false,
-    status,
-    json: () => Promise.resolve({ error: errorMessage }),
-  } as unknown as Response);
-}
-
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
