@@ -231,6 +231,7 @@ export default function ChatSidebar({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={loading}
+            aria-label="Mensaje para modificar el dashboard"
             placeholder="Ej: Añade el ticket medio..."
             rows={2}
             className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
