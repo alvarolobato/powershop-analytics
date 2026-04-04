@@ -379,6 +379,27 @@ CREATE TABLE IF NOT EXISTS ps_facturas_compra (
 );
 
 -- ============================================================
+-- Dashboard App
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dashboards (
+    id           SERIAL       PRIMARY KEY,
+    name         TEXT         NOT NULL,
+    description  TEXT,
+    spec         JSONB        NOT NULL,
+    created_at   TIMESTAMPTZ  DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_versions (
+    id            SERIAL       PRIMARY KEY,
+    dashboard_id  INTEGER      NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+    spec          JSONB        NOT NULL,
+    prompt        TEXT,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
 -- ETL control
 -- ============================================================
 
@@ -424,6 +445,10 @@ CREATE INDEX IF NOT EXISTS idx_stock_codigo ON ps_stock_tienda(codigo);
 CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 
 -- Wholesale FK indexes
+-- Dashboard indexes
+CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
+CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
+
 CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
 CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);
 CREATE INDEX IF NOT EXISTS idx_glf_numfactura ON ps_gc_lin_facturas(num_factura);
@@ -524,3 +549,5 @@ ANALYZE ps_facturas;
 ANALYZE ps_albaranes;
 ANALYZE ps_facturas_compra;
 ANALYZE etl_watermarks;
+ANALYZE dashboards;
+ANALYZE dashboard_versions;
