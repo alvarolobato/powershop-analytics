@@ -209,7 +209,7 @@ services:
   # Dashboard App — AI-generated dashboards (Next.js + Tremor, port 4000)
   # ---------------------------------------------------------------------------
   dashboard:
-    image: alvarolobato264/powershop-dashboard:latest
+    image: alvarolobato264/powershop-dashboard:${DASHBOARD_VERSION:-latest}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -226,3 +226,9 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
