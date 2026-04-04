@@ -56,7 +56,7 @@ export default function NewDashboard() {
       }
 
       const spec: DashboardSpec = await genRes.json();
-      const name = spec.title || "Dashboard sin titulo";
+      const name = spec.title || "Dashboard sin título";
       await saveAndRedirect(name, spec.description || null, spec);
     } catch (err) {
       setError(

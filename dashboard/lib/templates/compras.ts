@@ -1,14 +1,15 @@
 /**
  * Template: Responsable de Compras
  *
- * Purchasing overview: monthly totals, top suppliers, recent purchase lines.
+ * Purchasing overview: monthly totals, top suppliers, recent purchase orders,
+ * recent receptions, and purchase lines by store.
  */
 import type { DashboardSpec } from "@/lib/schema";
 
 export const name = "Responsable de Compras";
 
 export const description =
-  "Panel para el responsable de compras: total compras del mes, proveedores activos, top proveedores y ultimas lineas.";
+  "Panel para el responsable de compras: pedidos del mes, proveedores activos, top proveedores, ultimas recepciones y lineas por tienda.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Compras",
@@ -58,7 +59,7 @@ LIMIT 10`,
       y: "value",
     },
     {
-      id: "compras-ultimas-recepciones",
+      id: "compras-ultimos-pedidos",
       type: "table",
       title: "Ultimos Pedidos de Compra",
       sql: `SELECT c."reg_pedido" AS "Pedido",
@@ -72,6 +73,30 @@ JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = c."reg_pedido"
 GROUP BY c."reg_pedido", pr."nombre", c."fecha_creacion"
 ORDER BY c."fecha_creacion" DESC
 LIMIT 20`,
+    },
+    {
+      id: "compras-recepciones-recientes",
+      type: "table",
+      title: "Recepciones Recientes (ultimos 30 dias)",
+      sql: `SELECT a."reg_albaran" AS "Albaran",
+       a."fecha_creacion" AS "Fecha"
+FROM "public"."ps_albaranes" a
+WHERE a."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days'
+ORDER BY a."fecha_creacion" DESC
+LIMIT 20`,
+    },
+    {
+      id: "compras-tendencia-mensual",
+      type: "line_chart",
+      title: "Pedidos de Compra Mensuales (ultimos 12 meses)",
+      sql: `SELECT DATE_TRUNC('month', c."fecha_creacion") AS x,
+       COUNT(DISTINCT c."reg_pedido") AS y
+FROM "public"."ps_compras" c
+WHERE c."fecha_creacion" >= CURRENT_DATE - INTERVAL '12 months'
+GROUP BY DATE_TRUNC('month', c."fecha_creacion")
+ORDER BY x`,
+      x: "x",
+      y: "y",
     },
   ],
 };
