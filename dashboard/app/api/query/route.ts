@@ -85,14 +85,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // For known PG syntax/relation errors, return 400 with the message.
+    // For known client-caused PG errors, return 400 with the message.
+    // Class 22 = data_exception, Class 42 = syntax/access errors (excl. permission).
     // For truly unexpected errors, return 500 without leaking internals.
     const pgErr = err as { code?: string; message?: string };
+    const code = pgErr.code || "";
+    const isPermissionError = code === "42501"; // insufficient_privilege
     const isClientError =
-      pgErr.code === "42P01" || // undefined_table
-      pgErr.code === "42601" || // syntax_error
-      pgErr.code === "42703" || // undefined_column
-      pgErr.code === "42P02";   // undefined_parameter
+      !isPermissionError &&
+      (code.startsWith("22") || code.startsWith("42"));
 
     if (isClientError) {
       return NextResponse.json(

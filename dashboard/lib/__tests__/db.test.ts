@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateReadOnly, SqlValidationError } from "../db";
+import { validateReadOnly, SqlValidationError, stripLiteralsAndComments } from "../db";
 
 describe("validateReadOnly", () => {
   // ─── Allowed statements ─────────────────────────────────────────────────
@@ -214,5 +214,61 @@ describe("validateReadOnly", () => {
         "WITH src AS (SELECT 1 AS id) MERGE INTO ps_ventas USING src ON (ps_ventas.id = src.id)"
       )
     ).toThrow(SqlValidationError);
+  });
+
+  // ─── String literals and comments (should NOT cause false positives) ────
+
+  it("allows SELECT with 'DELETE' inside a string literal", () => {
+    expect(() =>
+      validateReadOnly("SELECT 'DELETE' AS action FROM ps_ventas")
+    ).not.toThrow();
+  });
+
+  it("allows SELECT with 'UPDATE' inside a string literal", () => {
+    expect(() =>
+      validateReadOnly("SELECT 'UPDATE' AS op FROM ps_ventas")
+    ).not.toThrow();
+  });
+
+  it("allows SELECT with write keyword in a block comment", () => {
+    expect(() =>
+      validateReadOnly("SELECT /* DROP TABLE */ 1 FROM ps_ventas")
+    ).not.toThrow();
+  });
+
+  it("allows SELECT with write keyword in a line comment", () => {
+    expect(() =>
+      validateReadOnly("SELECT 1 FROM ps_ventas -- DELETE this later")
+    ).not.toThrow();
+  });
+
+  it("allows SELECT with quoted identifier containing write keyword", () => {
+    expect(() =>
+      validateReadOnly('SELECT "update" FROM ps_ventas')
+    ).not.toThrow();
+  });
+});
+
+describe("stripLiteralsAndComments", () => {
+  it("strips single-quoted strings", () => {
+    expect(stripLiteralsAndComments("SELECT 'DELETE' AS x")).toBe(
+      "SELECT '' AS x"
+    );
+  });
+
+  it("strips block comments", () => {
+    expect(stripLiteralsAndComments("SELECT /* DROP */ 1")).toBe(
+      "SELECT   1"
+    );
+  });
+
+  it("strips line comments", () => {
+    expect(stripLiteralsAndComments("SELECT 1 -- DROP")).toBe("SELECT 1 ");
+  });
+
+  it("strips double-quoted identifiers", () => {
+    expect(stripLiteralsAndComments('SELECT "update" FROM t')).toBe(
+      'SELECT "" FROM t'
+    );
   });
 });

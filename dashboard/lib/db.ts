@@ -25,9 +25,29 @@ const WRITE_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE|CREATE|MERGE
 
 /**
  * SELECT ... INTO creates a new table — must be rejected.
- * Matches SELECT ... INTO (but not INTO within a subquery alias).
+ * Matches SELECT ... INTO <word> pattern.
  */
 const SELECT_INTO = /\bSELECT\b[\s\S]*?\bINTO\s+\w/i;
+
+/**
+ * Strip string literals, quoted identifiers, and comments from SQL
+ * so that keyword scanning only examines real SQL tokens.
+ *
+ * Replaces:
+ * - Single-quoted strings: 'DELETE' → ''
+ * - Dollar-quoted strings: $$DELETE$$ → ''
+ * - Double-quoted identifiers: "update" → ""
+ * - Block comments: /* UPDATE *​/ → ' '
+ * - Line comments: -- DROP TABLE → ''
+ */
+export function stripLiteralsAndComments(sql: string): string {
+  return sql
+    .replace(/--[^\n]*/g, "") // line comments
+    .replace(/\/\*[\s\S]*?\*\//g, " ") // block comments
+    .replace(/'(?:[^']|'')*'/g, "''") // single-quoted strings
+    .replace(/\$\$[\s\S]*?\$\$/g, "''") // dollar-quoted strings
+    .replace(/"(?:[^"]|"")*"/g, '""'); // double-quoted identifiers
+}
 
 /**
  * Validate that a SQL string is read-only.
@@ -35,9 +55,8 @@ const SELECT_INTO = /\bSELECT\b[\s\S]*?\bINTO\s+\w/i;
  * Applies multiple layers of validation:
  * 1. Must start with SELECT, WITH, or EXPLAIN (allowlist)
  * 2. Must not contain semicolons (prevents multi-statement injection)
- * 3. Must not contain write keywords anywhere (prevents data-modifying
- *    CTEs like `WITH x AS (DELETE ... RETURNING ...) SELECT ...` and
- *    `EXPLAIN ANALYZE INSERT ...`)
+ * 3. Must not contain write keywords in SQL tokens (strips literals/comments
+ *    first to avoid false positives from strings like 'DELETE')
  * 4. Must not use SELECT ... INTO (creates new tables)
  *
  * The database role should also enforce read-only access as defense in depth.
@@ -66,17 +85,19 @@ export function validateReadOnly(sql: string): void {
     );
   }
 
-  // 3. Reject write keywords anywhere in the query (catches data-modifying
-  //    CTEs and EXPLAIN ANALYZE <write>)
-  if (WRITE_KEYWORDS.test(trimmed)) {
+  // Strip literals, quoted identifiers, and comments before keyword scanning
+  const cleaned = stripLiteralsAndComments(trimmed);
+
+  // 3. Reject write keywords in actual SQL tokens (not inside strings/comments)
+  if (WRITE_KEYWORDS.test(cleaned)) {
     throw new SqlValidationError(
       "SQL contains a write keyword (INSERT, UPDATE, DELETE, DROP, ALTER, " +
-        "TRUNCATE, CREATE). Only pure read operations are allowed."
+        "TRUNCATE, CREATE, MERGE). Only pure read operations are allowed."
     );
   }
 
   // 4. Reject SELECT ... INTO (creates tables)
-  if (SELECT_INTO.test(trimmed)) {
+  if (SELECT_INTO.test(cleaned)) {
     throw new SqlValidationError(
       "SELECT INTO is not allowed — it creates a new table."
     );
@@ -109,6 +130,7 @@ export class ConnectionError extends Error {
 // ─── Pool configuration ─────────────────────────────────────────────────────
 
 const QUERY_TIMEOUT_MS = 30_000;
+const CONNECTION_TIMEOUT_MS = 5_000;
 
 function getPoolConfig(): PoolConfig {
   // POSTGRES_DSN takes priority (single connection string).
@@ -119,6 +141,7 @@ function getPoolConfig(): PoolConfig {
       connectionString: dsn,
       max: 10,
       statement_timeout: QUERY_TIMEOUT_MS,
+      connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
     };
   }
 
@@ -130,6 +153,7 @@ function getPoolConfig(): PoolConfig {
     database: process.env.POSTGRES_DB || "powershop",
     max: 10,
     statement_timeout: QUERY_TIMEOUT_MS,
+    connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
   };
 }
 
@@ -174,10 +198,13 @@ export async function query(sql: string): Promise<QueryResult> {
   const pool = getPool();
 
   try {
-    const result = await pool.query(sql);
+    const result = await pool.query({
+      text: sql,
+      rowMode: "array",
+    });
 
     const columns = result.fields.map((f) => f.name);
-    const rows = result.rows.map((row) => columns.map((col) => row[col]));
+    const rows = result.rows as unknown[][];
 
     return { columns, rows };
   } catch (err: unknown) {

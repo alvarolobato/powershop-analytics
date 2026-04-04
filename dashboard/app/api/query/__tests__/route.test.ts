@@ -38,8 +38,8 @@ describe("POST /api/query", () => {
     mockQuery.mockResolvedValue({
       fields: [{ name: "id" }, { name: "total" }],
       rows: [
-        { id: 1, total: 100 },
-        { id: 2, total: 200 },
+        [1, 100],
+        [2, 200],
       ],
     });
 
@@ -115,7 +115,7 @@ describe("POST /api/query", () => {
   it("allows SELECT updated_at (column name, not statement)", async () => {
     mockQuery.mockResolvedValue({
       fields: [{ name: "updated_at" }],
-      rows: [{ updated_at: "2026-01-01" }],
+      rows: [["2026-01-01"]],
     });
 
     const res = await POST(
