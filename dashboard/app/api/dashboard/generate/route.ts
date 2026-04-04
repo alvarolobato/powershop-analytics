@@ -73,15 +73,20 @@ export async function POST(request: Request): Promise<NextResponse> {
     rawResponse = await generateDashboard(prompt);
   } catch (err: unknown) {
     const message =
-      err instanceof Error ? err.message : "Unknown LLM error";
+      err instanceof Error ? err.message : "";
+    console.error("LLM generate error:", message);
 
-    // Surface rate-limit and timeout errors with context
-    const status =
-      message.includes("rate limit") || message.includes("429") ? 429 : 500;
+    // Surface rate-limit errors with a specific message
+    const isRateLimit =
+      message.includes("rate limit") || message.includes("429");
 
     return NextResponse.json(
-      { error: `Error del modelo de IA: ${message}` },
-      { status },
+      {
+        error: isRateLimit
+          ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+          : "Error al generar el dashboard. Inténtalo de nuevo.",
+      },
+      { status: isRateLimit ? 429 : 500 },
     );
   }
 

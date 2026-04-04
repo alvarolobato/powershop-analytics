@@ -20,13 +20,13 @@ function Sidebar() {
             href="/"
             className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
           >
-            Dashboards
+            Paneles
           </Link>
           <Link
             href="/dashboard/new"
             className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
           >
-            + Nuevo Dashboard
+            + Nuevo panel
           </Link>
         </nav>
       </aside>
@@ -39,7 +39,7 @@ function Sidebar() {
             href="/"
             className="text-sm font-medium text-gray-700 hover:text-gray-900"
           >
-            Dashboards
+            Paneles
           </Link>
           <Link
             href="/dashboard/new"

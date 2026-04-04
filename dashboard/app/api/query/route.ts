@@ -97,7 +97,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (isClientError) {
       return NextResponse.json(
-        { error: `Error en la consulta: ${pgErr.message}` },
+        { error: "Error en la consulta SQL. Verifica la sintaxis." },
         { status: 400 }
       );
     }

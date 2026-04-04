@@ -206,7 +206,7 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(400);
 
     const json = await res.json();
-    expect(json.error).toContain("nonexistent");
+    expect(json.error).toContain("consulta SQL");
   });
 
   it("returns 400 on syntax error (PG 42601)", async () => {
