@@ -1,3 +1,21 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Print-friendly styles: hide controls, show only dashboard content */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Remove margin adjustments from chat sidebar */
+  .transition-all {
+    margin-right: 0 !important;
+  }
+}

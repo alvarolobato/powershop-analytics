@@ -20,6 +20,35 @@ interface DashboardRecord {
 }
 
 // ---------------------------------------------------------------------------
+// Auto-refresh intervals (in minutes)
+// ---------------------------------------------------------------------------
+
+const REFRESH_INTERVALS = [5, 15, 30] as const;
+type RefreshInterval = (typeof REFRESH_INTERVALS)[number];
+
+// ---------------------------------------------------------------------------
+// Helper: format widget data as text for clipboard copy
+// ---------------------------------------------------------------------------
+
+function formatWidgetDataAsText(spec: DashboardSpec): string {
+  const lines: string[] = [];
+  lines.push(spec.title);
+  if (spec.description) lines.push(spec.description);
+  lines.push("---");
+
+  for (const widget of spec.widgets) {
+    if (widget.type === "kpi_row") {
+      for (const item of widget.items) {
+        lines.push(`${item.label}: [SQL: ${item.sql}]`);
+      }
+    } else {
+      lines.push(`${widget.title}: [SQL: ${widget.sql}]`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -40,6 +69,20 @@ export default function ViewDashboard() {
   const saveCounter = useRef(0);
   const latestSpecRef = useRef<DashboardSpec | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-refresh state
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(15);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(0);
+  const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Export dropdown state
+  const [exportOpen, setExportOpen] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
+  const exportRef = useRef<HTMLDivElement>(null);
 
   // Load dashboard
   const fetchDashboard = useCallback(async () => {
@@ -81,6 +124,88 @@ export default function ViewDashboard() {
       nameInputRef.current?.select();
     }
   }, [editingName]);
+
+  // -------------------------------------------------------------------------
+  // Auto-refresh logic
+  // -------------------------------------------------------------------------
+
+  const triggerRefresh = useCallback(() => {
+    setRefreshKey((k) => k + 1);
+    setLastRefreshed(new Date());
+  }, []);
+
+  // Manage auto-refresh interval
+  useEffect(() => {
+    // Clear existing intervals
+    if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current);
+      autoRefreshRef.current = null;
+    }
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+
+    if (autoRefresh) {
+      const intervalMs = refreshInterval * 60 * 1000;
+      setSecondsUntilRefresh(refreshInterval * 60);
+
+      autoRefreshRef.current = setInterval(() => {
+        setRefreshKey((k) => k + 1);
+        setLastRefreshed(new Date());
+        setSecondsUntilRefresh(refreshInterval * 60);
+      }, intervalMs);
+
+      countdownRef.current = setInterval(() => {
+        setSecondsUntilRefresh((s) => Math.max(0, s - 1));
+      }, 1000);
+    }
+
+    return () => {
+      if (autoRefreshRef.current) clearInterval(autoRefreshRef.current);
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, [autoRefresh, refreshInterval]);
+
+  // -------------------------------------------------------------------------
+  // Export: close dropdown on outside click
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
+        setExportOpen(false);
+      }
+    }
+    if (exportOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [exportOpen]);
+
+  // -------------------------------------------------------------------------
+  // Export handlers
+  // -------------------------------------------------------------------------
+
+  const handleCopyData = useCallback(async () => {
+    if (!dashboard) return;
+    const text = formatWidgetDataAsText(dashboard.spec);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    } catch {
+      // Fallback: select-all-copy not supported in all contexts
+    }
+    setExportOpen(false);
+  }, [dashboard]);
+
+  const handlePrint = useCallback(() => {
+    setExportOpen(false);
+    window.print();
+  }, []);
 
   // Save spec (and optionally name)
   const saveSpec = useCallback(
@@ -174,6 +299,23 @@ export default function ViewDashboard() {
   }, [dashboard, saveSpec]);
 
   // -------------------------------------------------------------------------
+  // Format helpers
+  // -------------------------------------------------------------------------
+
+  function formatTime(date: Date): string {
+    return date.toLocaleTimeString("es-ES", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function formatCountdown(totalSeconds: number): string {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
+  }
+
+  // -------------------------------------------------------------------------
   // Loading state
   // -------------------------------------------------------------------------
 
@@ -241,7 +383,7 @@ export default function ViewDashboard() {
   return (
     <div className={`transition-all ${chatOpen ? "mr-[350px]" : ""}`}>
       {/* Top bar */}
-      <div className="mb-6 flex items-center justify-between">
+      <div className="no-print mb-6 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button
             onClick={() => router.push("/")}
@@ -278,6 +420,85 @@ export default function ViewDashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Last refreshed timestamp */}
+          <span className="text-xs text-gray-400" data-testid="last-refreshed">
+            {`\u00DAltima actualizaci\u00F3n: ${formatTime(lastRefreshed)}`}
+          </span>
+
+          {/* Auto-refresh countdown */}
+          {autoRefresh && (
+            <span className="text-xs text-blue-500" data-testid="countdown">
+              {formatCountdown(secondsUntilRefresh)}
+            </span>
+          )}
+
+          {/* Manual refresh button */}
+          <button
+            onClick={triggerRefresh}
+            className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            title="Actualizar datos"
+            aria-label="Actualizar"
+          >
+            Actualizar
+          </button>
+
+          {/* Auto-refresh toggle + interval selector */}
+          <div className="flex items-center gap-1">
+            <label className="flex items-center gap-1 text-xs text-gray-500 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoRefresh}
+                onChange={(e) => setAutoRefresh(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300"
+                data-testid="auto-refresh-toggle"
+              />
+              Auto
+            </label>
+            {autoRefresh && (
+              <select
+                value={refreshInterval}
+                onChange={(e) =>
+                  setRefreshInterval(Number(e.target.value) as RefreshInterval)
+                }
+                className="text-xs border border-gray-300 rounded px-1 py-0.5 text-gray-600"
+                data-testid="refresh-interval-select"
+              >
+                {REFRESH_INTERVALS.map((m) => (
+                  <option key={m} value={m}>
+                    {m} min
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
+          {/* Export dropdown */}
+          <div className="relative" ref={exportRef}>
+            <button
+              onClick={() => setExportOpen((prev) => !prev)}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+              aria-label="Exportar"
+            >
+              {copySuccess ? "Copiado!" : "Exportar"}
+            </button>
+            {exportOpen && (
+              <div className="absolute right-0 mt-1 w-48 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
+                <button
+                  onClick={handleCopyData}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-t-lg"
+                >
+                  Copiar datos
+                </button>
+                <button
+                  onClick={handlePrint}
+                  className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 rounded-b-lg"
+                >
+                  Imprimir / PDF
+                </button>
+              </div>
+            )}
+          </div>
+
           {saving && (
             <span className="text-xs text-gray-400">Guardando...</span>
           )}
@@ -301,7 +522,7 @@ export default function ViewDashboard() {
       </div>
 
       {/* Dashboard renderer */}
-      <DashboardRenderer spec={dashboard.spec} />
+      <DashboardRenderer spec={dashboard.spec} refreshKey={refreshKey} />
 
       {/* Chat sidebar */}
       <ChatSidebar

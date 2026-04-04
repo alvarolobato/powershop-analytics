@@ -294,6 +294,31 @@ describe("DashboardRenderer", () => {
     });
   });
 
+  it("refetches when refreshKey changes", async () => {
+    const fetchMock = mockFetchSuccess({
+      columns: ["tienda", "total"],
+      rows: [["Madrid", 100]],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { rerender } = render(
+      <DashboardRenderer spec={barSpec} refreshKey={0} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Ventas por Tienda")).toBeInTheDocument();
+    });
+
+    const callsAfterFirst = fetchMock.mock.calls.length;
+
+    // Increment refreshKey without changing spec
+    rerender(<DashboardRenderer spec={barSpec} refreshKey={1} />);
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    });
+  });
+
   it("refetches when spec changes", async () => {
     const fetchMock = mockFetchSuccess({
       columns: ["tienda", "total"],
