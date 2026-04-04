@@ -1,0 +1,984 @@
+/**
+ * Business knowledge for the dashboard LLM prompt.
+ *
+ * Extracted from scripts/wren-push-metadata.py — the same 40+ instructions
+ * and 52 SQL pairs that feed WrenAI's RAG pipeline.  Kept here as typed
+ * TypeScript constants so the dashboard prompt builder can consume them
+ * without any Python dependency.
+ */
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export interface Instruction {
+  instruction: string;
+  questions: string[];
+}
+
+export interface SqlPair {
+  question: string;
+  sql: string;
+}
+
+// ─── Instructions (business rules the LLM must follow) ───────────────────────
+
+export const INSTRUCTIONS: Instruction[] = [
+  // ── Revenue / Sales rules ──────────────────────────────────────────
+  {
+    instruction:
+      "Siempre usar el campo total_si (sin IVA) para análisis económico de ventas retail. NUNCA usar el campo total que incluye IVA. El IVA varía por región (23% Portugal continental, 22% Madeira, 21% España) y distorsiona las comparaciones entre tiendas.",
+    questions: [
+      "¿Cuánto vendimos?",
+      "¿Cuáles son las ventas netas?",
+      "¿Cuál es la facturación?",
+      "¿Cuántos ingresos tuvimos este mes?",
+    ],
+  },
+  {
+    instruction:
+      "El campo fecha_creacion en Venta y LineaVenta es la fecha de la venta (tipo DATE, formato YYYY-MM-DD). Para filtrar por fecha usar comparaciones simples: fecha_creacion >= '2026-03-24' AND fecha_creacion < '2026-03-31'. NUNCA hacer CAST a TIMESTAMP WITH TIME ZONE — el campo ya es DATE. El campo fecha_documento está vacío (NULL) en todos los registros de Ventas — NUNCA usarlo para filtrar.",
+    questions: [
+      "¿Ventas de la semana pasada?",
+      "¿Ventas de hoy?",
+      "¿Ventas de este mes?",
+      "¿Cuánto vendimos en marzo?",
+    ],
+  },
+  {
+    instruction:
+      "El campo mes en LineaVenta es un entero con formato YYYYMM (ej: 202603 = marzo 2026). Usar para filtrado rápido por período en vez de funciones de fecha: WHERE mes BETWEEN 202601 AND 202612. Es el filtro más eficiente para consultas de ventas por período.",
+    questions: [
+      "¿Ventas del primer trimestre?",
+      "¿Ventas de enero a marzo?",
+      "¿Rendimiento del año 2025?",
+    ],
+  },
+  {
+    instruction:
+      "En la tabla Venta, el campo entrada indica si es venta (entrada=true) o devolución (entrada=false). Para calcular ventas netas siempre filtrar entrada=true y restar el importe de devoluciones. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.",
+    questions: [
+      "¿Cuántas devoluciones hubo?",
+      "¿Ventas netas sin devoluciones?",
+      "¿Cuánto se devolvió este mes?",
+      "¿Tasa de devolución?",
+    ],
+  },
+  {
+    instruction:
+      "Para excluir la tienda 99 (almacén central) del análisis retail, añadir WHERE tienda <> '99' en consultas de ventas por tienda. El almacén central no es una tienda física de venta al público. La tienda 97 es la tienda online con patrones diferentes.",
+    questions: [
+      "¿Ventas por tienda?",
+      "¿Qué tiendas venden más?",
+      "¿Rendimiento de tiendas retail?",
+      "¿Ranking de tiendas?",
+    ],
+  },
+  {
+    instruction:
+      "El ticket medio se calcula como: SUM(total_si) / COUNT(DISTINCT reg_ventas) de la tabla Venta. Usar siempre total_si (sin IVA). Filtrar entrada=true para excluir devoluciones del cálculo.",
+    questions: [
+      "¿Cuál es el ticket medio?",
+      "¿Cuánto gasta cada cliente de media?",
+      "¿Valor medio por transacción?",
+    ],
+  },
+  {
+    instruction:
+      "Las ventas YTD (año hasta la fecha) se calculan con: WHERE fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE) AND fecha_creacion <= CURRENT_DATE. Para comparar con el año anterior usar: WHERE fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' AND fecha_creacion <= CURRENT_DATE - INTERVAL '1 year'.",
+    questions: [
+      "¿Ventas acumuladas del año?",
+      "¿Comparativa año anterior?",
+      "¿Crecimiento YTD?",
+      "¿Ventas vs el año pasado?",
+    ],
+  },
+  {
+    instruction:
+      "La tendencia semanal se calcula iterando semanas hacia atrás desde hoy: WHERE fecha_creacion >= CURRENT_DATE - INTERVAL '7 days'. Para 12 semanas, usar rangos semanales. Excluir tienda 99 para análisis de retail. Usar total_si para importes.",
+    questions: [
+      "¿Tendencia de ventas semanal?",
+      "¿Últimas 12 semanas?",
+      "¿Evolución semanal de ventas?",
+    ],
+  },
+
+  // ── Wholesale rules ────────────────────────────────────────────────
+  {
+    instruction:
+      "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true.",
+    questions: [
+      "¿Cuánto facturamos en mayorista?",
+      "¿Cuál es la facturación B2B?",
+      "¿Ventas mayoristas del año?",
+      "¿Ingresos del canal wholesale?",
+    ],
+  },
+  {
+    instruction:
+      "El canal mayorista sigue un flujo de documentos: Pedido (ps_gc_pedidos) → Albarán/nota de entrega (ps_gc_albaranes) → Factura (ps_gc_facturas) → Cobro (tabla cobros_facturas). Para métricas financieras usar facturas. Para métricas logísticas/operativas usar albaranes. Los cobros son deferred (30/60/90 días después de la factura).",
+    questions: [
+      "¿Cuántos pedidos mayoristas?",
+      "¿Estado de cobros B2B?",
+      "¿Albaranes pendientes de facturar?",
+    ],
+  },
+  {
+    instruction:
+      "Los abonos mayoristas (ps_gc_albaranes con abono=true o ps_gc_facturas con abono=true) son notas de crédito por devoluciones. Para calcular facturación neta mayorista, excluirlos: WHERE abono = false.",
+    questions: [
+      "¿Devoluciones de clientes mayoristas?",
+      "¿Facturación neta mayorista?",
+      "¿Cuántos abonos mayoristas?",
+    ],
+  },
+  {
+    instruction:
+      "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto. Excluir abono=true.",
+    questions: [
+      "¿Facturación por comercial?",
+      "¿Qué comercial vende más?",
+      "¿Rendimiento de representantes de ventas?",
+    ],
+  },
+
+  // ── Stock rules ────────────────────────────────────────────────────
+  {
+    instruction:
+      "Stock total de un artículo = stock en almacén central (ps_stock_tienda WHERE tienda='99') + stock en tiendas físicas (ps_stock_tienda WHERE tienda<>'99'). Tienda código 99 = almacén central, código 97 = tienda online, el resto son tiendas físicas. La tabla ps_stock_tienda contiene AMBOS: central y tiendas.",
+    questions: [
+      "¿Cuánto stock tenemos?",
+      "¿Stock total de un artículo?",
+      "¿Qué stock hay en el almacén?",
+      "¿Inventario total?",
+    ],
+  },
+  {
+    instruction:
+      "El stock puede ser negativo en la base de datos. Causas: timing gaps (venta antes de reponer), modo offline del TPV, ajustes manuales. Para análisis de valoración, filtrar WHERE stock > 0 o usar GREATEST(stock, 0). Para análisis de incidencias, filtrar WHERE stock < 0.",
+    questions: [
+      "¿Artículos con stock negativo?",
+      "¿Problemas de inventario?",
+      "¿Valor del stock?",
+    ],
+  },
+  {
+    instruction:
+      "El valor del stock al coste se calcula como SUM(s.stock * p.precio_coste) del JOIN entre ps_stock_tienda y ps_articulos. precio_coste ya está sin IVA. Filtrar WHERE s.stock > 0 AND p.anulado = false para excluir negativos y artículos inactivos.",
+    questions: [
+      "¿Cuál es el valor del inventario?",
+      "¿Valor del stock al coste?",
+      "¿Inversión en stock?",
+    ],
+  },
+  {
+    instruction:
+      "Stock por talla se obtiene de ps_stock_tienda donde cada fila tiene (codigo, tienda, talla, stock). Para ver stock por talla de un artículo: SELECT talla, SUM(stock) FROM ps_stock_tienda WHERE codigo='X' GROUP BY talla. Las tallas son texto libre (ej: 'S', 'M', 'L', '38', '39', 'U').",
+    questions: [
+      "¿Stock por talla?",
+      "¿Qué tallas quedan?",
+      "¿Distribución de tallas en stock?",
+    ],
+  },
+  {
+    instruction:
+      "Dead stock (stock paralizado): artículos con stock alto pero sin ventas recientes. Identificar con: ps_stock_tienda con stock > X, cruzado con ps_lineas_ventas sin ventas en los últimos N meses. Stock de temporadas antiguas que no rota es el principal riesgo.",
+    questions: [
+      "¿Stock sin rotación?",
+      "¿Artículos encallados?",
+      "¿Dead stock?",
+      "¿Stock de temporadas pasadas?",
+    ],
+  },
+
+  // ── Customer rules ─────────────────────────────────────────────────
+  {
+    instruction:
+      "En la tabla Venta, num_cliente=0 indica venta anónima (cliente no identificado). Para análisis de clientes identificados, siempre filtrar num_cliente > 0. Para calcular % de ventas anónimas: COUNT(CASE WHEN num_cliente=0 THEN 1 END) / COUNT(*) * 100.",
+    questions: [
+      "¿Cuántos clientes únicos?",
+      "¿Clientes identificados vs anónimos?",
+      "¿Porcentaje de ventas anónimas?",
+    ],
+  },
+  {
+    instruction:
+      "Los clientes mayoristas tienen mayorista=true en ps_clientes. Los clientes retail tienen mayorista=false. Un mismo cliente puede aparecer en ambos canales. Para clientes activos retail: COUNT(DISTINCT num_cliente) FROM ps_ventas WHERE num_cliente > 0. Para activos mayoristas: COUNT(DISTINCT num_cliente) FROM ps_gc_albaranes.",
+    questions: [
+      "¿Cuántos clientes mayoristas?",
+      "¿Clientes activos retail?",
+      "¿Cuántos clientes B2B?",
+    ],
+  },
+  {
+    instruction:
+      "Los top clientes retail se obtienen de ps_ventas agrupando por num_cliente y sumando total_si, filtrando num_cliente > 0 y entrada=true. Para identificarlos hacer JOIN con ps_clientes. La frecuencia de compra se calcula como COUNT(DISTINCT reg_ventas) por cliente.",
+    questions: [
+      "¿Mejores clientes retail?",
+      "¿Top clientes por compras?",
+      "¿Clientes más fieles?",
+      "¿Frecuencia de compra?",
+    ],
+  },
+
+  // ── Payment rules ──────────────────────────────────────────────────
+  {
+    instruction:
+      "En pagos retail (ps_pagos_ventas), usar siempre importe_cob (importe cobrado) para análisis de revenue. NUNCA usar importe_ent (importe entregado/tendido) que representa el efectivo físico entregado por el cliente (puede incluir cambio). Para análisis de método de pago: campo forma o codigo_forma.",
+    questions: [
+      "¿Ingresos por método de pago?",
+      "¿Cuánto se cobró en efectivo?",
+      "¿Desglose de formas de pago?",
+    ],
+  },
+  {
+    instruction:
+      "Para efectivo vs tarjeta: codigo_forma='01' (o similar) suele ser efectivo/metalico. Para desglose exacto JOIN con la tabla de formas de pago. Un ticket puede tener múltiples filas en ps_pagos_ventas (pagos divididos). SUM(importe_cob) por num_ventas = Venta.total.",
+    questions: [
+      "¿Efectivo vs tarjeta?",
+      "¿Mix de medios de pago?",
+      "¿Cuánto se pagó con tarjeta?",
+    ],
+  },
+
+  // ── Margin rules ───────────────────────────────────────────────────
+  {
+    instruction:
+      "Margen bruto retail = (total_si - total_coste_si) / total_si * 100. Campos en ps_lineas_ventas: total_si = ingreso sin IVA, total_coste_si = coste sin IVA. Para margen por artículo: GROUP BY codigo. Para margen por familia: JOIN con ps_articulos y ps_familias.",
+    questions: [
+      "¿Margen bruto retail?",
+      "¿Rentabilidad por familia?",
+      "¿Margen por artículo?",
+      "¿Qué departamento tiene mejor margen?",
+    ],
+  },
+  {
+    instruction:
+      "Para margen mayorista, usar ps_gc_lin_facturas: margen = (total - total_coste) / total * 100. El campo total en líneas de facturas mayoristas es el ingreso, total_coste es el coste. Para resumen por cliente o comercial hacer JOIN con ps_gc_facturas.",
+    questions: [
+      "¿Margen mayorista?",
+      "¿Rentabilidad canal B2B?",
+      "¿Margen por comercial?",
+    ],
+  },
+  {
+    instruction:
+      "Productos con bajo margen (< 30%): (precio_coste / precio1) > 0.7 en ps_articulos, donde precio1 es PVP con IVA. Para un cálculo más preciso usar el margen realizado de ventas: (total_si - total_coste_si) / total_si en ps_lineas_ventas. Excluir artículos con anulado=true.",
+    questions: [
+      "¿Productos con bajo margen?",
+      "¿Artículos poco rentables?",
+      "¿Qué artículos vender menos?",
+    ],
+  },
+
+  // ── Product rules ──────────────────────────────────────────────────
+  {
+    instruction:
+      "El identificador de artículo visible para el usuario es la Referencia (campo ccrefejofacm en ps_articulos, mostrar como 'Referencia'). El campo 'codigo' es un código interno. Siempre incluir la Referencia y Descripción del artículo en los resultados. En ps_lineas_ventas el campo codigo es el código interno — hacer JOIN con ps_articulos para obtener la Referencia.",
+    questions: [
+      "¿Qué artículos vendimos?",
+      "¿Cuáles son los productos más vendidos?",
+      "¿Top artículos?",
+      "¿Referencia de un producto?",
+    ],
+  },
+  {
+    instruction:
+      "Los artículos cuya Referencia (ccrefejofacm) empieza por 'MA' son materiales (bolsas, perchas, envoltorios) que NO tienen seguimiento de inventario. Estos artículos están EXCLUIDOS A NIVEL DE ETL — no existen en las tablas PostgreSQL (ps_articulos ni en las tablas de líneas). NO es necesario filtrar 'MA%' en ninguna consulta SQL sobre el mirror PostgreSQL. Los que empiezan por 'M' (sin 'MA') son artículos mayoristas.",
+    questions: [
+      "¿Cuántos artículos tenemos?",
+      "¿Catálogo activo de productos?",
+      "¿Artículos de venta?",
+    ],
+  },
+  {
+    instruction:
+      "Las ventas retail están en ps_ventas y ps_lineas_ventas. El canal mayorista B2B usa tablas separadas: ps_gc_albaranes, ps_gc_facturas y sus líneas. NUNCA mezclar datos retail y mayorista en la misma consulta a menos que se pida explícitamente una comparativa entre canales.",
+    questions: [
+      "¿Ventas totales?",
+      "¿Compara retail y mayorista?",
+      "¿Cuál canal vende más?",
+    ],
+  },
+  {
+    instruction:
+      "Los artículos con prefijo M en la Referencia (ccrefejofacm LIKE 'M%') son artículos mayoristas. Para análisis de ventas retail puro, excluir estos artículos: JOIN ps_articulos ON lv.codigo = p.codigo WHERE p.ccrefejofacm NOT LIKE 'M%'. Para análisis mayorista puro, usar las tablas GC (ps_gc_albaranes, etc.).",
+    questions: [
+      "¿Ventas retail puras?",
+      "¿Artículos exclusivamente retail?",
+      "¿Filtrar artículos mayoristas?",
+    ],
+  },
+  {
+    instruction:
+      "Los artículos inactivos tienen anulado=true en ps_articulos. Para análisis de catálogo activo: WHERE anulado = false. Para stock disponible: WHERE anulado = false AND stock > 0. Para historial de ventas incluir también artículos anulados (pueden tener ventas históricas).",
+    questions: [
+      "¿Artículos activos?",
+      "¿Cuántos productos en catálogo?",
+      "¿Artículos discontinuados?",
+    ],
+  },
+
+  // ── Date / PK rules ────────────────────────────────────────────────
+  {
+    instruction:
+      "PKs (claves primarias) en todas las tablas son NUMERIC(20,3) en PostgreSQL, no INTEGER ni FLOAT. Esto incluye reg_ventas, reg_lineas, reg_articulo, reg_cliente, etc. Son números con decimales heredados del sistema 4D (ej: 10028816.641). NO hacer aritmética con ellos — son identificadores opacos.",
+    questions: [
+      "¿Cómo hacer JOIN entre tablas?",
+      "¿Tipo de datos de IDs?",
+    ],
+  },
+  {
+    instruction:
+      "La tabla Tienda (ps_tiendas) solo tiene codigo, no tiene campo de nombre. Al consultar ventas por tienda, mostrar el código directamente. Códigos especiales: 99=almacén central (excluir de retail), 97=tienda online. El resto son códigos numéricos de tiendas físicas.",
+    questions: [
+      "¿Nombre de las tiendas?",
+      "¿Qué significa el código de tienda?",
+      "¿Tiendas físicas vs online?",
+    ],
+  },
+
+  // ── Data quality rules ─────────────────────────────────────────────
+  {
+    instruction:
+      "El campo fecha_documento en ps_ventas es NULL para todos los registros. NUNCA usarlo. Usar fecha_creacion para filtrar por fecha de venta. El campo fecha_modifica refleja la última modificación (incluye devoluciones y correcciones fiscales).",
+    questions: [
+      "¿Qué campo de fecha usar?",
+      "¿Por qué fecha_documento está vacío?",
+    ],
+  },
+  {
+    instruction:
+      "n_albaran y n_factura NO son únicos en las tablas mayoristas. Múltiples documentos pueden compartir el mismo número (series diferentes, correcciones). No asumir unicidad ni hacer filtros de unicidad basados solo en estos campos. En las tablas de líneas del mirror (ps_gc_lin_albarane, ps_gc_lin_facturas), los JOINs líneas→cabecera deben hacerse por n_albaran/num_factura (únicos campos disponibles), pero sin asumir que sean únicos. Para JOINs entre cabeceras, usar reg_albaran y reg_factura (PKs numéricas) donde estén disponibles.",
+    questions: [
+      "¿Por qué hay duplicados en n_albaran?",
+      "¿Cómo hacer JOIN entre albaranes y líneas?",
+    ],
+  },
+  {
+    instruction:
+      "Las temporadas y colecciones en ps_articulos usan el campo clave_temporada (texto, ej: 'PV26' = Primavera-Verano 2026). Para análisis de temporada, hacer JOIN con ps_temporadas usando num_temporada = reg_temporada. El campo temporada en albaranes mayoristas es texto libre.",
+    questions: [
+      "¿Ventas por temporada?",
+      "¿Stock de la temporada actual?",
+      "¿Artículos de la colección?",
+    ],
+  },
+
+  // ── Transfers / Stock movement rules ─────────────────────────────
+  {
+    instruction:
+      "Cada traspaso físico crea DOS filas en ps_traspasos: una de salida (entrada=false, tienda_salida rellena, unidades_s) y una de entrada (entrada=true, tienda_entrada rellena, unidades_e). Para analizar envíos usar entrada=false con unidades_s. Para analizar recepciones usar entrada=true con unidades_e. Ambas filas comparten el mismo número de documento.",
+    questions: [
+      "¿Traspasos enviados por tienda?",
+      "¿Cuántas unidades se traspasaron?",
+      "¿Movimientos de stock entre tiendas?",
+    ],
+  },
+  {
+    instruction:
+      "La fórmula VFP (Verificación Física de Producto) para calcular el stock esperado: Entradas = devoluciones_retail + albaranes_compra + traspasos_entrada. Salidas = ventas_retail + traspasos_salida + envíos_mayoristas. Stock_esperado = Stock_inicial + Entradas - Salidas. Si stock_esperado != stock_actual = merma o error de inventario.",
+    questions: [
+      "¿Cómo calcular el stock esperado?",
+      "¿Merma de inventario?",
+      "¿Movimiento neto de stock?",
+    ],
+  },
+
+  // ── Pricing rules ─────────────────────────────────────────────────
+  {
+    instruction:
+      "En ps_articulos, precio_coste es el coste base sin IVA. El PVP con IVA es precio1 (o precio2, precio3 para tarifas alternativas). Para calcular margen estimado al catálogo: (precio1/(1+p_iva/100) - precio_coste) / (precio1/(1+p_iva/100)) * 100. El margen realizado en ventas es más preciso: usar total_si y total_coste_si de ps_lineas_ventas.",
+    questions: [
+      "¿Margen estimado de un artículo?",
+      "¿PVP sin IVA?",
+      "¿Precio de coste de un artículo?",
+    ],
+  },
+  {
+    instruction:
+      "En ps_lineas_ventas, el precio de venta unitario sin IVA está en precio_neto_si. El descuento aplicado en el campo p_desc_g (porcentaje) o importe_descuento (importe). Para calcular el descuento medio: AVG(p_desc_g) FROM ps_lineas_ventas WHERE entrada=true. Un descuento alto indica outlet o rebajas.",
+    questions: [
+      "¿Descuento medio aplicado?",
+      "¿Precio de venta vs PVP?",
+      "¿Nivel de descuentos?",
+    ],
+  },
+
+  // ── Purchasing rules ──────────────────────────────────────────────
+  {
+    instruction:
+      "Las compras a proveedores están en ps_compras (pedidos) y ps_lineas_compras (líneas). Las recepciones de mercancía están en ps_albaranes. Las facturas de proveedor en ps_facturas_compra. Para análisis de compras por proveedor: JOIN ps_compras con ps_proveedores usando num_proveedor = reg_proveedor.",
+    questions: [
+      "¿Compras a proveedores?",
+      "¿Pedidos pendientes de recibir?",
+      "¿Cuánto compramos al proveedor X?",
+    ],
+  },
+
+  // ── Field location rules ──────────────────────────────────────────
+  {
+    instruction:
+      "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
+    questions: [
+      "¿Artículos más vendidos?",
+      "¿Unidades vendidas por producto?",
+      "¿Ventas por artículo sin devoluciones?",
+    ],
+  },
+  {
+    instruction:
+      "Cuando el usuario pide datos desglosados por tienda en columnas (tabla pivot/crosstab), NO generar CROSSTAB ni múltiples CASE WHEN por tienda. Generar una tabla plana con columnas (artículo, tienda, valor) agrupada por artículo y tienda. El usuario pivotará después.",
+    questions: [
+      "¿Ventas por tienda en columnas?",
+      "¿Unidades por artículo y tienda?",
+      "¿Desglose por tienda?",
+      "¿Tabla con código de tienda?",
+    ],
+  },
+  {
+    instruction:
+      "Cuando el usuario pida un cuadro de mandos, dashboard, o resumen ejecutivo, genera UNA consulta SQL que combine las métricas con subqueries escalares. NUNCA respondas con texto explicativo — siempre genera SQL.",
+    questions: [
+      "¿Cuadro de mandos?",
+      "¿Dashboard de ventas?",
+      "¿Resumen ejecutivo?",
+      "¿KPIs del mes?",
+    ],
+  },
+];
+
+// ─── SQL Pairs (example question -> SQL for RAG) ─────────────────────────────
+
+export const SQL_PAIRS: SqlPair[] = [
+  // ── Retail sales ───────────────────────────────────────────────────
+  {
+    question: "¿Cuáles son los 10 artículos más vendidos por cantidad?",
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 10`,
+  },
+  {
+    question: "¿Cuáles son las ventas netas por tienda este mes?",
+    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Cuáles son las ventas de la semana pasada por tienda?",
+    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL '7 days' AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Cuál es el ticket medio?",
+    sql: `SELECT ROUND(SUM("total_si") / COUNT(DISTINCT "reg_ventas"), 2) AS "Ticket Medio" FROM "public"."ps_ventas" WHERE "entrada" = true AND "tienda" <> '99' AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  },
+  {
+    question: "¿Cuántas devoluciones hubo este mes?",
+    sql: `SELECT COUNT(*) AS "Devoluciones", ABS(SUM("total_si")) AS "Importe Devuelto" FROM "public"."ps_ventas" WHERE "entrada" = false AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  },
+  {
+    question: "¿Cuáles son las ventas de hoy?",
+    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" = CURRENT_DATE AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Cuánto vendimos ayer?",
+    sql: `SELECT SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" = CURRENT_DATE - INTERVAL '1 day' AND "entrada" = true`,
+  },
+  {
+    question: "¿Ventas netas acumuladas del año (YTD) comparadas con el año anterior?",
+    sql: `SELECT 'Este año' AS "Período", SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) AND "fecha_creacion" <= CURRENT_DATE AND "entrada" = true UNION ALL SELECT 'Año anterior' AS "Período", SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' AND "fecha_creacion" <= CURRENT_DATE - INTERVAL '1 year' AND "entrada" = true`,
+  },
+  {
+    question: "¿Ventas mensuales por tienda en el año actual?",
+    sql: `SELECT DATE_TRUNC('month', v."fecha_creacion") AS "Mes", v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) AND v."entrada" = true AND v."tienda" <> '99' GROUP BY DATE_TRUNC('month', v."fecha_creacion"), v."tienda" ORDER BY "Mes", v."tienda"`,
+  },
+  {
+    question: "¿Cuántas unidades vendimos la semana pasada?",
+    sql: `SELECT SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL '7 days' AND v."entrada" = true`,
+  },
+  {
+    question: "¿Ventas por día de la semana?",
+    sql: `SELECT TO_CHAR(v."fecha_creacion", 'Day') AS "Día", EXTRACT(DOW FROM v."fecha_creacion") AS "Num Día", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days' AND v."entrada" = true AND v."tienda" <> '99' GROUP BY TO_CHAR(v."fecha_creacion", 'Day'), EXTRACT(DOW FROM v."fecha_creacion") ORDER BY EXTRACT(DOW FROM v."fecha_creacion")`,
+  },
+
+  // ── Products ───────────────────────────────────────────────────────
+  {
+    question: "¿Cuáles son los 10 artículos más vendidos por importe?",
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Importe Neto", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Importe Neto" DESC LIMIT 10`,
+  },
+  {
+    question: "¿Qué familias de producto venden más?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE lv."entrada" = true GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Ventas por departamento?",
+    sql: `SELECT d."depa_secc_fabr" AS "Departamento", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" WHERE lv."entrada" = true GROUP BY d."depa_secc_fabr" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Ventas por temporada de la colección?",
+    sql: `SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades", COUNT(DISTINCT p."ccrefejofacm") AS "Artículos" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Ventas por marca?",
+    sql: `SELECT m."marca" AS "Marca", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_marcas" m ON p."num_marca" = m."reg_marca" WHERE lv."entrada" = true GROUP BY m."marca" ORDER BY "Ventas Netas" DESC`,
+  },
+  {
+    question: "¿Cuántos artículos activos hay en el catálogo?",
+    sql: `SELECT COUNT(*) AS "Total Artículos", SUM(CASE WHEN "ccrefejofacm" IS NULL OR "ccrefejofacm" NOT LIKE 'M%' THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "ccrefejofacm" LIKE 'M%' THEN 1 ELSE 0 END) AS "Mayorista" FROM "public"."ps_articulos" WHERE "anulado" = false`,
+  },
+
+  // ── Stock ──────────────────────────────────────────────────────────
+  {
+    question: "¿Cuál es el stock total por tienda?",
+    sql: `SELECT s."tienda" AS "Tienda", SUM(s."stock") AS "Stock Total", COUNT(DISTINCT s."codigo") AS "Artículos" FROM "public"."ps_stock_tienda" s WHERE s."stock" > 0 GROUP BY s."tienda" ORDER BY "Stock Total" DESC`,
+  },
+  {
+    question: "¿Qué artículos tienen más stock en el almacén central?",
+    sql: `SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."tienda" = '99' AND s."stock" > 0 GROUP BY s."codigo", p."ccrefejofacm", p."descripcion" ORDER BY "Stock" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Cuál es el valor del stock al coste?",
+    sql: `SELECT SUM(s."stock" * p."precio_coste") AS "Valor al Coste", SUM(s."stock") AS "Unidades Totales", COUNT(DISTINCT s."codigo") AS "Referencias" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 AND p."anulado" = false`,
+  },
+  {
+    question: "¿Stock por artículo y talla?",
+    sql: `SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", s."talla" AS "Talla", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 GROUP BY s."codigo", p."ccrefejofacm", s."talla" ORDER BY p."ccrefejofacm", s."talla"`,
+  },
+  {
+    question: "¿Artículos con stock negativo?",
+    sql: `SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", s."tienda" AS "Tienda", s."talla" AS "Talla", s."stock" AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" < 0 ORDER BY s."stock" ASC LIMIT 50`,
+  },
+  {
+    question: "¿Stock por familia de producto?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", SUM(s."stock") AS "Unidades", ROUND(SUM(s."stock" * p."precio_coste"), 2) AS "Valor Coste" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE s."stock" > 0 AND p."anulado" = false GROUP BY fm."fami_grup_marc" ORDER BY "Unidades" DESC`,
+  },
+  {
+    question: "¿Artículos con stock pero sin ventas recientes (dead stock)?",
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock", p."clave_temporada" AS "Temporada" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 10 AND p."anulado" = false AND p."codigo" NOT IN (SELECT DISTINCT lv."codigo" FROM "public"."ps_lineas_ventas" lv WHERE lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days' AND lv."entrada" = true) GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada" ORDER BY "Stock" DESC LIMIT 30`,
+  },
+  {
+    question: "¿Top artículos vendidos con su stock actual?",
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days' AND lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20`,
+  },
+
+  // ── Wholesale ──────────────────────────────────────────────────────
+  {
+    question: "¿Cuál es la facturación mayorista por comercial?",
+    sql: `SELECT c."comercial" AS "Comercial", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."abono" = false GROUP BY c."comercial" ORDER BY "Facturación Neta" DESC`,
+  },
+  {
+    question: "¿Facturación mayorista mensual del año actual?",
+    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE) AND f."abono" = false GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
+  },
+  {
+    question: "¿Cuáles son los principales clientes mayoristas por facturación?",
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Cuántos albaranes mayoristas se enviaron este mes?",
+    sql: `SELECT COUNT(*) AS "Albaranes", SUM("entregadas") AS "Unidades", SUM("base1" + "base2" + "base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" WHERE "fecha_envio" >= DATE_TRUNC('month', CURRENT_DATE) AND "abono" = false`,
+  },
+  {
+    question: "¿Notas de crédito mayoristas (abonos) del año?",
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(*) AS "Abonos", SUM(a."base1" + a."base2" + a."base3") AS "Total Abonado" FROM "public"."ps_gc_albaranes" a JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente" WHERE a."abono" = true AND a."fecha_envio" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY c."nombre" ORDER BY "Total Abonado" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Productos más vendidos en canal mayorista?",
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lf."unidades") AS "Unidades", SUM(lf."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE lf."unidades" > 0 GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20`,
+  },
+
+  // ── Customers ─────────────────────────────────────────────────────
+  {
+    question: "¿Cuáles son los mejores clientes retail por compras?",
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT v."reg_ventas") AS "Compras", SUM(v."total_si") AS "Total Gastado" FROM "public"."ps_ventas" v JOIN "public"."ps_clientes" c ON v."num_cliente" = c."reg_cliente" WHERE v."num_cliente" > 0 AND v."entrada" = true AND v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY c."nombre" ORDER BY "Total Gastado" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Cuántos clientes únicos compraron este mes?",
+    sql: `SELECT COUNT(DISTINCT "num_cliente") AS "Clientes Identificados", SUM(CASE WHEN "num_cliente" = 0 THEN 1 ELSE 0 END) AS "Tickets Anónimos", COUNT(*) AS "Total Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND "entrada" = true`,
+  },
+  {
+    question: "¿Nuevos clientes registrados este año?",
+    sql: `SELECT COUNT(*) AS "Nuevos Clientes", SUM(CASE WHEN "mayorista" = false THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "mayorista" = true THEN 1 ELSE 0 END) AS "Mayoristas" FROM "public"."ps_clientes" WHERE "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)`,
+  },
+  {
+    question: "¿Frecuencia de compra de clientes?",
+    sql: `SELECT CASE WHEN compras = 1 THEN '1 compra' WHEN compras BETWEEN 2 AND 3 THEN '2-3 compras' WHEN compras BETWEEN 4 AND 10 THEN '4-10 compras' ELSE 'Más de 10' END AS "Segmento", COUNT(*) AS "Clientes" FROM (SELECT "num_cliente", COUNT(DISTINCT "reg_ventas") AS compras FROM "public"."ps_ventas" WHERE "num_cliente" > 0 AND "entrada" = true AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY "num_cliente") t GROUP BY 1 ORDER BY 2 DESC`,
+  },
+
+  // ── Payments ───────────────────────────────────────────────────────
+  {
+    question: "¿Ingresos por método de pago este mes?",
+    sql: `SELECT p."forma" AS "Forma de Pago", COUNT(*) AS "Transacciones", SUM(p."importe_cob") AS "Importe Cobrado" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND p."entrada" = true GROUP BY p."forma" ORDER BY "Importe Cobrado" DESC`,
+  },
+  {
+    question: "¿Mix de formas de pago por tienda?",
+    sql: `SELECT p."tienda" AS "Tienda", p."forma" AS "Forma de Pago", COUNT(*) AS "Transacciones", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND p."entrada" = true AND p."tienda" <> '99' GROUP BY p."tienda", p."forma" ORDER BY p."tienda", "Importe" DESC`,
+  },
+  {
+    question: "¿Efectivo vs tarjeta por tienda?",
+    sql: `SELECT p."tienda" AS "Tienda", SUM(CASE WHEN p."codigo_forma" = '01' THEN p."importe_cob" ELSE 0 END) AS "Efectivo", SUM(CASE WHEN p."codigo_forma" <> '01' THEN p."importe_cob" ELSE 0 END) AS "Tarjeta/Otro", SUM(p."importe_cob") AS "Total" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND p."entrada" = true AND p."tienda" <> '99' GROUP BY p."tienda" ORDER BY "Total" DESC`,
+  },
+  {
+    question: "¿Evolución diaria de ingresos por forma de pago?",
+    sql: `SELECT p."fecha_creacion" AS "Fecha", p."forma" AS "Forma de Pago", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days' AND p."entrada" = true GROUP BY p."fecha_creacion", p."forma" ORDER BY p."fecha_creacion", p."forma"`,
+  },
+
+  // ── Margins ────────────────────────────────────────────────────────
+  {
+    question: "¿Margen bruto por familia de producto?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE lv."entrada" = true AND lv."total_si" > 0 GROUP BY fm."fami_grup_marc" ORDER BY "Margen %" DESC`,
+  },
+  {
+    question: "¿Margen bruto por tienda?",
+    sql: `SELECT lv."tienda" AS "Tienda", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv WHERE lv."entrada" = true AND lv."total_si" > 0 AND lv."tienda" <> '99' GROUP BY lv."tienda" ORDER BY "Margen %" DESC`,
+  },
+  {
+    question: "¿Productos con bajo margen (menos del 30%)?",
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Ventas Netas", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."total_si" > 0 GROUP BY p."ccrefejofacm", p."descripcion" HAVING (SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) < 0.30 ORDER BY "Margen %" ASC LIMIT 30`,
+  },
+  {
+    question: "¿Margen bruto por departamento?",
+    sql: `SELECT d."depa_secc_fabr" AS "Departamento", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" WHERE lv."entrada" = true AND lv."total_si" > 0 GROUP BY d."depa_secc_fabr" ORDER BY "Margen %" DESC`,
+  },
+  {
+    question: "¿Margen mayorista por comercial?",
+    sql: `SELECT c."comercial" AS "Comercial", SUM(lf."total") AS "Ingreso", SUM(lf."total_coste") AS "Coste", ROUND((SUM(lf."total") - SUM(lf."total_coste")) / NULLIF(SUM(lf."total"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE lf."total" > 0 GROUP BY c."comercial" ORDER BY "Margen %" DESC`,
+  },
+
+  // ── Transfers ──────────────────────────────────────────────────────
+  {
+    question: "¿Volumen de traspasos por ruta?",
+    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."fecha_s" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Traspasos diarios de stock?",
+    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."fecha_s" >= CURRENT_DATE - INTERVAL '30 days' GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
+  },
+  {
+    question: "¿Movimientos de stock de un artículo?",
+    sql: `SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND t."entrada" = false ORDER BY t."fecha_s" DESC LIMIT 50`,
+  },
+
+  // ── Seasonal / Collections ─────────────────────────────────────────
+  {
+    question: "¿Cuántos artículos hay por temporada?",
+    sql: `SELECT t."temporada_tipo" AS "Temporada", COUNT(p."reg_articulo") AS "Artículos", SUM(CASE WHEN p."anulado" = false THEN 1 ELSE 0 END) AS "Activos" FROM "public"."ps_articulos" p JOIN "public"."ps_temporadas" t ON p."num_temporada" = t."reg_temporada" GROUP BY t."temporada_tipo" ORDER BY "Artículos" DESC`,
+  },
+  {
+    question: "¿Stock por temporada de colección?",
+    sql: `SELECT p."clave_temporada" AS "Temporada", COUNT(DISTINCT p."ccrefejofacm") AS "Referencias", SUM(s."stock") AS "Unidades", ROUND(SUM(s."stock" * p."precio_coste"), 2) AS "Valor Coste" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 AND p."anulado" = false GROUP BY p."clave_temporada" ORDER BY "Unidades" DESC`,
+  },
+  {
+    question: "¿Ventas por temporada de origen del artículo?",
+    sql: `SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC`,
+  },
+
+  // ── Store performance ──────────────────────────────────────────────
+  {
+    question: "¿Rendimiento YTD por tienda con comparativa año anterior?",
+    sql: `SELECT v."tienda" AS "Tienda", SUM(CASE WHEN v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) THEN v."total_si" ELSE 0 END) AS "Ventas Este Año", SUM(CASE WHEN v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' AND v."fecha_creacion" < DATE_TRUNC('year', CURRENT_DATE) AND v."fecha_creacion" <= CURRENT_DATE - INTERVAL '1 year' THEN v."total_si" ELSE 0 END) AS "Ventas Año Anterior" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' GROUP BY v."tienda" ORDER BY "Ventas Este Año" DESC`,
+  },
+  {
+    question: "¿Ticket medio por tienda?",
+    sql: `SELECT v."tienda" AS "Tienda", COUNT(DISTINCT v."reg_ventas") AS "Tickets", ROUND(SUM(v."total_si") / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2) AS "Ticket Medio" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY v."tienda" ORDER BY "Ticket Medio" DESC`,
+  },
+];
+
+// ─── PostgreSQL schema reference (ps_* tables, key columns) ──────────────────
+
+export interface TableSchema {
+  table: string;
+  alias: string;
+  description: string;
+  keyColumns: string[];
+}
+
+export const SCHEMA: TableSchema[] = [
+  {
+    table: "ps_articulos",
+    alias: "Producto",
+    description:
+      "Catálogo de productos. ccrefejofacm=Referencia, M=mayorista, MA=material (excluido del ETL).",
+    keyColumns: [
+      "reg_articulo (PK)",
+      "codigo",
+      "ccrefejofacm (Referencia)",
+      "descripcion",
+      "num_familia (FK)",
+      "num_departament (FK)",
+      "num_color (FK)",
+      "num_temporada (FK)",
+      "num_marca (FK)",
+      "precio_coste",
+      "p_iva",
+      "anulado",
+      "fecha_creacion",
+      "clave_temporada",
+      "modelo",
+      "sexo",
+    ],
+  },
+  {
+    table: "ps_familias",
+    alias: "Familia",
+    description: "Familias/grupos de productos.",
+    keyColumns: ["reg_familia (PK)", "fami_grup_marc"],
+  },
+  {
+    table: "ps_departamentos",
+    alias: "Departamento",
+    description: "Departamentos/secciones.",
+    keyColumns: ["reg_departament (PK)", "depa_secc_fabr"],
+  },
+  {
+    table: "ps_colores",
+    alias: "Color",
+    description: "Catálogo de colores.",
+    keyColumns: ["reg_color (PK)", "color"],
+  },
+  {
+    table: "ps_temporadas",
+    alias: "Temporada",
+    description: "Temporadas y tipos.",
+    keyColumns: ["reg_temporada (PK)", "temporada_tipo"],
+  },
+  {
+    table: "ps_marcas",
+    alias: "Marca",
+    description: "Marcas de producto.",
+    keyColumns: ["reg_marca (PK)", "marca"],
+  },
+  {
+    table: "ps_clientes",
+    alias: "Cliente",
+    description: "Clientes. num_cliente=0 son ventas anónimas.",
+    keyColumns: [
+      "reg_cliente (PK)",
+      "num_cliente",
+      "nombre",
+      "nif",
+      "email",
+      "codigo_postal",
+      "poblacion",
+      "pais",
+      "mayorista",
+      "fecha_creacion",
+      "ultima_compra_f",
+    ],
+  },
+  {
+    table: "ps_tiendas",
+    alias: "Tienda",
+    description: "Tiendas. 99=almacén central, 97=online.",
+    keyColumns: ["reg_tienda (PK)", "codigo"],
+  },
+  {
+    table: "ps_proveedores",
+    alias: "Proveedor",
+    description: "Proveedores de mercancía.",
+    keyColumns: ["reg_proveedor (PK)", "nombre"],
+  },
+  {
+    table: "ps_ventas",
+    alias: "Venta",
+    description:
+      "Tickets de venta retail. total_si=sin IVA (usar siempre). entrada=true para ventas, false para devoluciones.",
+    keyColumns: [
+      "reg_ventas (PK)",
+      "n_documento",
+      "tienda",
+      "fecha_creacion",
+      "total_si (SIN IVA - usar siempre)",
+      "total (CON IVA - NO usar)",
+      "num_cliente (0=anónimo)",
+      "entrada (true=venta, false=devolución)",
+      "tipo_documento",
+      "cajero_nombre",
+    ],
+  },
+  {
+    table: "ps_lineas_ventas",
+    alias: "LineaVenta",
+    description:
+      "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas.",
+    keyColumns: [
+      "reg_lineas (PK)",
+      "num_ventas (FK -> ps_ventas.reg_ventas)",
+      "mes (YYYYMM)",
+      "tienda",
+      "codigo (FK -> ps_articulos.codigo)",
+      "descripcion",
+      "unidades",
+      "precio_neto_si",
+      "total_si",
+      "total_coste_si",
+      "fecha_creacion",
+    ],
+  },
+  {
+    table: "ps_pagos_ventas",
+    alias: "PagoVenta",
+    description: "Pagos por ticket. importe_cob=importe cobrado.",
+    keyColumns: [
+      "reg_pagos (PK)",
+      "num_ventas (FK)",
+      "forma",
+      "codigo_forma",
+      "importe_cob",
+      "tienda",
+      "entrada",
+      "fecha_creacion",
+    ],
+  },
+  {
+    table: "ps_stock_tienda",
+    alias: "StockTienda",
+    description: "Stock por tienda y talla. tienda=99 es almacén central.",
+    keyColumns: [
+      "codigo (FK)",
+      "tienda",
+      "talla",
+      "stock",
+      "fecha_modifica",
+    ],
+  },
+  {
+    table: "ps_traspasos",
+    alias: "Traspaso",
+    description:
+      "Traspasos de stock. Cada movimiento = 2 filas (salida + entrada).",
+    keyColumns: [
+      "codigo (FK)",
+      "tienda_salida",
+      "tienda_entrada",
+      "entrada",
+      "unidades_s",
+      "unidades_e",
+      "fecha_s",
+      "talla",
+    ],
+  },
+  {
+    table: "ps_gc_albaranes",
+    alias: "AlbaranMayorista",
+    description:
+      "Albaranes mayorista. Importe neto = base1 + base2 + base3.",
+    keyColumns: [
+      "reg_albaran (PK)",
+      "n_albaran",
+      "num_cliente (FK)",
+      "num_comercial (FK)",
+      "fecha_envio",
+      "base1",
+      "base2",
+      "base3",
+      "entregadas",
+      "abono",
+      "temporada",
+    ],
+  },
+  {
+    table: "ps_gc_lin_albarane",
+    alias: "LineaAlbaranMayorista",
+    description: "Líneas de albarán mayorista.",
+    keyColumns: ["n_albaran (FK)", "codigo", "unidades", "total"],
+  },
+  {
+    table: "ps_gc_facturas",
+    alias: "FacturaMayorista",
+    description:
+      "Facturas mayorista. Importe neto = base1 + base2 + base3.",
+    keyColumns: [
+      "reg_factura (PK)",
+      "n_factura",
+      "fecha_factura",
+      "num_cliente (FK)",
+      "num_comercial (FK)",
+      "base1",
+      "base2",
+      "base3",
+      "abono",
+      "total_factura (CON IVA)",
+    ],
+  },
+  {
+    table: "ps_gc_lin_facturas",
+    alias: "LineaFacturaMayorista",
+    description: "Líneas de factura mayorista.",
+    keyColumns: [
+      "num_factura (FK)",
+      "codigo",
+      "unidades",
+      "total",
+      "total_coste",
+    ],
+  },
+  {
+    table: "ps_gc_pedidos",
+    alias: "PedidoMayorista",
+    description: "Pedidos mayorista.",
+    keyColumns: ["reg_pedido (PK)", "num_cliente (FK)"],
+  },
+  {
+    table: "ps_gc_lin_pedidos",
+    alias: "LineaPedidoMayorista",
+    description: "Líneas de pedido mayorista.",
+    keyColumns: ["num_pedido (FK)", "codigo", "unidades"],
+  },
+  {
+    table: "ps_gc_comerciales",
+    alias: "Comercial",
+    description: "Comerciales/agentes de ventas mayorista.",
+    keyColumns: ["reg_comercial (PK)", "comercial"],
+  },
+  {
+    table: "ps_compras",
+    alias: "PedidoCompra",
+    description: "Pedidos de compra a proveedores.",
+    keyColumns: ["reg_pedido (PK)", "num_proveedor (FK)"],
+  },
+  {
+    table: "ps_lineas_compras",
+    alias: "LineaPedidoCompra",
+    description: "Líneas de pedido de compra.",
+    keyColumns: ["num_pedido (FK)", "codigo", "unidades"],
+  },
+  {
+    table: "ps_albaranes",
+    alias: "AlbaranRecepcion",
+    description: "Albaranes de recepción de mercancía.",
+    keyColumns: ["reg_albaran (PK)"],
+  },
+  {
+    table: "ps_facturas_compra",
+    alias: "FacturaCompra",
+    description: "Facturas de compra a proveedores.",
+    keyColumns: ["reg_factura (PK)"],
+  },
+];
+
+// ─── Relationships ───────────────────────────────────────────────────────────
+
+export interface Relationship {
+  from: string;
+  fromColumn: string;
+  to: string;
+  toColumn: string;
+  type: "MANY_TO_ONE";
+}
+
+export const RELATIONSHIPS: Relationship[] = [
+  { from: "ps_lineas_ventas", fromColumn: "num_ventas", to: "ps_ventas", toColumn: "reg_ventas", type: "MANY_TO_ONE" },
+  { from: "ps_pagos_ventas", fromColumn: "num_ventas", to: "ps_ventas", toColumn: "reg_ventas", type: "MANY_TO_ONE" },
+  { from: "ps_ventas", fromColumn: "tienda", to: "ps_tiendas", toColumn: "codigo", type: "MANY_TO_ONE" },
+  { from: "ps_ventas", fromColumn: "num_cliente", to: "ps_clientes", toColumn: "reg_cliente", type: "MANY_TO_ONE" },
+  { from: "ps_lineas_ventas", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
+  { from: "ps_articulos", fromColumn: "num_familia", to: "ps_familias", toColumn: "reg_familia", type: "MANY_TO_ONE" },
+  { from: "ps_articulos", fromColumn: "num_departament", to: "ps_departamentos", toColumn: "reg_departament", type: "MANY_TO_ONE" },
+  { from: "ps_articulos", fromColumn: "num_color", to: "ps_colores", toColumn: "reg_color", type: "MANY_TO_ONE" },
+  { from: "ps_articulos", fromColumn: "num_temporada", to: "ps_temporadas", toColumn: "reg_temporada", type: "MANY_TO_ONE" },
+  { from: "ps_articulos", fromColumn: "num_marca", to: "ps_marcas", toColumn: "reg_marca", type: "MANY_TO_ONE" },
+  { from: "ps_stock_tienda", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
+  { from: "ps_stock_tienda", fromColumn: "tienda", to: "ps_tiendas", toColumn: "codigo", type: "MANY_TO_ONE" },
+  { from: "ps_gc_lin_albarane", fromColumn: "n_albaran", to: "ps_gc_albaranes", toColumn: "n_albaran", type: "MANY_TO_ONE" },
+  { from: "ps_gc_lin_facturas", fromColumn: "num_factura", to: "ps_gc_facturas", toColumn: "n_factura", type: "MANY_TO_ONE" },
+  { from: "ps_gc_albaranes", fromColumn: "num_cliente", to: "ps_clientes", toColumn: "reg_cliente", type: "MANY_TO_ONE" },
+  { from: "ps_gc_facturas", fromColumn: "num_cliente", to: "ps_clientes", toColumn: "reg_cliente", type: "MANY_TO_ONE" },
+  { from: "ps_gc_albaranes", fromColumn: "num_comercial", to: "ps_gc_comerciales", toColumn: "reg_comercial", type: "MANY_TO_ONE" },
+  { from: "ps_gc_facturas", fromColumn: "num_comercial", to: "ps_gc_comerciales", toColumn: "reg_comercial", type: "MANY_TO_ONE" },
+  { from: "ps_lineas_compras", fromColumn: "num_pedido", to: "ps_compras", toColumn: "reg_pedido", type: "MANY_TO_ONE" },
+];
