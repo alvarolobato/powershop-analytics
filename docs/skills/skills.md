@@ -11,6 +11,8 @@ This folder contains **skill documents** for AI agents working on the powershop-
 | **[4d-sql-dialect.md](4d-sql-dialect.md)** | Comprehensive 4D SQL dialect reference: data types, SELECT/JOIN/WHERE syntax, all functions, system tables, gotchas vs PostgreSQL/MySQL. | Writing SQL queries, looking up function syntax, understanding type mappings, troubleshooting 4D SQL behavior. |
 | **[cli.md](cli.md)** | CLI architecture: dispatcher, commands, load-env, adding new commands. | Modifying or extending the `ps` CLI. |
 | **[report-generation.md](report-generation.md)** | Full cookbook for generating the BI HTML report: all 60+ SQL queries, SOAP calls, HTML structure, design specs, action item guidelines, data quality gotchas. | Regenerating `informe-coleccion.html`, creating a new snapshot, or answering "how was the report built". |
+| **[testing-patterns.md](testing-patterns.md)** | TDD workflow, factory patterns, mocking strategies for both Python (pytest) and TypeScript (Vitest). | Writing unit tests, integration tests, creating test factories. |
+| **[systematic-debugging.md](systematic-debugging.md)** | Four-phase debugging methodology with project-specific playbooks for ETL, WrenAI, and Dashboard App. | Investigating bugs, fixing test failures, troubleshooting pipeline issues. |
 
 ## Reference Docs (not skills, but always relevant)
 
