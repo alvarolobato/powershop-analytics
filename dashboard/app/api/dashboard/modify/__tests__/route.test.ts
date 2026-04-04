@@ -62,6 +62,15 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+/** Build a Request with a raw string body (for malformed JSON tests). */
+function makeRawRequest(rawBody: string): Request {
+  return new Request("http://localhost:4000/api/dashboard/modify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: rawBody,
+  });
+}
+
 // --- Tests ------------------------------------------------------------------
 
 describe("POST /api/dashboard/modify", () => {
@@ -164,5 +173,39 @@ describe("POST /api/dashboard/modify", () => {
       JSON.stringify(validSpec),
       "Añade margen",
     );
+  });
+
+  it("returns 400 for malformed JSON body", async () => {
+    const res = await POST(makeRawRequest("not valid json{{{"));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/invalid JSON/i);
+  });
+
+  it("returns 400 when body is a JSON array", async () => {
+    const res = await POST(makeRequest([1, 2, 3]));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/must be a JSON object/i);
+  });
+
+  it("returns 400 when body is a JSON string", async () => {
+    const res = await POST(makeRawRequest('"just a string"'));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toMatch(/must be a JSON object/i);
+  });
+
+  it("does not expose raw LLM output in error responses", async () => {
+    mockModifyDashboard.mockResolvedValue("secret internal context leaked");
+
+    const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.raw).toBeUndefined();
   });
 });

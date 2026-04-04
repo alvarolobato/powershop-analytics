@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     );
   }
 
-  if (typeof body !== "object" || body === null) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
       { error: "Request body must be a JSON object" },
       { status: 400 },
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     parsed = JSON.parse(jsonStr);
   } catch {
     return NextResponse.json(
-      { error: "LLM returned invalid JSON", raw: rawResponse },
+      { error: "LLM returned invalid JSON" },
       { status: 400 },
     );
   }
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     updatedSpec = validateSpec(parsed);
   } catch {
     return NextResponse.json(
-      { error: "LLM returned a spec that failed validation", raw: rawResponse },
+      { error: "LLM returned a spec that failed validation" },
       { status: 400 },
     );
   }
