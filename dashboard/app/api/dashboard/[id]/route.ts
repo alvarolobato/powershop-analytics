@@ -134,7 +134,16 @@ export async function PUT(
     typeof prompt === "string" ? prompt.trim() || null : null;
 
   // Use a transaction to ensure version insert + dashboard update are atomic
-  const client = await getPool().connect();
+  let client;
+  try {
+    client = await getPool().connect();
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to update dashboard" },
+      { status: 500 },
+    );
+  }
+
   try {
     await client.query("BEGIN");
 
