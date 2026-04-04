@@ -1,0 +1,109 @@
+/**
+ * OpenRouter LLM client for dashboard generation and modification.
+ *
+ * Uses the OpenAI SDK with a baseURL override to route requests through
+ * OpenRouter.  API key and model are read from environment variables.
+ */
+
+import OpenAI from "openai";
+import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
+
+// ─── Configuration ───────────────────────────────────────────────────────────
+
+const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
+
+function getApiKey(): string {
+  const key = process.env.OPENROUTER_API_KEY;
+  if (!key) {
+    throw new Error(
+      "OPENROUTER_API_KEY is not set. Set it in your environment or .env file."
+    );
+  }
+  return key;
+}
+
+function getModel(): string {
+  return process.env.DASHBOARD_LLM_MODEL || DEFAULT_MODEL;
+}
+
+// ─── Client factory ──────────────────────────────────────────────────────────
+
+let _client: OpenAI | null = null;
+
+function getClient(): OpenAI {
+  if (!_client) {
+    _client = new OpenAI({
+      baseURL: "https://openrouter.ai/api/v1",
+      apiKey: getApiKey(),
+      defaultHeaders: {
+        "HTTP-Referer": "https://github.com/alvarolobato/powershop-analytics",
+        "X-Title": "PowerShop Dashboard",
+      },
+    });
+  }
+  return _client;
+}
+
+/**
+ * Reset the cached client.  Useful for testing or after changing env vars.
+ */
+export function resetClient(): void {
+  _client = null;
+}
+
+// ─── Public API ──────────────────────────────────────────────────────────────
+
+/**
+ * Generate a new dashboard from a user prompt (in Spanish).
+ *
+ * Returns the raw LLM response text, which should be a JSON dashboard spec.
+ */
+export async function generateDashboard(userPrompt: string): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildGeneratePrompt();
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 8192,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
+
+/**
+ * Modify an existing dashboard based on a user prompt (in Spanish).
+ *
+ * Returns the raw LLM response text, which should be the full updated JSON spec.
+ */
+export async function modifyDashboard(
+  currentSpec: string,
+  userPrompt: string
+): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildModifyPrompt(currentSpec);
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 8192,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
