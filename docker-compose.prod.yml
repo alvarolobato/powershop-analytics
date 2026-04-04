@@ -204,3 +204,31 @@ services:
       - ./data/qdrant:/qdrant/storage
     networks:
       - wren
+
+  # ---------------------------------------------------------------------------
+  # Dashboard App — AI-generated dashboards (Next.js + Tremor, port 4000)
+  # ---------------------------------------------------------------------------
+  dashboard:
+    image: alvarolobato264/powershop-dashboard:${DASHBOARD_VERSION:-latest}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      POSTGRES_DB: ${POSTGRES_DB:-powershop}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
+    ports:
+      - "${DASHBOARD_PORT:-4000}:4000"
+    networks:
+      - wren
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:4000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
