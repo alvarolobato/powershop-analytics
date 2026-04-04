@@ -113,12 +113,19 @@ export default function ChatSidebar({
           timestamp: new Date(),
         },
       ]);
-    } catch {
+    } catch (err) {
+      console.error("Error al procesar la solicitud del chat:", err);
+
+      const errorMessage =
+        err instanceof TypeError
+          ? "Error: No se pudo conectar con el servidor."
+          : "Error: Ocurrió un problema al procesar la respuesta.";
+
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Error: No se pudo conectar con el servidor.",
+          content: errorMessage,
           timestamp: new Date(),
         },
       ]);

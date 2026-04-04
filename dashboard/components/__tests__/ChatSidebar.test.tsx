@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import ChatSidebar from "../ChatSidebar";
@@ -37,7 +37,7 @@ function mockFetchError(status: number, error: string) {
 }
 
 function mockFetchNetworkError() {
-  return vi.fn().mockRejectedValue(new Error("Network error"));
+  return vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
 }
 
 // ---------------------------------------------------------------------------
