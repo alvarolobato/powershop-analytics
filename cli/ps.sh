@@ -23,6 +23,7 @@ Available commands:
   etl          ETL operations (run/status/tables/logs)
   sql          4D SQL operations (schema, query, explore)
   wren         WrenAI knowledge management (push/validate/status)
+  dashboard    Dashboard App management (open/logs/restart/status)
   config       Show current configuration
 
 Help commands:
@@ -42,6 +43,8 @@ Examples:
   ps wren push             Push knowledge to WrenAI (merge strategy)
   ps wren validate         Validate SQL pairs against PostgreSQL
   ps wren status           Show knowledge counts
+  ps dashboard open        Open Dashboard App in browser
+  ps dashboard status      Show dashboard container status
   ps config                Show loaded configuration
 EOF
 }

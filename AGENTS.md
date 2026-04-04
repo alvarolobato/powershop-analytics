@@ -70,6 +70,10 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps wren push` | Push source knowledge to WrenAI (40+ instructions, 50+ SQL pairs) |
 | `ps wren validate` | Validate all SQL pairs against PostgreSQL mirror |
 | `ps wren status` | Show instruction and SQL pair counts |
+| `ps dashboard open` | Open Dashboard App in browser |
+| `ps dashboard logs` | Show dashboard container logs |
+| `ps dashboard restart` | Restart the dashboard container |
+| `ps dashboard status` | Show dashboard container status |
 | `ps config` | Show loaded configuration |
 
 ### CLI-first principle
