@@ -708,7 +708,7 @@ SQL_PAIRS = [
     ),
     (
         "¿Cuántos artículos activos hay en el catálogo?",
-        'SELECT COUNT(*) AS "Total Artículos", SUM(CASE WHEN "ccrefejofacm" NOT LIKE \'M%\' THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "ccrefejofacm" LIKE \'M%\' THEN 1 ELSE 0 END) AS "Mayorista" FROM "public"."ps_articulos" WHERE "anulado" = false',
+        'SELECT COUNT(*) AS "Total Artículos", SUM(CASE WHEN "ccrefejofacm" IS NULL OR "ccrefejofacm" NOT LIKE \'M%\' THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "ccrefejofacm" LIKE \'M%\' THEN 1 ELSE 0 END) AS "Mayorista" FROM "public"."ps_articulos" WHERE "anulado" = false',
     ),
 
     # ── Stock ──────────────────────────────────────────────────────────

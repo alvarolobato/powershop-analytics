@@ -21,8 +21,11 @@ decimal.Decimal before being passed to the PostgreSQL insert helpers.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -248,13 +251,21 @@ def sync_articulos(conn_4d: Any, conn_pg: Any) -> int:
     # Safety net: remove any MA rows that survived from a previous sync run
     # before this filter was applied.  truncate_and_insert already wipes the
     # table, so in practice this is a no-op after the first clean run.
+    # This DELETE runs in a separate transaction from the truncate+insert above,
+    # which already committed.  A failure here does NOT undo the loaded data;
+    # we log a warning and continue rather than raising, since ps_articulos is
+    # already in a valid (MA-free) state thanks to the WHERE clause in the
+    # source query.
     try:
         with conn_pg.cursor() as cur:
             cur.execute("DELETE FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'")
         conn_pg.commit()
-    except Exception:
+    except Exception as exc:
         conn_pg.rollback()
-        raise
+        logger.warning(
+            "sync_articulos: safety-net DELETE failed (data already loaded cleanly): %s",
+            exc,
+        )
 
     return count
 
