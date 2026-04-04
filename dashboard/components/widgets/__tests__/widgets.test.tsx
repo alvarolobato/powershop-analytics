@@ -36,10 +36,10 @@ describe("KpiRow", () => {
   };
 
   it("renders labels and formatted values", () => {
-    const data = new Map<number, { value: string | number }>([
-      [0, { value: 1234.5 }],
-      [1, { value: 42 }],
-    ]);
+    const data: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[1234.5]] },
+      { columns: ["value"], rows: [[42]] },
+    ];
     render(<KpiRow widget={widget} data={data} />);
     expect(screen.getByText("Ventas")).toBeInTheDocument();
     expect(screen.getByText("Tickets")).toBeInTheDocument();
@@ -48,7 +48,7 @@ describe("KpiRow", () => {
   });
 
   it("shows dash when data is missing for an item", () => {
-    const data = new Map<number, { value: string | number }>();
+    const data: (WidgetData | null)[] = [null, null];
     render(<KpiRow widget={widget} data={data} />);
     const dashes = screen.getAllByText("\u2014");
     expect(dashes).toHaveLength(2);
@@ -110,6 +110,15 @@ describe("BarChartWidget", () => {
 
   it("shows empty message for empty rows", () => {
     const data: WidgetData = { columns: ["tienda", "ventas"], rows: [] };
+    render(<BarChartWidget widget={widget} data={data} />);
+    expect(screen.getByText("Sin datos")).toBeInTheDocument();
+  });
+
+  it("shows empty message when column names do not match", () => {
+    const data: WidgetData = {
+      columns: ["wrong_x", "wrong_y"],
+      rows: [["A", 1]],
+    };
     render(<BarChartWidget widget={widget} data={data} />);
     expect(screen.getByText("Sin datos")).toBeInTheDocument();
   });
@@ -238,5 +247,23 @@ describe("TableWidget", () => {
     };
     render(<TableWidget widget={widget} data={data} />);
     expect(screen.getByText("12.500")).toBeInTheDocument();
+  });
+
+  it("formats string numeric cells from PostgreSQL", () => {
+    const data: WidgetData = {
+      columns: ["Importe"],
+      rows: [["12500.5"]],
+    };
+    render(<TableWidget widget={widget} data={data} />);
+    expect(screen.getByText("12.500,5")).toBeInTheDocument();
+  });
+
+  it("shows dash for null cells", () => {
+    const data: WidgetData = {
+      columns: ["Valor"],
+      rows: [[null]],
+    };
+    render(<TableWidget widget={widget} data={data} />);
+    expect(screen.getByText("\u2014")).toBeInTheDocument();
   });
 });

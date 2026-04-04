@@ -34,12 +34,12 @@ const kpiWidget: KpiRowWidget = {
   ],
 };
 
-const kpiData = new Map<number, { value: string | number }>([
-  [0, { value: 125340.5 }],
-  [1, { value: 4521 }],
-  [2, { value: 27.72 }],
-  [3, { value: 34.8 }],
-]);
+const kpiData: (WidgetData | null)[] = [
+  { columns: ["value"], rows: [[125340.5]] },
+  { columns: ["value"], rows: [[4521]] },
+  { columns: ["value"], rows: [[27.72]] },
+  { columns: ["value"], rows: [[34.8]] },
+];
 
 const barWidget: BarChartSpec = {
   type: "bar_chart",

@@ -10,3 +10,26 @@ export interface WidgetData {
 
 /** Standard empty-state message. */
 export const EMPTY_MESSAGE = "Sin datos";
+
+/**
+ * Resolve column indices for x/y axes from a WidgetData.
+ * Returns null if the required columns cannot be found or data has
+ * fewer than 2 columns when falling back to defaults.
+ */
+export function resolveXY(
+  data: WidgetData,
+  xHint: string | undefined,
+  yHint: string | undefined,
+): { xIdx: number; yIdx: number; xCol: string; yCol: string } | null {
+  const xCol = xHint ?? data.columns[0];
+  const yCol = yHint ?? data.columns[1];
+  if (!xCol || !yCol) return null;
+
+  const xIdx = data.columns.indexOf(xCol);
+  const yIdx = data.columns.indexOf(yCol);
+
+  // If explicitly named columns are not found, treat as misconfigured
+  if (xIdx < 0 || yIdx < 0) return null;
+
+  return { xIdx, yIdx, xCol, yCol };
+}

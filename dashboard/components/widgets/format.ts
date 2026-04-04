@@ -24,15 +24,17 @@ const percentFormatter = new Intl.NumberFormat("es-ES", {
 
 /**
  * Format a numeric value according to the given KPI format.
- * Returns a string like "1.234,56 €", "1.234", or "12,3%".
+ * Returns a string like "€1.234,56", "1.234", or "12,3%".
+ * Returns "—" for null, undefined, empty strings, and non-numeric values.
  */
 export function formatValue(
   value: unknown,
   format: KpiFormat,
   prefix?: string,
 ): string {
+  if (value === null || value === undefined || value === "") return "\u2014";
   const num = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(num)) return "—";
+  if (Number.isNaN(num)) return "\u2014";
 
   switch (format) {
     case "currency": {

@@ -30,6 +30,18 @@ describe("formatValue", () => {
     expect(formatValue("not-a-number", "currency")).toBe("\u2014");
   });
 
+  it("returns dash for null", () => {
+    expect(formatValue(null, "currency")).toBe("\u2014");
+  });
+
+  it("returns dash for undefined", () => {
+    expect(formatValue(undefined, "number")).toBe("\u2014");
+  });
+
+  it("returns dash for empty string", () => {
+    expect(formatValue("", "percent")).toBe("\u2014");
+  });
+
   it("handles string numeric values", () => {
     expect(formatValue("1234", "number")).toBe("1.234");
   });
