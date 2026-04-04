@@ -379,6 +379,27 @@ CREATE TABLE IF NOT EXISTS ps_facturas_compra (
 );
 
 -- ============================================================
+-- Dashboard App
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS dashboards (
+    id           SERIAL       PRIMARY KEY,
+    name         TEXT         NOT NULL,
+    description  TEXT,
+    spec         JSONB        NOT NULL,
+    created_at   TIMESTAMPTZ  DEFAULT NOW(),
+    updated_at   TIMESTAMPTZ  DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_versions (
+    id            SERIAL       PRIMARY KEY,
+    dashboard_id  INTEGER      REFERENCES dashboards(id) ON DELETE CASCADE,
+    spec          JSONB        NOT NULL,
+    prompt        TEXT,
+    created_at    TIMESTAMPTZ  DEFAULT NOW()
+);
+
+-- ============================================================
 -- ETL control
 -- ============================================================
 
@@ -524,3 +545,5 @@ ANALYZE ps_facturas;
 ANALYZE ps_albaranes;
 ANALYZE ps_facturas_compra;
 ANALYZE etl_watermarks;
+ANALYZE dashboards;
+ANALYZE dashboard_versions;
