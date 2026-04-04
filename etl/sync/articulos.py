@@ -167,7 +167,7 @@ _SQL_ARTICULOS = (
     " PrecioCoste, PrCosteNe, PIva, Anulado, FechaCreacion, FechaModifica,"
     " Color, ClaveTemporada, Modelo, Sexo"
     " FROM Articulos"
-    " WHERE LEFT(CCRefeJOFACM, 2) <> 'MA'"
+    " WHERE CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA'"
 )
 
 _SQL_MA_ARTICLE_CODES = (
@@ -248,9 +248,13 @@ def sync_articulos(conn_4d: Any, conn_pg: Any) -> int:
     # Safety net: remove any MA rows that survived from a previous sync run
     # before this filter was applied.  truncate_and_insert already wipes the
     # table, so in practice this is a no-op after the first clean run.
-    with conn_pg.cursor() as cur:
-        cur.execute("DELETE FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'")
-    conn_pg.commit()
+    try:
+        with conn_pg.cursor() as cur:
+            cur.execute("DELETE FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'")
+        conn_pg.commit()
+    except Exception:
+        conn_pg.rollback()
+        raise
 
     return count
 

@@ -91,10 +91,19 @@ def synced_count(conn_4d, conn_pg):
 
 class TestSyncArticulos:
     def test_sync_articulos_count(self, conn_4d, conn_pg, synced_count):
-        """Row count in ps_articulos should match the 4D source table."""
+        """Row count in ps_articulos should match the 4D source after MA exclusion.
+
+        MA-prefix articles (CCRefeJOFACM starting with 'MA') are filtered at
+        the source query level, so the expected count is the non-MA rows in 4D.
+        Rows with a NULL CCRefeJOFACM are included (not MA-prefix articles).
+        """
         from etl.db.fourd import safe_fetch
 
-        rows = safe_fetch(conn_4d, "SELECT COUNT(*) AS cnt FROM Articulos")
+        rows = safe_fetch(
+            conn_4d,
+            "SELECT COUNT(*) AS cnt FROM Articulos"
+            " WHERE CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA'",
+        )
         source_count = int(rows[0]["cnt"])
 
         with conn_pg.cursor() as cur:
@@ -103,6 +112,20 @@ class TestSyncArticulos:
 
         assert synced_count == source_count
         assert pg_count == source_count
+
+    def test_no_ma_articles_in_mirror(self, conn_pg, synced_count):  # noqa: ARG002
+        """ps_articulos must contain no MA-prefix articles after sync."""
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                "SELECT COUNT(*) FROM ps_articulos"
+                " WHERE LEFT(ccrefejofacm, 2) = 'MA'"
+            )
+            ma_count = cur.fetchone()[0]
+
+        assert ma_count == 0, (
+            f"Found {ma_count} MA-prefix articles in ps_articulos;"
+            " they should be excluded at ETL level."
+        )
 
     def test_no_bytes_in_articulos(self, conn_pg, synced_count):  # noqa: ARG002
         """No column in ps_articulos should contain raw bytes values.

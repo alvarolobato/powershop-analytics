@@ -134,14 +134,16 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
         "ps_gc_lin_facturas",
     ]
 
+    from psycopg2 import sql as pgsql  # type: ignore[import-untyped]
+
     ma_codes_list = list(ma_codes)
     try:
         with conn_pg.cursor() as cur:
             for table in _MA_LINE_TABLES:
-                cur.execute(
-                    f"DELETE FROM {table} WHERE codigo = ANY(%s)",  # noqa: S608
-                    (ma_codes_list,),
+                stmt = pgsql.SQL("DELETE FROM {} WHERE codigo = ANY(%s)").format(
+                    pgsql.Identifier(table)
                 )
+                cur.execute(stmt, (ma_codes_list,))
                 deleted = cur.rowcount
                 logger.info("MA cleanup: deleted %d rows from %s", deleted, table)
         conn_pg.commit()
@@ -257,7 +259,11 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     # to line-item tables whose rows reference MA article codes via `codigo`.
     # This is necessary because line tables use delta/upsert strategies that
     # may have inserted MA-linked rows in previous sync runs before this filter.
-    _cleanup_ma_linked_rows(conn_4d, conn_pg)
+    # Failures are logged but do not abort the pipeline (consistent with _run_sync).
+    try:
+        _cleanup_ma_linked_rows(conn_4d, conn_pg)
+    except Exception:
+        logger.exception("MA cleanup failed; continuing with pipeline completion")
 
     total_ms = int((time.time() - pipeline_start) * 1000)
     logger.info("=== Full sync completed in %d ms ===", total_ms)
