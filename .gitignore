@@ -32,6 +32,10 @@ docs/sample-data/
 # Persistent bind-mount data (Docker volumes — never commit)
 data/
 
+# Dashboard App
+dashboard/node_modules/
+dashboard/.next/
+
 # Runtime/temp
 *.log
 tmp/

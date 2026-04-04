@@ -200,3 +200,25 @@ services:
       - ./data/qdrant:/qdrant/storage
     networks:
       - wren
+
+  # ---------------------------------------------------------------------------
+  # Dashboard App — AI-generated dashboards (Next.js + Tremor, port 4000)
+  # ---------------------------------------------------------------------------
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+      POSTGRES_DB: ${POSTGRES_DB:-powershop}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
+    ports:
+      - "${DASHBOARD_PORT:-4000}:4000"
+    networks:
+      - wren
+    depends_on:
+      postgres:
+        condition: service_healthy
