@@ -3,8 +3,12 @@
  *
  * LLM responses are expected to be raw JSON, but models sometimes wrap
  * the output in markdown code fences or add surrounding text.  This
- * module provides a single extraction function used by all API routes
- * so that the unfencing behaviour stays consistent.
+ * module provides a reusable extraction function so the unfencing
+ * behaviour can stay consistent wherever it is needed.
+ *
+ * Note: the generate/modify routes have their own local copy of extractJson
+ * that handles only fully-anchored fences; those can be migrated to this
+ * helper in a future cleanup pass.
  */
 
 /**

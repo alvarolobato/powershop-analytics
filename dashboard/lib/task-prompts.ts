@@ -36,7 +36,7 @@ export const TASK_PROMPTS: TaskPrompt[] = [
   {
     id: "store-performance",
     title: "Revisar el rendimiento de una tienda",
-    description: "Deep dive de una tienda: KPIs, patrones horarios y comparativa con la cadena",
+    description: "Deep dive de una tienda: KPIs, rendimiento diario y comparativa con la cadena",
     icon: "🏪",
     prompt:
       "Crea un cuadro de mandos para el análisis de rendimiento de tiendas retail. Incluye: KPIs comparativos de todas las tiendas (ventas netas, tickets, ticket medio, uds/ticket) del mes actual vs mes anterior usando ps_ventas; gráfico de barras horizontales con ranking de tiendas por ventas netas (excluir tienda 99); tabla con métricas por tienda (ventas, tickets, ticket medio, variación % vs mes anterior) ordenada por ventas; gráfico de líneas con evolución semanal de las top 5 tiendas en las últimas 8 semanas; y gráfico de barras con contribución de cada tienda a las ventas totales de la cadena en porcentaje. Filtra entrada=true y tienda<>'99'. Muestra nombre de tienda cuando esté disponible.",
@@ -47,7 +47,7 @@ export const TASK_PROMPTS: TaskPrompt[] = [
     description: "KPIs mayoristas, top clientes, albaranes pendientes y márgenes",
     icon: "🤝",
     prompt:
-      "Crea un cuadro de mandos para el análisis del canal mayorista. Incluye: KPIs clave mayoristas (facturación base1+base2+base3, número de albaranes, clientes activos, ticket medio mayorista) del mes actual usando ps_gc_albaranes y ps_gc_facturas; tabla con top 10 clientes mayoristas por facturación del trimestre (JOIN con ps_clientes usando num_cliente = reg_cliente); gráfico de barras con facturación mayorista por mes de los últimos 6 meses usando ps_gc_facturas; tabla con albaranes pendientes de facturar (estado no facturado) con cliente, importe y fecha usando ps_gc_albaranes JOIN ps_clientes; y gráfico de donut con distribución de ventas mayoristas por familia de artículo (JOIN ps_gc_lin_facturas con ps_articulos y ps_familias). Excluir abono=true (notas de crédito). Usar base1+base2+base3 NUNCA total_factura para importes mayoristas.",
+      "Crea un cuadro de mandos para el análisis del canal mayorista. Incluye: KPIs clave mayoristas (facturación base1+base2+base3, número de facturas, clientes activos del mes, ticket medio mayorista) del mes actual usando ps_gc_facturas; tabla con top 10 clientes mayoristas por facturación del trimestre (JOIN ps_gc_facturas con ps_clientes usando num_cliente = reg_cliente); gráfico de barras con facturación mayorista por mes de los últimos 6 meses usando ps_gc_facturas; tabla con albaranes del mes que aún no tienen factura asociada (ps_gc_albaranes sin correspondiente en ps_gc_facturas) con cliente, importe base1+base2+base3 y fecha_envio; y gráfico de donut con distribución de ventas mayoristas por familia de artículo (JOIN ps_gc_lin_facturas con ps_articulos y ps_familias). Excluir abono=true en todas las consultas. Usar base1+base2+base3 NUNCA total_factura para importes mayoristas.",
   },
   {
     id: "month-end",

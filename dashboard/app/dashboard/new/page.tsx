@@ -373,7 +373,7 @@ export default function NewDashboard() {
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {suggestions.map((s, i) => (
               <div
-                key={i}
+                key={`${s.name}-${i}`}
                 className="flex flex-col items-start rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle p-5 shadow-sm"
               >
                 <h3 className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
@@ -442,7 +442,7 @@ export default function NewDashboard() {
           <div className="mt-4 space-y-3">
             {gaps.map((g, i) => (
               <div
-                key={i}
+                key={`${g.area}-${i}`}
                 className="flex items-start justify-between gap-4 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle p-4 shadow-sm"
               >
                 <div className="flex-1">

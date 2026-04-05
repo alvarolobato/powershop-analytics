@@ -130,8 +130,8 @@ export async function suggestDashboards(
         content: `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
       },
     ],
-    temperature: 0.3,
-    max_tokens: 4096,
+    temperature: 0.2,
+    max_tokens: 8192,
   });
 
   const content = response.choices[0]?.message?.content;
@@ -166,8 +166,8 @@ export async function analyzeGaps(
           "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
       },
     ],
-    temperature: 0.3,
-    max_tokens: 4096,
+    temperature: 0.2,
+    max_tokens: 8192,
   });
 
   const content = response.choices[0]?.message?.content;
