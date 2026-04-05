@@ -1,0 +1,53 @@
+name: AI Issue Triage
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    # Skip issues created by bots to avoid loops
+    if: >-
+      github.event.issue.user.type != 'Bot' &&
+      !contains(github.event.issue.labels.*.name, 'no-ai')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Triage Issue
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 10"
+          prompt: |
+            Triage this new issue. Analyze the title and body, then:
+
+            1. **Component**: Determine which component this affects and apply ONE label:
+               - `comp-etl` — ETL service, Python sync, 4D database, PostgreSQL schema
+               - `comp-dashboard` — Dashboard App, Next.js, Tremor, widgets, LLM prompts
+               - `comp-wren` — WrenAI, semantic model, instructions, SQL pairs
+               - `comp-cli` — CLI commands, ps.sh, shell scripts
+               - `comp-infra` — Docker, CI/CD, GitHub Actions, deployment
+               - `comp-docs` — Documentation, AGENTS.md, skills, architecture docs
+
+            2. **Priority**: Apply ONE priority label based on impact:
+               - `p0-critical` — Production down, data loss, security breach
+               - `p1-high` — Major feature broken, blocks other work
+               - `p2-medium` — Normal bug or feature request
+               - `p3-low` — Minor improvement, cosmetic, nice-to-have
+
+            3. **Category**: Apply ONE category label:
+               - `bug` — Something is broken
+               - `enhancement` — New feature or improvement
+               - `documentation` — Docs improvement
+               - `question` — Question that needs answering
+
+            4. **Duplicate check**: Search recent issues (last 30 days) for similar titles.
+               If likely duplicate, comment: "Possible duplicate of #X" but do NOT close.
+
+            5. **Post triage comment** summarizing your classification and any notes.
+
+            Apply labels using the GitHub CLI: `gh issue edit NUMBER --add-label "label1,label2"`

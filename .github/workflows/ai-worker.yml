@@ -1,0 +1,90 @@
+name: AI Worker
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: ai-worker-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  implement:
+    if: github.event.label.name == 'ai-work'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "ai-work" \
+            --add-label "ai-in-progress"
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "🤖 AI Worker started. Working on this issue..."
+
+      - name: Implement Issue
+        id: implement
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 50"
+          prompt: |
+            You are the AI Worker. Your job is to fully implement the issue and open a PR.
+
+            ## Process
+            1. **Read the issue** thoroughly — title, body, all comments, especially any /plan output
+            2. **Read CLAUDE.md and AGENTS.md** for project context and rules
+            3. **Read relevant skill docs** from docs/skills/ if the issue touches a specific domain
+            4. **Create a feature branch**: `ai/issue-${{ github.event.issue.number }}-{short-slug}`
+            5. **Implement the changes**:
+               - Follow the existing code style and patterns
+               - Don't add unnecessary abstractions
+               - Don't over-engineer — do exactly what's asked
+               - Include tests for new functionality
+            6. **Run validation**:
+               - If ETL changes: `cd etl && python -m ruff check . && python -m pytest`
+               - If Dashboard changes: `cd dashboard && npm test`
+               - Fix any failures before committing
+            7. **Commit** with a descriptive message: `feat|fix|docs: description (#{issue_number})`
+            8. **Push** the branch
+            9. **Create a PR** with:
+               - Clear title referencing the issue
+               - Body with: ## Summary, ## Changes, ## Test Results
+               - Include `Closes #${{ github.event.issue.number }}` in the body
+               - Request no reviewers (the AI PR Review workflow will handle it)
+
+            ## Rules
+            - Read-only SQL: NEVER INSERT/UPDATE/DELETE/DROP in production queries
+            - No credentials in code
+            - No customer data in code
+            - 4D PKs are NUMERIC, never FLOAT8
+            - For wide tables, specify columns explicitly
+
+      - name: Handle success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "ai-in-progress"
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "✅ AI Worker completed. PR created — check the linked pull request."
+
+      - name: Handle failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "ai-in-progress" \
+            --add-label "ai-blocked"
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "❌ AI Worker failed. This issue needs human attention. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."

@@ -1,0 +1,68 @@
+name: AI Plan
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  plan:
+    if: >-
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.comment.body, '/plan')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Implementation Plan
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 20"
+          prompt: |
+            Generate a detailed implementation plan for this issue.
+
+            Read the issue title, body, and all comments carefully. Then analyze the codebase to produce a plan.
+
+            ## Plan Format
+
+            Post a comment with this structure:
+
+            ### Implementation Plan for #{issue_number}
+
+            #### Analysis
+            [Brief analysis of what needs to change and why. Reference specific code you've read.]
+
+            #### Files to Modify
+            | File | Change Description |
+            |------|-------------------|
+            | `path/file.py` | What changes and why |
+
+            #### New Files (if any)
+            | File | Purpose |
+            |------|---------|
+            | `path/new.py` | Why this file is needed |
+
+            #### Implementation Steps
+            1. [Step with specific details]
+            2. [Step with specific details]
+            ...
+
+            #### Testing Strategy
+            - Unit tests: [what to test]
+            - Integration tests: [what to test]
+            - Manual verification: [commands to run]
+
+            #### Risk Assessment
+            - [What could go wrong and how to mitigate]
+
+            #### Estimated Complexity
+            [XS / S / M / L / XL with brief justification]
+
+            ---
+
+            After posting the plan, add the `ai-planned` label to the issue:
+            `gh issue edit {number} --add-label "ai-planned"`

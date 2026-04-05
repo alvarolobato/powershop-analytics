@@ -1,0 +1,50 @@
+name: AI Command
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  execute:
+    if: >-
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.comment.body, '/ai') &&
+      !startsWith(github.event.comment.body, '/ai-') &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Execute AI Command
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          trigger_phrase: "/ai"
+          prompt: |
+            You have been invoked via the /ai command on an issue. Execute the instruction given in the comment.
+
+            ## Guidelines
+            - Read the full issue context (title, body, all comments) before acting
+            - If the instruction involves code changes:
+              1. Create a branch: `ai/issue-{number}-{short-description}`
+              2. Make the changes
+              3. Run tests if applicable (etl: `python -m pytest`, dashboard: `npm test`)
+              4. Commit with a descriptive message referencing the issue
+              5. Push and create a PR with `Closes #{number}` in the body
+            - If the instruction is a question or analysis:
+              1. Research the codebase
+              2. Post your findings as an issue comment
+            - Always reply to the issue with what you did
+
+            ## Project Rules (from AGENTS.md)
+            - Read-only SQL policy: NEVER modify the source 4D database
+            - No credentials in committed files
+            - No customer/business data in committed files
