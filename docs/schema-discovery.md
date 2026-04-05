@@ -65,6 +65,138 @@ Types 0, 12 (Picture), 18 (Blob), and 21 (Object/JSON) are excluded from this li
 
 ---
 
+## D-011 Extraction Session (2026-04-05)
+
+> Full record of what was extracted, where raw data lives, and how to re-run each step.
+
+### Source Files
+
+The production server was copied to `/Users/alobato/Desktop/Power/files/` (not in repo — local only):
+
+| File | Size | Description |
+|------|------|-------------|
+| `PowerShop Server/Server Database/PowerShop.4DC` | 360 MB | Compiled 4D structure file — all table/field/method definitions |
+| `PowerShop Server/Server Database/PowerShop.4DD` | 14.2 GB | Data file — not analyzed directly |
+| `PowerShop Server/Server Database/PowerShop.4DIndx` | ~GB | Index file — not analyzed |
+| `PowerShop Server/Server Database/PowerShop.4BK` | ~GB | Backup (proprietary binary format) — not analyzed |
+| `PowerShop Client/` | — | Client application files — not analyzed |
+
+### Raw Extraction Files (cached in `/tmp/`)
+
+These files survive until the next reboot. Re-run the commands below to regenerate them.
+
+| File | Contents | How to regenerate |
+|------|----------|-------------------|
+| `/tmp/4dc_strings.txt` | 5,717,880 lines from .4DC binary | `strings -n 5 "/Users/alobato/Desktop/Power/files/PowerShop Server/Server Database/PowerShop.4DC" > /tmp/4dc_strings.txt` |
+| `/tmp/4d_all_columns.json` | All columns per table from `_USER_COLUMNS` | See script below |
+| `/tmp/4d_views_schema.json` | Column lists for 48 queryable SQL views | See script below |
+| `/tmp/4d_index_columns.json` | Indexed columns from `_USER_IND_COLUMNS` (239 tables, 1,784 indexed cols) | See script below |
+| `/tmp/4d_cons_columns.json` | 170 FK/PK constraints from `_USER_CONS_COLUMNS` (88 FK + 82 PK) | See script below |
+| `/tmp/4d_soap_results.json` | SOAP API responses (FormasPago, store list from WS_JS_GetInfoTiendas) | See script below |
+| `/tmp/4d_wsdl_methods.json` | 113 WS_JS_* SOAP method signatures with parameters | See script below |
+| `/tmp/4d_tiendas.json` | 51 stores from WS_JS_GetInfoTiendas SOAP call | See script below |
+
+### Key Queries Used
+
+```python
+# venv: /Users/alobato/git/powershop-analytics/.venv/bin/python3
+import p4d, json
+
+conn = p4d.connect(host='10.0.1.35', port=19812, user='Administrador', password='')
+cur = conn.cursor()
+
+# 1. All tables and column metadata
+cur.execute("SELECT TABLE_NAME, COLUMN_NAME, TYPE_NAME, IS_NULLABLE FROM _USER_COLUMNS ORDER BY TABLE_NAME, ORDINAL_POSITION")
+rows = cur.fetchall()
+by_table = {}
+for r in rows:
+    by_table.setdefault(r[0], []).append(r[1])
+json.dump(by_table, open('/tmp/4d_all_columns.json', 'w'))
+
+# 2. All SQL views
+cur.execute("SELECT TABLE_NAME FROM _USER_VIEWS ORDER BY TABLE_NAME")
+views = [r[0] for r in cur.fetchall()]
+# For each view: SELECT * FROM <view> LIMIT 1 to get column descriptions
+# (run one view per process — wide views with Picture/Blob crash the driver)
+
+# 3. All indexed columns
+cur.execute("SELECT TABLE_NAME, COLUMN_NAME, INDEX_NAME FROM _USER_IND_COLUMNS ORDER BY TABLE_NAME")
+rows = cur.fetchall()
+json.dump(rows, open('/tmp/4d_index_columns.json', 'w'))
+
+# 4. FK/PK constraints
+cur.execute("SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE FROM _USER_CONS_COLUMNS ORDER BY TABLE_NAME")
+rows = cur.fetchall()
+json.dump(rows, open('/tmp/4d_cons_columns.json', 'w'))
+```
+
+```python
+# SOAP — list all payment methods and stores
+import zeep
+wsdl = 'http://10.0.1.35:8080/4DWSDL'
+client = zeep.Client(wsdl=wsdl)
+# WS_JS_GetInfoTiendas() → JSON string with all store info
+result = client.service.WS_JS_GetInfoTiendas()
+tiendas = json.loads(result)
+json.dump(tiendas, open('/tmp/4d_tiendas.json', 'w'))
+```
+
+### What Was Discovered vs. What Was Already Known
+
+| Finding | Was documented | Correction/addition |
+|---------|---------------|---------------------|
+| Exportaciones has 34 stock slots | Partially (17 slots) | **Corrected** to 34 (Stock1-34, Talla1-34) |
+| SQL views (_USER_VIEWS) exist | No | **New**: 100 views — 50 *_SQL + 50 *_BI |
+| FamiGrupMarc.SerieTallas | Expected to contain size series | **Confirmed blank** in all 78 production rows |
+| GCLinPedidos has 5-dim × 34-slot matrix | Partially | **Corrected**: Pedidas/Entregadas/Asignadas/Original all × 34 |
+| Ventas has TBAI, SAF-T, Aena, marketplace fields | Not documented | **New**: 30+ fiscal/channel fields added |
+| Tiendas has 208 columns | Not detailed | **New**: 11 field groups, AENA_*, CON*, groupings documented |
+| FormasPago has VP1-12 installment slots | Not detailed | **New**: full 30-column breakdown documented |
+| Clientes has Mayorista, B2B provisional, GDPR, optical measurement fields | Partially | **New**: confirmed + 15 field groups documented |
+| FamiGrupMarc has CATAdidas/CATNike brand integration fields | No | **New**: Adidas data feed and Nike catalog mapping |
+| 130 WS_JS_* SOAP methods exist | Partially (some known) | **New**: full WSDL enumeration of all signatures |
+| 88 FK relationships confirmed | Partial guess | **Confirmed** from _USER_CONS_COLUMNS |
+
+### Views That Crash the p4d Driver
+
+These views contain Picture or Blob-type fields and cause the C extension to abort:
+
+| View | Reason |
+|------|--------|
+| `Articulos_SQL` | Contains Picture fields (product images) |
+| `Cajas_SQL` | Contains Blob fields |
+| `Clientes_SQL` | Contains Picture/Blob (customer photo, signature) |
+| `CCStock_SQL` | "Unrecognized 4D type: 0" — skip entirely |
+
+For Clientes column list: use `_USER_COLUMNS` query (confirmed 311 columns from that source).
+
+### To Re-run Full Extraction
+
+```bash
+# 1. Rebuild string extraction from .4DC binary
+strings -n 5 "/Users/alobato/Desktop/Power/files/PowerShop Server/Server Database/PowerShop.4DC" > /tmp/4dc_strings.txt
+wc -l /tmp/4dc_strings.txt  # expect ~5.7M
+
+# 2. Re-query live 4D server (needs network access to 10.0.1.35)
+/Users/alobato/git/powershop-analytics/.venv/bin/python3 -c "
+import p4d, json
+conn = p4d.connect(host='10.0.1.35', port=19812, user='Administrador', password='')
+cur = conn.cursor()
+cur.execute('SELECT TABLE_NAME, COLUMN_NAME FROM _USER_COLUMNS ORDER BY TABLE_NAME, ORDINAL_POSITION')
+rows = cur.fetchall()
+by_table = {}
+for r in rows:
+    by_table.setdefault(r[0], []).append(r[1])
+json.dump(by_table, open('/tmp/4d_all_columns.json', 'w'))
+print('Done:', len(by_table), 'tables')
+"
+
+# 3. Query all SQL views (skip crashing ones)
+# See docs/sql-views.md for the safe view list
+```
+
+---
+
 ## Products Domain
 
 ### Articulos -- Product Master (~41,220 rows, 372 columns)
