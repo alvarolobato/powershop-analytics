@@ -651,7 +651,16 @@ INSTRUCTIONS = [
 
     # ── Magnitude guardrails (H: order-of-magnitude checks) ───────────
     {
-        "instruction": "GUARDIA DE MAGNITUD: Si el resultado de una consulta parece fuera de rango, revisar los filtros antes de presentarlo. Rangos esperados para esta cadena: ventas retail mensuales (toda la cadena) €200K-€3M; ticket medio retail €30-€250; stock total en unidades 20K-400K; valor del stock al coste €500K-€15M; artículos activos en catálogo 30K-60K; tiendas activas 30-80; albaranes mayoristas mensuales 50-2.000. Causas comunes de valores absurdos: olvidar entrada=true (incluye devoluciones con signo negativo), olvidar stock>0 (negativos inflan la suma), JOIN sin DISTINCT (multiplica filas), mezclar retail y mayorista.",
+        "instruction": (
+            "GUARDIA DE MAGNITUD — solo aplicar cuando el resultado parece imposible, no cuando es simplemente bajo o alto. "
+            "Los rangos siguientes son para TODA LA CADENA y PERÍODO MENSUAL: ventas netas retail €200K–€3M; "
+            "ticket medio €30–€250; stock total en unidades 20K–400K; valor del stock al coste €500K–€15M. "
+            "Escalar proporcionalmente si la consulta es más estrecha: una tienda ÷ ~50, un día ÷ ~30, "
+            "una familia de producto ÷ ~20. NO añadir advertencias de magnitud en consultas acotadas a una tienda, "
+            "un artículo, un día o un departamento — el resultado bajo es correcto. "
+            "Solo revisar filtros si el resultado es > 10x el rango esperado (probable JOIN sin DISTINCT o falta de entrada=true) "
+            "o exactamente 0 en un período con ventas conocidas."
+        ),
         "questions": [
             "¿El resultado parece correcto?",
             "¿Por qué el stock vale €1.000 millones?",
