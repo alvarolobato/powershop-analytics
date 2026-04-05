@@ -91,7 +91,11 @@ export default function ViewDashboard() {
     return { from, to };
   });
 
-  // When date range changes, trigger a refresh of all widget queries
+  // When date range changes, store the range and re-run all widget queries.
+  // The date range is displayed in the picker for context; actual SQL filtering
+  // depends on the widget SQL containing appropriate date expressions.
+  // In a future iteration, widgets with a dateColumn hint could use
+  // injectDateRange() to automatically apply the range client-side.
   const handleDateRangeChange = useCallback((range: DateRange) => {
     setDateRange(range);
     setRefreshKey((k) => k + 1);

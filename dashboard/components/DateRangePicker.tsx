@@ -100,10 +100,15 @@ function formatDisplayRange(range: DateRange): string {
 
 /**
  * Date range picker with presets.
- * Designed to be used in the dashboard toolbar to filter widget queries by date.
+ * Designed to be used in the dashboard toolbar as a UX control for selecting
+ * a date range. The picker itself only provides the selected range via `onChange`.
+ * Callers are responsible for using the range to filter data — either by
+ * re-running widget queries (e.g., incrementing refreshKey), by passing the
+ * range to the LLM to regenerate SQL, or by applying `injectDateRange()` when
+ * the widget SQL selects the date column directly.
  *
  * Usage:
- *   <DateRangePicker value={dateRange} onChange={setDateRange} />
+ *   <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
  */
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
