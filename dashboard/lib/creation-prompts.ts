@@ -8,29 +8,12 @@
  */
 
 import { INSTRUCTIONS, SCHEMA, RELATIONSHIPS } from "./knowledge";
-import type { TableSchema, Relationship, Instruction } from "./knowledge";
+import { formatSchema, formatRelationships, formatInstructions } from "./prompts";
 
-// ─── Helpers (re-exported for testing) ──────────────────────────────────────
-
-export function formatSchemaForSuggest(schema: TableSchema[]): string {
-  const lines = schema.map(
-    (t) =>
-      `- **${t.table}** (${t.alias}): ${t.description}\n  Columns: ${t.keyColumns.join(", ")}`
-  );
-  return `## PostgreSQL Schema (ps_* tables)\n\n${lines.join("\n\n")}`;
-}
-
-export function formatRelationshipsForSuggest(rels: Relationship[]): string {
-  const lines = rels.map(
-    (r) => `- ${r.from}.${r.fromColumn} → ${r.to}.${r.toColumn} (${r.type})`
-  );
-  return `## Table Relationships\n\n${lines.join("\n")}`;
-}
-
-export function formatInstructionsForSuggest(instructions: Instruction[]): string {
-  const lines = instructions.map((inst, i) => `${i + 1}. ${inst.instruction}`);
-  return `## Business Rules\n\n${lines.join("\n")}`;
-}
+// Re-export format helpers under descriptive names for tests and clarity
+export { formatSchema as formatSchemaForSuggest };
+export { formatRelationships as formatRelationshipsForSuggest };
+export { formatInstructions as formatInstructionsForSuggest };
 
 // ─── Suggest prompt ──────────────────────────────────────────────────────────
 
@@ -87,11 +70,11 @@ export function buildSuggestPrompt(
     "- Avoid overlap with existing dashboards listed below",
     "",
     existingSection,
-    formatSchemaForSuggest(SCHEMA),
+    formatSchema(SCHEMA),
     "",
-    formatRelationshipsForSuggest(RELATIONSHIPS),
+    formatRelationships(RELATIONSHIPS),
     "",
-    formatInstructionsForSuggest(INSTRUCTIONS),
+    formatInstructions(INSTRUCTIONS),
   ].join("\n");
 }
 
@@ -155,10 +138,10 @@ export function buildGapAnalysisPrompt(
     "- If all major areas are already covered, return 1-2 gaps for deeper analysis or cross-domain insights",
     "",
     coverageSection,
-    formatSchemaForSuggest(SCHEMA),
+    formatSchema(SCHEMA),
     "",
-    formatRelationshipsForSuggest(RELATIONSHIPS),
+    formatRelationships(RELATIONSHIPS),
     "",
-    formatInstructionsForSuggest(INSTRUCTIONS),
+    formatInstructions(INSTRUCTIONS),
   ].join("\n");
 }

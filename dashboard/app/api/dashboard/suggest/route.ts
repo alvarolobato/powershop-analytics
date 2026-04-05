@@ -17,34 +17,12 @@
 
 import { NextResponse } from "next/server";
 import { suggestDashboards } from "@/lib/llm";
+import { extractJson } from "@/lib/llm-json";
 import {
   formatApiError,
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
-
-/**
- * Extract JSON from an LLM response that may be wrapped in markdown code blocks.
- *
- * Handles both fully-fenced responses and fenced blocks with surrounding text.
- */
-function extractJson(raw: string): string {
-  const trimmed = raw.trim();
-
-  // Try fully-anchored fence first (clean response)
-  const fullFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (fullFenceMatch) {
-    return fullFenceMatch[1].trim();
-  }
-
-  // Try non-anchored: extract first fenced block even if there is surrounding text
-  const partialFenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (partialFenceMatch) {
-    return partialFenceMatch[1].trim();
-  }
-
-  return trimmed;
-}
 
 export async function POST(request: Request): Promise<NextResponse> {
   const requestId = generateRequestId();

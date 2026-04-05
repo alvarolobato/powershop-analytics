@@ -2,8 +2,10 @@
  * Task-oriented prompts for the "¿Qué necesitas hacer?" section of the New Dashboard page.
  *
  * These are 6 hardcoded, decision-support prompts for common business tasks.
- * Each prompt is pre-optimised for the LLM and references the correct table
- * names and business rules (total_si, entrada=true, tienda<>'99').
+ * Each prompt is pre-optimised for the LLM and references the correct table names.
+ * Retail-focused prompts apply the standard business rules (total_si, entrada=true,
+ * tienda<>'99'); wholesale prompts use the mayorista tables and rules (base1+base2+base3,
+ * abono=false). Not all rules apply to every prompt — see each entry for details.
  */
 
 export interface TaskPrompt {
