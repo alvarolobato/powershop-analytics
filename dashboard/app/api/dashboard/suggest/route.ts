@@ -79,14 +79,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const existingDashboards = (b.existingDashboards as unknown[]).map((d) => {
-    if (typeof d !== "object" || d === null) return { title: "", description: "" };
-    const item = d as Record<string, unknown>;
-    return {
-      title: typeof item.title === "string" ? item.title : "",
-      description: typeof item.description === "string" ? item.description : "",
-    };
-  });
+  const existingDashboards = (b.existingDashboards as unknown[])
+    .map((d) => {
+      if (typeof d !== "object" || d === null) return null;
+      const item = d as Record<string, unknown>;
+      return {
+        title: typeof item.title === "string" ? item.title.trim() : "",
+        description:
+          typeof item.description === "string" ? item.description.trim() : "",
+      };
+    })
+    // Remove invalid/empty entries to avoid noisy tokens in the LLM prompt
+    .filter((d): d is { title: string; description: string } => d !== null && d.title.length > 0);
 
   // --- Call LLM ---
   let rawResponse: string;

@@ -276,7 +276,7 @@ export default function NewDashboard() {
     }
   };
 
-  const isDisabled = loading || loadingTemplate !== null;
+  const isDisabled = loading || loadingTemplate !== null || loadingSuggestions || loadingGaps;
 
   return (
     <div className="space-y-10">
@@ -289,6 +289,11 @@ export default function NewDashboard() {
           Elige cómo quieres crear tu cuadro de mando
         </p>
       </div>
+
+      {/* Global error banner — shown for errors triggered by task cards, suggestions, or gap buttons */}
+      {error && lastErrorSource !== "generate" && (
+        <ErrorDisplay error={error} />
+      )}
 
       {/* Section 1: Task-oriented prompts */}
       <div>
