@@ -1,0 +1,63 @@
+name: AI Address PR Feedback
+on:
+  pull_request_review:
+    types: [submitted]
+
+concurrency:
+  group: ai-address-feedback-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  address:
+    # Only run for reviews that request changes, and not from this bot (avoid loops)
+    if: >-
+      github.event.review.state == 'changes_requested' &&
+      github.event.review.user.login != 'github-actions[bot]' &&
+      github.event.review.user.login != 'claude[bot]' &&
+      !contains(github.event.pull_request.labels.*.name, 'no-address-feedback')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Address Review Feedback
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            A reviewer has requested changes on this PR. Read ALL review comments and address them.
+
+            ## What to fix (DO these):
+            - Typos, naming, and formatting issues
+            - Type corrections and import cleanup
+            - Simple logic corrections with obvious fixes
+            - Documentation improvements
+            - Minor refactors suggested by reviewer
+            - Lint and style issues
+
+            ## What NOT to fix (SKIP these):
+            - Architectural redesigns
+            - Algorithm rewrites
+            - Subjective style preferences with no clear consensus
+            - Performance optimizations requiring benchmarks
+            - Changes that would significantly alter the PR scope
+
+            ## For each review comment:
+            1. If you can fix it: apply the fix and reply to the comment thread explaining what you changed
+            2. If you should skip it: reply to the comment explaining WHY you're skipping it
+
+            ## Also check CI:
+            If CI is failing, check the logs. Fix straightforward failures:
+            - Lint errors → fix them
+            - Type errors → fix them
+            - Missing imports → add them
+            - Simple test failures with obvious fixes → fix them
+
+            Commit all fixes with a message like: "fix: address review feedback"
