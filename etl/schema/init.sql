@@ -392,7 +392,7 @@ CREATE TABLE IF NOT EXISTS dashboards (
 );
 
 -- Add analyze chat messages column if it doesn't exist (migration-safe)
-ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS chat_messages_analyze JSONB DEFAULT '[]';
+ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS chat_messages_analyze JSONB DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS dashboard_versions (
     id            SERIAL       PRIMARY KEY,

@@ -34,6 +34,13 @@ function formatValue(val: unknown): string {
   return String(val);
 }
 
+/** Escape a string for use in a markdown table cell. */
+function escapeMdCell(val: string): string {
+  // Replace literal pipe characters to avoid breaking markdown table structure
+  // Replace newlines to keep each row on a single line
+  return val.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 /** Extract a single scalar value from a WidgetData result (first row, first column). */
 function extractScalar(data: WidgetData | null): string {
   if (!data || data.rows.length === 0) return "[sin datos]";
@@ -46,12 +53,12 @@ function renderMarkdownTable(data: WidgetData, maxRows: number): string {
   if (!data || data.rows.length === 0) return "[sin datos]";
 
   const cols = data.columns;
-  const headerRow = `| ${cols.join(" | ")} |`;
+  const headerRow = `| ${cols.map(escapeMdCell).join(" | ")} |`;
   const separatorRow = `| ${cols.map(() => "---").join(" | ")} |`;
 
   const rowsToShow = data.rows.slice(0, maxRows);
   const dataRows = rowsToShow.map(
-    (row) => `| ${row.map(formatValue).join(" | ")} |`
+    (row) => `| ${row.map((v) => escapeMdCell(formatValue(v))).join(" | ")} |`
   );
 
   const lines = [headerRow, separatorRow, ...dataRows];

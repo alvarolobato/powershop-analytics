@@ -47,7 +47,7 @@ const ACTION_INSTRUCTIONS: Record<AnalyzeAction, string> = {
 // ─── Business knowledge summary ───────────────────────────────────────────────
 
 function formatBusinessRules(): string {
-  const lines = INSTRUCTIONS.slice(0, 15).map(
+  const lines = INSTRUCTIONS.map(
     (inst, i) => `${i + 1}. ${inst.instruction}`
   );
   return `## Reglas de negocio clave\n\n${lines.join("\n")}`;

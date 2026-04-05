@@ -118,7 +118,7 @@ describe("ErrorDisplay", () => {
       if (originalDescriptor) {
         Object.defineProperty(navigator, "clipboard", originalDescriptor);
       } else {
-        delete (navigator as Record<string, unknown>).clipboard;
+        delete (navigator as unknown as Record<string, unknown>).clipboard;
       }
     }
   });

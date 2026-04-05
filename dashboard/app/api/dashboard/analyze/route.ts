@@ -38,13 +38,14 @@ function deserializeWidgetData(
     if (typeof value !== "object" || value === null) continue;
     const entry = value as Record<string, unknown>;
 
-    // Reconstruct WidgetStateData shape
+    // Reconstruct WidgetStateData shape, propagating loading to preserve
+    // "[datos no disponibles]" vs "[sin datos]" distinction in serializer
     const widgetState: WidgetStateData = {
       data: (entry.data ?? null) as WidgetData | null | (WidgetData | null)[],
       trendData: Array.isArray(entry.trendData)
         ? (entry.trendData as (WidgetData | null)[])
         : undefined,
-      loading: false,
+      loading: typeof entry.loading === "boolean" ? entry.loading : false,
       error: null,
     };
     map.set(idx, widgetState);
@@ -165,7 +166,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // --- Generate suggestions in parallel (non-blocking) ---------------------
+  // --- Generate suggestions before returning the response ------------------
   const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
   const suggestions = await generateSuggestions(serializedData, lastExchange);
 
