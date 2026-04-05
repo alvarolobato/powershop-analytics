@@ -130,7 +130,7 @@ export default function NewDashboard() {
         {error && (
           <ErrorDisplay
             error={error}
-            onRetry={typeof error === "string" ? undefined : handleGenerate}
+            onRetry={handleGenerate}
           />
         )}
 

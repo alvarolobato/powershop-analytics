@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
+import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import { ErrorDisplay } from "./ErrorDisplay";
 import {
@@ -61,9 +62,9 @@ async function fetchWidgetData(
     try {
       const body = await res.json();
       if (body && typeof body === "object") {
-        // Check if it matches our structured error format
-        if ("error" in body && "code" in body && "requestId" in body) {
-          errorPayload = body as ApiErrorResponse;
+        // Use the shared type guard for a precise check (all required fields)
+        if (isApiErrorResponse(body)) {
+          errorPayload = body;
         } else if ("error" in body && typeof body.error === "string") {
           // Non-structured error with a message
           fallbackMessage = body.error as string;
