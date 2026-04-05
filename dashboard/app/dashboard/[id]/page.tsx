@@ -4,7 +4,10 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
 import ChatSidebar from "@/components/ChatSidebar";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
+import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -59,13 +62,13 @@ export default function ViewDashboard() {
 
   const [dashboard, setDashboard] = useState<DashboardRecord | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<ApiErrorResponse | string | null>(null);
   const saveCounter = useRef(0);
   const latestSpecRef = useRef<DashboardSpec | null>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -84,6 +87,16 @@ export default function ViewDashboard() {
   const [copySuccess, setCopySuccess] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
+  // Toast for silent failures (name save)
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = useCallback((message: string) => {
+    setToast(message);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 4000);
+  }, []);
+
   // Load dashboard
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -95,7 +108,15 @@ export default function ViewDashboard() {
         setNotFound(true);
         return;
       }
-      if (!res.ok) throw new Error("Error al cargar el dashboard");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        if (isApiErrorResponse(errBody)) {
+          setError(errBody);
+        } else {
+          setError("Error al cargar el dashboard");
+        }
+        return;
+      }
       const data: DashboardRecord = await res.json();
       setDashboard(data);
       setNameValue(data.name);
@@ -124,6 +145,13 @@ export default function ViewDashboard() {
       nameInputRef.current?.select();
     }
   }, [editingName]);
+
+  // Cleanup toast timer on unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
 
   // -------------------------------------------------------------------------
   // Auto-refresh logic
@@ -219,7 +247,13 @@ export default function ViewDashboard() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ spec, prompt }),
         });
-        if (!res.ok) throw new Error("Error al guardar");
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => null);
+          if (isApiErrorResponse(errBody)) {
+            throw errBody;
+          }
+          throw new Error("Error al guardar");
+        }
         const updated: DashboardRecord = await res.json();
         // Only apply if this is still the latest save
         if (thisCount === saveCounter.current) {
@@ -227,9 +261,13 @@ export default function ViewDashboard() {
         }
       } catch (err) {
         if (thisCount === saveCounter.current) {
-          setSaveError(
-            err instanceof Error ? err.message : "Error al guardar",
-          );
+          if (isApiErrorResponse(err)) {
+            setSaveError(err);
+          } else {
+            setSaveError(
+              err instanceof Error ? err.message : "Error al guardar",
+            );
+          }
         }
       } finally {
         if (thisCount === saveCounter.current) {
@@ -275,21 +313,38 @@ export default function ViewDashboard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ spec: currentSpec, name: trimmed, skipVersion: true }),
       });
-      if (!res.ok) throw new Error("Error al guardar el nombre");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        if (isApiErrorResponse(errBody)) {
+          throw errBody;
+        }
+        throw new Error(
+          (errBody?.error as string) || "Error al guardar el nombre",
+        );
+      }
       const updated: DashboardRecord = await res.json();
       if (thisCount === saveCounter.current) {
         setDashboard(updated);
       }
-    } catch {
+    } catch (err) {
       if (thisCount === saveCounter.current) {
-        // Revert on failure
+        // Revert on failure and notify via toast
         setDashboard((prev) =>
           prev ? { ...prev, name: dashboard.name } : prev,
         );
         setNameValue(dashboard.name);
+        if (isApiErrorResponse(err)) {
+          showToast(err.error);
+        } else {
+          showToast(
+            err instanceof Error
+              ? err.message
+              : "No se pudo guardar el nombre del dashboard.",
+          );
+        }
       }
     }
-  }, [nameValue, dashboard, id]);
+  }, [nameValue, dashboard, id, showToast]);
 
   // Handle manual save button
   const handleSave = useCallback(() => {
@@ -361,17 +416,10 @@ export default function ViewDashboard() {
   if (error || !dashboard) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-          <p className="text-sm text-red-800">
-            {error || "Error al cargar el dashboard"}
-          </p>
-          <button
-            onClick={fetchDashboard}
-            className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-900"
-          >
-            Reintentar
-          </button>
-        </div>
+        <ErrorDisplay
+          error={error || "Error al cargar el dashboard"}
+          onRetry={fetchDashboard}
+        />
       </div>
     );
   }
@@ -382,6 +430,17 @@ export default function ViewDashboard() {
 
   return (
     <div className={`transition-all ${chatOpen ? "mr-[350px]" : ""}`}>
+      {/* Toast notification */}
+      {toast && (
+        <div
+          role="alert"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[100] rounded-lg bg-red-600 px-4 py-2 text-sm text-white shadow-lg"
+          data-testid="toast"
+        >
+          {toast}
+        </div>
+      )}
+
       {/* Top bar */}
       <div className="no-print mb-6 flex items-center justify-between">
         <div className="flex items-center gap-4">
@@ -503,7 +562,9 @@ export default function ViewDashboard() {
             <span className="text-xs text-gray-400">Guardando...</span>
           )}
           {saveError && (
-            <span className="text-xs text-red-500">{saveError}</span>
+            <span className="text-xs text-red-600">
+              {typeof saveError === "string" ? saveError : saveError.error}
+            </span>
           )}
           <button
             onClick={handleSave}

@@ -5,11 +5,16 @@
  * an updated spec, validates it, and returns the result.
  *
  * Request body: { spec: DashboardSpec, prompt: string }
- * Response: 200 with updated DashboardSpec, or 400/500 on error.
+ * Response: 200 with updated DashboardSpec, or 400/429/500 on error.
  */
 import { NextResponse } from "next/server";
 import { modifyDashboard } from "@/lib/llm";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
+import {
+  formatApiError,
+  generateRequestId,
+  sanitizeErrorMessage,
+} from "@/lib/errors";
 
 /**
  * Extract JSON from a string that may be wrapped in markdown code blocks.
@@ -24,20 +29,27 @@ function extractJson(raw: string): string {
 }
 
 export async function POST(request: Request) {
+  const requestId = generateRequestId();
+
   // --- Parse request body ---------------------------------------------------
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON in request body" },
+      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "Request body must be a JSON object" },
+      formatApiError(
+        "El cuerpo JSON debe ser un objeto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -47,14 +59,24 @@ export async function POST(request: Request) {
   // --- Validate required fields ---------------------------------------------
   if (spec === undefined) {
     return NextResponse.json(
-      { error: "Missing required field: spec" },
+      formatApiError(
+        "Falta el campo 'spec'.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
 
   if (!prompt || typeof prompt !== "string" || prompt.trim() === "") {
     return NextResponse.json(
-      { error: "Missing required field: prompt" },
+      formatApiError(
+        "Falta el campo 'prompt' o está vacío.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -63,10 +85,12 @@ export async function POST(request: Request) {
   const specParse = DashboardSpecSchema.safeParse(spec);
   if (!specParse.success) {
     return NextResponse.json(
-      {
-        error: "Invalid dashboard spec",
-        details: specParse.error.issues.map((i) => i.message),
-      },
+      formatApiError(
+        "La especificación del dashboard no es válida.",
+        "VALIDATION",
+        specParse.error.issues.map((i) => i.message).join("; "),
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -79,10 +103,26 @@ export async function POST(request: Request) {
       prompt.trim(),
     );
   } catch (err) {
-    console.error("Failed to modify dashboard via LLM", err);
+    const message = err instanceof Error ? err.message : String(err);
+    const normalizedMessage = message.toLowerCase();
+    console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
+
+    // Detect rate limit (case-insensitive)
+    const isRateLimit =
+      normalizedMessage.includes("rate limit") ||
+      normalizedMessage.includes("ratelimit") ||
+      normalizedMessage.includes("429");
+
     return NextResponse.json(
-      { error: "Failed to modify dashboard", code: "LLM_MODIFY_FAILED" },
-      { status: 500 },
+      formatApiError(
+        isRateLimit
+          ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+          : "No se pudo modificar el dashboard. Inténtalo de nuevo.",
+        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
+      { status: isRateLimit ? 429 : 500 },
     );
   }
 
@@ -92,8 +132,16 @@ export async function POST(request: Request) {
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
+    console.error(
+      `[${requestId}] El LLM devolvió JSON inválido al modificar (${jsonStr.length} chars)`,
+    );
     return NextResponse.json(
-      { error: "LLM returned invalid JSON" },
+      formatApiError(
+        "El modelo de IA devolvió una respuesta con formato incorrecto.",
+        "LLM_INVALID_RESPONSE",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -102,8 +150,14 @@ export async function POST(request: Request) {
   try {
     updatedSpec = validateSpec(parsed);
   } catch {
+    console.error(`[${requestId}] El LLM devolvió un spec inválido al modificar.`);
     return NextResponse.json(
-      { error: "LLM returned a spec that failed validation" },
+      formatApiError(
+        "El modelo de IA generó un dashboard con estructura incorrecta.",
+        "LLM_INVALID_RESPONSE",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }

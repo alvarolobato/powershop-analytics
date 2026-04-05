@@ -167,7 +167,8 @@ describe("POST /api/dashboard/generate", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("invalid JSON");
+    expect(json.code).toBe("LLM_INVALID_RESPONSE");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 400 when LLM returns JSON that fails schema validation", async () => {
@@ -178,7 +179,7 @@ describe("POST /api/dashboard/generate", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("invalid dashboard spec");
+    expect(json.code).toBe("LLM_INVALID_RESPONSE");
     expect(json.details).toBeDefined();
   });
 

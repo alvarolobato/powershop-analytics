@@ -72,7 +72,9 @@ describe("GET /api/dashboards", () => {
     const json = await res.json();
 
     expect(res.status).toBe(500);
-    expect(json.error).toContain("Failed to list");
+    expect(json.error).toBeDefined();
+    expect(json.code).toBe("DB_QUERY");
+    expect(json.requestId).toBeDefined();
   });
 });
 
@@ -150,7 +152,8 @@ describe("POST /api/dashboards", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("Invalid spec");
+    expect(json.error).toBeDefined();
+    expect(json.code).toBe("VALIDATION");
     expect(json.details).toBeDefined();
   });
 
@@ -169,7 +172,8 @@ describe("POST /api/dashboards", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("object");
+    expect(json.code).toBe("VALIDATION");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 500 on database error", async () => {
@@ -179,6 +183,8 @@ describe("POST /api/dashboards", () => {
     const json = await res.json();
 
     expect(res.status).toBe(500);
-    expect(json.error).toContain("Failed to create");
+    expect(json.error).toBeDefined();
+    expect(json.code).toBe("DB_QUERY");
+    expect(json.requestId).toBeDefined();
   });
 });
