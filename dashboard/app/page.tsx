@@ -109,14 +109,14 @@ export default function Home() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Dashboards</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Dashboards</h1>
+          <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
             Crea y gestiona cuadros de mando con inteligencia artificial
           </p>
         </div>
         <Link
           href="/dashboard/new"
-          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+          className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
         >
           + Crear nuevo
         </Link>
@@ -179,7 +179,7 @@ export default function Home() {
                 {dashboard.description && (
                   <Text className="line-clamp-2">{dashboard.description}</Text>
                 )}
-                <p className="text-xs text-gray-400">
+                <p className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
                   {formatDate(dashboard.updated_at)}
                 </p>
               </Link>
@@ -187,7 +187,7 @@ export default function Home() {
                 onClick={() => handleDelete(dashboard.id)}
                 disabled={deletingId === dashboard.id}
                 aria-label={`Eliminar ${dashboard.name}`}
-                className="absolute top-3 right-3 text-gray-400 hover:text-red-600 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                className="absolute top-3 right-3 text-tremor-content-subtle dark:text-dark-tremor-content-subtle hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
               >
                 {deletingId === dashboard.id ? "..." : "\u2715"}
               </button>

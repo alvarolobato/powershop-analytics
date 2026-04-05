@@ -4,6 +4,7 @@ import { Card, LineChart } from "@tremor/react";
 import type { LineChartWidget as LineChartWidgetSpec } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
+import { CHART_COLORS } from "./chart-colors";
 
 interface LineChartWidgetProps {
   widget: LineChartWidgetSpec;
@@ -58,6 +59,7 @@ export function LineChartWidget({ widget, data }: LineChartWidgetProps) {
           data={chartData}
           index={xCol}
           categories={[yCol]}
+          colors={CHART_COLORS}
           showYAxis={false}
         />
       </div>
@@ -68,6 +70,7 @@ export function LineChartWidget({ widget, data }: LineChartWidgetProps) {
           data={chartData}
           index={xCol}
           categories={[yCol]}
+          colors={CHART_COLORS}
           yAxisWidth={60}
         />
       </div>

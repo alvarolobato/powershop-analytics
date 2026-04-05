@@ -62,14 +62,14 @@ function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: 
   };
 
   return (
-    <div className="text-sm text-red-700">
+    <div className="text-sm text-red-400">
       <p>{message}</p>
       {errorDetail && (
         <div className="mt-1">
           <button
             type="button"
             onClick={() => setExpanded((p) => !p)}
-            className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800"
+            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300"
             aria-expanded={expanded}
             data-testid="chat-toggle-details"
           >
@@ -84,7 +84,7 @@ function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: 
           </button>
           {expanded && (
             <div
-              className="mt-1 rounded bg-red-100 p-2 text-xs font-mono space-y-0.5"
+              className="mt-1 rounded bg-red-900/20 p-2 text-xs font-mono space-y-0.5 text-red-300"
               data-testid="chat-error-details"
             >
               <div>
@@ -102,7 +102,7 @@ function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: 
               <button
                 type="button"
                 onClick={handleCopy}
-                className="mt-1 text-xs text-red-600 hover:text-red-800 underline"
+                className="mt-1 text-xs text-red-400 hover:text-red-300 underline"
               >
                 {copied ? "Copiado!" : "Copiar detalles"}
               </button>
@@ -284,17 +284,17 @@ export default function ChatSidebar({
   return (
     <aside
       data-testid="chat-sidebar"
-      className="fixed right-0 top-0 h-full w-[350px] bg-white border-l border-gray-200 shadow-xl flex flex-col z-50"
+      className="fixed right-0 top-0 h-full w-[350px] bg-tremor-background dark:bg-dark-tremor-background border-l border-tremor-border dark:border-dark-tremor-border shadow-xl flex flex-col z-50"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-        <h2 className="text-sm font-semibold text-gray-800">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
+        <h2 className="text-sm font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
           Modificar Dashboard
         </h2>
         <button
           onClick={onToggle}
           aria-label="Cerrar chat"
-          className="text-gray-500 hover:text-gray-700 text-lg leading-none"
+          className="text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis text-lg leading-none"
         >
           &times;
         </button>
@@ -303,7 +303,7 @@ export default function ChatSidebar({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
-          <p className="text-sm text-gray-400 text-center mt-8">
+          <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle text-center mt-8">
             Escribe un mensaje para modificar el dashboard.
           </p>
         )}
@@ -316,7 +316,7 @@ export default function ChatSidebar({
               className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
               {isError ? (
-                <div className="max-w-[85%] rounded-lg px-3 py-2 bg-red-50 border border-red-200">
+                <div className="max-w-[85%] rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30">
                   <ErrorBubble
                     message={msg.content}
                     errorDetail={msg.errorDetail}
@@ -326,8 +326,8 @@ export default function ChatSidebar({
                 <div
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user"
-                      ? "bg-blue-600 text-white"
-                      : "bg-gray-100 text-gray-800"
+                      ? "bg-blue-500 text-white"
+                      : "bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
                   }`}
                 >
                   {msg.content}
@@ -339,7 +339,7 @@ export default function ChatSidebar({
 
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-gray-100 text-gray-500 rounded-lg px-3 py-2 text-sm">
+            <div className="bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content dark:text-dark-tremor-content rounded-lg px-3 py-2 text-sm">
               <span className="inline-flex gap-1" aria-label="Procesando">
                 <span className="animate-bounce">.</span>
                 <span className="animate-bounce [animation-delay:0.15s]">.</span>
@@ -353,7 +353,7 @@ export default function ChatSidebar({
       </div>
 
       {/* Input */}
-      <div className="border-t border-gray-200 px-4 py-3 bg-gray-50">
+      <div className="border-t border-tremor-border dark:border-dark-tremor-border px-4 py-3 bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
         <div className="flex gap-2">
           <textarea
             ref={textareaRef}
@@ -364,13 +364,13 @@ export default function ChatSidebar({
             aria-label="Mensaje para modificar el dashboard"
             placeholder="Ej: Añade el ticket medio..."
             rows={2}
-            className="flex-1 resize-none rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            className="flex-1 resize-none rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
             disabled={loading || input.trim() === ""}
             aria-label="Enviar"
-            className="self-end rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="self-end rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             Enviar
           </button>

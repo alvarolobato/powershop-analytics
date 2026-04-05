@@ -15,8 +15,8 @@ export function NumberWidget({ widget, data }: NumberWidgetProps) {
   if (!data || data.rows.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-gray-500">{widget.title}</h3>
-        <p className="mt-4 text-center text-sm text-gray-400">
+        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{widget.title}</h3>
+        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
           {EMPTY_MESSAGE}
         </p>
       </Card>
@@ -28,8 +28,8 @@ export function NumberWidget({ widget, data }: NumberWidgetProps) {
 
   return (
     <Card className="p-4">
-      <p className="text-sm text-gray-500">{widget.title}</p>
-      <p className="mt-2 text-4xl font-semibold text-gray-900">
+      <p className="text-sm text-tremor-content dark:text-dark-tremor-content">{widget.title}</p>
+      <p className="mt-2 text-4xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
         {displayValue}
       </p>
     </Card>

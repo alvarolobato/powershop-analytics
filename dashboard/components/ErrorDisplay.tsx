@@ -91,23 +91,23 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
 
   return (
     <div
-      className={`rounded-lg border border-red-300 bg-red-50 p-4 ${className}`}
+      className={`rounded-lg border border-red-500/30 bg-red-500/10 p-4 ${className}`}
       role="alert"
       data-testid="error-display"
     >
       {/* Context title (e.g. widget name) */}
       {title && (
-        <p className="mb-1 text-xs font-semibold text-red-700 uppercase tracking-wide">
+        <p className="mb-1 text-xs font-semibold text-red-400 uppercase tracking-wide">
           {title}
         </p>
       )}
 
       {/* User-facing message */}
       <div className="flex items-start gap-2">
-        <span className="mt-0.5 text-red-500 flex-shrink-0" aria-hidden="true">
+        <span className="mt-0.5 text-red-400 flex-shrink-0" aria-hidden="true">
           &#9888;
         </span>
-        <p className="text-sm font-medium text-red-800">{message}</p>
+        <p className="text-sm font-medium text-red-400">{message}</p>
       </div>
 
       {/* Expandable technical details — only when we have structured info */}
@@ -116,7 +116,7 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
           <button
             type="button"
             onClick={() => setExpanded((prev) => !prev)}
-            className="flex items-center gap-1 text-xs font-medium text-red-700 hover:text-red-900 transition-colors"
+            className="flex items-center gap-1 text-xs font-medium text-red-400 hover:text-red-300 transition-colors"
             aria-expanded={expanded}
             data-testid="toggle-details"
           >
@@ -132,7 +132,7 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
 
           {expanded && (
             <div
-              className="mt-2 rounded bg-red-100 p-3 text-xs text-red-800 font-mono space-y-1"
+              className="mt-2 rounded bg-red-900/20 p-3 text-xs text-red-300 font-mono space-y-1"
               data-testid="technical-details"
             >
               <div>
@@ -167,7 +167,7 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
             <button
               type="button"
               onClick={handleCopy}
-              className="text-xs font-medium text-red-700 hover:text-red-900 underline transition-colors"
+              className="text-xs font-medium text-red-400 hover:text-red-300 underline transition-colors"
               data-testid="copy-details"
             >
               {copied ? "Copiado!" : "Copiar detalles"}
@@ -177,7 +177,7 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
             <button
               type="button"
               onClick={onRetry}
-              className="text-xs font-medium text-red-700 hover:text-red-900 underline transition-colors"
+              className="text-xs font-medium text-red-400 hover:text-red-300 underline transition-colors"
               data-testid="retry-button"
             >
               Reintentar

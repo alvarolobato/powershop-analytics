@@ -116,7 +116,7 @@ export function KpiRow({ widget, data, trendData }: KpiRowProps) {
               {item.label}
             </p>
             <div className="mt-1 flex items-end justify-between gap-2">
-              <p className="text-2xl font-semibold text-tremor-content dark:text-dark-tremor-content">
+              <p className="text-2xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                 {displayValue}
               </p>
               {item.trend_sql && (
