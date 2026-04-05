@@ -177,22 +177,22 @@ Humans stay in control without doing the grunt work:
 
 ## Implementation Plan
 
-### Phase 1: Foundation (Issues #F1-#F3)
+### Phase 1: Foundation (Issues #122-#124)
 Core infrastructure: Claude Code GitHub Action setup, secrets, base workflow patterns.
 
-### Phase 2: PR Lifecycle (Issues #F4-#F7)
+### Phase 2: PR Lifecycle (Issues #125-#128)
 AI-powered PR review, feedback handling, CI investigation, labeling.
 
-### Phase 3: Issue Lifecycle (Issues #F8-#F11)
+### Phase 3: Issue Lifecycle (Issues #129-#132)
 Issue triage, `/plan` and `/ai` commands, Claude Code worker.
 
-### Phase 4: Discovery Agents (Issues #F12-#F17)
+### Phase 4: Discovery Agents (Issues #133-#138)
 Scheduled auditors: ETL health, dashboard quality, SQL validation, bug hunting, security, docs.
 
-### Phase 5: Deployment Automation (Issues #F18-#F20)
+### Phase 5: Deployment Automation (Issues #139-#141)
 Auto-release, Docker push, production deployment notification.
 
-### Phase 6: Refinement (Issues #F21-#F22)
+### Phase 6: Refinement (Issues #142-#143)
 Project summary, feature ideas generator, stale issue management.
 
 ## Secrets Required
