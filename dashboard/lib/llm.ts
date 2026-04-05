@@ -7,6 +7,7 @@
 
 import OpenAI from "openai";
 import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
+import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -99,6 +100,74 @@ export async function modifyDashboard(
     ],
     temperature: 0.2,
     max_tokens: 8192,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
+
+/**
+ * Suggest dashboards for a given role, avoiding overlap with existing ones.
+ *
+ * Returns raw JSON string: array of {name, description, prompt}.
+ */
+export async function suggestDashboards(
+  role: string,
+  existingDashboards: { title: string; description: string }[]
+): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildSuggestPrompt(role, existingDashboards);
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
+
+/**
+ * Analyze coverage gaps in the existing set of dashboards.
+ *
+ * Returns raw JSON string: array of {area, description, suggestedPrompt}.
+ */
+export async function analyzeGaps(
+  existingDashboards: {
+    title: string;
+    description: string;
+    widgetTitles: string[];
+  }[]
+): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content:
+          "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
+      },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
   });
 
   const content = response.choices[0]?.message?.content;
