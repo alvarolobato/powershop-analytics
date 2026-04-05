@@ -46,7 +46,7 @@ const sampleReview: ReviewContent & { id: number; week_start: string } = {
 
 describe("ReviewDisplay", () => {
   const originalClipboard = globalThis.navigator.clipboard;
-  const originalPrint = globalThis.window?.print;
+  let printSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     // Mock clipboard
@@ -57,10 +57,8 @@ describe("ReviewDisplay", () => {
       configurable: true,
       writable: true,
     });
-    // Mock window.print
-    if (typeof window !== "undefined") {
-      window.print = vi.fn();
-    }
+    // Spy on window.print — always safe to restore regardless of original value
+    printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -69,9 +67,7 @@ describe("ReviewDisplay", () => {
       configurable: true,
       writable: true,
     });
-    if (typeof window !== "undefined" && originalPrint) {
-      window.print = originalPrint;
-    }
+    printSpy.mockRestore();
   });
 
   it("renders the executive summary section", () => {
@@ -144,7 +140,7 @@ describe("ReviewDisplay", () => {
   it("clicking print button calls window.print", () => {
     render(<ReviewDisplay review={sampleReview} />);
     fireEvent.click(screen.getByTestId("print-button"));
-    expect(window.print).toHaveBeenCalledTimes(1);
+    expect(printSpy).toHaveBeenCalledTimes(1);
   });
 
   it("renders the copy button", () => {

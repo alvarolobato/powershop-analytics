@@ -24,23 +24,6 @@ export interface ReviewSummaryRow {
   created_at: string;
 }
 
-// ─── DDL ─────────────────────────────────────────────────────────────────────
-
-export async function ensureReviewTable(): Promise<void> {
-  await sql(`
-    CREATE TABLE IF NOT EXISTS weekly_reviews (
-      id SERIAL PRIMARY KEY,
-      week_start DATE NOT NULL,
-      content JSONB NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await sql(`
-    CREATE INDEX IF NOT EXISTS idx_weekly_reviews_week
-    ON weekly_reviews (week_start DESC)
-  `);
-}
-
 // ─── Write ────────────────────────────────────────────────────────────────────
 
 /**
@@ -48,13 +31,12 @@ export async function ensureReviewTable(): Promise<void> {
  *
  * NOTE: This is a write operation — it bypasses validateReadOnly() by using
  * the write-capable pool directly from db-write.ts.
+ * The weekly_reviews table is created via etl/schema/init.sql (not at runtime).
  */
 export async function saveReview(
   weekStart: string,
   content: ReviewContent
 ): Promise<number> {
-  await ensureReviewTable();
-
   const rows = await sql<{ id: number }>(
     `INSERT INTO weekly_reviews (week_start, content)
      VALUES ($1, $2)
@@ -76,8 +58,6 @@ export async function saveReview(
  * Returns summary rows (no full content — for list views).
  */
 export async function getReviews(): Promise<ReviewSummaryRow[]> {
-  await ensureReviewTable();
-
   const rows = await sql<{
     id: number;
     week_start: string;
@@ -107,8 +87,6 @@ export async function getReviews(): Promise<ReviewSummaryRow[]> {
  * Returns null if not found.
  */
 export async function getReviewById(id: number): Promise<ReviewRow | null> {
-  await ensureReviewTable();
-
   const rows = await sql<{
     id: number;
     week_start: string;

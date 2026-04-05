@@ -11,7 +11,6 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
-import Link from "next/link";
 import ReviewDisplay from "@/components/ReviewDisplay";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";

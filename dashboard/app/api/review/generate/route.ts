@@ -17,8 +17,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { query } from "@/lib/db";
-import { ConnectionError, QueryTimeoutError } from "@/lib/db";
+import { query, ConnectionError, QueryTimeoutError } from "@/lib/db";
 import {
   formatApiError,
   generateRequestId,
@@ -67,13 +66,12 @@ export async function POST(): Promise<NextResponse> {
       reviewContent.generated_at = new Date().toISOString();
     }
 
-    // 5. Persist the review
-    const weekStart = new Date();
-    // Calculate Monday of current week (DATE_TRUNC('week', CURRENT_DATE))
-    const dayOfWeek = weekStart.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-    const daysToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
-    weekStart.setDate(weekStart.getDate() + daysToMonday);
-    const weekStartStr = weekStart.toISOString().split("T")[0];
+    // 5. Determine the Monday of the current week using PostgreSQL
+    // (avoids timezone mismatches between Node.js and the DB)
+    const weekStartResult = await query(
+      `SELECT TO_CHAR(DATE_TRUNC('week', CURRENT_DATE)::date, 'YYYY-MM-DD') AS week_start`
+    );
+    const weekStartStr = (weekStartResult.rows[0]?.[0] as string | undefined) ?? new Date().toISOString().split("T")[0];
 
     let reviewId: number;
     try {

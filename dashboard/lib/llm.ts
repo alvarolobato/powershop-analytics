@@ -154,7 +154,7 @@ export async function generateReview(
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
-      { role: "user", content: systemPrompt },
+      { role: "system", content: systemPrompt },
     ],
     temperature: 0.2,
     max_tokens: 4096,
@@ -178,17 +178,43 @@ export async function generateReview(
     );
   }
 
-  // Validate structure
+  // Validate structure (thorough check to catch malformed LLM output early)
+  const obj = parsed as Record<string, unknown>;
+
   if (
     typeof parsed !== "object" ||
     parsed === null ||
-    typeof (parsed as Record<string, unknown>).executive_summary !== "string" ||
-    !Array.isArray((parsed as Record<string, unknown>).sections) ||
-    !Array.isArray((parsed as Record<string, unknown>).action_items)
+    typeof obj.executive_summary !== "string" ||
+    typeof obj.generated_at !== "string" ||
+    !Array.isArray(obj.sections) ||
+    !Array.isArray(obj.action_items)
   ) {
     throw new Error(
       "LLM returned a JSON object that does not match the expected ReviewContent structure"
     );
+  }
+
+  // Validate each section has title and content as strings
+  for (const section of obj.sections as unknown[]) {
+    if (
+      typeof section !== "object" ||
+      section === null ||
+      typeof (section as Record<string, unknown>).title !== "string" ||
+      typeof (section as Record<string, unknown>).content !== "string"
+    ) {
+      throw new Error(
+        "LLM returned a section that does not have the expected { title: string, content: string } shape"
+      );
+    }
+  }
+
+  // Validate each action item is a string
+  for (const item of obj.action_items as unknown[]) {
+    if (typeof item !== "string") {
+      throw new Error(
+        "LLM returned an action_item that is not a string"
+      );
+    }
   }
 
   return parsed as ReviewContent;

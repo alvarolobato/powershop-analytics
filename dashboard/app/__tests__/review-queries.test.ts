@@ -167,14 +167,16 @@ describe("formatAllResults", () => {
     }
   });
 
-  it("indicates errors for failed queries", () => {
+  it("indicates errors for failed queries (sanitized message)", () => {
     const errorResult = {
       query: REVIEW_QUERIES[0],
       error: "Connection refused",
     };
 
     const text = formatAllResults([errorResult]);
+    // Error is sanitized — raw error message is not leaked to LLM context
     expect(text).toContain("error:");
-    expect(text).toContain("Connection refused");
+    // The sanitized message for connection errors
+    expect(text).toContain("fallo de conexión a la base de datos");
   });
 });

@@ -9,13 +9,26 @@
  */
 
 import { NextResponse } from "next/server";
-import { ConnectionError } from "@/lib/db";
 import {
   formatApiError,
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
 import { getReviews } from "@/lib/review-db";
+
+/** pg error codes that indicate a connection failure */
+const PG_CONNECTION_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "ETIMEDOUT",
+  "57P01", // admin_shutdown
+]);
+
+function isConnectionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const code = (err as Record<string, unknown>).code as string | undefined;
+  return code !== undefined && PG_CONNECTION_CODES.has(code);
+}
 
 export async function GET(): Promise<NextResponse> {
   const requestId = generateRequestId();
@@ -24,7 +37,7 @@ export async function GET(): Promise<NextResponse> {
     const reviews = await getReviews();
     return NextResponse.json(reviews);
   } catch (err) {
-    if (err instanceof ConnectionError) {
+    if (isConnectionError(err)) {
       console.error(`[${requestId}] DB connection error:`, err);
       return NextResponse.json(
         formatApiError(

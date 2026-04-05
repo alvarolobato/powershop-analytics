@@ -135,14 +135,18 @@ LIMIT 3`,
     domain: "ventas_retail",
     sql: `SELECT
   lv.codigo,
+  COALESCE(a.ccrefejofacm, lv.codigo) AS referencia,
   COALESCE(a.descripcion, lv.codigo) AS descripcion,
   SUM(lv.unidades) AS unidades_vendidas,
   COALESCE(SUM(lv.total_si), 0) AS importe_neto
 FROM ps_lineas_ventas lv
+JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas
 LEFT JOIN ps_articulos a ON a.codigo = lv.codigo
-WHERE lv.fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)
+WHERE v.entrada = true
+  AND lv.tienda <> '99'
+  AND lv.fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)
   AND lv.unidades > 0
-GROUP BY lv.codigo, a.descripcion
+GROUP BY lv.codigo, a.ccrefejofacm, a.descripcion
 ORDER BY unidades_vendidas DESC
 LIMIT 5`,
   },
@@ -271,6 +275,10 @@ WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
  * the error is captured and remaining queries continue (partial results are
  * better than no review at all).
  *
+ * If a connection-level error is detected (ECONNREFUSED, ENOTFOUND, etc.) it
+ * is re-thrown immediately so the API route can return a 503 without incurring
+ * LLM cost.
+ *
  * @param queryFn - Function that accepts SQL and returns a QueryResult promise
  * @returns Array of ReviewQueryResult (success or error per query)
  */
@@ -287,6 +295,19 @@ export async function executeReviewQueries(
       return { query: q, result: settled.value };
     } else {
       const err = settled.reason;
+      // Re-throw connection-level errors — the caller should return 503
+      // rather than waste an LLM call with an empty result set
+      if (err instanceof Error) {
+        const name = err.constructor?.name ?? "";
+        if (
+          name === "ConnectionError" ||
+          (err as { code?: string }).code === "ECONNREFUSED" ||
+          (err as { code?: string }).code === "ENOTFOUND" ||
+          (err as { code?: string }).code === "ETIMEDOUT"
+        ) {
+          throw err;
+        }
+      }
       return {
         query: q,
         error: err instanceof Error ? err.message : String(err),
@@ -296,12 +317,62 @@ export async function executeReviewQueries(
 }
 
 /**
+ * Normalize a raw execution error message for inclusion in LLM context.
+ *
+ * Avoids leaking operational details (host names, SQL text, connection strings)
+ * from database/driver error messages while preserving enough signal for the
+ * model to understand that a query failed.
+ */
+function normalizeErrorForLlm(error: string): string {
+  const normalized = error.trim().toLowerCase();
+
+  if (
+    normalized.includes("timeout") ||
+    normalized.includes("timed out") ||
+    normalized.includes("statement timeout")
+  ) {
+    return "tiempo de espera agotado al ejecutar la consulta";
+  }
+
+  if (
+    normalized.includes("permission denied") ||
+    normalized.includes("not authorized") ||
+    normalized.includes("insufficient privilege") ||
+    normalized.includes("access denied")
+  ) {
+    return "sin permisos para ejecutar la consulta";
+  }
+
+  if (
+    normalized.includes("connection") ||
+    normalized.includes("connect") ||
+    normalized.includes("econnrefused") ||
+    normalized.includes("could not translate host name") ||
+    normalized.includes("no route to host")
+  ) {
+    return "fallo de conexión a la base de datos";
+  }
+
+  if (
+    normalized.includes("syntax error") ||
+    normalized.includes("does not exist") ||
+    normalized.includes("undefined table") ||
+    normalized.includes("undefined column") ||
+    normalized.includes("invalid input syntax")
+  ) {
+    return "consulta inválida o incompatible con el esquema";
+  }
+
+  return "error interno al ejecutar la consulta";
+}
+
+/**
  * Format all query results as a single text block for LLM context.
  */
 export function formatAllResults(results: ReviewQueryResult[]): string {
   const sections = results.map((r) => {
     if (r.error) {
-      return `${r.query.name}: (error: ${r.error})`;
+      return `${r.query.name}: (error: ${normalizeErrorForLlm(r.error)})`;
     }
     if (!r.result) {
       return `${r.query.name}: (sin datos)`;
