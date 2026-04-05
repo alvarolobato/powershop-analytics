@@ -3,8 +3,9 @@
  *   - buildSuggestPrompt()   — role-based dashboard suggestions
  *   - buildGapAnalysisPrompt() — coverage gap analysis
  *
- * Both functions embed schema, business rules, and example SQL patterns from
- * knowledge.ts so the LLM has full context for generating useful suggestions.
+ * Both functions embed schema, relationships/business context, and
+ * instructions from knowledge.ts so the LLM has full context for generating
+ * useful suggestions.
  */
 
 import { INSTRUCTIONS, SCHEMA, RELATIONSHIPS } from "./knowledge";
