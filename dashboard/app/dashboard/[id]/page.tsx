@@ -9,6 +9,7 @@ import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import type { DateRange } from "@/components/DateRangePicker";
+import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
@@ -71,6 +72,7 @@ export default function ViewDashboard() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [widgetData, setWidgetData] = useState<Map<number, WidgetState>>(new Map());
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
@@ -637,6 +639,24 @@ export default function ViewDashboard() {
             )}
           </div>
 
+          {/* Glosario button — only shown when glossary has entries */}
+          {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
+            <button
+              onClick={() =>
+                setGlossaryOpen((prev) => {
+                  const nextOpen = !prev;
+                  if (nextOpen) setChatOpen(false);
+                  return nextOpen;
+                })
+              }
+              className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+              aria-label={glossaryOpen ? "Cerrar glosario" : "Abrir glosario"}
+              data-testid="glossary-button"
+            >
+              Glosario
+            </button>
+          )}
+
           {saving && (
             <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">Guardando...</span>
           )}
@@ -672,16 +692,31 @@ export default function ViewDashboard() {
         onWidgetDataChange={setWidgetData}
       />
 
-      {/* Chat sidebar */}
+      {/* Chat sidebar — close glossary panel when opening chat to avoid overlap */}
       <ChatSidebar
         spec={dashboard.spec}
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
-        onToggle={() => setChatOpen((prev) => !prev)}
+        onToggle={() =>
+          setChatOpen((prev) => {
+            const nextOpen = !prev;
+            if (nextOpen) setGlossaryOpen(false);
+            return nextOpen;
+          })
+        }
         widgetData={widgetData}
         initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
         onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
       />
+
+      {/* Glossary panel — close chat sidebar when opening glossary to avoid overlap */}
+      {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
+        <GlossaryPanel
+          glossary={dashboard.spec.glossary}
+          isOpen={glossaryOpen}
+          onClose={() => setGlossaryOpen(false)}
+        />
+      )}
     </div>
   );
 }

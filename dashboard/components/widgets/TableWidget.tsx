@@ -2,13 +2,16 @@
 
 import { useState, useMemo } from "react";
 import { Card } from "@tremor/react";
-import type { TableWidget as TableWidgetSpec } from "@/lib/schema";
+import type { TableWidget as TableWidgetSpec, GlossaryItem } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE } from "./types";
+import { applyGlossary } from "@/lib/glossary";
 
 interface TableWidgetProps {
   widget: TableWidgetSpec;
   data: WidgetData | null;
+  /** Optional glossary entries for contextual tooltips on the title. */
+  glossary?: GlossaryItem[];
 }
 
 type SortDir = "asc" | "desc";
@@ -20,7 +23,8 @@ function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === "";
 }
 
-export function TableWidget({ widget, data }: TableWidgetProps) {
+export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
+  const titleNode = applyGlossary(widget.title, glossary);
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -64,7 +68,7 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
   if (!data || data.rows.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{widget.title}</h3>
+        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
         <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
           {EMPTY_MESSAGE}
         </p>
@@ -74,7 +78,7 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
 
   return (
     <Card className="p-4">
-      <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{widget.title}</h3>
+      <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>

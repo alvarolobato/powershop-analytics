@@ -7,7 +7,9 @@
 
 import OpenAI from "openai";
 import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
+import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
+import type { ReviewContent } from "./review-prompts";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -110,6 +112,74 @@ export async function modifyDashboard(
 }
 
 /**
+ * Suggest dashboards for a given role, avoiding overlap with existing ones.
+ *
+ * Returns raw JSON string: array of {name, description, prompt}.
+ */
+export async function suggestDashboards(
+  role: string,
+  existingDashboards: { title: string; description: string }[]
+): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildSuggestPrompt(role, existingDashboards);
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 8192,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
+
+/**
+ * Analyze coverage gaps in the existing set of dashboards.
+ *
+ * Returns raw JSON string: array of {area, description, suggestedPrompt}.
+ */
+export async function analyzeGaps(
+  existingDashboards: {
+    title: string;
+    description: string;
+    widgetTitles: string[];
+  }[]
+): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content:
+          "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
+      },
+    ],
+    temperature: 0.2,
+    max_tokens: 8192,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
+
+/**
  * Analyze dashboard data in response to a user question (in Spanish).
  *
  * Returns the raw LLM response text, which will be markdown-formatted analysis.
@@ -137,6 +207,86 @@ export async function analyzeDashboard(
     throw new Error("LLM returned an empty response");
   }
   return content;
+}
+
+/**
+ * Generate a weekly business review from query results (in Spanish).
+ *
+ * Returns the parsed ReviewContent object. Uses max_tokens: 4096
+ * (reviews are shorter than full dashboard specs).
+ */
+export async function generateReview(
+  systemPrompt: string
+): Promise<ReviewContent> {
+  const client = getClient();
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 4096,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+
+  // Strip optional markdown fences in case the model wraps JSON despite instructions
+  const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const jsonStr = fenced ? fenced[1].trim() : content.trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error(
+      `LLM returned invalid JSON for review. Raw response: ${content.slice(0, 500)}`
+    );
+  }
+
+  // Validate structure (thorough check to catch malformed LLM output early)
+  const obj = parsed as Record<string, unknown>;
+
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    typeof obj.executive_summary !== "string" ||
+    typeof obj.generated_at !== "string" ||
+    !Array.isArray(obj.sections) ||
+    !Array.isArray(obj.action_items)
+  ) {
+    throw new Error(
+      "LLM returned a JSON object that does not match the expected ReviewContent structure"
+    );
+  }
+
+  // Validate each section has title and content as strings
+  for (const section of obj.sections as unknown[]) {
+    if (
+      typeof section !== "object" ||
+      section === null ||
+      typeof (section as Record<string, unknown>).title !== "string" ||
+      typeof (section as Record<string, unknown>).content !== "string"
+    ) {
+      throw new Error(
+        "LLM returned a section that does not have the expected { title: string, content: string } shape"
+      );
+    }
+  }
+
+  // Validate each action item is a string
+  for (const item of obj.action_items as unknown[]) {
+    if (typeof item !== "string") {
+      throw new Error(
+        "LLM returned an action_item that is not a string"
+      );
+    }
+  }
+
+  return parsed as ReviewContent;
 }
 
 /**
