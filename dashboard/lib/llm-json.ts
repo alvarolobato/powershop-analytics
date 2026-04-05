@@ -6,9 +6,9 @@
  * module provides a reusable extraction function so the unfencing
  * behaviour can stay consistent wherever it is needed.
  *
- * Note: the generate/modify routes have their own local copy of extractJson
- * that handles only fully-anchored fences; those can be migrated to this
- * helper in a future cleanup pass.
+ * Note: the generate/modify routes currently keep their own local copy of
+ * this helper.  Those copies can be migrated to import from here in a
+ * future cleanup pass.
  */
 
 /**
