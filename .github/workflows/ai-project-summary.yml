@@ -1,0 +1,60 @@
+name: AI Project Summary
+on:
+  schedule:
+    - cron: "0 9 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Project Summary
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 15"
+          prompt: |
+            Generate a daily project summary. Use the GitHub CLI to gather data.
+
+            ## Data to collect
+            1. `gh pr list --state open --json number,title,author,labels,createdAt,reviewDecision` — Open PRs
+            2. `gh pr list --state merged --json number,title,mergedAt --search "merged:>=YESTERDAY"` — Merged in last 24h
+            3. `gh issue list --state open --label "ai-blocked" --json number,title` — Blocked issues
+            4. `gh issue list --state open --label "ai-in-progress" --json number,title` — In-progress AI work
+            5. `gh issue list --state open --json number,title,createdAt,labels --limit 20` — Recent open issues
+            6. `gh pr list --state open --json number,title,createdAt --jq '.[] | select(.createdAt < "3_DAYS_AGO")'` — Stale PRs
+
+            ## Format
+            Create an issue with title `[project-summary] Project Summary - {today's date}`:
+
+            ### Open PRs ({count})
+            | PR | Title | Author | CI | Review | Age |
+            | ... |
+
+            ### Merged Yesterday ({count})
+            - #N title
+
+            ### AI Activity
+            - In progress: #X, #Y
+            - Blocked (needs human): #A, #B
+
+            ### Stale Items
+            - PRs > 3 days without activity
+            - Issues > 30 days without activity
+
+            ### Easy Pickings
+            Suggest 3-5 well-defined open issues that could be labeled `ai-work`.
+
+            ### Health
+            - Latest release: vX.Y.Z (date)
+            - CI status: ✅/❌
+
+            ## Cleanup
+            Close the previous day's project summary issue (search for `[project-summary]` issues).

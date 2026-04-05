@@ -1,0 +1,51 @@
+name: AI Feature Ideas
+on:
+  schedule:
+    - cron: "0 14 * * 4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  brainstorm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate Feature Ideas
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 20"
+          prompt: |
+            You are the Feature Ideas Generator. Analyze the project and propose improvements.
+
+            ## Research
+            1. Read ARCHITECTURE.md and AGENTS.md for current state
+            2. Read docs/ai-factory.md for the AI factory vision
+            3. Browse recent issues to understand current priorities
+            4. Look at the dashboard app (dashboard/) for UI improvement opportunities
+            5. Look at WrenAI config for knowledge gaps
+            6. Check existing [feature-ideas] issues to avoid duplicates
+
+            ## Generate 3-5 ideas
+            For each idea:
+
+            ### Idea: {title}
+            **Problem**: What's missing or could be better
+            **Proposed approach**: How to implement it (specific files, APIs, patterns)
+            **Complexity**: XS / S / M / L / XL
+            **Priority suggestion**: p1-high / p2-medium / p3-low
+            **Why it matters**: Business value or developer experience benefit
+
+            ## Guidelines
+            - Focus on practical, implementable ideas (not moon shots)
+            - Consider: Dashboard improvements, ETL reliability, WrenAI knowledge, CLI usability, data quality, monitoring
+            - Each idea should be self-contained enough to become its own issue
+            - Prefer ideas that build on existing infrastructure
+
+            ## Output
+            Create ONE issue with title `[feature-ideas] Feature Ideas — {date}`
+            Label it `ai-idea`

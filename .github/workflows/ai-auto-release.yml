@@ -1,0 +1,102 @@
+name: AI Auto Release
+on:
+  schedule:
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes since last release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          COMMITS=$(git rev-list ${LAST_TAG}..HEAD --count)
+          echo "last_tag=${LAST_TAG}" >> $GITHUB_OUTPUT
+          echo "commits=${COMMITS}" >> $GITHUB_OUTPUT
+          if [ "$COMMITS" -eq "0" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No new commits since ${LAST_TAG}. Skipping release."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "${COMMITS} commits since ${LAST_TAG}"
+          fi
+
+      - name: Calculate next version
+        if: steps.check.outputs.skip == 'false'
+        id: version
+        run: |
+          LAST_TAG="${{ steps.check.outputs.last_tag }}"
+          BUMP="${{ github.event.inputs.version_bump || 'patch' }}"
+
+          # Parse semver
+          VERSION=${LAST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          case $BUMP in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "Next version: ${NEW_VERSION}"
+
+      - name: Generate changelog
+        if: steps.check.outputs.skip == 'false'
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LAST_TAG="${{ steps.check.outputs.last_tag }}"
+
+          echo "## What's Changed" > /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+
+          # Group by PR labels
+          echo "### Features" >> /tmp/changelog.md
+          gh pr list --state merged --base main --search "merged:>=$(git log -1 --format=%ci ${LAST_TAG})" --json number,title,labels --jq '.[] | select(.labels | map(.name) | any(. == "enhancement" or . == "ai-idea")) | "- \(.title) (#\(.number))"' >> /tmp/changelog.md 2>/dev/null || true
+          echo "" >> /tmp/changelog.md
+
+          echo "### Bug Fixes" >> /tmp/changelog.md
+          gh pr list --state merged --base main --search "merged:>=$(git log -1 --format=%ci ${LAST_TAG})" --json number,title,labels --jq '.[] | select(.labels | map(.name) | any(. == "bug" or . == "ai-bug")) | "- \(.title) (#\(.number))"' >> /tmp/changelog.md 2>/dev/null || true
+          echo "" >> /tmp/changelog.md
+
+          echo "### Other Changes" >> /tmp/changelog.md
+          gh pr list --state merged --base main --search "merged:>=$(git log -1 --format=%ci ${LAST_TAG})" --json number,title --jq '.[] | "- \(.title) (#\(.number))"' >> /tmp/changelog.md 2>/dev/null || true
+          echo "" >> /tmp/changelog.md
+
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...${{ steps.version.outputs.version }}" >> /tmp/changelog.md
+
+      - name: Create release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --notes-file /tmp/changelog.md \
+            --target main

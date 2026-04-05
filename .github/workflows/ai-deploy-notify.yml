@@ -1,0 +1,62 @@
+name: AI Deploy Notification
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create deployment issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          gh issue create \
+            --title "[deploy] ${RELEASE_TAG} ready for production" \
+            --label "comp-infra,p1-high" \
+            --body "$(cat <<EOF
+          ## New Release: ${RELEASE_TAG}
+
+          **Release URL**: ${RELEASE_URL}
+
+          ### Changelog
+          ${RELEASE_BODY}
+
+          ### Deployment Steps
+          \`\`\`bash
+          # On production server:
+          cd /path/to/powershop-analytics
+
+          # Pull latest images
+          docker compose -f docker-compose.prod.yml pull
+
+          # Restart with new images (zero-downtime)
+          docker compose -f docker-compose.prod.yml up -d
+
+          # Verify health
+          docker compose -f docker-compose.prod.yml ps
+          curl -s http://localhost:3000/api/graphql | head -1  # WrenAI
+          curl -s http://localhost:4000/api/health              # Dashboard
+          \`\`\`
+
+          ### Rollback (if needed)
+          \`\`\`bash
+          # Roll back to previous version
+          docker compose -f docker-compose.prod.yml down
+          # Edit docker-compose.prod.yml to pin previous version
+          docker compose -f docker-compose.prod.yml up -d
+          \`\`\`
+
+          ### Auto-update
+          If auto-update is configured (via \`deploy/auto-update.sh\` cron), this will be applied automatically within 24 hours.
+
+          Close this issue once deployment is confirmed.
+          EOF
+          )"
