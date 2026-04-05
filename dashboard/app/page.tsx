@@ -27,7 +27,7 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<ApiErrorResponse | string | null>(null);
 
   const fetchDashboards = useCallback(async () => {
     setLoading(true);
@@ -70,15 +70,22 @@ export default function Home() {
       const res = await fetch(`/api/dashboard/${id}`, { method: "DELETE" });
       if (!res.ok && res.status !== 204) {
         const errBody = await res.json().catch(() => null);
+        if (isApiErrorResponse(errBody)) {
+          throw errBody;
+        }
         throw new Error(
           (errBody?.error as string) || "Error al eliminar el dashboard",
         );
       }
       setDashboards((prev) => prev.filter((d) => d.id !== id));
     } catch (err) {
-      setDeleteError(
-        err instanceof Error ? err.message : "Error al eliminar el dashboard",
-      );
+      if (isApiErrorResponse(err)) {
+        setDeleteError(err);
+      } else {
+        setDeleteError(
+          err instanceof Error ? err.message : "Error al eliminar el dashboard",
+        );
+      }
     } finally {
       setDeletingId(null);
     }
@@ -126,11 +133,9 @@ export default function Home() {
         </div>
       )}
 
-      {/* Delete error toast */}
+      {/* Delete error */}
       {deleteError && (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-3">
-          <p className="text-sm text-red-800">{deleteError}</p>
-        </div>
+        <ErrorDisplay error={deleteError} />
       )}
 
       {/* Error */}

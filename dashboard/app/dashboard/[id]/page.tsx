@@ -315,9 +315,12 @@ export default function ViewDashboard() {
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        const msg =
-          (errBody?.error as string) || "Error al guardar el nombre";
-        throw new Error(msg);
+        if (isApiErrorResponse(errBody)) {
+          throw errBody;
+        }
+        throw new Error(
+          (errBody?.error as string) || "Error al guardar el nombre",
+        );
       }
       const updated: DashboardRecord = await res.json();
       if (thisCount === saveCounter.current) {
@@ -330,11 +333,15 @@ export default function ViewDashboard() {
           prev ? { ...prev, name: dashboard.name } : prev,
         );
         setNameValue(dashboard.name);
-        showToast(
-          err instanceof Error
-            ? err.message
-            : "No se pudo guardar el nombre del dashboard.",
-        );
+        if (isApiErrorResponse(err)) {
+          showToast(err.error);
+        } else {
+          showToast(
+            err instanceof Error
+              ? err.message
+              : "No se pudo guardar el nombre del dashboard.",
+          );
+        }
       }
     }
   }, [nameValue, dashboard, id, showToast]);
@@ -555,11 +562,7 @@ export default function ViewDashboard() {
             <span className="text-xs text-gray-400">Guardando...</span>
           )}
           {saveError && (
-            <span className="text-xs text-red-500">
-              {typeof saveError === "string"
-                ? saveError
-                : (saveError as ApiErrorResponse).error}
-            </span>
+            <ErrorDisplay error={saveError} className="text-xs" />
           )}
           <button
             onClick={handleSave}

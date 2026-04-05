@@ -91,7 +91,10 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
-  const abortRef = useRef<AbortController | null>(null);
+  // Separate abort controllers: fetchAll (global reload) vs retryWidget (per-widget)
+  // This prevents a retry from cancelling unrelated in-flight widget loads.
+  const fetchAllAbortRef = useRef<AbortController | null>(null);
+  const retryAbortRef = useRef<AbortController | null>(null);
   // Stable key derived from spec content (not referential identity) so
   // parent re-renders that recreate the same spec object don't trigger refetches.
   const specKey = useMemo(() => JSON.stringify(spec), [spec]);
@@ -102,10 +105,10 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
 
   // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
-    // Abort any in-flight requests from a previous spec
-    abortRef.current?.abort();
+    // Abort any in-flight global load from a previous spec
+    fetchAllAbortRef.current?.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
+    fetchAllAbortRef.current = controller;
     const { signal } = controller;
 
     // Initialize all widgets to loading state
@@ -171,10 +174,10 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
   // Retry a single widget by re-fetching it
   const retryWidget = useCallback(
     async (widget: Widget, idx: number) => {
-      // Abort any previous in-flight retry for this widget (via shared abort ref)
-      abortRef.current?.abort();
+      // Abort any previous in-flight retry only (does not cancel fetchAll)
+      retryAbortRef.current?.abort();
       const controller = new AbortController();
-      abortRef.current = controller;
+      retryAbortRef.current = controller;
       const { signal } = controller;
 
       setWidgetStates((prev) => {
@@ -238,7 +241,8 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
       fetchAll(spec.widgets);
     }
     return () => {
-      abortRef.current?.abort();
+      fetchAllAbortRef.current?.abort();
+      retryAbortRef.current?.abort();
     };
     // refreshKey is included so incrementing it re-runs all queries
     // eslint-disable-next-line react-hooks/exhaustive-deps
