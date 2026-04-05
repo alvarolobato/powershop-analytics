@@ -53,6 +53,9 @@ export default function NewDashboard() {
   // "generate" = free-form textarea (inline retry); "task" = task card/suggestion/gap (global banner); "template" = template card (global banner)
   const [lastErrorSource, setLastErrorSource] = useState<"generate" | "task" | "template" | null>(null);
 
+  // Cached dashboard list — fetched once per page session to avoid repeated calls
+  const [cachedDashboardList, setCachedDashboardList] = useState<DashboardListItem[] | null>(null);
+
   // Role suggestion state
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
@@ -63,6 +66,26 @@ export default function NewDashboard() {
   const [loadingGaps, setLoadingGaps] = useState(false);
   const [gaps, setGaps] = useState<Gap[] | null>(null);
   const [gapsError, setGapsError] = useState<string | null>(null);
+
+  /**
+   * Fetch the dashboard list, caching the result for the page session.
+   * Subsequent calls return the cached list without a network request.
+   */
+  const getDashboardList = async (): Promise<DashboardListItem[]> => {
+    if (cachedDashboardList !== null) {
+      return cachedDashboardList;
+    }
+    const listRes = await fetch("/api/dashboards");
+    if (!listRes.ok) {
+      const errBody = await listRes.json().catch(() => null);
+      throw new Error(
+        (errBody?.error as string) || "Error al cargar los dashboards existentes",
+      );
+    }
+    const data = (await listRes.json()) as DashboardListItem[];
+    setCachedDashboardList(data);
+    return data;
+  };
 
   /** Save a spec to the database and redirect to its view page. */
   const saveAndRedirect = async (
@@ -178,15 +201,8 @@ export default function NewDashboard() {
     setLoadingSuggestions(true);
 
     try {
-      // Fetch existing dashboards to avoid overlap
-      const listRes = await fetch("/api/dashboards");
-      if (!listRes.ok) {
-        const errBody = await listRes.json().catch(() => null);
-        throw new Error(
-          (errBody?.error as string) || "Error al cargar los dashboards existentes",
-        );
-      }
-      const listData = (await listRes.json()) as DashboardListItem[];
+      // Fetch existing dashboards (cached for the page session) to avoid overlap
+      const listData = await getDashboardList();
 
       const existingDashboards = listData.map((d) => ({
         title: d.name,
@@ -227,15 +243,8 @@ export default function NewDashboard() {
     setLoadingGaps(true);
 
     try {
-      // Fetch dashboard list
-      const listRes = await fetch("/api/dashboards");
-      if (!listRes.ok) {
-        const errBody = await listRes.json().catch(() => null);
-        throw new Error(
-          (errBody?.error as string) || "Error al cargar los dashboards existentes",
-        );
-      }
-      const listData = (await listRes.json()) as DashboardListItem[];
+      // Fetch dashboard list (cached for the page session)
+      const listData = await getDashboardList();
 
       // Fetch specs for each dashboard to extract widget titles
       const dashboardsWithSpecs: {
