@@ -21,7 +21,7 @@ jobs:
           gh issue create \
             --title "[deploy] ${RELEASE_TAG} ready for production" \
             --label "comp-infra,p1-high" \
-            --body "$(cat <<EOF
+            --body "$(cat <<'ISSUE_BODY'
           ## New Release: ${RELEASE_TAG}
 
           **Release URL**: ${RELEASE_URL}
@@ -30,33 +30,33 @@ jobs:
           ${RELEASE_BODY}
 
           ### Deployment Steps
-          \`\`\`bash
+          ```bash
           # On production server:
           cd /path/to/powershop-analytics
 
           # Pull latest images
           docker compose -f docker-compose.prod.yml pull
 
-          # Restart with new images (zero-downtime)
+          # Restart with new images
           docker compose -f docker-compose.prod.yml up -d
 
           # Verify health
           docker compose -f docker-compose.prod.yml ps
-          curl -s http://localhost:3000/api/graphql | head -1  # WrenAI
-          curl -s http://localhost:4000/api/health              # Dashboard
-          \`\`\`
+          curl -s http://localhost:3000/healthz  # WrenAI
+          curl -s http://localhost:4000/api/health  # Dashboard
+          ```
 
           ### Rollback (if needed)
-          \`\`\`bash
+          ```bash
           # Roll back to previous version
           docker compose -f docker-compose.prod.yml down
           # Edit docker-compose.prod.yml to pin previous version
           docker compose -f docker-compose.prod.yml up -d
-          \`\`\`
+          ```
 
           ### Auto-update
-          If auto-update is configured (via \`deploy/auto-update.sh\` cron), this will be applied automatically within 24 hours.
+          If auto-update is configured (via `deploy/auto-update.sh` cron), this will be applied automatically within 24 hours.
 
           Close this issue once deployment is confirmed.
-          EOF
+          ISSUE_BODY
           )"

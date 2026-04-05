@@ -37,8 +37,8 @@ if echo "$PULL_OUTPUT" | grep -q "Downloaded newer image"; then
         HEALTHY=false
     fi
 
-    # Check WrenAI
-    if ! curl -sf http://localhost:3000/api/graphql > /dev/null 2>&1; then
+    # Check WrenAI (check if port 3000 responds)
+    if ! curl -sf http://localhost:3000 > /dev/null 2>&1; then
         log "WARNING: WrenAI UI may not be ready yet (can take a few minutes)"
     fi
 
