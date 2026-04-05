@@ -14,6 +14,8 @@ export default function NewDashboard() {
   const [loading, setLoading] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
+  // Track which action triggered the error so retry calls the right handler
+  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "template" | null>(null);
 
   /** Save a spec to the database and redirect to its view page. */
   const saveAndRedirect = async (
@@ -45,6 +47,7 @@ export default function NewDashboard() {
 
     setLoading(true);
     setError(null);
+    setLastErrorSource(null);
 
     try {
       // Generate spec from prompt
@@ -75,6 +78,7 @@ export default function NewDashboard() {
           err instanceof Error ? err.message : "Error inesperado",
         );
       }
+      setLastErrorSource("generate");
     } finally {
       setLoading(false);
     }
@@ -85,6 +89,7 @@ export default function NewDashboard() {
 
     setLoadingTemplate(template.slug);
     setError(null);
+    setLastErrorSource(null);
 
     try {
       await saveAndRedirect(
@@ -100,6 +105,7 @@ export default function NewDashboard() {
           err instanceof Error ? err.message : "Error inesperado al usar la plantilla",
         );
       }
+      setLastErrorSource("template");
     } finally {
       setLoadingTemplate(null);
     }
@@ -130,7 +136,7 @@ export default function NewDashboard() {
         {error && (
           <ErrorDisplay
             error={error}
-            onRetry={handleGenerate}
+            onRetry={lastErrorSource === "generate" ? handleGenerate : undefined}
           />
         )}
 

@@ -10,7 +10,7 @@
  *   - An optional "Reintentar" callback button
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -59,6 +59,16 @@ function buildCopyText(error: ApiErrorResponse | string): string {
 export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDisplayProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up any pending copy-reset timer on unmount
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current !== null) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const message = typeof error === "string" ? error : error.error;
   const isStructured = typeof error !== "string";
@@ -67,7 +77,13 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
     try {
       await navigator.clipboard.writeText(buildCopyText(error));
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      if (copyTimeoutRef.current !== null) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopied(false);
+        copyTimeoutRef.current = null;
+      }, 2000);
     } catch {
       // Clipboard not available — silently ignore
     }

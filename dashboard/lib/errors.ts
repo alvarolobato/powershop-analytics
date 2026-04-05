@@ -121,8 +121,8 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
 export function sanitizeErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return message
-    // Redact DSN/connection strings
-    .replace(/postgresql:\/\/[^\s]*/gi, "[DSN redacted]")
+    // Redact DSN/connection strings (postgresql:// and postgres://)
+    .replace(/postgres(?:ql)?:\/\/[^\s]*/gi, "[DSN redacted]")
     // Redact password fields
     .replace(/password=[^\s&]*/gi, "password=[redacted]")
     // Redact user:pass@host patterns
