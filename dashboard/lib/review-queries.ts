@@ -154,8 +154,8 @@ LIMIT 5`,
     name: "tasa_devolucion_semana",
     domain: "ventas_retail",
     sql: `SELECT
-  COALESCE(SUM(CASE WHEN entrada = true THEN total_si ELSE 0 END), 0) AS ventas_brutas,
-  COALESCE(SUM(CASE WHEN entrada = false THEN total_si ELSE 0 END), 0) AS devoluciones,
+  COALESCE(SUM(CASE WHEN entrada = true THEN total_si ELSE 0 END), 0) AS ventas_brutas_si,
+  COALESCE(ABS(SUM(CASE WHEN entrada = false THEN total_si ELSE 0 END)), 0) AS importe_devoluciones_si,
   COUNT(CASE WHEN entrada = true THEN 1 END) AS num_ventas,
   COUNT(CASE WHEN entrada = false THEN 1 END) AS num_devoluciones,
   ROUND(
@@ -185,11 +185,11 @@ WHERE abono = false
     domain: "canal_mayorista",
     sql: `SELECT
   f.num_cliente,
-  COALESCE(c.nombre, f.num_cliente) AS nombre_cliente,
+  COALESCE(c.nombre, f.num_cliente::text) AS nombre_cliente,
   COALESCE(SUM(f.base1 + f.base2 + f.base3), 0) AS facturacion_neta,
   COUNT(*) AS num_facturas
 FROM ps_gc_facturas f
-LEFT JOIN ps_clientes c ON c.codigo = f.num_cliente
+LEFT JOIN ps_clientes c ON c.num_cliente = f.num_cliente
 WHERE f.abono = false
   AND f.fecha_factura >= DATE_TRUNC('week', CURRENT_DATE)
 GROUP BY f.num_cliente, c.nombre
@@ -201,11 +201,14 @@ LIMIT 3`,
     domain: "canal_mayorista",
     sql: `SELECT COUNT(*) AS albaranes_pendientes
 FROM ps_gc_albaranes a
-WHERE a.abono = false
-  AND NOT EXISTS (
+WHERE NOT EXISTS (
     SELECT 1 FROM ps_gc_facturas f
-    WHERE f.num_albaran = a.reg_albaran
-  )`,
+    WHERE f.num_cliente = a.num_cliente
+      AND f.abono = false
+      AND f.fecha_factura >= a.fecha_envio
+      AND f.fecha_factura < a.fecha_envio + INTERVAL '30 days'
+  )
+  AND a.fecha_envio >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '30 days'`,
   },
 
   // ── Stock ──────────────────────────────────────────────────────────────────
@@ -215,21 +218,21 @@ WHERE a.abono = false
     domain: "stock",
     sql: `SELECT
   COUNT(DISTINCT codigo) AS num_referencias,
-  SUM(unidades) AS unidades_totales,
-  SUM(CASE WHEN tienda <> '99' THEN unidades ELSE 0 END) AS unidades_tiendas,
-  SUM(CASE WHEN tienda = '99' THEN unidades ELSE 0 END) AS unidades_almacen
+  SUM(stock) AS stock_total,
+  SUM(CASE WHEN tienda <> '99' THEN stock ELSE 0 END) AS stock_tiendas,
+  SUM(CASE WHEN tienda = '99' THEN stock ELSE 0 END) AS stock_almacen
 FROM ps_stock_tienda
-WHERE unidades > 0`,
+WHERE stock > 0`,
   },
   {
     name: "articulos_stock_critico",
     domain: "stock",
     sql: `SELECT
   codigo,
-  SUM(unidades) AS stock_total
+  SUM(stock) AS stock_total
 FROM ps_stock_tienda
 GROUP BY codigo
-HAVING SUM(unidades) < 5 AND SUM(unidades) > 0
+HAVING SUM(stock) < 5 AND SUM(stock) > 0
 ORDER BY stock_total ASC
 LIMIT 20`,
   },
@@ -237,10 +240,12 @@ LIMIT 20`,
     name: "traspasos_semana",
     domain: "stock",
     sql: `SELECT
-  COUNT(*) AS num_traspasos,
-  SUM(unidades) AS unidades_traspasadas
+  COUNT(DISTINCT reg_traspaso) AS num_traspasos,
+  COALESCE(SUM(unidades_s), 0) AS unidades_enviadas,
+  COALESCE(SUM(unidades_e), 0) AS unidades_recibidas
 FROM ps_traspasos
-WHERE fecha_traspaso >= DATE_TRUNC('week', CURRENT_DATE)`,
+WHERE fecha_s >= DATE_TRUNC('week', CURRENT_DATE)
+   OR fecha_e >= DATE_TRUNC('week', CURRENT_DATE)`,
   },
 
   // ── Compras ────────────────────────────────────────────────────────────────
@@ -249,8 +254,7 @@ WHERE fecha_traspaso >= DATE_TRUNC('week', CURRENT_DATE)`,
     name: "compras_semana_actual",
     domain: "compras",
     sql: `SELECT
-  COUNT(*) AS num_pedidos,
-  COALESCE(SUM(importe_total), 0) AS importe_total
+  COUNT(*) AS num_pedidos
 FROM ps_compras
 WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE)`,
   },
@@ -258,8 +262,7 @@ WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE)`,
     name: "compras_semana_anterior",
     domain: "compras",
     sql: `SELECT
-  COUNT(*) AS num_pedidos,
-  COALESCE(SUM(importe_total), 0) AS importe_total
+  COUNT(*) AS num_pedidos
 FROM ps_compras
 WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
   AND fecha_pedido < DATE_TRUNC('week', CURRENT_DATE)`,

@@ -39,6 +39,19 @@ export async function GET(
   const requestId = generateRequestId();
   const { id: idParam } = await context.params;
 
+  // Strict validation: must be a non-empty string of digits only
+  if (!/^\d+$/.test(idParam)) {
+    return NextResponse.json(
+      formatApiError(
+        "El parámetro 'id' debe ser un número entero positivo.",
+        "VALIDATION",
+        undefined,
+        requestId
+      ),
+      { status: 400 }
+    );
+  }
+
   const id = parseInt(idParam, 10);
   if (isNaN(id) || id <= 0) {
     return NextResponse.json(
