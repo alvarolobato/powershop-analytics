@@ -17,7 +17,7 @@ jobs:
           fetch-depth: 50
 
       - name: Hunt for Bugs
-        uses: anthropics/claude-code-action@v1
+        uses: anthropic/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 25"

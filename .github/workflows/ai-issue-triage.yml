@@ -12,13 +12,18 @@ jobs:
     # Skip issues created by bots to avoid loops
     if: >-
       github.event.issue.user.type != 'Bot' &&
-      !contains(github.event.issue.labels.*.name, 'no-ai')
+      !contains(github.event.issue.labels.*.name, 'no-ai') &&
+      (
+        github.event.issue.author_association == 'OWNER' ||
+        github.event.issue.author_association == 'MEMBER' ||
+        github.event.issue.author_association == 'COLLABORATOR'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Triage Issue
-        uses: anthropics/claude-code-action@v1
+        uses: anthropic/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 10"

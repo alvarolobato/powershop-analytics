@@ -22,7 +22,7 @@ jobs:
           cache-dependency-path: dashboard/package-lock.json
 
       - name: npm audit
-        run: cd dashboard && npm audit --json > /tmp/npm-audit.json 2>&1 || true
+        run: cd dashboard && npm audit --json > /tmp/npm-audit.json 2>/dev/null || true
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -32,10 +32,10 @@ jobs:
       - name: pip audit
         run: |
           pip install pip-audit
-          pip-audit -r etl/requirements.txt --format=json > /tmp/pip-audit.json 2>&1 || true
+          pip-audit -r etl/requirements.txt --format=json > /tmp/pip-audit.json 2>/dev/null || true
 
       - name: Security Analysis
-        uses: anthropics/claude-code-action@v1
+        uses: anthropic/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 20"

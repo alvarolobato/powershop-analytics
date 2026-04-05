@@ -32,7 +32,7 @@ jobs:
 
       - name: Implement Issue
         id: implement
-        uses: anthropics/claude-code-action@v1
+        uses: anthropic/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 50"

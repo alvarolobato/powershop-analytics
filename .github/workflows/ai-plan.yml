@@ -12,13 +12,20 @@ jobs:
   plan:
     if: >-
       github.event.issue.pull_request == null &&
-      startsWith(github.event.comment.body, '/plan')
+      startsWith(github.event.comment.body, '/plan') &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Generate Implementation Plan
-        uses: anthropics/claude-code-action@v1
+        uses: anthropic/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 20"
