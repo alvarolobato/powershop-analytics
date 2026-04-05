@@ -562,7 +562,9 @@ export default function ViewDashboard() {
             <span className="text-xs text-gray-400">Guardando...</span>
           )}
           {saveError && (
-            <ErrorDisplay error={saveError} className="text-xs" />
+            <span className="text-xs text-red-600">
+              {typeof saveError === "string" ? saveError : saveError.error}
+            </span>
           )}
           <button
             onClick={handleSave}

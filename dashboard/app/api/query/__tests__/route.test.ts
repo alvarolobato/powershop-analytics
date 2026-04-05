@@ -79,7 +79,7 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(403);
 
     const json = await res.json();
-    expect(json.error).toContain("read-only");
+    expect(json.error).toContain("no permitidas");
   });
 
   it("rejects UPDATE with 403", async () => {
@@ -178,7 +178,7 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(408);
 
     const json = await res.json();
-    expect(json.error).toContain("timed out");
+    expect(json.error).toContain("tiempo máximo");
   });
 
   // ─── Connection error (503) ───────────────────────────────────────────
@@ -192,7 +192,7 @@ describe("POST /api/query", () => {
     expect(res.status).toBe(503);
 
     const json = await res.json();
-    expect(json.error).toContain("connection failed");
+    expect(json.error).toContain("base de datos");
   });
 
   // ─── Client SQL errors (400) ───────────────────────────────────────────

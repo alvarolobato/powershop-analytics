@@ -101,7 +101,9 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
     typeof v.error === "string" &&
     typeof v.code === "string" &&
     typeof v.timestamp === "string" &&
-    typeof v.requestId === "string"
+    typeof v.requestId === "string" &&
+    // details must be absent or a string (never an object/array)
+    (v.details === undefined || typeof v.details === "string")
   );
 }
 

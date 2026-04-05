@@ -71,7 +71,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof SqlValidationError) {
       return NextResponse.json(
-        formatApiError(err.message, "VALIDATION", undefined, requestId),
+        formatApiError(
+          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
+          "VALIDATION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
         { status: 403 },
       );
     }
@@ -85,21 +90,36 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof SqlValidationError) {
       return NextResponse.json(
-        formatApiError(err.message, "VALIDATION", undefined, requestId),
+        formatApiError(
+          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
+          "VALIDATION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
         { status: 403 },
       );
     }
     if (err instanceof QueryTimeoutError) {
       console.error(`[${requestId}] Timeout en consulta SQL:`, err);
       return NextResponse.json(
-        formatApiError(err.message, "TIMEOUT", undefined, requestId),
+        formatApiError(
+          "La consulta excedió el tiempo máximo de espera.",
+          "TIMEOUT",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
         { status: 408 },
       );
     }
     if (err instanceof ConnectionError) {
       console.error(`[${requestId}] Error de conexión a la base de datos:`, err);
       return NextResponse.json(
-        formatApiError(err.message, "DB_CONNECTION", undefined, requestId),
+        formatApiError(
+          "No se pudo conectar a la base de datos. Inténtalo de nuevo más tarde.",
+          "DB_CONNECTION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
         { status: 503 },
       );
     }
