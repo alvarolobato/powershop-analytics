@@ -187,7 +187,7 @@ export default function Home() {
                 onClick={() => handleDelete(dashboard.id)}
                 disabled={deletingId === dashboard.id}
                 aria-label={`Eliminar ${dashboard.name}`}
-                className="absolute top-3 right-3 text-dark-tremor-content-subtle hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                className="absolute top-3 right-3 text-tremor-content-subtle dark:text-dark-tremor-content-subtle hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
               >
                 {deletingId === dashboard.id ? "..." : "\u2715"}
               </button>

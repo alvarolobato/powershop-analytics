@@ -130,7 +130,7 @@ export default function NewDashboard() {
           disabled={isDisabled}
           placeholder="Describe el dashboard que necesitas..."
           rows={6}
-          className="w-full resize-none rounded-lg border border-dark-tremor-border bg-dark-tremor-background px-4 py-3 text-sm text-dark-tremor-content-emphasis placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full resize-none rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-4 py-3 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
         />
 
         {error && (
@@ -171,7 +171,7 @@ export default function NewDashboard() {
               key={template.slug}
               onClick={() => handleUseTemplate(template)}
               disabled={isDisabled}
-              className="flex flex-col items-start rounded-lg border border-dark-tremor-border bg-dark-tremor-background-subtle p-5 text-left shadow-sm hover:border-blue-400 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="flex flex-col items-start rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle p-5 text-left shadow-sm hover:border-blue-400 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               <h3 className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                 {template.name}

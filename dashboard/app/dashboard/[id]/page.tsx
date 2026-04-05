@@ -469,7 +469,7 @@ export default function ViewDashboard() {
           <button
             onClick={() => router.push("/")}
             aria-label="Volver"
-            className="text-dark-tremor-content hover:text-dark-tremor-content-emphasis text-sm"
+            className="text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis text-sm"
           >
             &larr; Volver
           </button>
@@ -487,7 +487,7 @@ export default function ViewDashboard() {
                   setNameValue(dashboard.name);
                 }
               }}
-              className="text-2xl font-bold text-dark-tremor-content-strong border-b-2 border-blue-500 bg-transparent outline-none"
+              className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong border-b-2 border-blue-500 bg-transparent outline-none"
             />
           ) : (
             <h1
@@ -505,7 +505,7 @@ export default function ViewDashboard() {
           <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
 
           {/* Last refreshed timestamp */}
-          <span className="text-xs text-dark-tremor-content-subtle" data-testid="last-refreshed">
+          <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle" data-testid="last-refreshed">
             {`\u00DAltima actualizaci\u00F3n: ${formatTime(lastRefreshed)}`}
           </span>
 
@@ -519,7 +519,7 @@ export default function ViewDashboard() {
           {/* Manual refresh button */}
           <button
             onClick={triggerRefresh}
-            className="rounded-lg border border-dark-tremor-border px-3 py-2 text-sm font-medium text-dark-tremor-content-emphasis hover:bg-dark-tremor-background-subtle transition-colors"
+            className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
             title="Actualizar datos"
             aria-label="Actualizar"
           >
@@ -528,12 +528,12 @@ export default function ViewDashboard() {
 
           {/* Auto-refresh toggle + interval selector */}
           <div className="flex items-center gap-1">
-            <label className="flex items-center gap-1 text-xs text-dark-tremor-content cursor-pointer">
+            <label className="flex items-center gap-1 text-xs text-tremor-content dark:text-dark-tremor-content cursor-pointer">
               <input
                 type="checkbox"
                 checked={autoRefresh}
                 onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-dark-tremor-border"
+                className="h-3.5 w-3.5 rounded border-tremor-border dark:border-dark-tremor-border"
                 data-testid="auto-refresh-toggle"
               />
               Auto
@@ -544,7 +544,7 @@ export default function ViewDashboard() {
                 onChange={(e) =>
                   setRefreshInterval(Number(e.target.value) as RefreshInterval)
                 }
-                className="text-xs border border-dark-tremor-border rounded px-1 py-0.5 text-dark-tremor-content bg-dark-tremor-background"
+                className="text-xs border border-tremor-border dark:border-dark-tremor-border rounded px-1 py-0.5 text-tremor-content dark:text-dark-tremor-content bg-tremor-background dark:bg-dark-tremor-background"
                 data-testid="refresh-interval-select"
               >
                 {REFRESH_INTERVALS.map((m) => (
@@ -560,22 +560,22 @@ export default function ViewDashboard() {
           <div className="relative" ref={exportRef}>
             <button
               onClick={() => setExportOpen((prev) => !prev)}
-              className="rounded-lg border border-dark-tremor-border px-3 py-2 text-sm font-medium text-dark-tremor-content-emphasis hover:bg-dark-tremor-background-subtle transition-colors"
+              className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
               aria-label="Exportar"
             >
               {copySuccess ? "Copiado!" : "Exportar"}
             </button>
             {exportOpen && (
-              <div className="absolute right-0 mt-1 w-48 rounded-lg border border-dark-tremor-border bg-dark-tremor-background-subtle shadow-lg z-50">
+              <div className="absolute right-0 mt-1 w-48 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle shadow-lg z-50">
                 <button
                   onClick={handleCopyData}
-                  className="w-full text-left px-4 py-2 text-sm text-dark-tremor-content-emphasis hover:bg-dark-tremor-background rounded-t-lg"
+                  className="w-full text-left px-4 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background dark:hover:bg-dark-tremor-background rounded-t-lg"
                 >
                   Copiar datos
                 </button>
                 <button
                   onClick={handlePrint}
-                  className="w-full text-left px-4 py-2 text-sm text-dark-tremor-content-emphasis hover:bg-dark-tremor-background rounded-b-lg"
+                  className="w-full text-left px-4 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background dark:hover:bg-dark-tremor-background rounded-b-lg"
                 >
                   Imprimir / PDF
                 </button>
@@ -584,7 +584,7 @@ export default function ViewDashboard() {
           </div>
 
           {saving && (
-            <span className="text-xs text-dark-tremor-content-subtle">Guardando...</span>
+            <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">Guardando...</span>
           )}
           {saveError && (
             <span className="text-xs text-red-400">
@@ -594,7 +594,7 @@ export default function ViewDashboard() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="rounded-lg border border-dark-tremor-border px-4 py-2 text-sm font-medium text-dark-tremor-content-emphasis hover:bg-dark-tremor-background-subtle disabled:opacity-50 transition-colors"
+            className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-4 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle disabled:opacity-50 transition-colors"
           >
             Guardar
           </button>

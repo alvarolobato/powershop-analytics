@@ -284,17 +284,17 @@ export default function ChatSidebar({
   return (
     <aside
       data-testid="chat-sidebar"
-      className="fixed right-0 top-0 h-full w-[350px] bg-dark-tremor-background border-l border-dark-tremor-border shadow-xl flex flex-col z-50"
+      className="fixed right-0 top-0 h-full w-[350px] bg-tremor-background dark:bg-dark-tremor-background border-l border-tremor-border dark:border-dark-tremor-border shadow-xl flex flex-col z-50"
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-dark-tremor-border bg-dark-tremor-background-subtle">
-        <h2 className="text-sm font-semibold text-dark-tremor-content-emphasis">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
+        <h2 className="text-sm font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
           Modificar Dashboard
         </h2>
         <button
           onClick={onToggle}
           aria-label="Cerrar chat"
-          className="text-dark-tremor-content hover:text-dark-tremor-content-emphasis text-lg leading-none"
+          className="text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis text-lg leading-none"
         >
           &times;
         </button>
@@ -303,7 +303,7 @@ export default function ChatSidebar({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
-          <p className="text-sm text-dark-tremor-content-subtle text-center mt-8">
+          <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle text-center mt-8">
             Escribe un mensaje para modificar el dashboard.
           </p>
         )}
@@ -327,7 +327,7 @@ export default function ChatSidebar({
                   className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                     msg.role === "user"
                       ? "bg-blue-500 text-white"
-                      : "bg-dark-tremor-background-subtle text-dark-tremor-content-emphasis"
+                      : "bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
                   }`}
                 >
                   {msg.content}
@@ -339,7 +339,7 @@ export default function ChatSidebar({
 
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-dark-tremor-background-subtle text-dark-tremor-content rounded-lg px-3 py-2 text-sm">
+            <div className="bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content dark:text-dark-tremor-content rounded-lg px-3 py-2 text-sm">
               <span className="inline-flex gap-1" aria-label="Procesando">
                 <span className="animate-bounce">.</span>
                 <span className="animate-bounce [animation-delay:0.15s]">.</span>
@@ -353,7 +353,7 @@ export default function ChatSidebar({
       </div>
 
       {/* Input */}
-      <div className="border-t border-dark-tremor-border px-4 py-3 bg-dark-tremor-background-subtle">
+      <div className="border-t border-tremor-border dark:border-dark-tremor-border px-4 py-3 bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
         <div className="flex gap-2">
           <textarea
             ref={textareaRef}
@@ -364,7 +364,7 @@ export default function ChatSidebar({
             aria-label="Mensaje para modificar el dashboard"
             placeholder="Ej: Añade el ticket medio..."
             rows={2}
-            className="flex-1 resize-none rounded-lg border border-dark-tremor-border bg-dark-tremor-background px-3 py-2 text-sm text-dark-tremor-content-emphasis placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            className="flex-1 resize-none rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           />
           <button
             onClick={handleSend}
