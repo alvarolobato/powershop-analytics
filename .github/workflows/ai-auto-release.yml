@@ -1,0 +1,157 @@
+name: AI Auto Release
+on:
+  schedule:
+    - cron: "0 20 * * 0"
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: false
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes since last release
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            COMMITS=$(git rev-list --all --count)
+          else
+            COMMITS=$(git rev-list ${LAST_TAG}..HEAD --count)
+          fi
+          LAST_TAG="${LAST_TAG:-v0.0.0}"
+          echo "last_tag=${LAST_TAG}" >> $GITHUB_OUTPUT
+          echo "commits=${COMMITS}" >> $GITHUB_OUTPUT
+          if [ "$COMMITS" -eq "0" ]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "No new commits since ${LAST_TAG}. Skipping release."
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "${COMMITS} commits since ${LAST_TAG}"
+          fi
+
+      - name: Calculate next version
+        if: steps.check.outputs.skip == 'false'
+        id: version
+        run: |
+          LAST_TAG="${{ steps.check.outputs.last_tag }}"
+          BUMP="${{ github.event.inputs.version_bump || 'patch' }}"
+
+          # Parse semver
+          VERSION=${LAST_TAG#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+
+          case $BUMP in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          NEW_VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "Next version: ${NEW_VERSION}"
+
+      - name: Generate changelog
+        if: steps.check.outputs.skip == 'false'
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LAST_TAG="${{ steps.check.outputs.last_tag }}"
+
+          # Get the date of the last tag in ISO 8601 format for the gh search filter
+          if [ "$LAST_TAG" = "v0.0.0" ]; then
+            SINCE_DATE="2020-01-01T00:00:00Z"
+          else
+            SINCE_DATE=$(git log -1 --format=%Y-%m-%dT%H:%M:%SZ "${LAST_TAG}")
+          fi
+
+          echo "## What's Changed" > /tmp/changelog.md
+          echo "" >> /tmp/changelog.md
+
+          # Collect feature PR numbers to exclude from "Other Changes"
+          FEATURE_NUMBERS=$(gh pr list --state merged --base main \
+            --search "merged:>=${SINCE_DATE}" \
+            --json number,labels \
+            --jq '[.[] | select(.labels | map(.name) | any(. == "enhancement" or . == "ai-idea")) | .number] | join(",")' \
+            2>/dev/null || echo "")
+
+          BUG_NUMBERS=$(gh pr list --state merged --base main \
+            --search "merged:>=${SINCE_DATE}" \
+            --json number,labels \
+            --jq '[.[] | select(.labels | map(.name) | any(. == "bug" or . == "ai-bug")) | .number] | join(",")' \
+            2>/dev/null || echo "")
+
+          # Build exclusion set for "Other Changes"
+          LISTED_NUMBERS="${FEATURE_NUMBERS},${BUG_NUMBERS}"
+
+          echo "### Features" >> /tmp/changelog.md
+          gh pr list --state merged --base main \
+            --search "merged:>=${SINCE_DATE}" \
+            --json number,title,labels \
+            --jq '.[] | select(.labels | map(.name) | any(. == "enhancement" or . == "ai-idea")) | "- \(.title) (#\(.number))"' \
+            >> /tmp/changelog.md 2>/dev/null || true
+          echo "" >> /tmp/changelog.md
+
+          echo "### Bug Fixes" >> /tmp/changelog.md
+          gh pr list --state merged --base main \
+            --search "merged:>=${SINCE_DATE}" \
+            --json number,title,labels \
+            --jq '.[] | select(.labels | map(.name) | any(. == "bug" or . == "ai-bug")) | "- \(.title) (#\(.number))"' \
+            >> /tmp/changelog.md 2>/dev/null || true
+          echo "" >> /tmp/changelog.md
+
+          echo "### Other Changes" >> /tmp/changelog.md
+          # Exclude PRs already listed under Features or Bug Fixes
+          gh pr list --state merged --base main \
+            --search "merged:>=${SINCE_DATE}" \
+            --json number,title,labels \
+            --jq --argjson listed "[$(echo "${LISTED_NUMBERS}" | tr ',' '\n' | grep -v '^$' | tr '\n' ',' | sed 's/,$//')]" \
+            '.[] | select(.labels | map(.name) | all(. != "enhancement" and . != "ai-idea" and . != "bug" and . != "ai-bug")) | "- \(.title) (#\(.number))"' \
+            >> /tmp/changelog.md 2>/dev/null || true
+          echo "" >> /tmp/changelog.md
+
+          echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...${{ steps.version.outputs.version }}" >> /tmp/changelog.md
+
+      - name: Check CI status on main
+        if: steps.check.outputs.skip == 'false'
+        id: ci_check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CI_STATUS=$(gh api repos/${{ github.repository }}/commits/main/status --jq '.state' 2>/dev/null || echo "unknown")
+          echo "ci_status=${CI_STATUS}" >> $GITHUB_OUTPUT
+          if [ "$CI_STATUS" != "success" ]; then
+            echo "CI status is '${CI_STATUS}' on main (expected 'success'). Skipping release."
+            exit 1
+          fi
+          echo "CI status: ${CI_STATUS}. Proceeding with release."
+
+      - name: Create release
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.version.outputs.version }}" \
+            --title "${{ steps.version.outputs.version }}" \
+            --notes-file /tmp/changelog.md \
+            --target main
