@@ -53,18 +53,20 @@ const PRESETS: Preset[] = [
   {
     label: "Último mes",
     range: () => {
+      // Use 30-day subtraction to avoid month-end overflow (e.g., Mar 31 - 1 month = Mar 3)
       const to = new Date();
       const from = new Date(to);
-      from.setMonth(from.getMonth() - 1);
+      from.setDate(from.getDate() - 29);
       return { from: startOfDay(from), to: endOfDay(to) };
     },
   },
   {
     label: "Último trimestre",
     range: () => {
+      // Use 90-day subtraction to avoid month-end overflow
       const to = new Date();
       const from = new Date(to);
-      from.setMonth(from.getMonth() - 3);
+      from.setDate(from.getDate() - 89);
       return { from: startOfDay(from), to: endOfDay(to) };
     },
   },
@@ -265,11 +267,23 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
  * @param dateColumn - column name to filter on (default: 'fecha_creacion')
  * @returns SQL with date filter applied via subquery
  */
+/**
+ * Pattern for safe SQL identifiers: letters, digits, and underscores only.
+ * This prevents injection when `dateColumn` originates from untrusted input.
+ */
+const SAFE_IDENTIFIER_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
 export function injectDateRange(
   sql: string,
   range: DateRange,
   dateColumn = "fecha_creacion",
 ): string {
+  if (!SAFE_IDENTIFIER_RE.test(dateColumn)) {
+    throw new Error(
+      `injectDateRange: dateColumn '${dateColumn}' is not a valid SQL identifier. ` +
+      `Only letters, digits, and underscores are allowed.`
+    );
+  }
   const from = toDateInputValue(range.from);
   const to = toDateInputValue(range.to);
   // Wrap in subquery and apply date filter

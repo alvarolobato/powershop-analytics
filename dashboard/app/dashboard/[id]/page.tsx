@@ -81,11 +81,11 @@ export default function ViewDashboard() {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Date range filter state — default to last 30 days
+  // Date range filter state — default to last 30 days (day-based to avoid month-end overflow)
   const [dateRange, setDateRange] = useState<DateRange>(() => {
     const to = new Date();
     const from = new Date(to);
-    from.setMonth(from.getMonth() - 1);
+    from.setDate(from.getDate() - 29);
     from.setHours(0, 0, 0, 0);
     to.setHours(23, 59, 59, 999);
     return { from, to };

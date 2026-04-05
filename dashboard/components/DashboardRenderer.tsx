@@ -96,7 +96,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -247,10 +247,12 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: Dashboard
 
           <TabPanels>
             {spec.sections.map((section) => {
-              // Resolve widget indices for this section
-              const sectionWidgetIndices = section.widget_ids
-                .map((wid) => widgetIndexMap.get(wid))
-                .filter((idx): idx is number => idx !== undefined);
+              // Resolve widget indices for this section; deduplicate to prevent duplicate React keys
+              const sectionWidgetIndices = Array.from(new Set(
+                section.widget_ids
+                  .map((wid) => widgetIndexMap.get(wid))
+                  .filter((idx): idx is number => idx !== undefined)
+              ));
 
               return (
                 <TabPanel key={section.id}>
