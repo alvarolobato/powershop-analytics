@@ -176,9 +176,13 @@ export default function NewDashboard() {
     try {
       // Fetch existing dashboards to avoid overlap
       const listRes = await fetch("/api/dashboards");
-      const listData = listRes.ok
-        ? ((await listRes.json()) as DashboardListItem[])
-        : [];
+      if (!listRes.ok) {
+        const errBody = await listRes.json().catch(() => null);
+        throw new Error(
+          (errBody?.error as string) || "Error al cargar los dashboards existentes",
+        );
+      }
+      const listData = (await listRes.json()) as DashboardListItem[];
 
       const existingDashboards = listData.map((d) => ({
         title: d.name,
@@ -221,9 +225,13 @@ export default function NewDashboard() {
     try {
       // Fetch dashboard list
       const listRes = await fetch("/api/dashboards");
-      const listData: DashboardListItem[] = listRes.ok
-        ? ((await listRes.json()) as DashboardListItem[])
-        : [];
+      if (!listRes.ok) {
+        const errBody = await listRes.json().catch(() => null);
+        throw new Error(
+          (errBody?.error as string) || "Error al cargar los dashboards existentes",
+        );
+      }
+      const listData = (await listRes.json()) as DashboardListItem[];
 
       // Fetch specs for each dashboard to extract widget titles
       const dashboardsWithSpecs: {
@@ -290,9 +298,13 @@ export default function NewDashboard() {
         </p>
       </div>
 
-      {/* Global error banner — shown for errors triggered by task cards, suggestions, or gap buttons */}
+      {/* Global error banner — shown for task card / template / suggestion / gap errors.
+          Free-form prompt errors are shown inline below the textarea with retry support. */}
       {error && lastErrorSource !== "generate" && (
-        <ErrorDisplay error={error} />
+        <ErrorDisplay
+          error={error}
+          onRetry={lastErrorSource === "template" ? undefined : undefined}
+        />
       )}
 
       {/* Section 1: Task-oriented prompts */}

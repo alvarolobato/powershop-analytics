@@ -67,6 +67,27 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   const role = b.role.trim();
 
+  // Restrict to known roles to prevent prompt injection and oversized prompts
+  const ALLOWED_ROLES = [
+    "Responsable de tienda",
+    "Director de ventas",
+    "Comprador",
+    "Director general",
+    "Responsable de stock",
+    "Controller financiero",
+  ];
+  if (!ALLOWED_ROLES.includes(role)) {
+    return NextResponse.json(
+      formatApiError(
+        `El rol '${role}' no es válido. Roles permitidos: ${ALLOWED_ROLES.join(", ")}.`,
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+
   if (!Array.isArray(b.existingDashboards)) {
     return NextResponse.json(
       formatApiError(
@@ -169,7 +190,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         s.name.trim().length > 0 &&
         s.description.trim().length > 0 &&
         s.prompt.trim().length > 0,
-    );
+    )
+    // Enforce maximum to match the prompt contract (3-4 suggestions)
+    .slice(0, 4);
 
   return NextResponse.json({ suggestions }, { status: 200 });
 }

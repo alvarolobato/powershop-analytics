@@ -55,7 +55,7 @@ export const TASK_PROMPTS: TaskPrompt[] = [
     description: "Totales mensuales vs objetivo, YTD, evolución de márgenes y tasa de devolución",
     icon: "📅",
     prompt:
-      "Crea un cuadro de mandos para el cierre mensual. Incluye: KPIs del mes (ventas netas, devoluciones, ventas brutas, tasa de devolución %, ticket medio, tickets totales) usando ps_ventas; gráfico de barras con ventas por mes del año en curso vs año anterior (últimos 12 meses) usando fecha_creacion o campo mes; tabla con top 10 categorías/familias del mes por ventas netas (JOIN ps_lineas_ventas con ps_articulos y ps_familias); gráfico de líneas con evolución mensual YTD del año actual; y tabla comparativa por tienda con ventas del mes, mes anterior y variación %. Filtra entrada=true para ventas y entrada=false separado para devoluciones. Usa total_si. Excluir tienda 99.",
+      "Crea un cuadro de mandos para el cierre mensual. Incluye: KPIs del mes (ventas netas total_si, devoluciones, ventas brutas, tasa de devolución %, ticket medio, tickets totales) usando ps_ventas con fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE); gráfico de barras con ventas por mes de los últimos 12 meses (usa DATE_TRUNC('month', fecha_creacion) para agrupar, no un campo 'mes'); tabla con top 10 categorías/familias del mes por ventas netas (JOIN ps_lineas_ventas con ps_ventas para filtrar entrada=true, luego JOIN con ps_articulos y ps_familias); gráfico de líneas con evolución mensual YTD del año actual; y tabla comparativa por tienda con ventas del mes, mes anterior y variación %. Filtra entrada=true para ventas y entrada=false para devoluciones. Usa total_si para todos los importes. Excluir tienda 99.",
   },
   {
     id: "period-comparison",

@@ -68,21 +68,26 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const existingDashboards = (b.existingDashboards as unknown[]).map((d) => {
-    if (typeof d !== "object" || d === null) {
-      return { title: "", description: "", widgetTitles: [] as string[] };
-    }
-    const item = d as Record<string, unknown>;
-    return {
-      title: typeof item.title === "string" ? item.title : "",
-      description: typeof item.description === "string" ? item.description : "",
-      widgetTitles: Array.isArray(item.widgetTitles)
-        ? (item.widgetTitles as unknown[])
-            .filter((w) => typeof w === "string")
-            .map((w) => w as string)
-        : [],
-    };
-  });
+  const existingDashboards = (b.existingDashboards as unknown[])
+    .map((d) => {
+      if (typeof d !== "object" || d === null) return null;
+      const item = d as Record<string, unknown>;
+      return {
+        title: typeof item.title === "string" ? item.title.trim() : "",
+        description: typeof item.description === "string" ? item.description.trim() : "",
+        widgetTitles: Array.isArray(item.widgetTitles)
+          ? (item.widgetTitles as unknown[])
+              .filter((w) => typeof w === "string")
+              .map((w) => (w as string).trim())
+              .filter(Boolean)
+          : [],
+      };
+    })
+    // Remove invalid entries with empty title to avoid noisy tokens in LLM prompt
+    .filter(
+      (d): d is { title: string; description: string; widgetTitles: string[] } =>
+        d !== null && d.title.length > 0,
+    );
 
   // --- Call LLM ---
   let rawResponse: string;
@@ -162,7 +167,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         g.area.trim().length > 0 &&
         g.description.trim().length > 0 &&
         g.suggestedPrompt.trim().length > 0,
-    );
+    )
+    // Enforce maximum to match the prompt contract (3-5 gaps)
+    .slice(0, 5);
 
   return NextResponse.json({ gaps }, { status: 200 });
 }
