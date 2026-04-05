@@ -16,7 +16,8 @@ jobs:
   review:
     if: >-
       github.event.pull_request.draft == false &&
-      !contains(github.event.pull_request.labels.*.name, 'no-pr-review')
+      !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,37 +26,10 @@ jobs:
           fetch-depth: 0
 
       - name: Claude PR Review
-        uses: anthropics/claude-code-action@v1
+        uses: anthropic/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           use_sticky_comment: "true"
           include_fix_links: "true"
           classify_inline_comments: "true"
-          prompt: |
-            Review this pull request thoroughly. Focus on:
-
-            ## Code Quality
-            - Bugs, logic errors, edge cases
-            - Error handling completeness
-            - Type safety and null checks
-
-            ## Security (CRITICAL for this project)
-            - No credentials, API keys, or secrets in code
-            - SQL injection prevention (all queries must be parameterized)
-            - Read-only SQL policy: NEVER allow INSERT/UPDATE/DELETE/DROP/ALTER/CREATE/TRUNCATE
-            - No customer data or PII in committed files
-            - XSS prevention in dashboard components
-
-            ## Project-Specific Rules
-            - ETL: 4D primary keys use NUMERIC, never FLOAT8
-            - ETL: Wide tables (Articulos 379 cols, CCStock 582 cols) must specify columns, never SELECT *
-            - Dashboard: Tremor components for widgets
-            - CLI: All operations must be read-only
-
-            ## Style
-            - Consistent with existing codebase patterns
-            - No unnecessary abstractions or over-engineering
-            - No speculative features beyond what was requested
-
-            Post inline comments on specific lines for issues found.
-            Approve if no significant issues. Request changes only for bugs or security issues.
+          prompt_file: .github/ai-factory/prompts/pr-review.md

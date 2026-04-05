@@ -13,7 +13,7 @@ You are reviewing a pull request for the PowerShop Analytics project.
 2. **No credentials**: No API keys, passwords, or secrets in code
 3. **No customer data**: No PII or business data in committed files
 4. **4D PKs are NUMERIC**: Primary keys use Real (float) with .99 suffix — store as NUMERIC, never FLOAT8
-5. **No SELECT ***: For wide tables (Articulos 379 cols, CCStock 582 cols), always specify columns
+5. **No `SELECT *`**: For wide tables (Articulos 379 cols, CCStock 582 cols), always specify columns
 
 ## Review Checklist
 - [ ] No security vulnerabilities (OWASP top 10)
