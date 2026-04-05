@@ -18,6 +18,7 @@
 import { NextResponse } from "next/server";
 import { suggestDashboards } from "@/lib/llm";
 import { extractJson } from "@/lib/llm-json";
+import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import {
   formatApiError,
   generateRequestId,
@@ -68,18 +69,10 @@ export async function POST(request: Request): Promise<NextResponse> {
   const role = b.role.trim();
 
   // Restrict to known roles to prevent prompt injection and oversized prompts
-  const ALLOWED_ROLES = [
-    "Responsable de tienda",
-    "Director de ventas",
-    "Comprador",
-    "Director general",
-    "Responsable de stock",
-    "Controller financiero",
-  ];
-  if (!ALLOWED_ROLES.includes(role)) {
+  if (!(DASHBOARD_ROLES as readonly string[]).includes(role)) {
     return NextResponse.json(
       formatApiError(
-        `El rol '${role}' no es válido. Roles permitidos: ${ALLOWED_ROLES.join(", ")}.`,
+        `El rol '${role}' no es válido. Roles permitidos: ${DASHBOARD_ROLES.join(", ")}.`,
         "VALIDATION",
         undefined,
         requestId,
@@ -104,14 +97,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     .map((d) => {
       if (typeof d !== "object" || d === null) return null;
       const item = d as Record<string, unknown>;
+      const title = typeof item.title === "string" ? item.title.trim() : "";
+      const description =
+        typeof item.description === "string" ? item.description.trim() : "";
       return {
-        title: typeof item.title === "string" ? item.title.trim() : "",
-        description:
-          typeof item.description === "string" ? item.description.trim() : "",
+        // Truncate long titles/descriptions to keep prompt size bounded
+        title: title.slice(0, 120),
+        description: description.slice(0, 200),
       };
     })
     // Remove invalid/empty entries to avoid noisy tokens in the LLM prompt
-    .filter((d): d is { title: string; description: string } => d !== null && d.title.length > 0);
+    .filter((d): d is { title: string; description: string } => d !== null && d.title.length > 0)
+    // Cap to avoid prompt bloat
+    .slice(0, 30);
 
   // --- Call LLM ---
   let rawResponse: string;

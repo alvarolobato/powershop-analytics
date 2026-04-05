@@ -72,14 +72,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     .map((d) => {
       if (typeof d !== "object" || d === null) return null;
       const item = d as Record<string, unknown>;
+      const title = typeof item.title === "string" ? item.title.trim() : "";
+      const description =
+        typeof item.description === "string" ? item.description.trim() : "";
       return {
-        title: typeof item.title === "string" ? item.title.trim() : "",
-        description: typeof item.description === "string" ? item.description.trim() : "",
+        // Truncate long titles/descriptions/widget names to keep prompt size bounded
+        title: title.slice(0, 120),
+        description: description.slice(0, 200),
         widgetTitles: Array.isArray(item.widgetTitles)
           ? (item.widgetTitles as unknown[])
               .filter((w) => typeof w === "string")
-              .map((w) => (w as string).trim())
+              .map((w) => (w as string).trim().slice(0, 80))
               .filter(Boolean)
+              .slice(0, 20)
           : [],
       };
     })
@@ -87,7 +92,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     .filter(
       (d): d is { title: string; description: string; widgetTitles: string[] } =>
         d !== null && d.title.length > 0,
-    );
+    )
+    // Cap to avoid prompt bloat
+    .slice(0, 30);
 
   // --- Call LLM ---
   let rawResponse: string;

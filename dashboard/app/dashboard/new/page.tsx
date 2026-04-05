@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { TASK_PROMPTS } from "@/lib/task-prompts";
+import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -36,14 +37,8 @@ interface Gap {
 
 // ─── Role options ─────────────────────────────────────────────────────────────
 
-const ROLES = [
-  "Responsable de tienda",
-  "Director de ventas",
-  "Comprador",
-  "Director general",
-  "Responsable de stock",
-  "Controller financiero",
-];
+// Use the shared role list so the page and suggest route stay in sync
+const ROLES = DASHBOARD_ROLES;
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -55,7 +50,8 @@ export default function NewDashboard() {
   const [loading, setLoading] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
-  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "template" | null>(null);
+  // "generate" = free-form textarea (inline retry); "task" = task card/suggestion/gap (global banner); "template" = template card (global banner)
+  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "task" | "template" | null>(null);
 
   // Role suggestion state
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -92,8 +88,16 @@ export default function NewDashboard() {
     router.push(`/dashboard/${saved.id}`);
   };
 
-  /** Generate a dashboard from a prompt string and save it. */
-  const generateFromPrompt = async (promptText: string) => {
+  /** Generate a dashboard from a prompt string and save it.
+   *
+   * @param promptText - The generation prompt
+   * @param source - Where the call originated: "generate" for free-form textarea
+   *   (shows retry inline), "task" for task cards/suggestions/gaps (shows in global banner)
+   */
+  const generateFromPrompt = async (
+    promptText: string,
+    source: "generate" | "task" = "task",
+  ) => {
     const trimmed = promptText.trim();
     if (!trimmed || loading) return;
 
@@ -127,14 +131,14 @@ export default function NewDashboard() {
       } else {
         setError(err instanceof Error ? err.message : "Error inesperado");
       }
-      setLastErrorSource("generate");
+      setLastErrorSource(source);
     } finally {
       setLoading(false);
     }
   };
 
   const handleGenerate = async () => {
-    await generateFromPrompt(prompt);
+    await generateFromPrompt(prompt, "generate");
   };
 
   const handleUseTemplate = async (template: DashboardTemplate) => {
@@ -298,13 +302,10 @@ export default function NewDashboard() {
         </p>
       </div>
 
-      {/* Global error banner — shown for task card / template / suggestion / gap errors.
+      {/* Global error banner — shown for task card, suggestion, gap, and template errors.
           Free-form prompt errors are shown inline below the textarea with retry support. */}
-      {error && lastErrorSource !== "generate" && (
-        <ErrorDisplay
-          error={error}
-          onRetry={lastErrorSource === "template" ? undefined : undefined}
-        />
+      {error && (lastErrorSource === "task" || lastErrorSource === "template") && (
+        <ErrorDisplay error={error} />
       )}
 
       {/* Section 1: Task-oriented prompts */}
