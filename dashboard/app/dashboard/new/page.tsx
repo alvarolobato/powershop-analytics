@@ -50,7 +50,10 @@ export default function NewDashboard() {
   const [loading, setLoading] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
-  // "generate" = free-form textarea (inline retry); "task" = task card/suggestion/gap (global banner); "template" = template card (global banner)
+  // "generate" = free-form textarea (inline retry below textarea with retry button)
+  // "task"     = task card click (generation error shown in global banner at top)
+  // "template" = template card click (generation error shown in global banner at top)
+  // Note: role suggestion errors → `suggestError`; gap analysis errors → `gapsError` (inline per section)
   const [lastErrorSource, setLastErrorSource] = useState<"generate" | "task" | "template" | null>(null);
 
   // Cached dashboard list — fetched once per page session to avoid repeated calls
