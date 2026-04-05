@@ -55,11 +55,19 @@ interface WidgetState {
 async function fetchWidgetData(
   sql: string,
   signal?: AbortSignal,
+  dateRange?: DateRange,
 ): Promise<WidgetData> {
+  const body: Record<string, unknown> = { sql };
+  if (dateRange) {
+    body.dateRange = {
+      from: dateRange.from.toISOString(),
+      to: dateRange.to.toISOString(),
+    };
+  }
   const res = await fetch("/api/query", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sql }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!res.ok) {
@@ -90,7 +98,6 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
@@ -104,7 +111,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: Dashboard
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
-  const fetchAll = useCallback(async (widgets: Widget[]) => {
+  const fetchAll = useCallback(async (widgets: Widget[], activeDateRange?: DateRange) => {
     // Abort any in-flight requests from a previous spec
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -126,14 +133,15 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: Dashboard
           const itemResults = await Promise.all(
             widget.items.map(async (item): Promise<WidgetData | null> => {
               try {
-                return await fetchWidgetData(item.sql, signal);
+                return await fetchWidgetData(item.sql, signal, activeDateRange);
               } catch {
                 return null;
               }
             })
           );
 
-          // Fetch trend values in parallel (for items that have trend_sql)
+          // Fetch trend values in parallel (for items that have trend_sql).
+          // Trend queries intentionally omit dateRange — they query the comparison period.
           const trendResults = await Promise.all(
             widget.items.map(async (item): Promise<WidgetData | null> => {
               if (!item.trend_sql) return null;
@@ -158,7 +166,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: Dashboard
             });
           }
         } else {
-          const data = await fetchWidgetData(widget.sql, signal);
+          const data = await fetchWidgetData(widget.sql, signal, activeDateRange);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
@@ -185,14 +193,15 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange }: Dashboard
   useEffect(() => {
     renderedKeyRef.current = specKey;
     if (spec.widgets.length > 0) {
-      fetchAll(spec.widgets);
+      fetchAll(spec.widgets, dateRange);
     }
     return () => {
       abortRef.current?.abort();
     };
     // refreshKey is included so incrementing it re-runs all queries
+    // dateRange is included so changing the date range re-runs all queries
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specKey, spec.widgets, fetchAll, refreshKey]);
+  }, [specKey, spec.widgets, fetchAll, refreshKey, dateRange]);
 
   // Build widget index map for section-based rendering
   const widgetIndexMap = useMemo(() => {

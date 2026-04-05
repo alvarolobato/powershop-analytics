@@ -53,6 +53,85 @@ describe("KpiRow", () => {
     const dashes = screen.getAllByText("\u2014");
     expect(dashes).toHaveLength(2);
   });
+
+  it("shows positive trend badge when trend_sql is set and value is higher", () => {
+    const widgetWithTrend: KpiRowWidget = {
+      type: "kpi_row",
+      items: [
+        { label: "Ventas", sql: "", format: "currency", prefix: "\u20ac", trend_sql: "SELECT 900" },
+      ],
+    };
+    const data: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[1000]] },
+    ];
+    const trendData: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[800]] }, // 25% increase
+    ];
+    render(<KpiRow widget={widgetWithTrend} data={data} trendData={trendData} />);
+    // Should show positive percentage
+    expect(screen.getByText("+25.0%")).toBeInTheDocument();
+  });
+
+  it("shows negative trend badge when value is lower than comparison", () => {
+    const widgetWithTrend: KpiRowWidget = {
+      type: "kpi_row",
+      items: [
+        { label: "Ventas", sql: "", format: "currency", prefix: "\u20ac", trend_sql: "SELECT 1200" },
+      ],
+    };
+    const data: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[900]] },
+    ];
+    const trendData: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[1000]] }, // 10% decrease
+    ];
+    render(<KpiRow widget={widgetWithTrend} data={data} trendData={trendData} />);
+    expect(screen.getByText("-10.0%")).toBeInTheDocument();
+  });
+
+  it("does not show trend badge when trend_sql is not set", () => {
+    const data: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[1000]] },
+    ];
+    const trendData: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[800]] },
+    ];
+    render(<KpiRow widget={widget} data={data} trendData={trendData} />);
+    // No percentage text should appear
+    expect(screen.queryByText(/[+-]\d+\.\d+%/)).not.toBeInTheDocument();
+  });
+
+  it("does not show trend badge when comparison value is null", () => {
+    const widgetWithTrend: KpiRowWidget = {
+      type: "kpi_row",
+      items: [
+        { label: "Ventas", sql: "", format: "number", trend_sql: "SELECT NULL" },
+      ],
+    };
+    const data: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[1000]] },
+    ];
+    const trendData: (WidgetData | null)[] = [null];
+    render(<KpiRow widget={widgetWithTrend} data={data} trendData={trendData} />);
+    expect(screen.queryByText(/[+-]\d+\.\d+%/)).not.toBeInTheDocument();
+  });
+
+  it("does not show trend badge when comparison value is zero (division guard)", () => {
+    const widgetWithTrend: KpiRowWidget = {
+      type: "kpi_row",
+      items: [
+        { label: "Ventas", sql: "", format: "number", trend_sql: "SELECT 0" },
+      ],
+    };
+    const data: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[1000]] },
+    ];
+    const trendData: (WidgetData | null)[] = [
+      { columns: ["value"], rows: [[0]] },
+    ];
+    render(<KpiRow widget={widgetWithTrend} data={data} trendData={trendData} />);
+    expect(screen.queryByText(/[+-]\d+\.\d+%/)).not.toBeInTheDocument();
+  });
 });
 
 // ---------------------------------------------------------------------------

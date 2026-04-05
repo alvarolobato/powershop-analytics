@@ -247,19 +247,22 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 // ---------------------------------------------------------------------------
 
 /**
- * Inject a date range filter into a SQL query.
- * Wraps the original query as a subquery and appends a WHERE clause
- * that filters on a `fecha` column derived from the date range.
+ * Inject a date range filter into a SQL query by wrapping it as a subquery.
  *
- * The injected filter uses PostgreSQL syntax:
- *   WHERE _q.fecha BETWEEN '2026-01-01' AND '2026-03-31'
+ * **Important limitation**: this helper only works when the original query's
+ * SELECT list includes `dateColumn` (the raw date column). Many aggregate
+ * queries (e.g. GROUP BY) do not select the raw date — in those cases,
+ * the date range should be applied inside the original SQL's WHERE clause
+ * instead. Use this helper only for simple row-level queries.
  *
- * If the SQL already contains a LIMIT clause, it is preserved.
+ * Example output (using default `fecha_creacion` column):
+ *   SELECT * FROM (<original sql>) AS _drp_q
+ *   WHERE _drp_q.fecha_creacion BETWEEN '2026-01-01' AND '2026-03-31'
  *
- * @param sql - original SQL query
+ * @param sql - original SQL query (must SELECT `dateColumn` to work correctly)
  * @param range - date range to apply
  * @param dateColumn - column name to filter on (default: 'fecha_creacion')
- * @returns SQL with date filter applied
+ * @returns SQL with date filter applied via subquery
  */
 export function injectDateRange(
   sql: string,
