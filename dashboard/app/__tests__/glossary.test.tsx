@@ -84,6 +84,22 @@ describe("applyGlossary()", () => {
     expect(container.textContent).toContain("Ventas Netas");
     expect(container.textContent).toContain("Ticket Medio");
   });
+
+  it("prefers longer (more specific) term when two terms start at the same index", () => {
+    // "Ventas Netas" starts at the same position as "Ventas".
+    // The longer term should win; "Ventas" alone should not be wrapped.
+    const overlappingGlossary = [
+      { term: "Ventas", definition: "Transacciones de venta." },
+      { term: "Ventas Netas", definition: "Ventas sin IVA y sin devoluciones." },
+    ];
+    const result = applyGlossary("Ventas Netas del mes", overlappingGlossary);
+    expect(typeof result).not.toBe("string");
+    const { container } = render(result as React.ReactNode);
+    // The full "Ventas Netas" tooltip should be present
+    expect(container.textContent).toContain("Ventas Netas");
+    // Verify the tooltip shows the longer term's definition (not the shorter term's)
+    expect(screen.getByRole("tooltip").textContent).toBe("Ventas sin IVA y sin devoluciones.");
+  });
 });
 
 // ---------------------------------------------------------------------------

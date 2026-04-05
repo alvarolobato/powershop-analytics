@@ -588,7 +588,13 @@ export default function ViewDashboard() {
           {/* Glosario button — only shown when glossary has entries */}
           {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
             <button
-              onClick={() => setGlossaryOpen((prev) => !prev)}
+              onClick={() =>
+                setGlossaryOpen((prev) => {
+                  const nextOpen = !prev;
+                  if (nextOpen) setChatOpen(false);
+                  return nextOpen;
+                })
+              }
               className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
               aria-label={glossaryOpen ? "Cerrar glosario" : "Abrir glosario"}
               data-testid="glossary-button"
@@ -628,15 +634,21 @@ export default function ViewDashboard() {
         dateRange={dateRange}
       />
 
-      {/* Chat sidebar */}
+      {/* Chat sidebar — close glossary panel when opening chat to avoid overlap */}
       <ChatSidebar
         spec={dashboard.spec}
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
-        onToggle={() => setChatOpen((prev) => !prev)}
+        onToggle={() =>
+          setChatOpen((prev) => {
+            const nextOpen = !prev;
+            if (nextOpen) setGlossaryOpen(false);
+            return nextOpen;
+          })
+        }
       />
 
-      {/* Glossary panel */}
+      {/* Glossary panel — close chat sidebar when opening glossary to avoid overlap */}
       {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
         <GlossaryPanel
           glossary={dashboard.spec.glossary}

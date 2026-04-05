@@ -43,8 +43,8 @@ export function applyGlossary(
     if (seenTerms.has(normalizedTerm)) continue;
 
     // We avoid \b because it does not correctly handle accented characters
-    // for our use case (e.g. "entrada" should not match inside
-    // "contraindicación").
+    // for our use case (e.g. "venta" should not match inside "preventa", or
+    // "entrada" should not match inside "reentrada").
     // The regex is case-insensitive.
     // For broader JS runtime compatibility (e.g. older Safari), we avoid
     // lookbehind by capturing the left boundary as group 1 and the term as
@@ -77,6 +77,11 @@ export function applyGlossary(
   // "Ventas" vs "Ventas Netas"), prefer the longer (more specific) term first
   // so it always wins in the overlap resolution below.
   matches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
+  // NOTE: If a term's collected match is dropped because it overlaps with a
+  // longer match, we do NOT re-scan for the next occurrence of that term.
+  // This keeps the algorithm O(n·m) and avoids complexity in the common case
+  // where glossary entries are distinct phrases. Users who need all occurrences
+  // wrapped should use dedicated rich-text tooling.
   const nonOverlapping: Match[] = [];
   let cursor = 0;
   for (const m of matches) {
