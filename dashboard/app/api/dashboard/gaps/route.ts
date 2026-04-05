@@ -28,13 +28,24 @@ import {
 
 /**
  * Extract JSON from an LLM response that may be wrapped in markdown code blocks.
+ *
+ * Handles both fully-fenced responses and fenced blocks with surrounding text.
  */
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (fenceMatch) {
-    return fenceMatch[1].trim();
+
+  // Try fully-anchored fence first (clean response)
+  const fullFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+  if (fullFenceMatch) {
+    return fullFenceMatch[1].trim();
   }
+
+  // Try non-anchored: extract first fenced block even if there is surrounding text
+  const partialFenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (partialFenceMatch) {
+    return partialFenceMatch[1].trim();
+  }
+
   return trimmed;
 }
 
@@ -155,17 +166,20 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const gaps = parsed.map((item: unknown) => {
-    const g = (typeof item === "object" && item !== null
-      ? item
-      : {}) as Record<string, unknown>;
-    return {
-      area: typeof g.area === "string" ? g.area : "",
-      description: typeof g.description === "string" ? g.description : "",
-      suggestedPrompt:
-        typeof g.suggestedPrompt === "string" ? g.suggestedPrompt : "",
-    };
-  });
+  const gaps = parsed
+    .map((item: unknown) => {
+      const g = (typeof item === "object" && item !== null
+        ? item
+        : {}) as Record<string, unknown>;
+      return {
+        area: typeof g.area === "string" ? g.area : "",
+        description: typeof g.description === "string" ? g.description : "",
+        suggestedPrompt:
+          typeof g.suggestedPrompt === "string" ? g.suggestedPrompt : "",
+      };
+    })
+    // Filter out invalid entries that would render empty gap cards or trigger no-op generation
+    .filter((g) => g.area.trim().length > 0 && g.suggestedPrompt.trim().length > 0);
 
   return NextResponse.json({ gaps }, { status: 200 });
 }

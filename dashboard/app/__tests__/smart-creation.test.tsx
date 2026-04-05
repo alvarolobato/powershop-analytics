@@ -360,10 +360,6 @@ describe("NewDashboard page — smart creation sections", () => {
     });
 
     const crearPanelButtons = screen.getAllByRole("button", { name: "Crear panel" });
-    // The first "Crear panel" buttons are task cards; find the gap one after gap analysis
-    const gapButton = crearPanelButtons.find((btn) =>
-      btn.closest("[data-testid]") === null
-    );
 
     await act(async () => {
       fireEvent.click(crearPanelButtons[crearPanelButtons.length - 1]);

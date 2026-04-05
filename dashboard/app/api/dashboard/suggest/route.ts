@@ -25,13 +25,24 @@ import {
 
 /**
  * Extract JSON from an LLM response that may be wrapped in markdown code blocks.
+ *
+ * Handles both fully-fenced responses and fenced blocks with surrounding text.
  */
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
-  const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
-  if (fenceMatch) {
-    return fenceMatch[1].trim();
+
+  // Try fully-anchored fence first (clean response)
+  const fullFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+  if (fullFenceMatch) {
+    return fullFenceMatch[1].trim();
   }
+
+  // Try non-anchored: extract first fenced block even if there is surrounding text
+  const partialFenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  if (partialFenceMatch) {
+    return partialFenceMatch[1].trim();
+  }
+
   return trimmed;
 }
 
@@ -159,16 +170,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     );
   }
 
-  const suggestions = parsed.map((item: unknown) => {
-    const s = (typeof item === "object" && item !== null
-      ? item
-      : {}) as Record<string, unknown>;
-    return {
-      name: typeof s.name === "string" ? s.name : "",
-      description: typeof s.description === "string" ? s.description : "",
-      prompt: typeof s.prompt === "string" ? s.prompt : "",
-    };
-  });
+  const suggestions = parsed
+    .map((item: unknown) => {
+      const s = (typeof item === "object" && item !== null
+        ? item
+        : {}) as Record<string, unknown>;
+      return {
+        name: typeof s.name === "string" ? s.name : "",
+        description: typeof s.description === "string" ? s.description : "",
+        prompt: typeof s.prompt === "string" ? s.prompt : "",
+      };
+    })
+    // Filter out invalid entries that would render empty cards or trigger no-op generation
+    .filter((s) => s.name.trim().length > 0 && s.prompt.trim().length > 0);
 
   return NextResponse.json({ suggestions }, { status: 200 });
 }
