@@ -155,11 +155,44 @@ erDiagram
 
 The `Exportaciones` table (2,058,201 rows) is the preferred source for per-store, per-size stock in ETL and analytics. It was the export table used by the legacy VFP application and is actively maintained.
 
-**Structure:** One row per (article, store) pair. Columns `Talla1..Talla34` hold size labels; `Stock1..Stock34` hold corresponding quantities. Additional columns: `CCStock` (warehouse stock), `STStock` (total computed stock), `Tienda` (store name), `TiendaCodigo` (composite key), `FechaModifica`, `HoraModifica`.
+**Structure (confirmed from `Exportaciones_SQL` view, 2026-04-05):** One row per (article, store) pair with a **34-slot size matrix**:
+- `Talla1..Talla34` — size label per slot (e.g. "XS", "S", "M", "L", "XL", "40", "42"...)
+- `Stock1..Stock34` — current stock quantity per size
+- `Minimo1..Minimo34` — minimum stock quantity per size
+- `REPPorcentaje1..REPPorcentaje34` — replenishment percentage per size
+- `STStock` — pre-aggregated total stock (all sizes, all slots) — **use this for totals**
+- `CCStock` — central warehouse stock flag/reference (single column, not the CCStock table)
+- `Tienda` (store name), `TiendaCodigo` (composite key), `Codigo` (article code)
+- `FechaModifica`, `HoraModifica` — delta sync fields
+- `Ubicacion1`, `Ubicacion2`, `Ubicacion3` — warehouse location codes
+- `PuntoPedido`, `Recomendado`, `UnidadesReposi` — replenishment config
+- `REPPrioridadWeb` — web replenishment priority
+- `BORRAR5`, `BORRAR6`, `BORRAR7`, `BORRAR8`, `BORRAR9`, `BORRAR10`, `BORRAR12` — **deprecated columns, always ignore**
+
+> **Note on slot count:** Not all 34 slots are populated for every article. The number of active
+> slots is determined by the article's product family (`FamiGrupMarc.SerieTallas` field).
+> Clothing typically uses slots 1-17 (S/M/L/XL...), footwear and optics use all 34.
+> Empty slots have `Talla=''` and `Stock=0`.
 
 **Key gotcha — TiendaCodigo format:** The `TiendaCodigo` field is `"tienda/articulo"` (e.g. `"104/169"`), NOT just a store code. The compound `(Codigo, TiendaCodigo)` is the natural PK.
 
-**ETL normalization:** The wide format must be unpivoted to `(codigo, tienda_codigo, talla, stock)` rows for PostgreSQL. See [etl-sync-strategy.md](../etl-sync-strategy.md).
+**ETL normalization:** The wide format must be unpivoted to `(codigo, tienda_codigo, talla, stock)` rows for PostgreSQL. Filter out empty talla slots (`WHERE talla != ''`). See [etl-sync-strategy.md](../etl-sync-strategy.md).
+
+## Size Series System (FamiGrupMarc.SerieTallas)
+
+The 34-slot matrix in Exportaciones, GCLinPedidos, GCLinAlbarane is not random — each product family
+uses a specific **size series** that maps slot numbers to labels.
+
+The `SerieTallas` field in `FamiGrupMarc` (product family table) defines which series a family uses.
+The actual series definitions are in `CCOPSeriCali` (47 rows — e.g., "S/M/L", "36-46", etc.).
+
+**This is the key to interpreting size slot data:**
+- A slot `Talla1="XS"` in one article family might be slot `Talla1="36"` in another
+- For analytics, always JOIN through `FamiGrupMarc.SerieTallas` → `CCOPSeriCali` to know what each slot means
+- Or simply use the literal `Talla1..Talla34` labels stored in each Exportaciones row (they are pre-populated from the series)
+
+> **Action item:** Call `WS_JS_GetTablaIDs` SOAP method (needs `Entrada1` parameter — try `""`) to get
+> the complete talla series lookup table, which maps series codes to size slot labels.
 
 ## ETL Sync Strategy
 

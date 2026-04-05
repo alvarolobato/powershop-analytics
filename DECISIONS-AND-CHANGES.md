@@ -4,6 +4,21 @@
 
 ## Decision Log
 
+### D-011: Deep schema extraction from application server files — 2026-04-05
+**Context**: Issue #142 identified gaps in our data model knowledge. A copy of the production application server, client, and database files became available locally.
+**Decision**: Perform string extraction on the compiled `.4DC` structure file (360 MB) and query all SQL views (`_USER_VIEWS`) directly from the live server.
+**Findings**:
+- 5.7M string lines extracted from `PowerShop.4DC` — yielded 324 confirmed tables, 2,522+ field names, 130 WS_JS_* SOAP methods
+- 100 SQL views discovered (`_USER_VIEWS`): 50 `*_SQL` + 50 `*_BI` — vendor's intended query patterns
+- `Exportaciones_SQL` confirmed 34 stock slots (Stock1-34, Talla1-34), not 17 as partially documented
+- `Ventas_SQL` has 150 columns including TBAI, marketplace, tax-free, Aena airport, SAF-T fiscal fields
+- `Tiendas_SQL` has 208 columns including per-store accounting codes, Aena airport concession rents, store groupings
+- `GCLinPedidos_SQL` has 239 columns: 34-slot × 5 quantity dimensions (Pedidas/Entregadas/Asignadas/Original/Talla)
+- `FamiGrupMarc.SERIETALLAS` maps product family to size series — key for interpreting the 34-slot matrix
+- 10 new business modules discovered: airport/Aena, B2B/B2C e-commerce, jewelry/couture manufacturing, RFID, TicketBAI, corners/concessions, ADIDAS data feeds, SAF-T, CRM/marketing
+**Rationale**: String extraction from compiled binaries is non-destructive and yields the same schema information as `EXPORT STRUCTURE` XML without vendor cooperation. SQL views are readable via the standard p4d SQL driver.
+**See**: [sql-views.md](docs/sql-views.md), [schema-discovery.md](docs/schema-discovery.md), GitHub issue #142.
+
 ### D-010: Build custom AI dashboard generator (Option B) — 2026-04-04
 **Context**: WrenAI excels at single text-to-SQL queries but cannot generate multi-widget dashboards. Business users need to describe dashboards in natural language and get complete panels.
 **Decision**: Build a custom Next.js + Tremor dashboard app that uses the LLM to generate dashboard JSON specs.
@@ -62,6 +77,15 @@
 ---
 
 ## Changelog
+
+### 2026-04-05
+- Deep schema extraction from compiled `.4DC` file and SQL views (D-011)
+- Discovered 100 SQL views (`_USER_VIEWS`) — vendor's intended query patterns
+- Created `docs/sql-views.md` — complete SQL views reference
+- Updated `docs/schema-discovery.md` with multi-source extraction methods
+- Updated architecture docs (sales.md, wholesale.md, stores-hr.md) with view-confirmed schemas
+- Updated ARCHITECTURE.md with confirmed table row counts and Exportaciones 34-slot clarification
+- Key corrections: Exportaciones has 34 stock slots (not 17), GCLinPedidos has 5-dimension 34-slot matrix
 
 ### 2026-04-04
 - Created ARCHITECTURE.md and DECISIONS-AND-CHANGES.md

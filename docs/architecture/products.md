@@ -140,6 +140,29 @@ erDiagram
 - Classification hierarchy: **DepaSeccFabr** (department) -> **FamiGrupMarc** (family) -> **SubfamModelo** (subfamily). Cross-classified by **CCOPMarcTrat** (brand), **CCOPTempTipo** (season), and **CCOPColores** (color).
 - Related tables in other domains: `Proveedores` (purchasing), `LineasVentas` and `GCLinAlbarane` reference `NumArticulo`.
 
+## FamiGrupMarc Field Groups
+
+> Confirmed 2026-04-05 from `_USER_COLUMNS` (112 columns total, 78 rows in production).
+
+| Group | Fields | Purpose |
+|-------|--------|---------|
+| Identity | `RegFamilia` (PK), `Clave`, `FamiGrupMarc`, `CodigoGenerico`, `Codigo1..Codigo6` | Family ID and short codes |
+| Accounting | `CuentaVentas`, `CuentaVentas2`, `Presupuesto`, `Comision`, `Coeficiente1..Coeficiente4` | Sales accounts, budget, markup |
+| Section/Dept | `ClaveSeccion`, `Seccion1..Seccion6`, `SerieEmpresa` | Cross-reference to DepaSeccFabr sections |
+| Size series | `SerieTallas` | Maps family to size series (e.g., S/M/L vs 36-46) — **confirmed BLANK in all 78 production rows** |
+| Promotions | `PrecioPromocion`, `PorcenPromocion`, `PromoDesde`, `PromoHasta`, `UnidadPromocion`, `ValeCliente` | Promotional pricing |
+| Web/Commerce | `NoPSCloud`, `NoPSCommerce`, `NoPSCommerceM`, `PathPSCloud`, `WebIdioma1..WebIdioma5`, `Weborden` | E-commerce visibility |
+| Brand integrations | `CATAdidasMat1..10` (Adidas material codes), `CATNikeModel21/22`, `CATNikeStyleC1..3` | Third-party catalog mapping |
+| Volume/loyalty | `VolumenImporte`, `VolumenNumero`, `VolumenPorcen`, `VolumenVale`, `GrupoClientes` | Volume discount and loyalty rules |
+| Unit pricing | `Unidades1..Unidades6`, `Unidad1Imp..Unidad3Imp`, `Unidad1Por..Unidad3Por`, `UsarPVPUnidad2`, `STUnidad2` | Multi-unit pricing (e.g., pairs, sets) |
+| Stock special | `ST2X1`, `STVolumen`, `OPIncremento`, `NoPSCloud`, `AenaEsRentaUni`, `AenaRentaConIVA` | Stock/rental special rules |
+| Free fields | `Libre01..Libre10` | Custom use |
+| Metadata | `FModifica`, `HModifica`, `Anulado`, `Contador`, `Historico1..Historico4`, `CorrectorMDV` | Admin fields |
+
+> **Key gotcha — SerieTallas is blank:** This field was expected to decode which size series a family uses (e.g., "S/M/L" vs "36-46"). Queried all 78 production rows — all have `SerieTallas = ''`. The size labels are pre-populated directly in `Talla1..Talla34` columns of each Exportaciones/GCLinPedidos row. Use those literal labels; do NOT rely on SerieTallas for size interpretation.
+
+> **Brand integrations:** `CATAdidasMat1..10` and `CATNikeModel/Style` fields map product families to Adidas and Nike catalog codes for data feed exports. These are the "ADIDAS data feeds" and "corners/concessions" modules discovered in D-011.
+
 ## ETL Sync Strategy
 
 > Validated against production data 2026-03-30.
