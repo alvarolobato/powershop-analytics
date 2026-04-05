@@ -423,4 +423,100 @@ describe("DashboardRenderer", () => {
     );
     expect(lastCallBody.sql).toBe("SELECT 99");
   });
+
+  it("renders tab navigation when spec has sections", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({
+      columns: ["value"],
+      rows: [[42]],
+    }));
+
+    const tabbedSpec: DashboardSpec = {
+      title: "Panel con Pestañas",
+      widgets: [
+        { id: "w1", type: "number", title: "Widget Resumen", sql: "SELECT 1", format: "number" },
+        { id: "w2", type: "number", title: "Widget Detalle", sql: "SELECT 2", format: "number" },
+      ],
+      sections: [
+        { id: "s1", label: "Resumen", widget_ids: ["w1"] },
+        { id: "s2", label: "Detalle", widget_ids: ["w2"] },
+      ],
+    };
+
+    render(<DashboardRenderer spec={tabbedSpec} />);
+
+    // Tab labels should be visible
+    expect(screen.getByText("Resumen")).toBeInTheDocument();
+    expect(screen.getByText("Detalle")).toBeInTheDocument();
+  });
+
+  it("shows correct widgets when switching between tabs", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({
+      columns: ["value"],
+      rows: [[42]],
+    }));
+
+    const tabbedSpec: DashboardSpec = {
+      title: "Panel con Pestañas",
+      widgets: [
+        { id: "w1", type: "number", title: "Widget Resumen", sql: "SELECT 1", format: "number" },
+        { id: "w2", type: "number", title: "Widget Detalle", sql: "SELECT 2", format: "number" },
+      ],
+      sections: [
+        { id: "s1", label: "Resumen", widget_ids: ["w1"] },
+        { id: "s2", label: "Detalle", widget_ids: ["w2"] },
+      ],
+    };
+
+    render(<DashboardRenderer spec={tabbedSpec} />);
+
+    // First tab (Resumen) is selected by default — wait for widget to load
+    await waitFor(() => {
+      expect(screen.getByText("Widget Resumen")).toBeInTheDocument();
+    });
+
+    // Switch to the second tab (Detalle)
+    fireEvent.click(screen.getByRole("tab", { name: "Detalle" }));
+
+    // Widget Detalle should now be visible
+    await waitFor(() => {
+      expect(screen.getByText("Widget Detalle")).toBeInTheDocument();
+    });
+  });
+
+  it("renders flat layout when spec has no sections (backwards compatible)", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({
+      columns: ["tienda", "total"],
+      rows: [["Madrid", 100]],
+    }));
+
+    render(<DashboardRenderer spec={barSpec} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Ventas por Tienda")).toBeInTheDocument();
+    });
+    // No tab elements
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  });
+
+  it("silently skips widget_ids that do not match any widget id", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({
+      columns: ["value"],
+      rows: [[99]],
+    }));
+
+    const specWithBadIds: DashboardSpec = {
+      title: "Panel con IDs Inválidos",
+      widgets: [
+        { id: "w1", type: "number", title: "Widget Válido", sql: "SELECT 1", format: "number" },
+      ],
+      sections: [
+        { id: "s1", label: "Tab", widget_ids: ["w1", "nonexistent-id"] },
+      ],
+    };
+
+    render(<DashboardRenderer spec={specWithBadIds} />);
+
+    // Should still render without crashing; valid widget eventually loads
+    expect(screen.getByText("Panel con IDs Inválidos")).toBeInTheDocument();
+  });
 });

@@ -14,8 +14,10 @@ export function AreaChartWidget({ widget, data }: AreaChartWidgetProps) {
   if (!data || data.rows.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-gray-500">{widget.title}</h3>
-        <p className="mt-4 text-center text-sm text-gray-400">
+        <h3 className="text-sm font-medium text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+          {widget.title}
+        </h3>
+        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
           {EMPTY_MESSAGE}
         </p>
       </Card>
@@ -26,8 +28,10 @@ export function AreaChartWidget({ widget, data }: AreaChartWidgetProps) {
   if (!resolved) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-gray-500">{widget.title}</h3>
-        <p className="mt-4 text-center text-sm text-gray-400">
+        <h3 className="text-sm font-medium text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+          {widget.title}
+        </h3>
+        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
           {EMPTY_MESSAGE}
         </p>
       </Card>
@@ -44,13 +48,29 @@ export function AreaChartWidget({ widget, data }: AreaChartWidgetProps) {
 
   return (
     <Card className="p-4">
-      <h3 className="mb-4 text-sm font-medium text-gray-500">{widget.title}</h3>
-      <AreaChart
-        data={chartData}
-        index={xCol}
-        categories={[yCol]}
-        yAxisWidth={60}
-      />
+      <h3 className="mb-4 text-sm font-medium text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+        {widget.title}
+      </h3>
+
+      {/* Mobile: no y-axis to prevent overflow */}
+      <div className="sm:hidden">
+        <AreaChart
+          data={chartData}
+          index={xCol}
+          categories={[yCol]}
+          showYAxis={false}
+        />
+      </div>
+
+      {/* Desktop: full y-axis */}
+      <div className="hidden sm:block">
+        <AreaChart
+          data={chartData}
+          index={xCol}
+          categories={[yCol]}
+          yAxisWidth={60}
+        />
+      </div>
     </Card>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
+import type { DateRange } from "./DateRangePicker";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import { ErrorDisplay } from "./ErrorDisplay";
@@ -28,6 +30,18 @@ export interface DashboardRendererProps {
   /** When this value changes, all widget queries are re-executed.
    *  Increment it to trigger a manual or auto-refresh. */
   refreshKey?: number;
+  /**
+   * Optional date range selected in the dashboard toolbar. This prop is
+   * accepted for forwards compatibility — the page component increments
+   * `refreshKey` when the date range changes, which re-runs all queries.
+   *
+   * NOTE: The date range does NOT automatically inject WHERE clauses into
+   * widget SQL. For date filtering to work, the widget's SQL queries must
+   * either already contain appropriate date expressions or be regenerated
+   * by the LLM with the selected range in mind. Use `injectDateRange()`
+   * from `DateRangePicker` for simple row-level queries only.
+   */
+  dateRange?: DateRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +51,8 @@ export interface DashboardRendererProps {
 interface WidgetState {
   /** For most widgets: single WidgetData. For kpi_row: array of WidgetData|null. */
   data: WidgetData | null | (WidgetData | null)[];
+  /** Trend data for kpi_row items (indexed per item, only when trend_sql is set). */
+  trendData?: (WidgetData | null)[];
   loading: boolean;
   /** Structured error from the API (preferred) or plain string fallback. */
   error: ApiErrorResponse | string | null;
@@ -89,7 +105,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -124,32 +140,47 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
     const promises = widgets.map(async (widget, idx) => {
       try {
         if (widget.type === "kpi_row") {
-          // Fetch each KPI item in parallel; capture the first item error for display
-          const settled = await Promise.all(
-            widget.items.map(async (item) => {
-              try {
-                const data = await fetchWidgetData(item.sql, signal);
-                return { data, error: null as ApiErrorResponse | string | null };
-              } catch (err) {
-                const structured =
-                  err instanceof Error && "structured" in err
-                    ? (err as Error & { structured?: ApiErrorResponse }).structured
-                    : undefined;
-                const errorValue: ApiErrorResponse | string = structured
-                  ? structured
-                  : err instanceof Error
-                  ? err.message
-                  : "Error al ejecutar la consulta";
-                return { data: null, error: errorValue };
-              }
-            })
-          );
+          // Kick off main KPI values and trend values concurrently
+          const [settled, trendResults] = await Promise.all([
+            // Fetch each KPI item in parallel; capture per-item errors
+            Promise.all(
+              widget.items.map(async (item) => {
+                try {
+                  const data = await fetchWidgetData(item.sql, signal);
+                  return { data, error: null as ApiErrorResponse | string | null };
+                } catch (err) {
+                  const structured =
+                    err instanceof Error && "structured" in err
+                      ? (err as Error & { structured?: ApiErrorResponse }).structured
+                      : undefined;
+                  const errorValue: ApiErrorResponse | string = structured
+                    ? structured
+                    : err instanceof Error
+                    ? err.message
+                    : "Error al ejecutar la consulta";
+                  return { data: null, error: errorValue };
+                }
+              })
+            ),
+            // Fetch trend values (for items that have trend_sql)
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.trend_sql) return null;
+                try {
+                  return await fetchWidgetData(item.trend_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
+          ]);
+
           if (!signal.aborted) {
             const itemData = settled.map((s) => s.data);
             const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data: itemData, loading: false, error: firstError });
+              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -203,31 +234,43 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
 
       try {
         if (widget.type === "kpi_row") {
-          const settled = await Promise.all(
-            widget.items.map(async (item) => {
-              try {
-                const data = await fetchWidgetData(item.sql, signal);
-                return { data, error: null as ApiErrorResponse | string | null };
-              } catch (err) {
-                const structured =
-                  err instanceof Error && "structured" in err
-                    ? (err as Error & { structured?: ApiErrorResponse }).structured
-                    : undefined;
-                const errorValue: ApiErrorResponse | string = structured
-                  ? structured
-                  : err instanceof Error
-                  ? err.message
-                  : "Error al ejecutar la consulta";
-                return { data: null, error: errorValue };
-              }
-            })
-          );
+          const [settled, trendResults] = await Promise.all([
+            Promise.all(
+              widget.items.map(async (item) => {
+                try {
+                  const data = await fetchWidgetData(item.sql, signal);
+                  return { data, error: null as ApiErrorResponse | string | null };
+                } catch (err) {
+                  const structured =
+                    err instanceof Error && "structured" in err
+                      ? (err as Error & { structured?: ApiErrorResponse }).structured
+                      : undefined;
+                  const errorValue: ApiErrorResponse | string = structured
+                    ? structured
+                    : err instanceof Error
+                    ? err.message
+                    : "Error al ejecutar la consulta";
+                  return { data: null, error: errorValue };
+                }
+              })
+            ),
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.trend_sql) return null;
+                try {
+                  return await fetchWidgetData(item.trend_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
+          ]);
           if (!signal.aborted) {
             const itemData = settled.map((s) => s.data);
             const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data: itemData, loading: false, error: firstError });
+              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -275,77 +318,297 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
       retryAbortMap.current.forEach((ctrl) => ctrl.abort());
       retryAbortMap.current.clear();
     };
-    // refreshKey is included so incrementing it re-runs all queries
+    // specKey captures the entire spec (including widgets) so we don't need
+    // spec.widgets as a separate dependency — doing so would cause spurious
+    // refetches when a parent recreates the array with identical content.
+    // refreshKey is included so incrementing it re-runs all queries.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [specKey, spec.widgets, fetchAll, refreshKey]);
+  }, [specKey, fetchAll, refreshKey]);
+
+  // Build widget index map for section-based rendering.
+  // First occurrence of a given id wins; duplicates are ignored (and logged in dev)
+  // to keep rendering deterministic even if the spec contains duplicate widget ids.
+  const widgetIndexMap = useMemo(() => {
+    const map = new Map<string, number>();
+    spec.widgets.forEach((w, idx) => {
+      if (!w.id) return;
+      if (map.has(w.id)) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`DashboardRenderer: duplicate widget id "${w.id}" at index ${idx} — first occurrence used.`);
+        }
+        return;
+      }
+      map.set(w.id, idx);
+    });
+    return map;
+  }, [spec.widgets]);
 
   return (
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">{spec.title}</h1>
+        <h1 className="text-2xl font-bold text-tremor-content dark:text-dark-tremor-content">
+          {spec.title}
+        </h1>
         {spec.description && (
-          <p className="mt-1 text-sm text-gray-500">{spec.description}</p>
+          <p className="mt-1 text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+            {spec.description}
+          </p>
         )}
       </div>
 
-      {/* Widget grid */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-        {spec.widgets.map((widget, idx) => {
-          // When spec has changed but the effect hasn't run yet,
-          // treat all widgets as loading to avoid stale data flash.
-          const state = specChanged ? undefined : widgetStates.get(idx);
-          const isFullWidth =
-            widget.type === "kpi_row" || widget.type === "table";
+      {/* Tabbed layout (when sections are defined) */}
+      {spec.sections && spec.sections.length > 0 ? (
+        <TabGroup>
+          <TabList className="mb-6 flex space-x-1 border-b border-tremor-border dark:border-dark-tremor-border">
+            {spec.sections.map((section) => (
+              <Tab
+                key={section.id}
+                className={({ selected }: { selected: boolean }) =>
+                  "px-4 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-tremor-brand dark:focus-visible:ring-dark-tremor-brand focus-visible:ring-offset-1 " +
+                  (selected
+                    ? "border-b-2 border-tremor-brand dark:border-dark-tremor-brand text-tremor-brand dark:text-dark-tremor-brand -mb-px"
+                    : "text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis")
+                }
+              >
+                {section.label}
+              </Tab>
+            ))}
+          </TabList>
 
-          return (
-            <div
-              key={widget.id ?? `widget-${idx}`}
-              className={isFullWidth ? "md:col-span-2" : ""}
-            >
-              {/* Loading skeleton */}
-              {(!state || state.loading) && <WidgetSkeleton />}
+          <TabPanels>
+            {spec.sections.map((section) => {
+              // Resolve widget indices for this section; deduplicate to prevent duplicate React keys
+              const sectionWidgetIndices = Array.from(new Set(
+                section.widget_ids
+                  .map((wid) => widgetIndexMap.get(wid))
+                  .filter((idx): idx is number => idx !== undefined)
+              ));
 
-              {/* Error state */}
-              {state && !state.loading && state.error && (
-                <ErrorDisplay
-                  error={state.error}
-                  title={
-                    widget.type !== "kpi_row" && "title" in widget
-                      ? (widget.title as string)
-                      : undefined
-                  }
-                  onRetry={() => retryWidget(widget, idx)}
-                  className="w-full"
-                />
-              )}
-
-              {/* Success state */}
-              {state && !state.loading && !state.error && (
-                <WidgetSwitch widget={widget} state={state} />
-              )}
-            </div>
-          );
-        })}
-      </div>
+              return (
+                <TabPanel key={section.id}>
+                  <WidgetGrid
+                    widgets={spec.widgets}
+                    widgetIndices={sectionWidgetIndices}
+                    widgetStates={widgetStates}
+                    specChanged={specChanged}
+                    onRetry={retryWidget}
+                  />
+                </TabPanel>
+              );
+            })}
+          </TabPanels>
+        </TabGroup>
+      ) : (
+        /* Flat layout (default, backwards compatible) */
+        <WidgetGrid
+          widgets={spec.widgets}
+          widgetIndices={spec.widgets.map((_, i) => i)}
+          widgetStates={widgetStates}
+          specChanged={specChanged}
+          onRetry={retryWidget}
+        />
+      )}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Skeleton placeholder
+// Widget grid
 // ---------------------------------------------------------------------------
 
-function WidgetSkeleton() {
+interface WidgetGridProps {
+  widgets: Widget[];
+  widgetIndices: number[];
+  widgetStates: Map<number, WidgetState>;
+  specChanged: boolean;
+  onRetry: (widget: Widget, idx: number) => void;
+}
+
+function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry }: WidgetGridProps) {
   return (
-    <div
-      className="animate-pulse rounded-lg bg-gray-100 p-4"
-      data-testid="widget-skeleton"
-    >
-      <div className="mb-3 h-4 w-1/3 rounded bg-gray-200" />
-      <div className="h-32 rounded bg-gray-200" />
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      {widgetIndices.map((idx) => {
+        const widget = widgets[idx];
+        if (!widget) return null;
+
+        // When spec has changed but the effect hasn't run yet,
+        // treat all widgets as loading to avoid stale data flash.
+        const state = specChanged ? undefined : widgetStates.get(idx);
+        const isFullWidth =
+          widget.type === "kpi_row" || widget.type === "table";
+
+        return (
+          <div
+            key={widget.id ?? `widget-${idx}`}
+            className={isFullWidth ? "lg:col-span-2" : ""}
+          >
+            {/* Loading skeleton */}
+            {(!state || state.loading) && (
+              <WidgetSkeleton type={widget.type} />
+            )}
+
+            {/* Error state */}
+            {state && !state.loading && state.error && (
+              <ErrorDisplay
+                error={state.error}
+                title={
+                  widget.type !== "kpi_row" && "title" in widget
+                    ? (widget.title as string)
+                    : undefined
+                }
+                onRetry={() => onRetry(widget, idx)}
+                className="w-full"
+              />
+            )}
+
+            {/* Success state */}
+            {state && !state.loading && !state.error && (
+              <WidgetSwitch widget={widget} state={state} />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Shaped skeleton placeholders (Task 4)
+// ---------------------------------------------------------------------------
+
+type WidgetType = Widget["type"];
+
+function WidgetSkeleton({ type }: { type: WidgetType }) {
+  switch (type) {
+    case "kpi_row":
+      return (
+        <div
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
+          data-testid="widget-skeleton"
+        >
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4"
+            >
+              <div className="mb-2 h-3 w-2/3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+              <div className="h-8 w-1/2 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+            </div>
+          ))}
+        </div>
+      );
+
+    case "bar_chart":
+      return (
+        <div
+          className="animate-pulse rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4"
+          data-testid="widget-skeleton"
+        >
+          <div className="mb-4 h-4 w-1/3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+          <div className="flex items-end gap-2 h-40">
+            {[60, 85, 45, 70, 55, 90, 40].map((h, i) => (
+              <div
+                key={i}
+                className="flex-1 rounded-t bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle"
+                style={{ height: `${h}%` }}
+              />
+            ))}
+          </div>
+          <div className="mt-2 flex gap-2">
+            {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+              <div
+                key={i}
+                className="flex-1 h-3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle"
+              />
+            ))}
+          </div>
+        </div>
+      );
+
+    case "line_chart":
+    case "area_chart":
+      return (
+        <div
+          className="animate-pulse rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4"
+          data-testid="widget-skeleton"
+        >
+          <div className="mb-4 h-4 w-1/3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+          <div className="relative h-40">
+            {/* Simulate a line chart wave */}
+            <svg
+              viewBox="0 0 300 100"
+              className="h-full w-full opacity-20"
+              preserveAspectRatio="none"
+            >
+              <polyline
+                points="0,70 50,50 100,60 150,30 200,45 250,20 300,40"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="3"
+                className="text-tremor-brand dark:text-dark-tremor-brand"
+              />
+            </svg>
+          </div>
+        </div>
+      );
+
+    case "donut_chart":
+      return (
+        <div
+          className="animate-pulse rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4"
+          data-testid="widget-skeleton"
+        >
+          <div className="mb-4 h-4 w-1/3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+          <div className="flex items-center justify-center">
+            <div className="h-40 w-40 rounded-full border-[20px] border-tremor-background-subtle dark:border-dark-tremor-background-subtle" />
+          </div>
+        </div>
+      );
+
+    case "table":
+      return (
+        <div
+          className="animate-pulse rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4"
+          data-testid="widget-skeleton"
+        >
+          <div className="mb-4 h-4 w-1/4 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+          {/* Header row */}
+          <div className="mb-3 grid grid-cols-4 gap-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle"
+              />
+            ))}
+          </div>
+          {/* Data rows */}
+          {[0, 1, 2, 3, 4].map((row) => (
+            <div key={row} className="mb-2 grid grid-cols-4 gap-3">
+              {[0, 1, 2, 3].map((col) => (
+                <div
+                  key={col}
+                  className="h-3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle opacity-60"
+                  style={{ opacity: 0.4 + (4 - row) * 0.1 }}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      );
+
+    case "number":
+    default:
+      return (
+        <div
+          className="animate-pulse rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4"
+          data-testid="widget-skeleton"
+        >
+          <div className="mb-3 h-4 w-1/3 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+          <div className="h-12 w-1/2 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
+        </div>
+      );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -365,6 +628,7 @@ function WidgetSwitch({
         <KpiRow
           widget={widget}
           data={state.data as (WidgetData | null)[]}
+          trendData={state.trendData}
         />
       );
     case "bar_chart":

@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
 import ChatSidebar from "@/components/ChatSidebar";
+import { DateRangePicker } from "@/components/DateRangePicker";
+import type { DateRange } from "@/components/DateRangePicker";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
@@ -81,6 +83,26 @@ export default function ViewDashboard() {
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(0);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Date range filter state — default to last 30 days (day-based to avoid month-end overflow)
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const to = new Date();
+    const from = new Date(to);
+    from.setDate(from.getDate() - 29);
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+    return { from, to };
+  });
+
+  // When date range changes, store the range and re-run all widget queries.
+  // The date range is displayed in the picker for context; actual SQL filtering
+  // depends on the widget SQL containing appropriate date expressions.
+  // In a future iteration, widgets with a dateColumn hint could use
+  // injectDateRange() to automatically apply the range client-side.
+  const handleDateRangeChange = useCallback((range: DateRange) => {
+    setDateRange(range);
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   // Export dropdown state
   const [exportOpen, setExportOpen] = useState(false);
@@ -478,7 +500,10 @@ export default function ViewDashboard() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Date range picker */}
+          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
+
           {/* Last refreshed timestamp */}
           <span className="text-xs text-gray-400" data-testid="last-refreshed">
             {`\u00DAltima actualizaci\u00F3n: ${formatTime(lastRefreshed)}`}
@@ -583,7 +608,11 @@ export default function ViewDashboard() {
       </div>
 
       {/* Dashboard renderer */}
-      <DashboardRenderer spec={dashboard.spec} refreshKey={refreshKey} />
+      <DashboardRenderer
+        spec={dashboard.spec}
+        refreshKey={refreshKey}
+        dateRange={dateRange}
+      />
 
       {/* Chat sidebar */}
       <ChatSidebar

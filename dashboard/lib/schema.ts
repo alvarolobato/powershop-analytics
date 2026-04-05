@@ -20,6 +20,9 @@ const KpiItemSchema = z.object({
   sql: z.string().min(1),
   format: KpiFormatSchema,
   prefix: optStr,
+  /** Optional SQL for trend/comparison period. Returns a single numeric value.
+   *  The trend percentage is computed as (current - comparison) / abs(comparison) * 100. */
+  trend_sql: optStr,
 }).strict();
 
 const KpiRowWidgetSchema = z.object({
@@ -90,10 +93,31 @@ export const WidgetSchema = z.discriminatedUnion("type", [
   NumberWidgetSchema,
 ]);
 
+/**
+ * Optional tab section for multi-section dashboards.
+ * When `sections` is present, the renderer groups widgets under tabs.
+ * Backwards compatible: dashboards without `sections` use the flat layout.
+ *
+ * **Note**: `widget_ids` must reference `id` values set on individual widgets.
+ * Widget `id` is optional in the widget schemas, but when `sections` is used,
+ * every widget that should appear in a section must have an `id` set.
+ * Widgets without `id`, or with `id` not listed in any section, will not render
+ * in the tabbed layout. The LLM should always set `id` on all widgets when
+ * generating a spec with sections.
+ */
+const DashboardSectionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  /** Ids of widgets that belong to this section. Must match widget `id` fields. */
+  widget_ids: z.array(z.string().min(1)).min(1),
+}).strict();
+
 export const DashboardSpecSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1).optional(),
   widgets: z.array(WidgetSchema).min(1),
+  /** Optional: group widgets into named tabs. Backwards compatible. */
+  sections: z.array(DashboardSectionSchema).min(1).optional(),
 }).strict();
 
 // ---------------------------------------------------------------------------
@@ -110,6 +134,7 @@ export type DonutChartWidget = z.infer<typeof DonutChartWidgetSchema>;
 export type TableWidget = z.infer<typeof TableWidgetSchema>;
 export type NumberWidget = z.infer<typeof NumberWidgetSchema>;
 export type Widget = z.infer<typeof WidgetSchema>;
+export type DashboardSection = z.infer<typeof DashboardSectionSchema>;
 export type DashboardSpec = z.infer<typeof DashboardSpecSchema>;
 
 // ---------------------------------------------------------------------------
