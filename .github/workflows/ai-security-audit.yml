@@ -1,0 +1,77 @@
+name: AI Security Audit
+on:
+  schedule:
+    - cron: "0 10 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: npm audit
+        run: cd dashboard && npm audit --json > /tmp/npm-audit.json 2>/dev/null || true
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: pip audit
+        run: |
+          pip install pip-audit
+          pip-audit -r etl/requirements.txt --format=json > /tmp/pip-audit.json 2>/dev/null || true
+
+      - name: Security Analysis
+        uses: anthropic/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 20"
+          prompt: |
+            You are the Security Auditor. Perform a comprehensive security review.
+
+            ## Dependency audit
+            1. Read /tmp/npm-audit.json — Node.js dependency vulnerabilities
+            2. Read /tmp/pip-audit.json — Python dependency vulnerabilities
+            3. Flag any HIGH or CRITICAL severity vulnerabilities
+
+            ## Source code audit
+            4. Search for hardcoded credentials:
+               - API keys, passwords, tokens in source files
+               - Credentials in Docker/compose files
+               - Secrets in CI/CD workflows (should use ${{ secrets.* }})
+            5. SQL injection:
+               - Check all SQL query construction in etl/ and dashboard/
+               - Verify parameterized queries are used
+               - Check for string interpolation in SQL
+            6. **Read-only SQL enforcement** (CRITICAL):
+               - Verify CLI SQL filter blocks all write operations
+               - Verify ETL only runs INSERT/UPDATE on ps_* mirror tables
+               - Verify dashboard queries are read-only
+            7. XSS/injection in dashboard:
+               - Check for dangerouslySetInnerHTML
+               - Check user input handling
+            8. Docker security:
+               - Running as root?
+               - Exposed unnecessary ports?
+               - Secrets passed via environment safely?
+
+            ## Output
+            If vulnerabilities found, create ONE issue with title prefix `[security]`:
+            - Severity: CRITICAL/HIGH/MEDIUM/LOW
+            - Finding with file path
+            - Remediation
+
+            If clean, do NOT create an issue.

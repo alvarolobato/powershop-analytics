@@ -1,0 +1,53 @@
+name: AI ETL Health Monitor
+on:
+  schedule:
+    - cron: "0 8 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ETL Health Check
+        uses: anthropic/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 15"
+          prompt: |
+            You are the ETL Health Monitor. Check the health of the data pipeline.
+
+            ## Checks to perform
+            1. **Review ETL code** for potential issues:
+               - Read etl/main.py and etl/sync/*.py
+               - Check for error handling gaps
+               - Verify connection retry logic
+               - Check that all sync modules are registered in main.py
+
+            2. **Review schema consistency**:
+               - Read etl/schema/init.sql
+               - Verify all ps_* tables have proper indexes
+               - Check that FK constraints reference valid tables
+
+            3. **Review ETL sync strategy**:
+               - Read docs/etl-sync-strategy.md
+               - Check that documented delta fields match code implementations
+               - Verify watermark logic is correct
+
+            4. **Check Docker health**:
+               - Read docker-compose.yml
+               - Verify ETL service has proper health checks
+               - Check environment variable references
+
+            ## Output
+            If issues found, create ONE issue with title prefix `[etl-health]`:
+            - List all findings grouped by severity
+            - Include file paths and line numbers
+            - Suggest fixes
+
+            If everything looks healthy, do NOT create an issue. Silence is golden.
