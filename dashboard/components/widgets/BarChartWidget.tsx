@@ -4,6 +4,7 @@ import { Card, BarChart } from "@tremor/react";
 import type { BarChartWidget as BarChartWidgetSpec } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
+import { CHART_COLORS } from "./chart-colors";
 
 interface BarChartWidgetProps {
   widget: BarChartWidgetSpec;
@@ -58,6 +59,7 @@ export function BarChartWidget({ widget, data }: BarChartWidgetProps) {
           data={chartData}
           index={xCol}
           categories={[yCol]}
+          colors={CHART_COLORS}
           showYAxis={false}
           showLegend={false}
         />
@@ -69,6 +71,7 @@ export function BarChartWidget({ widget, data }: BarChartWidgetProps) {
           data={chartData}
           index={xCol}
           categories={[yCol]}
+          colors={CHART_COLORS}
           yAxisWidth={60}
           showLegend={false}
         />

@@ -64,8 +64,8 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
   if (!data || data.rows.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-gray-500">{widget.title}</h3>
-        <p className="mt-4 text-center text-sm text-gray-400">
+        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{widget.title}</h3>
+        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
           {EMPTY_MESSAGE}
         </p>
       </Card>
@@ -74,15 +74,15 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
 
   return (
     <Card className="p-4">
-      <h3 className="mb-4 text-sm font-medium text-gray-500">{widget.title}</h3>
+      <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{widget.title}</h3>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
-            <tr className="border-b border-gray-200">
+            <tr className="border-b border-tremor-border dark:border-dark-tremor-border">
               {data.columns.map((col, idx) => (
                 <th
                   key={`${idx}-${col}`}
-                  className="px-3 py-2 text-left font-medium text-gray-600"
+                  className="px-3 py-2 text-left font-medium text-tremor-content dark:text-dark-tremor-content"
                   aria-sort={
                     sortCol === idx
                       ? sortDir === "asc"
@@ -94,7 +94,7 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
                   <button
                     type="button"
                     onClick={() => handleSort(idx)}
-                    className="inline-flex items-center hover:text-gray-900"
+                    className="inline-flex items-center hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis"
                   >
                     {col}
                     {sortCol === idx && (
@@ -109,9 +109,9 @@ export function TableWidget({ widget, data }: TableWidgetProps) {
           </thead>
           <tbody>
             {sortedRows.map((row, rIdx) => (
-              <tr key={rIdx} className="border-b border-gray-100 hover:bg-gray-50">
+              <tr key={rIdx} className="border-b border-tremor-border dark:border-dark-tremor-border hover:bg-dark-tremor-background-subtle">
                 {row.map((cell, cIdx) => (
-                  <td key={cIdx} className="px-3 py-2 text-gray-700">
+                  <td key={cIdx} className="px-3 py-2 text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
                     {formatCell(cell)}
                   </td>
                 ))}

@@ -116,8 +116,8 @@ export default function NewDashboard() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Nuevo Dashboard</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Nuevo Dashboard</h1>
+        <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
           Describe el cuadro de mando que deseas crear, o selecciona una plantilla
         </p>
       </div>
@@ -130,7 +130,7 @@ export default function NewDashboard() {
           disabled={isDisabled}
           placeholder="Describe el dashboard que necesitas..."
           rows={6}
-          className="w-full resize-none rounded-lg border border-gray-300 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full resize-none rounded-lg border border-dark-tremor-border bg-dark-tremor-background px-4 py-3 text-sm text-dark-tremor-content-emphasis placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
         />
 
         {error && (
@@ -143,7 +143,7 @@ export default function NewDashboard() {
         <button
           onClick={handleGenerate}
           disabled={isDisabled || prompt.trim() === ""}
-          className="flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="flex items-center gap-2 rounded-lg bg-blue-500 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {loading && (
             <span
@@ -158,10 +158,10 @@ export default function NewDashboard() {
 
       {/* Template cards */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-900">
+        <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
           Plantillas predefinidas
         </h2>
-        <p className="mt-1 text-sm text-gray-500">
+        <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
           Usa una plantilla para empezar con un dashboard listo al instante
         </p>
 
@@ -171,19 +171,19 @@ export default function NewDashboard() {
               key={template.slug}
               onClick={() => handleUseTemplate(template)}
               disabled={isDisabled}
-              className="flex flex-col items-start rounded-lg border border-gray-200 bg-white p-5 text-left shadow-sm hover:border-blue-400 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="flex flex-col items-start rounded-lg border border-dark-tremor-border bg-dark-tremor-background-subtle p-5 text-left shadow-sm hover:border-blue-400 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
-              <h3 className="text-sm font-semibold text-gray-900">
+              <h3 className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                 {template.name}
               </h3>
-              <p className="mt-1 text-xs text-gray-500 line-clamp-2">
+              <p className="mt-1 text-xs text-tremor-content dark:text-dark-tremor-content line-clamp-2">
                 {template.description}
               </p>
-              <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-blue-600">
+              <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-blue-400">
                 {loadingTemplate === template.slug ? (
                   <>
                     <span
-                      className="h-3 w-3 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"
+                      className="h-3 w-3 animate-spin rounded-full border-2 border-blue-400 border-t-transparent"
                       role="status"
                       aria-label="Cargando plantilla"
                     />

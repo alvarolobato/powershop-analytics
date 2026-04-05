@@ -2,6 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Prism dark syntax highlighting for JSON spec editor */
+.token.property { color: #c084fc; }
+.token.string { color: #34d399; }
+.token.number { color: #60a5fa; }
+.token.boolean { color: #f472b6; }
+.token.null { color: #6b7280; }
+.token.punctuation { color: #94a3b8; }
+.token.operator { color: #94a3b8; }
+
 /* Print-friendly styles: hide controls, show only dashboard content */
 @media print {
   .no-print {

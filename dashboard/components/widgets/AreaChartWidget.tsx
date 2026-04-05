@@ -4,6 +4,7 @@ import { Card, AreaChart } from "@tremor/react";
 import type { AreaChartWidget as AreaChartWidgetSpec } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
+import { CHART_COLORS } from "./chart-colors";
 
 interface AreaChartWidgetProps {
   widget: AreaChartWidgetSpec;
@@ -58,6 +59,7 @@ export function AreaChartWidget({ widget, data }: AreaChartWidgetProps) {
           data={chartData}
           index={xCol}
           categories={[yCol]}
+          colors={CHART_COLORS}
           showYAxis={false}
         />
       </div>
@@ -68,6 +70,7 @@ export function AreaChartWidget({ widget, data }: AreaChartWidgetProps) {
           data={chartData}
           index={xCol}
           categories={[yCol]}
+          colors={CHART_COLORS}
           yAxisWidth={60}
         />
       </div>
