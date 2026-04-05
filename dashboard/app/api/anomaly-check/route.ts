@@ -99,14 +99,14 @@ export function computeAnomaly(values: number[]): AnomalyResult {
       ? "low"
       : "normal";
 
-  const pctChange =
-    mean !== 0 ? ((currentValue - mean) / Math.abs(mean)) * 100 : 0;
-  const absPct = Math.abs(pctChange).toFixed(0);
+  const delta = currentValue - mean;
   const dirText = direction === "high" ? "por encima" : "por debajo";
 
   const explanation =
     direction !== "normal"
-      ? `El valor actual (${formatNum(currentValue)}) está un ${absPct}% ${dirText} de la media de los últimos ${n} períodos (${formatNum(mean)}).`
+      ? mean !== 0
+        ? `El valor actual (${formatNum(currentValue)}) está un ${Math.abs(((delta / Math.abs(mean)) * 100)).toFixed(0)}% ${dirText} de la media de los últimos ${n} períodos (${formatNum(mean)}).`
+        : `El valor actual (${formatNum(currentValue)}) está ${dirText} de la media de los últimos ${n} períodos (${formatNum(mean)}), con una diferencia absoluta de ${formatNum(Math.abs(delta))}.`
       : `El valor actual (${formatNum(currentValue)}) está dentro del rango normal (media: ${formatNum(mean)}).`;
 
   return {

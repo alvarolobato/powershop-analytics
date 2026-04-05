@@ -78,13 +78,16 @@ function computeAnomaly(data: WidgetData | null): AnomalyInfo | null {
     zScore > ANOMALY_Z_THRESHOLD ? "high" : "low";
 
   const pctChange =
-    mean !== 0 ? ((currentValue - mean) / Math.abs(mean)) * 100 : 0;
-  const absPct = Math.abs(pctChange).toFixed(0);
+    mean !== 0 ? ((currentValue - mean) / Math.abs(mean)) * 100 : null;
   const dirText = direction === "high" ? "por encima" : "por debajo";
   const fmt = (v: number) =>
     v.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+  const absDifference = Math.abs(currentValue - mean);
 
-  const explanation = `El valor actual (${fmt(currentValue)}) está un ${absPct}% ${dirText} de la media de los últimos ${n} períodos (${fmt(mean)}).`;
+  const explanation =
+    pctChange !== null
+      ? `El valor actual (${fmt(currentValue)}) está un ${Math.abs(pctChange).toFixed(0)}% ${dirText} de la media de los últimos ${n} períodos (${fmt(mean)}).`
+      : `El valor actual (${fmt(currentValue)}) está ${fmt(absDifference)} ${dirText} de la media de los últimos ${n} períodos (${fmt(mean)}).`;
 
   return { isAnomaly: true, direction, explanation };
 }
