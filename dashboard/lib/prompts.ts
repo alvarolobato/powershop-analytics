@@ -178,7 +178,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatSchema(schema: TableSchema[]): string {
+export function formatSchema(schema: TableSchema[]): string {
   const lines = schema.map(
     (t) =>
       `- **${t.table}** (${t.alias}): ${t.description}\n  Columns: ${t.keyColumns.join(", ")}`
@@ -186,14 +186,14 @@ function formatSchema(schema: TableSchema[]): string {
   return `## PostgreSQL Schema (ps_* tables)\n\n${lines.join("\n\n")}`;
 }
 
-function formatRelationships(rels: Relationship[]): string {
+export function formatRelationships(rels: Relationship[]): string {
   const lines = rels.map(
     (r) => `- ${r.from}.${r.fromColumn} → ${r.to}.${r.toColumn} (${r.type})`
   );
   return `## Table Relationships\n\n${lines.join("\n")}`;
 }
 
-function formatInstructions(instructions: Instruction[]): string {
+export function formatInstructions(instructions: Instruction[]): string {
   const lines = instructions.map(
     (inst, i) => `${i + 1}. ${inst.instruction}`
   );
