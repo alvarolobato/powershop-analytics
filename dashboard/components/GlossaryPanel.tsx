@@ -51,10 +51,9 @@ export function GlossaryPanel({ glossary, isOpen, onClose }: GlossaryPanelProps)
         data-testid="glossary-backdrop"
       />
 
-      {/* Slide-out panel */}
+      {/* Slide-out panel — non-modal: no focus trapping, background remains interactive */}
       <div
         role="dialog"
-        aria-modal="true"
         aria-label="Glosario de Métricas"
         className={[
           "fixed right-0 top-0 h-full w-80 z-50",
