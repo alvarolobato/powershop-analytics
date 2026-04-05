@@ -7,6 +7,10 @@ set -euo pipefail
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 LOG_PREFIX="[powershop-update]"
 
+# Health check ports — override via env vars if non-default ports are used
+WRENAI_PORT="${WRENAI_PORT:-3000}"
+DASHBOARD_PORT="${DASHBOARD_PORT:-4000}"
+
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') ${LOG_PREFIX} $*"; }
 
 # Change to project directory
@@ -37,13 +41,13 @@ if echo "$PULL_OUTPUT" | grep -q "Downloaded newer image"; then
         HEALTHY=false
     fi
 
-    # Check WrenAI (check if port 3000 responds)
-    if ! curl -sf http://localhost:3000 > /dev/null 2>&1; then
+    # Check WrenAI
+    if ! curl -sf "http://localhost:${WRENAI_PORT}" > /dev/null 2>&1; then
         log "WARNING: WrenAI UI may not be ready yet (can take a few minutes)"
     fi
 
     # Check Dashboard
-    if ! curl -sf http://localhost:4000/api/health > /dev/null 2>&1; then
+    if ! curl -sf "http://localhost:${DASHBOARD_PORT}/api/health" > /dev/null 2>&1; then
         log "WARNING: Dashboard App may not be ready yet"
     fi
 

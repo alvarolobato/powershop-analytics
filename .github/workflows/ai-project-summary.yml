@@ -15,26 +15,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Calculate date thresholds
+        id: dates
+        run: |
+          echo "today=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+          echo "yesterday=$(date -d 'yesterday' +%Y-%m-%d)" >> $GITHUB_OUTPUT
+          echo "three_days_ago=$(date -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          echo "thirty_days_ago=$(date -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+
       - name: Generate Project Summary
         uses: anthropic/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
+          TODAY: ${{ steps.dates.outputs.today }}
+          YESTERDAY: ${{ steps.dates.outputs.yesterday }}
+          THREE_DAYS_AGO: ${{ steps.dates.outputs.three_days_ago }}
+          THIRTY_DAYS_AGO: ${{ steps.dates.outputs.thirty_days_ago }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 15"
           prompt: |
             Generate a daily project summary. Use the GitHub CLI to gather data.
+            The following date env vars are pre-calculated and available in your shell:
+            - $TODAY (e.g. 2026-04-05)
+            - $YESTERDAY (e.g. 2026-04-04)
+            - $THREE_DAYS_AGO (ISO 8601, e.g. 2026-04-02T09:00:00Z)
+            - $THIRTY_DAYS_AGO (ISO 8601, e.g. 2026-03-06T09:00:00Z)
 
             ## Data to collect
             1. `gh pr list --state open --json number,title,author,labels,createdAt,reviewDecision` — Open PRs
-            2. `gh pr list --state merged --json number,title,mergedAt --search "merged:>=$(date -d 'yesterday' +%Y-%m-%d)"` — Merged in last 24h
+            2. `gh pr list --state merged --json number,title,mergedAt --search "merged:>=${YESTERDAY}"` — Merged in last 24h
             3. `gh issue list --state open --label "ai-blocked" --json number,title` — Blocked issues
             4. `gh issue list --state open --label "ai-in-progress" --json number,title` — In-progress AI work
             5. `gh issue list --state open --json number,title,createdAt,labels --limit 20` — Recent open issues
-            6. `gh pr list --state open --json number,title,createdAt --jq '.[] | select(.createdAt < "$(date -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)")'` — Stale PRs
+            6. `gh pr list --state open --json number,title,createdAt --jq ".[] | select(.createdAt < \"${THREE_DAYS_AGO}\")"` — Stale PRs (use the pre-calculated $THREE_DAYS_AGO env var)
 
             ## Format
-            Create an issue with title `[project-summary] Project Summary - {today's date}`:
+            Create an issue with title `[project-summary] Project Summary - ${TODAY}`:
 
             ### Open PRs ({count})
             | PR | Title | Author | CI | Review | Age |
