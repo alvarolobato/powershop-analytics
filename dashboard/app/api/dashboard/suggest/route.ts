@@ -12,7 +12,11 @@
  * Success response (200):
  *   { suggestions: { name: string, description: string, prompt: string }[] }
  *
- * Error responses: 400 (validation), 429 (rate limit), 500 (LLM error)
+ * Error responses:
+ *   400 (VALIDATION: missing/invalid fields or unknown role)
+ *   400 (LLM_INVALID_RESPONSE: LLM returned invalid JSON or a non-array value)
+ *   429 (LLM_RATE_LIMIT)
+ *   500 (LLM_ERROR)
  */
 
 import { NextResponse } from "next/server";

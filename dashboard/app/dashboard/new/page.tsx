@@ -249,13 +249,14 @@ export default function NewDashboard() {
       // Fetch dashboard list (cached for the page session)
       const listData = await getDashboardList();
 
-      // Fetch specs for each dashboard to extract widget titles
+      // Fetch specs for each dashboard to extract widget titles.
+      // Cap to 30 to match the API's own limit and avoid excess parallel fetches.
       const dashboardsWithSpecs: {
         title: string;
         description: string;
         widgetTitles: string[];
       }[] = await Promise.all(
-        listData.map(async (d) => {
+        listData.slice(0, 30).map(async (d) => {
           try {
             const specRes = await fetch(`/api/dashboard/${d.id}`);
             if (!specRes.ok) {
@@ -521,10 +522,10 @@ export default function NewDashboard() {
             className="w-full resize-none rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-4 py-3 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
           />
 
-          {error && (
+          {error && lastErrorSource === "generate" && (
             <ErrorDisplay
               error={error}
-              onRetry={lastErrorSource === "generate" ? handleGenerate : undefined}
+              onRetry={handleGenerate}
             />
           )}
 
