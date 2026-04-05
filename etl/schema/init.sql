@@ -391,6 +391,9 @@ CREATE TABLE IF NOT EXISTS dashboards (
     updated_at   TIMESTAMPTZ  DEFAULT NOW()
 );
 
+-- Add analyze chat messages column if it doesn't exist (migration-safe)
+ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS chat_messages_analyze JSONB DEFAULT '[]';
+
 CREATE TABLE IF NOT EXISTS dashboard_versions (
     id            SERIAL       PRIMARY KEY,
     dashboard_id  INTEGER      NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,

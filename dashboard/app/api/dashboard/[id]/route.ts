@@ -54,7 +54,7 @@ export async function GET(
 
   try {
     const rows = await sql(
-      `SELECT id, name, description, spec, created_at, updated_at
+      `SELECT id, name, description, spec, chat_messages_analyze, created_at, updated_at
        FROM dashboards WHERE id = $1`,
       [id],
     );
@@ -93,6 +93,7 @@ interface UpdateBody {
   prompt?: string;
   name?: string;
   skipVersion?: boolean;
+  chat_messages_analyze?: unknown;
 }
 
 export async function PUT(
@@ -136,7 +137,7 @@ export async function PUT(
     );
   }
 
-  const { spec, prompt, name, skipVersion } = body;
+  const { spec, prompt, name, skipVersion, chat_messages_analyze } = body;
 
   // Validate name type if provided
   if (name !== undefined && name !== null) {
@@ -246,16 +247,32 @@ export async function PUT(
       );
     }
 
-    // Update the dashboard (include name if provided)
+    // Update the dashboard (include name and/or chat_messages_analyze if provided)
     const trimmedName = typeof name === "string" ? name.trim() : null;
+    const hasChatAnalyze = chat_messages_analyze !== undefined && chat_messages_analyze !== null;
+
+    // Build dynamic SET clause and parameters
+    const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
+    const params: unknown[] = [JSON.stringify(spec), id];
+    let paramIdx = 3;
+
+    if (trimmedName) {
+      setClauses.push(`name = $${paramIdx}`);
+      params.push(trimmedName);
+      paramIdx++;
+    }
+    if (hasChatAnalyze) {
+      setClauses.push(`chat_messages_analyze = $${paramIdx}`);
+      params.push(JSON.stringify(chat_messages_analyze));
+      paramIdx++;
+    }
+
     const updateResult = await client.query(
       `UPDATE dashboards
-       SET spec = $1, updated_at = NOW()${trimmedName ? ", name = $3" : ""}
+       SET ${setClauses.join(", ")}
        WHERE id = $2
-       RETURNING id, name, description, spec, created_at, updated_at`,
-      trimmedName
-        ? [JSON.stringify(spec), id, trimmedName]
-        : [JSON.stringify(spec), id],
+       RETURNING id, name, description, spec, chat_messages_analyze, created_at, updated_at`,
+      params,
     );
 
     await client.query("COMMIT");

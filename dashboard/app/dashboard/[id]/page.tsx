@@ -3,7 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
+import type { WidgetState } from "@/components/DashboardRenderer";
 import ChatSidebar from "@/components/ChatSidebar";
+import type { ChatMessage } from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import type { DateRange } from "@/components/DateRangePicker";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -20,6 +22,7 @@ interface DashboardRecord {
   name: string;
   description: string | null;
   spec: DashboardSpec;
+  chat_messages_analyze?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +70,7 @@ export default function ViewDashboard() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [widgetData, setWidgetData] = useState<Map<number, WidgetState>>(new Map());
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -310,6 +314,26 @@ export default function ViewDashboard() {
       saveSpec(newSpec, prompt);
     },
     [saveSpec],
+  );
+
+  // Handle analyze messages change — auto-save without version entry
+  const handleAnalyzeMessagesChange = useCallback(
+    (messages: ChatMessage[]) => {
+      if (!dashboard) return;
+      // Use skipVersion: true to avoid bloating versions table
+      fetch(`/api/dashboard/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          spec: latestSpecRef.current ?? dashboard.spec,
+          chat_messages_analyze: messages,
+          skipVersion: true,
+        }),
+      }).catch((err) => {
+        console.error("Error guardando mensajes de análisis:", err);
+      });
+    },
+    [dashboard, id],
   );
 
   // Handle name edit — persist via PUT endpoint
@@ -612,6 +636,7 @@ export default function ViewDashboard() {
         spec={dashboard.spec}
         refreshKey={refreshKey}
         dateRange={dateRange}
+        onWidgetDataChange={setWidgetData}
       />
 
       {/* Chat sidebar */}
@@ -620,6 +645,9 @@ export default function ViewDashboard() {
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
         onToggle={() => setChatOpen((prev) => !prev)}
+        widgetData={widgetData}
+        initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
+        onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
       />
     </div>
   );
