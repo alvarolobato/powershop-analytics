@@ -104,11 +104,14 @@ export async function POST(request: Request) {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
 
-    // Detect rate limit
+    // Detect rate limit (case-insensitive)
     const isRateLimit =
-      message.includes("rate limit") || message.includes("429");
+      normalizedMessage.includes("rate limit") ||
+      normalizedMessage.includes("ratelimit") ||
+      normalizedMessage.includes("429");
 
     return NextResponse.json(
       formatApiError(

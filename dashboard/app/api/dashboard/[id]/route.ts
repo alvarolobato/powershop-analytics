@@ -211,7 +211,7 @@ export async function PUT(
         sanitizeErrorMessage(err),
         requestId,
       ),
-      { status: 500 },
+      { status: 503 },
     );
   }
 

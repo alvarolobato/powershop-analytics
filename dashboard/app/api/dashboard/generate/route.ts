@@ -90,11 +90,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     rawResponse = await generateDashboard(prompt);
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
+    const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
 
-    // Surface rate-limit errors with a specific message
+    // Surface rate-limit errors with a specific message (case-insensitive)
     const isRateLimit =
-      message.includes("rate limit") || message.includes("429");
+      normalizedMessage.includes("rate limit") ||
+      normalizedMessage.includes("ratelimit") ||
+      normalizedMessage.includes("429");
 
     return NextResponse.json(
       formatApiError(

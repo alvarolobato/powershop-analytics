@@ -3,6 +3,7 @@
 import type { KeyboardEvent } from "react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { DashboardSpec } from "@/lib/schema";
+import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -155,9 +156,9 @@ export default function ChatSidebar({
         try {
           const errBody = await res.json();
           // Check if this is our structured error format
-          if (errBody && typeof errBody === "object" && "code" in errBody && "requestId" in errBody) {
-            errorDetail = errBody as ApiErrorResponse;
-            userMsg = errBody.error as string;
+          if (isApiErrorResponse(errBody)) {
+            errorDetail = errBody;
+            userMsg = errBody.error;
           } else {
             // Non-structured error — use generic message by HTTP status
             userMsg =

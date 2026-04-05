@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import "../widgets/__tests__/setup";
 import { DashboardRenderer } from "../DashboardRenderer";
 import type { DashboardSpec } from "@/lib/schema";
@@ -315,6 +315,68 @@ describe("DashboardRenderer", () => {
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+    });
+  });
+
+  it("shows retry button on error and re-fetches on click", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: return an error
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () =>
+              Promise.resolve({
+                error: "DB error",
+                code: "DB_QUERY",
+                requestId: "req_retry",
+                timestamp: "2026-04-05T10:00:00.000Z",
+              }),
+          } as unknown as Response);
+        }
+        // Second call (retry): succeed
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              columns: ["value"],
+              rows: [[99]],
+            }),
+        } as unknown as Response);
+      }),
+    );
+
+    const errorSpec: DashboardSpec = {
+      title: "Panel con Error",
+      widgets: [
+        {
+          type: "number",
+          title: "Numero con Fallo",
+          sql: "SELECT bad",
+          format: "number",
+        },
+      ],
+    };
+
+    render(<DashboardRenderer spec={errorSpec} />);
+
+    // Wait for error to appear
+    await waitFor(() => {
+      expect(screen.getByTestId("retry-button")).toBeInTheDocument();
+    });
+
+    const callsBeforeRetry = callCount;
+
+    // Click retry
+    fireEvent.click(screen.getByTestId("retry-button"));
+
+    // After retry, fetch should have been called again
+    await waitFor(() => {
+      expect(callCount).toBeGreaterThan(callsBeforeRetry);
     });
   });
 

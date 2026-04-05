@@ -86,6 +86,26 @@ export function formatApiError(
 }
 
 // ---------------------------------------------------------------------------
+// isApiErrorResponse — type guard
+// ---------------------------------------------------------------------------
+
+/**
+ * Type guard: returns true only when the value looks like a well-formed
+ * ApiErrorResponse (has all required string fields).
+ * Use this instead of loose `"code" in obj` checks to avoid false positives.
+ */
+export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.error === "string" &&
+    typeof v.code === "string" &&
+    typeof v.timestamp === "string" &&
+    typeof v.requestId === "string"
+  );
+}
+
+// ---------------------------------------------------------------------------
 // sanitizeErrorMessage
 // ---------------------------------------------------------------------------
 

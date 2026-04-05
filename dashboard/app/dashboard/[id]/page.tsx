@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
 import ChatSidebar from "@/components/ChatSidebar";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
 import type { ApiErrorResponse } from "@/lib/errors";
 
@@ -109,8 +110,8 @@ export default function ViewDashboard() {
       }
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        if (errBody && typeof errBody === "object" && "code" in errBody) {
-          setError(errBody as ApiErrorResponse);
+        if (isApiErrorResponse(errBody)) {
+          setError(errBody);
         } else {
           setError("Error al cargar el dashboard");
         }
@@ -248,8 +249,8 @@ export default function ViewDashboard() {
         });
         if (!res.ok) {
           const errBody = await res.json().catch(() => null);
-          if (errBody && typeof errBody === "object" && "code" in errBody) {
-            throw errBody as ApiErrorResponse;
+          if (isApiErrorResponse(errBody)) {
+            throw errBody;
           }
           throw new Error("Error al guardar");
         }
@@ -260,13 +261,8 @@ export default function ViewDashboard() {
         }
       } catch (err) {
         if (thisCount === saveCounter.current) {
-          if (
-            err !== null &&
-            typeof err === "object" &&
-            "code" in err &&
-            "requestId" in err
-          ) {
-            setSaveError(err as ApiErrorResponse);
+          if (isApiErrorResponse(err)) {
+            setSaveError(err);
           } else {
             setSaveError(
               err instanceof Error ? err.message : "Error al guardar",

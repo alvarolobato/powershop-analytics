@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, Title, Text } from "@tremor/react";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -35,8 +36,8 @@ export default function Home() {
       const res = await fetch("/api/dashboards");
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        if (errBody && typeof errBody === "object" && "code" in errBody) {
-          setError(errBody as ApiErrorResponse);
+        if (isApiErrorResponse(errBody)) {
+          setError(errBody);
         } else {
           setError("Error al cargar los dashboards");
         }

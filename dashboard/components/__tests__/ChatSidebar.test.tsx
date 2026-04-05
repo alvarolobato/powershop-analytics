@@ -36,6 +36,14 @@ function mockFetchError(status: number, error: string) {
   });
 }
 
+function mockFetchStructuredError(status: number, body: Record<string, unknown>) {
+  return vi.fn().mockResolvedValue({
+    ok: false,
+    status,
+    json: () => Promise.resolve(body),
+  });
+}
+
 function mockFetchNetworkError() {
   return vi.fn().mockRejectedValue(new TypeError("Failed to fetch"));
 }
@@ -303,6 +311,92 @@ describe("ChatSidebar", () => {
 
     fireEvent.click(screen.getByLabelText("Enviar"));
     expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  // -----------------------------------------------------------------------
+  // Structured API error — expandable details bubble
+  // -----------------------------------------------------------------------
+
+  it("shows expandable details toggle for structured API errors", async () => {
+    globalThis.fetch = mockFetchStructuredError(500, {
+      error: "No se pudo modificar el dashboard",
+      code: "LLM_ERROR",
+      requestId: "req_structured_1",
+      timestamp: "2026-04-05T10:00:00.000Z",
+      details: "LLM returned empty response",
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/ticket medio/i), {
+        target: { value: "Añade algo" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Enviar"));
+    });
+
+    // User-facing message from structured error
+    await waitFor(() => {
+      expect(
+        screen.getByText("No se pudo modificar el dashboard"),
+      ).toBeInTheDocument();
+    });
+
+    // Expandable details toggle should appear
+    expect(screen.getByTestId("chat-toggle-details")).toBeInTheDocument();
+
+    // Initially collapsed
+    expect(screen.queryByTestId("chat-error-details")).not.toBeInTheDocument();
+
+    // Expand
+    fireEvent.click(screen.getByTestId("chat-toggle-details"));
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-error-details")).toBeInTheDocument();
+    });
+    expect(screen.getByText("LLM_ERROR")).toBeInTheDocument();
+    expect(screen.getByText("req_structured_1")).toBeInTheDocument();
+  });
+
+  it("shows rate-limit message for 429 errors regardless of structured payload", async () => {
+    globalThis.fetch = mockFetchStructuredError(429, {
+      error: "Límite alcanzado",
+      code: "LLM_RATE_LIMIT",
+      requestId: "req_rl",
+      timestamp: "2026-04-05T10:00:00.000Z",
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/ticket medio/i), {
+        target: { value: "Test" },
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Enviar"));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Límite de uso del modelo de IA alcanzado/),
+      ).toBeInTheDocument();
+    });
   });
 
   // -----------------------------------------------------------------------

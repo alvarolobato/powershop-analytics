@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 
 export default function NewDashboard() {
@@ -28,8 +29,8 @@ export default function NewDashboard() {
 
     if (!saveRes.ok) {
       const errBody = await saveRes.json().catch(() => null);
-      if (errBody && typeof errBody === "object" && "code" in errBody) {
-        throw errBody as ApiErrorResponse;
+      if (isApiErrorResponse(errBody)) {
+        throw errBody;
       }
       throw new Error((errBody?.error as string) || "Error al guardar el dashboard");
     }
@@ -55,8 +56,8 @@ export default function NewDashboard() {
 
       if (!genRes.ok) {
         const errBody = await genRes.json().catch(() => null);
-        if (errBody && typeof errBody === "object" && "code" in errBody) {
-          throw errBody as ApiErrorResponse;
+        if (isApiErrorResponse(errBody)) {
+          throw errBody;
         }
         throw new Error(
           (errBody?.error as string) || "Error al generar el dashboard",
@@ -67,13 +68,8 @@ export default function NewDashboard() {
       const name = spec.title || "Dashboard sin título";
       await saveAndRedirect(name, spec.description || null, spec);
     } catch (err) {
-      if (
-        err !== null &&
-        typeof err === "object" &&
-        "code" in err &&
-        "requestId" in err
-      ) {
-        setError(err as ApiErrorResponse);
+      if (isApiErrorResponse(err)) {
+        setError(err);
       } else {
         setError(
           err instanceof Error ? err.message : "Error inesperado",
@@ -97,13 +93,8 @@ export default function NewDashboard() {
         template.spec,
       );
     } catch (err) {
-      if (
-        err !== null &&
-        typeof err === "object" &&
-        "code" in err &&
-        "requestId" in err
-      ) {
-        setError(err as ApiErrorResponse);
+      if (isApiErrorResponse(err)) {
+        setError(err);
       } else {
         setError(
           err instanceof Error ? err.message : "Error inesperado al usar la plantilla",
