@@ -23,6 +23,11 @@ const KpiItemSchema = z.object({
   /** Optional SQL for trend/comparison period. Returns a single numeric value.
    *  The trend percentage is computed as (current - comparison) / abs(comparison) * 100. */
   trend_sql: optStr,
+  /** Optional SQL for anomaly detection. Returns N rows of historical values for
+   *  the same metric. The first row is the current period value; remaining rows
+   *  are historical values in descending chronological order.
+   *  The frontend computes a z-score client-side to detect unusual values. */
+  anomaly_sql: optStr,
 }).strict();
 
 const KpiRowWidgetSchema = z.object({
