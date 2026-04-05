@@ -76,7 +76,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (!(DASHBOARD_ROLES as readonly string[]).includes(role)) {
     return NextResponse.json(
       formatApiError(
-        `El rol '${role}' no es válido. Roles permitidos: ${DASHBOARD_ROLES.join(", ")}.`,
+        `El rol recibido no es válido. Roles permitidos: ${DASHBOARD_ROLES.join(", ")}.`,
         "VALIDATION",
         undefined,
         requestId,
@@ -181,9 +181,9 @@ export async function POST(request: Request): Promise<NextResponse> {
         ? item
         : {}) as Record<string, unknown>;
       return {
-        name: typeof s.name === "string" ? s.name : "",
-        description: typeof s.description === "string" ? s.description : "",
-        prompt: typeof s.prompt === "string" ? s.prompt : "",
+        name: typeof s.name === "string" ? s.name.trim() : "",
+        description: typeof s.description === "string" ? s.description.trim() : "",
+        prompt: typeof s.prompt === "string" ? s.prompt.trim() : "",
       };
     })
     // Filter out invalid entries that would render empty cards, missing descriptions, or trigger no-op generation

@@ -166,10 +166,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         ? item
         : {}) as Record<string, unknown>;
       return {
-        area: typeof g.area === "string" ? g.area : "",
-        description: typeof g.description === "string" ? g.description : "",
+        area: typeof g.area === "string" ? g.area.trim() : "",
+        description: typeof g.description === "string" ? g.description.trim() : "",
         suggestedPrompt:
-          typeof g.suggestedPrompt === "string" ? g.suggestedPrompt : "",
+          typeof g.suggestedPrompt === "string" ? g.suggestedPrompt.trim() : "",
       };
     })
     // Filter out invalid entries that would render empty gap cards, missing descriptions, or trigger no-op generation
