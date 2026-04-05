@@ -110,6 +110,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   // Close on outside click
   useEffect(() => {
@@ -127,6 +128,20 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     return () => document.removeEventListener("mousedown", handleOutside);
   }, [open]);
 
+  // Close on Escape key and return focus to trigger
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    if (open) {
+      document.addEventListener("keydown", handleKeyDown);
+    }
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
+
   // Sync custom inputs when value changes externally
   useEffect(() => {
     setCustomFrom(toDateInputValue(value.from));
@@ -136,6 +151,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   function applyPreset(preset: Preset) {
     onChange(preset.range());
     setOpen(false);
+    triggerRef.current?.focus();
   }
 
   function applyCustomRange() {
@@ -145,6 +161,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
       onChange({ from, to });
       setOpen(false);
+      triggerRef.current?.focus();
     }
   }
 
@@ -152,9 +169,10 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     <div className="relative" ref={containerRef} data-testid="date-range-picker">
       {/* Trigger button */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-2 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+        className="inline-flex items-center gap-2 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tremor-brand dark:focus-visible:ring-dark-tremor-brand"
         aria-label="Seleccionar rango de fechas"
         aria-expanded={open}
         aria-haspopup="dialog"
@@ -284,8 +302,12 @@ export function injectDateRange(
       `Only letters, digits, and underscores are allowed.`
     );
   }
+  // Trim a single trailing semicolon so the SQL can be embedded in a subquery.
+  // Multi-statement SQL (multiple semicolons) is rejected at the server by the
+  // read-only validator in /api/query.
+  const normalizedSql = sql.trimEnd().replace(/;$/, "");
   const from = toDateInputValue(range.from);
   const to = toDateInputValue(range.to);
   // Wrap in subquery and apply date filter
-  return `SELECT * FROM (${sql}) AS _drp_q WHERE _drp_q.${dateColumn} BETWEEN '${from}' AND '${to}'`;
+  return `SELECT * FROM (${normalizedSql}) AS _drp_q WHERE _drp_q.${dateColumn} BETWEEN '${from}' AND '${to}'`;
 }
