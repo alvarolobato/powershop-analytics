@@ -134,6 +134,12 @@ The JSON must conform to this structure:
     // Array of widget objects (see Widget Types above)
     // Each widget has an "id" field: "w1", "w2", ... (auto-incrementing)
     // KPI rows should come first, then charts, then tables
+  ],
+  "glossary": [
+    // Array of 5-10 key business terms used in the dashboard
+    // Each entry: { "term": "Ventas Netas", "definition": "Importe de ventas sin IVA. No incluye devoluciones (entrada = false)." }
+    // Use plain Spanish definitions derived from the business rules
+    // Terms should match labels or titles used in the dashboard widgets
   ]
 }
 
@@ -144,6 +150,7 @@ Rules:
 - Follow with charts that provide visual context
 - End with a detail table if relevant
 - All titles and labels MUST be in Spanish
+- The "glossary" field MUST always be included with 5-10 key terms
 `;
 
 // ─── SQL rules ───────────────────────────────────────────────────────────────
@@ -171,7 +178,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function formatSchema(schema: TableSchema[]): string {
+export function formatSchema(schema: TableSchema[]): string {
   const lines = schema.map(
     (t) =>
       `- **${t.table}** (${t.alias}): ${t.description}\n  Columns: ${t.keyColumns.join(", ")}`
@@ -179,14 +186,14 @@ function formatSchema(schema: TableSchema[]): string {
   return `## PostgreSQL Schema (ps_* tables)\n\n${lines.join("\n\n")}`;
 }
 
-function formatRelationships(rels: Relationship[]): string {
+export function formatRelationships(rels: Relationship[]): string {
   const lines = rels.map(
     (r) => `- ${r.from}.${r.fromColumn} → ${r.to}.${r.toColumn} (${r.type})`
   );
   return `## Table Relationships\n\n${lines.join("\n")}`;
 }
 
-function formatInstructions(instructions: Instruction[]): string {
+export function formatInstructions(instructions: Instruction[]): string {
   const lines = instructions.map(
     (inst, i) => `${i + 1}. ${inst.instruction}`
   );
@@ -238,6 +245,14 @@ export function buildModifyPrompt(currentSpec: string): string {
     "You must return the COMPLETE updated dashboard JSON — not just the changed parts.",
     "Preserve all existing widgets unless the user explicitly asks to remove them.",
     "When adding new widgets, continue the id sequence (e.g. if the last widget is w6, the new one is w7).",
+    "",
+    "## Glossary preservation rule",
+    "",
+    "The existing dashboard may contain a 'glossary' array. You MUST:",
+    "1. Preserve all existing glossary entries unchanged.",
+    "2. Add new entries for any new business terms introduced by new widgets.",
+    "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
+    "4. The 'glossary' field MUST always be present in your response.",
     "",
     "## Current Dashboard Spec",
     "",

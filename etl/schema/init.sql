@@ -403,6 +403,18 @@ CREATE TABLE IF NOT EXISTS dashboard_versions (
 );
 
 -- ============================================================
+-- Weekly reviews (Dashboard App — weekly business review)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS weekly_reviews (
+    id          SERIAL      PRIMARY KEY,
+    week_start  DATE        NOT NULL,
+    content     JSONB       NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_weekly_reviews_week ON weekly_reviews (week_start DESC);
+
+-- ============================================================
 -- ETL control
 -- ============================================================
 
