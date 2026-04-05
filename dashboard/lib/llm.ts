@@ -8,6 +8,7 @@
 import OpenAI from "openai";
 import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
+import type { ReviewContent } from "./review-prompts";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -137,6 +138,60 @@ export async function analyzeDashboard(
     throw new Error("LLM returned an empty response");
   }
   return content;
+}
+
+/**
+ * Generate a weekly business review from query results (in Spanish).
+ *
+ * Returns the parsed ReviewContent object. Uses max_tokens: 4096
+ * (reviews are shorter than full dashboard specs).
+ */
+export async function generateReview(
+  systemPrompt: string
+): Promise<ReviewContent> {
+  const client = getClient();
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "user", content: systemPrompt },
+    ],
+    temperature: 0.2,
+    max_tokens: 4096,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+
+  // Strip optional markdown fences in case the model wraps JSON despite instructions
+  const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const jsonStr = fenced ? fenced[1].trim() : content.trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error(
+      `LLM returned invalid JSON for review. Raw response: ${content.slice(0, 500)}`
+    );
+  }
+
+  // Validate structure
+  if (
+    typeof parsed !== "object" ||
+    parsed === null ||
+    typeof (parsed as Record<string, unknown>).executive_summary !== "string" ||
+    !Array.isArray((parsed as Record<string, unknown>).sections) ||
+    !Array.isArray((parsed as Record<string, unknown>).action_items)
+  ) {
+    throw new Error(
+      "LLM returned a JSON object that does not match the expected ReviewContent structure"
+    );
+  }
+
+  return parsed as ReviewContent;
 }
 
 /**
