@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
+import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import type { DateRange } from "@/components/DateRangePicker";
@@ -606,6 +607,9 @@ export default function ViewDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Data freshness banner — loads independently, does not block dashboard */}
+      <DataFreshnessBanner />
 
       {/* Dashboard renderer */}
       <DashboardRenderer

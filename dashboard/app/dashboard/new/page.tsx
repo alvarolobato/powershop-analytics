@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
+import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -115,6 +116,9 @@ export default function NewDashboard() {
 
   return (
     <div className="space-y-8">
+      {/* Data freshness banner — shown so users know if underlying data is stale */}
+      <DataFreshnessBanner />
+
       <div>
         <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Nuevo Dashboard</h1>
         <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
