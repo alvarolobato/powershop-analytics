@@ -629,6 +629,36 @@ INSTRUCTIONS = [
             "¿KPIs del mes?",
         ],
     },
+
+    # ── Query safety rules (J: SQL review checklist) ──────────────────
+    {
+        "instruction": "NUNCA generar consultas sin filtro de fecha sobre tablas grandes: ps_ventas (900K filas), ps_lineas_ventas (1.7M filas), ps_stock_tienda (12M filas). Siempre incluir un rango de fechas explícito. Si el usuario no especifica período, usar 'este mes' (fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)). Para análisis histórico máximo, limitar a los últimos 2 años.",
+        "questions": [
+            "¿Ventas totales históricas?",
+            "¿Todo el historial de ventas?",
+            "¿Ventas de siempre?",
+            "¿Consulta sin filtro de fecha?",
+        ],
+    },
+    {
+        "instruction": "Al hacer JOIN entre ps_ventas y ps_lineas_ventas (o cualquier JOIN cabecera→líneas), usar COUNT(DISTINCT v.reg_ventas) para contar tickets — NUNCA COUNT(*) sin DISTINCT. COUNT(*) cuenta una fila por artículo en el ticket (un ticket con 3 artículos = 3 filas en ps_lineas_ventas). Para totales monetarios de cabecera (total_si, descuento), usar ps_ventas directamente SIN JOIN con líneas — evita multiplicar la cabecera.",
+        "questions": [
+            "¿Cuántos tickets hay?",
+            "¿Por qué se duplican los totales al hacer JOIN?",
+            "¿Número de transacciones únicas?",
+        ],
+    },
+
+    # ── Magnitude guardrails (H: order-of-magnitude checks) ───────────
+    {
+        "instruction": "GUARDIA DE MAGNITUD: Si el resultado de una consulta parece fuera de rango, revisar los filtros antes de presentarlo. Rangos esperados para esta cadena: ventas retail mensuales (toda la cadena) €200K-€3M; ticket medio retail €30-€250; stock total en unidades 20K-400K; valor del stock al coste €500K-€15M; artículos activos en catálogo 30K-60K; tiendas activas 30-80; albaranes mayoristas mensuales 50-2.000. Causas comunes de valores absurdos: olvidar entrada=true (incluye devoluciones con signo negativo), olvidar stock>0 (negativos inflan la suma), JOIN sin DISTINCT (multiplica filas), mezclar retail y mayorista.",
+        "questions": [
+            "¿El resultado parece correcto?",
+            "¿Por qué el stock vale €1.000 millones?",
+            "¿Cuál es el rango esperado de ventas?",
+            "¿Los números parecen razonables?",
+        ],
+    },
 ]
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -875,7 +905,14 @@ SOURCE_QUESTIONS = {question for question, _sql in SQL_PAIRS}
 
 
 def validate_sql_pairs(dsn: str) -> None:
-    """Validate all SQL pairs by running EXPLAIN against the PostgreSQL mirror."""
+    """Validate all SQL pairs by executing them against the PostgreSQL mirror.
+
+    Checks:
+    1. SQL executes without error (syntax, table/column names, joins)
+    2. Query returns at least 1 row with non-NULL first value (warns if not — may be no
+       data for current period, but worth flagging)
+    3. Prints the first result value so you can spot-check magnitude visually
+    """
     try:
         import psycopg2
     except ImportError:
@@ -884,21 +921,182 @@ def validate_sql_pairs(dsn: str) -> None:
 
     print(f"\n═══ Validating {len(SQL_PAIRS)} SQL pairs against PostgreSQL ═══")
     conn = psycopg2.connect(dsn)
-    conn.autocommit = True  # Avoid "current transaction is aborted" after a failed EXPLAIN
-    passed = failed = 0
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("SET statement_timeout = '60s'")
+
+    passed = failed = warned = 0
     for question, sql in SQL_PAIRS:
         try:
             with conn.cursor() as cur:
-                cur.execute(f"EXPLAIN {sql}")
-            print(f"  OK  {question[:70]}")
-            passed += 1
+                cur.execute(sql)
+                rows = cur.fetchmany(3)
+                col_names = [d[0] for d in cur.description] if cur.description else []
+
+            if not rows:
+                print(f"  WARN {question[:68]}")
+                print(f"       (0 rows — no data for current period?)")
+                warned += 1
+            else:
+                first_val = rows[0][0]
+                if first_val is None:
+                    print(f"  WARN {question[:68]}")
+                    print(f"       (first value is NULL)")
+                    warned += 1
+                else:
+                    n_cols = len(col_names)
+                    n_rows = len(rows)
+                    suffix = f" → {first_val}" if n_rows == 1 and n_cols <= 3 else f" ({n_rows}+ rows × {n_cols} cols)"
+                    print(f"  OK  {question[:68]}{suffix}")
+                    passed += 1
         except Exception as e:
             print(f"  ERR {question[:70]}")
             print(f"      {e}")
             failed += 1
+
     conn.close()
-    print(f"\nResult: {passed} OK, {failed} failed")
+    print(f"\nResult: {passed} OK, {warned} warnings, {failed} failed")
     if failed:
+        sys.exit(1)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# CROSS-VALIDATION: compare same metric from different data paths (I)
+# ═══════════════════════════════════════════════════════════════════════
+# These queries compute the same business metric two ways and compare.
+# Discrepancies reveal JOIN errors, filter gaps, or ETL issues.
+# Run with: ps wren crosscheck
+
+CROSS_VALIDATIONS = [
+    (
+        "Retail sales: ps_ventas.total_si vs SUM(ps_lineas_ventas.total_si) YTD",
+        """
+        SELECT
+            (SELECT SUM(total_si) FROM ps_ventas
+             WHERE fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE)
+               AND entrada = true) AS ventas_cabecera,
+            (SELECT SUM(lv.total_si) FROM ps_lineas_ventas lv
+             JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+             WHERE v.fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE)
+               AND v.entrada = true) AS ventas_lineas
+        """,
+        "Should match within ~1% (rounding on line-level splits)",
+    ),
+    (
+        "Retail tickets: COUNT in ps_ventas vs COUNT(DISTINCT num_ventas) in ps_lineas_ventas (this month)",
+        """
+        SELECT
+            (SELECT COUNT(*) FROM ps_ventas
+             WHERE fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)
+               AND entrada = true) AS tickets_ventas,
+            (SELECT COUNT(DISTINCT lv.num_ventas) FROM ps_lineas_ventas lv
+             JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+             WHERE v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)
+               AND v.entrada = true) AS tickets_lineas
+        """,
+        "Should match exactly (every sale header has at least 1 line)",
+    ),
+    (
+        "Stock total units: SUM(ps_stock_tienda.stock) retail vs SUM(ps_articulos.stock)",
+        """
+        SELECT
+            (SELECT SUM(stock) FROM ps_stock_tienda
+             WHERE tienda <> '99' AND stock > 0) AS stock_tiendas_retail,
+            (SELECT SUM(st_stock) FROM ps_stock_tienda
+             WHERE tienda <> '99') AS stock_tiendas_ststock,
+            (SELECT SUM(stock) FROM ps_articulos
+             WHERE anulado = false AND stock > 0) AS stock_articulos
+        """,
+        "stock_tiendas_retail ≈ stock_tiendas_ststock (same source, different columns). "
+        "stock_articulos is a denormalized total (retail+central) — expect it to be larger.",
+    ),
+    (
+        "Wholesale invoices: ps_gc_facturas header vs ps_gc_lin_facturas lines YTD",
+        """
+        SELECT
+            (SELECT SUM(base1 + COALESCE(base2,0) + COALESCE(base3,0))
+             FROM ps_gc_facturas
+             WHERE fecha_factura >= DATE_TRUNC('year', CURRENT_DATE)
+               AND abono = false) AS facturas_cabecera,
+            (SELECT SUM(lf.total)
+             FROM ps_gc_lin_facturas lf
+             JOIN ps_gc_facturas f ON lf.num_factura = f.n_factura
+             WHERE f.fecha_factura >= DATE_TRUNC('year', CURRENT_DATE)
+               AND f.abono = false) AS facturas_lineas
+        """,
+        "Should match within ~2% (header bases may exclude minor rounding vs line totals)",
+    ),
+    (
+        "Stock value at cost: ps_stock_tienda × ps_articulos.precio_coste",
+        """
+        SELECT
+            SUM(s.stock * a.precio_coste) AS valor_coste_tiendas,
+            COUNT(DISTINCT s.codigo) AS articulos_en_stock
+        FROM ps_stock_tienda s
+        JOIN ps_articulos a ON s.codigo = a.codigo
+        WHERE s.stock > 0 AND a.anulado = false AND s.tienda <> '99'
+        """,
+        "Expected range: €500K–€15M. Flag if outside this range — likely a JOIN or filter issue.",
+    ),
+]
+
+
+def cross_validate(dsn: str) -> None:
+    """Run cross-validation queries to check data consistency across tables.
+
+    Compares the same business metric computed from different data paths.
+    Discrepancies reveal JOIN errors, filter gaps, or ETL sync issues.
+    """
+    try:
+        import psycopg2
+    except ImportError:
+        print("psycopg2 not installed. Run: pip install psycopg2-binary")
+        sys.exit(1)
+
+    print(f"\n═══ Cross-validating {len(CROSS_VALIDATIONS)} metric pairs ═══\n")
+    conn = psycopg2.connect(dsn)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        cur.execute("SET statement_timeout = '120s'")
+
+    issues = 0
+    for name, sql, note in CROSS_VALIDATIONS:
+        print(f"  ── {name}")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(sql)
+                rows = cur.fetchall()
+                col_names = [d[0] for d in cur.description]
+
+            if not rows:
+                print(f"     WARN: no rows returned")
+                issues += 1
+            else:
+                row = rows[0]
+                for col, val in zip(col_names, row):
+                    print(f"     {col}: {val}")
+
+                # Auto-detect discrepancies: if two numeric cols, compare them
+                numeric_vals = [(c, v) for c, v in zip(col_names, row)
+                                if isinstance(v, (int, float)) and v is not None]
+                if len(numeric_vals) == 2:
+                    (c1, v1), (c2, v2) = numeric_vals
+                    if v1 and v2:
+                        ratio = abs(v1 - v2) / max(abs(v1), abs(v2))
+                        if ratio > 0.05:
+                            print(f"     ⚠ MISMATCH: {c1}={v1:,.2f} vs {c2}={v2:,.2f} "
+                                  f"({ratio*100:.1f}% difference)")
+                            issues += 1
+                        else:
+                            print(f"     ✓ within {ratio*100:.2f}% tolerance")
+            print(f"     note: {note}\n")
+        except Exception as e:
+            print(f"     ERR: {e}\n")
+            issues += 1
+
+    conn.close()
+    print(f"Cross-validation complete. Issues found: {issues}")
+    if issues:
         sys.exit(1)
 
 
@@ -908,7 +1106,12 @@ def main():
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Validate SQL pairs against PostgreSQL (requires POSTGRES_DSN env var)",
+        help="Validate SQL pairs by executing against PostgreSQL (requires POSTGRES_DSN env var)",
+    )
+    parser.add_argument(
+        "--crosscheck",
+        action="store_true",
+        help="Run cross-validation queries to check data consistency (requires POSTGRES_DSN env var)",
     )
     args = parser.parse_args()
     url = args.url
@@ -916,6 +1119,11 @@ def main():
     if args.validate:
         dsn = os.environ.get("POSTGRES_DSN", "postgresql://postgres:change_me@localhost:5432/powershop")
         validate_sql_pairs(dsn)
+        return
+
+    if args.crosscheck:
+        dsn = os.environ.get("POSTGRES_DSN", "postgresql://postgres:change_me@localhost:5432/powershop")
+        cross_validate(dsn)
         return
 
     # ── 1. GraphQL: Model metadata ──────────────────────────────────

@@ -24,7 +24,11 @@ Usage: ps wren <subcommand> [args]
 Subcommands:
   push            Push all source knowledge (instructions + SQL pairs) to WrenAI
                   Source entries (is_default=1) are replaced; user entries are preserved.
-  validate        Validate all SQL pairs against PostgreSQL mirror
+  validate        Validate all SQL pairs by executing against PostgreSQL mirror.
+                  Prints first result for each pair — lets you spot magnitude errors.
+                  Requires POSTGRES_DSN env var (or uses default localhost).
+  crosscheck      Run cross-validation: compare same metric from different data paths.
+                  Detects JOIN errors, filter gaps, ETL sync issues.
                   Requires POSTGRES_DSN env var (or uses default localhost).
   status          Show current knowledge counts (instructions and SQL pairs)
 
@@ -34,12 +38,13 @@ Options:
 Examples:
   ps wren push                     Push all knowledge to WrenAI
   ps wren push --url http://host:3000
-  ps wren validate                 Test all SQL pairs against PostgreSQL
+  ps wren validate                 Execute all SQL pairs, show first result
+  ps wren crosscheck               Compare metric pairs across tables
   ps wren status                   Show counts
 
 Notes:
-  - 'push' uses a merge strategy: source knowledge (40 instructions, 52 SQL pairs)
-    is refreshed on each run. User-created knowledge via the WrenAI UI is preserved.
+  - 'push' uses a merge strategy: source knowledge is refreshed on each run.
+    User-created knowledge via the WrenAI UI is preserved.
   - SQL pairs are tracked by question text. Source pairs with matching questions
     are replaced; user pairs with different questions survive.
   - Instructions use the is_default SQLite flag: source=1 (replaced), user=0 (kept).
@@ -57,6 +62,13 @@ cmd_validate() {
     echo -e "${CYAN}Validating SQL pairs against PostgreSQL...${NC}"
     echo -e "${YELLOW}DSN: ${dsn}${NC}"
     POSTGRES_DSN="$dsn" "$PYTHON" "$WREN_SCRIPT" --validate
+}
+
+cmd_crosscheck() {
+    local dsn="${POSTGRES_DSN:-postgresql://postgres:change_me@localhost:5432/powershop}"
+    echo -e "${CYAN}Running cross-validation against PostgreSQL...${NC}"
+    echo -e "${YELLOW}DSN: ${dsn}${NC}"
+    POSTGRES_DSN="$dsn" "$PYTHON" "$WREN_SCRIPT" --crosscheck
 }
 
 cmd_status() {
@@ -129,9 +141,10 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 case "$SUBCMD" in
-    push)     cmd_push "$@" ;;
-    validate) cmd_validate ;;
-    status)   cmd_status ;;
+    push)       cmd_push "$@" ;;
+    validate)   cmd_validate ;;
+    crosscheck) cmd_crosscheck ;;
+    status)     cmd_status ;;
     *)
         echo -e "${RED}ps wren: unknown subcommand '${SUBCMD}'${NC}" >&2
         usage >&2
