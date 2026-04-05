@@ -99,8 +99,8 @@ export function GlossaryPanel({ glossary, isOpen, onClose }: GlossaryPanelProps)
               No hay términos en el glosario.
             </p>
           ) : (
-            sorted.map((entry) => (
-              <div key={entry.term} data-testid="glossary-entry">
+            sorted.map((entry, i) => (
+              <div key={i} data-testid="glossary-entry">
                 <p className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                   {entry.term}
                 </p>

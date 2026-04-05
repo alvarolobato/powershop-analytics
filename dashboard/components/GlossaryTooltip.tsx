@@ -12,7 +12,14 @@
  * - Max-width 300px, positioned above the term, with a small caret
  *
  * No external tooltip library required — pure Tailwind CSS with group/peer.
+ *
+ * Accessibility:
+ * - The term span has tabIndex=0 so it is keyboard focusable.
+ * - The tooltip span has role="tooltip" and id matching the term's aria-describedby.
+ * - This correctly announces the definition via aria-describedby on focus/hover.
  */
+
+import { useId } from "react";
 
 interface GlossaryTooltipProps {
   term: string;
@@ -20,20 +27,22 @@ interface GlossaryTooltipProps {
 }
 
 export function GlossaryTooltip({ term, definition }: GlossaryTooltipProps) {
+  const tooltipId = useId();
+
   return (
     <span className="relative inline-block group">
-      {/* The underlined term */}
+      {/* The underlined term — focusable text, not a button */}
       <span
         className="decoration-dotted underline underline-offset-2 cursor-help text-inherit"
         tabIndex={0}
-        role="button"
-        aria-describedby={undefined}
+        aria-describedby={tooltipId}
       >
         {term}
       </span>
 
       {/* Tooltip popup — visible on group-hover and group-focus-within */}
       <span
+        id={tooltipId}
         role="tooltip"
         className={[
           // Positioning: above the term, centred

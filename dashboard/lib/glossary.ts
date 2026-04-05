@@ -46,16 +46,26 @@ export function applyGlossary(
     // We use (?<!\w) and (?!\w) instead of \b to correctly handle accented
     // characters (e.g. "entrada" should not match inside "contraindicación").
     // The regex is case-insensitive.
+    // We avoid lookbehind for broader JS runtime compatibility (e.g. older Safari)
+    // by capturing the left boundary as group 1 and the term as group 2.
+    // The pattern matches the term only when preceded and followed by a
+    // non-word character (or start/end of string), correctly handling
+    // accented characters so "entrada" does not match inside "contraindicación".
     const escapedTerm = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const regex = new RegExp(`(?<![\\wáéíóúüñÁÉÍÓÚÜÑ])${escapedTerm}(?![\\wáéíóúüñÁÉÍÓÚÜÑ])`, "i");
+    const regex = new RegExp(
+      `(^|[^\\wáéíóúüñÁÉÍÓÚÜÑ])(${escapedTerm})(?=$|[^\\wáéíóúüñÁÉÍÓÚÜÑ])`,
+      "i",
+    );
 
     const match = regex.exec(text);
     if (match) {
+      const matchedTerm = match[2];
+      const start = match.index + match[1].length;
       seenTerms.add(normalizedTerm);
       matches.push({
-        start: match.index,
-        end: match.index + match[0].length,
-        term: match[0], // use the matched text (preserves original casing)
+        start,
+        end: start + matchedTerm.length,
+        term: matchedTerm, // use the matched text (preserves original casing)
         definition: entry.definition,
       });
     }
