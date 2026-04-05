@@ -91,14 +91,26 @@ export function formatApiError(
 
 /**
  * Returns a sanitized version of an error message suitable for `details`.
- * Strips connection strings, passwords, and similar sensitive patterns.
+ * Strips connection strings, passwords, API keys, email-like patterns,
+ * and other potentially sensitive content.
+ *
+ * NOTE: This sanitization is best-effort. For errors that may contain PII
+ * (e.g. DB query errors that echo back SQL parameters), prefer passing
+ * `undefined` as details rather than this helper.
  */
 export function sanitizeErrorMessage(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
-  // Redact anything that looks like a DSN / password
   return message
+    // Redact DSN/connection strings
     .replace(/postgresql:\/\/[^\s]*/gi, "[DSN redacted]")
+    // Redact password fields
     .replace(/password=[^\s&]*/gi, "password=[redacted]")
-    .replace(/:[^@]*@/g, ":[redacted]@")
-    .slice(0, 500);
+    // Redact user:pass@host patterns
+    .replace(/:[^@\s]*@/g, ":[redacted]@")
+    // Redact Bearer/API tokens
+    .replace(/\bbearer\s+[^\s]+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[a-zA-Z0-9]+/g, "[API key redacted]")
+    // Redact email addresses
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, "[email redacted]")
+    .slice(0, 300);
 }

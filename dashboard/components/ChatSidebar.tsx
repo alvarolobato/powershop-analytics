@@ -15,6 +15,8 @@ export interface ChatMessage {
   timestamp: Date;
   /** Structured error detail attached to an assistant error message. */
   errorDetail?: ApiErrorResponse;
+  /** True when this assistant message is an error (even without structured details). */
+  isError?: boolean;
 }
 
 export interface ChatSidebarProps {
@@ -184,6 +186,7 @@ export default function ChatSidebar({
             role: "assistant",
             content: userMsg,
             timestamp: new Date(),
+            isError: true,
             errorDetail,
           },
         ]);
@@ -224,6 +227,7 @@ export default function ChatSidebar({
           role: "assistant",
           content: errorMessage,
           timestamp: new Date(),
+          isError: true,
         },
       ]);
     } finally {
@@ -288,7 +292,7 @@ export default function ChatSidebar({
         )}
 
         {messages.map((msg, idx) => {
-          const isError = msg.role === "assistant" && msg.errorDetail !== undefined;
+          const isError = msg.role === "assistant" && (msg.isError === true || msg.errorDetail !== undefined);
           return (
             <div
               key={idx}
