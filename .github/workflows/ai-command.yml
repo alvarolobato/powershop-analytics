@@ -25,6 +25,8 @@ jobs:
 
       - name: Execute AI Command
         uses: anthropic/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           trigger_phrase: "/ai"

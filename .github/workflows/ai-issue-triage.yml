@@ -24,6 +24,8 @@ jobs:
 
       - name: Triage Issue
         uses: anthropic/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           claude_args: "--max-turns 10"
