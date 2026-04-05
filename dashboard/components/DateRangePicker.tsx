@@ -137,8 +137,9 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   }
 
   function applyCustomRange() {
-    const from = new Date(customFrom + "T00:00:00");
-    const to = new Date(customTo + "T23:59:59");
+    const from = new Date(customFrom + "T00:00:00.000");
+    // Use T23:59:59.999 for consistency with endOfDay() used by presets
+    const to = new Date(customTo + "T23:59:59.999");
     if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
       onChange({ from, to });
       setOpen(false);
