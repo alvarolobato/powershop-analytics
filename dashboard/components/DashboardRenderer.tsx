@@ -43,17 +43,28 @@ export interface DashboardRendererProps {
    * from `DateRangePicker` for simple row-level queries only.
    */
   dateRange?: DateRange;
+  /**
+   * Optional callback fired whenever widget states change (e.g. a widget
+   * finishes loading).  Use this to expose live widget data to the parent
+   * (e.g. for the AI analyst chat).
+   *
+   * Only called after at least one widget has finished loading to avoid
+   * unnecessary calls during the initial empty state.
+   */
+  onWidgetDataChange?: (data: Map<number, WidgetState>) => void;
 }
 
 // ---------------------------------------------------------------------------
 // Per-widget state
 // ---------------------------------------------------------------------------
 
-interface WidgetState {
+export interface WidgetState {
   /** For most widgets: single WidgetData. For kpi_row: array of WidgetData|null. */
   data: WidgetData | null | (WidgetData | null)[];
   /** Trend data for kpi_row items (indexed per item, only when trend_sql is set). */
   trendData?: (WidgetData | null)[];
+  /** Anomaly data for kpi_row items (indexed per item, only when anomaly_sql is set). */
+  anomalyData?: (WidgetData | null)[];
   loading: boolean;
   /** Structured error from the API (preferred) or plain string fallback. */
   error: ApiErrorResponse | string | null;
@@ -106,7 +117,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange, onWidgetDataChange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -141,8 +152,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
     const promises = widgets.map(async (widget, idx) => {
       try {
         if (widget.type === "kpi_row") {
-          // Kick off main KPI values and trend values concurrently
-          const [settled, trendResults] = await Promise.all([
+          // Kick off main KPI values, trend values, and anomaly data concurrently
+          const [settled, trendResults, anomalyResults] = await Promise.all([
             // Fetch each KPI item in parallel; capture per-item errors
             Promise.all(
               widget.items.map(async (item) => {
@@ -174,6 +185,17 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
                 }
               })
             ),
+            // Fetch anomaly data (for items that have anomaly_sql)
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.anomaly_sql) return null;
+                try {
+                  return await fetchWidgetData(item.anomaly_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
           ]);
 
           if (!signal.aborted) {
@@ -181,7 +203,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
             const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
+              next.set(idx, { data: itemData, trendData: trendResults, anomalyData: anomalyResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -235,7 +257,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
 
       try {
         if (widget.type === "kpi_row") {
-          const [settled, trendResults] = await Promise.all([
+          const [settled, trendResults, anomalyResults] = await Promise.all([
             Promise.all(
               widget.items.map(async (item) => {
                 try {
@@ -265,13 +287,23 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
                 }
               })
             ),
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.anomaly_sql) return null;
+                try {
+                  return await fetchWidgetData(item.anomaly_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
           ]);
           if (!signal.aborted) {
             const itemData = settled.map((s) => s.data);
             const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
+              next.set(idx, { data: itemData, trendData: trendResults, anomalyData: anomalyResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -325,6 +357,21 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
     // refreshKey is included so incrementing it re-runs all queries.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [specKey, fetchAll, refreshKey]);
+
+  // Notify parent when widget data changes (for AI analyst chat).
+  // Only fires after at least one widget has finished loading.
+  const onWidgetDataChangeRef = useRef(onWidgetDataChange);
+  onWidgetDataChangeRef.current = onWidgetDataChange;
+
+  useEffect(() => {
+    if (!onWidgetDataChangeRef.current) return;
+    // Only fire when at least one widget has completed (loading=false)
+    const hasAnyComplete = Array.from(widgetStates.values()).some(
+      (s) => !s.loading
+    );
+    if (!hasAnyComplete) return;
+    onWidgetDataChangeRef.current(widgetStates);
+  }, [widgetStates]);
 
   // Build widget index map for section-based rendering.
   // First occurrence of a given id wins; duplicates are ignored (and logged in dev)
@@ -636,6 +683,7 @@ function WidgetSwitch({
           data={state.data as (WidgetData | null)[]}
           trendData={state.trendData}
           glossary={glossary}
+          anomalyData={state.anomalyData}
         />
       );
     case "bar_chart":

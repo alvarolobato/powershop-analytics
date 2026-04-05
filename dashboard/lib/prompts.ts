@@ -39,6 +39,12 @@ const WIDGET_TYPES = `
 - "percent" — append % sign
 - "integer" — whole number
 
+### KPI item optional fields
+
+Each item in a kpi_row can also include:
+- **trend_sql** (optional): SQL that returns the same metric for the previous comparison period. Returns a single row with a single numeric value.
+- **anomaly_sql** (optional): SQL that returns the same metric for the last 8 comparable periods (current + 7 historical). Row 0 = current period value; rows 1–7 = historical values in descending chronological order. The frontend computes a z-score to detect unusual values. Only add for metrics where anomaly detection adds value (sales totals, ticket medio, margin) — skip for static counts or configuration values.
+
 ### JSON examples per widget type
 
 \`\`\`json
@@ -46,7 +52,13 @@ const WIDGET_TYPES = `
   "id": "w1",
   "type": "kpi_row",
   "items": [
-    {"label": "Ventas Netas", "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "currency", "prefix": "€"},
+    {
+      "label": "Ventas Netas",
+      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
+      "format": "currency",
+      "prefix": "€",
+      "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
+    },
     {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "number"}
   ]
 }

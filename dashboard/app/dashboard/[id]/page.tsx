@@ -3,7 +3,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
+import type { WidgetState } from "@/components/DashboardRenderer";
+import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
+import type { ChatMessage } from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import type { DateRange } from "@/components/DateRangePicker";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
@@ -21,6 +24,7 @@ interface DashboardRecord {
   name: string;
   description: string | null;
   spec: DashboardSpec;
+  chat_messages_analyze?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -69,6 +73,7 @@ export default function ViewDashboard() {
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [widgetData, setWidgetData] = useState<Map<number, WidgetState>>(new Map());
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -313,6 +318,55 @@ export default function ViewDashboard() {
     },
     [saveSpec],
   );
+
+  // Handle analyze messages change — auto-save without version entry.
+  // Uses a debounce ref to coalesce rapid saves and a counter to discard
+  // responses from stale in-flight requests (avoids out-of-order overwrites).
+  const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analyzeCounterRef = useRef(0);
+
+  const handleAnalyzeMessagesChange = useCallback(
+    (messages: ChatMessage[]) => {
+      if (!dashboard) return;
+      // Debounce: cancel pending save if another comes in within 800ms
+      if (analyzeDebounceRef.current) {
+        clearTimeout(analyzeDebounceRef.current);
+      }
+      analyzeDebounceRef.current = setTimeout(() => {
+        const thisCount = ++analyzeCounterRef.current;
+        fetch(`/api/dashboard/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spec: latestSpecRef.current ?? dashboard.spec,
+            chat_messages_analyze: messages,
+            skipVersion: true,
+          }),
+        })
+          .then((res) => {
+            // Only process if this is still the latest save
+            if (thisCount !== analyzeCounterRef.current) return;
+            if (!res.ok) {
+              console.error("Error guardando mensajes de análisis:", res.status);
+            }
+          })
+          .catch((err) => {
+            if (thisCount !== analyzeCounterRef.current) return;
+            console.error("Error guardando mensajes de análisis:", err);
+          });
+      }, 800);
+    },
+    [dashboard, id],
+  );
+
+  // Cleanup analyze debounce timer when dashboard id changes or on unmount
+  useEffect(() => {
+    return () => {
+      if (analyzeDebounceRef.current) {
+        clearTimeout(analyzeDebounceRef.current);
+      }
+    };
+  }, [id]);
 
   // Handle name edit — persist via PUT endpoint
   const handleNameSave = useCallback(async () => {
@@ -627,11 +681,15 @@ export default function ViewDashboard() {
         </div>
       </div>
 
+      {/* Data freshness banner — loads independently, does not block dashboard */}
+      <DataFreshnessBanner />
+
       {/* Dashboard renderer */}
       <DashboardRenderer
         spec={dashboard.spec}
         refreshKey={refreshKey}
         dateRange={dateRange}
+        onWidgetDataChange={setWidgetData}
       />
 
       {/* Chat sidebar — close glossary panel when opening chat to avoid overlap */}
@@ -646,6 +704,9 @@ export default function ViewDashboard() {
             return nextOpen;
           })
         }
+        widgetData={widgetData}
+        initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
+        onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
       />
 
       {/* Glossary panel — close chat sidebar when opening glossary to avoid overlap */}
