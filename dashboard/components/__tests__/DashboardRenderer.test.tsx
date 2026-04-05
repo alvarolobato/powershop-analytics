@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import "../widgets/__tests__/setup";
 import { DashboardRenderer } from "../DashboardRenderer";
 import type { DashboardSpec } from "@/lib/schema";
@@ -386,6 +386,40 @@ describe("DashboardRenderer", () => {
     // Tab labels should be visible
     expect(screen.getByText("Resumen")).toBeInTheDocument();
     expect(screen.getByText("Detalle")).toBeInTheDocument();
+  });
+
+  it("shows correct widgets when switching between tabs", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({
+      columns: ["value"],
+      rows: [[42]],
+    }));
+
+    const tabbedSpec: DashboardSpec = {
+      title: "Panel con Pestañas",
+      widgets: [
+        { id: "w1", type: "number", title: "Widget Resumen", sql: "SELECT 1", format: "number" },
+        { id: "w2", type: "number", title: "Widget Detalle", sql: "SELECT 2", format: "number" },
+      ],
+      sections: [
+        { id: "s1", label: "Resumen", widget_ids: ["w1"] },
+        { id: "s2", label: "Detalle", widget_ids: ["w2"] },
+      ],
+    };
+
+    render(<DashboardRenderer spec={tabbedSpec} />);
+
+    // First tab (Resumen) is selected by default — wait for widget to load
+    await waitFor(() => {
+      expect(screen.getByText("Widget Resumen")).toBeInTheDocument();
+    });
+
+    // Switch to the second tab (Detalle)
+    fireEvent.click(screen.getByRole("tab", { name: "Detalle" }));
+
+    // Widget Detalle should now be visible
+    await waitFor(() => {
+      expect(screen.getByText("Widget Detalle")).toBeInTheDocument();
+    });
   });
 
   it("renders flat layout when spec has no sections (backwards compatible)", async () => {

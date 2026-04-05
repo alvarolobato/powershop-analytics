@@ -202,11 +202,20 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [specKey, fetchAll, refreshKey]);
 
-  // Build widget index map for section-based rendering
+  // Build widget index map for section-based rendering.
+  // First occurrence of a given id wins; duplicates are ignored (and logged in dev)
+  // to keep rendering deterministic even if the spec contains duplicate widget ids.
   const widgetIndexMap = useMemo(() => {
     const map = new Map<string, number>();
     spec.widgets.forEach((w, idx) => {
-      if (w.id) map.set(w.id, idx);
+      if (!w.id) return;
+      if (map.has(w.id)) {
+        if (process.env.NODE_ENV !== "production") {
+          console.warn(`DashboardRenderer: duplicate widget id "${w.id}" at index ${idx} — first occurrence used.`);
+        }
+        return;
+      }
+      map.set(w.id, idx);
     });
     return map;
   }, [spec.widgets]);
