@@ -59,11 +59,11 @@ describe("applyGlossary()", () => {
     expect(container.textContent).toContain("Ventas Netas");
   });
 
-  it("does not match partial words — 'venta' should not match inside a longer word", () => {
+  it("does not match partial words — 'venta' should not match inside 'preventa'", () => {
     const partialGlossary = [{ term: "venta", definition: "Transacción comercial." }];
-    // "inventario" contains "inventar" not "venta" — this should not match
-    const result = applyGlossary("Gestión de inventario", partialGlossary);
-    expect(result).toBe("Gestión de inventario");
+    // "preventa" contains "venta" as a substring — the word-boundary check must prevent a match
+    const result = applyGlossary("Proceso de preventa activo", partialGlossary);
+    expect(result).toBe("Proceso de preventa activo");
   });
 
   it("matches term at word boundary — 'Entrada' matches standalone", () => {
