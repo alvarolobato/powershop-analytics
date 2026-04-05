@@ -95,9 +95,8 @@ function truncateWidgetData(
   };
 }
 
-/** Max rows sent to server per widget type (mirrors data-serializer constants). */
+/** Max rows sent to server per widget (mirrors data-serializer MAX_CHART_ROWS). */
 const CLIENT_MAX_CHART_ROWS = 100;
-const CLIENT_MAX_TABLE_ROWS = 50;
 
 function serializeWidgetDataForApi(
   widgetData: Map<number, WidgetState> | undefined
@@ -109,7 +108,7 @@ function serializeWidgetDataForApi(
     const rawData = state.data;
     let truncatedData: unknown;
     if (Array.isArray(rawData)) {
-      // kpi_row: array of WidgetData or null
+      // kpi_row: array of WidgetData or null — each item is a single value, truncate to 1
       truncatedData = rawData.map((d) =>
         d && typeof d === "object" && "rows" in d
           ? truncateWidgetData(d as { columns: string[]; rows: unknown[][] }, 1)
@@ -117,10 +116,9 @@ function serializeWidgetDataForApi(
       );
     } else if (rawData && typeof rawData === "object" && "rows" in rawData) {
       const wd = rawData as { columns: string[]; rows: unknown[][] };
-      const maxRows = wd.rows.length > CLIENT_MAX_TABLE_ROWS
-        ? CLIENT_MAX_TABLE_ROWS
-        : CLIENT_MAX_CHART_ROWS;
-      truncatedData = truncateWidgetData(wd, maxRows);
+      // WidgetState doesn't carry the widget type — always use chart limit (100).
+      // The server-side data-serializer applies the correct per-type limits.
+      truncatedData = truncateWidgetData(wd, CLIENT_MAX_CHART_ROWS);
     } else {
       truncatedData = rawData;
     }

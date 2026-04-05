@@ -356,6 +356,15 @@ export default function ViewDashboard() {
     [dashboard, id],
   );
 
+  // Cleanup analyze debounce timer when dashboard id changes or on unmount
+  useEffect(() => {
+    return () => {
+      if (analyzeDebounceRef.current) {
+        clearTimeout(analyzeDebounceRef.current);
+      }
+    };
+  }, [id]);
+
   // Handle name edit — persist via PUT endpoint
   const handleNameSave = useCallback(async () => {
     const trimmed = nameValue.trim();

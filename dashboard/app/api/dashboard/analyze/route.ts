@@ -38,13 +38,36 @@ function deserializeWidgetData(
     if (typeof value !== "object" || value === null) continue;
     const entry = value as Record<string, unknown>;
 
+    /** Validate that a value looks like a WidgetData (columns: string[], rows: unknown[][]). */
+    function isWidgetData(v: unknown): v is WidgetData {
+      if (typeof v !== "object" || v === null) return false;
+      const obj = v as Record<string, unknown>;
+      return (
+        Array.isArray(obj.columns) &&
+        obj.columns.every((c) => typeof c === "string") &&
+        Array.isArray(obj.rows) &&
+        obj.rows.every((r) => Array.isArray(r))
+      );
+    }
+
     // Reconstruct WidgetStateData shape, propagating loading to preserve
     // "[datos no disponibles]" vs "[sin datos]" distinction in serializer
+    const rawData = entry.data ?? null;
+    let validatedData: WidgetData | null | (WidgetData | null)[];
+    if (Array.isArray(rawData)) {
+      validatedData = rawData.map((d) => (isWidgetData(d) ? d : null));
+    } else {
+      validatedData = isWidgetData(rawData) ? rawData : null;
+    }
+
+    const rawTrend = entry.trendData;
+    const validatedTrend = Array.isArray(rawTrend)
+      ? rawTrend.map((d) => (isWidgetData(d) ? d : null))
+      : undefined;
+
     const widgetState: WidgetStateData = {
-      data: (entry.data ?? null) as WidgetData | null | (WidgetData | null)[],
-      trendData: Array.isArray(entry.trendData)
-        ? (entry.trendData as (WidgetData | null)[])
-        : undefined,
+      data: validatedData,
+      trendData: validatedTrend,
       loading: typeof entry.loading === "boolean" ? entry.loading : false,
       error: null,
     };

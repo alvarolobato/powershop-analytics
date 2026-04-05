@@ -182,11 +182,13 @@ export async function PUT(
       );
     }
     for (const msg of chat_messages_analyze) {
+      const m = msg as Record<string, unknown>;
       if (
         typeof msg !== "object" ||
         msg === null ||
-        typeof (msg as Record<string, unknown>).role !== "string" ||
-        typeof (msg as Record<string, unknown>).content !== "string"
+        typeof m.role !== "string" ||
+        !["user", "assistant"].includes(m.role) ||
+        typeof m.content !== "string"
       ) {
         return NextResponse.json(
           formatApiError(
