@@ -130,14 +130,13 @@ export async function POST(request: Request) {
     parsed = JSON.parse(jsonStr);
   } catch {
     console.error(
-      `[${requestId}] El LLM devolvió JSON inválido al modificar:`,
-      jsonStr.slice(0, 200),
+      `[${requestId}] El LLM devolvió JSON inválido al modificar (${jsonStr.length} chars)`,
     );
     return NextResponse.json(
       formatApiError(
         "El modelo de IA devolvió una respuesta con formato incorrecto.",
         "LLM_INVALID_RESPONSE",
-        `JSON inválido: ${jsonStr.slice(0, 300)}`,
+        undefined,
         requestId,
       ),
       { status: 400 },

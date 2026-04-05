@@ -170,6 +170,12 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
   // Retry a single widget by re-fetching it
   const retryWidget = useCallback(
     async (widget: Widget, idx: number) => {
+      // Abort any previous in-flight retry for this widget (via shared abort ref)
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      const { signal } = controller;
+
       setWidgetStates((prev) => {
         const next = new Map(prev);
         next.set(idx, { data: null, loading: true, error: null });
@@ -181,26 +187,31 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
           const itemResults = await Promise.all(
             widget.items.map(async (item): Promise<WidgetData | null> => {
               try {
-                return await fetchWidgetData(item.sql);
+                return await fetchWidgetData(item.sql, signal);
               } catch {
                 return null;
               }
             })
           );
-          setWidgetStates((prev) => {
-            const next = new Map(prev);
-            next.set(idx, { data: itemResults, loading: false, error: null });
-            return next;
-          });
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data: itemResults, loading: false, error: null });
+              return next;
+            });
+          }
         } else {
-          const data = await fetchWidgetData(widget.sql);
-          setWidgetStates((prev) => {
-            const next = new Map(prev);
-            next.set(idx, { data, loading: false, error: null });
-            return next;
-          });
+          const data = await fetchWidgetData(widget.sql, signal);
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data, loading: false, error: null });
+              return next;
+            });
+          }
         }
       } catch (err) {
+        if (signal.aborted) return;
         const structured =
           err instanceof Error && "structured" in err
             ? (err as Error & { structured?: ApiErrorResponse }).structured
@@ -263,6 +274,11 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
               {state && !state.loading && state.error && (
                 <ErrorDisplay
                   error={state.error}
+                  title={
+                    widget.type !== "kpi_row" && "title" in widget
+                      ? (widget.title as string)
+                      : undefined
+                  }
                   onRetry={() => retryWidget(widget, idx)}
                   className="w-full"
                 />

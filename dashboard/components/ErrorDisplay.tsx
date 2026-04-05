@@ -20,6 +20,8 @@ import type { ApiErrorResponse } from "@/lib/errors";
 export interface ErrorDisplayProps {
   /** The structured error from the API, or a plain string message. */
   error: ApiErrorResponse | string;
+  /** Optional context title shown before the error message (e.g. widget name). */
+  title?: string;
   /** Optional retry callback — renders a "Reintentar" button when provided. */
   onRetry?: () => void;
   /** Extra Tailwind classes for the container. */
@@ -54,7 +56,7 @@ function buildCopyText(error: ApiErrorResponse | string): string {
 // Component
 // ---------------------------------------------------------------------------
 
-export function ErrorDisplay({ error, onRetry, className = "" }: ErrorDisplayProps) {
+export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDisplayProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -77,6 +79,13 @@ export function ErrorDisplay({ error, onRetry, className = "" }: ErrorDisplayPro
       role="alert"
       data-testid="error-display"
     >
+      {/* Context title (e.g. widget name) */}
+      {title && (
+        <p className="mb-1 text-xs font-semibold text-red-700 uppercase tracking-wide">
+          {title}
+        </p>
+      )}
+
       {/* User-facing message */}
       <div className="flex items-start gap-2">
         <span className="mt-0.5 text-red-500 flex-shrink-0" aria-hidden="true">

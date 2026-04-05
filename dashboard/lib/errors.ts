@@ -45,12 +45,17 @@ export interface ApiErrorResponse {
 // ---------------------------------------------------------------------------
 
 /**
- * Generates a short alphanumeric request ID suitable for log correlation.
- * Example: "req_a3f2c9"
+ * Generates a short request ID suitable for log correlation.
+ * Uses crypto.randomUUID() (Node 19+ / browsers) when available,
+ * falling back to Math.random() to avoid breaking test environments.
+ * Example: "req_a3f2c9b8"
  */
 export function generateRequestId(): string {
-  const random = Math.random().toString(36).slice(2, 8);
-  return `req_${random}`;
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `req_${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+  }
+  // Fallback for environments where crypto.randomUUID is unavailable
+  return `req_${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // ---------------------------------------------------------------------------

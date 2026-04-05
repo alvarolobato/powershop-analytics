@@ -116,14 +116,13 @@ export async function POST(request: Request): Promise<NextResponse> {
     parsed = JSON.parse(jsonStr);
   } catch {
     console.error(
-      `[${requestId}] El LLM devolvió JSON inválido:`,
-      jsonStr.slice(0, 200),
+      `[${requestId}] El LLM devolvió JSON inválido (${jsonStr.length} chars)`,
     );
     return NextResponse.json(
       formatApiError(
         "El modelo de IA devolvió una respuesta con formato incorrecto.",
         "LLM_INVALID_RESPONSE",
-        `JSON inválido: ${jsonStr.slice(0, 300)}`,
+        undefined,
         requestId,
       ),
       { status: 400 },
