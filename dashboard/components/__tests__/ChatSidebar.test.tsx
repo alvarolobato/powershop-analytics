@@ -53,13 +53,13 @@ function mockFetchNetworkError() {
 // ---------------------------------------------------------------------------
 
 describe("ChatSidebar", () => {
-  let onSpecUpdate: ReturnType<typeof vi.fn>;
-  let onToggle: ReturnType<typeof vi.fn>;
+  let onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
+  let onToggle: () => void;
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
-    onSpecUpdate = vi.fn();
-    onToggle = vi.fn();
+    onSpecUpdate = vi.fn() as unknown as (newSpec: DashboardSpec, prompt: string) => void;
+    onToggle = vi.fn() as unknown as () => void;
     vi.restoreAllMocks();
   });
 
@@ -83,7 +83,10 @@ describe("ChatSidebar", () => {
 
     expect(screen.getByPlaceholderText(/ticket medio/i)).toBeInTheDocument();
     expect(screen.getByLabelText("Enviar")).toBeInTheDocument();
-    expect(screen.getByText("Modificar Dashboard")).toBeInTheDocument();
+    // Header now shows "Asistente IA" with tabs
+    expect(screen.getByText("Asistente IA")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-modificar")).toBeInTheDocument();
+    expect(screen.getByTestId("tab-analizar")).toBeInTheDocument();
   });
 
   it("shows reopen button when closed", () => {
@@ -96,7 +99,7 @@ describe("ChatSidebar", () => {
       />,
     );
 
-    expect(screen.queryByText("Modificar Dashboard")).not.toBeInTheDocument();
+    expect(screen.queryByText("Asistente IA")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Abrir chat")).toBeInTheDocument();
   });
 
@@ -133,7 +136,7 @@ describe("ChatSidebar", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Send message + success
+  // Send message + success (Modificar tab)
   // -----------------------------------------------------------------------
 
   it("sends message and shows in history, calls onSpecUpdate on success", async () => {
@@ -431,5 +434,49 @@ describe("ChatSidebar", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalled();
     });
+  });
+
+  // -----------------------------------------------------------------------
+  // Tab switching
+  // -----------------------------------------------------------------------
+
+  it("switches to Analizar tab when clicked", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    // Initially on Modificar tab — shows modify placeholder
+    expect(screen.getByPlaceholderText(/ticket medio/i)).toBeInTheDocument();
+
+    // Click Analizar tab
+    fireEvent.click(screen.getByTestId("tab-analizar"));
+
+    // Now shows analyze placeholder and action buttons
+    expect(screen.getByPlaceholderText(/Pregunta sobre los datos/i)).toBeInTheDocument();
+    expect(screen.getByTestId("action-buttons-row")).toBeInTheDocument();
+  });
+
+  it("switching back to Modificar tab restores modify input", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    // Switch to Analizar
+    fireEvent.click(screen.getByTestId("tab-analizar"));
+    expect(screen.queryByPlaceholderText(/ticket medio/i)).not.toBeInTheDocument();
+
+    // Switch back to Modificar
+    fireEvent.click(screen.getByTestId("tab-modificar"));
+    expect(screen.getByPlaceholderText(/ticket medio/i)).toBeInTheDocument();
   });
 });

@@ -54,7 +54,7 @@ export async function GET(
 
   try {
     const rows = await sql(
-      `SELECT id, name, description, spec, created_at, updated_at
+      `SELECT id, name, description, spec, chat_messages_analyze, created_at, updated_at
        FROM dashboards WHERE id = $1`,
       [id],
     );
@@ -93,6 +93,7 @@ interface UpdateBody {
   prompt?: string;
   name?: string;
   skipVersion?: boolean;
+  chat_messages_analyze?: unknown;
 }
 
 export async function PUT(
@@ -136,7 +137,7 @@ export async function PUT(
     );
   }
 
-  const { spec, prompt, name, skipVersion } = body;
+  const { spec, prompt, name, skipVersion, chat_messages_analyze } = body;
 
   // Validate name type if provided
   if (name !== undefined && name !== null) {
@@ -150,6 +151,69 @@ export async function PUT(
         ),
         { status: 400 },
       );
+    }
+  }
+
+  // Validate chat_messages_analyze if provided
+  if (chat_messages_analyze !== undefined && chat_messages_analyze !== null) {
+    if (!Array.isArray(chat_messages_analyze)) {
+      return NextResponse.json(
+        formatApiError(
+          "El campo 'chat_messages_analyze' debe ser un array.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    // Enforce max 200 messages and max 10KB per message
+    const MAX_ANALYZE_MESSAGES = 200;
+    const MAX_MESSAGE_LENGTH = 10_000;
+    if (chat_messages_analyze.length > MAX_ANALYZE_MESSAGES) {
+      return NextResponse.json(
+        formatApiError(
+          `El historial de análisis no puede superar ${MAX_ANALYZE_MESSAGES} mensajes.`,
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    for (const msg of chat_messages_analyze) {
+      const m = msg as Record<string, unknown>;
+      if (
+        typeof msg !== "object" ||
+        msg === null ||
+        typeof m.role !== "string" ||
+        !["user", "assistant"].includes(m.role) ||
+        typeof m.content !== "string"
+      ) {
+        return NextResponse.json(
+          formatApiError(
+            "Formato de mensaje de análisis no válido.",
+            "VALIDATION",
+            undefined,
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
+      if (
+        ((msg as Record<string, unknown>).content as string).length >
+        MAX_MESSAGE_LENGTH
+      ) {
+        return NextResponse.json(
+          formatApiError(
+            `El contenido de un mensaje supera el límite de ${MAX_MESSAGE_LENGTH} caracteres.`,
+            "VALIDATION",
+            undefined,
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
     }
   }
 
@@ -246,16 +310,32 @@ export async function PUT(
       );
     }
 
-    // Update the dashboard (include name if provided)
+    // Update the dashboard (include name and/or chat_messages_analyze if provided)
     const trimmedName = typeof name === "string" ? name.trim() : null;
+    const hasChatAnalyze = chat_messages_analyze !== undefined && chat_messages_analyze !== null;
+
+    // Build dynamic SET clause and parameters
+    const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
+    const params: unknown[] = [JSON.stringify(spec), id];
+    let paramIdx = 3;
+
+    if (trimmedName) {
+      setClauses.push(`name = $${paramIdx}`);
+      params.push(trimmedName);
+      paramIdx++;
+    }
+    if (hasChatAnalyze) {
+      setClauses.push(`chat_messages_analyze = $${paramIdx}`);
+      params.push(JSON.stringify(chat_messages_analyze));
+      paramIdx++;
+    }
+
     const updateResult = await client.query(
       `UPDATE dashboards
-       SET spec = $1, updated_at = NOW()${trimmedName ? ", name = $3" : ""}
+       SET ${setClauses.join(", ")}
        WHERE id = $2
-       RETURNING id, name, description, spec, created_at, updated_at`,
-      trimmedName
-        ? [JSON.stringify(spec), id, trimmedName]
-        : [JSON.stringify(spec), id],
+       RETURNING id, name, description, spec, chat_messages_analyze, created_at, updated_at`,
+      params,
     );
 
     await client.query("COMMIT");
