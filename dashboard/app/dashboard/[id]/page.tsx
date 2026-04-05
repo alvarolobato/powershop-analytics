@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
 import ChatSidebar from "@/components/ChatSidebar";
+import { DateRangePicker } from "@/components/DateRangePicker";
+import type { DateRange } from "@/components/DateRangePicker";
 import type { DashboardSpec } from "@/lib/schema";
 
 // ---------------------------------------------------------------------------
@@ -78,6 +80,22 @@ export default function ViewDashboard() {
   const [secondsUntilRefresh, setSecondsUntilRefresh] = useState(0);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Date range filter state — default to last 30 days
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const to = new Date();
+    const from = new Date(to);
+    from.setMonth(from.getMonth() - 1);
+    from.setHours(0, 0, 0, 0);
+    to.setHours(23, 59, 59, 999);
+    return { from, to };
+  });
+
+  // When date range changes, trigger a refresh of all widget queries
+  const handleDateRangeChange = useCallback((range: DateRange) => {
+    setDateRange(range);
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   // Export dropdown state
   const [exportOpen, setExportOpen] = useState(false);
@@ -419,7 +437,10 @@ export default function ViewDashboard() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Date range picker */}
+          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
+
           {/* Last refreshed timestamp */}
           <span className="text-xs text-gray-400" data-testid="last-refreshed">
             {`\u00DAltima actualizaci\u00F3n: ${formatTime(lastRefreshed)}`}
@@ -522,7 +543,11 @@ export default function ViewDashboard() {
       </div>
 
       {/* Dashboard renderer */}
-      <DashboardRenderer spec={dashboard.spec} refreshKey={refreshKey} />
+      <DashboardRenderer
+        spec={dashboard.spec}
+        refreshKey={refreshKey}
+        dateRange={dateRange}
+      />
 
       {/* Chat sidebar */}
       <ChatSidebar
