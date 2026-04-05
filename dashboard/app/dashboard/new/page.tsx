@@ -315,8 +315,8 @@ export default function NewDashboard() {
         </p>
       </div>
 
-      {/* Global error banner — shown for task card, suggestion, gap, and template errors.
-          Free-form prompt errors are shown inline below the textarea with retry support. */}
+      {/* Global error banner — shown only for task-generation and template errors.
+          Suggestion/gap fetch errors and free-form prompt errors are shown inline in their respective sections. */}
       {error && (lastErrorSource === "task" || lastErrorSource === "template") && (
         <ErrorDisplay error={error} />
       )}

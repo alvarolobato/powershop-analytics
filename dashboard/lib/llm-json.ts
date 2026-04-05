@@ -25,14 +25,15 @@
 export function extractJson(raw: string): string {
   const trimmed = raw.trim();
 
-  // Try fully-anchored fence first (cleanest response)
-  const fullFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
+  // Try fully-anchored fence first (cleanest response).
+  // Use /i so ```JSON``` or ```Json``` variants are handled the same way.
+  const fullFenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/i);
   if (fullFenceMatch) {
     return fullFenceMatch[1].trim();
   }
 
   // Try non-anchored: extract first fenced block even when there is surrounding text
-  const partialFenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+  const partialFenceMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/i);
   if (partialFenceMatch) {
     return partialFenceMatch[1].trim();
   }
