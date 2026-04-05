@@ -23,6 +23,11 @@ const KpiItemSchema = z.object({
   /** Optional SQL for trend/comparison period. Returns a single numeric value.
    *  The trend percentage is computed as (current - comparison) / abs(comparison) * 100. */
   trend_sql: optStr,
+  /** Optional SQL for anomaly detection. Returns N rows of historical values for
+   *  the same metric. The first row is the current period value; remaining rows
+   *  are historical values in descending chronological order.
+   *  The frontend computes a z-score client-side to detect unusual values. */
+  anomaly_sql: optStr,
 }).strict();
 
 const KpiRowWidgetSchema = z.object({
@@ -112,12 +117,28 @@ const DashboardSectionSchema = z.object({
   widget_ids: z.array(z.string().min(1)).min(1),
 }).strict();
 
+/**
+ * A single glossary entry with a term and its plain-Spanish definition.
+ * Follows the `.strict()` convention of all other schemas in this file.
+ */
+export const GlossaryItemSchema = z.object({
+  term: z.string().min(1),
+  definition: z.string().min(1),
+}).strict();
+
 export const DashboardSpecSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1).optional(),
   widgets: z.array(WidgetSchema).min(1),
   /** Optional: group widgets into named tabs. Backwards compatible. */
   sections: z.array(DashboardSectionSchema).min(1).optional(),
+  /**
+   * Optional glossary of key business terms used in the dashboard.
+   * When present, matching terms in widget titles and KPI labels will show
+   * contextual tooltips. Backwards compatible: existing dashboards without
+   * this field render unchanged.
+   */
+  glossary: z.array(GlossaryItemSchema).min(1).optional(),
 }).strict();
 
 // ---------------------------------------------------------------------------
@@ -135,6 +156,7 @@ export type TableWidget = z.infer<typeof TableWidgetSchema>;
 export type NumberWidget = z.infer<typeof NumberWidgetSchema>;
 export type Widget = z.infer<typeof WidgetSchema>;
 export type DashboardSection = z.infer<typeof DashboardSectionSchema>;
+export type GlossaryItem = z.infer<typeof GlossaryItemSchema>;
 export type DashboardSpec = z.infer<typeof DashboardSpecSchema>;
 
 // ---------------------------------------------------------------------------

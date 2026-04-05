@@ -6,6 +6,7 @@ import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { TASK_PROMPTS } from "@/lib/task-prompts";
 import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
+import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -305,6 +306,9 @@ export default function NewDashboard() {
 
   return (
     <div className="space-y-10">
+      {/* Data freshness banner — shown so users know if underlying data is stale */}
+      <DataFreshnessBanner />
+
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">

@@ -81,13 +81,26 @@ describe("NewDashboard page", () => {
 
   it("generates and saves dashboard, then redirects", async () => {
     const fetchMock = vi.fn()
-      // First call: generate
+      // data-health call from DataFreshnessBanner (no specific order guaranteed)
+      .mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ tables: [], overallStale: false, stalestTable: null }),
+      });
+
+    // Override specific calls for generate and save
+    fetchMock
       .mockResolvedValueOnce({
+        // data-health
+        ok: true,
+        json: () => Promise.resolve({ tables: [], overallStale: false, stalestTable: null }),
+      })
+      .mockResolvedValueOnce({
+        // generate
         ok: true,
         json: () => Promise.resolve(generatedSpec),
       })
-      // Second call: save
       .mockResolvedValueOnce({
+        // save
         ok: true,
         status: 201,
         json: () => Promise.resolve({ id: 42, ...generatedSpec }),
@@ -114,11 +127,12 @@ describe("NewDashboard page", () => {
       expect(mockPush).toHaveBeenCalledWith("/dashboard/42");
     });
 
-    // Verify both API calls
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      "/api/dashboard/generate",
+    // Verify generate and save API calls were made
+    const generateCall = fetchMock.mock.calls.find(
+      (call) => call[0] === "/api/dashboard/generate"
+    );
+    expect(generateCall).toBeDefined();
+    expect(generateCall![1]).toEqual(
       expect.objectContaining({
         method: "POST",
         body: JSON.stringify({ prompt: "Ventas del mes" }),

@@ -3,9 +3,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
+import type { WidgetState } from "@/components/DashboardRenderer";
+import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
+import type { ChatMessage } from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
 import type { DateRange } from "@/components/DateRangePicker";
+import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
@@ -20,6 +24,7 @@ interface DashboardRecord {
   name: string;
   description: string | null;
   spec: DashboardSpec;
+  chat_messages_analyze?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -67,6 +72,8 @@ export default function ViewDashboard() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [widgetData, setWidgetData] = useState<Map<number, WidgetState>>(new Map());
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
   const [saving, setSaving] = useState(false);
@@ -311,6 +318,55 @@ export default function ViewDashboard() {
     },
     [saveSpec],
   );
+
+  // Handle analyze messages change — auto-save without version entry.
+  // Uses a debounce ref to coalesce rapid saves and a counter to discard
+  // responses from stale in-flight requests (avoids out-of-order overwrites).
+  const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analyzeCounterRef = useRef(0);
+
+  const handleAnalyzeMessagesChange = useCallback(
+    (messages: ChatMessage[]) => {
+      if (!dashboard) return;
+      // Debounce: cancel pending save if another comes in within 800ms
+      if (analyzeDebounceRef.current) {
+        clearTimeout(analyzeDebounceRef.current);
+      }
+      analyzeDebounceRef.current = setTimeout(() => {
+        const thisCount = ++analyzeCounterRef.current;
+        fetch(`/api/dashboard/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spec: latestSpecRef.current ?? dashboard.spec,
+            chat_messages_analyze: messages,
+            skipVersion: true,
+          }),
+        })
+          .then((res) => {
+            // Only process if this is still the latest save
+            if (thisCount !== analyzeCounterRef.current) return;
+            if (!res.ok) {
+              console.error("Error guardando mensajes de análisis:", res.status);
+            }
+          })
+          .catch((err) => {
+            if (thisCount !== analyzeCounterRef.current) return;
+            console.error("Error guardando mensajes de análisis:", err);
+          });
+      }, 800);
+    },
+    [dashboard, id],
+  );
+
+  // Cleanup analyze debounce timer when dashboard id changes or on unmount
+  useEffect(() => {
+    return () => {
+      if (analyzeDebounceRef.current) {
+        clearTimeout(analyzeDebounceRef.current);
+      }
+    };
+  }, [id]);
 
   // Handle name edit — persist via PUT endpoint
   const handleNameSave = useCallback(async () => {
@@ -583,6 +639,24 @@ export default function ViewDashboard() {
             )}
           </div>
 
+          {/* Glosario button — only shown when glossary has entries */}
+          {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
+            <button
+              onClick={() =>
+                setGlossaryOpen((prev) => {
+                  const nextOpen = !prev;
+                  if (nextOpen) setChatOpen(false);
+                  return nextOpen;
+                })
+              }
+              className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+              aria-label={glossaryOpen ? "Cerrar glosario" : "Abrir glosario"}
+              data-testid="glossary-button"
+            >
+              Glosario
+            </button>
+          )}
+
           {saving && (
             <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">Guardando...</span>
           )}
@@ -607,20 +681,42 @@ export default function ViewDashboard() {
         </div>
       </div>
 
+      {/* Data freshness banner — loads independently, does not block dashboard */}
+      <DataFreshnessBanner />
+
       {/* Dashboard renderer */}
       <DashboardRenderer
         spec={dashboard.spec}
         refreshKey={refreshKey}
         dateRange={dateRange}
+        onWidgetDataChange={setWidgetData}
       />
 
-      {/* Chat sidebar */}
+      {/* Chat sidebar — close glossary panel when opening chat to avoid overlap */}
       <ChatSidebar
         spec={dashboard.spec}
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
-        onToggle={() => setChatOpen((prev) => !prev)}
+        onToggle={() =>
+          setChatOpen((prev) => {
+            const nextOpen = !prev;
+            if (nextOpen) setGlossaryOpen(false);
+            return nextOpen;
+          })
+        }
+        widgetData={widgetData}
+        initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
+        onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
       />
+
+      {/* Glossary panel — close chat sidebar when opening glossary to avoid overlap */}
+      {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
+        <GlossaryPanel
+          glossary={dashboard.spec.glossary}
+          isOpen={glossaryOpen}
+          onClose={() => setGlossaryOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -8,6 +8,7 @@
 import OpenAI from "openai";
 import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
+import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -175,4 +176,71 @@ export async function analyzeGaps(
     throw new Error("LLM returned an empty response");
   }
   return content;
+}
+
+/**
+ * Analyze dashboard data in response to a user question (in Spanish).
+ *
+ * Returns the raw LLM response text, which will be markdown-formatted analysis.
+ */
+export async function analyzeDashboard(
+  serializedData: string,
+  userPrompt: string,
+  action?: string
+): Promise<string> {
+  const client = getClient();
+  const systemPrompt = buildAnalyzePrompt(serializedData, action);
+
+  const response = await client.chat.completions.create({
+    model: getModel(),
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    temperature: 0.3,
+    max_tokens: 4096,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("LLM returned an empty response");
+  }
+  return content;
+}
+
+/**
+ * Generate follow-up question suggestions based on the last exchange.
+ *
+ * Returns an array of suggestion strings, or [] on any failure (never throws).
+ */
+export async function generateSuggestions(
+  serializedData: string,
+  lastExchange: string
+): Promise<string[]> {
+  try {
+    const client = getClient();
+    const prompt = buildSuggestionPrompt(serializedData, lastExchange);
+
+    const response = await client.chat.completions.create({
+      model: getModel(),
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.5,
+      max_tokens: 512,
+    });
+
+    const content = response.choices[0]?.message?.content ?? "";
+
+    // Extract JSON from possible markdown fences
+    const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+    const jsonStr = fenced ? fenced[1].trim() : content.trim();
+
+    const parsed = JSON.parse(jsonStr);
+    if (Array.isArray(parsed) && parsed.every((s) => typeof s === "string")) {
+      return parsed as string[];
+    }
+    return [];
+  } catch {
+    // Never throw — suggestions are best-effort
+    return [];
+  }
 }

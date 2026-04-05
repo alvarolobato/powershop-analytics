@@ -39,6 +39,12 @@ const WIDGET_TYPES = `
 - "percent" — append % sign
 - "integer" — whole number
 
+### KPI item optional fields
+
+Each item in a kpi_row can also include:
+- **trend_sql** (optional): SQL that returns the same metric for the previous comparison period. Returns a single row with a single numeric value.
+- **anomaly_sql** (optional): SQL that returns the same metric for the last 8 comparable periods (current + 7 historical). Row 0 = current period value; rows 1–7 = historical values in descending chronological order. The frontend computes a z-score to detect unusual values. Only add for metrics where anomaly detection adds value (sales totals, ticket medio, margin) — skip for static counts or configuration values.
+
 ### JSON examples per widget type
 
 \`\`\`json
@@ -46,7 +52,13 @@ const WIDGET_TYPES = `
   "id": "w1",
   "type": "kpi_row",
   "items": [
-    {"label": "Ventas Netas", "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "currency", "prefix": "€"},
+    {
+      "label": "Ventas Netas",
+      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
+      "format": "currency",
+      "prefix": "€",
+      "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
+    },
     {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "number"}
   ]
 }
@@ -122,6 +134,12 @@ The JSON must conform to this structure:
     // Array of widget objects (see Widget Types above)
     // Each widget has an "id" field: "w1", "w2", ... (auto-incrementing)
     // KPI rows should come first, then charts, then tables
+  ],
+  "glossary": [
+    // Array of 5-10 key business terms used in the dashboard
+    // Each entry: { "term": "Ventas Netas", "definition": "Importe de ventas sin IVA. No incluye devoluciones (entrada = false)." }
+    // Use plain Spanish definitions derived from the business rules
+    // Terms should match labels or titles used in the dashboard widgets
   ]
 }
 
@@ -132,6 +150,7 @@ Rules:
 - Follow with charts that provide visual context
 - End with a detail table if relevant
 - All titles and labels MUST be in Spanish
+- The "glossary" field MUST always be included with 5-10 key terms
 `;
 
 // ─── SQL rules ───────────────────────────────────────────────────────────────
@@ -226,6 +245,14 @@ export function buildModifyPrompt(currentSpec: string): string {
     "You must return the COMPLETE updated dashboard JSON — not just the changed parts.",
     "Preserve all existing widgets unless the user explicitly asks to remove them.",
     "When adding new widgets, continue the id sequence (e.g. if the last widget is w6, the new one is w7).",
+    "",
+    "## Glossary preservation rule",
+    "",
+    "The existing dashboard may contain a 'glossary' array. You MUST:",
+    "1. Preserve all existing glossary entries unchanged.",
+    "2. Add new entries for any new business terms introduced by new widgets.",
+    "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
+    "4. The 'glossary' field MUST always be present in your response.",
     "",
     "## Current Dashboard Spec",
     "",

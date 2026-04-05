@@ -14,6 +14,11 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
+// Mock DataFreshnessBanner to avoid uncontrolled fetch calls during tests
+vi.mock("@/components/DataFreshnessBanner", () => ({
+  DataFreshnessBanner: () => null,
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
