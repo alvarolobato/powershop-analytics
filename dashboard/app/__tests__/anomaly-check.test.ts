@@ -18,7 +18,7 @@ describe("computeAnomaly (pure function)", () => {
   it("returns isAnomaly: false for exactly 4 historical values boundary", () => {
     // 5 total: current + 4 historical — minimum is MIN_HISTORICAL_VALUES (4) + 1 current
     const result = computeAnomaly([100, 98, 102, 99, 101]);
-    expect(result.isAnomaly).toBe(false); // 50 is clearly anomalous but just at boundary
+    expect(result.isAnomaly).toBe(false); // current is 100; this verifies the minimum-history boundary case
   });
 
   it("detects low anomaly: current << historical", () => {
@@ -51,7 +51,7 @@ describe("computeAnomaly (pure function)", () => {
     expect(result.isAnomaly).toBe(false);
   });
 
-  it("acceptance test: [100, 98, 102, 99, 101, 50] where 50 is current — isAnomaly: true, direction: low", () => {
+  it("acceptance test: [50, 100, 98, 102, 99, 101] where 50 is current — isAnomaly: true, direction: low", () => {
     // values[0] = 50 (current), values[1..5] = [100, 98, 102, 99, 101] (historical)
     const result = computeAnomaly([50, 100, 98, 102, 99, 101]);
     expect(result.isAnomaly).toBe(true);

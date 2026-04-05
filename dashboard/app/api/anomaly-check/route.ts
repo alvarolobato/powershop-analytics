@@ -86,7 +86,7 @@ export function computeAnomaly(values: number[]): AnomalyResult {
       stddev: 0,
       zScore: 0,
       direction: "normal",
-      explanation: `El valor actual (${formatNum(currentValue)}) es igual a la media de los últimos ${n} periodos.`,
+      explanation: `El valor actual (${formatNum(currentValue)}) es igual a la media de los últimos ${n} períodos.`,
     };
   }
 
@@ -106,7 +106,7 @@ export function computeAnomaly(values: number[]): AnomalyResult {
 
   const explanation =
     direction !== "normal"
-      ? `El valor actual (${formatNum(currentValue)}) está un ${absPct}% ${dirText} de la media de los últimos ${n} periodos (${formatNum(mean)}).`
+      ? `El valor actual (${formatNum(currentValue)}) está un ${absPct}% ${dirText} de la media de los últimos ${n} períodos (${formatNum(mean)}).`
       : `El valor actual (${formatNum(currentValue)}) está dentro del rango normal (media: ${formatNum(mean)}).`;
 
   return {

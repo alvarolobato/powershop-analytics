@@ -84,7 +84,7 @@ function computeAnomaly(data: WidgetData | null): AnomalyInfo | null {
   const fmt = (v: number) =>
     v.toLocaleString("es-ES", { maximumFractionDigits: 2 });
 
-  const explanation = `El valor actual (${fmt(currentValue)}) está un ${absPct}% ${dirText} de la media de los últimos ${n} periodos (${fmt(mean)}).`;
+  const explanation = `El valor actual (${fmt(currentValue)}) está un ${absPct}% ${dirText} de la media de los últimos ${n} períodos (${fmt(mean)}).`;
 
   return { isAnomaly: true, direction, explanation };
 }
