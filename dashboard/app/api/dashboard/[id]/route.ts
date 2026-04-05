@@ -154,6 +154,67 @@ export async function PUT(
     }
   }
 
+  // Validate chat_messages_analyze if provided
+  if (chat_messages_analyze !== undefined && chat_messages_analyze !== null) {
+    if (!Array.isArray(chat_messages_analyze)) {
+      return NextResponse.json(
+        formatApiError(
+          "El campo 'chat_messages_analyze' debe ser un array.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    // Enforce max 200 messages and max 10KB per message
+    const MAX_ANALYZE_MESSAGES = 200;
+    const MAX_MESSAGE_LENGTH = 10_000;
+    if (chat_messages_analyze.length > MAX_ANALYZE_MESSAGES) {
+      return NextResponse.json(
+        formatApiError(
+          `El historial de análisis no puede superar ${MAX_ANALYZE_MESSAGES} mensajes.`,
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    for (const msg of chat_messages_analyze) {
+      if (
+        typeof msg !== "object" ||
+        msg === null ||
+        typeof (msg as Record<string, unknown>).role !== "string" ||
+        typeof (msg as Record<string, unknown>).content !== "string"
+      ) {
+        return NextResponse.json(
+          formatApiError(
+            "Formato de mensaje de análisis no válido.",
+            "VALIDATION",
+            undefined,
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
+      if (
+        ((msg as Record<string, unknown>).content as string).length >
+        MAX_MESSAGE_LENGTH
+      ) {
+        return NextResponse.json(
+          formatApiError(
+            `El contenido de un mensaje supera el límite de ${MAX_MESSAGE_LENGTH} caracteres.`,
+            "VALIDATION",
+            undefined,
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
+    }
+  }
+
   if (spec === undefined || spec === null) {
     return NextResponse.json(
       formatApiError(

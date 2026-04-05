@@ -3,6 +3,7 @@
 import type { KeyboardEvent } from "react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { DashboardSpec } from "@/lib/schema";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -82,15 +83,55 @@ const ACTION_BUTTONS: ActionButton[] = [
 // Helpers — serialize widget data for API calls
 // ---------------------------------------------------------------------------
 
+/** Truncate a WidgetData's rows to avoid large payloads. */
+function truncateWidgetData(
+  data: { columns: string[]; rows: unknown[][] } | null,
+  maxRows: number
+): { columns: string[]; rows: unknown[][] } | null {
+  if (!data) return null;
+  return {
+    columns: data.columns,
+    rows: data.rows.slice(0, maxRows),
+  };
+}
+
+/** Max rows sent to server per widget type (mirrors data-serializer constants). */
+const CLIENT_MAX_CHART_ROWS = 100;
+const CLIENT_MAX_TABLE_ROWS = 50;
+
 function serializeWidgetDataForApi(
   widgetData: Map<number, WidgetState> | undefined
 ): Record<string, unknown> {
   if (!widgetData) return {};
   const result: Record<string, unknown> = {};
   for (const [idx, state] of widgetData.entries()) {
+    // Truncate rows client-side to avoid large payloads (same limits as data-serializer)
+    const rawData = state.data;
+    let truncatedData: unknown;
+    if (Array.isArray(rawData)) {
+      // kpi_row: array of WidgetData or null
+      truncatedData = rawData.map((d) =>
+        d && typeof d === "object" && "rows" in d
+          ? truncateWidgetData(d as { columns: string[]; rows: unknown[][] }, 1)
+          : d
+      );
+    } else if (rawData && typeof rawData === "object" && "rows" in rawData) {
+      const wd = rawData as { columns: string[]; rows: unknown[][] };
+      const maxRows = wd.rows.length > CLIENT_MAX_TABLE_ROWS
+        ? CLIENT_MAX_TABLE_ROWS
+        : CLIENT_MAX_CHART_ROWS;
+      truncatedData = truncateWidgetData(wd, maxRows);
+    } else {
+      truncatedData = rawData;
+    }
+
     result[String(idx)] = {
-      data: state.data,
-      trendData: state.trendData,
+      data: truncatedData,
+      trendData: state.trendData?.map((d) =>
+        d && typeof d === "object" && "rows" in d
+          ? truncateWidgetData(d as { columns: string[]; rows: unknown[][] }, 1)
+          : d
+      ),
       loading: state.loading,
       error: null, // don't serialize error objects
     };
@@ -213,11 +254,13 @@ function MessageBubble({ msg, isMarkdown = false }: { msg: ChatMessage; isMarkdo
           {isMarkdown ? (
             <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
               <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
                 allowedElements={[
                   "p", "br", "strong", "em",
                   "ul", "ol", "li",
                   "code", "pre", "blockquote",
                   "a", "h1", "h2", "h3", "h4", "h5", "h6",
+                  "table", "thead", "tbody", "tr", "th", "td",
                 ]}
                 components={{
                   a: ({ ...props }) => (

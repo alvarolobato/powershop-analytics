@@ -316,22 +316,42 @@ export default function ViewDashboard() {
     [saveSpec],
   );
 
-  // Handle analyze messages change — auto-save without version entry
+  // Handle analyze messages change — auto-save without version entry.
+  // Uses a debounce ref to coalesce rapid saves and a counter to discard
+  // responses from stale in-flight requests (avoids out-of-order overwrites).
+  const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const analyzeCounterRef = useRef(0);
+
   const handleAnalyzeMessagesChange = useCallback(
     (messages: ChatMessage[]) => {
       if (!dashboard) return;
-      // Use skipVersion: true to avoid bloating versions table
-      fetch(`/api/dashboard/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          spec: latestSpecRef.current ?? dashboard.spec,
-          chat_messages_analyze: messages,
-          skipVersion: true,
-        }),
-      }).catch((err) => {
-        console.error("Error guardando mensajes de análisis:", err);
-      });
+      // Debounce: cancel pending save if another comes in within 800ms
+      if (analyzeDebounceRef.current) {
+        clearTimeout(analyzeDebounceRef.current);
+      }
+      analyzeDebounceRef.current = setTimeout(() => {
+        const thisCount = ++analyzeCounterRef.current;
+        fetch(`/api/dashboard/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spec: latestSpecRef.current ?? dashboard.spec,
+            chat_messages_analyze: messages,
+            skipVersion: true,
+          }),
+        })
+          .then((res) => {
+            // Only process if this is still the latest save
+            if (thisCount !== analyzeCounterRef.current) return;
+            if (!res.ok) {
+              console.error("Error guardando mensajes de análisis:", res.status);
+            }
+          })
+          .catch((err) => {
+            if (thisCount !== analyzeCounterRef.current) return;
+            console.error("Error guardando mensajes de análisis:", err);
+          });
+      }, 800);
     },
     [dashboard, id],
   );
