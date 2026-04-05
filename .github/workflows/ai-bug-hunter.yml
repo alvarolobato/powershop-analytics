@@ -1,0 +1,62 @@
+name: AI Bug Hunter
+on:
+  schedule:
+    - cron: "0 11 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  hunt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 50
+
+      - name: Hunt for Bugs
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 25"
+          prompt: |
+            You are the Bug Hunter. Scan the codebase for bugs and potential issues.
+
+            ## Focus areas (prioritize recently changed files)
+            Run `git log --oneline -20 --name-only` to find recently changed files.
+
+            ### ETL (etl/)
+            - Null handling in data transformations
+            - Connection error recovery
+            - Data type mismatches between 4D and PostgreSQL
+            - Missing error handling in sync modules
+            - Off-by-one errors in pagination/batching
+            - Race conditions in concurrent operations
+
+            ### Dashboard (dashboard/)
+            - Unhandled promise rejections in API routes
+            - Missing null checks on database results
+            - SQL injection in query construction
+            - Missing input validation
+            - Error states not handled in components
+            - Memory leaks in useEffect hooks
+
+            ### CLI (cli/)
+            - Unquoted variables in shell scripts
+            - Missing error checks after commands
+            - Path traversal risks
+
+            ## Rules
+            - Only report GENUINE bugs, not style preferences
+            - Each finding must have: severity, file, line (approx), description, evidence
+            - Check existing [bug-hunter] issues to avoid duplicates
+
+            ## Output
+            If bugs found, create ONE issue with title prefix `[bug-hunter]`:
+            - Group findings by severity (critical, high, medium, low)
+            - Include code snippets showing the bug
+            - Suggest fixes
+
+            If no bugs found, do NOT create an issue. Silence is better than noise.

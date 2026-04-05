@@ -1,0 +1,43 @@
+name: AI SQL Pair Validator
+on:
+  schedule:
+    - cron: "0 10 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate SQL Pairs
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 15"
+          prompt: |
+            You are the SQL Pair Validator. Check the WrenAI SQL pairs for correctness.
+
+            ## Process
+            1. Read `scripts/wren-push-metadata.py` and extract ALL SQL pairs from the SQL_PAIRS list
+            2. For each SQL query:
+               - Verify it references only valid ps_* table names (cross-reference with etl/schema/init.sql)
+               - Check that column names match the schema
+               - Verify SQL syntax is valid PostgreSQL
+               - Check for common issues: missing GROUP BY, ambiguous column refs, invalid casts
+            3. Read the INSTRUCTIONS list and check for consistency with the SQL pairs
+
+            ## Output
+            If any SQL pairs have issues:
+            Create ONE issue with title prefix `[sql-validator]`:
+            - List each problematic SQL pair with:
+              - The question
+              - The SQL
+              - What's wrong
+              - Suggested fix
+
+            If all pairs validate, do NOT create an issue.

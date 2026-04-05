@@ -1,0 +1,58 @@
+name: AI Docs Patrol
+on:
+  schedule:
+    - cron: "0 14 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  patrol:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docs Patrol
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 20"
+          prompt: |
+            You are the Documentation Patrol. Check that docs are accurate and up to date.
+
+            ## Checks
+            1. **ARCHITECTURE.md**:
+               - Does the component list match docker-compose.yml services?
+               - Are port numbers correct?
+               - Is the data flow diagram accurate?
+
+            2. **AGENTS.md**:
+               - Does the CLI command table match actual cli/commands/*.sh files?
+               - Are all environment variables documented?
+               - Do file path references point to existing files?
+
+            3. **docs/skills/*.md**:
+               - Do referenced file paths exist?
+               - Are code examples syntactically valid?
+               - Is the information consistent with the codebase?
+
+            4. **docs/etl-sync-strategy.md**:
+               - Does the table list match etl/sync/*.py modules?
+               - Are delta fields consistent with the code?
+
+            5. **README.md** (if exists):
+               - Are setup instructions accurate?
+               - Do example commands work?
+
+            6. **Stale references**:
+               - Search for TODO, FIXME, HACK, XXX comments
+               - Check if any reference deleted files or functions
+
+            ## Output
+            If stale docs found, create ONE issue with title prefix `[docs-patrol]`:
+            - List each finding with: file, what's wrong, suggested fix
+            - Group by document
+
+            If all docs are current, do NOT create an issue.
