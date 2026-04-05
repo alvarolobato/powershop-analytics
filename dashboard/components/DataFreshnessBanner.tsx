@@ -27,13 +27,20 @@ export function DataFreshnessBanner() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    // Check session-scoped dismiss
+    // Check session-scoped dismiss — short-circuit fetch if already dismissed
+    let isDismissed = false;
     try {
       if (sessionStorage.getItem(DISMISSED_KEY) === "1") {
+        isDismissed = true;
         setDismissed(true);
       }
     } catch {
       // sessionStorage not available (e.g. in tests without jsdom)
+    }
+
+    if (isDismissed) {
+      setLoaded(true);
+      return;
     }
 
     fetch("/api/data-health")

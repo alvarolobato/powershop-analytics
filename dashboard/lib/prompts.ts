@@ -57,7 +57,7 @@ Each item in a kpi_row can also include:
       "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
       "format": "currency",
       "prefix": "€",
-      "anomaly_sql": "SELECT SUM(total_si) FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (generate_series(0,7) * INTERVAL '1 month')) AND fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (generate_series(0,7) * INTERVAL '1 month')) + INTERVAL '1 month' ORDER BY 1 DESC"
+      "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
     },
     {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "number"}
   ]

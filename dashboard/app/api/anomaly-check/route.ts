@@ -6,7 +6,8 @@
  *   Row 0 = current period value; rows 1..N-1 = historical values.
  *
  * Returns one of:
- *   { isAnomaly: false }  — insufficient data (<4 historical values) or normal
+ *   { isAnomaly: false }  — insufficient data (<4 historical values), normal
+ *                            range, zero stddev, or invalid current value
  *   {
  *     isAnomaly: boolean,
  *     currentValue: number,
@@ -16,6 +17,8 @@
  *     direction: "high" | "low" | "normal",
  *     explanation: string,  // Spanish
  *   }
+ * Note: additional fields (mean, stddev, etc.) may also be present on
+ * non-anomaly results when stddev > 0 and data is sufficient.
  *
  * Anomaly threshold: |z-score| > 2.0
  *
@@ -60,12 +63,13 @@ export interface AnomalyResult {
  * Returns { isAnomaly: false } when insufficient data.
  */
 export function computeAnomaly(values: number[]): AnomalyResult {
+  // values[0] = current period; values[1..] = historical
   if (values.length < MIN_HISTORICAL_VALUES + 1) {
     return { isAnomaly: false };
   }
 
   const currentValue = values[0];
-  const historical = values.slice(1);
+  const historical = values.slice(1);  // positional — do not filter
 
   const n = historical.length;
   const mean = historical.reduce((sum, v) => sum + v, 0) / n;
@@ -179,18 +183,32 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await query(sql);
 
-    // Extract numeric values from first column of each row
-    const values: number[] = [];
-    for (const row of result.rows) {
+    if (result.rows.length === 0) {
+      return NextResponse.json({ isAnomaly: false });
+    }
+
+    // Parse row 0 as the current period value — must be valid numeric.
+    // Rows 1..N-1 are historical: nulls/non-numeric are filtered out.
+    // We preserve positional alignment so row 0 is always current.
+    const currentRaw = result.rows[0][0];
+    if (currentRaw === null || currentRaw === undefined) {
+      return NextResponse.json({ isAnomaly: false });
+    }
+    const currentNum = Number(currentRaw);
+    if (isNaN(currentNum)) {
+      return NextResponse.json({ isAnomaly: false });
+    }
+
+    const historical: number[] = [];
+    for (const row of result.rows.slice(1)) {
       const raw = row[0];
       if (raw !== null && raw !== undefined) {
         const num = Number(raw);
-        if (!isNaN(num)) {
-          values.push(num);
-        }
+        if (!isNaN(num)) historical.push(num);
       }
     }
 
+    const values = [currentNum, ...historical];
     const anomaly = computeAnomaly(values);
     return NextResponse.json(anomaly);
   } catch (err) {

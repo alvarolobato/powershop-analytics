@@ -131,10 +131,11 @@ describe("DataFreshnessBanner", () => {
     );
   });
 
-  it("does not show banner when sessionStorage has dismiss flag", async () => {
+  it("does not show banner and skips fetch when sessionStorage has dismiss flag", async () => {
     // Pre-set dismissed flag
     (globalThis.sessionStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue("1");
-    globalThis.fetch = mockFetchWith(STALE_RESPONSE);
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock;
 
     render(<DataFreshnessBanner />);
 
@@ -142,6 +143,8 @@ describe("DataFreshnessBanner", () => {
       // Even with stale data, banner should not show
       expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
     });
+    // Fetch should not be called when already dismissed
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("collapses and expands the detail list", async () => {

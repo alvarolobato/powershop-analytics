@@ -44,19 +44,23 @@ interface AnomalyInfo {
 function computeAnomaly(data: WidgetData | null): AnomalyInfo | null {
   if (!data || data.rows.length === 0) return null;
 
-  const values: number[] = [];
-  for (const row of data.rows) {
+  // Parse row 0 as the current period value — must be valid numeric
+  const currentRaw = data.rows[0]?.[0];
+  if (currentRaw === null || currentRaw === undefined) return null;
+  const currentValue = Number(currentRaw);
+  if (isNaN(currentValue)) return null;
+
+  // Parse remaining rows as historical values (skip nulls/non-numeric)
+  const historical: number[] = [];
+  for (const row of data.rows.slice(1)) {
     const raw = row[0];
     if (raw !== null && raw !== undefined) {
       const num = Number(raw);
-      if (!isNaN(num)) values.push(num);
+      if (!isNaN(num)) historical.push(num);
     }
   }
 
-  if (values.length < MIN_HISTORICAL_VALUES + 1) return null;
-
-  const currentValue = values[0];
-  const historical = values.slice(1);
+  if (historical.length < MIN_HISTORICAL_VALUES) return null;
   const n = historical.length;
   const mean = historical.reduce((sum, v) => sum + v, 0) / n;
   const variance =
