@@ -20,22 +20,34 @@ import {
   QueryTimeoutError,
   ConnectionError,
 } from "@/lib/db";
+import {
+  formatApiError,
+  generateRequestId,
+  sanitizeErrorMessage,
+} from "@/lib/errors";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const requestId = generateRequestId();
+
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Cuerpo JSON no válido" },
-      { status: 400 }
+      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "El cuerpo JSON debe ser un objeto" },
-      { status: 400 }
+      formatApiError(
+        "El cuerpo JSON debe ser un objeto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
     );
   }
 
@@ -43,8 +55,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (!sql || typeof sql !== "string" || !sql.trim()) {
     return NextResponse.json(
-      { error: "Falta el campo 'sql' o está vacío" },
-      { status: 400 }
+      formatApiError(
+        "Falta el campo 'sql' o está vacío.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
     );
   }
 
@@ -54,8 +71,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof SqlValidationError) {
       return NextResponse.json(
-        { error: err.message },
-        { status: 403 }
+        formatApiError(
+          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
+          "VALIDATION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 403 },
       );
     }
     throw err;
@@ -68,20 +90,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof SqlValidationError) {
       return NextResponse.json(
-        { error: err.message },
-        { status: 403 }
+        formatApiError(
+          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
+          "VALIDATION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 403 },
       );
     }
     if (err instanceof QueryTimeoutError) {
+      console.error(`[${requestId}] Timeout en consulta SQL:`, err);
       return NextResponse.json(
-        { error: err.message },
-        { status: 408 }
+        formatApiError(
+          "La consulta excedió el tiempo máximo de espera.",
+          "TIMEOUT",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 408 },
       );
     }
     if (err instanceof ConnectionError) {
+      console.error(`[${requestId}] Error de conexión a la base de datos:`, err);
       return NextResponse.json(
-        { error: err.message },
-        { status: 503 }
+        formatApiError(
+          "No se pudo conectar a la base de datos. Inténtalo de nuevo más tarde.",
+          "DB_CONNECTION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 503 },
       );
     }
 
@@ -97,14 +136,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (isClientError) {
       return NextResponse.json(
-        { error: "Error en la consulta SQL. Verifica la sintaxis." },
-        { status: 400 }
+        formatApiError(
+          "Error en la consulta SQL. Verifica la sintaxis.",
+          "DB_QUERY",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 400 },
       );
     }
 
+    console.error(`[${requestId}] Error inesperado al ejecutar consulta SQL:`, err);
     return NextResponse.json(
-      { error: "Error inesperado al ejecutar la consulta" },
-      { status: 500 }
+      formatApiError(
+        "Error inesperado al ejecutar la consulta.",
+        "UNKNOWN",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
+      { status: 500 },
     );
   }
 }

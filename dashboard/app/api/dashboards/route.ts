@@ -11,10 +11,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
 import { ZodError } from "zod";
+import {
+  formatApiError,
+  generateRequestId,
+  sanitizeErrorMessage,
+} from "@/lib/errors";
 
 // ─── GET: List dashboards ─────────────────────────────────────────────────
 
 export async function GET(): Promise<NextResponse> {
+  const requestId = generateRequestId();
   try {
     const rows = await sql(
       `SELECT id, name, description, updated_at
@@ -22,9 +28,15 @@ export async function GET(): Promise<NextResponse> {
        ORDER BY updated_at DESC`,
     );
     return NextResponse.json(rows);
-  } catch {
+  } catch (err) {
+    console.error(`[${requestId}] Error al listar dashboards:`, err);
     return NextResponse.json(
-      { error: "Failed to list dashboards" },
+      formatApiError(
+        "No se pudieron cargar los dashboards. Inténtalo de nuevo.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }
@@ -39,19 +51,26 @@ interface CreateBody {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const requestId = generateRequestId();
+
   let body: CreateBody;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body" },
+      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "JSON body must be an object" },
+      formatApiError(
+        "El cuerpo JSON debe ser un objeto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -61,7 +80,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Validate name
   if (!name || typeof name !== "string" || !name.trim()) {
     return NextResponse.json(
-      { error: "Missing or empty 'name' field" },
+      formatApiError(
+        "Falta el campo 'name' o está vacío.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -69,7 +93,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Validate description type
   if (description !== undefined && description !== null && typeof description !== "string") {
     return NextResponse.json(
-      { error: "Invalid 'description' — must be a string" },
+      formatApiError(
+        "El campo 'description' debe ser texto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -77,7 +106,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // Validate spec
   if (spec === undefined || spec === null) {
     return NextResponse.json(
-      { error: "Missing 'spec' field" },
+      formatApiError(
+        "Falta el campo 'spec'.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -87,7 +121,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof ZodError) {
       return NextResponse.json(
-        { error: "Invalid spec", details: err.issues },
+        formatApiError(
+          "La especificación del dashboard no es válida.",
+          "VALIDATION",
+          err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+          requestId,
+        ),
         { status: 400 },
       );
     }
@@ -103,9 +142,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       [name.trim(), description?.trim() || null, JSON.stringify(spec)],
     );
     return NextResponse.json(rows[0], { status: 201 });
-  } catch {
+  } catch (err) {
+    console.error(`[${requestId}] Error al crear dashboard:`, err);
     return NextResponse.json(
-      { error: "Failed to create dashboard" },
+      formatApiError(
+        "No se pudo crear el dashboard. Inténtalo de nuevo.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }

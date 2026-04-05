@@ -5,13 +5,18 @@
  *
  * Request body: { prompt: string }
  * Success response (200): DashboardSpec JSON
- * Error responses: 400 (invalid input / invalid spec), 500 (LLM error)
+ * Error responses: 400 (invalid input / invalid spec), 429 (rate limit), 500 (LLM error)
  */
 
 import { NextResponse } from "next/server";
 import { generateDashboard } from "@/lib/llm";
 import { validateSpec } from "@/lib/schema";
 import { ZodError } from "zod";
+import {
+  formatApiError,
+  generateRequestId,
+  sanitizeErrorMessage,
+} from "@/lib/errors";
 
 /**
  * Extract JSON from an LLM response that may be wrapped in markdown code blocks.
@@ -35,13 +40,15 @@ function extractJson(raw: string): string {
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
+  const requestId = generateRequestId();
+
   // --- Parse request body ---
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Cuerpo JSON no válido" },
+      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
@@ -54,7 +61,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     typeof (body as Record<string, unknown>).prompt !== "string"
   ) {
     return NextResponse.json(
-      { error: "El cuerpo debe incluir un campo 'prompt' de tipo texto" },
+      formatApiError(
+        "El cuerpo debe incluir un campo 'prompt' de tipo texto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -62,7 +74,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   const prompt = ((body as Record<string, unknown>).prompt as string).trim();
   if (prompt.length === 0) {
     return NextResponse.json(
-      { error: "El prompt no puede estar vacío" },
+      formatApiError(
+        "El prompt no puede estar vacío.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -72,20 +89,25 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     rawResponse = await generateDashboard(prompt);
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : "";
-    console.error("LLM generate error:", message);
+    const message = err instanceof Error ? err.message : String(err);
+    const normalizedMessage = message.toLowerCase();
+    console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
 
-    // Surface rate-limit errors with a specific message
+    // Surface rate-limit errors with a specific message (case-insensitive)
     const isRateLimit =
-      message.includes("rate limit") || message.includes("429");
+      normalizedMessage.includes("rate limit") ||
+      normalizedMessage.includes("ratelimit") ||
+      normalizedMessage.includes("429");
 
     return NextResponse.json(
-      {
-        error: isRateLimit
+      formatApiError(
+        isRateLimit
           ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
           : "Error al generar el dashboard. Inténtalo de nuevo.",
-      },
+        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: isRateLimit ? 429 : 500 },
     );
   }
@@ -96,11 +118,16 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
+    console.error(
+      `[${requestId}] El LLM devolvió JSON inválido (${jsonStr.length} chars)`,
+    );
     return NextResponse.json(
-      {
-        error: "LLM returned invalid JSON",
-        details: jsonStr.slice(0, 500),
-      },
+      formatApiError(
+        "El modelo de IA devolvió una respuesta con formato incorrecto.",
+        "LLM_INVALID_RESPONSE",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -112,11 +139,17 @@ export async function POST(request: Request): Promise<NextResponse> {
   } catch (err: unknown) {
     const details =
       err instanceof ZodError
-        ? err.issues.map((e) => `${e.path.join(".")}: ${e.message}`)
-        : ["Unknown validation error"];
+        ? err.issues.map((e) => `${e.path.join(".")}: ${e.message}`).join("; ")
+        : "Error de validación desconocido";
 
+    console.error(`[${requestId}] El LLM devolvió un spec inválido:`, details);
     return NextResponse.json(
-      { error: "LLM returned an invalid dashboard spec", details },
+      formatApiError(
+        "El modelo de IA generó un dashboard con estructura incorrecta.",
+        "LLM_INVALID_RESPONSE",
+        details,
+        requestId,
+      ),
       { status: 400 },
     );
   }

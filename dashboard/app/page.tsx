@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Card, Title, Text } from "@tremor/react";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse } from "@/lib/errors";
+import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -22,15 +25,24 @@ interface DashboardSummary {
 export default function Home() {
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [deleteError, setDeleteError] = useState<ApiErrorResponse | string | null>(null);
 
   const fetchDashboards = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await fetch("/api/dashboards");
-      if (!res.ok) throw new Error("Error al cargar los dashboards");
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        if (isApiErrorResponse(errBody)) {
+          setError(errBody);
+        } else {
+          setError("Error al cargar los dashboards");
+        }
+        return;
+      }
       const data: DashboardSummary[] = await res.json();
       setDashboards(data);
     } catch (err) {
@@ -53,16 +65,27 @@ export default function Home() {
     if (!confirmed) return;
 
     setDeletingId(id);
+    setDeleteError(null);
     try {
       const res = await fetch(`/api/dashboard/${id}`, { method: "DELETE" });
       if (!res.ok && res.status !== 204) {
-        throw new Error("Error al eliminar el dashboard");
+        const errBody = await res.json().catch(() => null);
+        if (isApiErrorResponse(errBody)) {
+          throw errBody;
+        }
+        throw new Error(
+          (errBody?.error as string) || "Error al eliminar el dashboard",
+        );
       }
       setDashboards((prev) => prev.filter((d) => d.id !== id));
     } catch (err) {
-      alert(
-        err instanceof Error ? err.message : "Error al eliminar el dashboard",
-      );
+      if (isApiErrorResponse(err)) {
+        setDeleteError(err);
+      } else {
+        setDeleteError(
+          err instanceof Error ? err.message : "Error al eliminar el dashboard",
+        );
+      }
     } finally {
       setDeletingId(null);
     }
@@ -110,17 +133,17 @@ export default function Home() {
         </div>
       )}
 
+      {/* Delete error */}
+      {deleteError && (
+        <ErrorDisplay error={deleteError} />
+      )}
+
       {/* Error */}
       {!loading && error && (
-        <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-          <p className="text-sm text-red-800">{error}</p>
-          <button
-            onClick={fetchDashboards}
-            className="mt-2 text-sm font-medium text-red-700 underline hover:text-red-900"
-          >
-            Reintentar
-          </button>
-        </div>
+        <ErrorDisplay
+          error={error}
+          onRetry={fetchDashboards}
+        />
       )}
 
       {/* Empty state */}

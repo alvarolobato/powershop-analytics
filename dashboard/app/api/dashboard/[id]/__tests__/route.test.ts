@@ -98,7 +98,8 @@ describe("GET /api/dashboard/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(404);
-    expect(json.error).toContain("not found");
+    expect(json.code).toBe("NOT_FOUND");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 400 for non-integer ID", async () => {
@@ -106,7 +107,8 @@ describe("GET /api/dashboard/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("positive integer");
+    expect(json.code).toBe("VALIDATION");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 400 for zero ID", async () => {
@@ -211,7 +213,8 @@ describe("PUT /api/dashboard/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(404);
-    expect(json.error).toContain("not found");
+    expect(json.code).toBe("NOT_FOUND");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 400 for missing spec", async () => {
@@ -230,7 +233,8 @@ describe("PUT /api/dashboard/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(400);
-    expect(json.error).toContain("Invalid spec");
+    expect(json.code).toBe("VALIDATION");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 400 for non-integer ID", async () => {
@@ -294,7 +298,8 @@ describe("DELETE /api/dashboard/[id]", () => {
     const json = await res.json();
 
     expect(res.status).toBe(404);
-    expect(json.error).toContain("not found");
+    expect(json.code).toBe("NOT_FOUND");
+    expect(json.requestId).toBeDefined();
   });
 
   it("returns 400 for non-integer ID", async () => {

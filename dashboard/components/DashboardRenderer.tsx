@@ -5,6 +5,9 @@ import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
 import type { DateRange } from "./DateRangePicker";
+import { isApiErrorResponse } from "@/lib/errors";
+import type { ApiErrorResponse } from "@/lib/errors";
+import { ErrorDisplay } from "./ErrorDisplay";
 import {
   KpiRow,
   BarChartWidget,
@@ -51,7 +54,8 @@ interface WidgetState {
   /** Trend data for kpi_row items (indexed per item, only when trend_sql is set). */
   trendData?: (WidgetData | null)[];
   loading: boolean;
-  error: string | null;
+  /** Structured error from the API (preferred) or plain string fallback. */
+  error: ApiErrorResponse | string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,25 +73,30 @@ async function fetchWidgetData(
     signal,
   });
   if (!res.ok) {
-    let message = "";
+    let errorPayload: ApiErrorResponse | null = null;
+    let fallbackMessage = "Error al obtener datos del widget";
     try {
-      const errorBody = await res.json();
-      if (
-        errorBody &&
-        typeof errorBody === "object" &&
-        "error" in errorBody &&
-        typeof errorBody.error === "string"
-      ) {
-        message = errorBody.error;
+      const body = await res.json();
+      if (body && typeof body === "object") {
+        // Use the shared type guard for a precise check (all required fields)
+        if (isApiErrorResponse(body)) {
+          errorPayload = body;
+        } else if ("error" in body && typeof body.error === "string") {
+          // Non-structured error with a message
+          fallbackMessage = body.error as string;
+        }
       }
     } catch {
-      try {
-        message = await res.text();
-      } catch {
-        message = "";
-      }
+      // JSON parse failed (e.g. HTML error page from a 502 gateway)
+      // Include the HTTP status to help with debugging
+      fallbackMessage = `Error al obtener datos del widget (HTTP ${res.status})`;
     }
-    throw new Error(message || "Error al obtener datos del widget");
+    if (errorPayload) {
+      const err = new Error(errorPayload.error) as Error & { structured?: ApiErrorResponse };
+      err.structured = errorPayload;
+      throw err;
+    }
+    throw new Error(fallbackMessage);
   }
   return res.json();
 }
@@ -100,7 +109,10 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
-  const abortRef = useRef<AbortController | null>(null);
+  // Separate abort controllers: fetchAll (global reload) vs retryWidget (per-widget)
+  // retryAbortMap is keyed by widget index so retrying widget A never cancels widget B.
+  const fetchAllAbortRef = useRef<AbortController | null>(null);
+  const retryAbortMap = useRef<Map<number, AbortController>>(new Map());
   // Stable key derived from spec content (not referential identity) so
   // parent re-renders that recreate the same spec object don't trigger refetches.
   const specKey = useMemo(() => JSON.stringify(spec), [spec]);
@@ -109,11 +121,12 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
+  // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
-    // Abort any in-flight requests from a previous spec
-    abortRef.current?.abort();
+    // Abort any in-flight global load from a previous spec
+    fetchAllAbortRef.current?.abort();
     const controller = new AbortController();
-    abortRef.current = controller;
+    fetchAllAbortRef.current = controller;
     const { signal } = controller;
 
     // Initialize all widgets to loading state
@@ -128,16 +141,28 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
       try {
         if (widget.type === "kpi_row") {
           // Kick off main KPI values and trend values concurrently
-          const [itemResults, trendResults] = await Promise.all([
+          const [settled, trendResults] = await Promise.all([
+            // Fetch each KPI item in parallel; capture per-item errors
             Promise.all(
-              widget.items.map(async (item): Promise<WidgetData | null> => {
+              widget.items.map(async (item) => {
                 try {
-                  return await fetchWidgetData(item.sql, signal);
-                } catch {
-                  return null;
+                  const data = await fetchWidgetData(item.sql, signal);
+                  return { data, error: null as ApiErrorResponse | string | null };
+                } catch (err) {
+                  const structured =
+                    err instanceof Error && "structured" in err
+                      ? (err as Error & { structured?: ApiErrorResponse }).structured
+                      : undefined;
+                  const errorValue: ApiErrorResponse | string = structured
+                    ? structured
+                    : err instanceof Error
+                    ? err.message
+                    : "Error al ejecutar la consulta";
+                  return { data: null, error: errorValue };
                 }
               })
             ),
+            // Fetch trend values (for items that have trend_sql)
             Promise.all(
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
@@ -151,14 +176,11 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
           ]);
 
           if (!signal.aborted) {
+            const itemData = settled.map((s) => s.data);
+            const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, {
-                data: itemResults,
-                trendData: trendResults,
-                loading: false,
-                error: null,
-              });
+              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -174,11 +196,18 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
         }
       } catch (err) {
         if (signal.aborted) return;
-        const message =
-          err instanceof Error ? err.message : "Error al ejecutar la consulta";
+        const structured =
+          err instanceof Error && "structured" in err
+            ? (err as Error & { structured?: ApiErrorResponse }).structured
+            : undefined;
+        const errorValue: ApiErrorResponse | string = structured
+          ? structured
+          : err instanceof Error
+          ? err.message
+          : "Error al ejecutar la consulta";
         setWidgetStates((prev) => {
           const next = new Map(prev);
-          next.set(idx, { data: null, loading: false, error: message });
+          next.set(idx, { data: null, loading: false, error: errorValue });
           return next;
         });
       }
@@ -187,13 +216,107 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
     await Promise.all(promises);
   }, []);
 
+  // Retry a single widget by re-fetching it.
+  // Uses a per-widget AbortController so retrying one widget never cancels another.
+  const retryWidget = useCallback(
+    async (widget: Widget, idx: number) => {
+      // Abort any previous retry for this specific widget only
+      retryAbortMap.current.get(idx)?.abort();
+      const controller = new AbortController();
+      retryAbortMap.current.set(idx, controller);
+      const { signal } = controller;
+
+      setWidgetStates((prev) => {
+        const next = new Map(prev);
+        next.set(idx, { data: null, loading: true, error: null });
+        return next;
+      });
+
+      try {
+        if (widget.type === "kpi_row") {
+          const [settled, trendResults] = await Promise.all([
+            Promise.all(
+              widget.items.map(async (item) => {
+                try {
+                  const data = await fetchWidgetData(item.sql, signal);
+                  return { data, error: null as ApiErrorResponse | string | null };
+                } catch (err) {
+                  const structured =
+                    err instanceof Error && "structured" in err
+                      ? (err as Error & { structured?: ApiErrorResponse }).structured
+                      : undefined;
+                  const errorValue: ApiErrorResponse | string = structured
+                    ? structured
+                    : err instanceof Error
+                    ? err.message
+                    : "Error al ejecutar la consulta";
+                  return { data: null, error: errorValue };
+                }
+              })
+            ),
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.trend_sql) return null;
+                try {
+                  return await fetchWidgetData(item.trend_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
+          ]);
+          if (!signal.aborted) {
+            const itemData = settled.map((s) => s.data);
+            const firstError = settled.find((s) => s.error !== null)?.error ?? null;
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
+              return next;
+            });
+          }
+        } else {
+          const data = await fetchWidgetData(widget.sql, signal);
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data, loading: false, error: null });
+              return next;
+            });
+          }
+        }
+      } catch (err) {
+        if (signal.aborted) return;
+        const structured =
+          err instanceof Error && "structured" in err
+            ? (err as Error & { structured?: ApiErrorResponse }).structured
+            : undefined;
+        const errorValue: ApiErrorResponse | string = structured
+          ? structured
+          : err instanceof Error
+          ? err.message
+          : "Error al ejecutar la consulta";
+        setWidgetStates((prev) => {
+          const next = new Map(prev);
+          next.set(idx, { data: null, loading: false, error: errorValue });
+          return next;
+        });
+      } finally {
+        // Remove the completed controller from the map
+        retryAbortMap.current.delete(idx);
+      }
+    },
+    [],
+  );
+
   useEffect(() => {
     renderedKeyRef.current = specKey;
     if (spec.widgets.length > 0) {
       fetchAll(spec.widgets);
     }
     return () => {
-      abortRef.current?.abort();
+      fetchAllAbortRef.current?.abort();
+      retryAbortMap.current.forEach((ctrl) => ctrl.abort());
+      retryAbortMap.current.clear();
     };
     // specKey captures the entire spec (including widgets) so we don't need
     // spec.widgets as a separate dependency — doing so would cause spurious
@@ -269,6 +392,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
                     widgetIndices={sectionWidgetIndices}
                     widgetStates={widgetStates}
                     specChanged={specChanged}
+                    onRetry={retryWidget}
                   />
                 </TabPanel>
               );
@@ -282,6 +406,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
           widgetIndices={spec.widgets.map((_, i) => i)}
           widgetStates={widgetStates}
           specChanged={specChanged}
+          onRetry={retryWidget}
         />
       )}
     </div>
@@ -297,9 +422,10 @@ interface WidgetGridProps {
   widgetIndices: number[];
   widgetStates: Map<number, WidgetState>;
   specChanged: boolean;
+  onRetry: (widget: Widget, idx: number) => void;
 }
 
-function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged }: WidgetGridProps) {
+function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry }: WidgetGridProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {widgetIndices.map((idx) => {
@@ -324,17 +450,16 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged }: Widge
 
             {/* Error state */}
             {state && !state.loading && state.error && (
-              <div className="rounded-lg border border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700 p-4">
-                <p className="text-sm font-medium text-red-800 dark:text-red-400">
-                  Error en widget
-                  {widget.type !== "kpi_row" && "title" in widget
-                    ? `: ${widget.title}`
-                    : ""}
-                </p>
-                <p className="mt-1 text-sm text-red-600 dark:text-red-500">
-                  {state.error}
-                </p>
-              </div>
+              <ErrorDisplay
+                error={state.error}
+                title={
+                  widget.type !== "kpi_row" && "title" in widget
+                    ? (widget.title as string)
+                    : undefined
+                }
+                onRetry={() => onRetry(widget, idx)}
+                className="w-full"
+              />
             )}
 
             {/* Success state */}
