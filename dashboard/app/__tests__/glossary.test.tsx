@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import React from "react";
@@ -133,7 +133,12 @@ describe("GlossaryPanel", () => {
     { term: "Ventas Netas", definition: "Importe de ventas sin IVA." },
     { term: "Entrada", definition: "Indica si es venta o devolución." },
   ];
-  const onClose = vi.fn();
+  // onClose is reset before each test to avoid cross-test state leakage
+  let onClose: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    onClose = vi.fn();
+  });
 
   it("renders nothing when isOpen is false", () => {
     const { container } = render(
