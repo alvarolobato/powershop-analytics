@@ -4,6 +4,27 @@
 
 ## Decision Log
 
+### D-014: Label-driven AI execution — 2026-04-05
+**Context**: Need a mechanism for humans to control which issues AI works on.
+**Decision**: Label `ai-work` triggers Claude Code Worker. Label `ai-blocked` pauses. Priority labels (`p0-critical`, `p1-high`, `p2-medium`, `p3-low`) control order. `no-ai` excludes from AI processing.
+**Rationale**: Simple, visible, auditable. Human adds label = human approves AI work. See epic #121.
+
+### D-013: Human-in-the-loop for merges (initially) — 2026-04-05
+**Context**: Could enable full auto-merge for AI-generated PRs.
+**Decision**: Start with human approval required for merge. Add auto-merge for low-risk PRs (docs, deps) after trust is established.
+**Rationale**: Safety first. The product handles business data. Build trust incrementally.
+
+### D-012: Custom workflows instead of reusable action library — 2026-04-05
+**Context**: Elastic has `elastic/ai-github-actions` with reusable workflow templates across repos.
+**Decision**: Build workflows directly in this repo. Extract to reusable library later if needed.
+**Rationale**: We have ~20 workflows vs their 70+. Premature extraction adds complexity. Keep it simple until patterns stabilize.
+
+### D-011: AI Factory with Claude Code as primary agent — 2026-04-05
+**Context**: Need autonomous development pipeline. Elastic uses GitHub Copilot SWE Agent + Gemini. We need to choose our AI engine.
+**Decision**: Build an AI Factory using Claude via `anthropic/claude-code-action` GitHub Action. 20 workflows across 6 phases: Foundation, PR Lifecycle, Issue Lifecycle, Discovery Agents, Deployment, Refinement.
+**Alternatives considered**: GitHub Copilot SWE Agent (Elastic's approach), hybrid Copilot+Claude.
+**Rationale**: Claude is already our LLM for WrenAI and Dashboard App. Single vendor simplifies. Claude Code Action is production-ready and supports CLAUDE.md context files which we already maintain. See epic #121 and [docs/ai-factory.md](docs/ai-factory.md).
+
 ### D-010: Build custom AI dashboard generator (Option B) — 2026-04-04
 **Context**: WrenAI excels at single text-to-SQL queries but cannot generate multi-widget dashboards. Business users need to describe dashboards in natural language and get complete panels.
 **Decision**: Build a custom Next.js + Tremor dashboard app that uses the LLM to generate dashboard JSON specs.
@@ -62,6 +83,12 @@
 ---
 
 ## Changelog
+
+### 2026-04-05
+- AI Factory design: 20 workflows across 6 phases for autonomous development (D-011 through D-014)
+- Created [docs/ai-factory.md](docs/ai-factory.md) with full architecture, workflow catalog, and design decisions
+- Created epic #121 and 20 implementation issues (#122-#141)
+- Labels: `ai-factory`, `phase-f1` through `phase-f6`
 
 ### 2026-04-04
 - Created ARCHITECTURE.md and DECISIONS-AND-CHANGES.md

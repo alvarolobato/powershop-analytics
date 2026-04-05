@@ -1,0 +1,81 @@
+# AI Factory Configuration
+# Shared settings for all AI factory workflows
+
+# Claude Code Action defaults
+claude:
+  model: "claude-sonnet-4-20250514"
+  max_turns: 50
+  # The action reads CLAUDE.md automatically for project context
+
+# Label system
+labels:
+  # Execution control
+  trigger: "ai-work"          # AI should implement this issue
+  blocked: "ai-blocked"       # AI is blocked, needs human input
+  planned: "ai-planned"       # AI has posted a plan
+  in_progress: "ai-in-progress" # AI is currently working
+  no_ai: "no-ai"              # Human-only
+  no_review: "no-pr-review"   # Skip AI PR review
+  auto_merge: "auto-merge"    # Auto-merge when CI + review pass
+
+  # Priority (highest first)
+  priorities:
+    - "p0-critical"
+    - "p1-high"
+    - "p2-medium"
+    - "p3-low"
+
+  # Categories (AI-discovered issues)
+  categories:
+    - "ai-bug"
+    - "ai-security"
+    - "ai-perf"
+    - "ai-docs"
+    - "ai-idea"
+    - "ai-quality"
+
+  # Components
+  components:
+    - "comp-etl"
+    - "comp-dashboard"
+    - "comp-wren"
+    - "comp-cli"
+    - "comp-infra"
+    - "comp-docs"
+
+  # PR size
+  sizes:
+    - "size-xs"     # <10 lines
+    - "size-s"      # <50 lines
+    - "size-m"      # <200 lines
+    - "size-l"      # <500 lines
+    - "size-xl"     # 500+ lines
+
+  # PR risk
+  risks:
+    - "risk-low"    # docs, tests only
+    - "risk-medium" # app code
+    - "risk-high"   # config, CI, ETL schema, Docker
+
+# Schedule defaults (UTC)
+schedules:
+  daily_morning: "0 9 * * 1-5"    # Weekdays 09:00
+  daily_midday: "0 11 * * 1-5"    # Weekdays 11:00
+  weekly_monday: "0 10 * * 1"     # Monday 10:00
+  weekly_tuesday: "0 14 * * 2"    # Tuesday 14:00
+  weekly_wednesday: "0 14 * * 3"  # Wednesday 14:00
+  weekly_thursday: "0 14 * * 4"   # Thursday 14:00
+  weekly_friday: "0 10 * * 5"     # Friday 10:00
+  weekly_sunday: "0 20 * * 0"     # Sunday 20:00
+
+# Title prefixes for AI-created issues
+title_prefixes:
+  bug_hunter: "[bug-hunter]"
+  security: "[security]"
+  docs_patrol: "[docs-patrol]"
+  dashboard_audit: "[dashboard-audit]"
+  etl_health: "[etl-health]"
+  sql_validator: "[sql-validator]"
+  feature_ideas: "[feature-ideas]"
+  project_summary: "[project-summary]"
+  stale: "[stale]"
