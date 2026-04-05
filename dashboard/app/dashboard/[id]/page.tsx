@@ -590,7 +590,7 @@ export default function ViewDashboard() {
             <button
               onClick={() => setGlossaryOpen((prev) => !prev)}
               className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-              aria-label="Abrir glosario"
+              aria-label={glossaryOpen ? "Cerrar glosario" : "Abrir glosario"}
               data-testid="glossary-button"
             >
               Glosario

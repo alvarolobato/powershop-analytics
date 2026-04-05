@@ -42,15 +42,15 @@ export function applyGlossary(
     const normalizedTerm = entry.term.toLowerCase();
     if (seenTerms.has(normalizedTerm)) continue;
 
-    // Build a word-boundary-aware regex.
-    // We use (?<!\w) and (?!\w) instead of \b to correctly handle accented
-    // characters (e.g. "entrada" should not match inside "contraindicación").
+    // We avoid \b because it does not correctly handle accented characters
+    // for our use case (e.g. "entrada" should not match inside
+    // "contraindicación").
     // The regex is case-insensitive.
-    // We avoid lookbehind for broader JS runtime compatibility (e.g. older Safari)
-    // by capturing the left boundary as group 1 and the term as group 2.
-    // The pattern matches the term only when preceded and followed by a
-    // non-word character (or start/end of string), correctly handling
-    // accented characters so "entrada" does not match inside "contraindicación".
+    // For broader JS runtime compatibility (e.g. older Safari), we avoid
+    // lookbehind by capturing the left boundary as group 1 and the term as
+    // group 2, then requiring a right boundary with a lookahead.
+    // The pattern matches the term only when surrounded by a non-word
+    // character from our custom character set, or by the start/end of string.
     const escapedTerm = entry.term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const regex = new RegExp(
       `(^|[^\\wáéíóúüñÁÉÍÓÚÜÑ])(${escapedTerm})(?=$|[^\\wáéíóúüñÁÉÍÓÚÜÑ])`,
@@ -73,8 +73,10 @@ export function applyGlossary(
 
   if (matches.length === 0) return text;
 
-  // Sort by start position and resolve overlaps (first match wins)
-  matches.sort((a, b) => a.start - b.start);
+  // Sort by start position; when two matches start at the same index (e.g.
+  // "Ventas" vs "Ventas Netas"), prefer the longer (more specific) term first
+  // so it always wins in the overlap resolution below.
+  matches.sort((a, b) => a.start - b.start || (b.end - b.start) - (a.end - a.start));
   const nonOverlapping: Match[] = [];
   let cursor = 0;
   for (const m of matches) {
