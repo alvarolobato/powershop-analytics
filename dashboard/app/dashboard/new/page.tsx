@@ -4,13 +4,15 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import type { ApiErrorResponse } from "@/lib/errors";
 
 export default function NewDashboard() {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiErrorResponse | string | null>(null);
 
   /** Save a spec to the database and redirect to its view page. */
   const saveAndRedirect = async (
@@ -26,7 +28,10 @@ export default function NewDashboard() {
 
     if (!saveRes.ok) {
       const errBody = await saveRes.json().catch(() => null);
-      throw new Error(errBody?.error || "Error al guardar el dashboard");
+      if (errBody && typeof errBody === "object" && "code" in errBody) {
+        throw errBody as ApiErrorResponse;
+      }
+      throw new Error((errBody?.error as string) || "Error al guardar el dashboard");
     }
 
     const saved = await saveRes.json();
@@ -50,8 +55,11 @@ export default function NewDashboard() {
 
       if (!genRes.ok) {
         const errBody = await genRes.json().catch(() => null);
+        if (errBody && typeof errBody === "object" && "code" in errBody) {
+          throw errBody as ApiErrorResponse;
+        }
         throw new Error(
-          errBody?.error || "Error al generar el dashboard",
+          (errBody?.error as string) || "Error al generar el dashboard",
         );
       }
 
@@ -59,9 +67,18 @@ export default function NewDashboard() {
       const name = spec.title || "Dashboard sin título";
       await saveAndRedirect(name, spec.description || null, spec);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Error inesperado",
-      );
+      if (
+        err !== null &&
+        typeof err === "object" &&
+        "code" in err &&
+        "requestId" in err
+      ) {
+        setError(err as ApiErrorResponse);
+      } else {
+        setError(
+          err instanceof Error ? err.message : "Error inesperado",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -80,9 +97,18 @@ export default function NewDashboard() {
         template.spec,
       );
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Error inesperado",
-      );
+      if (
+        err !== null &&
+        typeof err === "object" &&
+        "code" in err &&
+        "requestId" in err
+      ) {
+        setError(err as ApiErrorResponse);
+      } else {
+        setError(
+          err instanceof Error ? err.message : "Error inesperado al usar la plantilla",
+        );
+      }
     } finally {
       setLoadingTemplate(null);
     }
@@ -111,9 +137,10 @@ export default function NewDashboard() {
         />
 
         {error && (
-          <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-            <p className="text-sm text-red-800">{error}</p>
-          </div>
+          <ErrorDisplay
+            error={error}
+            onRetry={typeof error === "string" ? undefined : handleGenerate}
+          />
         )}
 
         <button

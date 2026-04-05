@@ -243,8 +243,7 @@ describe("DashboardRenderer", () => {
     render(<DashboardRenderer spec={twoWidgetSpec} />);
 
     await waitFor(() => {
-      // Error widget shows error message with widget title
-      expect(screen.getByText("Error en widget: Broken")).toBeInTheDocument();
+      // Error widget shows error message via ErrorDisplay
       expect(screen.getByText("Query timeout")).toBeInTheDocument();
       // Working widget still renders
       expect(screen.getByText("Working")).toBeInTheDocument();

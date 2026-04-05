@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
+import type { ApiErrorResponse } from "@/lib/errors";
+import { ErrorDisplay } from "./ErrorDisplay";
 import {
   KpiRow,
   BarChartWidget,
@@ -35,7 +37,8 @@ interface WidgetState {
   /** For most widgets: single WidgetData. For kpi_row: array of WidgetData|null. */
   data: WidgetData | null | (WidgetData | null)[];
   loading: boolean;
-  error: string | null;
+  /** Structured error from the API (preferred) or plain string fallback. */
+  error: ApiErrorResponse | string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,25 +56,28 @@ async function fetchWidgetData(
     signal,
   });
   if (!res.ok) {
-    let message = "";
+    let errorPayload: ApiErrorResponse | null = null;
+    let fallbackMessage = "Error al obtener datos del widget";
     try {
-      const errorBody = await res.json();
-      if (
-        errorBody &&
-        typeof errorBody === "object" &&
-        "error" in errorBody &&
-        typeof errorBody.error === "string"
-      ) {
-        message = errorBody.error;
+      const body = await res.json();
+      if (body && typeof body === "object") {
+        // Check if it matches our structured error format
+        if ("error" in body && "code" in body && "requestId" in body) {
+          errorPayload = body as ApiErrorResponse;
+        } else if ("error" in body && typeof body.error === "string") {
+          // Non-structured error with a message
+          fallbackMessage = body.error as string;
+        }
       }
     } catch {
-      try {
-        message = await res.text();
-      } catch {
-        message = "";
-      }
+      // ignore parse failure
     }
-    throw new Error(message || "Error al obtener datos del widget");
+    if (errorPayload) {
+      const err = new Error(errorPayload.error) as Error & { structured?: ApiErrorResponse };
+      err.structured = errorPayload;
+      throw err;
+    }
+    throw new Error(fallbackMessage);
   }
   return res.json();
 }
@@ -93,6 +99,7 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
+  // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
     // Abort any in-flight requests from a previous spec
     abortRef.current?.abort();
@@ -140,11 +147,18 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
         }
       } catch (err) {
         if (signal.aborted) return;
-        const message =
-          err instanceof Error ? err.message : "Error al ejecutar la consulta";
+        const structured =
+          err instanceof Error && "structured" in err
+            ? (err as Error & { structured?: ApiErrorResponse }).structured
+            : undefined;
+        const errorValue: ApiErrorResponse | string = structured
+          ? structured
+          : err instanceof Error
+          ? err.message
+          : "Error al ejecutar la consulta";
         setWidgetStates((prev) => {
           const next = new Map(prev);
-          next.set(idx, { data: null, loading: false, error: message });
+          next.set(idx, { data: null, loading: false, error: errorValue });
           return next;
         });
       }
@@ -152,6 +166,59 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
 
     await Promise.all(promises);
   }, []);
+
+  // Retry a single widget by re-fetching it
+  const retryWidget = useCallback(
+    async (widget: Widget, idx: number) => {
+      setWidgetStates((prev) => {
+        const next = new Map(prev);
+        next.set(idx, { data: null, loading: true, error: null });
+        return next;
+      });
+
+      try {
+        if (widget.type === "kpi_row") {
+          const itemResults = await Promise.all(
+            widget.items.map(async (item): Promise<WidgetData | null> => {
+              try {
+                return await fetchWidgetData(item.sql);
+              } catch {
+                return null;
+              }
+            })
+          );
+          setWidgetStates((prev) => {
+            const next = new Map(prev);
+            next.set(idx, { data: itemResults, loading: false, error: null });
+            return next;
+          });
+        } else {
+          const data = await fetchWidgetData(widget.sql);
+          setWidgetStates((prev) => {
+            const next = new Map(prev);
+            next.set(idx, { data, loading: false, error: null });
+            return next;
+          });
+        }
+      } catch (err) {
+        const structured =
+          err instanceof Error && "structured" in err
+            ? (err as Error & { structured?: ApiErrorResponse }).structured
+            : undefined;
+        const errorValue: ApiErrorResponse | string = structured
+          ? structured
+          : err instanceof Error
+          ? err.message
+          : "Error al ejecutar la consulta";
+        setWidgetStates((prev) => {
+          const next = new Map(prev);
+          next.set(idx, { data: null, loading: false, error: errorValue });
+          return next;
+        });
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     renderedKeyRef.current = specKey;
@@ -194,15 +261,11 @@ export function DashboardRenderer({ spec, refreshKey = 0 }: DashboardRendererPro
 
               {/* Error state */}
               {state && !state.loading && state.error && (
-                <div className="rounded-lg border border-red-300 bg-red-50 p-4">
-                  <p className="text-sm font-medium text-red-800">
-                    Error en widget
-                    {widget.type !== "kpi_row" && "title" in widget
-                      ? `: ${widget.title}`
-                      : ""}
-                  </p>
-                  <p className="mt-1 text-sm text-red-600">{state.error}</p>
-                </div>
+                <ErrorDisplay
+                  error={state.error}
+                  onRetry={() => retryWidget(widget, idx)}
+                  className="w-full"
+                />
               )}
 
               {/* Success state */}

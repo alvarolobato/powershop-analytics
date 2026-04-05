@@ -3,6 +3,7 @@
 import type { KeyboardEvent } from "react";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { DashboardSpec } from "@/lib/schema";
+import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -12,6 +13,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
+  /** Structured error detail attached to an assistant error message. */
+  errorDetail?: ApiErrorResponse;
 }
 
 export interface ChatSidebarProps {
@@ -19,6 +22,77 @@ export interface ChatSidebarProps {
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   isOpen: boolean;
   onToggle: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// ErrorBubble — expandable error detail inside a chat message
+// ---------------------------------------------------------------------------
+
+function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: ApiErrorResponse }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(errorDetail, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="text-sm text-red-700">
+      <p>{message}</p>
+      {errorDetail && (
+        <div className="mt-1">
+          <button
+            type="button"
+            onClick={() => setExpanded((p) => !p)}
+            className="flex items-center gap-1 text-xs text-red-600 hover:text-red-800"
+            aria-expanded={expanded}
+            data-testid="chat-toggle-details"
+          >
+            <span
+              style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+              className="inline-block transition-transform"
+              aria-hidden="true"
+            >
+              &#9656;
+            </span>
+            Detalles técnicos
+          </button>
+          {expanded && (
+            <div
+              className="mt-1 rounded bg-red-100 p-2 text-xs font-mono space-y-0.5"
+              data-testid="chat-error-details"
+            >
+              <div>
+                <span className="font-semibold">Código:</span> {errorDetail.code}
+              </div>
+              <div>
+                <span className="font-semibold">ID:</span> {errorDetail.requestId}
+              </div>
+              {errorDetail.details && (
+                <div>
+                  <span className="font-semibold">Detalle:</span>{" "}
+                  <span className="whitespace-pre-wrap">{errorDetail.details}</span>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={handleCopy}
+                className="mt-1 text-xs text-red-600 hover:text-red-800 underline"
+              >
+                {copied ? "Copiado!" : "Copiar detalles"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -73,21 +147,44 @@ export default function ChatSidebar({
       });
 
       if (!res.ok) {
-        // Log the raw server error for debugging, show Spanish message to user
-        const errBody = await res.json().catch(() => null);
-        if (errBody?.error) {
-          console.error("Modify API error:", errBody.error);
+        let errorDetail: ApiErrorResponse | undefined;
+        let userMsg: string;
+
+        try {
+          const errBody = await res.json();
+          // Check if this is our structured error format
+          if (errBody && typeof errBody === "object" && "code" in errBody && "requestId" in errBody) {
+            errorDetail = errBody as ApiErrorResponse;
+            userMsg = errBody.error as string;
+          } else {
+            // Non-structured error — use generic message by HTTP status
+            userMsg =
+              res.status >= 500
+                ? "Error interno del servidor. Inténtalo de nuevo."
+                : "No se pudo aplicar la modificación. Revisa tu petición.";
+          }
+        } catch {
+          userMsg =
+            res.status >= 500
+              ? "Error interno del servidor. Inténtalo de nuevo."
+              : "No se pudo aplicar la modificación. Revisa tu petición.";
         }
-        const errMsg =
-          res.status >= 500
-            ? "Error interno del servidor. Inténtalo de nuevo."
-            : "No se pudo aplicar la modificación. Revisa tu petición.";
+
+        // Override with rate-limit specific message
+        if (res.status === 429) {
+          userMsg =
+            "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos.";
+        }
+
+        console.error("Modify API error:", errorDetail ?? userMsg);
+
         setMessages((prev) => [
           ...prev,
           {
             role: "assistant",
-            content: `Error: ${errMsg}`,
+            content: userMsg,
             timestamp: new Date(),
+            errorDetail,
           },
         ]);
         return;
@@ -118,8 +215,8 @@ export default function ChatSidebar({
 
       const errorMessage =
         err instanceof TypeError
-          ? "Error: No se pudo conectar con el servidor."
-          : "Error: Ocurrió un problema al procesar la respuesta.";
+          ? "No se pudo conectar con el servidor."
+          : "Ocurrió un problema al procesar la respuesta.";
 
       setMessages((prev) => [
         ...prev,
@@ -190,22 +287,34 @@ export default function ChatSidebar({
           </p>
         )}
 
-        {messages.map((msg, idx) => (
-          <div
-            key={idx}
-            className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
-          >
+        {messages.map((msg, idx) => {
+          const isError = msg.role === "assistant" && msg.errorDetail !== undefined;
+          return (
             <div
-              className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
-                msg.role === "user"
-                  ? "bg-blue-600 text-white"
-                  : "bg-gray-100 text-gray-800"
-              }`}
+              key={idx}
+              className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
             >
-              {msg.content}
+              {isError ? (
+                <div className="max-w-[85%] rounded-lg px-3 py-2 bg-red-50 border border-red-200">
+                  <ErrorBubble
+                    message={msg.content}
+                    errorDetail={msg.errorDetail}
+                  />
+                </div>
+              ) : (
+                <div
+                  className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
+                    msg.role === "user"
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-800"
+                  }`}
+                >
+                  {msg.content}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {loading && (
           <div className="flex justify-start">

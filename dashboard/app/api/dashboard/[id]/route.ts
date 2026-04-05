@@ -13,6 +13,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { sql, getPool } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
 import { ZodError } from "zod";
+import {
+  formatApiError,
+  generateRequestId,
+  sanitizeErrorMessage,
+} from "@/lib/errors";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -32,11 +37,17 @@ export async function GET(
   _request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
+  const requestId = generateRequestId();
   const { id: rawId } = await context.params;
   const id = parseId(rawId);
   if (id === null) {
     return NextResponse.json(
-      { error: "Invalid dashboard ID — must be a positive integer" },
+      formatApiError(
+        "El identificador del dashboard no es válido (debe ser un entero positivo).",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -50,15 +61,26 @@ export async function GET(
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: "Dashboard not found" },
+        formatApiError(
+          "Dashboard no encontrado.",
+          "NOT_FOUND",
+          `No existe ningún dashboard con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
 
     return NextResponse.json(rows[0]);
-  } catch {
+  } catch (err) {
+    console.error(`[${requestId}] Error al cargar dashboard ${id}:`, err);
     return NextResponse.json(
-      { error: "Failed to load dashboard" },
+      formatApiError(
+        "No se pudo cargar el dashboard. Inténtalo de nuevo.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }
@@ -77,11 +99,17 @@ export async function PUT(
   request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
+  const requestId = generateRequestId();
   const { id: rawId } = await context.params;
   const id = parseId(rawId);
   if (id === null) {
     return NextResponse.json(
-      { error: "Invalid dashboard ID — must be a positive integer" },
+      formatApiError(
+        "El identificador del dashboard no es válido (debe ser un entero positivo).",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -91,14 +119,19 @@ export async function PUT(
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body" },
+      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "JSON body must be an object" },
+      formatApiError(
+        "El cuerpo JSON debe ser un objeto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -109,7 +142,12 @@ export async function PUT(
   if (name !== undefined && name !== null) {
     if (typeof name !== "string" || name.trim() === "") {
       return NextResponse.json(
-        { error: "Invalid 'name' — must be a non-empty string" },
+        formatApiError(
+          "El campo 'name' debe ser texto no vacío.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
         { status: 400 },
       );
     }
@@ -117,7 +155,12 @@ export async function PUT(
 
   if (spec === undefined || spec === null) {
     return NextResponse.json(
-      { error: "Missing 'spec' field" },
+      formatApiError(
+        "Falta el campo 'spec'.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -125,7 +168,12 @@ export async function PUT(
   // Validate prompt type
   if (prompt !== undefined && prompt !== null && typeof prompt !== "string") {
     return NextResponse.json(
-      { error: "Invalid 'prompt' — must be a string" },
+      formatApiError(
+        "El campo 'prompt' debe ser texto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -135,7 +183,12 @@ export async function PUT(
   } catch (err) {
     if (err instanceof ZodError) {
       return NextResponse.json(
-        { error: "Invalid spec", details: err.issues },
+        formatApiError(
+          "La especificación del dashboard no es válida.",
+          "VALIDATION",
+          err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+          requestId,
+        ),
         { status: 400 },
       );
     }
@@ -149,9 +202,15 @@ export async function PUT(
   let client;
   try {
     client = await getPool().connect();
-  } catch {
+  } catch (err) {
+    console.error(`[${requestId}] Error de conexión al actualizar dashboard ${id}:`, err);
     return NextResponse.json(
-      { error: "Failed to update dashboard" },
+      formatApiError(
+        "No se pudo conectar a la base de datos. Inténtalo de nuevo.",
+        "DB_CONNECTION",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }
@@ -168,7 +227,12 @@ export async function PUT(
     if (existingResult.rows.length === 0) {
       await client.query("ROLLBACK");
       return NextResponse.json(
-        { error: "Dashboard not found" },
+        formatApiError(
+          "Dashboard no encontrado.",
+          "NOT_FOUND",
+          `No existe ningún dashboard con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
@@ -198,16 +262,27 @@ export async function PUT(
 
     if (updateResult.rows.length === 0) {
       return NextResponse.json(
-        { error: "Dashboard not found" },
+        formatApiError(
+          "Dashboard no encontrado.",
+          "NOT_FOUND",
+          `No existe ningún dashboard con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
 
     return NextResponse.json(updateResult.rows[0]);
-  } catch {
+  } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+    console.error(`[${requestId}] Error al actualizar dashboard ${id}:`, err);
     return NextResponse.json(
-      { error: "Failed to update dashboard" },
+      formatApiError(
+        "No se pudo actualizar el dashboard. Inténtalo de nuevo.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   } finally {
@@ -221,11 +296,17 @@ export async function DELETE(
   _request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
+  const requestId = generateRequestId();
   const { id: rawId } = await context.params;
   const id = parseId(rawId);
   if (id === null) {
     return NextResponse.json(
-      { error: "Invalid dashboard ID — must be a positive integer" },
+      formatApiError(
+        "El identificador del dashboard no es válido (debe ser un entero positivo).",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -238,15 +319,26 @@ export async function DELETE(
 
     if (rows.length === 0) {
       return NextResponse.json(
-        { error: "Dashboard not found" },
+        formatApiError(
+          "Dashboard no encontrado.",
+          "NOT_FOUND",
+          `No existe ningún dashboard con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
 
     return new NextResponse(null, { status: 204 });
-  } catch {
+  } catch (err) {
+    console.error(`[${requestId}] Error al eliminar dashboard ${id}:`, err);
     return NextResponse.json(
-      { error: "Failed to delete dashboard" },
+      formatApiError(
+        "No se pudo eliminar el dashboard. Inténtalo de nuevo.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }
