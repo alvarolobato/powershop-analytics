@@ -17,6 +17,7 @@ import {
   TableWidget,
   NumberWidget,
 } from "./widgets";
+import type { GlossaryItem } from "@/lib/schema";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -440,6 +441,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
                     widgetStates={widgetStates}
                     specChanged={specChanged}
                     onRetry={retryWidget}
+                    glossary={spec.glossary}
                   />
                 </TabPanel>
               );
@@ -454,6 +456,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
           widgetStates={widgetStates}
           specChanged={specChanged}
           onRetry={retryWidget}
+          glossary={spec.glossary}
         />
       )}
     </div>
@@ -470,9 +473,10 @@ interface WidgetGridProps {
   widgetStates: Map<number, WidgetState>;
   specChanged: boolean;
   onRetry: (widget: Widget, idx: number) => void;
+  glossary?: GlossaryItem[];
 }
 
-function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry }: WidgetGridProps) {
+function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry, glossary }: WidgetGridProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {widgetIndices.map((idx) => {
@@ -511,7 +515,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
 
             {/* Success state */}
             {state && !state.loading && !state.error && (
-              <WidgetSwitch widget={widget} state={state} />
+              <WidgetSwitch widget={widget} state={state} glossary={glossary} />
             )}
           </div>
         );
@@ -665,9 +669,11 @@ function WidgetSkeleton({ type }: { type: WidgetType }) {
 function WidgetSwitch({
   widget,
   state,
+  glossary,
 }: {
   widget: Widget;
   state: WidgetState;
+  glossary?: GlossaryItem[];
 }) {
   switch (widget.type) {
     case "kpi_row":
@@ -676,32 +682,33 @@ function WidgetSwitch({
           widget={widget}
           data={state.data as (WidgetData | null)[]}
           trendData={state.trendData}
+          glossary={glossary}
           anomalyData={state.anomalyData}
         />
       );
     case "bar_chart":
       return (
-        <BarChartWidget widget={widget} data={state.data as WidgetData | null} />
+        <BarChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
     case "line_chart":
       return (
-        <LineChartWidget widget={widget} data={state.data as WidgetData | null} />
+        <LineChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
     case "area_chart":
       return (
-        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} />
+        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
     case "donut_chart":
       return (
-        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} />
+        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
     case "table":
       return (
-        <TableWidget widget={widget} data={state.data as WidgetData | null} />
+        <TableWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
     case "number":
       return (
-        <NumberWidget widget={widget} data={state.data as WidgetData | null} />
+        <NumberWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
     default:
       return null;

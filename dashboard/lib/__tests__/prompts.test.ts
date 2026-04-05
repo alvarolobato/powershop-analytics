@@ -50,6 +50,19 @@ describe("prompts", () => {
       expect(prompt).toContain('"widgets"');
     });
 
+    it("includes glossary field in output format example", () => {
+      expect(prompt).toContain('"glossary"');
+    });
+
+    it("includes rule requiring glossary to always be present", () => {
+      expect(prompt).toContain('glossary" field MUST always be included');
+    });
+
+    it("includes glossary entry structure in output format", () => {
+      expect(prompt).toContain('"term"');
+      expect(prompt).toContain('"definition"');
+    });
+
     it("includes SQL rules", () => {
       expect(prompt).toContain("SQL Rules");
       expect(prompt).toContain("NEVER use total");
@@ -96,6 +109,22 @@ describe("prompts", () => {
       expect(prompt).toContain("PostgreSQL Schema");
       expect(prompt).toContain("Business Rules");
       expect(prompt).toContain("Example SQL Patterns");
+    });
+
+    it("instructs to preserve existing glossary entries", () => {
+      expect(prompt).toContain("Preserve all existing glossary entries");
+    });
+
+    it("instructs to add new glossary terms for new widgets", () => {
+      expect(prompt).toContain("Add new entries for any new business terms");
+    });
+
+    it("instructs to always include glossary in the response", () => {
+      expect(prompt).toContain("glossary' field MUST always be present");
+    });
+
+    it("includes the glossary field in the output format example", () => {
+      expect(prompt).toContain('"glossary"');
     });
   });
 });
