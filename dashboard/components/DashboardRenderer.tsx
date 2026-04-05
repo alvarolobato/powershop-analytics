@@ -71,7 +71,9 @@ async function fetchWidgetData(
         }
       }
     } catch {
-      // ignore parse failure
+      // JSON parse failed (e.g. HTML error page from a 502 gateway)
+      // Include the HTTP status to help with debugging
+      fallbackMessage = `Error al obtener datos del widget (HTTP ${res.status})`;
     }
     if (errorPayload) {
       const err = new Error(errorPayload.error) as Error & { structured?: ApiErrorResponse };

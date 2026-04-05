@@ -100,15 +100,27 @@ describe("ErrorDisplay", () => {
 
   it("copies full error details to clipboard on button click", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, {
-      clipboard: { writeText },
-    });
-
-    render(<ErrorDisplay error={structuredError} />);
-    fireEvent.click(screen.getByTestId("copy-details"));
-
-    expect(writeText).toHaveBeenCalledWith(
-      JSON.stringify(structuredError, null, 2),
+    const originalDescriptor = Object.getOwnPropertyDescriptor(
+      navigator,
+      "clipboard",
     );
+
+    try {
+      Object.assign(navigator, { clipboard: { writeText } });
+
+      render(<ErrorDisplay error={structuredError} />);
+      fireEvent.click(screen.getByTestId("copy-details"));
+
+      expect(writeText).toHaveBeenCalledWith(
+        JSON.stringify(structuredError, null, 2),
+      );
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(navigator, "clipboard", originalDescriptor);
+      } else {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        delete (navigator as any).clipboard;
+      }
+    }
   });
 });
