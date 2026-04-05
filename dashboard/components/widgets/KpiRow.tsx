@@ -1,9 +1,10 @@
 "use client";
 
 import { Card } from "@tremor/react";
-import type { KpiRowWidget } from "@/lib/schema";
+import type { KpiRowWidget, GlossaryItem } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { formatValue } from "./format";
+import { applyGlossary } from "@/lib/glossary";
 
 interface KpiRowProps {
   widget: KpiRowWidget;
@@ -19,6 +20,8 @@ interface KpiRowProps {
    * representing the comparison period value.
    */
   trendData?: (WidgetData | null)[];
+  /** Optional glossary entries for contextual tooltips on label text. */
+  glossary?: GlossaryItem[];
 }
 
 // ---------------------------------------------------------------------------
@@ -86,7 +89,7 @@ function TrendBadge({ currentValue, comparisonValue }: TrendBadgeProps) {
 // Component
 // ---------------------------------------------------------------------------
 
-export function KpiRow({ widget, data, trendData }: KpiRowProps) {
+export function KpiRow({ widget, data, trendData, glossary }: KpiRowProps) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {widget.items.map((item, idx) => {
@@ -113,7 +116,7 @@ export function KpiRow({ widget, data, trendData }: KpiRowProps) {
         return (
           <Card key={idx} className="p-4">
             <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-              {item.label}
+              {applyGlossary(item.label, glossary)}
             </p>
             <div className="mt-1 flex items-end justify-between gap-2">
               <p className="text-2xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
