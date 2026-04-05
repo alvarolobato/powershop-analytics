@@ -1,7 +1,8 @@
 /**
  * Template: Responsable de Ventas
  *
- * KPIs de ventas retail, desglose por tienda, tendencia semanal, top articulos.
+ * KPIs de ventas retail, devoluciones, desglose por tienda, tendencia semanal,
+ * formas de pago, margen por tienda, top articulos con margen.
  * All dates are CURRENT_DATE-relative so the dashboard always shows fresh data.
  */
 import type { DashboardSpec } from "@/lib/schema";
@@ -9,7 +10,7 @@ import type { DashboardSpec } from "@/lib/schema";
 export const name = "Responsable de Ventas";
 
 export const description =
-  "Panel para el responsable de ventas retail: KPIs, desglose por tienda, tendencia semanal y top articulos.";
+  "Panel para el responsable de ventas retail: KPIs y devoluciones, desglose por tienda, tendencia semanal, formas de pago, margen por tienda y top articulos.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Ventas Retail",
@@ -48,6 +49,16 @@ WHERE "entrada" = true
           format: "currency",
           prefix: "€",
         },
+        {
+          label: "Devoluciones",
+          sql: `SELECT COALESCE(ABS(SUM("total_si")), 0) AS value
+FROM "public"."ps_ventas"
+WHERE "entrada" = false
+  AND "tienda" <> '99'
+  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+          format: "currency",
+          prefix: "€",
+        },
       ],
     },
     {
@@ -79,13 +90,48 @@ ORDER BY x`,
       y: "y",
     },
     {
+      id: "ventas-formas-pago",
+      type: "donut_chart",
+      title: "Mix de Formas de Pago (mes actual)",
+      sql: `SELECT p."forma" AS label,
+       SUM(p."importe_cob") AS value
+FROM "public"."ps_pagos_ventas" p
+WHERE p."entrada" = true
+  AND p."tienda" <> '99'
+  AND p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+GROUP BY p."forma"
+ORDER BY value DESC`,
+      x: "label",
+      y: "value",
+    },
+    {
+      id: "ventas-margen-tienda",
+      type: "bar_chart",
+      title: "Margen Bruto % por Tienda (mes actual)",
+      sql: `SELECT lv."tienda" AS label,
+       ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
+         / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS value
+FROM "public"."ps_lineas_ventas" lv
+JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+WHERE v."entrada" = true
+  AND lv."tienda" <> '99'
+  AND lv."total_si" > 0
+  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+GROUP BY lv."tienda"
+ORDER BY value DESC`,
+      x: "label",
+      y: "value",
+    },
+    {
       id: "ventas-top-articulos",
       type: "table",
       title: "Top 10 Artículos (mes actual)",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(lv."unidades") AS "Unidades",
-       SUM(lv."total_si") AS "Ventas Netas"
+       SUM(lv."total_si") AS "Ventas Netas",
+       ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
+         / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %"
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
