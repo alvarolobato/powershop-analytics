@@ -53,6 +53,8 @@ interface WidgetState {
   data: WidgetData | null | (WidgetData | null)[];
   /** Trend data for kpi_row items (indexed per item, only when trend_sql is set). */
   trendData?: (WidgetData | null)[];
+  /** Anomaly data for kpi_row items (indexed per item, only when anomaly_sql is set). */
+  anomalyData?: (WidgetData | null)[];
   loading: boolean;
   /** Structured error from the API (preferred) or plain string fallback. */
   error: ApiErrorResponse | string | null;
@@ -140,8 +142,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
     const promises = widgets.map(async (widget, idx) => {
       try {
         if (widget.type === "kpi_row") {
-          // Kick off main KPI values and trend values concurrently
-          const [settled, trendResults] = await Promise.all([
+          // Kick off main KPI values, trend values, and anomaly data concurrently
+          const [settled, trendResults, anomalyResults] = await Promise.all([
             // Fetch each KPI item in parallel; capture per-item errors
             Promise.all(
               widget.items.map(async (item) => {
@@ -173,6 +175,17 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
                 }
               })
             ),
+            // Fetch anomaly data (for items that have anomaly_sql)
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.anomaly_sql) return null;
+                try {
+                  return await fetchWidgetData(item.anomaly_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
           ]);
 
           if (!signal.aborted) {
@@ -180,7 +193,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
             const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
+              next.set(idx, { data: itemData, trendData: trendResults, anomalyData: anomalyResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -234,7 +247,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
 
       try {
         if (widget.type === "kpi_row") {
-          const [settled, trendResults] = await Promise.all([
+          const [settled, trendResults, anomalyResults] = await Promise.all([
             Promise.all(
               widget.items.map(async (item) => {
                 try {
@@ -264,13 +277,23 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange 
                 }
               })
             ),
+            Promise.all(
+              widget.items.map(async (item): Promise<WidgetData | null> => {
+                if (!item.anomaly_sql) return null;
+                try {
+                  return await fetchWidgetData(item.anomaly_sql, signal);
+                } catch {
+                  return null;
+                }
+              })
+            ),
           ]);
           if (!signal.aborted) {
             const itemData = settled.map((s) => s.data);
             const firstError = settled.find((s) => s.error !== null)?.error ?? null;
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data: itemData, trendData: trendResults, loading: false, error: firstError });
+              next.set(idx, { data: itemData, trendData: trendResults, anomalyData: anomalyResults, loading: false, error: firstError });
               return next;
             });
           }
@@ -629,6 +652,7 @@ function WidgetSwitch({
           widget={widget}
           data={state.data as (WidgetData | null)[]}
           trendData={state.trendData}
+          anomalyData={state.anomalyData}
         />
       );
     case "bar_chart":
