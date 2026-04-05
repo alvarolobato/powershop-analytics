@@ -23,7 +23,7 @@ export const TASK_PROMPTS: TaskPrompt[] = [
     description: "Tendencias semana vs semana anterior, KPIs y ranking de tiendas",
     icon: "📊",
     prompt:
-      "Crea un cuadro de mandos para la reunión semanal de ventas. Incluye: KPIs clave de la semana actual (ventas netas, tickets, ticket medio, unidades) comparados con la semana anterior usando ps_ventas y ps_lineas_ventas; gráfico de barras con ventas por tienda (excluir tienda 99) ordenado de mayor a menor; gráfico de líneas con la tendencia diaria de ventas de las últimas 4 semanas; tabla con las 5 tiendas con mayor crecimiento y las 5 con mayor caída vs semana anterior; y un gráfico de barras con ventas por familia de producto (JOIN con ps_articulos y ps_familias). Filtra siempre entrada=true y tienda<>'99'. Usa total_si para importes. Muestra deltas porcentuales donde sea posible.",
+      "Crea un cuadro de mandos para la reunión semanal de ventas. Incluye: KPIs clave de la semana actual (ventas netas usando total_si, tickets, ticket medio, unidades) comparados con la semana anterior usando ps_ventas con entrada=true y tienda<>'99'; gráfico de barras con ventas por tienda ordenado de mayor a menor; gráfico de líneas con la tendencia diaria de ventas de las últimas 4 semanas; tabla con las 5 tiendas con mayor crecimiento y las 5 con mayor caída vs semana anterior; y gráfico de barras con ventas por familia de producto (JOIN ps_lineas_ventas con ps_ventas para filtrar entrada=true, luego JOIN con ps_articulos y ps_familias). Filtra siempre entrada=true en ps_ventas y tienda<>'99'. Nota: ps_lineas_ventas NO tiene campo entrada — aplica el filtro siempre vía JOIN con ps_ventas. Usa total_si para importes. Muestra deltas porcentuales donde sea posible.",
   },
   {
     id: "replenishment",
@@ -36,10 +36,10 @@ export const TASK_PROMPTS: TaskPrompt[] = [
   {
     id: "store-performance",
     title: "Revisar el rendimiento de una tienda",
-    description: "Deep dive de una tienda: KPIs, rendimiento diario y comparativa con la cadena",
+    description: "Ranking de tiendas, KPIs comparativos y contribución de cada tienda a la cadena",
     icon: "🏪",
     prompt:
-      "Crea un cuadro de mandos para el análisis de rendimiento de tiendas retail. Incluye: KPIs comparativos de todas las tiendas (ventas netas, tickets, ticket medio, uds/ticket) del mes actual vs mes anterior usando ps_ventas; gráfico de barras horizontales con ranking de tiendas por ventas netas (excluir tienda 99); tabla con métricas por tienda (ventas, tickets, ticket medio, variación % vs mes anterior) ordenada por ventas; gráfico de líneas con evolución semanal de las top 5 tiendas en las últimas 8 semanas; y gráfico de barras con contribución de cada tienda a las ventas totales de la cadena en porcentaje. Filtra entrada=true y tienda<>'99'. Muestra nombre de tienda cuando esté disponible.",
+      "Crea un cuadro de mandos para el análisis comparativo de rendimiento de tiendas retail. Incluye: KPIs del mes actual de la cadena (ventas netas totales usando total_si, tickets, ticket medio) usando ps_ventas con entrada=true y tienda<>'99'; gráfico de barras horizontales con ranking de tiendas por ventas netas del mes (excluir tienda 99); tabla con métricas por tienda (ventas total_si, tickets, ticket medio, variación % vs mes anterior) ordenada por ventas; gráfico de líneas con evolución semanal de las top 5 tiendas en las últimas 8 semanas; y gráfico de barras con contribución porcentual de cada tienda a las ventas totales de la cadena. Filtra siempre entrada=true y tienda<>'99'. Usa total_si para todos los importes.",
   },
   {
     id: "wholesale-analysis",

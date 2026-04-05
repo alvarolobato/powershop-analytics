@@ -159,8 +159,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         prompt: typeof s.prompt === "string" ? s.prompt : "",
       };
     })
-    // Filter out invalid entries that would render empty cards or trigger no-op generation
-    .filter((s) => s.name.trim().length > 0 && s.prompt.trim().length > 0);
+    // Filter out invalid entries that would render empty cards, missing descriptions, or trigger no-op generation
+    .filter(
+      (s) =>
+        s.name.trim().length > 0 &&
+        s.description.trim().length > 0 &&
+        s.prompt.trim().length > 0,
+    );
 
   return NextResponse.json({ suggestions }, { status: 200 });
 }

@@ -156,8 +156,13 @@ export async function POST(request: Request): Promise<NextResponse> {
           typeof g.suggestedPrompt === "string" ? g.suggestedPrompt : "",
       };
     })
-    // Filter out invalid entries that would render empty gap cards or trigger no-op generation
-    .filter((g) => g.area.trim().length > 0 && g.suggestedPrompt.trim().length > 0);
+    // Filter out invalid entries that would render empty gap cards, missing descriptions, or trigger no-op generation
+    .filter(
+      (g) =>
+        g.area.trim().length > 0 &&
+        g.description.trim().length > 0 &&
+        g.suggestedPrompt.trim().length > 0,
+    );
 
   return NextResponse.json({ gaps }, { status: 200 });
 }
