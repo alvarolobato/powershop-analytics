@@ -9,7 +9,7 @@ import type { DashboardSpec } from "@/lib/schema";
 export const name = "Responsable de Stock";
 
 export const description =
-  "Panel para el responsable de stock: unidades totales, distribucion por tienda, stock en almacen, sin stock y traspasos recientes.";
+  "Panel para el responsable de stock: unidades totales, valoracion al coste, distribucion por tienda y familia, stock bajo, dead stock, sin stock y traspasos recientes.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Stock",
@@ -34,11 +34,13 @@ WHERE "stock" > 0 AND "tienda" = '99'`,
           format: "number",
         },
         {
-          label: "Tiendas con Stock",
-          sql: `SELECT COUNT(DISTINCT "tienda") AS value
-FROM "public"."ps_stock_tienda"
-WHERE "stock" > 0 AND "tienda" <> '99'`,
-          format: "number",
+          label: "Valor Stock al Coste",
+          sql: `SELECT COALESCE(ROUND(SUM(s."stock" * p."precio_coste"), 2), 0) AS value
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE s."stock" > 0 AND p."anulado" = false`,
+          format: "currency",
+          prefix: "€",
         },
         {
           label: "Referencias Activas",
@@ -59,6 +61,22 @@ FROM "public"."ps_stock_tienda"
 WHERE "stock" > 0 AND "tienda" <> '99'
 GROUP BY "tienda"
 ORDER BY value DESC`,
+      x: "label",
+      y: "value",
+    },
+    {
+      id: "stock-por-familia",
+      type: "bar_chart",
+      title: "Stock por Familia (unidades, top 10)",
+      sql: `SELECT fm."fami_grup_marc" AS label,
+       SUM(s."stock") AS value
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0 AND p."anulado" = false
+GROUP BY fm."fami_grup_marc"
+ORDER BY value DESC
+LIMIT 10`,
       x: "label",
       y: "value",
     },
@@ -93,6 +111,31 @@ GROUP BY p."ccrefejofacm", p."descripcion"
 HAVING SUM(CASE WHEN s."tienda" <> '99' THEN s."stock" ELSE 0 END) = 0
    AND SUM(CASE WHEN s."tienda" = '99' THEN s."stock" ELSE 0 END) > 0
 ORDER BY "Stock Almacén" DESC
+LIMIT 30`,
+    },
+    {
+      id: "stock-dead-stock",
+      type: "table",
+      title: "Dead Stock (stock total > 10, sin ventas en 90 dias)",
+      sql: `SELECT p."ccrefejofacm" AS "Referencia",
+       p."descripcion" AS "Descripción",
+       SUM(s."stock") AS "Stock",
+       p."clave_temporada" AS "Temporada"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE s."stock" > 0
+  AND p."anulado" = false
+  AND p."codigo" NOT IN (
+    SELECT DISTINCT lv."codigo"
+    FROM "public"."ps_lineas_ventas" lv
+    JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+    WHERE v."entrada" = true
+      AND lv."tienda" <> '99'
+      AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days'
+  )
+GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
+HAVING SUM(s."stock") > 10
+ORDER BY "Stock" DESC
 LIMIT 30`,
     },
     {

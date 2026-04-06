@@ -9,7 +9,7 @@ import type { DashboardSpec } from "@/lib/schema";
 export const name = "Director Mayorista";
 
 export const description =
-  "Panel para el director del canal mayorista: facturacion neta, desglose por comercial, top clientes, albaranes recientes y comparativa de periodos.";
+  "Panel para el director del canal mayorista: facturacion neta, margen, desglose por comercial, top clientes, pedidos pendientes, albaranes recientes, top productos y comparativa mensual.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
@@ -37,7 +37,20 @@ WHERE "abono" = false
           format: "number",
         },
         {
-          label: "Clientes Activos",
+          label: "Margen Mayorista",
+          sql: `SELECT ROUND(
+  (SUM(lf."total") - SUM(lf."total_coste"))
+  / NULLIF(SUM(lf."total"), 0) * 100, 1
+) AS value
+FROM "public"."ps_gc_lin_facturas" lf
+JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura"
+WHERE lf."total" > 0
+  AND f."abono" = false
+  AND f."fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)`,
+          format: "percent",
+        },
+        {
+          label: "Clientes Activos (YTD)",
           sql: `SELECT COUNT(DISTINCT "num_cliente") AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
@@ -65,16 +78,52 @@ ORDER BY value DESC`,
       id: "mayorista-top-clientes",
       type: "table",
       title: "Top 10 Clientes Mayorista (YTD)",
-      sql: `SELECT c."nombre" AS "Cliente",
-       COUNT(DISTINCT f."reg_factura") AS "Facturas",
-       SUM(f."base1" + f."base2" + f."base3") AS "Facturacion Neta"
-FROM "public"."ps_gc_facturas" f
-JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
-WHERE f."abono" = false
-  AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+      sql: `WITH facturas_ytd AS (
+  SELECT f."reg_factura",
+         f."n_factura",
+         f."num_cliente",
+         (f."base1" + f."base2" + f."base3") AS neto
+  FROM "public"."ps_gc_facturas" f
+  WHERE f."abono" = false
+    AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+), margenes AS (
+  SELECT lf."num_factura",
+         SUM(lf."total")       AS total_ingreso,
+         SUM(lf."total_coste") AS total_coste
+  FROM "public"."ps_gc_lin_facturas" lf
+  WHERE lf."num_factura" IN (SELECT "n_factura" FROM facturas_ytd)
+  GROUP BY lf."num_factura"
+)
+SELECT c."nombre" AS "Cliente",
+       COUNT(DISTINCT fy."reg_factura") AS "Facturas",
+       SUM(fy.neto) AS "Facturacion Neta",
+       ROUND((SUM(m.total_ingreso) - SUM(m.total_coste))
+         / NULLIF(SUM(m.total_ingreso), 0) * 100, 1) AS "Margen %"
+FROM facturas_ytd fy
+JOIN "public"."ps_clientes" c ON fy."num_cliente" = c."reg_cliente"
+LEFT JOIN margenes m ON m."num_factura" = fy."n_factura"
 GROUP BY c."nombre"
 ORDER BY "Facturacion Neta" DESC
 LIMIT 10`,
+    },
+    {
+      id: "mayorista-pedidos-pendientes",
+      type: "table",
+      title: "Pedidos Pendientes de Entregar",
+      sql: `SELECT c."nombre" AS "Cliente",
+       gp."n_pedido" AS "Pedido",
+       gp."fecha_pedido" AS "Fecha",
+       gp."unidades" AS "Pedidas",
+       gp."entregadas" AS "Entregadas",
+       gp."pendientes" AS "Pendientes",
+       gp."temporada" AS "Temporada"
+FROM "public"."ps_gc_pedidos" gp
+JOIN "public"."ps_clientes" c ON gp."num_cliente" = c."reg_cliente"
+WHERE gp."pedido_cerrado" = false
+  AND gp."abono" = false
+  AND gp."pendientes" > 0
+ORDER BY gp."fecha_pedido" DESC
+LIMIT 20`,
     },
     {
       id: "mayorista-albaranes-recientes",
@@ -83,15 +132,34 @@ LIMIT 10`,
       sql: `SELECT a."n_albaran" AS "Albaran",
        c."nombre" AS "Cliente",
        a."entregadas" AS "Unidades",
-       SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto",
+       (a."base1" + a."base2" + a."base3") AS "Importe Neto",
        a."fecha_envio" AS "Fecha"
 FROM "public"."ps_gc_albaranes" a
 JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
 WHERE a."abono" = false
   AND a."fecha_envio" >= CURRENT_DATE - INTERVAL '30 days'
-GROUP BY a."n_albaran", c."nombre", a."entregadas", a."fecha_envio"
 ORDER BY a."fecha_envio" DESC
 LIMIT 20`,
+    },
+    {
+      id: "mayorista-top-productos",
+      type: "table",
+      title: "Top 10 Productos Mayorista (YTD)",
+      sql: `SELECT p."ccrefejofacm" AS "Referencia",
+       p."descripcion" AS "Descripción",
+       SUM(lf."unidades") AS "Unidades",
+       SUM(lf."total") AS "Importe",
+       ROUND((SUM(lf."total") - SUM(lf."total_coste"))
+         / NULLIF(SUM(lf."total"), 0) * 100, 1) AS "Margen %"
+FROM "public"."ps_gc_lin_facturas" lf
+JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura"
+JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
+WHERE f."abono" = false
+  AND lf."unidades" > 0
+  AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+GROUP BY p."ccrefejofacm", p."descripcion"
+ORDER BY "Importe" DESC
+LIMIT 10`,
     },
     {
       id: "mayorista-comparativa-mensual",

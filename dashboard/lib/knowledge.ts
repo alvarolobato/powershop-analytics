@@ -928,20 +928,35 @@ export const SCHEMA: TableSchema[] = [
   {
     table: "ps_compras",
     alias: "PedidoCompra",
-    description: "Pedidos de compra a proveedores.",
-    keyColumns: ["reg_pedido (PK)", "num_proveedor (FK)"],
+    description:
+      "Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.",
+    keyColumns: [
+      "reg_pedido (PK)",
+      "num_proveedor (FK)",
+      "fecha_pedido",
+      "fecha_recibido",
+      "modificada",
+    ],
   },
   {
     table: "ps_lineas_compras",
     alias: "LineaPedidoCompra",
-    description: "Líneas de pedido de compra.",
-    keyColumns: ["num_pedido (FK)", "codigo", "unidades"],
+    description:
+      "Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.",
+    keyColumns: [
+      "reg_linea_compra (PK)",
+      "num_pedido (FK → ps_compras.reg_pedido)",
+      "num_tienda (FK)",
+      "num_articulo (FK)",
+      "fecha",
+    ],
   },
   {
     table: "ps_albaranes",
     alias: "AlbaranRecepcion",
-    description: "Albaranes de recepción de mercancía.",
-    keyColumns: ["reg_albaran (PK)"],
+    description:
+      "Albaranes de recepción de mercancía. La fecha de recepción es fecha_recibido (NO fecha_creacion).",
+    keyColumns: ["reg_albaran (PK)", "fecha_recibido", "modificada"],
   },
   {
     table: "ps_facturas_compra",
