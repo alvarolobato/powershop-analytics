@@ -78,16 +78,30 @@ ORDER BY value DESC`,
       id: "mayorista-top-clientes",
       type: "table",
       title: "Top 10 Clientes Mayorista (YTD)",
-      sql: `SELECT c."nombre" AS "Cliente",
-       COUNT(DISTINCT f."reg_factura") AS "Facturas",
-       SUM(f."base1" + f."base2" + f."base3") AS "Facturacion Neta",
-       ROUND((SUM(lf."total") - SUM(lf."total_coste"))
-         / NULLIF(SUM(lf."total"), 0) * 100, 1) AS "Margen %"
-FROM "public"."ps_gc_facturas" f
-JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
-JOIN "public"."ps_gc_lin_facturas" lf ON lf."num_factura" = f."n_factura"
-WHERE f."abono" = false
-  AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+      sql: `WITH facturas_ytd AS (
+  SELECT f."reg_factura",
+         f."n_factura",
+         f."num_cliente",
+         (f."base1" + f."base2" + f."base3") AS neto
+  FROM "public"."ps_gc_facturas" f
+  WHERE f."abono" = false
+    AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+), margenes AS (
+  SELECT lf."num_factura",
+         SUM(lf."total")       AS total_ingreso,
+         SUM(lf."total_coste") AS total_coste
+  FROM "public"."ps_gc_lin_facturas" lf
+  WHERE lf."num_factura" IN (SELECT "n_factura" FROM facturas_ytd)
+  GROUP BY lf."num_factura"
+)
+SELECT c."nombre" AS "Cliente",
+       COUNT(DISTINCT fy."reg_factura") AS "Facturas",
+       SUM(fy.neto) AS "Facturacion Neta",
+       ROUND((SUM(m.total_ingreso) - SUM(m.total_coste))
+         / NULLIF(SUM(m.total_ingreso), 0) * 100, 1) AS "Margen %"
+FROM facturas_ytd fy
+JOIN "public"."ps_clientes" c ON fy."num_cliente" = c."reg_cliente"
+LEFT JOIN margenes m ON m."num_factura" = fy."n_factura"
 GROUP BY c."nombre"
 ORDER BY "Facturacion Neta" DESC
 LIMIT 10`,

@@ -137,6 +137,7 @@ JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
+  AND lv."total_si" > 0
   AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
 GROUP BY p."ccrefejofacm", p."descripcion"
 ORDER BY "Ventas Netas" DESC

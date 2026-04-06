@@ -116,14 +116,14 @@ LIMIT 30`,
     {
       id: "stock-dead-stock",
       type: "table",
-      title: "Dead Stock (con stock > 10, sin ventas en 90 dias)",
+      title: "Dead Stock (stock total > 10, sin ventas en 90 dias)",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(s."stock") AS "Stock",
        p."clave_temporada" AS "Temporada"
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-WHERE s."stock" > 10
+WHERE s."stock" > 0
   AND p."anulado" = false
   AND p."codigo" NOT IN (
     SELECT DISTINCT lv."codigo"
@@ -134,6 +134,7 @@ WHERE s."stock" > 10
       AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days'
   )
 GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
+HAVING SUM(s."stock") > 10
 ORDER BY "Stock" DESC
 LIMIT 30`,
     },
