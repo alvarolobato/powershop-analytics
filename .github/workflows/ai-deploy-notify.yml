@@ -1,0 +1,76 @@
+name: AI Deploy Notification
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create deployment issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+        run: |
+          # Write template with placeholders first, then substitute
+          cat > /tmp/deploy-body.md << 'TEMPLATE'
+          ## New Release: RELEASE_TAG_PLACEHOLDER
+
+          **Release URL**: RELEASE_URL_PLACEHOLDER
+
+          ### Changelog
+          RELEASE_BODY_PLACEHOLDER
+
+          ### Deployment Steps
+          ```bash
+          # On production server:
+          cd /path/to/powershop-analytics
+
+          # Pull latest images
+          docker compose -f docker-compose.prod.yml pull
+
+          # Restart with new images
+          docker compose -f docker-compose.prod.yml up -d
+
+          # Verify health
+          docker compose -f docker-compose.prod.yml ps
+          curl -s http://localhost:${WRENAI_PORT:-3000}/healthz  # WrenAI
+          curl -s http://localhost:${DASHBOARD_PORT:-4000}/api/health  # Dashboard
+          ```
+
+          ### Rollback (if needed)
+          ```bash
+          # Roll back to previous version
+          docker compose -f docker-compose.prod.yml down
+          # Edit docker-compose.prod.yml to pin previous version
+          docker compose -f docker-compose.prod.yml up -d
+          ```
+
+          ### Auto-update
+          If auto-update is configured (via `deploy/auto-update.sh` cron), this will be applied automatically within 24 hours.
+
+          Close this issue once deployment is confirmed.
+          TEMPLATE
+
+          # Substitute placeholders with actual values
+          sed -i "s|RELEASE_TAG_PLACEHOLDER|${RELEASE_TAG}|g" /tmp/deploy-body.md
+          sed -i "s|RELEASE_URL_PLACEHOLDER|${RELEASE_URL}|g" /tmp/deploy-body.md
+          # Use printf to avoid issues with special chars in release body
+          python3 -c "
+          import sys, os
+          body = open('/tmp/deploy-body.md').read()
+          release_body = os.environ.get('RELEASE_BODY', '')
+          body = body.replace('RELEASE_BODY_PLACEHOLDER', release_body)
+          open('/tmp/deploy-body.md', 'w').write(body)
+          "
+
+          gh issue create \
+            --title "[deploy] ${RELEASE_TAG} ready for production" \
+            --label "comp-infra,p1-high" \
+            --body-file /tmp/deploy-body.md

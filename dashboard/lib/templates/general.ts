@@ -9,7 +9,7 @@ import type { DashboardSpec } from "@/lib/schema";
 export const name = "Director General";
 
 export const description =
-  "Panel ejecutivo: ventas retail, facturacion mayorista, margen global, mix de canales, tendencia 12 meses y top familias.";
+  "Panel ejecutivo: ventas retail, facturacion mayorista, margen global, comparativa YoY, mix de canales, ventas por tienda, tendencia 12 meses, top familias y valor de stock.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Director General",
@@ -20,7 +20,7 @@ export const spec: DashboardSpec = {
       type: "kpi_row",
       items: [
         {
-          label: "Ventas Retail Netas",
+          label: "Ventas Retail Netas (YTD)",
           sql: `SELECT COALESCE(SUM("total_si"), 0) AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
@@ -30,7 +30,7 @@ WHERE "entrada" = true
           prefix: "€",
         },
         {
-          label: "Facturacion Mayorista",
+          label: "Facturacion Mayorista (YTD)",
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
@@ -52,6 +52,27 @@ WHERE v."entrada" = true
   AND lv."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)`,
           format: "percent",
         },
+        {
+          label: "Retail YoY %",
+          sql: `SELECT ROUND(
+  (curr.ventas - prev.ventas) / NULLIF(ABS(prev.ventas), 0) * 100, 1
+) AS value
+FROM (
+  SELECT COALESCE(SUM("total_si"), 0) AS ventas
+  FROM "public"."ps_ventas"
+  WHERE "entrada" = true AND "tienda" <> '99'
+    AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)
+    AND "fecha_creacion" <= CURRENT_DATE
+) curr,
+(
+  SELECT COALESCE(SUM("total_si"), 0) AS ventas
+  FROM "public"."ps_ventas"
+  WHERE "entrada" = true AND "tienda" <> '99'
+    AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year'
+    AND "fecha_creacion" <= CURRENT_DATE - INTERVAL '1 year'
+) prev`,
+          format: "percent",
+        },
       ],
     },
     {
@@ -70,6 +91,20 @@ SELECT 'Mayorista' AS label,
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
   AND "fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)`,
+      x: "label",
+      y: "value",
+    },
+    {
+      id: "general-ventas-por-tienda",
+      type: "bar_chart",
+      title: "Ventas Retail por Tienda (YTD)",
+      sql: `SELECT "tienda" AS label, SUM("total_si") AS value
+FROM "public"."ps_ventas"
+WHERE "entrada" = true
+  AND "tienda" <> '99'
+  AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)
+GROUP BY "tienda"
+ORDER BY value DESC`,
       x: "label",
       y: "value",
     },
@@ -118,6 +153,37 @@ WHERE v."entrada" = true
 GROUP BY fm."fami_grup_marc"
 ORDER BY "Ventas Netas" DESC
 LIMIT 10`,
+    },
+    {
+      id: "general-valor-stock",
+      type: "kpi_row",
+      items: [
+        {
+          label: "Valor Stock Total al Coste",
+          sql: `SELECT COALESCE(ROUND(SUM(s."stock" * p."precio_coste"), 2), 0) AS value
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE s."stock" > 0 AND p."anulado" = false`,
+          format: "currency",
+          prefix: "€",
+        },
+        {
+          label: "Unidades en Stock",
+          sql: `SELECT COALESCE(SUM("stock"), 0) AS value
+FROM "public"."ps_stock_tienda"
+WHERE "stock" > 0`,
+          format: "number",
+        },
+        {
+          label: "Pedidos Mayorista Pendientes",
+          sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
+FROM "public"."ps_gc_pedidos"
+WHERE "pedido_cerrado" = false
+  AND "abono" = false
+  AND "pendientes" > 0`,
+          format: "number",
+        },
+      ],
     },
   ],
 };

@@ -1,0 +1,54 @@
+name: AI Stale Manager
+on:
+  schedule:
+    - cron: "0 16 * * 5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Manage Stale Items
+        uses: anthropic/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: "--max-turns 20"
+          prompt: |
+            You are the Stale Issue/PR Manager. Clean up old, inactive items.
+
+            ## Rules
+            Use `gh` CLI to list and manage issues/PRs.
+
+            ### Issues
+            1. **AI-created issues** (title starts with `[bug-hunter]`, `[security]`, `[docs-patrol]`, `[dashboard-audit]`, `[etl-health]`, `[sql-validator]`, `[feature-ideas]`, `[project-summary]`):
+               - If no activity for 21 days: close with comment "Closing as stale. This AI-generated finding was not acted upon within 21 days."
+               - Exception: issues with `p0-critical` or `p1-high` labels — never auto-close
+
+            2. **Human-created issues**:
+               - If no activity for 30 days and no priority label: add `stale` label, comment asking if still relevant
+               - If already has `stale` label and 14 more days with no activity: close with comment
+               - Never close issues with `p0-critical` or `p1-high` labels
+
+            3. **Project summary issues** (title contains `[project-summary]`):
+               - Close all except the most recent one
+
+            ### PRs
+            - PRs with no activity for 14 days: comment pinging the author
+            - PRs with CI failures for >7 days: close with comment "Closing due to persistent CI failures"
+            - Draft PRs older than 30 days: close with comment
+
+            ## Output
+            After processing, create a summary issue with title `[stale] Cleanup Summary — {date}`:
+            - Issues closed: N
+            - Issues labeled stale: N
+            - PRs closed: N
+            - PRs pinged: N
