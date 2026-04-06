@@ -42,8 +42,7 @@ WHERE "fecha_pedido" >= DATE_TRUNC('year', CURRENT_DATE)`,
           label: "Pedidos Recibidos (mes)",
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_compras"
-WHERE "fecha_recibido" >= DATE_TRUNC('month', CURRENT_DATE)
-  AND "fecha_recibido" IS NOT NULL`,
+WHERE "fecha_recibido" >= DATE_TRUNC('month', CURRENT_DATE)`,
           format: "number",
         },
         {
