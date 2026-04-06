@@ -1,234 +1,221 @@
-# AI Factory — PowerShop Analytics
+# AI Factory — User Guide
 
-> Autonomous AI-driven development pipeline. The product evolves continuously with minimal human input, using Claude as the primary AI engine and GitHub Actions as the orchestration layer.
+> The AI Factory is an autonomous development pipeline for PowerShop Analytics. It uses Claude (via GitHub Actions) to discover work, plan implementations, write code, review PRs, and manage deployments. This guide explains **how humans use it**.
 
-## Inspiration
+## What the AI Factory Does For You
 
-Inspired by [elastic/ai-github-actions-playground](https://github.com/elastic/ai-github-actions-playground) — Elastic's "AI Software Engineering Factory" where 70+ GitHub Actions workflows autonomously manage the full software engineering lifecycle. Their system uses GitHub Copilot + Gemini. Ours uses **Claude** (via Claude Code GitHub Action + OpenRouter API).
-
-## Philosophy
+You describe what you want in an issue; the factory implements it, reviews it, and prepares it for deployment. You stay in control through labels, comments, and merge approvals — but you don't write boilerplate, triage bugs, or chase stale PRs.
 
 ```
-Human sets direction (issues, labels, comments)
-  → AI discovers work (scheduled audits, detectors)
-  → AI plans work (/plan command)
-  → AI executes work (Claude Code creates PRs)
-  → AI reviews work (Claude PR review)
-  → AI fixes feedback (auto-address review comments)
-  → CI validates (tests, lint, build)
-  → Human approves merge (or auto-merge for low-risk)
-  → Auto-deploy (Docker Hub + production update)
-  → Loop
+You:   "Add a health check endpoint to the ETL service"   (open an issue)
+You:   label it "ai-work"
+AI:    triages, plans, creates a branch, implements, opens a PR, runs tests
+AI:    reviews the PR, posts inline comments, fixes any CI failures
+You:   approve and merge
+AI:    weekly auto-release bundles your change into a new version
+AI:    Docker images are pushed, production notification issue created
 ```
 
-### Key Differences from Elastic's Approach
+Your total effort: **~15 minutes per day** reviewing the daily project summary, labeling issues, and merging PRs.
 
-| Aspect | Elastic (Peek) | PowerShop Analytics |
-|--------|----------------|---------------------|
-| Primary AI | GitHub Copilot SWE Agent | Claude Code (via `anthropic/claude-code-action`) |
-| Secondary AI | Google Gemini (deep research) | Claude API via OpenRouter (already in stack) |
-| Product | Browser-only React dashboard | Full-stack: ETL + PostgreSQL + WrenAI + Dashboard |
-| Deployment | Static site (GitHub Pages) | Docker Compose (self-hosted) |
-| Reusable actions | `elastic/ai-github-actions` | Custom workflows (this repo) |
-| Scale | 70+ workflows, large team | ~20 workflows, solo/small team |
+## Getting Started
 
-## Architecture
+### 1. One-time setup
+
+Add these secrets to the repository (`Settings → Secrets and variables → Actions`):
+
+| Secret | Required | Purpose |
+|--------|----------|---------|
+| `ANTHROPIC_API_KEY` | **Yes** | Powers all AI workflows (Claude Code Action) |
+| `DOCKERHUB_USERNAME` | For releases | Pushes Docker images |
+| `DOCKERHUB_TOKEN` | For releases | Pushes Docker images |
+| `OPENROUTER_API_KEY` | Optional | Used by WrenAI and Dashboard App (existing secret) |
+
+Once `ANTHROPIC_API_KEY` is set, the factory activates automatically. Scheduled workflows start running on their cron, and event-driven workflows respond to issues/PRs/comments.
+
+### 2. Verify it works
+
+Open the **Actions** tab and manually trigger **AI Factory Test** (`workflow_dispatch`). You should see Claude respond within a minute.
+
+## How You Interact With the Factory
+
+Four mechanisms cover 95% of your day-to-day use.
+
+### a) Open an issue
+
+Write what you want. The more specific the issue, the better the result.
+
+**Good issue:**
+> **Title**: Add `/api/health` endpoint to dashboard returning ETL sync status
+>
+> **Body**: Create `dashboard/app/api/health/route.ts` that queries the `watermark` table and returns `{ status: "ok" | "stale", last_sync: timestamp }`. Stale if last_sync > 48 hours old. Include a Vitest test.
+
+**Bad issue:**
+> Make the dashboard better
+
+When a new issue is opened, the **Issue Triage** workflow runs automatically — it labels the issue by component, priority, category, and checks for duplicates.
+
+### b) Use labels to steer the AI
+
+| Label | Meaning |
+|-------|---------|
+| `ai-work` | Start autonomous implementation. The AI Worker picks this up, creates a branch, implements the change, runs tests, and opens a PR. |
+| `ai-blocked` | The AI hit a blocker and needs human input. Check the issue comments. |
+| `ai-in-progress` | The worker is currently running (auto-set). |
+| `ai-planned` | The `/plan` command has posted an implementation plan (auto-set). |
+| `no-ai` | Human-only. Factory will not touch this issue. |
+| `no-pr-review` | Skip the AI PR review on this PR. |
+| `auto-merge` | Merge automatically when CI passes and review approves *(reserved for future use)*. |
+| `p0-critical` → `p3-low` | Priority — the factory processes higher priorities first. |
+
+### c) Use slash commands in comments
+
+Comment on any issue (not PR) with one of these:
+
+**`/plan`** — Claude analyzes the issue, reads the codebase, and posts a structured implementation plan. Use this **before** labeling `ai-work` if you want to review the approach first.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  DISCOVERY LAYER (scheduled)                                     │
-│                                                                   │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │ ETL Health    │ │ Dashboard    │ │ SQL Pair Validator       │ │
-│  │ Monitor       │ │ Quality      │ │ (weekly)                 │ │
-│  │ (daily)       │ │ Auditor      │ │                          │ │
-│  │               │ │ (weekly)     │ │                          │ │
-│  └──────┬───────┘ └──────┬───────┘ └────────────┬─────────────┘ │
-│         │                │                       │               │
-│  ┌──────┴───────┐ ┌──────┴───────┐ ┌────────────┴─────────────┐ │
-│  │ Bug Hunter    │ │ Security     │ │ Feature Ideas Generator  │ │
-│  │ (daily)       │ │ Auditor      │ │ (weekly)                 │ │
-│  │               │ │ (weekly)     │ │                          │ │
-│  └──────┬───────┘ └──────┬───────┘ └────────────┬─────────────┘ │
-│         │                │                       │               │
-│         ▼                ▼                       ▼               │
-│                    GitHub Issues                                  │
-│                    (auto-created)                                 │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────────┐
-│  TRIAGE LAYER (event-driven)                                     │
-│                                                                   │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │ Issue Triage  │ │ Duplicate    │ │ Project Summary          │ │
-│  │ (on open)     │ │ Detector     │ │ (daily digest)           │ │
-│  │ + labeling    │ │ (on open)    │ │                          │ │
-│  └──────────────┘ └──────────────┘ └──────────────────────────┘ │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────────┐
-│  EXECUTION LAYER (issue → PR)                                    │
-│                                                                   │
-│  ┌──────────────────────────────────────────────────────────────┐│
-│  │ Claude Code Worker                                           ││
-│  │  - Triggered by: label `ai-work` on issue                   ││
-│  │  - Or: `/ai` comment on issue                                ││
-│  │  - Or: `/plan` comment (planning only)                       ││
-│  │  - Creates branch, implements, commits, opens PR             ││
-│  └──────────────────────────────────┬───────────────────────────┘│
-└─────────────────────────────────────┼───────────────────────────┘
-                                      │
-┌─────────────────────────────────────▼───────────────────────────┐
-│  PR LIFECYCLE LAYER (event-driven)                               │
-│                                                                   │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │ Claude PR     │ │ Address      │ │ CI Failure               │ │
-│  │ Review        │ │ Review       │ │ Investigator             │ │
-│  │ (on PR open)  │ │ Feedback     │ │ (on check failure)       │ │
-│  └──────────────┘ └──────────────┘ └──────────────────────────┘ │
-│                                                                   │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │ PR Labeler    │ │ Merge        │ │ Stale PR Closer          │ │
-│  │ (size/risk)   │ │ Conflict     │ │ (weekly)                 │ │
-│  │               │ │ Resolver     │ │                          │ │
-│  └──────────────┘ └──────────────┘ └──────────────────────────┘ │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │ merge
-┌─────────────────────────▼───────────────────────────────────────┐
-│  DEPLOYMENT LAYER (on merge to main)                             │
-│                                                                   │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │ CI Pipeline   │ │ Docker Build │ │ Auto-Release             │ │
-│  │ (lint+test+   │ │ & Push       │ │ (weekly or on label)     │ │
-│  │  build)       │ │ (beta tag)   │ │                          │ │
-│  └──────────────┘ └──────────────┘ └──────────────────────────┘ │
-│                                                                   │
-│  ┌──────────────────────────────────────────────────────────────┐│
-│  │ Production Deploy (on release)                               ││
-│  │  - Push versioned Docker images                              ││
-│  │  - Notify via issue comment or webhook                       ││
-│  └──────────────────────────────────────────────────────────────┘│
-└─────────────────────────────────────────────────────────────────┘
+/plan
 ```
 
-## Human Steering Mechanisms
+Response includes: analysis, files to modify, implementation steps, testing strategy, risk assessment, complexity estimate.
 
-Humans stay in control without doing the grunt work:
+**`/ai <instruction>`** — Claude executes a direct instruction. Restricted to `OWNER` / `MEMBER` / `COLLABORATOR`.
 
-| Mechanism | How it works |
-|-----------|-------------|
-| **Issue creation** | Human creates issue → AI triages, plans, implements |
-| **Labels** | `ai-work` = AI should implement; `ai-blocked` = needs human input; `no-ai` = human-only |
-| **`/plan` command** | Comment `/plan` on any issue → Claude analyzes and posts implementation plan |
-| **`/ai` command** | Comment `/ai <instruction>` on issue → Claude executes the instruction |
-| **PR review** | Human can approve, request changes, or comment — AI responds to feedback |
-| **Priority labels** | `p0-critical`, `p1-high`, `p2-medium`, `p3-low` — AI processes highest priority first |
-| **Milestone** | Group issues into milestones for phased delivery |
-| **`no-pr-review` label** | Skip AI review on specific PRs |
-| **PR control panel** | Checkbox toggles in PR body to enable/disable specific AI behaviors |
+```
+/ai investigate why the ETL fails on Sundays and report back
 
-## Workflow Catalog
+/ai add retry logic to etl/sync/ventas.py with exponential backoff
 
-### Discovery Agents (Scheduled)
+/ai research what indexes we're missing on ps_lineas_ventas
+```
 
-| # | Workflow | Schedule | What it does |
-|---|---------|----------|-------------|
-| 1 | `etl-health-monitor` | Daily 08:00 | Connects to PostgreSQL, checks row counts vs expected, checks watermark freshness, reports anomalies |
-| 2 | `dashboard-quality-auditor` | Weekly Wed | Builds dashboard app, runs tests, checks for TypeScript errors, reviews component quality |
-| 3 | `sql-pair-validator` | Weekly Mon | Runs all 52+ SQL pairs against PostgreSQL, reports failures as issues |
-| 4 | `bug-hunter` | Daily 11:00 | Analyzes codebase for bugs, anti-patterns, potential issues |
-| 5 | `security-auditor` | Weekly Fri | Checks for dependency vulnerabilities, credential leaks, OWASP issues |
-| 6 | `feature-ideas` | Weekly Thu | Analyzes product, suggests feature ideas based on codebase and existing issues |
-| 7 | `docs-patrol` | Weekly Tue | Checks docs are up to date, finds stale references, missing documentation |
-| 8 | `dependency-review` | Weekly Mon | Check for outdated dependencies, suggest updates |
-| 9 | `stale-issues` | Weekly Fri | Close/label stale issues and PRs |
+For code-change instructions, Claude creates a branch and opens a PR. For investigation instructions, Claude posts findings as an issue comment.
 
-### Triage Agents (Event-driven)
+### d) Review and merge PRs
 
-| # | Workflow | Trigger | What it does |
-|---|---------|---------|-------------|
-| 10 | `issue-triage` | Issue opened | Labels, categorizes, checks for duplicates, assigns priority |
-| 11 | `project-summary` | Daily 09:00 | Creates daily digest issue: open PRs, recent merges, stale items, blockers |
+When the AI opens a PR:
 
-### Execution Agents (Issue → PR)
+1. The **Claude PR Review** workflow runs automatically and posts a review (inline comments + approval or changes-requested).
+2. CI runs (lint, tests, build) — same as any other PR.
+3. If you request changes, the **Address PR Feedback** workflow attempts to auto-fix simple comments (typos, imports, lint, small logic fixes). Complex feedback gets a reply explaining why it's being skipped.
+4. When you're happy, you merge. Auto-merge for trusted categories is disabled initially; you always click the button.
 
-| # | Workflow | Trigger | What it does |
-|---|---------|---------|-------------|
-| 12 | `claude-code-worker` | Label `ai-work` added | Claude Code reads issue, creates branch, implements, opens PR |
-| 13 | `plan-command` | `/plan` comment on issue | Claude analyzes issue, posts structured implementation plan |
-| 14 | `ai-command` | `/ai` comment on issue | Claude executes the instruction in the comment |
+## The Daily Project Summary
 
-### PR Lifecycle Agents (Event-driven)
+Every weekday at 09:00 UTC, the factory creates a **Project Summary** issue titled `[project-summary] Project Summary — {date}`. It's your morning dashboard.
 
-| # | Workflow | Trigger | What it does |
-|---|---------|---------|-------------|
-| 15 | `pr-review` | PR opened/updated | Claude reviews code: bugs, security, style, correctness |
-| 16 | `address-pr-feedback` | Review submitted | Auto-fix simple review comments (typos, imports, formatting) |
-| 17 | `ci-failure-investigator` | Check suite failed | Diagnose CI failure, post analysis, attempt fix |
-| 18 | `pr-labeler` | PR opened | Auto-label by size (S/M/L/XL) and risk level |
+It includes:
+- **Open PRs** with CI/review status
+- **Merged yesterday** — what shipped
+- **AI activity** — in-progress and blocked issues
+- **Stale items** — PRs and issues needing attention
+- **Easy pickings** — well-defined issues ready for `ai-work`
+- **Health** — latest release, CI status
 
-### Deployment Agents (On merge/release)
+The previous day's summary is closed automatically. Read this, label a few issues `ai-work`, close anything resolved, and you're done.
 
-| # | Workflow | Trigger | What it does |
-|---|---------|---------|-------------|
-| 19 | `auto-release` | Weekly or `release` label | Creates GitHub release with changelog, bumps version |
-| 20 | `deploy-docker` | Release published | Builds and pushes Docker images (ETL + Dashboard) |
-| 21 | `deploy-notify` | Release published | Posts deployment notification to configured channel |
+## What Runs and When
 
-## Implementation Plan
+### Event-driven (reacts immediately)
 
-### Phase 1: Foundation (Issues #122-#124)
-Core infrastructure: Claude Code GitHub Action setup, secrets, base workflow patterns.
+| Workflow | Trigger | What it does |
+|----------|---------|-------------|
+| **Issue Triage** | Issue opened | Labels component/priority/category, checks for duplicates |
+| **Plan** | `/plan` comment | Posts implementation plan |
+| **AI Command** | `/ai` comment | Executes direct instruction |
+| **AI Worker** | `ai-work` label added | Implements issue end-to-end, opens PR |
+| **PR Review** | PR opened/updated | Posts AI code review |
+| **Address Feedback** | Review with changes-requested | Auto-fixes simple comments |
+| **PR Labeler** | PR opened/updated | Adds `size-*` and `risk-*` labels |
+| **Deploy Notify** | Release published | Creates deployment checklist issue |
 
-### Phase 2: PR Lifecycle (Issues #125-#128)
-AI-powered PR review, feedback handling, CI investigation, labeling.
+### Scheduled (runs on cron)
 
-### Phase 3: Issue Lifecycle (Issues #129-#132)
-Issue triage, `/plan` and `/ai` commands, Claude Code worker.
+| Workflow | Schedule | What it does |
+|----------|----------|-------------|
+| **Project Summary** | Weekdays 09:00 | Daily digest (your morning briefing) |
+| **ETL Health Monitor** | Weekdays 08:00 | Checks ETL code/schema/sync for issues |
+| **Bug Hunter** | Weekdays 11:00 | Scans recently changed files for bugs |
+| **SQL Pair Validator** | Monday 10:00 | Validates WrenAI SQL pairs against schema |
+| **Docs Patrol** | Tuesday 14:00 | Checks docs are accurate and current |
+| **Dashboard Audit** | Wednesday 14:00 | Builds + tests dashboard, reviews quality |
+| **Feature Ideas** | Thursday 14:00 | Brainstorms 3-5 actionable ideas |
+| **Security Audit** | Friday 10:00 | Dependency + source security scan |
+| **Stale Manager** | Friday 16:00 | Closes stale issues/PRs |
+| **Auto Release** | Sunday 20:00 | Creates weekly release with changelog |
 
-### Phase 4: Discovery Agents (Issues #133-#138)
-Scheduled auditors: ETL health, dashboard quality, SQL validation, bug hunting, security, docs.
+All scheduled workflows support manual triggering via `workflow_dispatch`. All follow the **"silence is golden"** principle — they only create issues when they find something genuinely worth reporting.
 
-### Phase 5: Deployment Automation (Issues #139-#141)
-Auto-release, Docker push, production deployment notification.
+## Architecture Overview
 
-### Phase 6: Refinement (Issues #142-#143)
-Project summary, feature ideas generator, stale issue management.
+```
+Human direction (issues, labels, /plan, /ai)
+  ↓
+Discovery Layer — scheduled audits create issues
+  ↓
+Triage Layer — auto-label, deduplicate, prioritize
+  ↓
+Execution Layer — Claude Code: issue → branch → PR
+  ↓
+PR Lifecycle — AI review → address feedback → CI
+  ↓
+Deployment Layer — auto-release → Docker push → notify
+  ↓
+Loop — discovery finds new work
+```
 
-## Secrets Required
+The factory is organized as six layers, each with specific workflows. See the [workflow catalog](#what-runs-and-when) above for the complete list.
 
-| Secret | Purpose |
-|--------|---------|
-| `ANTHROPIC_API_KEY` | Claude Code GitHub Action authentication |
-| `DOCKERHUB_USERNAME` | Docker Hub push |
-| `DOCKERHUB_TOKEN` | Docker Hub push |
-| `OPENROUTER_API_KEY` | Claude API via OpenRouter (for custom prompts) |
+## Common Scenarios
 
-## Key Design Decisions
+### "I want the AI to fix this bug"
+1. Open an issue describing the bug with reproduction steps
+2. *(Optional)* Comment `/plan` to preview the approach
+3. Add label `ai-work`
+4. Review the resulting PR, merge when ready
 
-### D-011: Claude Code as primary AI agent (not Copilot)
-**Context**: Elastic uses GitHub Copilot SWE Agent. We need to choose our AI engine.
-**Decision**: Use Claude via `anthropic/claude-code-action` GitHub Action for code generation and `claude-code` CLI for local development.
-**Rationale**: Claude is already our LLM for WrenAI and Dashboard App. Single vendor simplifies. Claude Code Action is production-ready and supports CLAUDE.md context files which we already maintain.
+### "I want to investigate something without writing code"
+Comment on any issue (or open a new one):
+```
+/ai check which ps_* tables are missing indexes and report back
+```
 
-### D-012: Custom workflows instead of reusable action library
-**Context**: Elastic has `elastic/ai-github-actions` with reusable workflow templates.
-**Decision**: Build workflows directly in this repo. Extract to reusable library later if needed.
-**Rationale**: We have ~20 workflows vs their 70+. Premature extraction adds complexity. Keep it simple until patterns stabilize.
+### "I want to temporarily disable AI on a PR"
+Add the `no-pr-review` label.
 
-### D-013: Human-in-the-loop for merges (initially)
-**Context**: Could enable full auto-merge for AI PRs.
-**Decision**: Start with human approval required for merge. Add auto-merge for low-risk PRs (docs, deps) after trust is established.
-**Rationale**: Safety first. The product handles business data. Build trust incrementally.
+### "An AI-generated PR has a bug"
+Leave a review comment describing the problem. The **Address Feedback** workflow will attempt to fix it. For complex changes, the AI will reply explaining why it can't auto-fix, and you can use `/ai` in the issue to give more specific direction.
 
-### D-014: Label-driven execution
-**Context**: How should AI agents know which issues to work on?
-**Decision**: Label `ai-work` triggers Claude Code worker. Label `ai-blocked` pauses. Priority labels control order.
-**Rationale**: Simple, visible, controllable. Human adds label = human approves AI work. Easy to audit.
+### "I want to stop a running AI Worker"
+Cancel the workflow run in the Actions tab. The `ai-in-progress` label won't be removed automatically — remove it manually.
 
-## References
+### "I don't want the AI touching this issue at all"
+Add the `no-ai` label before opening.
 
-- [elastic/ai-github-actions-playground](https://github.com/elastic/ai-github-actions-playground) — Elastic's AI factory (70+ workflows, Copilot + Gemini)
-- [anthropic/claude-code-action](https://github.com/anthropic/claude-code-action) — Official Claude Code GitHub Action
-- [AGENTS.md](../AGENTS.md) — Project agent guidelines (Claude Code context)
+## Troubleshooting
+
+**The AI Worker created a PR but it's wrong.** Close the PR, add more detail to the issue (acceptance criteria, file paths, examples), remove `ai-in-progress`/`ai-blocked`, and re-label `ai-work`.
+
+**A workflow failed with an auth error.** Check that `ANTHROPIC_API_KEY` is set as a repository secret (not environment secret) and hasn't expired.
+
+**The AI keeps making the same mistake.** Update the relevant project documentation (`AGENTS.md`, `docs/skills/*.md`, or `CLAUDE.md`). The Claude Code Action reads these automatically, so fixes there propagate to every workflow.
+
+**Too many AI-generated issues cluttering the backlog.** The **Stale Manager** closes AI issues after 21 days of inactivity. You can also use `gh issue list --label "ai-bug" --search "no:assignee"` to triage in bulk.
+
+**Rate limits or cost concerns.** Disable specific scheduled workflows by setting their cron to a future date, or by adding `if: false` to the job. Re-enable when needed.
+
+## Limits and Safety
+
+- **Read-only SQL policy**: Every AI-generated SQL is validated against the project's read-only rule. `INSERT`/`UPDATE`/`DELETE`/`DROP`/`ALTER`/`CREATE`/`TRUNCATE` are never allowed against the source ERP.
+- **No credentials in code**: The PR Review workflow explicitly checks for leaked secrets.
+- **Human-in-the-loop merges**: Every AI-generated PR requires explicit human approval to merge. There is no auto-merge yet.
+- **Author-association gates**: Sensitive workflows (`/ai` command, worker) only respond to `OWNER` / `MEMBER` / `COLLABORATOR`.
+- **Fork safety**: `pull_request_target` workflows guard against running untrusted PR code with access to secrets.
+
+## Related Documentation
+
+- [AGENTS.md](../AGENTS.md) — Project agent guidelines (read by all AI workflows)
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — System architecture
+- [DECISIONS-AND-CHANGES.md](../DECISIONS-AND-CHANGES.md) — Decision log (including AI Factory decisions D-011 through D-014)
+- [docs/skills/](skills/) — Domain-specific skill docs that workflows consult

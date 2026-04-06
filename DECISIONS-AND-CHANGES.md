@@ -15,15 +15,15 @@
 **Rationale**: Safety first. The product handles business data. Build trust incrementally.
 
 ### D-012: Custom workflows instead of reusable action library — 2026-04-05
-**Context**: Elastic has `elastic/ai-github-actions` with reusable workflow templates across repos.
-**Decision**: Build workflows directly in this repo. Extract to reusable library later if needed.
-**Rationale**: We have ~20 workflows vs their 70+. Premature extraction adds complexity. Keep it simple until patterns stabilize.
+**Context**: GitHub Actions reusable workflow libraries (`uses: org/repo/.github/workflows/x.yml@ref`) let teams share workflow templates across repos.
+**Decision**: Build AI Factory workflows directly in this repo. Extract to a reusable library later if we end up with a second consumer.
+**Rationale**: We have ~20 workflows, all project-specific. Premature extraction adds indirection and a second repo to maintain. Keep it simple until patterns stabilize.
 
 ### D-011: AI Factory with Claude Code as primary agent — 2026-04-05
-**Context**: Need autonomous development pipeline. Elastic uses GitHub Copilot SWE Agent + Gemini. We need to choose our AI engine.
+**Context**: Need an autonomous development pipeline where scheduled agents discover work, an implementation agent fixes it, and review/deployment agents close the loop. Need to choose the AI engine.
 **Decision**: Build an AI Factory using Claude via `anthropic/claude-code-action` GitHub Action. 20 workflows across 6 phases: Foundation, PR Lifecycle, Issue Lifecycle, Discovery Agents, Deployment, Refinement.
-**Alternatives considered**: GitHub Copilot SWE Agent (Elastic's approach), hybrid Copilot+Claude.
-**Rationale**: Claude is already our LLM for WrenAI and Dashboard App. Single vendor simplifies. Claude Code Action is production-ready and supports CLAUDE.md context files which we already maintain. See epic #121 and [docs/ai-factory.md](docs/ai-factory.md).
+**Alternatives considered**: GitHub Copilot SWE Agent, hybrid Copilot+Claude, Google Gemini CLI action.
+**Rationale**: Claude is already our LLM for WrenAI and Dashboard App — single vendor, single billing, single rate limit. Claude Code Action is production-ready and reads `CLAUDE.md`/`AGENTS.md` automatically, so the extensive project context we already maintain carries over for free. See epic #121 and [docs/ai-factory.md](docs/ai-factory.md).
 
 ### D-010: Build custom AI dashboard generator (Option B) — 2026-04-04
 **Context**: WrenAI excels at single text-to-SQL queries but cannot generate multi-widget dashboards. Business users need to describe dashboards in natural language and get complete panels.
