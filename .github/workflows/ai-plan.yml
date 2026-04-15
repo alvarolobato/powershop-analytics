@@ -95,8 +95,12 @@ jobs:
             implementation:
 
             For EACH task in the sub-tasks table:
+            IMPORTANT: create the issue WITHOUT labels first, then add labels
+            in a separate command — this is required for GitHub to fire the
+            `labeled` event that triggers the implementation workflow.
+
             ```bash
-            gh issue create \
+            SUB_ISSUE=$(gh issue create \
               --title "PARENT_TITLE — Task N: TASK_TITLE" \
               --body "$(cat <<'BODY'
             ## Parent issue
@@ -114,8 +118,11 @@ jobs:
             ## Context
             See parent issue #PARENT_NUMBER for full plan.
             BODY
-            )" \
-              --label "ai-task,ai-work"
+            )" | grep -o '[0-9]*$')
+
+            # Add labels separately so the labeled event fires reliably
+            gh issue edit $SUB_ISSUE --add-label "ai-task"
+            gh issue edit $SUB_ISSUE --add-label "ai-work"
             ```
 
             After creating each sub-issue, update the parent issue body to include:
