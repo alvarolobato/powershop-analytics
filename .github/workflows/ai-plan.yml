@@ -36,48 +36,94 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 20"
+          claude_args: "--max-turns 40"
           prompt: |
-            Generate a detailed implementation plan for this issue.
+            You are the AI Planner. Generate a comprehensive implementation plan for this issue.
 
-            Read the issue title, body, and all comments carefully. Then analyze the codebase to produce a plan.
+            The command was: "${{ github.event.comment.body }}"
 
-            ## Plan Format
+            ## Step 1 — Understand the request
+            Read the issue title, body, and ALL comments carefully.
+            Read CLAUDE.md and AGENTS.md for project context.
+            Read relevant skill docs in docs/skills/ for the affected domain.
+            Explore the codebase to understand the current state.
+
+            ## Step 2 — Post a comprehensive plan comment
 
             Post a comment with this structure:
 
-            ### Implementation Plan for #{issue_number}
+            ---
+            ## 🗺️ Implementation Plan
 
-            #### Analysis
-            [Brief analysis of what needs to change and why. Reference specific code you've read.]
+            ### Analysis
+            [What is being asked, why it matters, what the current state of the codebase is.
+            Reference specific files and line numbers you examined.]
 
-            #### Files to Modify
-            | File | Change Description |
-            |------|-------------------|
-            | `path/file.py` | What changes and why |
+            ### Architecture decisions
+            [Key decisions: data model, API design, component structure, etc. Explain WHY.]
 
-            #### New Files (if any)
-            | File | Purpose |
-            |------|---------|
-            | `path/new.py` | Why this file is needed |
+            ### Sub-tasks
+            List every discrete unit of work. Each task must be independently implementable
+            (own branch + PR) and small enough to complete in a focused session.
 
-            #### Implementation Steps
-            1. [Step with specific details]
-            2. [Step with specific details]
-            ...
+            | # | Title | Files | Acceptance |
+            |---|-------|-------|------------|
+            | 1 | ... | ... | ... |
+            | 2 | ... | ... | ... |
 
-            #### Testing Strategy
-            - Unit tests: [what to test]
-            - Integration tests: [what to test]
-            - Manual verification: [commands to run]
+            ### Dependency order
+            [Which tasks must be done before others, and why]
 
-            #### Risk Assessment
-            - [What could go wrong and how to mitigate]
+            ### Testing strategy
+            [How each task will be verified — unit tests, integration tests, manual checks]
 
-            #### Estimated Complexity
+            ### Risks
+            [What could go wrong, edge cases, things to watch out for]
+
+            ### Complexity estimate
             [XS / S / M / L / XL with brief justification]
-
             ---
 
-            After posting the plan, add the `ai-planned` label to the issue:
-            `gh issue edit {number} --add-label "ai-planned"`
+            ## Step 3 — Label the issue
+            Always add the `ai-planned` label after posting the plan:
+            ```bash
+            gh issue edit ISSUE_NUMBER --add-label "ai-planned"
+            ```
+
+            ## Step 4 — Create sub-issues (only if `/plan --full` was used)
+            Check if the comment was `/plan --full`. If YES, create sub-issues AND kick off
+            implementation:
+
+            For EACH task in the sub-tasks table:
+            ```bash
+            gh issue create \
+              --title "PARENT_TITLE — Task N: TASK_TITLE" \
+              --body "$(cat <<'BODY'
+            ## Parent issue
+            Closes #PARENT_NUMBER
+
+            ## Task
+            TASK_DESCRIPTION
+
+            ## Files to change
+            - list of files
+
+            ## Acceptance criteria
+            - list of checks
+
+            ## Context
+            See parent issue #PARENT_NUMBER for full plan.
+            BODY
+            )" \
+              --label "ai-task,ai-work"
+            ```
+
+            After creating each sub-issue, update the parent issue body to include:
+            `- [ ] Task N: TITLE (#SUB_ISSUE_NUMBER)`
+
+            Post a final comment listing all created sub-issues and noting that
+            implementation will start automatically.
+
+            If the comment was plain `/plan` (no --full flag), do NOT create sub-issues —
+            just post the plan for human review. The human can then label the issue
+            `ai-work` or run `/plan --full` when ready to implement.
