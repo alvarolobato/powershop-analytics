@@ -13,6 +13,7 @@ permissions:
   issues: write
   actions: read
   checks: read
+  id-token: write
 
 jobs:
   address:
