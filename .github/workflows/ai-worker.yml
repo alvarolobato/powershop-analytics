@@ -36,7 +36,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 50"
+          claude_args: "--max-turns 200"
           prompt: |
             You are the AI Worker. Your job is to fully implement the issue and open a PR.
 
@@ -79,13 +79,40 @@ jobs:
           gh issue comment ${{ github.event.issue.number }} \
             --body "✅ AI Worker completed. PR created — check the linked pull request."
 
+      - name: Push partial work on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Push any branch the agent created so partial work isn't lost
+          BRANCH=$(git branch --show-current)
+          if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
+            git push origin "$BRANCH" || true
+            echo "Pushed partial branch: $BRANCH"
+          else
+            # Check if there are unpushed commits on any ai/* branch
+            AI_BRANCH=$(git branch | grep 'ai/' | head -1 | xargs)
+            if [ -n "$AI_BRANCH" ]; then
+              git checkout "$AI_BRANCH" && git push origin "$AI_BRANCH" || true
+              echo "Pushed partial branch: $AI_BRANCH"
+            else
+              echo "No partial branch to push"
+            fi
+          fi
+
       - name: Handle failure
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Determine if a partial branch was pushed
+          BRANCH=$(git branch --show-current)
+          BRANCH_NOTE=""
+          if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
+            BRANCH_NOTE=" Partial work pushed to branch \`${BRANCH}\`."
+          fi
           gh issue edit ${{ github.event.issue.number }} \
             --remove-label "ai-in-progress" \
             --add-label "ai-blocked"
           gh issue comment ${{ github.event.issue.number }} \
-            --body "❌ AI Worker failed. This issue needs human attention. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+            --body "❌ AI Worker failed (max turns reached or error).${BRANCH_NOTE} Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
