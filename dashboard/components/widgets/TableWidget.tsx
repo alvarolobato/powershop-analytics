@@ -68,7 +68,7 @@ export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
   if (!data || data.rows.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
+        <h3 className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">{titleNode}</h3>
         <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
           {EMPTY_MESSAGE}
         </p>
@@ -78,7 +78,7 @@ export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
 
   return (
     <Card className="p-4">
-      <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
+      <h3 className="mb-4 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">{titleNode}</h3>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead>
@@ -86,7 +86,7 @@ export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
               {data.columns.map((col, idx) => (
                 <th
                   key={`${idx}-${col}`}
-                  className="px-3 py-2 text-left font-medium text-tremor-content dark:text-dark-tremor-content"
+                  className="px-3 py-2 text-left font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
                   aria-sort={
                     sortCol === idx
                       ? sortDir === "asc"

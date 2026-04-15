@@ -395,11 +395,11 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-tremor-content dark:text-dark-tremor-content">
+        <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">
           {spec.title}
         </h1>
         {spec.description && (
-          <p className="mt-1 text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+          <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
             {spec.description}
           </p>
         )}

@@ -21,7 +21,7 @@ export function NumberWidget({ widget, data, glossary }: NumberWidgetProps) {
     return (
       <Card className="p-4">
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
-        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+        <p className="mt-4 text-center text-sm text-tremor-content dark:text-dark-tremor-content-emphasis">
           {EMPTY_MESSAGE}
         </p>
       </Card>

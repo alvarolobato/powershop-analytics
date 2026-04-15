@@ -20,10 +20,10 @@ export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps
   if (!data || data.rows.length === 0) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
           {titleNode}
         </h3>
-        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+        <p className="mt-4 text-center text-sm text-tremor-content dark:text-dark-tremor-content-emphasis">
           {EMPTY_MESSAGE}
         </p>
       </Card>
@@ -34,10 +34,10 @@ export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps
   if (!resolved) {
     return (
       <Card className="p-4">
-        <h3 className="text-sm font-medium text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+        <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
           {titleNode}
         </h3>
-        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+        <p className="mt-4 text-center text-sm text-tremor-content dark:text-dark-tremor-content-emphasis">
           {EMPTY_MESSAGE}
         </p>
       </Card>
@@ -54,7 +54,7 @@ export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps
 
   return (
     <Card className="p-4">
-      <h3 className="mb-4 text-sm font-medium text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+      <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
         {titleNode}
       </h3>
 

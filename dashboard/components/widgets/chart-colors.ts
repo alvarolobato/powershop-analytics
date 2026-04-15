@@ -4,14 +4,14 @@
  * Diverse and vibrant for good contrast in both light and dark modes.
  */
 export const CHART_COLORS: string[] = [
-  "blue",
-  "emerald",
-  "violet",
-  "amber",
-  "rose",
-  "cyan",
-  "orange",
   "indigo",
+  "cyan",
+  "rose",
+  "amber",
+  "violet",
+  "emerald",
+  "orange",
+  "sky",
   "fuchsia",
-  "lime",
+  "teal",
 ];

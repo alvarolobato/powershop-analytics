@@ -227,7 +227,7 @@ export function KpiRow({ widget, data, trendData, glossary, anomalyData }: KpiRo
 
         return (
           <Card key={idx} className="p-4">
-            <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+            <p className="text-sm text-tremor-content dark:text-dark-tremor-content">
               {applyGlossary(item.label, glossary)}
             </p>
             <div className="mt-1 flex items-end justify-between gap-2">
