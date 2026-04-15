@@ -427,6 +427,41 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- One row per full pipeline invocation.
+CREATE TABLE IF NOT EXISTS etl_sync_runs (
+    id                SERIAL       PRIMARY KEY,
+    started_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    finished_at       TIMESTAMPTZ,
+    duration_ms       INTEGER,
+    status            TEXT         NOT NULL DEFAULT 'running',  -- 'running', 'success', 'partial', 'failed'
+    total_tables      INTEGER,
+    tables_ok         INTEGER,
+    tables_failed     INTEGER,
+    total_rows_synced BIGINT,
+    trigger           TEXT         NOT NULL DEFAULT 'scheduled',  -- 'scheduled', 'manual'
+    error_msg         TEXT
+);
+
+-- One row per table per run.
+CREATE TABLE IF NOT EXISTS etl_sync_run_tables (
+    id               SERIAL       PRIMARY KEY,
+    run_id           INTEGER      NOT NULL REFERENCES etl_sync_runs(id) ON DELETE CASCADE,
+    table_name       TEXT         NOT NULL,
+    started_at       TIMESTAMPTZ  NOT NULL,
+    finished_at      TIMESTAMPTZ  NOT NULL,
+    duration_ms      INTEGER      NOT NULL,
+    status           TEXT         NOT NULL,  -- 'success', 'failed'
+    rows_synced      BIGINT       NOT NULL DEFAULT 0,
+    rows_total_after BIGINT,
+    sync_method      TEXT,                   -- 'full_refresh', 'upsert_delta'
+    watermark_from   TIMESTAMPTZ,
+    watermark_to     TIMESTAMPTZ,
+    error_msg        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_runs_started_at ON etl_sync_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sync_run_tables_run_id ON etl_sync_run_tables(run_id);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
@@ -566,3 +601,5 @@ ANALYZE ps_facturas_compra;
 ANALYZE etl_watermarks;
 ANALYZE dashboards;
 ANALYZE dashboard_versions;
+ANALYZE etl_sync_runs;
+ANALYZE etl_sync_run_tables;
