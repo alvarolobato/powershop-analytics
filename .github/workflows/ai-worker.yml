@@ -32,7 +32,7 @@ jobs:
 
       - name: Implement Issue
         id: implement
-        uses: anthropic/claude-code-action@v1
+        uses: anthropic/claude-code-action@beta
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 50"

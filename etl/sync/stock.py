@@ -279,7 +279,11 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
             total_processed,
         )
 
-    logger.info("sync_stock: done — %d normalized rows processed across %d stores", total_processed, len(stores))
+    logger.info(
+        "sync_stock: done — %d normalized rows processed across %d stores",
+        total_processed,
+        len(stores),
+    )
     return total_processed
 
 

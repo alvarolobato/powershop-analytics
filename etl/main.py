@@ -125,7 +125,9 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
         logger.info("MA cleanup: no MA article codes found — nothing to clean up")
         return
 
-    logger.info("MA cleanup: %d MA article codes to remove from line tables", len(ma_codes))
+    logger.info(
+        "MA cleanup: %d MA article codes to remove from line tables", len(ma_codes)
+    )
 
     _MA_LINE_TABLES = [
         "ps_lineas_ventas",

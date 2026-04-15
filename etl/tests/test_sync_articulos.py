@@ -117,8 +117,7 @@ class TestSyncArticulos:
         """ps_articulos must contain no MA-prefix articles after sync."""
         with conn_pg.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) FROM ps_articulos"
-                " WHERE LEFT(ccrefejofacm, 2) = 'MA'"
+                "SELECT COUNT(*) FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'"
             )
             ma_count = cur.fetchone()[0]
 

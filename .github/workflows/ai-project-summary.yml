@@ -24,7 +24,7 @@ jobs:
           echo "thirty_days_ago=$(date -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
       - name: Generate Project Summary
-        uses: anthropic/claude-code-action@v1
+        uses: anthropic/claude-code-action@beta
         env:
           GH_TOKEN: ${{ github.token }}
           TODAY: ${{ steps.dates.outputs.today }}
