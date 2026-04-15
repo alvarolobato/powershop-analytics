@@ -47,7 +47,7 @@ import {
 const ANOMALY_Z_THRESHOLD = 2.0;
 const MIN_HISTORICAL_VALUES = 4;
 
-export interface AnomalyResult {
+interface AnomalyResult {
   isAnomaly: boolean;
   currentValue?: number;
   mean?: number;
@@ -62,7 +62,7 @@ export interface AnomalyResult {
  * values[0] = current period; values[1..] = historical.
  * Returns { isAnomaly: false } when insufficient data.
  */
-export function computeAnomaly(values: number[]): AnomalyResult {
+function computeAnomaly(values: number[]): AnomalyResult {
   // values[0] = current period; values[1..] = historical
   if (values.length < MIN_HISTORICAL_VALUES + 1) {
     return { isAnomaly: false };
