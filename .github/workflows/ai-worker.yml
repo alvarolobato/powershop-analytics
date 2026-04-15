@@ -187,6 +187,7 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 200"
+          allowed_bots: "claude[bot]"
           prompt: |
             You are the AI Worker. Implement exactly what this sub-task describes — nothing more.
 
