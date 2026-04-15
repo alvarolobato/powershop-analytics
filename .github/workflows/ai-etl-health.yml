@@ -17,7 +17,7 @@ jobs:
       - name: ETL Health Check
         uses: anthropic/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 15"
           prompt: |
             You are the ETL Health Monitor. Check the health of the data pipeline.

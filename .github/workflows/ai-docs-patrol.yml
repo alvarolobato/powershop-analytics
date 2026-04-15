@@ -17,7 +17,7 @@ jobs:
       - name: Docs Patrol
         uses: anthropic/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 20"
           prompt: |
             You are the Documentation Patrol. Check that docs are accurate and up to date.

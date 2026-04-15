@@ -19,7 +19,7 @@ jobs:
       - name: Hunt for Bugs
         uses: anthropic/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 25"
           prompt: |
             You are the Bug Hunter. Scan the codebase for bugs and potential issues.

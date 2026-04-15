@@ -32,7 +32,7 @@ jobs:
           THREE_DAYS_AGO: ${{ steps.dates.outputs.three_days_ago }}
           THIRTY_DAYS_AGO: ${{ steps.dates.outputs.thirty_days_ago }}
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 15"
           prompt: |
             Generate a daily project summary. Use the GitHub CLI to gather data.
