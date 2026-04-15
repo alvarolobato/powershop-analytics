@@ -35,6 +35,7 @@ data/
 # Dashboard App
 dashboard/node_modules/
 dashboard/.next/
+dashboard/tsconfig.tsbuildinfo
 
 # Runtime/temp
 *.log
