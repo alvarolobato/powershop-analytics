@@ -14,14 +14,22 @@ permissions:
   id-token: write
 
 jobs:
-  implement:
-    if: github.event.label.name == 'ai-work'
+  # ─────────────────────────────────────────────────────────────────
+  # PHASE 1 — PLAN
+  # Triggered when ai-work is applied to an issue that is NOT already
+  # a sub-task (sub-tasks carry the "ai-task" label).
+  # Produces: detailed plan comment + sub-issues (each labeled ai-work)
+  # ─────────────────────────────────────────────────────────────────
+  plan:
+    if: >-
+      github.event.label.name == 'ai-work' &&
+      !contains(github.event.issue.labels.*.name, 'ai-task')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update labels
+      - name: Update labels — planning started
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -29,38 +37,181 @@ jobs:
             --remove-label "ai-work" \
             --add-label "ai-in-progress"
           gh issue comment ${{ github.event.issue.number }} \
-            --body "🤖 AI Worker started. Working on this issue..."
+            --body "🔍 AI Worker — planning phase started. Analyzing the issue and codebase..."
 
-      - name: Implement Issue
+      - name: Plan and decompose
+        id: plan
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--max-turns 40"
+          prompt: |
+            You are the AI Planner. Your job is to deeply analyse this issue, produce a
+            comprehensive implementation plan, and break it into actionable sub-tasks.
+
+            ## Step 1 — Understand the request
+            Read the issue title, body, and ALL comments carefully.
+            Read CLAUDE.md and AGENTS.md for project context.
+            Read relevant skill docs in docs/skills/ for the affected domain.
+            Explore the codebase to understand the current state.
+
+            ## Step 2 — Write a comprehensive plan comment
+            Post a comment on issue #${{ github.event.issue.number }} with this structure:
+
+            ---
+            ## 🗺️ Implementation Plan
+
+            ### Analysis
+            [What is being asked, why it matters, what the current state of the codebase is.
+            Reference specific files and line numbers you examined.]
+
+            ### Architecture decisions
+            [Key decisions made: data model, API design, component structure, etc. Explain WHY.]
+
+            ### Sub-tasks
+            List every discrete unit of work as a numbered task. Each task must be:
+            - Independently implementable (own branch + PR)
+            - Small enough to complete in a single focused session
+            - Clearly scoped (specific files, specific behaviour)
+
+            | # | Title | Files | Acceptance |
+            |---|-------|-------|------------|
+            | 1 | ... | ... | ... |
+            | 2 | ... | ... | ... |
+
+            ### Dependency order
+            [Which tasks must be done before others, and why]
+
+            ### Testing strategy
+            [How each task will be verified — unit tests, integration tests, manual checks]
+
+            ### Risks
+            [What could go wrong, edge cases, things to watch out for]
+            ---
+
+            ## Step 3 — Create sub-issues
+            For EACH task in the table above, create a GitHub sub-issue:
+
+            ```bash
+            gh issue create \
+              --title "PARENT_TITLE — Task N: TASK_TITLE" \
+              --body "$(cat <<'BODY'
+            ## Parent issue
+            Closes #${{ github.event.issue.number }}
+
+            ## Task
+            TASK_DESCRIPTION
+
+            ## Files to change
+            - list of files
+
+            ## Acceptance criteria
+            - list of checks
+
+            ## Context
+            See parent issue #${{ github.event.issue.number }} for full plan.
+            BODY
+            )" \
+              --label "ai-task,ai-work"
+            ```
+
+            After creating each sub-issue, add it to the parent issue's body as a task
+            checkbox so progress is visible:
+            ```bash
+            # Append to the parent issue body:
+            # - [ ] Task N: TITLE (#SUB_ISSUE_NUMBER)
+            ```
+
+            ## Step 4 — Finalize parent issue
+            - Update the parent issue body to include the full task checklist with sub-issue links
+            - Remove label "ai-in-progress"
+            - Add label "ai-planned"
+            - Post a final comment listing all created sub-issues
+
+            ## Rules
+            - Create sub-issues in dependency order
+            - Each sub-issue must have both "ai-task" AND "ai-work" labels so the
+              implementation phase triggers automatically
+            - Do NOT start implementing — only plan and decompose
+
+      - name: Handle plan success
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "ai-in-progress"
+
+      - name: Handle plan failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "ai-in-progress" \
+            --add-label "ai-blocked"
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "❌ AI Planner failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+
+  # ─────────────────────────────────────────────────────────────────
+  # PHASE 2 — IMPLEMENT
+  # Triggered when ai-work is applied to a sub-task issue (ai-task label).
+  # Produces: branch + PR implementing exactly this sub-task.
+  # ─────────────────────────────────────────────────────────────────
+  implement:
+    if: >-
+      github.event.label.name == 'ai-work' &&
+      contains(github.event.issue.labels.*.name, 'ai-task')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update labels — implementation started
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit ${{ github.event.issue.number }} \
+            --remove-label "ai-work" \
+            --add-label "ai-in-progress"
+          gh issue comment ${{ github.event.issue.number }} \
+            --body "🤖 AI Worker — implementation started."
+
+      - name: Implement sub-task
         id: implement
         uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 200"
           prompt: |
-            You are the AI Worker. Your job is to fully implement the issue and open a PR.
+            You are the AI Worker. Implement exactly what this sub-task describes — nothing more.
 
             ## Process
-            1. **Read the issue** thoroughly — title, body, all comments, especially any /plan output
-            2. **Read CLAUDE.md and AGENTS.md** for project context and rules
-            3. **Read relevant skill docs** from docs/skills/ if the issue touches a specific domain
-            4. **Create a feature branch**: `ai/issue-${{ github.event.issue.number }}-{short-slug}`
-            5. **Implement the changes**:
-               - Follow the existing code style and patterns
+            1. Read this sub-task issue: title, body, acceptance criteria
+            2. Read the PARENT issue (linked in the body) for full context and architecture decisions
+            3. Read CLAUDE.md and AGENTS.md
+            4. Read relevant skill docs in docs/skills/ for the affected domain
+            5. Create branch: `ai/issue-${{ github.event.issue.number }}-{short-slug}`
+            6. Implement the changes:
+               - Follow existing code style and patterns
                - Don't add unnecessary abstractions
                - Don't over-engineer — do exactly what's asked
                - Include tests for new functionality
-            6. **Run validation**:
-               - If ETL changes: `cd etl && python -m ruff check . && python -m pytest`
-               - If Dashboard changes: `cd dashboard && npm test`
+            7. Run validation:
+               - ETL changes: `cd etl && python -m ruff check . && python -m pytest`
+               - Dashboard changes: `cd dashboard && npm test`
                - Fix any failures before committing
-            7. **Commit** with a descriptive message: `feat|fix|docs: description (#{issue_number})`
-            8. **Push** the branch
-            9. **Create a PR** with:
-               - Clear title referencing the issue
-               - Body with: ## Summary, ## Changes, ## Test Results
-               - Include `Closes #${{ github.event.issue.number }}` in the body
-               - Request no reviewers (the AI PR Review workflow will handle it)
+            8. Commit: `feat|fix|docs: description (closes #${{ github.event.issue.number }})`
+            9. Push the branch
+            10. Create a PR:
+                - Title references this sub-task
+                - Body: ## Summary, ## Changes, ## Test Results
+                - Include `Closes #${{ github.event.issue.number }}` in the body
+                - No reviewers needed (AI PR Review handles it)
 
             ## Rules
             - Read-only SQL: NEVER INSERT/UPDATE/DELETE/DROP in production queries
@@ -68,6 +219,7 @@ jobs:
             - No customer data in code
             - 4D PKs are NUMERIC, never FLOAT8
             - For wide tables, specify columns explicitly
+            - Scope strictly to this sub-task — do not implement other tasks
 
       - name: Handle success
         if: success()
@@ -84,19 +236,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Push any branch the agent created so partial work isn't lost
           BRANCH=$(git branch --show-current)
           if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
             git push origin "$BRANCH" || true
             echo "Pushed partial branch: $BRANCH"
           else
-            # Check if there are unpushed commits on any ai/* branch
             AI_BRANCH=$(git branch | grep 'ai/' | head -1 | xargs)
             if [ -n "$AI_BRANCH" ]; then
               git checkout "$AI_BRANCH" && git push origin "$AI_BRANCH" || true
               echo "Pushed partial branch: $AI_BRANCH"
-            else
-              echo "No partial branch to push"
             fi
           fi
 
@@ -105,7 +253,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Determine if a partial branch was pushed
           BRANCH=$(git branch --show-current)
           BRANCH_NOTE=""
           if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
@@ -115,4 +262,4 @@ jobs:
             --remove-label "ai-in-progress" \
             --add-label "ai-blocked"
           gh issue comment ${{ github.event.issue.number }} \
-            --body "❌ AI Worker failed (max turns reached or error).${BRANCH_NOTE} Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+            --body "❌ AI Worker failed.${BRANCH_NOTE} Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
