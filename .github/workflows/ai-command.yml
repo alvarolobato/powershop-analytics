@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Execute AI Command
-        uses: anthropic/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
         with:

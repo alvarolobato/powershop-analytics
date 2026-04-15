@@ -142,12 +142,14 @@ jobs:
           echo "ci_status=${CI_STATUS}" >> $GITHUB_OUTPUT
           if [ "$CI_STATUS" != "success" ]; then
             echo "CI status is '${CI_STATUS}' on main (expected 'success'). Skipping release."
-            exit 1
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "CI status: ${CI_STATUS}. Proceeding with release."
+            echo "skip=false" >> $GITHUB_OUTPUT
           fi
-          echo "CI status: ${CI_STATUS}. Proceeding with release."
 
       - name: Create release
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' && steps.ci_check.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

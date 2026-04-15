@@ -35,7 +35,7 @@ jobs:
           pip-audit -r etl/requirements.txt --format=json > /tmp/pip-audit.json 2>/dev/null || true
 
       - name: Security Analysis
-        uses: anthropic/claude-code-action@beta
+        uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 20"
