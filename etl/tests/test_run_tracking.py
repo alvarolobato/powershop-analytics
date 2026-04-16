@@ -16,8 +16,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from etl.db import postgres
 
 _SCHEMA_SQL = Path(__file__).parent.parent / "schema" / "init.sql"
