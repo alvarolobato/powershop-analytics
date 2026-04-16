@@ -78,17 +78,22 @@ export function EvolutionCharts({ stats }: EvolutionChartsProps) {
       "Duración (min)": Math.round((p.duration_ms ?? 0) / 60000),
     }));
 
-  // 2. Rows synced per run
-  const rowsData = stats.rows_trend.map((p) => ({
-    Fecha: formatShortDate(p.started_at),
-    Filas: p.total_rows_synced ?? 0,
-  }));
+  // 2. Rows synced per run — exclude runs where total_rows_synced is null
+  const rowsData = stats.rows_trend
+    .filter((p) => p.total_rows_synced !== null)
+    .map((p) => ({
+      Fecha: formatShortDate(p.started_at),
+      Filas: p.total_rows_synced as number,
+    }));
 
-  // 3. Top 10 slowest tables by average duration
-  const topTables = stats.table_durations.slice(0, 10).map((t) => ({
-    Tabla: t.table_name.replace(/^ps_/, ""),
-    "Duración media (min)": Math.round(t.avg_duration_ms / 60000),
-  }));
+  // 3. Top 10 slowest tables by average duration (explicit sort guards against unsorted API responses)
+  const topTables = [...stats.table_durations]
+    .sort((a, b) => b.avg_duration_ms - a.avg_duration_ms)
+    .slice(0, 10)
+    .map((t) => ({
+      Tabla: t.table_name.replace(/^ps_/, ""),
+      "Duración media (seg)": Math.round(t.avg_duration_ms / 1000),
+    }));
 
   // 4. Run outcomes donut
   const outcomeData = [
@@ -153,9 +158,9 @@ export function EvolutionCharts({ stats }: EvolutionChartsProps) {
           <BarChart
             data={topTables}
             index="Tabla"
-            categories={["Duración media (min)"]}
+            categories={["Duración media (seg)"]}
             colors={["amber"]}
-            valueFormatter={(v: number) => `${v}m`}
+            valueFormatter={(v: number) => v + "s"}
             yAxisWidth={55}
             showLegend={false}
           />

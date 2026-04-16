@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Badge } from "@tremor/react";
+import { formatDuration, formatNumber } from "@/lib/etl-format";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,23 +43,6 @@ function statusLabel(status: string): string {
   }
 }
 
-function formatDuration(ms: number | null): string {
-  if (ms === null || ms === undefined) return "—";
-  if (ms < 1000) return `${ms}ms`;
-  const totalSecs = Math.floor(ms / 1000);
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const s = totalSecs % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-function formatNumber(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
-  return n.toLocaleString("es-ES");
-}
-
 function formatDatetime(iso: string): string {
   try {
     return new Date(iso).toLocaleString("es-ES", {
@@ -73,8 +57,13 @@ function formatDatetime(iso: string): string {
   }
 }
 
+const TRIGGER_LABELS: Record<string, string> = {
+  scheduled: "Programado",
+  manual: "Manual",
+};
+
 function triggerLabel(trigger: string): string {
-  return trigger === "scheduled" ? "Programado" : "Manual";
+  return TRIGGER_LABELS[trigger] ?? trigger;
 }
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
@@ -144,7 +133,7 @@ export function RunList({ runs, total, page, perPage, loading, onPageChange }: R
             {runs.map((run) => (
               <tr
                 key={run.id}
-                className="cursor-pointer hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                className="hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
                 data-testid={`run-row-${run.id}`}
               >
                 <td className="px-4 py-3">

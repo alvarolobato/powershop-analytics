@@ -9,6 +9,7 @@ import type { EtlStatsData } from "@/components/etl/EvolutionCharts";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
+import { formatDuration, formatNumber } from "@/lib/etl-format";
 
 const PER_PAGE = 20;
 
@@ -26,22 +27,6 @@ function formatRelativeTime(isoStr: string): string {
   } catch {
     return isoStr;
   }
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null) return "—";
-  const totalSecs = Math.floor(ms / 1000);
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const s = totalSecs % 60;
-  if (h > 0) return `${h}h ${m}m`;
-  if (m > 0) return `${m}m ${s}s`;
-  return `${s}s`;
-}
-
-function formatNumber(n: number | null): string {
-  if (n === null) return "—";
-  return n.toLocaleString("es-ES");
 }
 
 function formatSuccessRate(rate: EtlStatsData["success_rate"]): string {
