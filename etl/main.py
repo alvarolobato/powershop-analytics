@@ -131,7 +131,7 @@ def _run_sync(
                     0,
                     sync_method,
                     watermark_from=since,
-                    watermark_to=None,
+                    watermark_to=finished_at if uses_watermark else None,
                     rows_total_after=None,
                     error_msg=str(exc),
                 )

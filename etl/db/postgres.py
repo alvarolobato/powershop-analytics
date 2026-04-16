@@ -447,7 +447,7 @@ def finish_run(
                 UPDATE etl_sync_runs
                 SET
                     finished_at       = NOW(),
-                    duration_ms       = EXTRACT(EPOCH FROM (NOW() - started_at))::integer * 1000,
+                    duration_ms       = (EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000)::bigint,
                     status            = %s,
                     total_tables      = %s,
                     tables_ok         = %s,

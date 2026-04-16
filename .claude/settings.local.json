@@ -11,7 +11,10 @@
       "Bash(.venv/bin/python3:*)",
       "Bash(/Users/alobato/git/powershop-analytics/.venv/bin/python3:*)",
       "Bash(cli/ps.sh:*)",
-      "Bash(source /Users/alobato/git/powershop-analytics/cli/commands/load-env.sh:*)"
+      "Bash(source /Users/alobato/git/powershop-analytics/cli/commands/load-env.sh:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
