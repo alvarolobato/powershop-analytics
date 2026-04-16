@@ -72,7 +72,8 @@ jobs:
           # but produced nothing). Flag it.
           ISSUES=$(gh issue list --repo "$REPO_FULL" \
             --state open --label "ai-task" \
-            --json number,title,labels --limit 100)
+            --json number,title,labels --limit 100 \
+            --search "is:issue")
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
@@ -251,9 +252,14 @@ jobs:
           MAX_RETRIES=3
           MIN_WAIT_SECS=5400  # 90 minutes
 
+          # Use search API with `is:issue` to explicitly exclude PRs.
+          # `gh issue list` can return PRs because GitHub's API treats them as
+          # issues internally — without this filter the step would add `ai-work`
+          # to PRs, corrupting their state.
           ISSUES=$(gh issue list --repo "$REPO_FULL" \
             --state open --label "ai-blocked" \
-            --json number,title,labels --limit 100)
+            --json number,title,labels --limit 100 \
+            --search "is:issue")
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
