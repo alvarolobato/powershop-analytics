@@ -126,6 +126,19 @@ export const GlossaryItemSchema = z.object({
   definition: z.string().min(1),
 }).strict();
 
+const TimeRangePresetSchema = z.enum([
+  "today",
+  "last_7_days",
+  "last_30_days",
+  "current_month",
+  "last_month",
+  "year_to_date",
+]);
+
+const DefaultTimeRangeSchema = z.object({
+  preset: TimeRangePresetSchema,
+}).strict();
+
 export const DashboardSpecSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1).optional(),
@@ -139,6 +152,12 @@ export const DashboardSpecSchema = z.object({
    * this field render unchanged.
    */
   glossary: z.array(GlossaryItemSchema).min(1).optional(),
+  /**
+   * Optional default time range preset applied when the dashboard is first opened.
+   * Backwards compatible: existing dashboards without this field fall back to
+   * last_30_days in the dashboard view.
+   */
+  default_time_range: DefaultTimeRangeSchema.optional(),
 }).strict();
 
 // ---------------------------------------------------------------------------
@@ -158,6 +177,8 @@ export type Widget = z.infer<typeof WidgetSchema>;
 export type DashboardSection = z.infer<typeof DashboardSectionSchema>;
 export type GlossaryItem = z.infer<typeof GlossaryItemSchema>;
 export type DashboardSpec = z.infer<typeof DashboardSpecSchema>;
+export type TimeRangePreset = z.infer<typeof TimeRangePresetSchema>;
+export type DefaultTimeRange = z.infer<typeof DefaultTimeRangeSchema>;
 
 // ---------------------------------------------------------------------------
 // Validation helper
