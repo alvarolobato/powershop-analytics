@@ -368,6 +368,9 @@ jobs:
             --remove-label "ai-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
+          # Signal the PR is ready for its first review.
+          gh pr edit "${{ steps.verify.outputs.pr_number }}" \
+            --add-label "ai-ready-for-review" || true
 
       - name: Handle success (issue closed deliberately)
         if: always() && steps.verify.outputs.outcome == 'issue_closed'

@@ -21,7 +21,12 @@ on:
         default: "manual dispatch"
 
 concurrency:
-  group: ai-address-feedback-${{ github.event.pull_request.number || inputs.pr_number }}
+  # Global group: only one address-feedback session runs at a time across all PRs.
+  # Others queue (cancel-in-progress: false). This prevents rate-limit storms when
+  # multiple PRs are unblocked simultaneously (e.g. after a rate-limit recovery).
+  # Trade-off: PRs are processed serially, not in parallel — acceptable because
+  # each session can take many minutes anyway.
+  group: ai-address-feedback-global
   cancel-in-progress: false
 
 permissions:
@@ -229,6 +234,19 @@ jobs:
             - NEVER force-push.
             - Read-only SQL policy still applies (no INSERT/UPDATE/DELETE in production queries).
             - Stay within this PR's scope — do not pull in unrelated work.
+
+      - name: Signal ready for re-review
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Signal that address-feedback is done so the PR review workflow fires.
+          # The review cycle self-terminates: if address-feedback had nothing to fix
+          # it won't commit, so the next review will post no new actionable comments,
+          # and no further pull_request_review event will trigger address-feedback again.
+          gh pr edit "${{ needs.resolve.outputs.pr_number }}" --repo "${{ github.repository }}" \
+            --add-label "ai-ready-for-review" || true
+          echo "Marked PR #${{ needs.resolve.outputs.pr_number }} as ai-ready-for-review."
 
       - name: Handle failure
         if: failure()
