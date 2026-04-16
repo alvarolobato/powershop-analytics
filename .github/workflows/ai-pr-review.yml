@@ -26,6 +26,16 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
 
+      - name: Load review guidelines
+        id: guidelines
+        run: |
+          {
+            echo 'CONTENT<<PR_REVIEW_EOF'
+            cat .github/ai-factory/prompts/pr-review.md
+            echo
+            echo 'PR_REVIEW_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Claude PR Review
         uses: anthropics/claude-code-action@v1
         with:
@@ -33,4 +43,19 @@ jobs:
           use_sticky_comment: "true"
           include_fix_links: "true"
           classify_inline_comments: "true"
-          prompt_file: .github/ai-factory/prompts/pr-review.md
+          prompt: |
+            You are reviewing PR #${{ github.event.pull_request.number }}: "${{ github.event.pull_request.title }}".
+
+            Follow the review guidelines below. Post a review with inline comments on the PR.
+
+            ---
+
+            ${{ steps.guidelines.outputs.CONTENT }}
+
+      - name: Handle failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body "⚠️ @alvarolobato — AI PR Review failed on commit ${{ github.event.pull_request.head.sha }}. See the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. The PR will not auto-review until this is fixed."

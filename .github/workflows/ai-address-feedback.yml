@@ -2,10 +2,27 @@ name: AI Address PR Feedback
 on:
   pull_request_review:
     types: [submitted]
+  # Note: we deliberately do NOT trigger on pull_request_review_comment —
+  # a single review often fires many inline-comment events. Using only the
+  # aggregated review submission event keeps the workflow manageable. If
+  # any review slips past (e.g. because GitHub gates bot-triggered runs as
+  # `action_required`), the watchdog in ai-watchdog.yml catches it and
+  # dispatches this workflow manually.
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to address feedback on"
+        required: true
+        type: number
+      reason:
+        description: "Why we are triggering manually (logged in the comment)"
+        required: false
+        type: string
+        default: "manual dispatch"
 
 concurrency:
-  group: ai-address-feedback-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: ai-address-feedback-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -16,37 +33,146 @@ permissions:
   id-token: write
 
 jobs:
+  # Resolve which PR we are operating on (works across three event types).
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      pr_number: ${{ steps.pick.outputs.pr_number }}
+      head_ref: ${{ steps.pick.outputs.head_ref }}
+      should_run: ${{ steps.pick.outputs.should_run }}
+      reason: ${{ steps.pick.outputs.reason }}
+    steps:
+      - name: Resolve PR number and decide
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          EVENT="${{ github.event_name }}"
+          PR=""
+          SHOULD_RUN="false"
+          REASON=""
+
+          case "$EVENT" in
+            pull_request_review)
+              PR="${{ github.event.pull_request.number }}"
+              STATE="${{ github.event.review.state }}"
+              ACTOR="${{ github.event.review.user.login }}"
+              # Avoid loops: never react to our own bot's reviews.
+              if [ "$ACTOR" = "claude[bot]" ] || [ "$ACTOR" = "github-actions[bot]" ]; then
+                REASON="ignored self-review from $ACTOR"
+              # Run when a human requests changes OR any reviewer (including bots
+              # like Copilot) leaves a review that contains inline comments.
+              # Copilot always submits as COMMENTED even when it leaves inline
+              # change suggestions.
+              elif [ "$STATE" = "changes_requested" ]; then
+                SHOULD_RUN="true"
+                REASON="review requested changes (reviewer: $ACTOR)"
+              elif [ "$STATE" = "commented" ] || [ "$STATE" = "COMMENTED" ]; then
+                # Only run if this review carries inline comments — a plain
+                # overview comment without suggestions isn't actionable.
+                COMMENT_COUNT=$(gh api \
+                  "repos/${{ github.repository }}/pulls/$PR/reviews/${{ github.event.review.id }}/comments" \
+                  --jq 'length' 2>/dev/null || echo "0")
+                if [ "${COMMENT_COUNT:-0}" -gt 0 ]; then
+                  SHOULD_RUN="true"
+                  REASON="review with $COMMENT_COUNT inline comment(s) (reviewer: $ACTOR)"
+                else
+                  REASON="COMMENTED review with no inline comments from $ACTOR"
+                fi
+              fi
+              ;;
+            workflow_dispatch)
+              PR="${{ inputs.pr_number }}"
+              SHOULD_RUN="true"
+              REASON="${{ inputs.reason }}"
+              ;;
+          esac
+
+          if [ -z "$PR" ]; then
+            echo "No PR number resolved; skipping."
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Pull PR state in one shot.
+          PR_JSON=$(gh api "repos/${{ github.repository }}/pulls/$PR")
+          HEAD_REF=$(echo "$PR_JSON" | jq -r '.head.ref')
+          SAME_REPO=$(echo "$PR_JSON" | jq -r '.head.repo.full_name == "${{ github.repository }}"')
+          STATE=$(echo "$PR_JSON" | jq -r '.state')
+          LABELS=$(echo "$PR_JSON" | jq -r '[.labels[].name] | join(",")')
+
+          if [ "$STATE" != "open" ]; then
+            SHOULD_RUN="false"
+            REASON="PR #$PR is $STATE; nothing to do"
+          fi
+          if [ "$SAME_REPO" != "true" ]; then
+            SHOULD_RUN="false"
+            REASON="PR #$PR is from a fork; cannot push fixes"
+          fi
+          if echo ",$LABELS," | grep -q ",no-address-feedback,"; then
+            SHOULD_RUN="false"
+            REASON="PR #$PR labelled no-address-feedback"
+          fi
+
+          echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "should_run=$SHOULD_RUN" >> "$GITHUB_OUTPUT"
+          echo "reason=$REASON" >> "$GITHUB_OUTPUT"
+          echo "Resolved: PR=$PR head=$HEAD_REF should_run=$SHOULD_RUN reason=$REASON"
+
   address:
-    # Only run for reviews that request changes, and not from this bot (avoid loops)
-    if: >-
-      github.event.review.state == 'changes_requested' &&
-      github.event.review.user.login != 'github-actions[bot]' &&
-      github.event.review.user.login != 'claude[bot]' &&
-      !contains(github.event.pull_request.labels.*.name, 'no-address-feedback') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ needs.resolve.outputs.head_ref }}
           fetch-depth: 0
 
+      - name: Announce start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ needs.resolve.outputs.pr_number }} \
+            --body "🤖 Addressing review feedback automatically (${{ needs.resolve.outputs.reason }}). See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+
       - name: Address Review Feedback
+        id: address
         uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--max-turns 200"
+          allowed_bots: "claude[bot],copilot-pull-request-reviewer[bot]"
           prompt: |
-            A reviewer has requested changes on this PR. Read ALL review comments and address them.
+            You are addressing review feedback on PR #${{ needs.resolve.outputs.pr_number }}.
+            Trigger reason: ${{ needs.resolve.outputs.reason }}.
+
+            ## Process
+            1. Fetch ALL unresolved review threads on the PR:
+               `gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/comments --paginate`
+               and the review summaries:
+               `gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/reviews --paginate`
+               Ignore any threads already resolved or where the latest reply is from claude[bot] or github-actions[bot] (avoid loops).
+            2. Also check CI status:
+               `gh pr checks ${{ needs.resolve.outputs.pr_number }}`
 
             ## What to fix (DO these):
-            - Typos, naming, and formatting issues
+            - Typos, naming, and formatting issues (including Spanish accents)
             - Type corrections and import cleanup
             - Simple logic corrections with obvious fixes
+            - Bug fixes called out by a reviewer with a clear suggestion
             - Documentation improvements
-            - Minor refactors suggested by reviewer
+            - Minor refactors suggested by the reviewer
             - Lint and style issues
+            - Adding missing tests when the reviewer explicitly asked for them
+            - CI failures that are straightforward (lint/type/import/trivial tests)
 
-            ## What NOT to fix (SKIP these):
+            ## What NOT to fix (reply and skip):
             - Architectural redesigns
             - Algorithm rewrites
             - Subjective style preferences with no clear consensus
@@ -54,14 +180,36 @@ jobs:
             - Changes that would significantly alter the PR scope
 
             ## For each review comment:
-            1. If you can fix it: apply the fix and reply to the comment thread explaining what you changed
-            2. If you should skip it: reply to the comment explaining WHY you're skipping it
+            1. If you fix it: apply the fix in the code, then reply to the comment thread using
+               `gh api ... /pulls/comments/{id}/replies -f body="..."` describing exactly what changed.
+            2. If you skip it: reply explaining WHY briefly.
+            3. Keep replies concise (1–3 sentences).
 
-            ## Also check CI:
-            If CI is failing, check the logs. Fix straightforward failures:
-            - Lint errors → fix them
-            - Type errors → fix them
-            - Missing imports → add them
-            - Simple test failures with obvious fixes → fix them
+            ## Commit strategy
+            - Stage all fixes and commit with: `fix: address review feedback (round N)`
+            - Push to the PR branch
+            - If CI was failing, your commit must fix it. Verify locally by running the same commands.
 
-            Commit all fixes with a message like: "fix: address review feedback"
+            ## Completion
+            - If you successfully addressed or replied to every thread, post a single summary comment
+              on the PR listing: threads addressed, threads skipped (with reasons), files touched,
+              tests run.
+            - If you could NOT address something and need human input, post a comment tagging
+              @alvarolobato and explain precisely what is blocking you. Then exit normally — do NOT
+              error out, so the workflow records the blocked state.
+
+            ## Important
+            - NEVER use --no-verify or bypass pre-commit hooks.
+            - NEVER force-push.
+            - Read-only SQL policy still applies (no INSERT/UPDATE/DELETE in production queries).
+            - Stay within this PR's scope — do not pull in unrelated work.
+
+      - name: Handle failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ needs.resolve.outputs.pr_number }} \
+            --body "❌ @alvarolobato — AI auto-address-feedback failed. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). I will not re-attempt automatically; please inspect and re-trigger via workflow_dispatch if appropriate."
+          gh pr edit ${{ needs.resolve.outputs.pr_number }} \
+            --add-label "ai-blocked" || true
