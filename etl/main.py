@@ -553,6 +553,10 @@ def run_full_sync(conn_4d, conn_pg) -> None:
 
         # ------------------------------------------------------------------
         # 8. MA cascade cleanup
+        # MA articles (CCRefeJOFACM starting with MA) are excluded from ps_articulos
+        # at the source query level. Here we cascade that exclusion to line-item
+        # tables (lineas_ventas, stock_tienda, gc_lin_albarane, gc_lin_facturas)
+        # whose rows may reference MA article codes via codigo from prior sync runs.
         # ------------------------------------------------------------------
         try:
             _cleanup_ma_linked_rows(conn_4d, conn_pg)
