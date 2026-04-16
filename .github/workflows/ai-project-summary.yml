@@ -34,7 +34,7 @@ jobs:
           THIRTY_DAYS_AGO: ${{ steps.dates.outputs.thirty_days_ago }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 15"
+          claude_args: "--model claude-haiku-4-5-20251001 --max-turns 15"
           prompt: |
             Generate a daily project summary. Use the GitHub CLI to gather data.
             The following date env vars are pre-calculated and available in your shell:
