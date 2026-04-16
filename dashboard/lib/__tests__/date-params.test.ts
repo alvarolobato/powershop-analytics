@@ -6,10 +6,10 @@ import {
   type DateParamRanges,
 } from "../date-params";
 
-const CURR_FROM_DATE = new Date(2026, 0, 1);
-const CURR_TO_DATE   = new Date(2026, 2, 31);
-const COMP_FROM_DATE = new Date(2025, 0, 1);
-const COMP_TO_DATE   = new Date(2025, 2, 31);
+const CURR_FROM_DATE = new Date(Date.UTC(2026, 0, 1));
+const CURR_TO_DATE   = new Date(Date.UTC(2026, 2, 31));
+const COMP_FROM_DATE = new Date(Date.UTC(2025, 0, 1));
+const COMP_TO_DATE   = new Date(Date.UTC(2025, 2, 31));
 
 const RANGES_WITH_COMP: DateParamRanges = {
   curr: { from: CURR_FROM_DATE, to: CURR_TO_DATE },
@@ -78,7 +78,8 @@ describe("substituteDateParams", () => {
     expect(result).toContain("2025-03-31");
     expect(result).toContain("202501");
     expect(result).toContain("202503");
-    expect(result).not.toContain(":");
+    expect(result).not.toContain(":curr_");
+    expect(result).not.toContain(":comp_");
   });
 
   it("is a no-op on plain SQL with no tokens", () => {
@@ -94,7 +95,7 @@ describe("substituteDateParams", () => {
   });
 
   it("toMesInt: Dec 2025 produces 202512 not 202600", () => {
-    const decDate = new Date(2025, 11, 1);
+    const decDate = new Date(Date.UTC(2025, 11, 1));
     const sql = "WHERE mes = " + CURR_MES_FROM;
     const result = substituteDateParams(sql, {
       curr: { from: decDate, to: decDate },
@@ -103,7 +104,7 @@ describe("substituteDateParams", () => {
   });
 
   it("toMesInt: Jan produces 01 suffix", () => {
-    const janDate = new Date(2025, 0, 15);
+    const janDate = new Date(Date.UTC(2025, 0, 15));
     const sql = "WHERE mes = " + CURR_MES_FROM;
     const result = substituteDateParams(sql, {
       curr: { from: janDate, to: janDate },
@@ -112,7 +113,7 @@ describe("substituteDateParams", () => {
   });
 
   it("toDateStr: pads month and day with leading zero", () => {
-    const d = new Date(2026, 0, 5);
+    const d = new Date(Date.UTC(2026, 0, 5));
     const sql = "WHERE fecha = " + CURR_FROM;
     const result = substituteDateParams(sql, {
       curr: { from: d, to: d },

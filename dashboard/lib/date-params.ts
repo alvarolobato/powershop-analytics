@@ -21,14 +21,14 @@ export interface DateParamRanges {
 }
 
 function toDateStr(d: Date): string {
-  const year  = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day   = String(d.getDate()).padStart(2, "0");
+  const year  = d.getUTCFullYear();
+  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const day   = String(d.getUTCDate()).padStart(2, "0");
   return year + "-" + month + "-" + day;
 }
 
 function toMesInt(d: Date): string {
-  return String(d.getFullYear() * 100 + (d.getMonth() + 1));
+  return String(d.getUTCFullYear() * 100 + (d.getUTCMonth() + 1));
 }
 
 export function substituteDateParams(
