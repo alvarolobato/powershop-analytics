@@ -174,31 +174,41 @@ jobs:
           set -euo pipefail
           # PRs labelled ai-blocked + ai-auto-retry had a transient address-feedback
           # failure (rate limit, OIDC error, etc.). Re-dispatch after 90 minutes.
+          # NOTE: We measure age from the LAST FAILURE COMMENT, not updatedAt —
+          # updatedAt resets on any label change and would give a false "too soon".
 
           MAX_RETRIES=3
           MIN_WAIT_SECS=5400  # 90 minutes
 
           PRS=$(gh pr list --repo "$REPO_FULL" \
             --state open --label "ai-blocked,ai-auto-retry" \
-            --json number,title,updatedAt --limit 50)
+            --json number,title --limit 50)
 
           echo "$PRS" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
             TITLE=$(echo "$row" | jq -r '.title')
-            UPDATED=$(echo "$row" | jq -r '.updatedAt')
-            UPDATED_TS=$(date -u -d "$UPDATED" +%s)
-            NOW=$(date -u +%s)
-            AGE=$(( NOW - UPDATED_TS ))
 
-            # Count prior failure comments
-            RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+            # Fetch failure comments and extract count + timestamp of last one.
+            FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
               --paginate \
               --jq '[.[] | select(
                 (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
                 (.body | test("❌.*AI Address Feedback|❌.*AI Worker|⚠️.*AI (Worker|Planner)"))
-              )] | length' 2>/dev/null || echo 0)
+              )]' 2>/dev/null || echo '[]')
 
-            echo "PR #$NUM: retry_count=$RETRY_COUNT age=${AGE}s"
+            RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
+            LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
+
+            # Fall back to now-5400 if no failure comment found (label added manually)
+            if [ -z "$LAST_FAILURE_AT" ]; then
+              LAST_FAILURE_TS=$(( $(date -u +%s) - MIN_WAIT_SECS - 1 ))
+            else
+              LAST_FAILURE_TS=$(date -u -d "$LAST_FAILURE_AT" +%s)
+            fi
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - LAST_FAILURE_TS ))
+
+            echo "PR #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s last_failure=$LAST_FAILURE_AT"
 
             if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
               echo "PR #$NUM hit max retries — escalating to human."
@@ -209,7 +219,7 @@ jobs:
             fi
 
             if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
-              echo "PR #$NUM blocked ${AGE}s ago — too soon (min ${MIN_WAIT_SECS}s). Skipping."
+              echo "PR #$NUM last failure was ${AGE}s ago — too soon (min ${MIN_WAIT_SECS}s). Skipping."
               continue
             fi
 
@@ -243,7 +253,7 @@ jobs:
 
           ISSUES=$(gh issue list --repo "$REPO_FULL" \
             --state open --label "ai-blocked" \
-            --json number,title,labels,updatedAt --limit 100)
+            --json number,title,labels --limit 100)
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
@@ -255,15 +265,29 @@ jobs:
               continue
             fi
 
-            # Count prior failure comments (❌ or ⚠️ posted by the worker)
-            RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+            # Count failure comments and get timestamp of last one.
+            # Use last-failure-comment time (not updatedAt) so label changes
+            # don't reset the clock and cause us to skip valid retries.
+            FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
               --paginate \
               --jq '[.[] | select(
                 (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
                 (.body | test("❌|⚠️.*AI (Worker|Planner)"))
-              )] | length' 2>/dev/null || echo 0)
+              )]' 2>/dev/null || echo '[]')
 
-            echo "Issue #$NUM: retry_count=$RETRY_COUNT labels=$LABELS"
+            RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
+            LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
+
+            # If no failure comment found (manually tagged), treat as already past threshold
+            if [ -z "$LAST_FAILURE_AT" ]; then
+              LAST_FAILURE_TS=$(( $(date -u +%s) - MIN_WAIT_SECS - 1 ))
+            else
+              LAST_FAILURE_TS=$(date -u -d "$LAST_FAILURE_AT" +%s)
+            fi
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - LAST_FAILURE_TS ))
+
+            echo "Issue #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s labels=$LABELS"
 
             if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
               # Exhausted retries — remove ai-auto-retry and ping human
@@ -275,14 +299,8 @@ jobs:
               continue
             fi
 
-            # Check how long since last update
-            UPDATED=$(echo "$row" | jq -r '.updatedAt')
-            UPDATED_TS=$(date -u -d "$UPDATED" +%s)
-            NOW=$(date -u +%s)
-            AGE=$(( NOW - UPDATED_TS ))
-
             if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
-              echo "Issue #$NUM blocked ${AGE}s ago — too soon to retry (min ${MIN_WAIT_SECS}s). Skipping."
+              echo "Issue #$NUM last failure was ${AGE}s ago — too soon to retry (min ${MIN_WAIT_SECS}s). Skipping."
               continue
             fi
 
