@@ -169,6 +169,78 @@ jobs:
             fi
           done
 
+      - name: Auto-retry transient failures
+        run: |
+          set -euo pipefail
+          # Issues labelled ai-blocked + ai-auto-retry were blocked by an
+          # infrastructure failure (rate limit, OIDC error, cancellation, timeout)
+          # — NOT by a deliberate Claude decision. Retry them automatically.
+          #
+          # Rules:
+          #   - Wait at least 90 minutes since the last failure comment before retrying
+          #     (covers Anthropic rate-limit windows and transient network issues).
+          #   - Allow up to 3 automatic retries per issue. After that, escalate to human.
+          #   - Retry count = number of ❌ or ⚠️ failure comments posted by the worker.
+
+          MAX_RETRIES=3
+          MIN_WAIT_SECS=5400  # 90 minutes
+
+          ISSUES=$(gh issue list --repo "$REPO_FULL" \
+            --state open --label "ai-blocked" \
+            --json number,title,labels,updatedAt --limit 100)
+
+          echo "$ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+
+            # Only process issues that have ai-auto-retry
+            if ! echo ",$LABELS," | grep -q ",ai-auto-retry,"; then
+              continue
+            fi
+
+            # Count prior failure comments (❌ or ⚠️ posted by the worker)
+            RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+              --paginate \
+              --jq '[.[] | select(
+                (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
+                (.body | test("❌|⚠️.*AI (Worker|Planner)"))
+              )] | length' 2>/dev/null || echo 0)
+
+            echo "Issue #$NUM: retry_count=$RETRY_COUNT labels=$LABELS"
+
+            if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+              # Exhausted retries — remove ai-auto-retry and ping human
+              echo "Issue #$NUM has hit max retries ($MAX_RETRIES) — escalating to human."
+              gh issue edit "$NUM" --repo "$REPO_FULL" \
+                --remove-label "ai-auto-retry" || true
+              gh issue comment "$NUM" --repo "$REPO_FULL" \
+                --body "🚨 @$OWNER_HANDLE — AI Factory watchdog: issue #$NUM has failed $RETRY_COUNT times and will NOT be retried automatically. Please investigate and either fix the underlying problem or re-label with \`ai-work\` when ready." || true
+              continue
+            fi
+
+            # Check how long since last update
+            UPDATED=$(echo "$row" | jq -r '.updatedAt')
+            UPDATED_TS=$(date -u -d "$UPDATED" +%s)
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - UPDATED_TS ))
+
+            if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
+              echo "Issue #$NUM blocked ${AGE}s ago — too soon to retry (min ${MIN_WAIT_SECS}s). Skipping."
+              continue
+            fi
+
+            # Retry: cycle the label
+            echo "Retrying issue #$NUM ($TITLE) — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
+            gh issue edit "$NUM" --repo "$REPO_FULL" \
+              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+            gh issue comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔄 AI Factory watchdog: auto-retrying (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES) after transient failure." || true
+            gh issue edit "$NUM" --repo "$REPO_FULL" \
+              --add-label "ai-work" || true
+            sleep 30  # stagger to avoid hammering the rate limit
+          done
+
       - name: Bot-triggered runs gated as `action_required`
         run: |
           set -euo pipefail
