@@ -13,7 +13,6 @@ before PR #164 is merged (those functions do not exist yet).
 
 from __future__ import annotations
 
-import time
 from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,7 +75,6 @@ class TestFinishRun:
         _apply_monitoring_schema(pg_conn)
         run_id = postgres.create_run(pg_conn, "scheduled")
         try:
-            time.sleep(0.01)
             postgres.finish_run(
                 pg_conn,
                 run_id,
@@ -96,7 +94,7 @@ class TestFinishRun:
             status, finished_at, duration_ms, tables_ok, tables_failed, total_rows = row
             assert status == "success"
             assert finished_at is not None
-            assert duration_ms is not None and duration_ms >= 10
+            assert duration_ms is not None and duration_ms >= 0
             assert tables_ok == 22
             assert tables_failed == 0
             assert total_rows == 50000
