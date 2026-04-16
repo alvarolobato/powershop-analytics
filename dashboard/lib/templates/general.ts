@@ -63,7 +63,6 @@ FROM (
   FROM "public"."ps_ventas"
   WHERE "entrada" = true AND "tienda" <> '99'
     AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
-    AND "fecha_creacion" <= '{{date_to}}'
 ) curr,
 (
   SELECT COALESCE(SUM("total_si"), 0) AS ventas
