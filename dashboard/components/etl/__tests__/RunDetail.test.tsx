@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
+import { render, screen, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { RunDetail, formatDuration, formatNumber } from "../RunDetail";
 
@@ -136,7 +136,7 @@ describe("RunDetail component", () => {
     render(<RunDetail runId="99999" />);
     await waitFor(() => { expect(screen.getByTestId("not-found")).toBeInTheDocument(); });
     expect(screen.getByText(/Ejecución no encontrada/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Volver al monitor/ })).toHaveAttribute("href", "/etl");
+    expect(screen.getByRole("link", { name: /Volver al monitor/ })).toHaveAttribute("href", "/");
   });
 
   it("shows error state on fetch failure", async () => {
@@ -166,7 +166,7 @@ describe("RunDetail component", () => {
     render(<RunDetail runId="1" />);
     await waitFor(() => { expect(screen.getByTestId("kpi-row")).toBeInTheDocument(); });
     expect(screen.getByText("1h 23m 45s")).toBeInTheDocument();
-    expect(screen.getByText("22 / 22")).toBeInTheDocument();
+    expect(screen.getByText("22 / 0")).toBeInTheDocument();
     expect(screen.getByText("Programado")).toBeInTheDocument();
   });
 

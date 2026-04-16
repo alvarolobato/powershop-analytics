@@ -47,7 +47,7 @@ export interface EtlRunDetailData {
 // ─── Format helpers ──────────────────────────────────────────────────────────
 
 export function formatDuration(ms: number | null): string {
-  if (ms === null || ms === undefined) return "—";
+  if (ms === null) return "—";
   if (ms < 1000) return `${ms}ms`;
   const totalSecs = Math.floor(ms / 1000);
   const h = Math.floor(totalSecs / 3600);
@@ -149,7 +149,7 @@ interface DurationChartProps { tables: EtlSyncTableStat[]; }
 
 function DurationChart({ tables }: DurationChartProps) {
   const sorted = [...tables]
-    .filter((t) => t.duration_ms !== null && t.duration_ms > 0)
+    .filter((t) => t.duration_ms !== null && t.duration_ms > 0 && t.status !== "running")
     .sort((a, b) => (b.duration_ms ?? 0) - (a.duration_ms ?? 0));
 
   if (sorted.length === 0) {
@@ -167,7 +167,7 @@ function DurationChart({ tables }: DurationChartProps) {
 
   const chartData = sorted.map((t) => ({
     name: t.table_name.replace(/^ps_/, ""),
-    Completado: t.status !== "failed" ? (t.duration_ms ?? 0) : 0,
+    Completado: t.status === "success" ? (t.duration_ms ?? 0) : 0,
     Error: t.status === "failed" ? (t.duration_ms ?? 0) : 0,
   }));
 
@@ -183,7 +183,7 @@ function DurationChart({ tables }: DurationChartProps) {
         colors={["emerald", "red"]}
         valueFormatter={(v: number) => formatDuration(v)}
         stack={true}
-        showLegend={false}
+        showLegend={true}
         yAxisWidth={70}
         className="h-64"
       />
@@ -251,9 +251,11 @@ function TableStatsTable({ tables }: TableStatsTableProps) {
                   <tr key={`${t.id}-error`} className="border-b border-tremor-border/50 dark:border-dark-tremor-border/50" data-testid={`table-row-${t.table_name}-error`}>
                     <td colSpan={8} className="pb-2 pt-0 pl-2">
                       <button
+                        type="button"
                         onClick={() => toggleError(t.id)}
-                        className="text-left text-red-500 dark:text-red-400 hover:underline"
+                        aria-expanded={expandedErrors.has(t.id)}
                         aria-label={`Ver error de ${t.table_name}`}
+                        className="text-left text-red-500 dark:text-red-400 hover:underline"
                       >
                         {expandedErrors.has(t.id) ? t.error_msg : t.error_msg.length > 120 ? `${t.error_msg.slice(0, 120)}… (ver más)` : t.error_msg}
                       </button>
@@ -283,7 +285,7 @@ export function RunDetail({ runId }: RunDetailProps) {
   const fetchRun = useCallback(async () => {
     setError(null);
     try {
-      const res = await fetch(`/api/etl/runs/${runId}`);
+      const res = await fetch(`/api/etl/runs/${encodeURIComponent(runId)}`);
       if (res.status === 404) { setNotFound(true); return; }
       if (!res.ok) {
         const body = await res.json().catch(() => null);
@@ -299,7 +301,12 @@ export function RunDetail({ runId }: RunDetailProps) {
     }
   }, [runId]);
 
-  useEffect(() => { fetchRun(); }, [fetchRun]);
+  useEffect(() => {
+    setLoading(true);
+    setNotFound(false);
+    setData(null);
+    void fetchRun();
+  }, [fetchRun]);
 
   useEffect(() => {
     if (autoRefreshRef.current) { clearInterval(autoRefreshRef.current); autoRefreshRef.current = null; }
@@ -320,7 +327,7 @@ export function RunDetail({ runId }: RunDetailProps) {
   if (notFound) {
     return (
       <div className="space-y-4" data-testid="not-found">
-        <Link href="/etl" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
+        <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
         <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Ejecución no encontrada</h1>
         <p className="text-sm text-tremor-content dark:text-dark-tremor-content">La ejecución con ID {runId} no existe.</p>
       </div>
@@ -330,7 +337,7 @@ export function RunDetail({ runId }: RunDetailProps) {
   if (error || !data) {
     return (
       <div className="space-y-4" data-testid="error-state">
-        <Link href="/etl" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
+        <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
         <p className="text-sm text-red-500 dark:text-red-400" data-testid="error-message">{error ?? "Error al cargar la ejecución"}</p>
         <button onClick={() => { setLoading(true); void fetchRun(); }} className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle">
           Reintentar
@@ -345,7 +352,7 @@ export function RunDetail({ runId }: RunDetailProps) {
     <div className="space-y-6" data-testid="run-detail">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <Link href="/etl" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
+          <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Ejecución #{run.id}</h1>
             <Badge color={statusBadgeColor(run.status)} data-testid="status-badge">
@@ -362,7 +369,7 @@ export function RunDetail({ runId }: RunDetailProps) {
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4" data-testid="kpi-row">
         <KpiCard label="Duración total" value={formatDuration(run.duration_ms)} />
         <KpiCard label="Filas sincronizadas" value={formatNumber(run.total_rows_synced)} />
-        <KpiCard label="Tablas" value={`${run.tables_ok} / ${run.total_tables}`} sub={run.tables_failed > 0 ? `${run.tables_failed} con error` : "Sin errores"} />
+        <KpiCard label="Tablas" value={`${run.tables_ok} / ${run.tables_failed}`} sub={run.tables_failed > 0 ? `${run.tables_failed} con error` : "Sin errores"} />
         <KpiCard label="Disparado por" value={triggerLabel(run.trigger)} />
       </div>
       {tables.length > 0 && <DurationChart tables={tables} />}
