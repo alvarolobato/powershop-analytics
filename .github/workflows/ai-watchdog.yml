@@ -72,7 +72,8 @@ jobs:
           # but produced nothing). Flag it.
           ISSUES=$(gh issue list --repo "$REPO_FULL" \
             --state open --label "ai-task" \
-            --json number,title,labels --limit 100)
+            --json number,title,labels --limit 100 \
+            --search "is:issue")
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
@@ -167,6 +168,157 @@ jobs:
             else
               echo "PR #$NUM has no new unaddressed feedback."
             fi
+          done
+
+      - name: Auto-retry blocked PRs (address-feedback failures)
+        run: |
+          set -euo pipefail
+          # PRs labelled ai-blocked + ai-auto-retry had a transient address-feedback
+          # failure (rate limit, OIDC error, etc.). Re-dispatch after 90 minutes.
+          # NOTE: We measure age from the LAST FAILURE COMMENT, not updatedAt —
+          # updatedAt resets on any label change and would give a false "too soon".
+
+          MAX_RETRIES=3
+          MIN_WAIT_SECS=5400  # 90 minutes
+
+          PRS=$(gh pr list --repo "$REPO_FULL" \
+            --state open --label "ai-blocked,ai-auto-retry" \
+            --json number,title --limit 50)
+
+          echo "$PRS" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+
+            # Fetch failure comments and extract count + timestamp of last one.
+            FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+              --paginate \
+              --jq '[.[] | select(
+                (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
+                (.body | test("❌.*AI Address Feedback|❌.*AI Worker|⚠️.*AI (Worker|Planner)"))
+              )]' 2>/dev/null || echo '[]')
+
+            RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
+            LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
+
+            # Fall back to now-5400 if no failure comment found (label added manually)
+            if [ -z "$LAST_FAILURE_AT" ]; then
+              LAST_FAILURE_TS=$(( $(date -u +%s) - MIN_WAIT_SECS - 1 ))
+            else
+              LAST_FAILURE_TS=$(date -u -d "$LAST_FAILURE_AT" +%s)
+            fi
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - LAST_FAILURE_TS ))
+
+            echo "PR #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s last_failure=$LAST_FAILURE_AT"
+
+            if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+              echo "PR #$NUM hit max retries — escalating to human."
+              gh pr edit "$NUM" --repo "$REPO_FULL" --remove-label "ai-auto-retry" || true
+              gh pr comment "$NUM" --repo "$REPO_FULL" \
+                --body "🚨 @$OWNER_HANDLE — PR #$NUM address-feedback has failed $RETRY_COUNT times and will NOT be retried automatically. Please investigate." || true
+              continue
+            fi
+
+            if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
+              echo "PR #$NUM last failure was ${AGE}s ago — too soon (min ${MIN_WAIT_SECS}s). Skipping."
+              continue
+            fi
+
+            echo "Retrying address-feedback for PR #$NUM — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
+            gh pr edit "$NUM" --repo "$REPO_FULL" \
+              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+            gh pr comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔄 Watchdog: auto-retrying address-feedback (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES)." || true
+            gh workflow run ai-address-feedback.yml \
+              --repo "$REPO_FULL" \
+              --field pr_number="$NUM" \
+              --field reason="watchdog auto-retry after transient failure" || true
+            sleep 30
+          done
+
+      - name: Auto-retry transient failures
+        run: |
+          set -euo pipefail
+          # Issues labelled ai-blocked + ai-auto-retry were blocked by an
+          # infrastructure failure (rate limit, OIDC error, cancellation, timeout)
+          # — NOT by a deliberate Claude decision. Retry them automatically.
+          #
+          # Rules:
+          #   - Wait at least 90 minutes since the last failure comment before retrying
+          #     (covers Anthropic rate-limit windows and transient network issues).
+          #   - Allow up to 3 automatic retries per issue. After that, escalate to human.
+          #   - Retry count = number of ❌ or ⚠️ failure comments posted by the worker.
+
+          MAX_RETRIES=3
+          MIN_WAIT_SECS=5400  # 90 minutes
+
+          # Use search API with `is:issue` to explicitly exclude PRs.
+          # `gh issue list` can return PRs because GitHub's API treats them as
+          # issues internally — without this filter the step would add `ai-work`
+          # to PRs, corrupting their state.
+          ISSUES=$(gh issue list --repo "$REPO_FULL" \
+            --state open --label "ai-blocked" \
+            --json number,title,labels --limit 100 \
+            --search "is:issue")
+
+          echo "$ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+
+            # Only process issues that have ai-auto-retry
+            if ! echo ",$LABELS," | grep -q ",ai-auto-retry,"; then
+              continue
+            fi
+
+            # Count failure comments and get timestamp of last one.
+            # Use last-failure-comment time (not updatedAt) so label changes
+            # don't reset the clock and cause us to skip valid retries.
+            FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+              --paginate \
+              --jq '[.[] | select(
+                (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
+                (.body | test("❌|⚠️.*AI (Worker|Planner)"))
+              )]' 2>/dev/null || echo '[]')
+
+            RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
+            LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
+
+            # If no failure comment found (manually tagged), treat as already past threshold
+            if [ -z "$LAST_FAILURE_AT" ]; then
+              LAST_FAILURE_TS=$(( $(date -u +%s) - MIN_WAIT_SECS - 1 ))
+            else
+              LAST_FAILURE_TS=$(date -u -d "$LAST_FAILURE_AT" +%s)
+            fi
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - LAST_FAILURE_TS ))
+
+            echo "Issue #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s labels=$LABELS"
+
+            if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+              # Exhausted retries — remove ai-auto-retry and ping human
+              echo "Issue #$NUM has hit max retries ($MAX_RETRIES) — escalating to human."
+              gh issue edit "$NUM" --repo "$REPO_FULL" \
+                --remove-label "ai-auto-retry" || true
+              gh issue comment "$NUM" --repo "$REPO_FULL" \
+                --body "🚨 @$OWNER_HANDLE — AI Factory watchdog: issue #$NUM has failed $RETRY_COUNT times and will NOT be retried automatically. Please investigate and either fix the underlying problem or re-label with \`ai-work\` when ready." || true
+              continue
+            fi
+
+            if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
+              echo "Issue #$NUM last failure was ${AGE}s ago — too soon to retry (min ${MIN_WAIT_SECS}s). Skipping."
+              continue
+            fi
+
+            # Retry: cycle the label
+            echo "Retrying issue #$NUM ($TITLE) — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
+            gh issue edit "$NUM" --repo "$REPO_FULL" \
+              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+            gh issue comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔄 AI Factory watchdog: auto-retrying (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES) after transient failure." || true
+            gh issue edit "$NUM" --repo "$REPO_FULL" \
+              --add-label "ai-work" || true
+            sleep 30  # stagger to avoid hammering the rate limit
           done
 
       - name: Bot-triggered runs gated as `action_required`
