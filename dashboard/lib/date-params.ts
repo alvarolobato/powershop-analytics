@@ -24,13 +24,19 @@ function toDateStr(d: Date): string {
   const year  = d.getUTCFullYear();
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
   const day   = String(d.getUTCDate()).padStart(2, "0");
-  return year + "-" + month + "-" + day;
+  return "'" + year + "-" + month + "-" + day + "'";
 }
 
 function toMesInt(d: Date): string {
   return String(d.getUTCFullYear() * 100 + (d.getUTCMonth() + 1));
 }
 
+/**
+ * Substitutes date-range tokens in a SQL string.
+ * Date tokens (:curr_from/:curr_to/:comp_from/:comp_to) resolve to quoted ISO strings ('YYYY-MM-DD').
+ * Month tokens (:curr_mes_from/:curr_mes_to/:comp_mes_from/:comp_mes_to) resolve to bare integers (YYYYMM).
+ * Comp tokens are left unchanged when ranges.comp is undefined.
+ */
 export function substituteDateParams(
   sql: string,
   ranges: DateParamRanges,

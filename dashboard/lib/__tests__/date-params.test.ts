@@ -23,22 +23,22 @@ const RANGES_NO_COMP: DateParamRanges = {
 describe("substituteDateParams", () => {
   it("replaces :curr_from token", () => {
     const sql = "WHERE fecha >= " + CURR_FROM;
-    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha >= 2026-01-01");
+    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha >= '2026-01-01'");
   });
 
   it("replaces :curr_to token", () => {
     const sql = "WHERE fecha <= " + CURR_TO;
-    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha <= 2026-03-31");
+    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha <= '2026-03-31'");
   });
 
   it("replaces :comp_from token", () => {
     const sql = "WHERE fecha >= " + COMP_FROM;
-    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha >= 2025-01-01");
+    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha >= '2025-01-01'");
   });
 
   it("replaces :comp_to token", () => {
     const sql = "WHERE fecha <= " + COMP_TO;
-    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha <= 2025-03-31");
+    expect(substituteDateParams(sql, RANGES_WITH_COMP)).toBe("WHERE fecha <= '2025-03-31'");
   });
 
   it("replaces :curr_mes_from token", () => {
@@ -70,12 +70,12 @@ describe("substituteDateParams", () => {
       "  AND mes BETWEEN " + COMP_MES_FROM + " AND " + COMP_MES_TO,
     ].join(" ");
     const result = substituteDateParams(sql, RANGES_WITH_COMP);
-    expect(result).toContain("2026-01-01");
-    expect(result).toContain("2026-03-31");
+    expect(result).toContain("'2026-01-01'");
+    expect(result).toContain("'2026-03-31'");
     expect(result).toContain("202601");
     expect(result).toContain("202603");
-    expect(result).toContain("2025-01-01");
-    expect(result).toContain("2025-03-31");
+    expect(result).toContain("'2025-01-01'");
+    expect(result).toContain("'2025-03-31'");
     expect(result).toContain("202501");
     expect(result).toContain("202503");
     expect(result).not.toContain(":curr_");
@@ -90,7 +90,7 @@ describe("substituteDateParams", () => {
   it("leaves COMP_* tokens unchanged when comp range is undefined", () => {
     const sql = "WHERE fecha >= " + CURR_FROM + " AND comp_fecha >= " + COMP_FROM;
     const result = substituteDateParams(sql, RANGES_NO_COMP);
-    expect(result).toContain("2026-01-01");
+    expect(result).toContain("'2026-01-01'");
     expect(result).toContain(COMP_FROM);
   });
 
@@ -118,12 +118,12 @@ describe("substituteDateParams", () => {
     const result = substituteDateParams(sql, {
       curr: { from: d, to: d },
     });
-    expect(result).toBe("WHERE fecha = 2026-01-05");
+    expect(result).toBe("WHERE fecha = '2026-01-05'");
   });
 
   it("replaces multiple occurrences of the same token", () => {
     const sql = "SELECT " + CURR_FROM + " AS a, " + CURR_FROM + " AS b";
     const result = substituteDateParams(sql, RANGES_NO_COMP);
-    expect(result).toBe("SELECT 2026-01-01 AS a, 2026-01-01 AS b");
+    expect(result).toBe("SELECT '2026-01-01' AS a, '2026-01-01' AS b");
   });
 });
