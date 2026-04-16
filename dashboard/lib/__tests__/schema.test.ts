@@ -316,3 +316,34 @@ describe("WidgetSchema", () => {
     expect(result.type).toBe("bar_chart");
   });
 });
+
+// ---------------------------------------------------------------------------
+// default_time_range field tests
+// ---------------------------------------------------------------------------
+
+describe("DashboardSpecSchema — default_time_range", () => {
+  const BASE = {
+    title: "T",
+    widgets: [{ type: "table", title: "T", sql: "SELECT 1" }],
+  };
+
+  it("accepts spec without default_time_range (backward compat)", () => {
+    expect(() => DashboardSpecSchema.parse(BASE)).not.toThrow();
+  });
+
+  it("accepts valid preset value", () => {
+    const spec = { ...BASE, default_time_range: { preset: "current_month" } };
+    const result = DashboardSpecSchema.parse(spec);
+    expect(result.default_time_range?.preset).toBe("current_month");
+  });
+
+  it("rejects invalid preset value", () => {
+    const spec = { ...BASE, default_time_range: { preset: "invalid" } };
+    expect(() => DashboardSpecSchema.parse(spec)).toThrow(ZodError);
+  });
+
+  it("rejects extra fields on default_time_range (strict mode)", () => {
+    const spec = { ...BASE, default_time_range: { preset: "today", extra: 1 } };
+    expect(() => DashboardSpecSchema.parse(spec)).toThrow(ZodError);
+  });
+});
