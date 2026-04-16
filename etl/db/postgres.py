@@ -411,7 +411,7 @@ def create_run(conn, trigger: str = "scheduled") -> int:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO etl_sync_runs (trigger, status, started_at)
+                INSERT INTO etl_sync_runs ("trigger", status, started_at)
                 VALUES (%s, 'running', NOW())
                 RETURNING id
                 """,

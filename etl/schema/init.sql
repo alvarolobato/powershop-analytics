@@ -432,13 +432,13 @@ CREATE TABLE IF NOT EXISTS etl_sync_runs (
     id                SERIAL       PRIMARY KEY,
     started_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     finished_at       TIMESTAMPTZ,
-    duration_ms       INTEGER,
-    status            TEXT         NOT NULL DEFAULT 'running',  -- 'running', 'success', 'partial', 'failed'
+    duration_ms       BIGINT,
+    status            TEXT         NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'success', 'partial', 'failed')),
     total_tables      INTEGER,
     tables_ok         INTEGER,
     tables_failed     INTEGER,
     total_rows_synced BIGINT,
-    trigger           TEXT         NOT NULL DEFAULT 'scheduled',  -- 'scheduled', 'manual'
+    "trigger"         TEXT         NOT NULL DEFAULT 'scheduled' CHECK ("trigger" IN ('scheduled', 'manual')),
     error_msg         TEXT
 );
 
@@ -449,8 +449,8 @@ CREATE TABLE IF NOT EXISTS etl_sync_run_tables (
     table_name       TEXT         NOT NULL,
     started_at       TIMESTAMPTZ  NOT NULL,
     finished_at      TIMESTAMPTZ  NOT NULL,
-    duration_ms      INTEGER      NOT NULL,
-    status           TEXT         NOT NULL,  -- 'success', 'failed'
+    duration_ms      BIGINT       NOT NULL,
+    status           TEXT         NOT NULL CHECK (status IN ('success', 'failed')),
     rows_synced      BIGINT       NOT NULL DEFAULT 0,
     rows_total_after BIGINT,
     sync_method      TEXT,                   -- 'full_refresh', 'upsert_delta'

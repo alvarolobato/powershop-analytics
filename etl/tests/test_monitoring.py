@@ -35,7 +35,8 @@ _SYNC_TARGETS = [
     "etl.sync.stock.sync_stock",
     "etl.sync.stock.sync_traspasos",
 ]
-_N_TABLES = len(_SYNC_TARGETS)  # 22
+_N_SYNC_TABLES = len(_SYNC_TARGETS)  # 22 tables tracked by record_table_sync
+_N_RESULTS = _N_SYNC_TABLES + 1  # +1 for MA cleanup step tracked in _results
 
 
 def _make_conn():
@@ -89,7 +90,7 @@ def test_finish_run_called_once_with_success():
     args = mocks["finish_run"].call_args.args
     assert args[1] == 7, f"Expected run_id=7, got {args[1]}"
     assert args[2] == "success", f"Expected status=success, got {args[2]!r}"
-    assert args[3] == _N_TABLES, f"Expected tables_ok={_N_TABLES}, got {args[3]}"
+    assert args[3] == _N_RESULTS, f"Expected tables_ok={_N_RESULTS}, got {args[3]}"
     assert args[4] == 0, f"Expected tables_failed=0, got {args[4]}"
 
 
@@ -100,8 +101,8 @@ def test_record_table_sync_called_per_table():
         from etl.main import run_full_sync
 
         run_full_sync(conn_4d, conn_pg)
-    assert mocks["record_table_sync"].call_count == _N_TABLES, (
-        f"Expected {_N_TABLES} record_table_sync calls, "
+    assert mocks["record_table_sync"].call_count == _N_SYNC_TABLES, (
+        f"Expected {_N_SYNC_TABLES} record_table_sync calls, "
         f"got {mocks['record_table_sync'].call_count}"
     )
 
@@ -124,8 +125,8 @@ def test_partial_status_on_one_table_failure():
     finish_args = mocks["finish_run"].call_args.args
     assert finish_args[2] == "partial", f"Expected partial, got {finish_args[2]!r}"
     assert finish_args[4] == 1, f"Expected tables_failed=1, got {finish_args[4]}"
-    assert finish_args[3] == _N_TABLES - 1, (
-        f"Expected tables_ok={_N_TABLES - 1}, got {finish_args[3]}"
+    assert finish_args[3] == _N_RESULTS - 1, (
+        f"Expected tables_ok={_N_RESULTS - 1}, got {finish_args[3]}"
     )
 
 
@@ -149,7 +150,7 @@ def test_create_run_failure_does_not_abort_sync():
         stack.enter_context(
             patch(f"{_WM_MODULE}.create_run", side_effect=RuntimeError("db down"))
         )
-        stack.enter_context(patch(f"{_WM_MODULE}.finish_run"))
+        finish_run_mock = stack.enter_context(patch(f"{_WM_MODULE}.finish_run"))
         stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync"))
         stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
         stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
@@ -160,6 +161,7 @@ def test_create_run_failure_does_not_abort_sync():
     assert "sync_articulos" in called
     assert "sync_ventas" in called
     assert "sync_traspasos" in called
+    finish_run_mock.assert_not_called()
 
 
 def test_record_table_sync_failure_does_not_abort_sync():
@@ -216,5 +218,5 @@ def test_record_table_sync_status_on_failure():
     record_calls = mocks["record_table_sync"].call_args_list
     articulos_calls = [c for c in record_calls if c.args[2] == "articulos"]
     assert articulos_calls, "record_table_sync was not called for articulos"
-    status_arg = articulos_calls[0].args[6]
+    status_arg = articulos_calls[0].kwargs["status"]
     assert status_arg == "failed", f"Expected status=failed, got {status_arg!r}"
