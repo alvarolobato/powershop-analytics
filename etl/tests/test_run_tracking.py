@@ -200,6 +200,7 @@ class TestMonitoringResilience:
             def _fn(*args, **kwargs):
                 called.append(name)
                 return {} if name == "sync_catalogos" else 0
+
             return _fn
 
         with ExitStack() as stack:
@@ -222,6 +223,7 @@ class TestMonitoringResilience:
             )
             stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
             from etl.main import run_full_sync
+
             run_full_sync(conn_4d, conn_pg)
 
         assert "sync_articulos" in called, "sync_articulos was not called"
