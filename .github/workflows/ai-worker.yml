@@ -369,8 +369,13 @@ jobs:
           gh issue comment "$ISSUE_NUMBER" \
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
           # Signal the PR is ready for its first review.
+          # Must use explicit workflow_dispatch — GITHUB_TOKEN label events
+          # do not cascade to new workflow runs (loop-prevention by GitHub).
           gh pr edit "${{ steps.verify.outputs.pr_number }}" \
             --add-label "ai-ready-for-review" || true
+          gh workflow run ai-pr-review.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="${{ steps.verify.outputs.pr_number }}" || true
 
       - name: Handle success (issue closed deliberately)
         if: always() && steps.verify.outputs.outcome == 'issue_closed'
