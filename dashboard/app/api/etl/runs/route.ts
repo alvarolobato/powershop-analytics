@@ -12,6 +12,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { toIsoOrNull } from "@/lib/format";
 import { query } from "@/lib/db";
 import {
   formatApiError,
@@ -120,14 +121,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
     const runs: EtlSyncRun[] = runsResult.rows.map((row) => ({
       id: Number(row[0]),
-      started_at:
-        row[1] instanceof Date ? row[1].toISOString() : String(row[1]),
-      finished_at:
-        row[2] != null
-          ? row[2] instanceof Date
-            ? row[2].toISOString()
-            : String(row[2])
-          : null,
+      started_at: toIsoOrNull(row[1]) ?? "",
+      finished_at: toIsoOrNull(row[2]),
       duration_ms: row[3] != null ? Number(row[3]) : null,
       status: String(row[4]),
       total_tables: row[5] != null ? Number(row[5]) : null,

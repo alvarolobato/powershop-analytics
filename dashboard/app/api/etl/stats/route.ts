@@ -68,7 +68,8 @@ export async function GET(): Promise<NextResponse> {
       `SELECT started_at, duration_ms, status, total_rows_synced
        FROM etl_sync_runs
        ORDER BY started_at DESC
-       LIMIT ${LAST_N_RUNS}`,
+       LIMIT $1`,
+      [LAST_N_RUNS],
     );
 
     const reversedRows = [...trendResult.rows].reverse();
@@ -89,7 +90,7 @@ export async function GET(): Promise<NextResponse> {
     const tableDurResult = await query(
       `SELECT
            t.table_name,
-           COALESCE(ROUND(AVG(t.duration_ms))::bigint, 0) AS avg_duration_ms,
+           COALESCE(ROUND(AVG(t.duration_ms))::int, 0) AS avg_duration_ms,
            (SELECT t2.duration_ms
             FROM etl_sync_run_tables t2
             JOIN etl_sync_runs r2 ON r2.id = t2.run_id
@@ -101,10 +102,11 @@ export async function GET(): Promise<NextResponse> {
       WHERE r.id IN (
             SELECT id FROM etl_sync_runs
             ORDER BY started_at DESC
-            LIMIT ${LAST_N_RUNS}
+            LIMIT $1
           )
       GROUP BY t.table_name
       ORDER BY avg_duration_ms DESC`,
+      [LAST_N_RUNS],
     );
 
     const tableDurations: TableDuration[] = tableDurResult.rows.map((row) => ({
@@ -123,8 +125,9 @@ export async function GET(): Promise<NextResponse> {
       FROM (
             SELECT status FROM etl_sync_runs
             ORDER BY started_at DESC
-            LIMIT ${LAST_N_RUNS}
+            LIMIT $1
           ) sub`,
+      [LAST_N_RUNS],
     );
 
     const rr = rateResult.rows[0] ?? [0, 0, 0, 0];

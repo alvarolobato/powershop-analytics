@@ -90,6 +90,13 @@ describe("GET /api/etl/runs", () => {
     expect(body.code).toBe("VALIDATION");
   });
 
+  it("returns 400 for per_page=0 (below minimum)", async () => {
+    const res = await GET(makeRequest({ per_page: "0" }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("VALIDATION");
+  });
+
   it("returns 400 for per_page greater than 100", async () => {
     const res = await GET(makeRequest({ per_page: "101" }));
     expect(res.status).toBe(400);
