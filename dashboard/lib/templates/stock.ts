@@ -14,6 +14,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Stock",
   description,
+  default_time_range: { preset: "last_30_days" },
   widgets: [
     {
       id: "stock-kpis",
@@ -116,7 +117,7 @@ LIMIT 30`,
     {
       id: "stock-dead-stock",
       type: "table",
-      title: "Dead Stock (stock total > 10, sin ventas en 90 dias)",
+      title: "Dead Stock (stock total > 10, sin ventas en el periodo)",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(s."stock") AS "Stock",
@@ -131,7 +132,7 @@ WHERE s."stock" > 0
     JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
     WHERE v."entrada" = true
       AND lv."tienda" <> '99'
-      AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days'
+      AND lv."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
   )
 GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
 HAVING SUM(s."stock") > 10
@@ -141,7 +142,7 @@ LIMIT 30`,
     {
       id: "stock-traspasos-recientes",
       type: "table",
-      title: "Traspasos Recientes (ultimos 30 dias)",
+      title: "Traspasos Recientes",
       sql: `SELECT t."fecha_s" AS "Fecha",
        t."tienda_salida" AS "Origen",
        t."tienda_entrada" AS "Destino",
@@ -149,7 +150,7 @@ LIMIT 30`,
        SUM(t."unidades_s") AS "Unidades"
 FROM "public"."ps_traspasos" t
 WHERE t."entrada" = false
-  AND t."fecha_s" >= CURRENT_DATE - INTERVAL '30 days'
+  AND t."fecha_s" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY t."fecha_s", t."tienda_salida", t."tienda_entrada"
 ORDER BY t."fecha_s" DESC
 LIMIT 30`,
