@@ -340,6 +340,12 @@ describe("DashboardSpecSchema — default_time_range", () => {
     }
   });
 
+  it("accepts null as absent (nullish — LLMs may emit null for absent fields)", () => {
+    const spec = { ...BASE, default_time_range: null };
+    const result = DashboardSpecSchema.parse(spec);
+    expect(result.default_time_range).toBeNull();
+  });
+
   it("rejects invalid preset value", () => {
     const spec = { ...BASE, default_time_range: { preset: "invalid" } };
     expect(() => DashboardSpecSchema.parse(spec)).toThrow(ZodError);

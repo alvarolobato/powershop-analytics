@@ -156,8 +156,10 @@ export const DashboardSpecSchema = z.object({
    * Optional default time range preset applied when the dashboard is first opened.
    * Backwards compatible: existing dashboards without this field fall back to
    * last_30_days in the dashboard view.
+   * Nullish (accepts null or undefined): LLMs and JSON APIs commonly emit null
+   * for absent optional fields, so we treat null the same as undefined here.
    */
-  default_time_range: DefaultTimeRangeSchema.optional(),
+  default_time_range: DefaultTimeRangeSchema.nullish(),
 }).strict();
 
 // ---------------------------------------------------------------------------

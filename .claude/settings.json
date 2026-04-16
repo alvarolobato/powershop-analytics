@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd dashboard && npm test)",
+      "Bash(cd dashboard && npm run lint)",
+      "Bash(cd dashboard && npm run build)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}
