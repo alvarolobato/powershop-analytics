@@ -169,6 +169,62 @@ jobs:
             fi
           done
 
+      - name: Auto-retry blocked PRs (address-feedback failures)
+        run: |
+          set -euo pipefail
+          # PRs labelled ai-blocked + ai-auto-retry had a transient address-feedback
+          # failure (rate limit, OIDC error, etc.). Re-dispatch after 90 minutes.
+
+          MAX_RETRIES=3
+          MIN_WAIT_SECS=5400  # 90 minutes
+
+          PRS=$(gh pr list --repo "$REPO_FULL" \
+            --state open --label "ai-blocked,ai-auto-retry" \
+            --json number,title,updatedAt --limit 50)
+
+          echo "$PRS" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            UPDATED=$(echo "$row" | jq -r '.updatedAt')
+            UPDATED_TS=$(date -u -d "$UPDATED" +%s)
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - UPDATED_TS ))
+
+            # Count prior failure comments
+            RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+              --paginate \
+              --jq '[.[] | select(
+                (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
+                (.body | test("❌.*AI Address Feedback|❌.*AI Worker|⚠️.*AI (Worker|Planner)"))
+              )] | length' 2>/dev/null || echo 0)
+
+            echo "PR #$NUM: retry_count=$RETRY_COUNT age=${AGE}s"
+
+            if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+              echo "PR #$NUM hit max retries — escalating to human."
+              gh pr edit "$NUM" --repo "$REPO_FULL" --remove-label "ai-auto-retry" || true
+              gh pr comment "$NUM" --repo "$REPO_FULL" \
+                --body "🚨 @$OWNER_HANDLE — PR #$NUM address-feedback has failed $RETRY_COUNT times and will NOT be retried automatically. Please investigate." || true
+              continue
+            fi
+
+            if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
+              echo "PR #$NUM blocked ${AGE}s ago — too soon (min ${MIN_WAIT_SECS}s). Skipping."
+              continue
+            fi
+
+            echo "Retrying address-feedback for PR #$NUM — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
+            gh pr edit "$NUM" --repo "$REPO_FULL" \
+              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+            gh pr comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔄 Watchdog: auto-retrying address-feedback (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES)." || true
+            gh workflow run ai-address-feedback.yml \
+              --repo "$REPO_FULL" \
+              --field pr_number="$NUM" \
+              --field reason="watchdog auto-retry after transient failure" || true
+            sleep 30
+          done
+
       - name: Auto-retry transient failures
         run: |
           set -euo pipefail

@@ -236,6 +236,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr comment ${{ needs.resolve.outputs.pr_number }} \
-            --body "❌ @alvarolobato — AI auto-address-feedback failed. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). I will not re-attempt automatically; please inspect and re-trigger via workflow_dispatch if appropriate."
+            --body "❌ AI Address Feedback failed (rate limit or transient error). Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
           gh pr edit ${{ needs.resolve.outputs.pr_number }} \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
