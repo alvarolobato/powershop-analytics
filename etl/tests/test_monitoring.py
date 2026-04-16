@@ -73,6 +73,7 @@ def test_create_run_called_once():
     with ExitStack() as stack:
         mocks = _base_patches(stack)
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
     mocks["create_run"].assert_called_once_with(conn_pg, "scheduled")
 
@@ -82,6 +83,7 @@ def test_finish_run_called_once_with_success():
     with ExitStack() as stack:
         mocks = _base_patches(stack, run_id=7)
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
     mocks["finish_run"].assert_called_once()
     args = mocks["finish_run"].call_args.args
@@ -96,6 +98,7 @@ def test_record_table_sync_called_per_table():
     with ExitStack() as stack:
         mocks = _base_patches(stack)
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
     assert mocks["record_table_sync"].call_count == _N_TABLES, (
         f"Expected {_N_TABLES} record_table_sync calls, "
@@ -115,6 +118,7 @@ def test_partial_status_on_one_table_failure():
             patch("etl.sync.ventas.sync_ventas", side_effect=_ventas_boom)
         )
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
 
     finish_args = mocks["finish_run"].call_args.args
@@ -133,6 +137,7 @@ def test_create_run_failure_does_not_abort_sync():
         def _fn(*args, **kwargs):
             called.append(name)
             return {} if name == "sync_catalogos" else 0
+
         return _fn
 
     with ExitStack() as stack:
@@ -149,6 +154,7 @@ def test_create_run_failure_does_not_abort_sync():
         stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
         stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
 
     assert "sync_articulos" in called
@@ -164,6 +170,7 @@ def test_record_table_sync_failure_does_not_abort_sync():
         def _fn(*args, **kwargs):
             called.append(name)
             return {} if name == "sync_catalogos" else 0
+
         return _fn
 
     with ExitStack() as stack:
@@ -183,6 +190,7 @@ def test_record_table_sync_failure_does_not_abort_sync():
         stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
         stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
 
     assert "sync_articulos" in called
@@ -202,6 +210,7 @@ def test_record_table_sync_status_on_failure():
             patch("etl.sync.articulos.sync_articulos", side_effect=_articulos_boom)
         )
         from etl.main import run_full_sync
+
         run_full_sync(conn_4d, conn_pg)
 
     record_calls = mocks["record_table_sync"].call_args_list

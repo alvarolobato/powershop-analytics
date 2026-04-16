@@ -456,7 +456,15 @@ def finish_run(
                     error_msg         = %s
                 WHERE id = %s
                 """,
-                (status, total_tables, tables_ok, tables_failed, total_rows_synced, error_msg, run_id),
+                (
+                    status,
+                    total_tables,
+                    tables_ok,
+                    tables_failed,
+                    total_rows_synced,
+                    error_msg,
+                    run_id,
+                ),
             )
         conn.commit()
     except Exception:
@@ -495,9 +503,18 @@ def record_table_sync(
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    run_id, table_name, started_at, finished_at, duration_ms,
-                    status, rows_synced, rows_total_after, sync_method,
-                    watermark_from, watermark_to, error_msg,
+                    run_id,
+                    table_name,
+                    started_at,
+                    finished_at,
+                    duration_ms,
+                    status,
+                    rows_synced,
+                    rows_total_after,
+                    sync_method,
+                    watermark_from,
+                    watermark_to,
+                    error_msg,
                 ),
             )
         conn.commit()

@@ -110,9 +110,7 @@ def _run_sync(
         finished_at = datetime.now(timezone.utc)
         duration_ms = int((time.time() - start) * 1000)
         try:
-            set_watermark(
-                conn_pg, name, finished_at, 0, "error", str(exc)
-            )
+            set_watermark(conn_pg, name, finished_at, 0, "error", str(exc))
         except Exception as wm_exc:
             logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
         logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
@@ -324,113 +322,223 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     # 1. Catalog (full refresh, no watermark)
     # ------------------------------------------------------------------
     total_rows_synced += _run_sync(
-        "articulos", sync_articulos, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "articulos",
+        sync_articulos,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     # sync_catalogos returns a dict — delegate through wrapper
     total_rows_synced += _run_sync(
-        "catalogos", _run_sync_catalogos, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "catalogos",
+        _run_sync_catalogos,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
 
     # ------------------------------------------------------------------
     # 2. Masters (full refresh, no watermark)
     # ------------------------------------------------------------------
     total_rows_synced += _run_sync(
-        "tiendas", sync_tiendas, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "tiendas",
+        sync_tiendas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "clientes", sync_clientes, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "clientes",
+        sync_clientes,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "proveedores", sync_proveedores, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "proveedores",
+        sync_proveedores,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "gc_comerciales", sync_gc_comerciales, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "gc_comerciales",
+        sync_gc_comerciales,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
 
     # ------------------------------------------------------------------
     # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)
     # ------------------------------------------------------------------
     total_rows_synced += _run_sync(
-        "ventas", sync_ventas, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "ventas",
+        sync_ventas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "lineas_ventas", sync_lineas_ventas, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "lineas_ventas",
+        sync_lineas_ventas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "pagos_ventas", sync_pagos_ventas, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "pagos_ventas",
+        sync_pagos_ventas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
 
     # ------------------------------------------------------------------
     # 5. Wholesale (delta by Modifica for headers; full for pedidos lines)
     # ------------------------------------------------------------------
     total_rows_synced += _run_sync(
-        "gc_albaranes", sync_gc_albaranes, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "gc_albaranes",
+        sync_gc_albaranes,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "gc_lin_albarane", sync_gc_lin_albarane, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "gc_lin_albarane",
+        sync_gc_lin_albarane,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "gc_facturas", sync_gc_facturas, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "gc_facturas",
+        sync_gc_facturas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "gc_lin_facturas", sync_gc_lin_facturas, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "gc_lin_facturas",
+        sync_gc_lin_facturas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "gc_pedidos", sync_gc_pedidos, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "gc_pedidos",
+        sync_gc_pedidos,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "gc_lin_pedidos", sync_gc_lin_pedidos, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "gc_lin_pedidos",
+        sync_gc_lin_pedidos,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
 
     # ------------------------------------------------------------------
     # 6. Purchasing (full refresh)
     # ------------------------------------------------------------------
     total_rows_synced += _run_sync(
-        "compras", sync_compras, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "compras",
+        sync_compras,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "lineas_compras", sync_lineas_compras, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "lineas_compras",
+        sync_lineas_compras,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "facturas", sync_facturas, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "facturas",
+        sync_facturas,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "albaranes", sync_albaranes, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "albaranes",
+        sync_albaranes,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "facturas_compra", sync_facturas_compra, conn_4d, conn_pg, uses_watermark=False,
-        run_id=run_id, _results=_results,
+        "facturas_compra",
+        sync_facturas_compra,
+        conn_4d,
+        conn_pg,
+        uses_watermark=False,
+        run_id=run_id,
+        _results=_results,
     )
 
     # ------------------------------------------------------------------
     # 7. Stock (delta by FechaModifica) — last because Exportaciones is very slow (2M rows)
     # ------------------------------------------------------------------
     total_rows_synced += _run_sync(
-        "stock", sync_stock, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "stock",
+        sync_stock,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
     total_rows_synced += _run_sync(
-        "traspasos", sync_traspasos, conn_4d, conn_pg, uses_watermark=True,
-        run_id=run_id, _results=_results,
+        "traspasos",
+        sync_traspasos,
+        conn_4d,
+        conn_pg,
+        uses_watermark=True,
+        run_id=run_id,
+        _results=_results,
     )
 
     # ------------------------------------------------------------------
@@ -447,7 +555,9 @@ def run_full_sync(conn_4d, conn_pg) -> None:
 
     if run_id is not None:
         try:
-            finish_run(conn_pg, run_id, run_status, tables_ok, tables_failed, total_rows_synced)
+            finish_run(
+                conn_pg, run_id, run_status, tables_ok, tables_failed, total_rows_synced
+            )
         except Exception as exc:
             logger.error("Failed to finish monitoring run record: %s", exc)
 
