@@ -42,8 +42,7 @@ function endOfDay(d: Date): Date {
 }
 
 /**
- * Map a preset ID to a DateRange. Uses the current date/time at call time.
- * Pure function: given the same "now", always returns the same range.
+ * Map a preset ID to a DateRange. Captures the current date/time at call time.
  */
 export function presetToDateRange(preset: TimeRangePreset): DateRange {
   const now = new Date();
@@ -72,13 +71,18 @@ export function presetToDateRange(preset: TimeRangePreset): DateRange {
       const year = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
       const month = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
       const from = new Date(year, month, 1);
-      const to = new Date(now.getFullYear(), now.getMonth(), 0);
+      const to = new Date(now.getFullYear(), now.getMonth(), 0); // day=0 in JS Date === last day of the preceding month
       return { from: startOfDay(from), to: endOfDay(to) };
     }
 
     case "year_to_date": {
       const from = new Date(now.getFullYear(), 0, 1);
       return { from: startOfDay(from), to: endOfDay(now) };
+    }
+
+    default: {
+      const _exhaustive: never = preset;
+      throw new Error("Unknown preset: " + String(preset));
     }
   }
 }
@@ -91,6 +95,7 @@ const PRESETS: Preset[] = [
   { id: "last_month", label: "Mes anterior" },
   { id: "year_to_date", label: "Año en curso" },
 ];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
