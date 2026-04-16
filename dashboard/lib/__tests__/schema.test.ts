@@ -4,6 +4,7 @@ import {
   validateSpec,
   DashboardSpecSchema,
   WidgetSchema,
+  TimeRangePresetSchema,
   type DashboardSpec,
 } from "../schema";
 
@@ -331,10 +332,12 @@ describe("DashboardSpecSchema — default_time_range", () => {
     expect(() => DashboardSpecSchema.parse(BASE)).not.toThrow();
   });
 
-  it("accepts valid preset value", () => {
-    const spec = { ...BASE, default_time_range: { preset: "current_month" } };
-    const result = DashboardSpecSchema.parse(spec);
-    expect(result.default_time_range?.preset).toBe("current_month");
+  it("accepts all valid preset values", () => {
+    for (const preset of TimeRangePresetSchema.options) {
+      const spec = { ...BASE, default_time_range: { preset } };
+      const result = DashboardSpecSchema.parse(spec);
+      expect(result.default_time_range?.preset).toBe(preset);
+    }
   });
 
   it("rejects invalid preset value", () => {

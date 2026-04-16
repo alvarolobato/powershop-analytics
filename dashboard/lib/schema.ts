@@ -126,7 +126,7 @@ export const GlossaryItemSchema = z.object({
   definition: z.string().min(1),
 }).strict();
 
-const TimeRangePresetSchema = z.enum([
+export const TimeRangePresetSchema = z.enum([
   "today",
   "last_7_days",
   "last_30_days",
@@ -135,7 +135,7 @@ const TimeRangePresetSchema = z.enum([
   "year_to_date",
 ]);
 
-const DefaultTimeRangeSchema = z.object({
+export const DefaultTimeRangeSchema = z.object({
   preset: TimeRangePresetSchema,
 }).strict();
 
