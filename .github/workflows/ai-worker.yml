@@ -2,10 +2,28 @@ name: AI Worker
 on:
   issues:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to resume work on"
+        required: true
+        type: number
+      phase:
+        description: "Phase to run: plan or implement"
+        required: true
+        type: choice
+        options:
+          - plan
+          - implement
 
+# Don't cancel in-progress workers. GitHub fires a `labeled` event for each
+# label added in rapid succession (e.g. triage applying component/priority labels),
+# which previously cancelled an already-running plan/implement and left the
+# issue stuck in `ai-in-progress`. We'd rather run duplicates and let the
+# inner steps no-op than leave issues orphaned.
 concurrency:
-  group: ai-worker-${{ github.event.issue.number }}
-  cancel-in-progress: true
+  group: ai-worker-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -22,10 +40,19 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   plan:
     if: >-
-      github.event.label.name == 'ai-work' &&
-      !contains(github.event.issue.labels.*.name, 'ai-task')
+      (
+        github.event_name == 'issues' &&
+        github.event.label.name == 'ai-work' &&
+        !contains(github.event.issue.labels.*.name, 'ai-task')
+      ) ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.phase == 'plan'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -33,11 +60,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
-            --remove-label "ai-work" \
-            --add-label "ai-in-progress"
-          gh issue comment ${{ github.event.issue.number }} \
-            --body "🔍 AI Worker — planning phase started. Analyzing the issue and codebase..."
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-work" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-in-progress" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "🔍 AI Worker — planning phase started. Analyzing the issue and codebase. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
       - name: Plan and decompose
         id: plan
@@ -48,8 +76,8 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--max-turns 40"
           prompt: |
-            You are the AI Planner. Your job is to deeply analyse this issue, produce a
-            comprehensive implementation plan, and break it into actionable sub-tasks.
+            You are the AI Planner. Your job is to deeply analyse issue #${{ env.ISSUE_NUMBER }},
+            produce a comprehensive implementation plan, and break it into actionable sub-tasks.
 
             ## Step 1 — Understand the request
             Read the issue title, body, and ALL comments carefully.
@@ -58,7 +86,7 @@ jobs:
             Explore the codebase to understand the current state.
 
             ## Step 2 — Write a comprehensive plan comment
-            Post a comment on issue #${{ github.event.issue.number }} with this structure:
+            Post a comment on issue #${{ env.ISSUE_NUMBER }} with this structure:
 
             ---
             ## 🗺️ Implementation Plan
@@ -102,7 +130,7 @@ jobs:
               --title "PARENT_TITLE — Task N: TASK_TITLE" \
               --body "$(cat <<'BODY'
             ## Parent issue
-            Closes #${{ github.event.issue.number }}
+            Closes #${{ env.ISSUE_NUMBER }}
 
             ## Task
             TASK_DESCRIPTION
@@ -114,7 +142,7 @@ jobs:
             - list of checks
 
             ## Context
-            See parent issue #${{ github.event.issue.number }} for full plan.
+            See parent issue #${{ env.ISSUE_NUMBER }} for full plan.
             BODY
             )" | grep -o '[0-9]*$')
 
@@ -136,30 +164,74 @@ jobs:
             - Add label "ai-planned"
             - Post a final comment listing all created sub-issues
 
+            ## Step 5 — If you cannot complete the plan
+            If the issue is too vague, missing critical info, or blocked by something you cannot
+            resolve: DO NOT silently stop. Instead:
+            1. Post a comment tagging @alvarolobato explaining precisely what is blocking you
+               and what information you need.
+            2. Remove `ai-in-progress` and add `ai-blocked`.
+            3. Exit normally (so the workflow does not mark itself "failed").
+
             ## Rules
             - Create sub-issues in dependency order
             - Each sub-issue must have both "ai-task" AND "ai-work" labels so the
               implementation phase triggers automatically
             - Do NOT start implementing — only plan and decompose
 
-      - name: Handle plan success
-        if: success()
+      - name: Verify plan output
+        id: verify_plan
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
-            --remove-label "ai-in-progress"
+          set -euo pipefail
+          # A successful plan should either: (a) have created sub-issues and
+          # added `ai-planned`, (b) added `ai-blocked` (planner gave up cleanly).
+          LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels --jq '[.labels[].name] | join(",")')
+          echo "Labels after plan: $LABELS"
+          if echo ",$LABELS," | grep -q ",ai-planned,"; then
+            echo "status=planned" >> "$GITHUB_OUTPUT"
+          elif echo ",$LABELS," | grep -q ",ai-blocked,"; then
+            echo "status=blocked" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=incomplete" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Flag incomplete plan
+        if: always() && steps.verify_plan.outputs.status == 'incomplete'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-blocked" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "⚠️ @alvarolobato — AI Planner finished but did not produce a plan (neither \`ai-planned\` nor \`ai-blocked\` was set, and no sub-issues were created). Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Please check the run log and either re-trigger with the \`ai-work\` label or clarify the issue."
 
       - name: Handle plan failure
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
-            --remove-label "ai-in-progress" \
-            --add-label "ai-blocked"
-          gh issue comment ${{ github.event.issue.number }} \
-            --body "❌ AI Planner failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-blocked" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "❌ @alvarolobato — AI Planner failed. Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+
+      - name: Ensure ai-in-progress is cleared on cancel
+        if: cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-blocked" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "⚠️ @alvarolobato — AI Planner was cancelled. Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
   # ─────────────────────────────────────────────────────────────────
   # PHASE 2 — IMPLEMENT
@@ -168,10 +240,19 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   implement:
     if: >-
-      github.event.label.name == 'ai-work' &&
-      contains(github.event.issue.labels.*.name, 'ai-task')
+      (
+        github.event_name == 'issues' &&
+        github.event.label.name == 'ai-work' &&
+        contains(github.event.issue.labels.*.name, 'ai-task')
+      ) ||
+      (
+        github.event_name == 'workflow_dispatch' &&
+        inputs.phase == 'implement'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      ISSUE_NUMBER: ${{ github.event.issue.number || inputs.issue_number }}
     steps:
       - uses: actions/checkout@v4
 
@@ -179,11 +260,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
-            --remove-label "ai-work" \
-            --add-label "ai-in-progress"
-          gh issue comment ${{ github.event.issue.number }} \
-            --body "🤖 AI Worker — implementation started."
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-work" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-in-progress" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "🤖 AI Worker — implementation started. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
       - name: Implement sub-task
         id: implement
@@ -195,30 +277,43 @@ jobs:
           claude_args: "--max-turns 200"
           allowed_bots: "claude[bot]"
           prompt: |
-            You are the AI Worker. Implement exactly what this sub-task describes — nothing more.
+            You are the AI Worker. Implement exactly what sub-task issue #${{ env.ISSUE_NUMBER }} describes — nothing more.
 
             ## Process
-            1. Read this sub-task issue: title, body, acceptance criteria
+            1. Read sub-task issue #${{ env.ISSUE_NUMBER }}: title, body, acceptance criteria
             2. Read the PARENT issue (linked in the body) for full context and architecture decisions
             3. Read CLAUDE.md and AGENTS.md
             4. Read relevant skill docs in docs/skills/ for the affected domain
-            5. Create branch: `ai/issue-${{ github.event.issue.number }}-{short-slug}`
-            6. Implement the changes:
+            5. Before starting, check whether another PR has already implemented part or all of this
+               task (the planner sometimes bundles work): `gh pr list --state all --search "issue-${{ env.ISSUE_NUMBER }}"`.
+               If the work is already done in a merged or open PR, post a comment on the issue
+               explaining which PR covers it, close the issue with `--reason completed`, and exit.
+            6. Create branch: `ai/issue-${{ env.ISSUE_NUMBER }}-{short-slug}`
+            7. Implement the changes:
                - Follow existing code style and patterns
                - Don't add unnecessary abstractions
                - Don't over-engineer — do exactly what's asked
                - Include tests for new functionality
-            7. Run validation:
+            8. Run validation:
                - ETL changes: `cd etl && python -m ruff check . && python -m pytest`
                - Dashboard changes: `cd dashboard && npm test`
                - Fix any failures before committing
-            8. Commit: `feat|fix|docs: description (closes #${{ github.event.issue.number }})`
-            9. Push the branch
-            10. Create a PR:
+            9. Commit: `feat|fix|docs: description (closes #${{ env.ISSUE_NUMBER }})`
+            10. Push the branch with `git push -u origin BRANCH`
+            11. Create a PR:
                 - Title references this sub-task
                 - Body: ## Summary, ## Changes, ## Test Results
-                - Include `Closes #${{ github.event.issue.number }}` in the body
-                - No reviewers needed (AI PR Review handles it)
+                - Include `Closes #${{ env.ISSUE_NUMBER }}` in the body
+                - Verify the PR was created by running `gh pr view` on the branch.
+
+            ## If you cannot finish
+            NEVER silently stop. If something is blocking you:
+            1. Push whatever partial progress you have to the branch.
+            2. Post a comment on issue #${{ env.ISSUE_NUMBER }} tagging @alvarolobato with
+               a precise description of what is blocking you (unclear spec, missing access,
+               failing test you cannot diagnose, etc.).
+            3. Exit normally — the workflow will verify a PR was created and mark the
+               issue `ai-blocked` automatically if not.
 
             ## Rules
             - Read-only SQL: NEVER INSERT/UPDATE/DELETE/DROP in production queries
@@ -227,16 +322,59 @@ jobs:
             - 4D PKs are NUMERIC, never FLOAT8
             - For wide tables, specify columns explicitly
             - Scope strictly to this sub-task — do not implement other tasks
+            - NEVER use --no-verify or bypass pre-commit hooks
+            - NEVER force-push
 
-      - name: Handle success
-        if: success()
+      # Verify a PR was actually created for this issue. The `Handle success`
+      # step used to fire on step completion alone — but Claude can exit
+      # successfully without having created a branch or PR (e.g. if it
+      # decided work was already covered but didn't close the issue).
+      - name: Verify PR was created
+        id: verify
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit ${{ github.event.issue.number }} \
-            --remove-label "ai-in-progress"
-          gh issue comment ${{ github.event.issue.number }} \
-            --body "✅ AI Worker completed. PR created — check the linked pull request."
+          set -euo pipefail
+          # Look for a PR whose head branch follows ai/issue-<N>-... OR whose
+          # body contains "Closes #<N>".
+          PR_BY_BRANCH=$(gh pr list --state all --search "head:ai/issue-${ISSUE_NUMBER}-" \
+            --json number,state --jq '.[0].number // empty')
+          PR_BY_BODY=$(gh pr list --state all --search "Closes #${ISSUE_NUMBER} in:body" \
+            --json number,state --jq '.[0].number // empty')
+          PR_NUMBER="${PR_BY_BRANCH:-$PR_BY_BODY}"
+
+          # Also check if the issue was closed by the worker (deliberate no-op).
+          ISSUE_STATE=$(gh issue view "$ISSUE_NUMBER" --json state --jq '.state')
+
+          if [ -n "$PR_NUMBER" ]; then
+            echo "outcome=pr_created" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+            echo "Found PR #$PR_NUMBER for issue #$ISSUE_NUMBER"
+          elif [ "$ISSUE_STATE" = "CLOSED" ]; then
+            echo "outcome=issue_closed" >> "$GITHUB_OUTPUT"
+            echo "Issue #$ISSUE_NUMBER was closed by the worker (deliberate no-op)."
+          else
+            echo "outcome=no_pr" >> "$GITHUB_OUTPUT"
+            echo "No PR and issue still open — implementation did not complete."
+          fi
+
+      - name: Handle success (PR created)
+        if: always() && steps.verify.outputs.outcome == 'pr_created'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
+
+      - name: Handle success (issue closed deliberately)
+        if: always() && steps.verify.outputs.outcome == 'issue_closed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Nothing to do — issue already closed."
 
       - name: Push partial work on failure
         if: failure()
@@ -255,6 +393,18 @@ jobs:
             fi
           fi
 
+      - name: Block on missing PR
+        if: always() && steps.verify.outputs.outcome == 'no_pr'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-blocked" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "⚠️ @alvarolobato — AI Worker finished but did NOT create a PR. Marking as \`ai-blocked\`. This usually means the agent either hit its turn limit, got confused about whether the work was already done, or failed to push the branch. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Re-label with \`ai-work\` (after removing \`ai-blocked\`) to retry, or clarify the issue."
+
       - name: Handle failure
         if: failure()
         env:
@@ -265,8 +415,21 @@ jobs:
           if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
             BRANCH_NOTE=" Partial work pushed to branch \`${BRANCH}\`."
           fi
-          gh issue edit ${{ github.event.issue.number }} \
-            --remove-label "ai-in-progress" \
-            --add-label "ai-blocked"
-          gh issue comment ${{ github.event.issue.number }} \
-            --body "❌ AI Worker failed.${BRANCH_NOTE} Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-blocked" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "❌ @alvarolobato — AI Worker failed.${BRANCH_NOTE} Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+
+      - name: Ensure ai-in-progress is cleared on cancel
+        if: cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "ai-in-progress" || true
+          gh issue edit "$ISSUE_NUMBER" \
+            --add-label "ai-blocked" || true
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "⚠️ @alvarolobato — AI Worker was cancelled. Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."

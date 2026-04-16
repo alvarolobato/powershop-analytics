@@ -1,0 +1,199 @@
+name: AI Factory Watchdog
+# Periodically scans the factory for silent failures and actively recovers.
+# This is the safety net: if any of the event-driven workflows misses a
+# trigger (e.g. because GitHub gated it with `action_required`, or because
+# a label race cancelled the worker), the watchdog catches it and either
+# re-queues the work, triggers the address-feedback flow, or pings the
+# owner with `ai-blocked` + a clear explanation.
+on:
+  schedule:
+    # Every 15 minutes
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: ai-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OWNER: ${{ github.repository_owner }}
+      REPO_FULL: ${{ github.repository }}
+      OWNER_HANDLE: alvarolobato
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stuck `ai-in-progress` issues
+        run: |
+          set -euo pipefail
+          # Any issue in `ai-in-progress` for >60 minutes is considered stuck.
+          NOW=$(date -u +%s)
+          STUCK_THRESHOLD_SECS=3600
+
+          # List open issues with ai-in-progress
+          ISSUES=$(gh issue list --repo "$REPO_FULL" \
+            --state open --label "ai-in-progress" \
+            --json number,updatedAt,title,labels --limit 100)
+
+          echo "$ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            UPDATED=$(echo "$row" | jq -r '.updatedAt')
+            UPDATED_TS=$(date -u -d "$UPDATED" +%s)
+            AGE=$(( NOW - UPDATED_TS ))
+
+            if [ "$AGE" -ge "$STUCK_THRESHOLD_SECS" ]; then
+              echo "Issue #$NUM ($TITLE) stuck for ${AGE}s — marking ai-blocked"
+              gh issue edit "$NUM" --repo "$REPO_FULL" \
+                --remove-label "ai-in-progress" || true
+              gh issue edit "$NUM" --repo "$REPO_FULL" \
+                --add-label "ai-blocked" || true
+              gh issue comment "$NUM" --repo "$REPO_FULL" \
+                --body "⚠️ @$OWNER_HANDLE — AI Factory watchdog: this issue has been \`ai-in-progress\` for over an hour without progress. Marking as \`ai-blocked\`. This usually means the worker was cancelled, hit a silent failure, or was gated by GitHub's bot-actor policy. See the [Actions tab](${{ github.server_url }}/${{ github.repository }}/actions) for recent worker runs. Remove \`ai-blocked\` and re-add \`ai-work\` to retry." || true
+            fi
+          done
+
+      - name: Sub-tasks with ai-task but no PR, no progress
+        run: |
+          set -euo pipefail
+          # A sub-task labeled `ai-task` but with NO `ai-in-progress`,
+          # `ai-blocked`, or `ai-work` and NO PR referencing it is
+          # considered an orphan worker result (e.g. worker claimed success
+          # but produced nothing). Flag it.
+          ISSUES=$(gh issue list --repo "$REPO_FULL" \
+            --state open --label "ai-task" \
+            --json number,title,labels --limit 100)
+
+          echo "$ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+
+            # Skip if already in progress / blocked / queued / done
+            for SKIP in ai-in-progress ai-blocked ai-work; do
+              if echo ",$LABELS," | grep -q ",$SKIP,"; then
+                continue 2
+              fi
+            done
+
+            # Look for a PR that closes this sub-task
+            PR_COUNT=$(gh pr list --repo "$REPO_FULL" --state all \
+              --search "head:ai/issue-${NUM}- OR \"Closes #${NUM}\" in:body" \
+              --json number --jq 'length')
+
+            if [ "${PR_COUNT:-0}" = "0" ]; then
+              echo "Orphan sub-task #$NUM ($TITLE) has no PR and no active label — re-queuing."
+              gh issue edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" || true
+              gh issue comment "$NUM" --repo "$REPO_FULL" \
+                --body "⚠️ @$OWNER_HANDLE — AI Factory watchdog: this sub-task has \`ai-task\` but no PR, no \`ai-in-progress\`, and no \`ai-work\`. The worker likely reported success without actually creating a PR. Marking as \`ai-blocked\`. Remove \`ai-blocked\` and add \`ai-work\` to retry, or close if already covered by another PR." || true
+            fi
+          done
+
+      - name: Open PRs with unaddressed reviewer feedback
+        run: |
+          set -euo pipefail
+          # Find open PRs where the latest activity by claude[bot] is older
+          # than the latest review/review-comment by a non-self reviewer.
+          # That means feedback is sitting unaddressed.
+
+          PRS=$(gh pr list --repo "$REPO_FULL" --state open \
+            --json number,headRefName,labels,author --limit 50)
+
+          echo "$PRS" | jq -c '.[]' | while read -r pr; do
+            NUM=$(echo "$pr" | jq -r '.number')
+            LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
+
+            # Skip opt-outs
+            if echo ",$LABELS," | grep -q ",no-address-feedback,"; then
+              echo "PR #$NUM opted out of address-feedback — skipping."
+              continue
+            fi
+            if echo ",$LABELS," | grep -q ",ai-blocked,"; then
+              echo "PR #$NUM already ai-blocked — skipping."
+              continue
+            fi
+
+            # Latest non-self reviewer activity (review submission or inline comment)
+            LATEST_REVIEWER_ACTIVITY=$(
+              {
+                gh api "repos/$REPO_FULL/pulls/$NUM/reviews" --paginate \
+                  --jq '.[] | select(.user.login != "claude[bot]" and .user.login != "github-actions[bot]") | .submitted_at'
+                gh api "repos/$REPO_FULL/pulls/$NUM/comments" --paginate \
+                  --jq '.[] | select(.user.login != "claude[bot]" and .user.login != "github-actions[bot]") | .updated_at'
+              } | sort -r | head -1
+            )
+
+            if [ -z "$LATEST_REVIEWER_ACTIVITY" ]; then
+              echo "PR #$NUM has no reviewer activity — skipping."
+              continue
+            fi
+
+            # Latest claude[bot] activity on the PR (commit, review, or comment)
+            LATEST_BOT_ACTIVITY=$(
+              {
+                gh api "repos/$REPO_FULL/pulls/$NUM/commits" --paginate \
+                  --jq '.[] | select(.commit.author.email | contains("claude") or contains("github-actions")) | .commit.committer.date'
+                gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
+                  --jq '.[] | select(.user.login == "claude[bot]" or .user.login == "github-actions[bot]") | .updated_at'
+                gh api "repos/$REPO_FULL/pulls/$NUM/comments" --paginate \
+                  --jq '.[] | select(.user.login == "claude[bot]" or .user.login == "github-actions[bot]") | .updated_at'
+              } | sort -r | head -1
+            )
+
+            LATEST_BOT_TS=$(date -u -d "${LATEST_BOT_ACTIVITY:-1970-01-01}" +%s 2>/dev/null || echo 0)
+            LATEST_REV_TS=$(date -u -d "$LATEST_REVIEWER_ACTIVITY" +%s 2>/dev/null || echo 0)
+
+            # Only kick off if reviewer activity is newer AND at least 3 minutes
+            # old (give Copilot/humans time to finish writing).
+            NOW=$(date -u +%s)
+            AGE=$(( NOW - LATEST_REV_TS ))
+
+            if [ "$LATEST_REV_TS" -gt "$LATEST_BOT_TS" ] && [ "$AGE" -gt 180 ]; then
+              echo "PR #$NUM has unaddressed feedback (reviewer=$LATEST_REVIEWER_ACTIVITY bot=$LATEST_BOT_ACTIVITY) — dispatching address workflow."
+              gh workflow run ai-address-feedback.yml \
+                --repo "$REPO_FULL" \
+                --field pr_number="$NUM" \
+                --field reason="watchdog: feedback unaddressed since $LATEST_REVIEWER_ACTIVITY" || true
+            else
+              echo "PR #$NUM has no new unaddressed feedback."
+            fi
+          done
+
+      - name: Bot-triggered runs gated as `action_required`
+        run: |
+          set -euo pipefail
+          # When Copilot (or any bot) triggers a workflow, GitHub may gate
+          # it behind `action_required`. The watchdog detects these and
+          # surfaces them to the owner (we cannot auto-approve via the API
+          # without a PAT, but we can at least not let them rot silently).
+          RUNS=$(gh api "repos/$REPO_FULL/actions/runs?status=action_required&per_page=20" \
+            --jq '.workflow_runs[] | {id, name, event, actor: .actor.login, created_at, html_url}')
+
+          if [ -z "$RUNS" ]; then
+            echo "No action_required runs."
+            exit 0
+          fi
+
+          echo "$RUNS" | jq -c '.' | while read -r run; do
+            ID=$(echo "$run" | jq -r '.id')
+            NAME=$(echo "$run" | jq -r '.name')
+            ACTOR=$(echo "$run" | jq -r '.actor')
+            URL=$(echo "$run" | jq -r '.html_url')
+            CREATED=$(echo "$run" | jq -r '.created_at')
+            echo "action_required: $NAME id=$ID actor=$ACTOR url=$URL created=$CREATED"
+
+            # Try to approve (will no-op if the token lacks permission).
+            gh api "repos/$REPO_FULL/actions/runs/$ID/approve" --method POST 2>/dev/null \
+              && echo "Approved run $ID" \
+              || echo "Could not auto-approve run $ID (needs a PAT or human click)."
+          done
