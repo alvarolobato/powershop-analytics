@@ -179,23 +179,46 @@ jobs:
             - Performance optimizations requiring benchmarks
             - Changes that would significantly alter the PR scope
 
-            ## For each review comment:
-            1. If you fix it: apply the fix in the code, then reply to the comment thread using
-               `gh api ... /pulls/comments/{id}/replies -f body="..."` describing exactly what changed.
-            2. If you skip it: reply explaining WHY briefly.
-            3. Keep replies concise (1–3 sentences).
+            ## For each review comment — MANDATORY reply protocol:
+            Every single comment MUST get a reply. No exceptions.
+
+            1. If you fix it:
+               - Apply the fix in code
+               - Reply to the EXACT comment thread using:
+                 ```bash
+                 gh api repos/${{ github.repository }}/pulls/comments/{COMMENT_ID}/replies \
+                   --method POST -f body="Fixed: <one sentence describing the exact change made>"
+                 ```
+               - The reply must reference the fix specifically (file, line, what changed)
+
+            2. If you skip it:
+               - Reply explaining WHY in one sentence:
+                 ```bash
+                 gh api repos/${{ github.repository }}/pulls/comments/{COMMENT_ID}/replies \
+                   --method POST -f body="Skipped: <reason — e.g. 'architectural change outside this PR scope'>"
+                 ```
+
+            3. For top-level review summaries (not inline):
+               - Use issue comments: `gh api repos/${{ github.repository }}/issues/{PR_NUMBER}/comments --method POST -f body="..."`
+
+            IMPORTANT: Use the comment's `id` field (not `pull_request_review_id`) for replies.
+            Verify each reply was posted by checking the response — do not silently fail.
 
             ## Commit strategy
             - Stage all fixes and commit with: `fix: address review feedback (round N)`
             - Push to the PR branch
-            - If CI was failing, your commit must fix it. Verify locally by running the same commands.
+            - If CI was failing, your commit must fix it. Run the same commands CI runs.
 
             ## Completion
-            - If you successfully addressed or replied to every thread, post a single summary comment
-              on the PR listing: threads addressed, threads skipped (with reasons), files touched,
-              tests run.
+            - After replying to all threads and committing fixes, re-request Copilot review:
+              ```bash
+              gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
+                --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+              ```
+            - Post a single summary comment listing: threads addressed (with fix), threads skipped
+              (with reason), files touched, tests run.
             - If you could NOT address something and need human input, post a comment tagging
-              @alvarolobato and explain precisely what is blocking you. Then exit normally — do NOT
+              @alvarolobato explaining precisely what is blocking you. Then exit normally — do NOT
               error out, so the workflow records the blocked state.
 
             ## Important
