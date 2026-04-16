@@ -6,6 +6,8 @@ before each test to ensure the schema is present.
 
 Test 5 verifies that a create_run failure does not abort the sync pipeline
 by patching all sync functions and monitoring helpers with mock objects.
+The monitoring function patches use create=True so this test passes even
+before PR etl-run-history is merged (those functions do not exist yet).
 """
 
 from __future__ import annotations
@@ -185,7 +187,11 @@ _SYNC_TARGETS = [
 
 class TestMonitoringResilience:
     def test_monitoring_failure_does_not_abort_sync(self):
-        """If create_run raises, run_full_sync continues and syncs all tables."""
+        """If create_run raises, run_full_sync continues and syncs all tables.
+
+        Monitoring function patches use create=True so this test runs even before
+        the etl-run-history PR is merged (functions may not exist yet on the module).
+        """
         conn_4d = MagicMock()
         conn_pg = MagicMock()
         called: list[str] = []
@@ -203,11 +209,17 @@ class TestMonitoringResilience:
             stack.enter_context(patch(f"{_WM_MODULE}.get_watermark", return_value=None))
             stack.enter_context(patch(f"{_WM_MODULE}.set_watermark"))
             stack.enter_context(
-                patch(f"{_WM_MODULE}.create_run", side_effect=RuntimeError("db down"))
+                patch(
+                    f"{_WM_MODULE}.create_run",
+                    side_effect=RuntimeError("db down"),
+                    create=True,
+                )
             )
-            stack.enter_context(patch(f"{_WM_MODULE}.finish_run"))
-            stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync"))
-            stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
+            stack.enter_context(patch(f"{_WM_MODULE}.finish_run", create=True))
+            stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync", create=True))
+            stack.enter_context(
+                patch("etl.main._get_rows_total", return_value=None, create=True)
+            )
             stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
             from etl.main import run_full_sync
             run_full_sync(conn_4d, conn_pg)
