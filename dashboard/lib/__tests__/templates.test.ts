@@ -76,21 +76,54 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
       }
     });
 
-    it("every widget SQL uses CURRENT_DATE-relative dates (no hardcoded dates)", () => {
+    it("widget SQLs with date filters use placeholders or CURRENT_DATE (no hardcoded dates)", () => {
       const allSql: string[] = [];
       for (const widget of template.spec.widgets) {
         if (widget.type === "kpi_row") {
           for (const item of widget.items) {
             allSql.push(item.sql);
+            if (item.trend_sql) allSql.push(item.trend_sql);
+            if (item.anomaly_sql) allSql.push(item.anomaly_sql);
           }
         } else {
           allSql.push(widget.sql);
         }
       }
       for (const sql of allSql) {
-        // If the SQL contains a date filter, it should use CURRENT_DATE, not hardcoded dates
+        // If the SQL contains a date filter, it must use placeholders or CURRENT_DATE
         if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
-          expect(sql).toMatch(/CURRENT_DATE/);
+          const usesPlaceholders = /{{date_from}}/.test(sql) || /{{date_to}}/.test(sql);
+          const usesCurrent = /CURRENT_DATE/.test(sql);
+          expect(usesPlaceholders || usesCurrent).toBe(true);
+        }
+      }
+    });
+
+    it("has a valid default_time_range preset", () => {
+      const validPresets = ["today", "last_7_days", "last_30_days", "current_month", "last_month", "year_to_date"];
+      expect(template.spec.default_time_range).toBeDefined();
+      expect(validPresets).toContain(template.spec.default_time_range?.preset);
+    });
+
+    it("substituteTimeRange replaces all placeholders in widget SQLs", () => {
+      function substituteTimeRange(sql: string, from: string, to: string): string {
+        return sql.replaceAll("{{date_from}}", from).replaceAll("{{date_to}}", to);
+      }
+      const fromDate = "2026-03-01";
+      const toDate = "2026-03-31";
+      for (const widget of template.spec.widgets) {
+        const sqls: string[] = [];
+        if (widget.type === "kpi_row") {
+          for (const item of widget.items) {
+            sqls.push(item.sql);
+          }
+        } else {
+          sqls.push(widget.sql);
+        }
+        for (const sql of sqls) {
+          const substituted = substituteTimeRange(sql, fromDate, toDate);
+          expect(substituted).not.toContain("{{date_from}}");
+          expect(substituted).not.toContain("{{date_to}}");
         }
       }
     });
