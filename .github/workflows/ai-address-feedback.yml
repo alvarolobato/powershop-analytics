@@ -59,9 +59,12 @@ jobs:
               PR="${{ github.event.pull_request.number }}"
               STATE="${{ github.event.review.state }}"
               ACTOR="${{ github.event.review.user.login }}"
-              # Avoid loops: never react to our own bot's reviews.
-              if [ "$ACTOR" = "claude[bot]" ] || [ "$ACTOR" = "github-actions[bot]" ]; then
-                REASON="ignored self-review from $ACTOR"
+              # Avoid loops: ignore github-actions[bot] reviews (system noise).
+              # claude[bot] reviews ARE actionable — the AI PR reviewer posts them.
+              # Loop protection: the COMMENT_COUNT check below skips reviews with
+              # zero inline comments (which happens when re-review finds nothing new).
+              if [ "$ACTOR" = "github-actions[bot]" ]; then
+                REASON="ignored system review from $ACTOR"
               # Run when a human requests changes OR any reviewer (including bots
               # like Copilot) leaves a review that contains inline comments.
               # Copilot always submits as COMMENTED even when it leaves inline
