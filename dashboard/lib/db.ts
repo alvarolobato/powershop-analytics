@@ -192,7 +192,7 @@ export interface QueryResult {
  * @throws QueryTimeoutError if the query exceeds 30 seconds
  * @throws ConnectionError if the database is unreachable
  */
-export async function query(sql: string): Promise<QueryResult> {
+export async function query(sql: string, values?: unknown[]): Promise<QueryResult> {
   validateReadOnly(sql);
 
   const pool = getPool();
@@ -200,6 +200,7 @@ export async function query(sql: string): Promise<QueryResult> {
   try {
     const result = await pool.query({
       text: sql,
+      values,
       rowMode: "array",
     });
 

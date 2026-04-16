@@ -52,13 +52,23 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const rawPage = searchParams.get("page") ?? String(DEFAULT_PAGE);
   const rawPerPage = searchParams.get("per_page") ?? String(DEFAULT_PER_PAGE);
 
-  const page = parseInt(rawPage, 10);
-  const perPage = parseInt(rawPerPage, 10);
-
-  if (!Number.isInteger(page) || page < 1 || isNaN(page)) {
+  // Strict integer validation: reject partial inputs like "1abc" or "5.5"
+  if (!/^\d+$/.test(rawPage)) {
     return NextResponse.json(
       formatApiError(
-        "El parametro page debe ser un entero positivo.",
+        "El parámetro page debe ser un entero positivo.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+  const page = parseInt(rawPage, 10);
+  if (page < 1) {
+    return NextResponse.json(
+      formatApiError(
+        "El parámetro page debe ser un entero positivo.",
         "VALIDATION",
         undefined,
         requestId,
@@ -67,15 +77,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  if (
-    !Number.isInteger(perPage) ||
-    perPage < 1 ||
-    perPage > MAX_PER_PAGE ||
-    isNaN(perPage)
-  ) {
+  if (!/^\d+$/.test(rawPerPage)) {
     return NextResponse.json(
       formatApiError(
-        "El parametro per_page debe ser un entero entre 1 y " + MAX_PER_PAGE + ".",
+        "El parámetro per_page debe ser un entero entre 1 y " + MAX_PER_PAGE + ".",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+  const perPage = parseInt(rawPerPage, 10);
+  if (perPage < 1 || perPage > MAX_PER_PAGE) {
+    return NextResponse.json(
+      formatApiError(
+        "El parámetro per_page debe ser un entero entre 1 y " + MAX_PER_PAGE + ".",
         "VALIDATION",
         undefined,
         requestId,
@@ -97,7 +114,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
               total_tables, tables_ok, tables_failed, total_rows_synced, trigger
        FROM etl_sync_runs
        ORDER BY started_at DESC
-       LIMIT ${perPage} OFFSET ${offset}`,
+       LIMIT $1 OFFSET $2`,
+      [perPage, offset],
     );
 
     const runs: EtlSyncRun[] = runsResult.rows.map((row) => ({
@@ -125,7 +143,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error(`[${requestId}] Error listing ETL runs:`, err);
     return NextResponse.json(
       formatApiError(
-        "No se pudieron cargar los runs de ETL. Intentalo de nuevo.",
+        "No se pudieron cargar los runs de ETL. Inténtalo de nuevo.",
         "DB_QUERY",
         sanitizeErrorMessage(err),
         requestId,

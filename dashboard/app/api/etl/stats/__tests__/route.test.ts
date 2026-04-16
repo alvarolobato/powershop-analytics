@@ -12,10 +12,11 @@ const mockQuery = vi.mocked(query);
 
 // Mock returns data in DESC order (newest first), matching ORDER BY started_at DESC.
 // The route reverses rows to oldest-first for charting.
+// Columns: started_at, duration_ms, status, total_rows_synced (merged single query).
 const MOCK_TREND_ROWS_DESC = [
-  [new Date("2026-04-11T02:00:00Z"), null, "failed"],      // newest
-  [new Date("2026-04-10T02:00:00Z"), 3600000, "success"],
-  [new Date("2026-04-09T02:00:00Z"), 3500000, "success"],   // oldest
+  [new Date("2026-04-11T02:00:00Z"), null, "failed", null],       // newest
+  [new Date("2026-04-10T02:00:00Z"), 3600000, "success", 46000],
+  [new Date("2026-04-09T02:00:00Z"), 3500000, "success", 45000],   // oldest
 ];
 
 const MOCK_TABLE_DUR_ROWS = [
@@ -27,7 +28,6 @@ const MOCK_RATE_ROWS = [[30, 28, 1, 1]];
 
 function setupMocks() {
   mockQuery
-    .mockResolvedValueOnce({ rows: MOCK_TREND_ROWS_DESC, columns: [] })
     .mockResolvedValueOnce({ rows: MOCK_TREND_ROWS_DESC, columns: [] })
     .mockResolvedValueOnce({ rows: MOCK_TABLE_DUR_ROWS, columns: [] })
     .mockResolvedValueOnce({ rows: MOCK_RATE_ROWS, columns: [] });
@@ -58,11 +58,24 @@ describe("GET /api/etl/stats", () => {
     const body = await res.json();
 
     expect(body.duration_trend).toHaveLength(3);
-    // Oldest first after reverse()
+    // Oldest first after reverse
     expect(body.duration_trend[0].started_at).toBe("2026-04-09T02:00:00.000Z");
     expect(body.duration_trend[2].started_at).toBe("2026-04-11T02:00:00.000Z");
     expect(body.duration_trend[2].duration_ms).toBeNull();
     expect(body.duration_trend[2].status).toBe("failed");
+  });
+
+  it("rows_trend reversed to oldest-first for charting", async () => {
+    setupMocks();
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(body.rows_trend).toHaveLength(3);
+    // Oldest first after reverse
+    expect(body.rows_trend[0].started_at).toBe("2026-04-09T02:00:00.000Z");
+    expect(body.rows_trend[2].started_at).toBe("2026-04-11T02:00:00.000Z");
+    expect(body.rows_trend[2].total_rows_synced).toBeNull();
   });
 
   it("success_rate has correct totals", async () => {
@@ -90,7 +103,6 @@ describe("GET /api/etl/stats", () => {
 
   it("handles empty runs table gracefully", async () => {
     mockQuery
-      .mockResolvedValueOnce({ rows: [], columns: [] })
       .mockResolvedValueOnce({ rows: [], columns: [] })
       .mockResolvedValueOnce({ rows: [], columns: [] })
       .mockResolvedValueOnce({ rows: [[0, 0, 0, 0]], columns: [] });

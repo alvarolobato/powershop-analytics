@@ -76,6 +76,20 @@ describe("GET /api/etl/runs", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 for partial-numeric page (e.g. 1abc)", async () => {
+    const res = await GET(makeRequest({ page: "1abc" }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("VALIDATION");
+  });
+
+  it("returns 400 for decimal per_page (e.g. 5.5)", async () => {
+    const res = await GET(makeRequest({ per_page: "5.5" }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("VALIDATION");
+  });
+
   it("returns 400 for per_page greater than 100", async () => {
     const res = await GET(makeRequest({ per_page: "101" }));
     expect(res.status).toBe(400);

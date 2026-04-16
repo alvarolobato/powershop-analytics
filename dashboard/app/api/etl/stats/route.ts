@@ -23,6 +23,7 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import { toIsoOrNull } from "@/lib/format";
 
 export interface DurationTrendPoint {
   started_at: string;
@@ -57,52 +58,38 @@ export interface EtlStatsResponse {
 
 const LAST_N_RUNS = 30;
 
-function toIsoOrNull(v: unknown): string | null {
-  if (v == null) return null;
-  return v instanceof Date ? v.toISOString() : String(v);
-}
-
 export async function GET(): Promise<NextResponse> {
   const requestId = generateRequestId();
 
   try {
-    // Duration and status trend for last N runs
+    // Fetch started_at, duration_ms, status, total_rows_synced in a single query.
+    // Reverse to oldest-first for charting (spread to avoid mutating the result array).
     const trendResult = await query(
-      `SELECT started_at, duration_ms, status
+      `SELECT started_at, duration_ms, status, total_rows_synced
        FROM etl_sync_runs
        ORDER BY started_at DESC
        LIMIT ${LAST_N_RUNS}`,
     );
 
-    // Reverse so oldest-first for charting
-    const durationTrend: DurationTrendPoint[] = trendResult.rows
-      .reverse()
-      .map((row) => ({
-        started_at: toIsoOrNull(row[0]) ?? "",
-        duration_ms: row[1] != null ? Number(row[1]) : null,
-        status: String(row[2]),
-      }));
+    const reversedRows = [...trendResult.rows].reverse();
 
-    // Rows synced trend for last N runs
-    const rowsResult = await query(
-      `SELECT started_at, total_rows_synced
-       FROM etl_sync_runs
-       ORDER BY started_at DESC
-       LIMIT ${LAST_N_RUNS}`,
-    );
+    const durationTrend: DurationTrendPoint[] = reversedRows.map((row) => ({
+      started_at: toIsoOrNull(row[0]) ?? "",
+      duration_ms: row[1] != null ? Number(row[1]) : null,
+      status: String(row[2]),
+    }));
 
-    const rowsTrend: RowsTrendPoint[] = rowsResult.rows
-      .reverse()
-      .map((row) => ({
-        started_at: toIsoOrNull(row[0]) ?? "",
-        total_rows_synced: row[1] != null ? Number(row[1]) : null,
-      }));
+    const rowsTrend: RowsTrendPoint[] = reversedRows.map((row) => ({
+      started_at: toIsoOrNull(row[0]) ?? "",
+      total_rows_synced: row[3] != null ? Number(row[3]) : null,
+    }));
 
-    // Per-table average and last duration (across last N runs)
+    // Per-table average and last duration (across last N runs).
+    // COALESCE ensures avg_duration_ms is 0 (not null) when all durations are null.
     const tableDurResult = await query(
       `SELECT
            t.table_name,
-           ROUND(AVG(t.duration_ms))::bigint AS avg_duration_ms,
+           COALESCE(ROUND(AVG(t.duration_ms))::bigint, 0) AS avg_duration_ms,
            (SELECT t2.duration_ms
             FROM etl_sync_run_tables t2
             JOIN etl_sync_runs r2 ON r2.id = t2.run_id
@@ -159,7 +146,7 @@ export async function GET(): Promise<NextResponse> {
     console.error("[" + requestId + "] Error loading ETL stats:", err);
     return NextResponse.json(
       formatApiError(
-        "No se pudieron cargar las estadisticas de ETL. Intentalo de nuevo.",
+        "No se pudieron cargar las estadísticas de ETL. Inténtalo de nuevo.",
         "DB_QUERY",
         sanitizeErrorMessage(err),
         requestId,

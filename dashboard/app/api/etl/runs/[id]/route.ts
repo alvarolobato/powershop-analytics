@@ -19,6 +19,7 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import { toIsoOrNull } from "@/lib/format";
 import type { EtlSyncRun } from "../route";
 
 export interface EtlSyncRunTable {
@@ -49,11 +50,6 @@ function parseId(raw: string): number | null {
   return n;
 }
 
-function toIsoOrNull(v: unknown): string | null {
-  if (v == null) return null;
-  return v instanceof Date ? v.toISOString() : String(v);
-}
-
 export async function GET(
   _request: NextRequest,
   context: RouteContext,
@@ -65,7 +61,7 @@ export async function GET(
   if (id === null) {
     return NextResponse.json(
       formatApiError(
-        "El identificador del run no es valido (debe ser un entero positivo).",
+        "El identificador del run no es válido (debe ser un entero positivo).",
         "VALIDATION",
         undefined,
         requestId,
@@ -79,7 +75,8 @@ export async function GET(
       `SELECT id, started_at, finished_at, duration_ms, status,
               total_tables, tables_ok, tables_failed, total_rows_synced, trigger
        FROM etl_sync_runs
-       WHERE id = ${id}`,
+       WHERE id = $1`,
+      [id],
     );
 
     if (runResult.rows.length === 0) {
@@ -87,7 +84,7 @@ export async function GET(
         formatApiError(
           "Run de ETL no encontrado.",
           "NOT_FOUND",
-          "No existe ningun run con ID " + id + ".",
+          "No existe ningún run con ID " + id + ".",
           requestId,
         ),
         { status: 404 },
@@ -113,8 +110,9 @@ export async function GET(
               rows_synced, rows_total_after, sync_method,
               watermark_from, watermark_to, error_msg
        FROM etl_sync_run_tables
-       WHERE run_id = ${id}
+       WHERE run_id = $1
        ORDER BY started_at ASC`,
+      [id],
     );
 
     const tables: EtlSyncRunTable[] = tablesResult.rows.map((row) => ({
@@ -138,7 +136,7 @@ export async function GET(
     console.error("[" + requestId + "] Error loading ETL run " + id + ":", err);
     return NextResponse.json(
       formatApiError(
-        "No se pudo cargar el run de ETL. Intentalo de nuevo.",
+        "No se pudo cargar el run de ETL. Inténtalo de nuevo.",
         "DB_QUERY",
         sanitizeErrorMessage(err),
         requestId,
