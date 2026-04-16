@@ -68,8 +68,8 @@ FROM (
   SELECT COALESCE(SUM("total_si"), 0) AS ventas
   FROM "public"."ps_ventas"
   WHERE "entrada" = true AND "tienda" <> '99'
-    AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}' - INTERVAL '1 year'
-    AND "fecha_creacion" <= '{{date_to}}' - INTERVAL '1 year'
+    AND "fecha_creacion" BETWEEN '{{date_from}}'::date - INTERVAL '1 year'
+      AND '{{date_to}}'::date - INTERVAL '1 year'
 ) prev`,
           format: "percent",
         },
