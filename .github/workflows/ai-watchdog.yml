@@ -100,6 +100,73 @@ jobs:
             fi
           done
 
+      - name: Stalled ai-ready-for-review PRs
+        run: |
+          set -euo pipefail
+          # PRs labelled `ai-ready-for-review` should trigger a pr-review run.
+          # The label is added by address-feedback (or ai-worker) via explicit
+          # workflow_dispatch — BUT if that dispatch silently failed (rate limit,
+          # OIDC error, etc.), the label will just sit there forever.
+          # This step detects those and re-dispatches after 20 minutes.
+          STALL_THRESHOLD_SECS=1200  # 20 minutes
+
+          PRS=$(gh pr list --repo "$REPO_FULL" --state open \
+            --label "ai-ready-for-review" \
+            --json number,title,labels --limit 50)
+
+          echo "$PRS" | jq -c '.[]' | while read -r pr; do
+            NUM=$(echo "$pr" | jq -r '.number')
+            TITLE=$(echo "$pr" | jq -r '.title')
+            LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
+
+            # Skip blocked PRs — let the auto-retry step handle them.
+            if echo ",$LABELS," | grep -q ",ai-blocked,"; then
+              echo "PR #$NUM: has ai-blocked, skipping ai-ready-for-review check"
+              continue
+            fi
+
+            # Find when ai-ready-for-review label was last added by looking at
+            # pr-review runs triggered for this PR in the last 30 minutes.
+            NOW=$(date -u +%s)
+            RECENT_RUNS=$(gh api \
+              "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=10" \
+              --jq ".workflow_runs[] |
+                select(
+                  .head_branch != null and
+                  (.created_at | fromdateiso8601) > ($NOW - 1800)
+                ) | .inputs // {} | .pr_number // \"\"" 2>/dev/null || echo "")
+
+            # Check if there's a recent run for this PR number
+            if echo "$RECENT_RUNS" | grep -qx "$NUM"; then
+              echo "PR #$NUM: pr-review already dispatched recently — skipping"
+              continue
+            fi
+
+            # No recent pr-review run. Check the label timeline to see if label
+            # was added >20 minutes ago.
+            LABEL_ADDED_AT=$(gh api "repos/$REPO_FULL/issues/$NUM/events" \
+              --paginate \
+              --jq '[.[] | select(.event == "labeled" and .label.name == "ai-ready-for-review")] | last | .created_at // empty' \
+              2>/dev/null || echo "")
+
+            if [ -z "$LABEL_ADDED_AT" ]; then
+              echo "PR #$NUM: ai-ready-for-review label found but no timeline entry — dispatching review"
+            else
+              LABEL_TS=$(date -u -d "$LABEL_ADDED_AT" +%s 2>/dev/null || echo 0)
+              AGE=$(( NOW - LABEL_TS ))
+              if [ "$AGE" -lt "$STALL_THRESHOLD_SECS" ]; then
+                echo "PR #$NUM: ai-ready-for-review added ${AGE}s ago — too soon (min ${STALL_THRESHOLD_SECS}s), skipping"
+                continue
+              fi
+              echo "PR #$NUM: ai-ready-for-review stalled for ${AGE}s — dispatching pr-review"
+            fi
+
+            gh workflow run ai-pr-review.yml \
+              --repo "$REPO_FULL" \
+              --field pr_number="$NUM" || true
+            echo "Dispatched pr-review for stalled PR #$NUM ($TITLE)"
+          done
+
       - name: Open PRs with unaddressed reviewer feedback
         run: |
           set -euo pipefail
@@ -125,6 +192,9 @@ jobs:
             fi
 
             # Latest non-self reviewer activity (review submission or inline comment)
+            # Includes copilot-pull-request-reviewer[bot] — we DO want to address
+            # Copilot's inline comments. Excludes claude[bot] (the address-feedback
+            # agent itself) and github-actions[bot] (workflow status noise).
             LATEST_REVIEWER_ACTIVITY=$(
               {
                 gh api "repos/$REPO_FULL/pulls/$NUM/reviews" --paginate \
