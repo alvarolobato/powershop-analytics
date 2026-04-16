@@ -126,6 +126,28 @@ export const GlossaryItemSchema = z.object({
   definition: z.string().min(1),
 }).strict();
 
+
+/**
+ * The set of preset date range IDs supported by the DateRangePicker.
+ * Used in `default_time_range` to specify which preset a dashboard opens with.
+ */
+export const TimeRangePresetSchema = z.enum([
+  "today",
+  "last_7_days",
+  "last_30_days",
+  "current_month",
+  "last_month",
+  "year_to_date",
+]);
+
+/**
+ * Specifies the default time range a dashboard opens with.
+ * When absent the frontend falls back to `last_30_days`.
+ */
+const DefaultTimeRangeSchema = z.object({
+  preset: TimeRangePresetSchema,
+}).strict();
+
 export const DashboardSpecSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1).optional(),
@@ -139,6 +161,12 @@ export const DashboardSpecSchema = z.object({
    * this field render unchanged.
    */
   glossary: z.array(GlossaryItemSchema).min(1).optional(),
+  /**
+   * Optional default time range preset. The dashboard view page initialises
+   * the date-range picker to this preset. Falls back to `last_30_days` when
+   * absent. Backwards compatible: existing stored dashboards validate unchanged.
+   */
+  default_time_range: DefaultTimeRangeSchema.optional(),
 }).strict();
 
 // ---------------------------------------------------------------------------
@@ -157,6 +185,8 @@ export type NumberWidget = z.infer<typeof NumberWidgetSchema>;
 export type Widget = z.infer<typeof WidgetSchema>;
 export type DashboardSection = z.infer<typeof DashboardSectionSchema>;
 export type GlossaryItem = z.infer<typeof GlossaryItemSchema>;
+export type TimeRangePreset = z.infer<typeof TimeRangePresetSchema>;
+export type DefaultTimeRange = z.infer<typeof DefaultTimeRangeSchema>;
 export type DashboardSpec = z.infer<typeof DashboardSpecSchema>;
 
 // ---------------------------------------------------------------------------
