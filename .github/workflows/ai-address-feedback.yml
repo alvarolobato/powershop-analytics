@@ -64,12 +64,17 @@ jobs:
               PR="${{ github.event.pull_request.number }}"
               STATE="${{ github.event.review.state }}"
               ACTOR="${{ github.event.review.user.login }}"
-              # Avoid loops: ignore github-actions[bot] reviews (system noise).
-              # claude[bot] reviews ARE actionable — the AI PR reviewer posts them.
-              # Loop protection: the COMMENT_COUNT check below skips reviews with
-              # zero inline comments (which happens when re-review finds nothing new).
-              if [ "$ACTOR" = "github-actions[bot]" ]; then
-                REASON="ignored system review from $ACTOR"
+              # Bot reviews (claude[bot], copilot, github-actions[bot]) do NOT
+              # trigger address-feedback via this event path. Reason: GitHub does
+              # not mint OIDC tokens (id-token) for pull_request_review events
+              # from bot actors, so the claude_code_oauth_token exchange fails.
+              # Instead:
+              #   - claude[bot] reviews: pr-review explicitly dispatches address-feedback
+              #   - copilot reviews: watchdog detects and dispatches after 3 min
+              #   - github-actions[bot]: ignored (system noise)
+              # Human reviews still trigger directly here (humans get id-token).
+              if [[ "$ACTOR" == *"[bot]" ]]; then
+                REASON="ignored bot review from $ACTOR (handled via explicit dispatch or watchdog)"
               # Run when a human requests changes OR any reviewer (including bots
               # like Copilot) leaves a review that contains inline comments.
               # Copilot always submits as COMMENTED even when it leaves inline

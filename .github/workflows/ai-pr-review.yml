@@ -101,6 +101,21 @@ jobs:
 
             ${{ steps.guidelines.outputs.CONTENT }}
 
+      - name: Dispatch address-feedback
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Explicitly dispatch address-feedback so it runs via workflow_dispatch,
+          # which gets full OIDC permissions. We cannot rely on pull_request_review
+          # events from claude[bot] to trigger it — GitHub withholds id-token for
+          # bot-actor review events, causing the OIDC exchange to fail.
+          gh workflow run ai-address-feedback.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="$PR_NUMBER" \
+            --field reason="post-review: addressing claude[bot] review comments" || true
+          echo "Dispatched address-feedback for PR #$PR_NUMBER."
+
       - name: Handle failure
         if: failure()
         env:
