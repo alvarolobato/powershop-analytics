@@ -60,12 +60,8 @@ describe("presetToDateRange", () => {
   it("year_to_date on Jan 1 returns single-day range", () => {
     vi.setSystemTime(new Date(2026, 0, 1, 12, 0, 0));
     const r = presetToDateRange("year_to_date");
-    expect(r.from.getFullYear()).toBe(2026);
-    expect(r.from.getMonth()).toBe(0);
-    expect(r.from.getDate()).toBe(1);
-    expect(r.to.getFullYear()).toBe(2026);
-    expect(r.to.getMonth()).toBe(0);
-    expect(r.to.getDate()).toBe(1);
+    expect(r.from).toEqual(new Date(2026, 0, 1, 0, 0, 0, 0));
+    expect(r.to).toEqual(new Date(2026, 0, 1, 23, 59, 59, 999));
   });
 });
 
