@@ -2,12 +2,13 @@
 
 Tests 1-4 use a real PostgreSQL connection (pg_conn fixture from conftest.py).
 The etl_sync_runs and etl_sync_run_tables tables are created from init.sql
-before each test to ensure the schema is present.
+before each test to ensure the schema is present. Tests 1-4 are skipped
+automatically when the monitoring helpers are not yet available (PR #164).
 
 Test 5 verifies that a create_run failure does not abort the sync pipeline
 by patching all sync functions and monitoring helpers with mock objects.
 The monitoring function patches use create=True so this test passes even
-before PR etl-run-history is merged (those functions do not exist yet).
+before PR #164 is merged (those functions do not exist yet).
 """
 
 from __future__ import annotations
@@ -18,9 +19,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from etl.db import postgres
 
 _SCHEMA_SQL = Path(__file__).parent.parent / "schema" / "init.sql"
+
+_MONITORING_AVAILABLE = hasattr(postgres, "create_run")
+
+_requires_monitoring = pytest.mark.skipif(
+    not _MONITORING_AVAILABLE,
+    reason="monitoring helpers not yet merged (PR #164)",
+)
 
 
 def _apply_monitoring_schema(conn) -> None:
@@ -32,11 +42,13 @@ def _apply_monitoring_schema(conn) -> None:
 
 def _cleanup_run(conn, run_id: int) -> None:
     with conn.cursor() as cur:
+        cur.execute("DELETE FROM etl_sync_run_tables WHERE run_id = %s", (run_id,))
         cur.execute("DELETE FROM etl_sync_runs WHERE id = %s", (run_id,))
     conn.commit()
 
 
 class TestCreateRun:
+    @_requires_monitoring
     def test_create_run_returns_id(self, pg_conn):
         """create_run returns a positive integer run_id and inserts a running row."""
         _apply_monitoring_schema(pg_conn)
@@ -58,6 +70,7 @@ class TestCreateRun:
 
 
 class TestFinishRun:
+    @_requires_monitoring
     def test_finish_run_updates_status(self, pg_conn):
         """finish_run sets status, finished_at, and duration_ms in the DB."""
         _apply_monitoring_schema(pg_conn)
@@ -83,7 +96,7 @@ class TestFinishRun:
             status, finished_at, duration_ms, tables_ok, tables_failed, total_rows = row
             assert status == "success"
             assert finished_at is not None
-            assert duration_ms is not None and duration_ms >= 0
+            assert duration_ms is not None and duration_ms >= 10
             assert tables_ok == 22
             assert tables_failed == 0
             assert total_rows == 50000
@@ -92,6 +105,7 @@ class TestFinishRun:
 
 
 class TestRecordTableSync:
+    @_requires_monitoring
     def test_record_table_sync_inserts_row(self, pg_conn):
         """record_table_sync inserts one row with correct fields in etl_sync_run_tables."""
         _apply_monitoring_schema(pg_conn)
@@ -130,6 +144,7 @@ class TestRecordTableSync:
 
 
 class TestPartialStatus:
+    @_requires_monitoring
     def test_failed_run_sets_partial_status(self, pg_conn):
         """When tables_failed > 0, finish_run persists status=partial in the DB."""
         _apply_monitoring_schema(pg_conn)
@@ -158,6 +173,7 @@ class TestPartialStatus:
             _cleanup_run(pg_conn, run_id)
 
 
+# Keep in sync with run_full_sync in etl/main.py
 _WM_MODULE = "etl.db.postgres"
 _SYNC_TARGETS = [
     "etl.sync.articulos.sync_articulos",
@@ -184,13 +200,15 @@ _SYNC_TARGETS = [
     "etl.sync.stock.sync_traspasos",
 ]
 
+_SYNC_FUNCTION_NAMES = {t.rsplit(".", 1)[-1] for t in _SYNC_TARGETS}
+
 
 class TestMonitoringResilience:
     def test_monitoring_failure_does_not_abort_sync(self):
         """If create_run raises, run_full_sync continues and syncs all tables.
 
         Monitoring function patches use create=True so this test runs even before
-        the etl-run-history PR is merged (functions may not exist yet on the module).
+        the PR #164 monitoring helpers are merged (functions may not exist yet).
         """
         conn_4d = MagicMock()
         conn_pg = MagicMock()
@@ -226,6 +244,6 @@ class TestMonitoringResilience:
 
             run_full_sync(conn_4d, conn_pg)
 
-        assert "sync_articulos" in called, "sync_articulos was not called"
-        assert "sync_ventas" in called, "sync_ventas was not called"
-        assert "sync_traspasos" in called, "sync_traspasos was not called"
+        assert _SYNC_FUNCTION_NAMES == set(called), (
+            f"Not all sync functions were called. Missing: {_SYNC_FUNCTION_NAMES - set(called)}"
+        )
