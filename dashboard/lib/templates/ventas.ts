@@ -3,7 +3,7 @@
  *
  * KPIs de ventas retail, devoluciones, desglose por tienda, tendencia semanal,
  * formas de pago, margen por tienda, top articulos con margen.
- * All dates are CURRENT_DATE-relative so the dashboard always shows fresh data.
+ * Date ranges are controlled by the dashboard time picker.
  */
 import type { DashboardSpec } from "@/lib/schema";
 
@@ -15,6 +15,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Ventas Retail",
   description,
+  default_time_range: { preset: "current_month" },
   widgets: [
     {
       id: "ventas-kpis",
@@ -26,7 +27,7 @@ export const spec: DashboardSpec = {
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -36,7 +37,7 @@ WHERE "entrada" = true
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
@@ -45,7 +46,7 @@ WHERE "entrada" = true
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -55,7 +56,7 @@ WHERE "entrada" = true
 FROM "public"."ps_ventas"
 WHERE "entrada" = false
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -64,12 +65,12 @@ WHERE "entrada" = false
     {
       id: "ventas-por-tienda",
       type: "bar_chart",
-      title: "Ventas por Tienda (mes actual)",
+      title: "Ventas por Tienda",
       sql: `SELECT "tienda" AS label, SUM("total_si") AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY "tienda"
 ORDER BY value DESC`,
       x: "label",
@@ -78,12 +79,12 @@ ORDER BY value DESC`,
     {
       id: "ventas-tendencia-semanal",
       type: "line_chart",
-      title: "Tendencia Semanal (ultimas 12 semanas)",
+      title: "Tendencia Semanal",
       sql: `SELECT DATE_TRUNC('week', "fecha_creacion") AS x, SUM("total_si") AS y
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= CURRENT_DATE - INTERVAL '12 weeks'
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY DATE_TRUNC('week', "fecha_creacion")
 ORDER BY x`,
       x: "x",
@@ -92,13 +93,13 @@ ORDER BY x`,
     {
       id: "ventas-formas-pago",
       type: "donut_chart",
-      title: "Mix de Formas de Pago (mes actual)",
+      title: "Mix de Formas de Pago",
       sql: `SELECT p."forma" AS label,
        SUM(p."importe_cob") AS value
 FROM "public"."ps_pagos_ventas" p
 WHERE p."entrada" = true
   AND p."tienda" <> '99'
-  AND p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND p."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY p."forma"
 ORDER BY value DESC`,
       x: "label",
@@ -107,7 +108,7 @@ ORDER BY value DESC`,
     {
       id: "ventas-margen-tienda",
       type: "bar_chart",
-      title: "Margen Bruto % por Tienda (mes actual)",
+      title: "Margen Bruto % por Tienda",
       sql: `SELECT lv."tienda" AS label,
        ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
          / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS value
@@ -116,7 +117,7 @@ JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND lv."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY lv."tienda"
 ORDER BY value DESC`,
       x: "label",
@@ -125,7 +126,7 @@ ORDER BY value DESC`,
     {
       id: "ventas-top-articulos",
       type: "table",
-      title: "Top 10 Artículos (mes actual)",
+      title: "Top 10 Artículos",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(lv."unidades") AS "Unidades",
@@ -138,7 +139,7 @@ JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND lv."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY p."ccrefejofacm", p."descripcion"
 ORDER BY "Ventas Netas" DESC
 LIMIT 10`,
