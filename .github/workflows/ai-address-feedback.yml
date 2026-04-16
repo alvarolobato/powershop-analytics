@@ -21,7 +21,12 @@ on:
         default: "manual dispatch"
 
 concurrency:
-  group: ai-address-feedback-${{ github.event.pull_request.number || inputs.pr_number }}
+  # Global group: only one address-feedback session runs at a time across all PRs.
+  # Others queue (cancel-in-progress: false). This prevents rate-limit storms when
+  # multiple PRs are unblocked simultaneously (e.g. after a rate-limit recovery).
+  # Trade-off: PRs are processed serially, not in parallel — acceptable because
+  # each session can take many minutes anyway.
+  group: ai-address-feedback-global
   cancel-in-progress: false
 
 permissions:
@@ -59,9 +64,17 @@ jobs:
               PR="${{ github.event.pull_request.number }}"
               STATE="${{ github.event.review.state }}"
               ACTOR="${{ github.event.review.user.login }}"
-              # Avoid loops: never react to our own bot's reviews.
-              if [ "$ACTOR" = "claude[bot]" ] || [ "$ACTOR" = "github-actions[bot]" ]; then
-                REASON="ignored self-review from $ACTOR"
+              # Bot reviews (claude[bot], copilot, github-actions[bot]) do NOT
+              # trigger address-feedback via this event path. Reason: GitHub does
+              # not mint OIDC tokens (id-token) for pull_request_review events
+              # from bot actors, so the claude_code_oauth_token exchange fails.
+              # Instead:
+              #   - claude[bot] reviews: pr-review explicitly dispatches address-feedback
+              #   - copilot reviews: watchdog detects and dispatches after 3 min
+              #   - github-actions[bot]: ignored (system noise)
+              # Human reviews still trigger directly here (humans get id-token).
+              if [[ "$ACTOR" == *"[bot]" ]]; then
+                REASON="ignored bot review from $ACTOR (handled via explicit dispatch or watchdog)"
               # Run when a human requests changes OR any reviewer (including bots
               # like Copilot) leaves a review that contains inline comments.
               # Copilot always submits as COMMENTED even when it leaves inline
@@ -179,23 +192,46 @@ jobs:
             - Performance optimizations requiring benchmarks
             - Changes that would significantly alter the PR scope
 
-            ## For each review comment:
-            1. If you fix it: apply the fix in the code, then reply to the comment thread using
-               `gh api ... /pulls/comments/{id}/replies -f body="..."` describing exactly what changed.
-            2. If you skip it: reply explaining WHY briefly.
-            3. Keep replies concise (1–3 sentences).
+            ## For each review comment — MANDATORY reply protocol:
+            Every single comment MUST get a reply. No exceptions.
+
+            1. If you fix it:
+               - Apply the fix in code
+               - Reply to the EXACT comment thread using:
+                 ```bash
+                 gh api repos/${{ github.repository }}/pulls/comments/{COMMENT_ID}/replies \
+                   --method POST -f body="Fixed: <one sentence describing the exact change made>"
+                 ```
+               - The reply must reference the fix specifically (file, line, what changed)
+
+            2. If you skip it:
+               - Reply explaining WHY in one sentence:
+                 ```bash
+                 gh api repos/${{ github.repository }}/pulls/comments/{COMMENT_ID}/replies \
+                   --method POST -f body="Skipped: <reason — e.g. 'architectural change outside this PR scope'>"
+                 ```
+
+            3. For top-level review summaries (not inline):
+               - Use issue comments: `gh api repos/${{ github.repository }}/issues/{PR_NUMBER}/comments --method POST -f body="..."`
+
+            IMPORTANT: Use the comment's `id` field (not `pull_request_review_id`) for replies.
+            Verify each reply was posted by checking the response — do not silently fail.
 
             ## Commit strategy
             - Stage all fixes and commit with: `fix: address review feedback (round N)`
             - Push to the PR branch
-            - If CI was failing, your commit must fix it. Verify locally by running the same commands.
+            - If CI was failing, your commit must fix it. Run the same commands CI runs.
 
             ## Completion
-            - If you successfully addressed or replied to every thread, post a single summary comment
-              on the PR listing: threads addressed, threads skipped (with reasons), files touched,
-              tests run.
+            - After replying to all threads and committing fixes, re-request Copilot review:
+              ```bash
+              gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
+                --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+              ```
+            - Post a single summary comment listing: threads addressed (with fix), threads skipped
+              (with reason), files touched, tests run.
             - If you could NOT address something and need human input, post a comment tagging
-              @alvarolobato and explain precisely what is blocking you. Then exit normally — do NOT
+              @alvarolobato explaining precisely what is blocking you. Then exit normally — do NOT
               error out, so the workflow records the blocked state.
 
             ## Important
@@ -204,12 +240,34 @@ jobs:
             - Read-only SQL policy still applies (no INSERT/UPDATE/DELETE in production queries).
             - Stay within this PR's scope — do not pull in unrelated work.
 
+      - name: Signal ready for re-review
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Explicitly dispatch ai-pr-review via workflow_dispatch.
+          # We cannot rely on a label event here: GitHub does not fire webhook
+          # events from GITHUB_TOKEN actions, so a labeled trigger would never
+          # cascade into a new workflow run from automation.
+          # workflow_dispatch via the API IS allowed even from GITHUB_TOKEN.
+          #
+          # Also add the label for visibility (shows state in PR list).
+          # The review cycle self-terminates: if there is nothing left to fix,
+          # the next review will post no new actionable comments and
+          # pull_request_review will not trigger address-feedback again.
+          gh pr edit "${{ needs.resolve.outputs.pr_number }}" --repo "${{ github.repository }}" \
+            --add-label "ai-ready-for-review" || true
+          gh workflow run ai-pr-review.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="${{ needs.resolve.outputs.pr_number }}" || true
+          echo "Dispatched review for PR #${{ needs.resolve.outputs.pr_number }}."
+
       - name: Handle failure
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr comment ${{ needs.resolve.outputs.pr_number }} \
-            --body "❌ @alvarolobato — AI auto-address-feedback failed. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). I will not re-attempt automatically; please inspect and re-trigger via workflow_dispatch if appropriate."
+            --body "❌ AI Address Feedback failed (rate limit or transient error). Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
           gh pr edit ${{ needs.resolve.outputs.pr_number }} \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true

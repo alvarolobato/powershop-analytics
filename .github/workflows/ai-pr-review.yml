@@ -1,10 +1,20 @@
 name: AI PR Review
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    # `synchronize` intentionally omitted — we don't review on every commit.
+    # After address-feedback finishes it adds `ai-ready-for-review`, which
+    # fires the `labeled` event below. This prevents a review storm on every
+    # individual commit pushed during an address-feedback session.
+    types: [opened, reopened, ready_for_review, labeled]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
 
 concurrency:
-  group: ai-pr-review-${{ github.event.pull_request.number }}
+  group: ai-pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: true
 
 permissions:
@@ -16,14 +26,45 @@ permissions:
 jobs:
   review:
     if: >-
-      github.event.pull_request.draft == false &&
-      !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      (
+        github.event_name == 'workflow_dispatch'
+      ) || (
+        github.event.pull_request.draft == false &&
+        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        (
+          github.event.action != 'labeled' ||
+          github.event.label.name == 'ai-ready-for-review'
+        )
+      )
     runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
+      - name: Remove ai-ready-for-review label
+        if: github.event.action == 'labeled' && github.event.label.name == 'ai-ready-for-review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
+            --remove-label "ai-ready-for-review" || true
+
+      - name: Resolve PR ref
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ -n "${{ github.event.pull_request.head.sha }}" ]; then
+            echo "ref=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
+            echo "ref=$SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ steps.resolve.outputs.ref }}
           fetch-depth: 0
 
       - name: Load review guidelines
@@ -40,22 +81,45 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-opus-4-6"
+          allowed_bots: "claude[bot]"
           use_sticky_comment: "true"
           include_fix_links: "true"
           classify_inline_comments: "true"
           prompt: |
-            You are reviewing PR #${{ github.event.pull_request.number }}: "${{ github.event.pull_request.title }}".
+            You are reviewing PR #${{ env.PR_NUMBER }}: "${{ github.event.pull_request.title }}".
 
             Follow the review guidelines below. Post a review with inline comments on the PR.
+
+            After reviewing, also request a Copilot review using:
+            ```bash
+            gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
+              --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+            ```
 
             ---
 
             ${{ steps.guidelines.outputs.CONTENT }}
+
+      - name: Dispatch address-feedback
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Explicitly dispatch address-feedback so it runs via workflow_dispatch,
+          # which gets full OIDC permissions. We cannot rely on pull_request_review
+          # events from claude[bot] to trigger it — GitHub withholds id-token for
+          # bot-actor review events, causing the OIDC exchange to fail.
+          gh workflow run ai-address-feedback.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="$PR_NUMBER" \
+            --field reason="post-review: addressing claude[bot] review comments" || true
+          echo "Dispatched address-feedback for PR #$PR_NUMBER."
 
       - name: Handle failure
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} \
-            --body "⚠️ @alvarolobato — AI PR Review failed on commit ${{ github.event.pull_request.head.sha }}. See the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details. The PR will not auto-review until this is fixed."
+          gh pr comment "$PR_NUMBER" \
+            --body "⚠️ @alvarolobato — AI PR Review failed. See the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details."

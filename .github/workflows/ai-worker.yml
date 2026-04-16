@@ -205,9 +205,9 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ @alvarolobato — AI Planner finished but did not produce a plan (neither \`ai-planned\` nor \`ai-blocked\` was set, and no sub-issues were created). Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Please check the run log and either re-trigger with the \`ai-work\` label or clarify the issue."
+            --body "⚠️ AI Planner finished but did not produce a plan. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Handle plan failure
         if: failure()
@@ -217,9 +217,9 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ @alvarolobato — AI Planner failed. Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Ensure ai-in-progress is cleared on cancel
         if: cancelled()
@@ -229,9 +229,9 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ @alvarolobato — AI Planner was cancelled. Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI Planner was cancelled. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
   # ─────────────────────────────────────────────────────────────────
   # PHASE 2 — IMPLEMENT
@@ -368,6 +368,14 @@ jobs:
             --remove-label "ai-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
+          # Signal the PR is ready for its first review.
+          # Must use explicit workflow_dispatch — GITHUB_TOKEN label events
+          # do not cascade to new workflow runs (loop-prevention by GitHub).
+          gh pr edit "${{ steps.verify.outputs.pr_number }}" \
+            --add-label "ai-ready-for-review" || true
+          gh workflow run ai-pr-review.yml \
+            --repo "${{ github.repository }}" \
+            --field pr_number="${{ steps.verify.outputs.pr_number }}" || true
 
       - name: Handle success (issue closed deliberately)
         if: always() && steps.verify.outputs.outcome == 'issue_closed'
@@ -401,9 +409,9 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ @alvarolobato — AI Worker finished but did NOT create a PR. Marking as \`ai-blocked\`. This usually means the agent either hit its turn limit, got confused about whether the work was already done, or failed to push the branch. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Re-label with \`ai-work\` (after removing \`ai-blocked\`) to retry, or clarify the issue."
+            --body "⚠️ AI Worker finished but did NOT create a PR. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. This usually means the agent hit its turn limit or failed to push the branch. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Handle failure
         if: failure()
@@ -418,9 +426,9 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ @alvarolobato — AI Worker failed.${BRANCH_NOTE} Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Ensure ai-in-progress is cleared on cancel
         if: cancelled()
@@ -430,6 +438,6 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" || true
+            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ @alvarolobato — AI Worker was cancelled. Marking as \`ai-blocked\`. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI Worker was cancelled. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
