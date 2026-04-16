@@ -19,6 +19,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Compras",
   description,
+  default_time_range: { preset: "current_month" },
   widgets: [
     {
       id: "compras-kpis",
@@ -28,21 +29,21 @@ export const spec: DashboardSpec = {
           label: "Pedidos de Compra (mes)",
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_compras"
-WHERE "fecha_pedido" >= DATE_TRUNC('month', CURRENT_DATE)`,
+WHERE "fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
           label: "Proveedores Activos (YTD)",
           sql: `SELECT COUNT(DISTINCT "num_proveedor") AS value
 FROM "public"."ps_compras"
-WHERE "fecha_pedido" >= DATE_TRUNC('year', CURRENT_DATE)`,
+WHERE "fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
           label: "Pedidos Recibidos (mes)",
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_compras"
-WHERE "fecha_recibido" >= DATE_TRUNC('month', CURRENT_DATE)`,
+WHERE "fecha_recibido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
@@ -50,7 +51,7 @@ WHERE "fecha_recibido" >= DATE_TRUNC('month', CURRENT_DATE)`,
           sql: `SELECT COUNT(*) AS value
 FROM "public"."ps_lineas_compras" lc
 JOIN "public"."ps_compras" c ON lc."num_pedido" = c."reg_pedido"
-WHERE c."fecha_pedido" >= DATE_TRUNC('month', CURRENT_DATE)`,
+WHERE c."fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
       ],
@@ -58,12 +59,12 @@ WHERE c."fecha_pedido" >= DATE_TRUNC('month', CURRENT_DATE)`,
     {
       id: "compras-por-proveedor",
       type: "bar_chart",
-      title: "Pedidos por Proveedor (top 10, YTD)",
+      title: "Pedidos por Proveedor (top 10)",
       sql: `SELECT pr."nombre" AS label,
        COUNT(DISTINCT c."reg_pedido") AS value
 FROM "public"."ps_compras" c
 JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
-WHERE c."fecha_pedido" >= DATE_TRUNC('year', CURRENT_DATE)
+WHERE c."fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY pr."nombre"
 ORDER BY value DESC
 LIMIT 10`,
@@ -89,11 +90,11 @@ LIMIT 20`,
     {
       id: "compras-recepciones-recientes",
       type: "table",
-      title: "Recepciones Recientes (ultimos 30 dias)",
+      title: "Recepciones Recientes",
       sql: `SELECT a."reg_albaran" AS "Albaran",
        a."fecha_recibido" AS "Fecha Recibido"
 FROM "public"."ps_albaranes" a
-WHERE a."fecha_recibido" >= CURRENT_DATE - INTERVAL '30 days'
+WHERE a."fecha_recibido" BETWEEN '{{date_from}}' AND '{{date_to}}'
 ORDER BY a."fecha_recibido" DESC
 LIMIT 20`,
     },
@@ -109,7 +110,7 @@ FROM "public"."ps_compras" c
 JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
 LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = c."reg_pedido"
 WHERE c."fecha_recibido" IS NULL
-  AND c."fecha_pedido" >= CURRENT_DATE - INTERVAL '6 months'
+  AND c."fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY c."reg_pedido", pr."nombre", c."fecha_pedido"
 ORDER BY c."fecha_pedido" DESC
 LIMIT 20`,
@@ -117,11 +118,11 @@ LIMIT 20`,
     {
       id: "compras-tendencia-mensual",
       type: "line_chart",
-      title: "Pedidos de Compra Mensuales (ultimos 12 meses)",
+      title: "Pedidos de Compra Mensuales",
       sql: `SELECT DATE_TRUNC('month', c."fecha_pedido") AS x,
        COUNT(DISTINCT c."reg_pedido") AS y
 FROM "public"."ps_compras" c
-WHERE c."fecha_pedido" >= CURRENT_DATE - INTERVAL '12 months'
+WHERE c."fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY DATE_TRUNC('month', c."fecha_pedido")
 ORDER BY x`,
       x: "x",
