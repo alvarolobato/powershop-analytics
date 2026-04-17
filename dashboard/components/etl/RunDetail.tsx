@@ -58,8 +58,8 @@ export function formatDuration(ms: number | null): string {
   return `${s}s`;
 }
 
-export function formatNumber(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
+export function formatNumber(n: number | null): string {
+  if (n === null) return "—";
   return n.toLocaleString("es-ES");
 }
 
@@ -339,7 +339,7 @@ export function RunDetail({ runId }: RunDetailProps) {
       <div className="space-y-4" data-testid="error-state">
         <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
         <p className="text-sm text-red-500 dark:text-red-400" data-testid="error-message">{error ?? "Error al cargar la ejecución"}</p>
-        <button onClick={() => { setLoading(true); void fetchRun(); }} className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle">
+        <button type="button" onClick={() => { setLoading(true); void fetchRun(); }} className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle">
           Reintentar
         </button>
       </div>
