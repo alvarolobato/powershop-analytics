@@ -6,14 +6,12 @@ import type { TableWidget as TableWidgetSpec, GlossaryItem } from "@/lib/schema"
 import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE } from "./types";
 import { applyGlossary } from "@/lib/glossary";
-import type { ComparisonRange } from "@/components/DateRangePicker";
 
 interface TableWidgetProps {
   widget: TableWidgetSpec;
   data: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
-  comparisonRange?: ComparisonRange;
 }
 
 type SortDir = "asc" | "desc";

@@ -63,34 +63,6 @@ describe("prompts", () => {
       expect(prompt).toContain('"definition"');
     });
 
-    it("includes default_time_range in output format", () => {
-      expect(prompt).toContain('"default_time_range"');
-    });
-
-    it("includes rule requiring default_time_range to always be present", () => {
-      expect(prompt).toContain('default_time_range" field MUST always be included');
-    });
-
-    it("includes all 6 valid preset names", () => {
-      expect(prompt).toContain('"today"');
-      expect(prompt).toContain('"last_7_days"');
-      expect(prompt).toContain('"last_30_days"');
-      expect(prompt).toContain('"current_month"');
-      expect(prompt).toContain('"last_month"');
-      expect(prompt).toContain('"year_to_date"');
-    });
-
-    it("includes date placeholder rule with {{date_from}} and {{date_to}}", () => {
-      expect(prompt).toContain("{{date_from}}");
-      expect(prompt).toContain("{{date_to}}");
-    });
-
-    it("includes trend_sql/anomaly_sql exception for date placeholders", () => {
-      expect(prompt).toContain("trend_sql");
-      expect(prompt).toContain("anomaly_sql");
-      expect(prompt).toContain("do NOT use");
-    });
-
     it("includes SQL rules", () => {
       expect(prompt).toContain("SQL Rules");
       expect(prompt).toContain("NEVER use total");
@@ -153,10 +125,6 @@ describe("prompts", () => {
 
     it("includes the glossary field in the output format example", () => {
       expect(prompt).toContain('"glossary"');
-    });
-
-    it("instructs to preserve default_time_range unless user asks to change it", () => {
-      expect(prompt).toContain("Preserve the existing 'default_time_range'");
     });
   });
 });

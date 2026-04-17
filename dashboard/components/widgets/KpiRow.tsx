@@ -5,9 +5,6 @@ import type { KpiRowWidget, GlossaryItem } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { formatValue } from "./format";
 import { applyGlossary } from "@/lib/glossary";
-import type { ComparisonRange } from "@/components/DateRangePicker";
-import { comparisonTypeLabel } from "@/lib/date-params";
-import type { ComparisonType } from "@/lib/date-params";
 
 interface KpiRowProps {
   widget: KpiRowWidget;
@@ -25,7 +22,6 @@ interface KpiRowProps {
   trendData?: (WidgetData | null)[];
   /** Optional glossary entries for contextual tooltips on label text. */
   glossary?: GlossaryItem[];
-  comparisonRange?: ComparisonRange;
   /**
    * Optional anomaly data per KPI item (by index).
    * Each WidgetData should have N rows of single-column numeric values:
@@ -106,10 +102,9 @@ function computeAnomaly(data: WidgetData | null): AnomalyInfo | null {
 interface TrendBadgeProps {
   currentValue: number | null;
   comparisonValue: number | null;
-  comparisonType?: ComparisonType;
 }
 
-function TrendBadge({ currentValue, comparisonValue, comparisonType }: TrendBadgeProps) {
+function TrendBadge({ currentValue, comparisonValue }: TrendBadgeProps) {
   if (
     currentValue === null ||
     comparisonValue === null ||
@@ -122,9 +117,6 @@ function TrendBadge({ currentValue, comparisonValue, comparisonType }: TrendBadg
     ((currentValue - comparisonValue) / Math.abs(comparisonValue)) * 100;
   const isPositive = pctChange >= 0;
   const formatted = `${isPositive ? "+" : ""}${pctChange.toFixed(1)}%`;
-  const label = comparisonType
-    ? comparisonTypeLabel(comparisonType)
-    : "vs. período anterior";
 
   return (
     <span
@@ -134,8 +126,7 @@ function TrendBadge({ currentValue, comparisonValue, comparisonType }: TrendBadg
           ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
           : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400")
       }
-      title={label}
-      data-testid="trend-badge"
+      title={`vs. período anterior`}
     >
       {/* Arrow icon */}
       <svg
@@ -161,9 +152,6 @@ function TrendBadge({ currentValue, comparisonValue, comparisonType }: TrendBadg
         )}
       </svg>
       {formatted}
-      {comparisonType && (
-        <span className="ml-1 font-normal opacity-70">{label}</span>
-      )}
     </span>
   );
 }
@@ -209,7 +197,7 @@ function AnomalyBadge({ anomaly }: AnomalyBadgeProps) {
 // Component
 // ---------------------------------------------------------------------------
 
-export function KpiRow({ widget, data, trendData, glossary, comparisonRange, anomalyData }: KpiRowProps) {
+export function KpiRow({ widget, data, trendData, glossary, anomalyData }: KpiRowProps) {
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       {widget.items.map((item, idx) => {
@@ -257,7 +245,6 @@ export function KpiRow({ widget, data, trendData, glossary, comparisonRange, ano
                         ? comparisonNum
                         : null
                     }
-                    comparisonType={comparisonRange?.type}
                   />
                 )}
                 <AnomalyBadge anomaly={anomaly} />

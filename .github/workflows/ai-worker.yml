@@ -15,19 +15,14 @@ on:
         options:
           - plan
           - implement
-      use_global_queue:
-        description: "Join per-issue serial queue (watchdog must pass true). Leave false for urgent manual runs."
-        required: false
-        type: boolean
-        default: false
 
-# issues labeled: one worker per issue. workflow_dispatch + use_global_queue=true: same.
-# workflow_dispatch + use_global_queue=false (default): own slot (no wait on issue lock).
+# Don't cancel in-progress workers. GitHub fires a `labeled` event for each
+# label added in rapid succession (e.g. triage applying component/priority labels),
+# which previously cancelled an already-running plan/implement and left the
+# issue stuck in `ai-in-progress`. We'd rather run duplicates and let the
+# inner steps no-op than leave issues orphaned.
 concurrency:
-  group: >-
-    ${{ github.event_name == 'issues' && format('ai-worker-{0}', github.event.issue.number)
-        || (inputs.use_global_queue == true && format('ai-worker-{0}', inputs.issue_number)
-            || format('ai-worker-manual-{0}', github.run_id)) }}
+  group: ai-worker-${{ github.event.issue.number || inputs.issue_number }}
   cancel-in-progress: false
 
 permissions:
@@ -79,7 +74,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 40 --permission-mode bypassPermissions"
+          claude_args: "--max-turns 40"
           prompt: |
             You are the AI Planner. Your job is to deeply analyse issue #${{ env.ISSUE_NUMBER }},
             produce a comprehensive implementation plan, and break it into actionable sub-tasks.
@@ -279,7 +274,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 120 --permission-mode bypassPermissions"
+          claude_args: "--max-turns 120"
           allowed_bots: "claude[bot],github-actions[bot]"
           prompt: |
             You are the AI Worker. Implement exactly what sub-task issue #${{ env.ISSUE_NUMBER }} describes — nothing more.

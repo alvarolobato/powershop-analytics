@@ -6,14 +6,12 @@ import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE } from "./types";
 import { formatValue } from "./format";
 import { applyGlossary } from "@/lib/glossary";
-import type { ComparisonRange } from "@/components/DateRangePicker";
 
 interface NumberWidgetProps {
   widget: NumberWidgetSpec;
   data: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
-  comparisonRange?: ComparisonRange;
 }
 
 export function NumberWidget({ widget, data, glossary }: NumberWidgetProps) {

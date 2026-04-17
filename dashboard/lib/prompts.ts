@@ -54,12 +54,12 @@ Each item in a kpi_row can also include:
   "items": [
     {
       "label": "Ventas Netas",
-      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN '{{date_from}}' AND '{{date_to}}'",
+      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
       "format": "currency",
       "prefix": "€",
       "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
     },
-    {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN '{{date_from}}' AND '{{date_to}}'", "format": "number"}
+    {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "number"}
   ]
 }
 \`\`\`
@@ -69,7 +69,7 @@ Each item in a kpi_row can also include:
   "id": "w2",
   "type": "bar_chart",
   "title": "Ventas por Tienda",
-  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN '{{date_from}}' AND '{{date_to}}' GROUP BY tienda ORDER BY value DESC",
+  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY tienda ORDER BY value DESC",
   "x": "label",
   "y": "value"
 }
@@ -111,7 +111,7 @@ Each item in a kpi_row can also include:
   "id": "w6",
   "type": "number",
   "title": "Ticket Medio",
-  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN '{{date_from}}' AND '{{date_to}}'",
+  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
   "format": "currency",
   "prefix": "€"
 }
@@ -140,8 +140,7 @@ The JSON must conform to this structure:
     // Each entry: { "term": "Ventas Netas", "definition": "Importe de ventas sin IVA. No incluye devoluciones (entrada = false)." }
     // Use plain Spanish definitions derived from the business rules
     // Terms should match labels or titles used in the dashboard widgets
-  ],
-  "default_time_range": { "preset": "last_30_days" }
+  ]
 }
 
 Rules:
@@ -152,8 +151,6 @@ Rules:
 - End with a detail table if relevant
 - All titles and labels MUST be in Spanish
 - The "glossary" field MUST always be included with 5-10 key terms
-- The "default_time_range" field MUST always be included — choose the preset that best matches the dashboard's typical use (e.g. "current_month" for sales dashboards, "last_30_days" for operational dashboards)
-- Valid presets for "default_time_range": "today", "last_7_days", "last_30_days", "current_month", "last_month", "year_to_date"
 `;
 
 // ─── SQL rules ───────────────────────────────────────────────────────────────
@@ -177,7 +174,6 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 12. Table sql can return any columns — they become table headers
 13. Use NULLIF to avoid division by zero
 14. NEVER use CROSSTAB or pivot — return flat grouped data
-15. Use \`{{date_from}}\` and \`{{date_to}}\` placeholders for time-bounded queries instead of hardcoded \`CURRENT_DATE\` expressions. Example: \`WHERE fecha_creacion BETWEEN '{{date_from}}' AND '{{date_to}}'\`. The frontend substitutes these with the dashboard's selected date range at runtime. Exception: do NOT use \`{{date_from}}\`/\`{{date_to}}\` inside \`trend_sql\` or \`anomaly_sql\` — those use relative date arithmetic (period offsets) that must remain dynamic.
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -257,10 +253,6 @@ export function buildModifyPrompt(currentSpec: string): string {
     "2. Add new entries for any new business terms introduced by new widgets.",
     "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
     "4. The 'glossary' field MUST always be present in your response.",
-    "",
-    "## Default time range preservation rule",
-    "",
-    "Preserve the existing 'default_time_range' unless the user explicitly asks to change the default time range.",
     "",
     "## Current Dashboard Spec",
     "",
