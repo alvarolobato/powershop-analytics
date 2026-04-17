@@ -110,7 +110,7 @@ FROM "public"."ps_compras" c
 JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
 LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = c."reg_pedido"
 WHERE c."fecha_recibido" IS NULL
-  AND c."fecha_pedido" >= :curr_from AND c."fecha_pedido" <= :curr_to
+  AND c."fecha_pedido" >= CURRENT_DATE - INTERVAL '6 months'
 GROUP BY c."reg_pedido", pr."nombre", c."fecha_pedido"
 ORDER BY c."fecha_pedido" DESC
 LIMIT 20`,

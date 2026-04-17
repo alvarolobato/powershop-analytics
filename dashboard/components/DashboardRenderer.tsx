@@ -300,7 +300,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(item.sql, signal);
+                  const data = await fetchWidgetData(buildMainSql(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -320,7 +320,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(item.trend_sql, signal);
+                  return await fetchWidgetData(buildMainSql(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -330,7 +330,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(item.anomaly_sql, signal);
+                  return await fetchWidgetData(buildMainSql(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -349,7 +349,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         } else {
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
           const [data, comparisonData] = await Promise.all([
-            fetchWidgetData(widget.sql, signal),
+            fetchWidgetData(buildMainSql(widget.sql), signal),
             compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
           ]);
           if (!signal.aborted) {
@@ -381,7 +381,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         retryAbortMap.current.delete(idx);
       }
     },
-    [buildComparisonSql],
+    [buildComparisonSql, buildMainSql],
   );
 
   useEffect(() => {

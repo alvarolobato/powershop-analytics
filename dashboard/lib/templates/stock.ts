@@ -131,7 +131,7 @@ WHERE s."stock" > 0
     JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
     WHERE v."entrada" = true
       AND lv."tienda" <> '99'
-      AND lv."fecha_creacion" >= :curr_from AND lv."fecha_creacion" <= :curr_to
+      AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days'
   )
 GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
 HAVING SUM(s."stock") > 10
