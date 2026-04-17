@@ -43,6 +43,9 @@ labels:
     - "comp-infra"
     - "comp-docs"
 
+  # Human handoff — set by workflows when automated review budget is exhausted
+  human_handoff: "ai-awaiting-owner"
+
   # AI Factory — phased PR review (see ai-worker / ai-pr-review / ai-address-feedback)
   review_phases:
     - "ai-phase-copilot"   # Awaiting / in Copilot rounds (before Opus)
@@ -53,6 +56,7 @@ labels:
     - "ai-o-after-2"       # Addressed after Opus pass 2 (terminal for AI review)
     - "ai-legacy-opus-1"   # Legacy PRs: first Opus pass recorded
     - "ai-legacy-opus-2"   # Legacy PRs: second Opus pass — further Opus runs skipped
+    - "ai-awaiting-owner"  # Automation done — human should review and merge (see docs/ai-factory.md)
 
   # PR size
   sizes:
