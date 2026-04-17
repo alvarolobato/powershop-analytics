@@ -44,8 +44,9 @@ jobs:
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
-      - name: Remove ai-ready-for-review label
-        if: github.event.action == 'labeled' && github.event.label.name == 'ai-ready-for-review'
+      # Most runs are workflow_dispatch; the label would otherwise linger and the
+      # watchdog would keep re-dispatching this workflow.
+      - name: Clear ai-ready-for-review (best-effort)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -64,7 +65,7 @@ jobs:
             SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
             echo "ref=$SHA" >> "$GITHUB_OUTPUT"
           fi
-          TITLE=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq -r '.title')
+          TITLE=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.title')
           echo "title<<TITLE_EOF" >> "$GITHUB_OUTPUT"
           echo "$TITLE" >> "$GITHUB_OUTPUT"
           echo "TITLE_EOF" >> "$GITHUB_OUTPUT"
@@ -129,6 +130,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh pr edit "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" \
+            --remove-label "ai-ready-for-review" \
+            --remove-label "ai-auto-retry" || true
           gh pr comment "${{ env.PR_NUMBER }}" \
             --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. Merge or continue manually."
 
