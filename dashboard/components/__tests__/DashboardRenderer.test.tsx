@@ -4,6 +4,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import "../widgets/__tests__/setup";
 import { DashboardRenderer } from "../DashboardRenderer";
 import type { DashboardSpec } from "@/lib/schema";
+import type { DateRange } from "../DateRangePicker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -518,5 +519,147 @@ describe("DashboardRenderer", () => {
 
     // Should still render without crashing; valid widget eventually loads
     expect(screen.getByText("Panel con IDs Inválidos")).toBeInTheDocument();
+  });
+
+  describe("date token substitution (buildMainSql)", () => {
+    const dateRange: DateRange = {
+      from: new Date("2026-03-01T00:00:00.000Z"),
+      to: new Date("2026-03-31T00:00:00.000Z"),
+    };
+
+    const tokenSpec: DashboardSpec = {
+      title: "Token Test",
+      widgets: [
+        {
+          type: "number",
+          title: "Ventas",
+          sql: "SELECT SUM(total) FROM ps_ventas WHERE fecha >= :curr_from AND fecha <= :curr_to",
+          format: "currency",
+        },
+      ],
+    };
+
+    it("substitutes :curr_from and :curr_to tokens when dateRange is provided", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<DashboardRenderer spec={tokenSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.sql).toContain("'2026-03-01'");
+      expect(body.sql).toContain("'2026-03-31'");
+      expect(body.sql).not.toContain(":curr_from");
+      expect(body.sql).not.toContain(":curr_to");
+    });
+
+    it("passes SQL unchanged when no dateRange is provided (backwards compatible)", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      render(<DashboardRenderer spec={tokenSpec} />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.sql).toContain(":curr_from");
+      expect(body.sql).toContain(":curr_to");
+    });
+
+    it("substitutes tokens in kpi_row item SQL when dateRange is provided", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[42]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const kpiTokenSpec: DashboardSpec = {
+        title: "KPI Token Test",
+        widgets: [
+          {
+            type: "kpi_row",
+            items: [
+              {
+                label: "Ventas",
+                sql: "SELECT SUM(total) FROM ps_ventas WHERE fecha >= :curr_from AND fecha <= :curr_to",
+                format: "currency",
+              },
+            ],
+          },
+        ],
+      };
+
+      render(<DashboardRenderer spec={kpiTokenSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.sql).toContain("'2026-03-01'");
+      expect(body.sql).toContain("'2026-03-31'");
+      expect(body.sql).not.toContain(":curr_from");
+      expect(body.sql).not.toContain(":curr_to");
+    });
+
+    it("SQL without tokens passes through unchanged when dateRange is provided", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[500]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const noTokenSpec: DashboardSpec = {
+        title: "No Token Test",
+        widgets: [
+          {
+            type: "number",
+            title: "Static",
+            sql: "SELECT SUM(total) FROM ps_ventas",
+            format: "number",
+          },
+        ],
+      };
+
+      render(<DashboardRenderer spec={noTokenSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.sql).toBe("SELECT SUM(total) FROM ps_ventas");
+    });
+
+    it("refetches with substituted SQL when dateRange changes", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const { rerender } = render(
+        <DashboardRenderer spec={tokenSpec} dateRange={dateRange} />,
+      );
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const callsAfterFirst = fetchMock.mock.calls.length;
+
+      const newDateRange: DateRange = {
+        from: new Date("2026-04-01T00:00:00.000Z"),
+        to: new Date("2026-04-30T00:00:00.000Z"),
+      };
+
+      rerender(<DashboardRenderer spec={tokenSpec} dateRange={newDateRange} />);
+
+      await waitFor(() => {
+        expect(fetchMock.mock.calls.length).toBeGreaterThan(callsAfterFirst);
+      });
+
+      const lastBody = JSON.parse(
+        fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1].body,
+      );
+      expect(lastBody.sql).toContain("'2026-04-01'");
+      expect(lastBody.sql).toContain("'2026-04-30'");
+    });
   });
 });
