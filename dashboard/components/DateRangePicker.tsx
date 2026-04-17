@@ -11,9 +11,24 @@ export interface DateRange {
   to: Date;
 }
 
+export type ComparisonType =
+  | "none"
+  | "previous_period"
+  | "previous_month"
+  | "previous_quarter"
+  | "previous_year"
+  | "yoy"
+  | "custom";
+
+export interface ComparisonRange {
+  type: ComparisonType;
+  from: Date;
+  to: Date;
+}
+
 export interface DateRangePickerProps {
   value: DateRange;
-  onChange: (range: DateRange) => void;
+  onChange: (range: { primary: DateRange; comparison?: ComparisonRange }) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +110,79 @@ function formatDisplayRange(range: DateRange): string {
 }
 
 // ---------------------------------------------------------------------------
+// computeComparisonRange
+// ---------------------------------------------------------------------------
+
+export function computeComparisonRange(
+  primary: DateRange,
+  type: ComparisonType,
+): { from: Date; to: Date } | null {
+  if (type === "none" || type === "custom") return null;
+
+  const pFrom = primary.from;
+  const pTo = primary.to;
+
+  switch (type) {
+    case "previous_period": {
+      const durationMs = pTo.getTime() - pFrom.getTime();
+      const compTo = new Date(pFrom.getTime() - 1);
+      const compFrom = new Date(compTo.getTime() - durationMs);
+      return { from: compFrom, to: compTo };
+    }
+    case "previous_month": {
+      const y = pFrom.getFullYear();
+      const m = pFrom.getMonth();
+      const prevMonth = m === 0 ? 11 : m - 1;
+      const prevYear = m === 0 ? y - 1 : y;
+      return {
+        from: new Date(prevYear, prevMonth, 1, 0, 0, 0, 0),
+        to: new Date(prevYear, prevMonth + 1, 0, 23, 59, 59, 999),
+      };
+    }
+    case "previous_quarter": {
+      const y = pFrom.getFullYear();
+      const m = pFrom.getMonth();
+      const currentQ = Math.floor(m / 3);
+      const prevQ = currentQ === 0 ? 3 : currentQ - 1;
+      const prevYear = currentQ === 0 ? y - 1 : y;
+      const fromMonth = prevQ * 3;
+      return {
+        from: new Date(prevYear, fromMonth, 1, 0, 0, 0, 0),
+        to: new Date(prevYear, fromMonth + 3, 0, 23, 59, 59, 999),
+      };
+    }
+    case "previous_year": {
+      const prevYear = pFrom.getFullYear() - 1;
+      return {
+        from: new Date(prevYear, 0, 1, 0, 0, 0, 0),
+        to: new Date(prevYear, 11, 31, 23, 59, 59, 999),
+      };
+    }
+    case "yoy": {
+      const fromYoY = new Date(pFrom);
+      fromYoY.setFullYear(fromYoY.getFullYear() - 1);
+      const toYoY = new Date(pTo);
+      toYoY.setFullYear(toYoY.getFullYear() - 1);
+      return { from: fromYoY, to: toYoY };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Comparison labels
+// ---------------------------------------------------------------------------
+
+const COMPARISON_LABELS: Record<ComparisonType, string> = {
+  none: "Sin comparación",
+  previous_period: "Período anterior",
+  previous_month: "Mes anterior",
+  previous_quarter: "Trimestre anterior",
+  previous_year: "Año anterior (completo)",
+  yoy: "Año sobre año (YoY)",
+  custom: "Personalizado",
+};
+
+// ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
@@ -114,6 +202,9 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
+  const [comparisonType, setComparisonType] = useState<ComparisonType>("none");
+  const [compCustomFrom, setCompCustomFrom] = useState("");
+  const [compCustomTo, setCompCustomTo] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -153,8 +244,31 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     setCustomTo(toDateInputValue(value.to));
   }, [value]);
 
+  function buildPayload(
+    primary: DateRange,
+    cType: ComparisonType,
+    cCustomFrom: string,
+    cCustomTo: string,
+  ): { primary: DateRange; comparison?: ComparisonRange } {
+    if (cType === "none") return { primary };
+
+    if (cType === "custom") {
+      const from = new Date(cCustomFrom + "T00:00:00.000");
+      const to = new Date(cCustomTo + "T23:59:59.999");
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
+        return { primary, comparison: { type: "custom", from, to } };
+      }
+      return { primary };
+    }
+
+    const computed = computeComparisonRange(primary, cType);
+    if (!computed) return { primary };
+    return { primary, comparison: { type: cType, ...computed } };
+  }
+
   function applyPreset(preset: Preset) {
-    onChange(preset.range());
+    const primary = preset.range();
+    onChange(buildPayload(primary, comparisonType, compCustomFrom, compCustomTo));
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -164,11 +278,27 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     // Use T23:59:59.999 for consistency with endOfDay() used by presets
     const to = new Date(customTo + "T23:59:59.999");
     if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
-      onChange({ from, to });
+      const primary = { from, to };
+      onChange(buildPayload(primary, comparisonType, compCustomFrom, compCustomTo));
       setOpen(false);
       triggerRef.current?.focus();
     }
   }
+
+  function handleComparisonTypeChange(cType: ComparisonType) {
+    setComparisonType(cType);
+    if (cType !== "custom") {
+      onChange(buildPayload(value, cType, compCustomFrom, compCustomTo));
+    }
+  }
+
+  const comparisonHint =
+    comparisonType !== "none" && comparisonType !== "custom"
+      ? computeComparisonRange(value, comparisonType)
+      : null;
+
+  const isComparisonActive = comparisonType !== "none";
+
 
   return (
     <div className="relative" ref={containerRef} data-testid="date-range-picker">
@@ -199,6 +329,14 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         </svg>
         <span className="hidden sm:inline">{formatDisplayRange(value)}</span>
         <span className="sm:hidden">Fechas</span>
+        {isComparisonActive && (
+          <span
+            data-testid="vs-badge"
+            className="inline-flex items-center rounded bg-tremor-brand/10 dark:bg-dark-tremor-brand/10 px-1.5 py-0.5 text-xs font-semibold text-tremor-brand dark:text-dark-tremor-brand"
+          >
+            vs
+          </span>
+        )}
       </button>
 
       {/* Dropdown panel */}
@@ -206,7 +344,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         <div
           role="dialog"
           aria-label="Selector de rango de fechas"
-          className="absolute left-0 z-50 mt-2 w-72 rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background shadow-xl"
+          className="absolute left-0 z-50 mt-2 w-80 rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background shadow-xl"
         >
           {/* Presets */}
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
@@ -226,7 +364,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           </div>
 
           {/* Custom range */}
-          <div className="p-3 space-y-2">
+          <div className="p-3 space-y-2 border-b border-tremor-border dark:border-dark-tremor-border">
             <p className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
               Rango personalizado
             </p>
@@ -261,6 +399,84 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             >
               Aplicar
             </button>
+          </div>
+
+          {/* Comparison period */}
+          <div className="p-3 space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+              Período de comparación
+            </p>
+            <select
+              data-testid="comparison-type-select"
+              value={comparisonType}
+              onChange={(e) =>
+                handleComparisonTypeChange(e.target.value as ComparisonType)
+              }
+              className="w-full rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background-subtle px-2 py-1.5 text-sm text-tremor-content dark:text-dark-tremor-content focus:outline-none focus:ring-2 focus:ring-tremor-brand dark:focus:ring-dark-tremor-brand"
+            >
+              {(Object.keys(COMPARISON_LABELS) as ComparisonType[]).map(
+                (key) => (
+                  <option key={key} value={key}>
+                    {COMPARISON_LABELS[key]}
+                  </option>
+                ),
+              )}
+            </select>
+
+            {comparisonHint && (
+              <p
+                data-testid="comparison-hint"
+                className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle"
+              >
+                {formatDisplayRange(comparisonHint)}
+              </p>
+            )}
+
+            {comparisonType === "custom" && (
+              <div className="flex flex-col gap-2">
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                    Comp. desde
+                  </span>
+                  <input
+                    type="date"
+                    data-testid="comp-custom-from"
+                    value={compCustomFrom}
+                    onChange={(e) => setCompCustomFrom(e.target.value)}
+                    className="rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background-subtle px-2 py-1.5 text-sm text-tremor-content dark:text-dark-tremor-content focus:outline-none focus:ring-2 focus:ring-tremor-brand dark:focus:ring-dark-tremor-brand"
+                  />
+                </label>
+                <label className="flex flex-col gap-0.5">
+                  <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                    Comp. hasta
+                  </span>
+                  <input
+                    type="date"
+                    data-testid="comp-custom-to"
+                    value={compCustomTo}
+                    onChange={(e) => setCompCustomTo(e.target.value)}
+                    className="rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background-subtle px-2 py-1.5 text-sm text-tremor-content dark:text-dark-tremor-content focus:outline-none focus:ring-2 focus:ring-tremor-brand dark:focus:ring-dark-tremor-brand"
+                  />
+                </label>
+                <button
+                  type="button"
+                  data-testid="apply-comparison-btn"
+                  onClick={() =>
+                    onChange(
+                      buildPayload(
+                        value,
+                        "custom",
+                        compCustomFrom,
+                        compCustomTo,
+                      ),
+                    )
+                  }
+                  className="w-full rounded-lg bg-tremor-brand dark:bg-dark-tremor-brand px-3 py-2 text-sm font-medium text-tremor-brand-inverted dark:text-dark-tremor-brand-inverted hover:bg-tremor-brand-emphasis dark:hover:bg-dark-tremor-brand-emphasis transition-colors"
+                >
+                  Aplicar comparación
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

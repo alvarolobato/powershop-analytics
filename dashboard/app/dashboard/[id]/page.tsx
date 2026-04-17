@@ -106,8 +106,8 @@ export default function ViewDashboard() {
   // depends on the widget SQL containing appropriate date expressions.
   // In a future iteration, widgets with a dateColumn hint could use
   // injectDateRange() to automatically apply the range client-side.
-  const handleDateRangeChange = useCallback((range: DateRange) => {
-    setDateRange(range);
+  const handleDateRangeChange = useCallback(({ primary }: { primary: DateRange; comparison?: import("@/components/DateRangePicker").ComparisonRange }) => {
+    setDateRange(primary);
     setRefreshKey((k) => k + 1);
   }, []);
 
