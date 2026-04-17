@@ -145,6 +145,15 @@ jobs:
           ref: ${{ needs.resolve.outputs.head_ref }}
           fetch-depth: 0
 
+      - name: Capture initial HEAD
+        id: initial_head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(gh api "repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}" --jq '.head.sha')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "Initial HEAD: $SHA"
+
       - name: Announce start
         env:
           GH_TOKEN: ${{ github.token }}
@@ -240,8 +249,28 @@ jobs:
             - Read-only SQL policy still applies (no INSERT/UPDATE/DELETE in production queries).
             - Stay within this PR's scope — do not pull in unrelated work.
 
-      - name: Signal ready for re-review
+      - name: Check if changes were pushed
+        id: check_changes
         if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Compare current remote HEAD with the SHA we captured at checkout.
+          # If unchanged, address-feedback had nothing to fix — dispatching
+          # another pr-review would loop forever (pr-review → address-feedback
+          # → pr-review with no changes). Terminate the cycle instead.
+          CURRENT_SHA=$(gh api "repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}" --jq '.head.sha')
+          INITIAL_SHA="${{ steps.initial_head.outputs.sha }}"
+          if [ "$CURRENT_SHA" = "$INITIAL_SHA" ]; then
+            echo "No commits pushed — cycle is converged. Skipping re-review dispatch."
+            echo "pushed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA) — will re-dispatch review."
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Signal ready for re-review
+        if: success() && steps.check_changes.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -250,17 +279,24 @@ jobs:
           # events from GITHUB_TOKEN actions, so a labeled trigger would never
           # cascade into a new workflow run from automation.
           # workflow_dispatch via the API IS allowed even from GITHUB_TOKEN.
-          #
-          # Also add the label for visibility (shows state in PR list).
-          # The review cycle self-terminates: if there is nothing left to fix,
-          # the next review will post no new actionable comments and
-          # pull_request_review will not trigger address-feedback again.
           gh pr edit "${{ needs.resolve.outputs.pr_number }}" --repo "${{ github.repository }}" \
             --add-label "ai-ready-for-review" || true
           gh workflow run ai-pr-review.yml \
             --repo "${{ github.repository }}" \
             --field pr_number="${{ needs.resolve.outputs.pr_number }}" || true
           echo "Dispatched review for PR #${{ needs.resolve.outputs.pr_number }}."
+
+      - name: Mark review cycle converged
+        if: success() && steps.check_changes.outputs.pushed == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Make sure ai-ready-for-review is removed so the watchdog's
+          # "Stalled ai-ready-for-review" step doesn't re-dispatch pr-review.
+          gh pr edit "${{ needs.resolve.outputs.pr_number }}" --repo "${{ github.repository }}" \
+            --remove-label "ai-ready-for-review" || true
+          gh pr comment "${{ needs.resolve.outputs.pr_number }}" \
+            --body "✅ Review cycle converged — no new changes required. PR is ready for human merge decision." || true
 
       - name: Handle failure
         if: failure()

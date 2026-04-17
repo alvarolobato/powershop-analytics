@@ -53,13 +53,13 @@ jobs:
             AGE=$(( NOW - UPDATED_TS ))
 
             if [ "$AGE" -ge "$STUCK_THRESHOLD_SECS" ]; then
-              echo "Issue #$NUM ($TITLE) stuck for ${AGE}s — marking ai-blocked"
+              echo "Issue #$NUM ($TITLE) stuck for ${AGE}s — marking ai-blocked + ai-auto-retry"
               gh issue edit "$NUM" --repo "$REPO_FULL" \
                 --remove-label "ai-in-progress" || true
               gh issue edit "$NUM" --repo "$REPO_FULL" \
-                --add-label "ai-blocked" || true
+                --add-label "ai-blocked" --add-label "ai-auto-retry" || true
               gh issue comment "$NUM" --repo "$REPO_FULL" \
-                --body "⚠️ @$OWNER_HANDLE — AI Factory watchdog: this issue has been \`ai-in-progress\` for over an hour without progress. Marking as \`ai-blocked\`. This usually means the worker was cancelled, hit a silent failure, or was gated by GitHub's bot-actor policy. See the [Actions tab](${{ github.server_url }}/${{ github.repository }}/actions) for recent worker runs. Remove \`ai-blocked\` and re-add \`ai-work\` to retry." || true
+                --body "⚠️ AI Factory watchdog: this issue has been \`ai-in-progress\` for over an hour without progress. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             fi
           done
 
@@ -93,10 +93,11 @@ jobs:
               --json number --jq 'length')
 
             if [ "${PR_COUNT:-0}" = "0" ]; then
-              echo "Orphan sub-task #$NUM ($TITLE) has no PR and no active label — re-queuing."
-              gh issue edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" || true
+              echo "Orphan sub-task #$NUM ($TITLE) has no PR and no active label — re-queuing with ai-auto-retry."
+              gh issue edit "$NUM" --repo "$REPO_FULL" \
+                --add-label "ai-blocked" --add-label "ai-auto-retry" || true
               gh issue comment "$NUM" --repo "$REPO_FULL" \
-                --body "⚠️ @$OWNER_HANDLE — AI Factory watchdog: this sub-task has \`ai-task\` but no PR, no \`ai-in-progress\`, and no \`ai-work\`. The worker likely reported success without actually creating a PR. Marking as \`ai-blocked\`. Remove \`ai-blocked\` and add \`ai-work\` to retry, or close if already covered by another PR." || true
+                --body "⚠️ AI Factory watchdog: this sub-task has \`ai-task\` but no PR, no \`ai-in-progress\`, and no \`ai-work\`. The worker likely reported success without actually creating a PR. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             fi
           done
 
@@ -108,7 +109,9 @@ jobs:
           # workflow_dispatch — BUT if that dispatch silently failed (rate limit,
           # OIDC error, etc.), the label will just sit there forever.
           # This step detects those and re-dispatches after 20 minutes.
+          # Max 5 re-dispatches per PR to prevent infinite loops.
           STALL_THRESHOLD_SECS=1200  # 20 minutes
+          MAX_STALL_RETRIES=5
 
           PRS=$(gh pr list --repo "$REPO_FULL" --state open \
             --label "ai-ready-for-review" \
@@ -161,9 +164,28 @@ jobs:
               echo "PR #$NUM: ai-ready-for-review stalled for ${AGE}s — dispatching pr-review"
             fi
 
+            # Count watchdog re-dispatches for this PR by counting the
+            # "stalled" comment markers we post below. If >= MAX_STALL_RETRIES,
+            # escalate instead of dispatching again.
+            STALL_RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+              --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("🔁 Watchdog: re-dispatched pr-review")))]  | length' \
+              2>/dev/null || echo "0")
+
+            if [ "$STALL_RETRY_COUNT" -ge "$MAX_STALL_RETRIES" ]; then
+              echo "PR #$NUM: hit MAX_STALL_RETRIES ($MAX_STALL_RETRIES) — escalating."
+              gh pr edit "$NUM" --repo "$REPO_FULL" --remove-label "ai-ready-for-review" || true
+              gh pr edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" || true
+              gh pr comment "$NUM" --repo "$REPO_FULL" \
+                --body "🚨 @$OWNER_HANDLE — pr-review has been stalled for this PR after $MAX_STALL_RETRIES watchdog re-dispatch attempts. Removed \`ai-ready-for-review\`, added \`ai-blocked\`. Please investigate." || true
+              continue
+            fi
+
             gh workflow run ai-pr-review.yml \
               --repo "$REPO_FULL" \
               --field pr_number="$NUM" || true
+            gh pr comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔁 Watchdog: re-dispatched pr-review (stall attempt $(( STALL_RETRY_COUNT + 1 )) of $MAX_STALL_RETRIES) — label has been sitting without a review run. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             echo "Dispatched pr-review for stalled PR #$NUM ($TITLE)"
           done
 
@@ -253,11 +275,12 @@ jobs:
 
           PRS=$(gh pr list --repo "$REPO_FULL" \
             --state open --label "ai-blocked,ai-auto-retry" \
-            --json number,title --limit 50)
+            --json number,title,labels --limit 50)
 
           echo "$PRS" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
             TITLE=$(echo "$row" | jq -r '.title')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
 
             # Fetch failure comments and extract count + timestamp of last one.
             FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
@@ -294,15 +317,33 @@ jobs:
               continue
             fi
 
-            echo "Retrying address-feedback for PR #$NUM — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
+            # Decide which workflow to retry: if the PR has ai-ready-for-review,
+            # the failure was from pr-review (it adds that label in its failure
+            # handler). Otherwise, assume it was address-feedback.
+            if echo ",$LABELS," | grep -q ",ai-ready-for-review,"; then
+              RETRY_WORKFLOW="ai-pr-review.yml"
+              RETRY_LABEL_DESC="pr-review"
+            else
+              RETRY_WORKFLOW="ai-address-feedback.yml"
+              RETRY_LABEL_DESC="address-feedback"
+            fi
+
+            echo "Retrying $RETRY_LABEL_DESC for PR #$NUM — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
             gh pr edit "$NUM" --repo "$REPO_FULL" \
               --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
             gh pr comment "$NUM" --repo "$REPO_FULL" \
-              --body "🔄 Watchdog: auto-retrying address-feedback (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES)." || true
-            gh workflow run ai-address-feedback.yml \
-              --repo "$REPO_FULL" \
-              --field pr_number="$NUM" \
-              --field reason="watchdog auto-retry after transient failure" || true
+              --body "🔄 Watchdog: auto-retrying $RETRY_LABEL_DESC (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES). See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+
+            if [ "$RETRY_WORKFLOW" = "ai-pr-review.yml" ]; then
+              gh workflow run ai-pr-review.yml \
+                --repo "$REPO_FULL" \
+                --field pr_number="$NUM" || true
+            else
+              gh workflow run ai-address-feedback.yml \
+                --repo "$REPO_FULL" \
+                --field pr_number="$NUM" \
+                --field reason="watchdog auto-retry after transient failure" || true
+            fi
             sleep 30
           done
 
@@ -380,14 +421,27 @@ jobs:
               continue
             fi
 
-            # Retry: cycle the label
+            # Retry: cycle labels AND explicitly dispatch the worker.
+            # GITHUB_TOKEN label changes do NOT fire webhook events (GitHub
+            # loop-prevention), so adding `ai-work` alone would never trigger
+            # ai-worker.yml. We must call `gh workflow run` explicitly.
             echo "Retrying issue #$NUM ($TITLE) — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
             gh issue edit "$NUM" --repo "$REPO_FULL" \
               --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
             gh issue comment "$NUM" --repo "$REPO_FULL" \
-              --body "🔄 AI Factory watchdog: auto-retrying (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES) after transient failure." || true
-            gh issue edit "$NUM" --repo "$REPO_FULL" \
-              --add-label "ai-work" || true
+              --body "🔄 AI Factory watchdog: auto-retrying (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES) after transient failure. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+
+            # Determine phase: sub-tasks (ai-task) → implement, parents → plan
+            if echo ",$LABELS," | grep -q ",ai-task,"; then
+              PHASE="implement"
+            else
+              PHASE="plan"
+            fi
+            gh workflow run ai-worker.yml \
+              --repo "$REPO_FULL" \
+              --field issue_number="$NUM" \
+              --field phase="$PHASE" || true
+            echo "Dispatched ai-worker for issue #$NUM (phase=$PHASE)"
             sleep 30  # stagger to avoid hammering the rate limit
           done
 
