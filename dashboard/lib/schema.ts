@@ -43,6 +43,7 @@ const BarChartWidgetSchema = z.object({
   sql: z.string().min(1),
   x: z.string().min(1),
   y: z.string().min(1),
+  comparison_sql: optStr,
 }).strict();
 
 const LineChartWidgetSchema = z.object({
@@ -52,6 +53,7 @@ const LineChartWidgetSchema = z.object({
   sql: z.string().min(1),
   x: optStr,
   y: optStr,
+  comparison_sql: optStr,
 }).strict();
 
 const AreaChartWidgetSchema = z.object({
@@ -61,6 +63,7 @@ const AreaChartWidgetSchema = z.object({
   sql: z.string().min(1),
   x: optStr,
   y: optStr,
+  comparison_sql: optStr,
 }).strict();
 
 const DonutChartWidgetSchema = z.object({
@@ -70,6 +73,7 @@ const DonutChartWidgetSchema = z.object({
   sql: z.string().min(1),
   x: optStr,
   y: optStr,
+  comparison_sql: optStr,
 }).strict();
 
 const TableWidgetSchema = z.object({
