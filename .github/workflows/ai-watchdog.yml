@@ -24,7 +24,7 @@ concurrency:
 jobs:
   watchdog:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
       OWNER: ${{ github.repository_owner }}
@@ -443,6 +443,62 @@ jobs:
               --field phase="$PHASE" || true
             echo "Dispatched ai-worker for issue #$NUM (phase=$PHASE)"
             sleep 30  # stagger to avoid hammering the rate limit
+          done
+
+      - name: no-pr-review PRs not yet handed off to human
+        run: |
+          set -euo pipefail
+          # PRs with no-pr-review should end on ai-awaiting-owner after address-feedback.
+          # If dispatch was cancelled, address failed repeatedly, or the run never completed,
+          # re-dispatch periodically (throttled) so waiting is enough without manual clicks.
+          PRS=$(gh pr list --repo "$REPO_FULL" --state open \
+            --label "no-pr-review" \
+            --json number,labels --limit 50)
+
+          MAX_PER_RUN=4
+          LEN=$(echo "$PRS" | jq 'length')
+          if [ "$LEN" -eq 0 ]; then
+            echo "No open PRs with label no-pr-review."
+            exit 0
+          fi
+          if [ "$LEN" -gt "$MAX_PER_RUN" ]; then
+            END=$MAX_PER_RUN
+          else
+            END=$LEN
+          fi
+          for i in $(seq 0 $(( END - 1 ))); do
+            row=$(echo "$PRS" | jq -c ".[$i]")
+            NUM=$(echo "$row" | jq -r '.number')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+
+            if echo ",$LABELS," | grep -q ",ai-awaiting-owner,"; then
+              echo "PR #$NUM: already ai-awaiting-owner — OK"
+              continue
+            fi
+            if echo ",$LABELS," | grep -q ",no-address-feedback,"; then
+              echo "PR #$NUM: opted out of address-feedback — skip"
+              continue
+            fi
+
+            # Throttle: skip if a bot "Addressing review feedback" comment appeared in the last 90 minutes
+            LAST=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("Addressing review feedback")))] | last | .created_at // empty' 2>/dev/null || echo "")
+            if [ -n "$LAST" ]; then
+              LAST_TS=$(date -u -d "$LAST" +%s 2>/dev/null || echo 0)
+              NOW=$(date -u +%s)
+              AGE=$(( NOW - LAST_TS ))
+              if [ "$AGE" -lt 5400 ]; then
+                echo "PR #$NUM: address-feedback announced ${AGE}s ago — skip (cooldown 90m)"
+                continue
+              fi
+            fi
+
+            echo "PR #$NUM: dispatching address-feedback for handoff (no-pr-review, no ai-awaiting-owner yet)"
+            gh workflow run ai-address-feedback.yml \
+              --repo "$REPO_FULL" \
+              --field pr_number="$NUM" \
+              --field reason="watchdog: complete no-pr-review handoff to ai-awaiting-owner" || true
+            sleep 25
           done
 
       - name: Bot-triggered runs gated as `action_required`

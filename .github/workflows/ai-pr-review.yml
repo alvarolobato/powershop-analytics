@@ -132,9 +132,10 @@ jobs:
         run: |
           gh pr edit "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" \
             --remove-label "ai-ready-for-review" \
-            --remove-label "ai-auto-retry" || true
+            --remove-label "ai-auto-retry" \
+            --add-label "ai-awaiting-owner" || true
           gh pr comment "${{ env.PR_NUMBER }}" \
-            --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. Merge or continue manually."
+            --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. **Ready for your review and merge.**"
 
       - name: Record legacy Opus pass
         if: success() && steps.cap.outputs.skip != 'true'

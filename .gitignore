@@ -10,6 +10,9 @@ build/
 # Local credentials (never commit)
 local/
 
+# Machine-specific Claude Code settings (local permissions, never commit)
+.claude/settings.local.json
+
 # Environment files (contain secrets — .env.example is committed, .env is not)
 .env
 .env.local

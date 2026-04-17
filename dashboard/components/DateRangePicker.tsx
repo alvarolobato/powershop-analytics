@@ -27,12 +27,20 @@ export interface DateRangePickerProps {
 }
 
 // ---------------------------------------------------------------------------
-// Presets
+// Preset types and helpers
 // ---------------------------------------------------------------------------
 
+export type TimeRangePreset =
+  | "today"
+  | "last_7_days"
+  | "last_30_days"
+  | "current_month"
+  | "last_month"
+  | "year_to_date";
+
 interface Preset {
+  id: TimeRangePreset;
   label: string;
-  range: () => DateRange;
 }
 
 function startOfDay(d: Date): Date {
@@ -43,43 +51,59 @@ function endOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-const PRESETS: Preset[] = [
-  {
-    label: "Hoy",
-    range: () => {
-      const now = new Date();
+/**
+ * Map a preset ID to a DateRange. Captures the current date/time at call time.
+ */
+export function presetToDateRange(preset: TimeRangePreset): DateRange {
+  const now = new Date();
+  switch (preset) {
+    case "today":
       return { from: startOfDay(now), to: endOfDay(now) };
-    },
-  },
-  {
-    label: "Última semana",
-    range: () => {
-      const to = new Date();
-      const from = new Date(to);
+
+    case "last_7_days": {
+      const from = new Date(now);
       from.setDate(from.getDate() - 6);
-      return { from: startOfDay(from), to: endOfDay(to) };
-    },
-  },
-  {
-    label: "Último mes",
-    range: () => {
-      // Use 30-day subtraction to avoid month-end overflow (e.g., Mar 31 - 1 month = Mar 3)
-      const to = new Date();
-      const from = new Date(to);
+      return { from: startOfDay(from), to: endOfDay(now) };
+    }
+
+    case "last_30_days": {
+      const from = new Date(now);
       from.setDate(from.getDate() - 29);
+      return { from: startOfDay(from), to: endOfDay(now) };
+    }
+
+    case "current_month": {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: startOfDay(from), to: endOfDay(now) };
+    }
+
+    case "last_month": {
+      const year = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+      const month = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+      const from = new Date(year, month, 1);
+      const to = new Date(now.getFullYear(), now.getMonth(), 0); // day=0 in JS Date === last day of the preceding month
       return { from: startOfDay(from), to: endOfDay(to) };
-    },
-  },
-  {
-    label: "Último trimestre",
-    range: () => {
-      // Use 90-day subtraction to avoid month-end overflow
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 89);
-      return { from: startOfDay(from), to: endOfDay(to) };
-    },
-  },
+    }
+
+    case "year_to_date": {
+      const from = new Date(now.getFullYear(), 0, 1);
+      return { from: startOfDay(from), to: endOfDay(now) };
+    }
+
+    default: {
+      const _exhaustive: never = preset;
+      throw new Error("Unknown preset: " + String(preset));
+    }
+  }
+}
+
+const PRESETS: Preset[] = [
+  { id: "today", label: "Hoy" },
+  { id: "last_7_days", label: "Últimos 7 días" },
+  { id: "last_30_days", label: "Últimos 30 días" },
+  { id: "current_month", label: "Mes actual" },
+  { id: "last_month", label: "Mes anterior" },
+  { id: "year_to_date", label: "Año en curso" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -164,7 +188,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   }, [value]);
 
   function applyPreset(preset: Preset) {
-    onChange({ primary: preset.range() });
+    onChange({ primary: presetToDateRange(preset.id) });
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -225,7 +249,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             </p>
             {PRESETS.map((preset) => (
               <button
-                key={preset.label}
+                key={preset.id}
                 type="button"
                 onClick={() => applyPreset(preset)}
                 className="w-full rounded-lg px-3 py-2 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
