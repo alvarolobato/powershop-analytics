@@ -3,6 +3,11 @@ on:
   issue_comment:
     types: [created]
 
+concurrency:
+  # `/plan` is a human slash command — never queue behind factory batch jobs.
+  group: ai-plan-${{ github.run_id }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write
@@ -36,7 +41,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-6 --max-turns 40"
+          claude_args: "--model claude-opus-4-6 --max-turns 40 --permission-mode bypassPermissions"
           prompt: |
             You are the AI Planner. Generate a comprehensive implementation plan for this issue.
 

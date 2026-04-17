@@ -64,9 +64,31 @@ When a new issue is opened, the **Issue Triage** workflow runs automatically —
 | `ai-in-progress` | The worker is currently running (auto-set). |
 | `ai-planned` | The `/plan` command has posted an implementation plan (auto-set). |
 | `no-ai` | Human-only. Factory will not touch this issue. |
-| `no-pr-review` | Skip the AI PR review on this PR. |
+| `no-pr-review` | **Stop automated Opus/Copilot PR reviews** on this PR. Use when you only want **address-feedback** to clear inline comments, then **`ai-awaiting-owner`** when done. Does **not** block you from merging. |
+| `ai-ready-for-review` | **Automation queue only** — another AI PR review (Opus/Copilot pipeline) is scheduled or pending. This does **not** mean “ready for you”; it often means the bot is still working. |
+| `ai-awaiting-owner` | **Your cue** — automated review rounds are finished (or capped). The PR is **ready for your review and merge** (subject to CI being green). |
 | `auto-merge` | Merge automatically when CI passes and review approves *(reserved for future use)*. |
 | `p0-critical` → `p3-low` | Priority — the factory processes higher priorities first. |
+
+**When is a PR ready for you to review and merge?**
+
+1. Look for **`ai-awaiting-owner`** on the PR — the factory applies this when automated Opus passes are complete (or the legacy cap of two Opus runs is hit). That is the clearest signal.
+2. Do **not** treat **`ai-ready-for-review`** as “ready for human” — it means the automation pipeline may still run another AI review.
+3. Always confirm **CI is green** (and resolve any `ai-blocked` / failing checks) before merging.
+
+**Waiting without clicking:** If you add **`no-pr-review`** (no Opus/Copilot), the **watchdog** re-dispatches **AI Address PR Feedback** on a cooldown until the PR reaches **`ai-awaiting-owner`**, unless you opted out with **`no-address-feedback`**. PRs that never get **`no-pr-review`** will not auto-handoff unless you run the full review pipeline or add that label yourself.
+
+### What is running right now?
+
+GitHub does not show “this PR’s bot job” on the PR page directly. Use:
+
+1. **Actions** → filter by **AI Address PR Feedback** or **AI PR Review** → open **In progress** runs.
+2. CLI (repo root, `gh` authenticated):
+   ```bash
+   gh run list --workflow "AI Address PR Feedback" --limit 8 --json status,conclusion,displayTitle,url
+   gh run list --workflow "AI PR Review" --limit 8 --json status,conclusion,displayTitle,url
+   ```
+   Only **one** address-feedback and **one** Opus PR review run at a time (global concurrency), so other PRs **queue** — a quiet PR may simply be waiting its turn.
 
 ### c) Use slash commands in comments
 
@@ -80,7 +102,7 @@ Comment on any issue (not PR) with one of these:
 
 Response includes: analysis, files to modify, implementation steps, testing strategy, risk assessment, complexity estimate.
 
-**`/ai <instruction>`** — Claude executes a direct instruction. Restricted to `OWNER` / `MEMBER` / `COLLABORATOR`.
+**`/ai <instruction>`** — Claude executes a direct instruction. Restricted to `OWNER` / `MEMBER` / `COLLABORATOR`. Works on **issues and pull requests** (on a PR, the workflow checks out the PR head and pushes to that branch instead of opening a second PR).
 
 ```
 /ai investigate why the ETL fails on Sundays and report back
@@ -91,6 +113,12 @@ Response includes: analysis, files to modify, implementation steps, testing stra
 ```
 
 For code-change instructions, Claude creates a branch and opens a PR. For investigation instructions, Claude posts findings as an issue comment.
+
+**Manual vs automated queue:** `/ai` and `/plan` each use a unique run slot (they never wait on each other or on factory batch locks). For **AI Address PR Feedback**, **AI PR Review**, and **AI Worker**, a manual **Run workflow** defaults to **not** joining the factory serial queue; check **use global queue** only if you intentionally want to line up behind automated runs. Watchdog and in-repo `gh workflow run` dispatches always pass `use_global_queue=true` so automation stays serialized where needed.
+
+**"Workflow green but nothing changed" / many permission denials:** Headless Claude used to wait for tool approvals nobody can click in Actions. Coding workflows now pass **`--permission-mode bypassPermissions`** (Anthropic’s recommended mode for isolated CI runners) so edits and `git` run without burning the turn budget. If a run still hits **max turns**, re-run or narrow the request.
+
+**AI Command shows "Skipped" in the Actions list:** Any new comment on an issue/PR starts the workflow file; the **execute** job only runs when the comment starts with **`/ai`** (and you are OWNER/MEMBER/COLLABORATOR). Other comments produce a skipped run — that is normal, not a freeze.
 
 ### d) Review and merge PRs
 
