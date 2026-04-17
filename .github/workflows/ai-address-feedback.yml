@@ -33,7 +33,7 @@ permissions:
   contents: write
   pull-requests: write
   issues: write
-  actions: read
+  actions: write
   checks: read
   id-token: write
 
@@ -139,6 +139,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.should_run == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
         with:
@@ -168,7 +169,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 200"
+          claude_args: "--max-turns 80"
           allowed_bots: "claude[bot],copilot-pull-request-reviewer[bot],github-actions[bot]"
           prompt: |
             You are addressing review feedback on PR #${{ needs.resolve.outputs.pr_number }}.
@@ -232,7 +233,8 @@ jobs:
             - If CI was failing, your commit must fix it. Run the same commands CI runs.
 
             ## Completion
-            - After replying to all threads and committing fixes, re-request Copilot review:
+            - If the PR has labels `ai-phase-copilot` or `ai-phase-opus`, do **NOT** call `requested_reviewers` — the workflow decides the next review step after you push.
+            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review:
               ```bash
               gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
                 --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
@@ -249,54 +251,77 @@ jobs:
             - Read-only SQL policy still applies (no INSERT/UPDATE/DELETE in production queries).
             - Stay within this PR's scope — do not pull in unrelated work.
 
-      - name: Check if changes were pushed
-        id: check_changes
+      - name: Route next automated review (or converge)
+        id: route
         if: success()
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.resolve.outputs.pr_number }}
         run: |
-          # Compare current remote HEAD with the SHA we captured at checkout.
-          # If unchanged, address-feedback had nothing to fix — dispatching
-          # another pr-review would loop forever (pr-review → address-feedback
-          # → pr-review with no changes). Terminate the cycle instead.
-          CURRENT_SHA=$(gh api "repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}" --jq '.head.sha')
+          set -euo pipefail
+          CURRENT_SHA=$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')
           INITIAL_SHA="${{ steps.initial_head.outputs.sha }}"
+          LABELS=$(gh api "repos/$REPO/pulls/$PR" --jq '[.labels[].name] | join(",")')
+
+          converge_comment() {
+            gh pr edit "$PR" --repo "$REPO" --remove-label "ai-ready-for-review" || true
+            gh pr comment "$PR" \
+              --body "✅ Review cycle converged — no new changes required. PR is ready for human merge decision." || true
+          }
+
           if [ "$CURRENT_SHA" = "$INITIAL_SHA" ]; then
-            echo "No commits pushed — cycle is converged. Skipping re-review dispatch."
+            echo "No commits pushed — nothing to re-review."
             echo "pushed=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA) — will re-dispatch review."
-            echo "pushed=true" >> "$GITHUB_OUTPUT"
+            converge_comment
+            exit 0
           fi
 
-      - name: Signal ready for re-review
-        if: success() && steps.check_changes.outputs.pushed == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Explicitly dispatch ai-pr-review via workflow_dispatch.
-          # We cannot rely on a label event here: GitHub does not fire webhook
-          # events from GITHUB_TOKEN actions, so a labeled trigger would never
-          # cascade into a new workflow run from automation.
-          # workflow_dispatch via the API IS allowed even from GITHUB_TOKEN.
-          gh pr edit "${{ needs.resolve.outputs.pr_number }}" --repo "${{ github.repository }}" \
-            --add-label "ai-ready-for-review" || true
-          gh workflow run ai-pr-review.yml \
-            --repo "${{ github.repository }}" \
-            --field pr_number="${{ needs.resolve.outputs.pr_number }}" || true
-          echo "Dispatched review for PR #${{ needs.resolve.outputs.pr_number }}."
+          echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA)."
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Mark review cycle converged
-        if: success() && steps.check_changes.outputs.pushed == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # Make sure ai-ready-for-review is removed so the watchdog's
-          # "Stalled ai-ready-for-review" step doesn't re-dispatch pr-review.
-          gh pr edit "${{ needs.resolve.outputs.pr_number }}" --repo "${{ github.repository }}" \
-            --remove-label "ai-ready-for-review" || true
-          gh pr comment "${{ needs.resolve.outputs.pr_number }}" \
-            --body "✅ Review cycle converged — no new changes required. PR is ready for human merge decision." || true
+          # Phased: 2× Copilot (cheap) then 2× Opus — see ai-worker.yml / ai-pr-review.yml
+          if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
+            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+              gh pr edit "$PR" --repo "$REPO" --add-label "ai-cp-after-1" || true
+              gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
+                -f 'reviewers[]=copilot-pull-request-reviewer[bot]' || true
+              gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot round **1**/2 addressed — requested **round 2** Copilot review." || true
+              exit 0
+            fi
+            if ! echo ",$LABELS," | grep -q ",ai-cp-after-2,"; then
+              gh pr edit "$PR" --repo "$REPO" \
+                --add-label "ai-cp-after-2" \
+                --remove-label "ai-phase-copilot" \
+                --add-label "ai-phase-opus" \
+                --add-label "ai-ready-for-review" || true
+              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+              gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot rounds **complete** — starting **Opus** review (pass 1 of 2)." || true
+              exit 0
+            fi
+          fi
+
+          if echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
+            if ! echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              gh pr edit "$PR" --repo "$REPO" --add-label "ai-o-after-1" --add-label "ai-ready-for-review" || true
+              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+              gh pr comment "$PR" --body "🤖 **AI Factory**: Opus pass **1**/2 addressed — running **Opus** pass 2." || true
+              exit 0
+            fi
+            if ! echo ",$LABELS," | grep -q ",ai-o-after-2,"; then
+              gh pr edit "$PR" --repo "$REPO" \
+                --add-label "ai-o-after-2" \
+                --remove-label "ai-phase-opus" \
+                --remove-label "ai-ready-for-review" || true
+              gh pr comment "$PR" --body "✅ **AI Factory**: Automated **Opus** passes complete (**2**/2). PR is ready for human merge decision." || true
+              exit 0
+            fi
+          fi
+
+          # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).
+          gh pr edit "$PR" --repo "$REPO" --add-label "ai-ready-for-review" || true
+          gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+          echo "Dispatched legacy Opus PR review for PR #$PR."
 
       - name: Handle failure
         if: failure()
