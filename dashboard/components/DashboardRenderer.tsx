@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
-import type { DateRange } from "./DateRangePicker";
+import type { DateRange, ComparisonRange } from "./DateRangePicker";
+import { substituteDateParams } from "@/lib/date-params";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import { ErrorDisplay } from "./ErrorDisplay";
@@ -44,6 +45,13 @@ export interface DashboardRendererProps {
    */
   dateRange?: DateRange;
   /**
+   * Optional comparison date range. When set alongside a widget that has
+   * `comparison_sql`, the renderer fetches comparison data by substituting
+   * :comp_from/:comp_to tokens in the comparison SQL. The fetched data is
+   * passed to chart widgets so they can render two series side by side.
+   */
+  comparisonRange?: ComparisonRange;
+  /**
    * Optional callback fired whenever widget states change (e.g. a widget
    * finishes loading).  Use this to expose live widget data to the parent
    * (e.g. for the AI analyst chat).
@@ -65,6 +73,8 @@ export interface WidgetState {
   trendData?: (WidgetData | null)[];
   /** Anomaly data for kpi_row items (indexed per item, only when anomaly_sql is set). */
   anomalyData?: (WidgetData | null)[];
+  /** Comparison period data for chart widgets (bar/line/area/donut) when comparison_sql is set and a comparison range is active. */
+  comparisonData?: WidgetData | null;
   loading: boolean;
   /** Structured error from the API (preferred) or plain string fallback. */
   error: ApiErrorResponse | string | null;
@@ -117,7 +127,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange, onWidgetDataChange }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonRange, onWidgetDataChange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -132,6 +142,19 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
   // (not stale data) when spec changes before the effect runs.
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
+
+  // Build substituted comparison SQL for a chart widget, or null if not applicable.
+  const buildComparisonSql = useCallback(
+    (comparisonSql: string | undefined): string | null => {
+      if (!comparisonSql || !comparisonRange) return null;
+      const ranges = {
+        curr: dateRange ? { from: dateRange.from, to: dateRange.to } : { from: new Date(), to: new Date() },
+        comp: { from: comparisonRange.from, to: comparisonRange.to },
+      };
+      return substituteDateParams(comparisonSql, ranges);
+    },
+    [dateRange, comparisonRange],
+  );
 
   // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
@@ -208,11 +231,15 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
             });
           }
         } else {
-          const data = await fetchWidgetData(widget.sql, signal);
+          const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
+          const [data, comparisonData] = await Promise.all([
+            fetchWidgetData(widget.sql, signal),
+            compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
+          ]);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data, loading: false, error: null });
+              next.set(idx, { data, comparisonData, loading: false, error: null });
               return next;
             });
           }
@@ -237,7 +264,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
     });
 
     await Promise.all(promises);
-  }, []);
+  }, [buildComparisonSql]);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -308,11 +335,15 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
             });
           }
         } else {
-          const data = await fetchWidgetData(widget.sql, signal);
+          const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
+          const [data, comparisonData] = await Promise.all([
+            fetchWidgetData(widget.sql, signal),
+            compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
+          ]);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
-              next.set(idx, { data, loading: false, error: null });
+              next.set(idx, { data, comparisonData, loading: false, error: null });
               return next;
             });
           }
@@ -338,7 +369,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange,
         retryAbortMap.current.delete(idx);
       }
     },
-    [],
+    [buildComparisonSql],
   );
 
   useEffect(() => {
@@ -688,19 +719,19 @@ function WidgetSwitch({
       );
     case "bar_chart":
       return (
-        <BarChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <BarChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
       );
     case "line_chart":
       return (
-        <LineChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <LineChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
       );
     case "area_chart":
       return (
-        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
       );
     case "donut_chart":
       return (
-        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
       );
     case "table":
       return (

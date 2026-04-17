@@ -39,10 +39,49 @@ const WIDGET_TYPES = `
 - "percent" — append % sign
 - "integer" — whole number
 
+### Date placeholder tokens
+
+SQL strings can embed placeholder tokens replaced at render time with the active date range:
+
+| Token | Replaces with | Use for |
+|-------|--------------|---------|
+| :curr_from | 'YYYY-MM-DD' (current range start) | Primary period WHERE clause |
+| :curr_to | 'YYYY-MM-DD' (current range end) | Primary period WHERE clause |
+| :comp_from | 'YYYY-MM-DD' (comparison range start) | Comparison period WHERE clause |
+| :comp_to | 'YYYY-MM-DD' (comparison range end) | Comparison period WHERE clause |
+| :curr_mes_from | YYYYMM integer (current range start month) | Efficient month-integer filter |
+| :curr_mes_to | YYYYMM integer (current range end month) | Efficient month-integer filter |
+| :comp_mes_from | YYYYMM integer (comparison range start month) | Efficient month-integer filter |
+| :comp_mes_to | YYYYMM integer (comparison range end month) | Efficient month-integer filter |
+
+Use :curr_from/:curr_to for dynamic date filtering instead of hardcoded dates. Use :comp_from/:comp_to in comparison_sql and trend_sql to reference the comparison period.
+
+### Chart widget comparison series
+
+Chart widgets (bar_chart, line_chart, area_chart, donut_chart) support an optional comparison_sql field:
+
+\`\`\`json
+{
+  "type": "bar_chart",
+  "title": "Ventas por Tienda — Actual vs Anterior",
+  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
+  "x": "label",
+  "y": "value",
+  "comparison_sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :comp_from AND :comp_to GROUP BY tienda ORDER BY value DESC"
+}
+\`\`\`
+
+Rules for comparison_sql:
+- Must return the **same columns** (same x and y column names) as the primary sql
+- Use :comp_from/:comp_to tokens for the comparison period dates
+- When comparison_sql is present and the user has selected a comparison range, the chart renders two series: **Actual** (primary) and **Anterior** (comparison) with a legend
+- Generate comparison_sql when the user mentions: "comparar con", "vs mes anterior", "vs año anterior", "evolución", "comparativa", "año anterior", "trimestre anterior"
+- When no comparison range is active, the chart renders as a single series (unchanged behaviour)
+
 ### KPI item optional fields
 
 Each item in a kpi_row can also include:
-- **trend_sql** (optional): SQL that returns the same metric for the previous comparison period. Returns a single row with a single numeric value.
+- **trend_sql** (optional): SQL returning the same metric for the comparison period. Returns a single row/value. Use :comp_from/:comp_to tokens so it is dynamic — do NOT hardcode dates. Example: SELECT SUM(total_si) FROM ps_ventas WHERE entrada = true AND fecha_creacion BETWEEN :comp_from AND :comp_to
 - **anomaly_sql** (optional): SQL that returns the same metric for the last 8 comparable periods (current + 7 historical). Row 0 = current period value; rows 1–7 = historical values in descending chronological order. The frontend computes a z-score to detect unusual values. Only add for metrics where anomaly detection adds value (sales totals, ticket medio, margin) — skip for static counts or configuration values.
 
 ### JSON examples per widget type

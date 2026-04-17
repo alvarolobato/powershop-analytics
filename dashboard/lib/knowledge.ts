@@ -362,6 +362,16 @@ export const INSTRUCTIONS: Instruction[] = [
       "¿Artículos de la colección?",
     ],
   },
+  {
+    instruction:
+      "El usuario puede filtrar por temporada (colección) usando el campo clave_temporada de ps_articulos. Claves de temporada: PV = Primavera-Verano, OI = Otoño-Invierno, seguido del año en 2 dígitos (ej: PV26, OI25, PV25). Al generar SQL, filtra por clave_temporada cuando el usuario mencione una temporada o colección específica: JOIN ps_articulos p ON lv.codigo = p.codigo WHERE p.clave_temporada = 'PV26'.",
+    questions: [
+      "¿Ventas de la colección PV26?",
+      "¿Stock de la temporada actual PV26?",
+      "¿Artículos de primavera-verano 2026?",
+      "¿Rendimiento de la colección OI25?",
+    ],
+  },
 
   // ── Transfers / Stock movement rules ─────────────────────────────
   {
@@ -675,6 +685,12 @@ export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Ticket medio por tienda?",
     sql: `SELECT v."tienda" AS "Tienda", COUNT(DISTINCT v."reg_ventas") AS "Tickets", ROUND(SUM(v."total_si") / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2) AS "Ticket Medio" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY v."tienda" ORDER BY "Ticket Medio" DESC`,
+  },
+
+  // ── Comparison period example (using :comp_from/:comp_to tokens) ───
+  {
+    question: "¿Ventas por tienda del período de comparación?",
+    sql: `SELECT v."tienda" AS "label", SUM(v."total_si") AS "value" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" BETWEEN :comp_from AND :comp_to GROUP BY v."tienda" ORDER BY "value" DESC`,
   },
 ];
 
