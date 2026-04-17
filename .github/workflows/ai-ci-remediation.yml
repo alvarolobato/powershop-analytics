@@ -1,0 +1,174 @@
+name: AI CI Remediation
+# When CI fails on a factory PR branch (ai/*), attempt an automated fix push.
+# Owner handoff (ai-awaiting-owner) is gated on CI green in ai-address-feedback / ai-pr-review.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number with failing CI"
+        required: true
+        type: number
+      triggering_run_id:
+        description: "Optional failed CI run id (for logs and dedup)"
+        required: false
+        type: string
+
+concurrency:
+  group: ai-ci-remediation-${{ github.event.inputs.pr_number || github.event.workflow_run.head_branch || github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.pick.outputs.should_run }}
+      pr_number: ${{ steps.pick.outputs.pr_number }}
+      failed_run_id: ${{ steps.pick.outputs.failed_run_id }}
+      head_branch: ${{ steps.pick.outputs.head_branch }}
+    steps:
+      - name: Resolve PR and failed CI run
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR="${{ inputs.pr_number }}"
+            RUN_ID="${{ inputs.triggering_run_id }}"
+            if [ -z "$RUN_ID" ]; then
+              BR=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq -r '.headRefName')
+              RUN_ID=$(gh run list --repo "$REPO" --workflow CI.yml --branch "$BR" \
+                --json databaseId,conclusion --jq '.[] | select(.conclusion=="failure") | .databaseId' | head -1)
+            fi
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
+            echo "failed_run_id=${RUN_ID:-}" >> "$GITHUB_OUTPUT"
+            echo "head_branch=$(gh pr view "$PR" --repo "$REPO" --json headRefName --jq -r '.headRefName')" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event.workflow_run.conclusion }}" != "failure" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "${{ github.event.workflow_run.event }}" != "pull_request" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          case "$BRANCH" in
+            ai/*) ;;
+            *)
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
+          PR=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | any(. == "no-ai")' | grep -q true; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          RUN_ID="${{ github.event.workflow_run.id }}"
+          MARKER="CI remediation attempted for run ${RUN_ID}"
+          if gh api "repos/$REPO/issues/$PR/comments" --paginate --jq -r '.[].body' | grep -Fq "$MARKER"; then
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "should_run=true" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
+          echo "failed_run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "head_branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+  fix:
+    needs: resolve
+    if: needs.resolve.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
+      FAILED_RUN_ID: ${{ needs.resolve.outputs.failed_run_id }}
+    steps:
+      - name: Mark CI failing / clear premature owner handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh label create "ai-ci-failing" --color D93F0B --description "CI failed; bot may auto-remediate" 2>/dev/null || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" \
+            --remove-label "ai-awaiting-owner" \
+            --add-label "ai-ci-failing" || true
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.head_branch }}
+
+      - name: Fetch failed CI logs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "$FAILED_RUN_ID" ]; then
+            gh run view "$FAILED_RUN_ID" --repo "$REPO" --log-failed > /tmp/ci-failed.log 2>&1 || true
+          else
+            echo "No failed run id supplied." > /tmp/ci-failed.log
+          fi
+          head -c 120000 /tmp/ci-failed.log > /tmp/ci-failed-truncated.log || true
+
+      - name: Auto-fix with Claude
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--permission-mode bypassPermissions --max-turns 120"
+          prompt: |
+            You are fixing **CI failures** for PR #${{ env.PR_NUMBER }} on branch `${{ needs.resolve.outputs.head_branch }}`.
+
+            Read **/tmp/ci-failed-truncated.log** on the runner first — it contains the failed **CI** job log excerpt.
+
+            Repository CI (`.github/workflows/ci.yml`) runs:
+            - `ruff check etl/` and `ruff format --check etl/`
+            - `pytest etl/tests/` (with empty P4D/Postgres env — tests self-skip when needed)
+            - `docker build` for `./etl/Dockerfile`
+
+            ## Tasks
+            1. Reproduce with the same commands locally in this checkout.
+            2. Make the **minimal** fixes so CI would pass.
+            3. Run `python -m ruff format` on any Python you changed.
+            4. Commit: `fix(ci): address CI failure (PR #${{ env.PR_NUMBER }})`
+            5. Push to the current branch: `git push`.
+
+            If you cannot fix in-repo, post a short PR comment and do not push noise commits.
+
+      - name: Record remediation attempt
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          RID="${FAILED_RUN_ID:-unknown}"
+          SERVER="${{ github.server_url }}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "🔧 **AI CI remediation** finished for failed CI [run $RID]($SERVER/$REPO/actions/runs/$RID). Bot workflow: [run ${{ github.run_id }}]($SERVER/$REPO/actions/runs/${{ github.run_id }}). CI remediation attempted for run $RID" || true

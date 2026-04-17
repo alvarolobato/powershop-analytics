@@ -45,7 +45,7 @@ export async function saveReview(
   );
 
   const id = rows[0]?.id;
-  if (id === undefined) {
+  if (id == null) {
     throw new Error("INSERT into weekly_reviews did not return an id");
   }
   return id;

@@ -41,7 +41,7 @@ describe("prompts", () => {
 
     it("includes SQL pairs", () => {
       expect(prompt).toContain("Example SQL Patterns");
-      expect(prompt).toContain("52 pairs");
+      expect(prompt).toContain("53 pairs");
     });
 
     it("includes output format spec", () => {
@@ -72,6 +72,31 @@ describe("prompts", () => {
     it("includes table relationships", () => {
       expect(prompt).toContain("Table Relationships");
       expect(prompt).toContain("MANY_TO_ONE");
+    });
+
+    it("includes comparison_sql documentation", () => {
+      expect(prompt).toContain("comparison_sql");
+    });
+
+    it("includes COMP_FROM and COMP_TO token documentation", () => {
+      expect(prompt).toContain(":comp_from");
+      expect(prompt).toContain(":comp_to");
+    });
+
+    it("includes all eight date placeholder tokens", () => {
+      expect(prompt).toContain(":curr_from");
+      expect(prompt).toContain(":curr_to");
+      expect(prompt).toContain(":comp_from");
+      expect(prompt).toContain(":comp_to");
+      expect(prompt).toContain(":curr_mes_from");
+      expect(prompt).toContain(":curr_mes_to");
+      expect(prompt).toContain(":comp_mes_from");
+      expect(prompt).toContain(":comp_mes_to");
+    });
+
+    it("includes colecciones and clave_temporada guidance", () => {
+      expect(prompt).toContain("clave_temporada");
+      expect(prompt).toContain("colec");
     });
   });
 

@@ -11,7 +11,9 @@ The 4D integration tests use a bounded date range to keep query time predictable
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -160,6 +162,59 @@ class TestNormalizeExpoRow:
         expected = Decimal("10.0")
         for r in result:
             assert r["cc_stock"] == expected
+
+
+_STORE_CODE_PATTERN = re.compile(r"^[A-Za-z0-9/_-]+$")
+
+
+class TestStoreCodeValidation:
+    """Verify the store code regex pattern used in sync_stock matches expected codes."""
+
+    def test_numeric_code_valid(self):
+        assert _STORE_CODE_PATTERN.match("104")
+
+    def test_compound_code_with_slash_valid(self):
+        assert _STORE_CODE_PATTERN.match("104/169")
+
+    def test_alphanumeric_code_valid(self):
+        assert _STORE_CODE_PATTERN.match("TIENDA01")
+
+    def test_code_with_dash_valid(self):
+        assert _STORE_CODE_PATTERN.match("104-A")
+
+    def test_empty_code_invalid(self):
+        assert not _STORE_CODE_PATTERN.match("")
+
+    def test_code_with_single_quote_invalid(self):
+        assert not _STORE_CODE_PATTERN.match("104'; DROP TABLE--")
+
+    def test_code_with_space_invalid(self):
+        assert not _STORE_CODE_PATTERN.match("104 169")
+
+    def test_code_with_semicolon_invalid(self):
+        assert not _STORE_CODE_PATTERN.match("104;1")
+
+    def test_sync_stock_skips_invalid_store_code(self):
+        """sync_stock should skip stores whose codes fail the format check."""
+        conn_4d = MagicMock()
+        conn_pg = MagicMock()
+
+        with (
+            patch("etl.sync.stock._count_expo", return_value=0),
+            patch("etl.sync.stock._build_expo_where", return_value=""),
+            patch(
+                "etl.sync.stock._get_store_codes",
+                return_value=["valid_104", "bad code!", "104/169"],
+            ),
+            patch("etl.sync.stock.safe_fetch", return_value=[]) as mock_fetch,
+        ):
+            sync_stock(conn_4d, conn_pg, since=None)
+
+        # safe_fetch should only be called for valid store codes (valid_104, 104/169)
+        call_sqls = [call.args[1] for call in mock_fetch.call_args_list]
+        assert any("valid_104" in s for s in call_sqls)
+        assert any("104/169" in s for s in call_sqls)
+        assert not any("bad code!" in s for s in call_sqls)
 
 
 class TestValidateSince:

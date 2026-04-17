@@ -11,6 +11,7 @@ import {
   TableWidget,
   NumberWidget,
 } from "../index";
+import { mergeComparisonSeries } from "../BarChartWidget";
 import type {
   KpiRowWidget,
   BarChartWidget as BarChartSpec,
@@ -344,5 +345,114 @@ describe("TableWidget", () => {
     };
     render(<TableWidget widget={widget} data={data} />);
     expect(screen.getByText("\u2014")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mergeComparisonSeries unit tests
+// ---------------------------------------------------------------------------
+
+describe("mergeComparisonSeries", () => {
+  const primary: WidgetData = {
+    columns: ["label", "value"],
+    rows: [
+      ["Madrid", 1000],
+      ["Barcelona", 800],
+      ["Valencia", 600],
+    ],
+  };
+  const comparison: WidgetData = {
+    columns: ["label", "value"],
+    rows: [
+      ["Madrid", 900],
+      ["Barcelona", 700],
+    ],
+  };
+
+  it("merges primary and comparison into two-series dataset", () => {
+    const result = mergeComparisonSeries(primary, comparison, 0, 1, "label");
+    expect(result).toHaveLength(3);
+    expect(result[0]).toEqual({ label: "Madrid", Actual: 1000, Anterior: 900 });
+    expect(result[1]).toEqual({ label: "Barcelona", Actual: 800, Anterior: 700 });
+  });
+
+  it("uses null for Anterior when comparison has no matching label", () => {
+    const result = mergeComparisonSeries(primary, comparison, 0, 1, "label");
+    expect(result[2]).toEqual({ label: "Valencia", Actual: 600, Anterior: null });
+  });
+
+  it("excludes primary rows with non-numeric y values", () => {
+    const badPrimary: WidgetData = {
+      columns: ["label", "value"],
+      rows: [["A", "not-a-number"], ["B", 50]],
+    };
+    const result = mergeComparisonSeries(badPrimary, comparison, 0, 1, "label");
+    expect(result).toHaveLength(1);
+    expect(result[0].label).toBe("B");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BarChartWidget with comparison series
+// ---------------------------------------------------------------------------
+
+describe("BarChartWidget with comparison", () => {
+  const widget: import("@/lib/schema").BarChartWidget = {
+    type: "bar_chart",
+    title: "Ventas Actual vs Anterior",
+    sql: "",
+    x: "label",
+    y: "value",
+    comparison_sql: "SELECT label, value FROM ps_ventas WHERE fecha BETWEEN :comp_from AND :comp_to",
+  };
+
+  it("renders title with comparison data present", () => {
+    const data: WidgetData = { columns: ["label", "value"], rows: [["Madrid", 1000]] };
+    const compData: WidgetData = { columns: ["label", "value"], rows: [["Madrid", 900]] };
+    render(<BarChartWidget widget={widget} data={data} comparisonData={compData} />);
+    expect(screen.getByText("Ventas Actual vs Anterior")).toBeInTheDocument();
+  });
+
+  it("renders identically (no legend) when comparisonData is absent", () => {
+    const data: WidgetData = { columns: ["label", "value"], rows: [["Madrid", 1000]] };
+    render(<BarChartWidget widget={widget} data={data} />);
+    expect(screen.getByText("Ventas Actual vs Anterior")).toBeInTheDocument();
+  });
+
+  it("renders identically when comparisonData is null", () => {
+    const data: WidgetData = { columns: ["label", "value"], rows: [["Madrid", 1000]] };
+    render(<BarChartWidget widget={widget} data={data} comparisonData={null} />);
+    expect(screen.getByText("Ventas Actual vs Anterior")).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DonutChartWidget with comparison summary
+// ---------------------------------------------------------------------------
+
+describe("DonutChartWidget with comparison", () => {
+  const widget: import("@/lib/schema").DonutChartWidget = {
+    type: "donut_chart",
+    title: "Mix por Familia",
+    sql: "",
+    x: "familia",
+    y: "pct",
+    comparison_sql: "SELECT familia, pct FROM ps_ventas WHERE fecha BETWEEN :comp_from AND :comp_to",
+  };
+
+  it("shows comparison total label when comparisonData is present", () => {
+    const data: WidgetData = { columns: ["familia", "pct"], rows: [["A", 600], ["B", 400]] };
+    const compData: WidgetData = { columns: ["familia", "pct"], rows: [["A", 500], ["B", 300]] };
+    render(<DonutChartWidget widget={widget} data={data} comparisonData={compData} />);
+    // The comparison summary row contains "Anterior: 800"
+    expect(screen.getByText(/Anterior:/)).toBeInTheDocument();
+    expect(screen.getByText(/Actual:/)).toBeInTheDocument();
+  });
+
+  it("does not show comparison label when comparisonData is null", () => {
+    const data: WidgetData = { columns: ["familia", "pct"], rows: [["A", 60], ["B", 40]] };
+    render(<DonutChartWidget widget={widget} data={data} comparisonData={null} />);
+    // No "Anterior:" text should appear (the title doesn't contain it)
+    expect(screen.queryByText(/Anterior:/)).not.toBeInTheDocument();
   });
 });

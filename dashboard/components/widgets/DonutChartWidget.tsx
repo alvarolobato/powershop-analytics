@@ -10,11 +10,13 @@ import { applyGlossary } from "@/lib/glossary";
 interface DonutChartWidgetProps {
   widget: DonutChartWidgetSpec;
   data: WidgetData | null;
+  /** Pre-fetched comparison period data. When present, shows a comparison total label. */
+  comparisonData?: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
 }
 
-export function DonutChartWidget({ widget, data, glossary }: DonutChartWidgetProps) {
+export function DonutChartWidget({ widget, data, comparisonData, glossary }: DonutChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
   if (!data || data.rows.length === 0) {
@@ -48,6 +50,22 @@ export function DonutChartWidget({ widget, data, glossary }: DonutChartWidgetPro
       value: safeNumber(row[yIdx])!,
     }));
 
+  // Compute comparison total for the side-by-side label (simplest Tremor approach for donut comparison)
+  let comparisonTotal: number | null = null;
+  if (comparisonData && comparisonData.rows.length > 0) {
+    const compResolved = resolveXY(comparisonData, widget.x, widget.y);
+    if (compResolved) {
+      let sum = 0;
+      for (const row of comparisonData.rows) {
+        const v = safeNumber(row[compResolved.yIdx]);
+        if (v !== null) sum += v;
+      }
+      comparisonTotal = sum;
+    }
+  }
+
+  const currentTotal = chartData.reduce((s, d) => s + d.value, 0);
+
   return (
     <Card className="p-4">
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
@@ -59,6 +77,17 @@ export function DonutChartWidget({ widget, data, glossary }: DonutChartWidgetPro
         showLabel
         showAnimation
       />
+      {comparisonTotal !== null && (
+        <div className="mt-3 flex items-center justify-center gap-4 text-xs text-tremor-content dark:text-dark-tremor-content">
+          <span className="font-medium">
+            Actual: {currentTotal.toLocaleString("es-ES", { maximumFractionDigits: 0 })}
+          </span>
+          <span className="text-tremor-content-subtle dark:text-dark-tremor-content-subtle">|</span>
+          <span>
+            Anterior: {comparisonTotal.toLocaleString("es-ES", { maximumFractionDigits: 0 })}
+          </span>
+        </div>
+      )}
     </Card>
   );
 }
