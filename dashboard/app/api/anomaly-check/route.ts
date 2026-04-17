@@ -62,7 +62,7 @@ interface AnomalyResult {
  * values[0] = current period; values[1..] = historical.
  * Returns { isAnomaly: false } when insufficient data.
  */
-function computeAnomaly(values: number[]): AnomalyResult {
+export function computeAnomaly(values: number[]): AnomalyResult {
   // values[0] = current period; values[1..] = historical
   if (values.length < MIN_HISTORICAL_VALUES + 1) {
     return { isAnomaly: false };
