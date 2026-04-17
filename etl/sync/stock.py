@@ -41,6 +41,7 @@ initial load twice will not cause PK violations or update existing rows.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
@@ -238,6 +239,15 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
     total_processed = 0
     for store_idx, store_code in enumerate(stores):
+        # Validate store code before interpolating into SQL (defense-in-depth).
+        # ERP codes are numeric or alphanumeric with optional slashes/dashes.
+        if not re.match(r"^[A-Za-z0-9/_-]+$", store_code):
+            logger.warning(
+                "sync_stock: skipping store with unexpected code format: %r",
+                store_code,
+            )
+            continue
+
         # Build per-store query
         store_filter = f"Tienda = '{store_code}'"
         if where:
