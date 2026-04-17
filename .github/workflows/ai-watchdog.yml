@@ -24,7 +24,7 @@ concurrency:
 jobs:
   watchdog:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
       OWNER: ${{ github.repository_owner }}
@@ -121,6 +121,13 @@ jobs:
             NUM=$(echo "$pr" | jq -r '.number')
             TITLE=$(echo "$pr" | jq -r '.title')
             LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
+
+            # Owner stopped AI PR reviews — do not burn Opus; clear stale queue label.
+            if echo ",$LABELS," | grep -q ",no-pr-review,"; then
+              echo "PR #$NUM: has no-pr-review — removing ai-ready-for-review, skipping pr-review"
+              gh pr edit "$NUM" --repo "$REPO_FULL" --remove-label "ai-ready-for-review" || true
+              continue
+            fi
 
             # Skip blocked PRs — let the auto-retry step handle them.
             if echo ",$LABELS," | grep -q ",ai-blocked,"; then
@@ -453,9 +460,10 @@ jobs:
           # re-dispatch periodically (throttled) so waiting is enough without manual clicks.
           PRS=$(gh pr list --repo "$REPO_FULL" --state open \
             --label "no-pr-review" \
-            --json number,labels --limit 50)
+            --json number,labels,updatedAt --limit 50 \
+            | jq 'sort_by(.updatedAt)')
 
-          MAX_PER_RUN=4
+          MAX_PER_RUN=8
           LEN=$(echo "$PRS" | jq 'length')
           if [ "$LEN" -eq 0 ]; then
             echo "No open PRs with label no-pr-review."
