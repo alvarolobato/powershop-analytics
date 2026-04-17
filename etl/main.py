@@ -51,16 +51,25 @@ def _init_schema(conn_pg) -> None:
 
 
 def _run_sync(
-    name: str, sync_fn, conn_4d, conn_pg, uses_watermark: bool = False
-) -> int:
+    name: str,
+    sync_fn,
+    conn_4d,
+    conn_pg,
+    uses_watermark: bool = False,
+    run_id: int | None = None,
+) -> tuple[int, bool]:
     """Run a single sync function with timing, watermark management, and error handling.
 
-    Returns the number of rows synced (0 on error).  Errors are logged but do
-    not propagate — the caller continues with the next table.
+    Returns (rows_synced, ok).  Errors are logged but do not propagate — the
+    caller continues with the next table.  When run_id is provided, calls
+    record_table_sync after each table; failures there are also swallowed.
     """
     from etl.db.postgres import get_watermark, set_watermark
 
     start = time.time()
+    rows = 0
+    ok = True
+    duration_ms = 0
     try:
         if uses_watermark:
             since = get_watermark(conn_pg, name)
@@ -70,9 +79,9 @@ def _run_sync(
         duration_ms = int((time.time() - start) * 1000)
         set_watermark(conn_pg, name, datetime.now(timezone.utc), rows, "ok")
         logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
-        return rows
     except Exception as exc:
         duration_ms = int((time.time() - start) * 1000)
+        ok = False
         try:
             set_watermark(
                 conn_pg, name, datetime.now(timezone.utc), 0, "error", str(exc)
@@ -80,7 +89,25 @@ def _run_sync(
         except Exception as wm_exc:
             logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
         logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
-        return 0
+
+    if run_id is not None:
+        from etl.db.postgres import record_table_sync
+
+        try:
+            record_table_sync(
+                conn_pg,
+                run_id,
+                name,
+                rows,
+                duration_ms,
+                status="ok" if ok else "failed",
+            )
+        except Exception as mon_exc:
+            logger.error(
+                "Monitoring: record_table_sync failed for %s: %s", name, mon_exc
+            )
+
+    return rows, ok
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +182,33 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Post-sync totals helper
+# ---------------------------------------------------------------------------
+
+_ROWS_TOTAL_TABLES = [
+    "ps_ventas",
+    "ps_lineas_ventas",
+    "ps_stock_tienda",
+    "ps_articulos",
+    "ps_clientes",
+]
+
+
+def _get_rows_total(conn_pg) -> dict[str, int] | None:
+    """Return row counts for key tables; returns None on any DB error."""
+    try:
+        totals: dict[str, int] = {}
+        with conn_pg.cursor() as cur:
+            for table in _ROWS_TOTAL_TABLES:
+                cur.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
+                totals[table] = cur.fetchone()[0]
+        return totals
+    except Exception as exc:
+        logger.warning("Could not fetch row totals: %s", exc)
+        return None
+
+
+# ---------------------------------------------------------------------------
 # Full sync pipeline
 # ---------------------------------------------------------------------------
 
@@ -163,7 +217,10 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     """Execute all sync tasks in topological order.
 
     Errors in individual tables are caught and logged; execution continues.
+    Monitoring (create_run / record_table_sync / finish_run) is best-effort:
+    failures there never abort the data sync.
     """
+    from etl.db.postgres import create_run, finish_run
     from etl.sync.articulos import sync_articulos
     from etl.sync.compras import (
         sync_albaranes,
@@ -192,66 +249,65 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     logger.info("=== Full sync started ===")
     pipeline_start = time.time()
 
+    run_id: int | None = None
+    try:
+        run_id = create_run(conn_pg, "scheduled")
+    except Exception:
+        logger.exception(
+            "Monitoring: create_run failed; continuing without run tracking"
+        )
+
+    results: list[bool] = []
+
+    def _s(name, fn, *, wm=False):
+        _, ok = _run_sync(name, fn, conn_4d, conn_pg, uses_watermark=wm, run_id=run_id)
+        results.append(ok)
+
     # ------------------------------------------------------------------
     # 1. Catalog (full refresh, no watermark)
     # ------------------------------------------------------------------
-    _run_sync("articulos", sync_articulos, conn_4d, conn_pg, uses_watermark=False)
-    # sync_catalogos returns a dict — delegate through wrapper
-    _run_sync("catalogos", _run_sync_catalogos, conn_4d, conn_pg, uses_watermark=False)
+    _s("articulos", sync_articulos)
+    _s("catalogos", _run_sync_catalogos)
 
     # ------------------------------------------------------------------
     # 2. Masters (full refresh, no watermark)
     # ------------------------------------------------------------------
-    _run_sync("tiendas", sync_tiendas, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("clientes", sync_clientes, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("proveedores", sync_proveedores, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync(
-        "gc_comerciales", sync_gc_comerciales, conn_4d, conn_pg, uses_watermark=False
-    )
+    _s("tiendas", sync_tiendas)
+    _s("clientes", sync_clientes)
+    _s("proveedores", sync_proveedores)
+    _s("gc_comerciales", sync_gc_comerciales)
 
     # ------------------------------------------------------------------
     # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)
     # ------------------------------------------------------------------
-    _run_sync("ventas", sync_ventas, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync(
-        "lineas_ventas", sync_lineas_ventas, conn_4d, conn_pg, uses_watermark=True
-    )
-    _run_sync("pagos_ventas", sync_pagos_ventas, conn_4d, conn_pg, uses_watermark=True)
+    _s("ventas", sync_ventas, wm=True)
+    _s("lineas_ventas", sync_lineas_ventas, wm=True)
+    _s("pagos_ventas", sync_pagos_ventas, wm=True)
 
     # ------------------------------------------------------------------
     # 5. Wholesale (delta by Modifica for headers; full for pedidos lines)
     # ------------------------------------------------------------------
-    _run_sync("gc_albaranes", sync_gc_albaranes, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync(
-        "gc_lin_albarane", sync_gc_lin_albarane, conn_4d, conn_pg, uses_watermark=True
-    )
-    _run_sync("gc_facturas", sync_gc_facturas, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync(
-        "gc_lin_facturas", sync_gc_lin_facturas, conn_4d, conn_pg, uses_watermark=True
-    )
-    _run_sync("gc_pedidos", sync_gc_pedidos, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync(
-        "gc_lin_pedidos", sync_gc_lin_pedidos, conn_4d, conn_pg, uses_watermark=False
-    )
+    _s("gc_albaranes", sync_gc_albaranes, wm=True)
+    _s("gc_lin_albarane", sync_gc_lin_albarane, wm=True)
+    _s("gc_facturas", sync_gc_facturas, wm=True)
+    _s("gc_lin_facturas", sync_gc_lin_facturas, wm=True)
+    _s("gc_pedidos", sync_gc_pedidos)
+    _s("gc_lin_pedidos", sync_gc_lin_pedidos)
 
     # ------------------------------------------------------------------
     # 6. Purchasing (full refresh)
     # ------------------------------------------------------------------
-    _run_sync("compras", sync_compras, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync(
-        "lineas_compras", sync_lineas_compras, conn_4d, conn_pg, uses_watermark=False
-    )
-    _run_sync("facturas", sync_facturas, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync("albaranes", sync_albaranes, conn_4d, conn_pg, uses_watermark=False)
-    _run_sync(
-        "facturas_compra", sync_facturas_compra, conn_4d, conn_pg, uses_watermark=False
-    )
+    _s("compras", sync_compras)
+    _s("lineas_compras", sync_lineas_compras)
+    _s("facturas", sync_facturas)
+    _s("albaranes", sync_albaranes)
+    _s("facturas_compra", sync_facturas_compra)
 
     # ------------------------------------------------------------------
     # 7. Stock (delta by FechaModifica) — last because Exportaciones is very slow (2M rows)
     # ------------------------------------------------------------------
-    _run_sync("stock", sync_stock, conn_4d, conn_pg, uses_watermark=True)
-    _run_sync("traspasos", sync_traspasos, conn_4d, conn_pg, uses_watermark=True)
+    _s("stock", sync_stock, wm=True)
+    _s("traspasos", sync_traspasos, wm=True)
 
     # ------------------------------------------------------------------
     # 8. MA cascade cleanup — remove line-table rows referencing MA articles
@@ -262,13 +318,29 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     # This is necessary because line tables use delta/upsert strategies that
     # may have inserted MA-linked rows in previous sync runs before this filter.
     # Failures are logged but do not abort the pipeline (consistent with _run_sync).
+    ma_ok = True
     try:
         _cleanup_ma_linked_rows(conn_4d, conn_pg)
     except Exception:
         logger.exception("MA cleanup failed; continuing with pipeline completion")
+        ma_ok = False
+    results.append(ma_ok)
 
     total_ms = int((time.time() - pipeline_start) * 1000)
     logger.info("=== Full sync completed in %d ms ===", total_ms)
+
+    rows_total = _get_rows_total(conn_pg)
+    if rows_total:
+        logger.info("Post-sync row totals: %s", rows_total)
+
+    if run_id is not None:
+        tables_ok = sum(results)
+        tables_failed = len(results) - tables_ok
+        status = "success" if tables_failed == 0 else "partial"
+        try:
+            finish_run(conn_pg, run_id, status, tables_ok, tables_failed)
+        except Exception:
+            logger.exception("Monitoring: finish_run failed")
 
 
 # ---------------------------------------------------------------------------

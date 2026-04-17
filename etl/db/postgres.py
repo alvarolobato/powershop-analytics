@@ -344,6 +344,98 @@ def get_watermark(conn, table_name: str) -> datetime | None:
     return row[0] if row else None
 
 
+# ---------------------------------------------------------------------------
+# Run monitoring helpers
+# ---------------------------------------------------------------------------
+
+
+def create_run(conn, trigger: str) -> int:
+    """Insert an etl_sync_runs record with status='running' and return its id."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO etl_sync_runs (trigger, status) VALUES (%s, 'running') RETURNING id",
+                (trigger,),
+            )
+            run_id: int = cur.fetchone()[0]
+        conn.commit()
+        return run_id
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def finish_run(
+    conn,
+    run_id: int,
+    status: str,
+    tables_ok: int,
+    tables_failed: int,
+    total_rows_synced: int = 0,
+) -> None:
+    """Update etl_sync_runs with final status, counts, and duration."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE etl_sync_runs
+                   SET finished_at       = NOW(),
+                       status            = %s,
+                       tables_ok         = %s,
+                       tables_failed     = %s,
+                       total_rows_synced = %s,
+                       duration_ms       = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER * 1000
+                 WHERE id = %s
+                """,
+                (status, tables_ok, tables_failed, total_rows_synced, run_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def record_table_sync(
+    conn,
+    run_id: int | None = None,
+    table_name: str | None = None,
+    rows_synced: int = 0,
+    duration_ms: int = 0,
+    *,
+    status: str = "ok",
+    started_at: datetime | None = None,
+    finished_at: datetime | None = None,
+    sync_method: str | None = None,
+    rows_total_after: int | None = None,
+) -> None:
+    """Insert a per-table sync record into etl_sync_run_tables."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_sync_run_tables
+                    (run_id, table_name, rows_synced, duration_ms, status,
+                     started_at, finished_at, sync_method, rows_total_after)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    run_id,
+                    table_name,
+                    rows_synced,
+                    duration_ms,
+                    status,
+                    started_at,
+                    finished_at,
+                    sync_method,
+                    rows_total_after,
+                ),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def set_watermark(
     conn,
     table_name: str,

@@ -427,6 +427,31 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS etl_sync_runs (
+    id                SERIAL       PRIMARY KEY,
+    trigger           TEXT         NOT NULL,
+    started_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    finished_at       TIMESTAMPTZ,
+    duration_ms       INTEGER,
+    status            TEXT         NOT NULL DEFAULT 'running',
+    tables_ok         INTEGER,
+    tables_failed     INTEGER,
+    total_rows_synced INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS etl_sync_run_tables (
+    id               SERIAL       PRIMARY KEY,
+    run_id           INTEGER      NOT NULL REFERENCES etl_sync_runs(id) ON DELETE CASCADE,
+    table_name       TEXT         NOT NULL,
+    started_at       TIMESTAMPTZ,
+    finished_at      TIMESTAMPTZ,
+    duration_ms      INTEGER,
+    status           TEXT         NOT NULL DEFAULT 'ok',
+    rows_synced      INTEGER,
+    sync_method      TEXT,
+    rows_total_after INTEGER
+);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
@@ -566,3 +591,5 @@ ANALYZE ps_facturas_compra;
 ANALYZE etl_watermarks;
 ANALYZE dashboards;
 ANALYZE dashboard_versions;
+ANALYZE etl_sync_runs;
+ANALYZE etl_sync_run_tables;
