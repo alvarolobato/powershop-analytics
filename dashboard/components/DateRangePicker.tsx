@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComparisonType } from "@/lib/date-params";
 import { useState, useRef, useEffect } from "react";
 
 // ---------------------------------------------------------------------------
@@ -12,6 +13,7 @@ export interface DateRange {
 }
 
 export interface ComparisonRange {
+  type: ComparisonType;
   from: Date;
   to: Date;
 }
