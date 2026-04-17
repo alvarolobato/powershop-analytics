@@ -54,6 +54,11 @@ cmd_update() {
 
     local branch
     branch="$(git rev-parse --abbrev-ref HEAD)"
+    if [ "$branch" = "HEAD" ]; then
+        echo -e "${YELLOW}Repository is in a detached HEAD state.${NC}"
+        echo "Please check out a branch (for example: git checkout main) and run this command again."
+        exit 1
+    fi
     if [ "$branch" != "main" ]; then
         echo -e "${YELLOW}Current branch is '${branch}', not 'main'.${NC}"
         printf "Pull and rebuild on this branch anyway? [y/N] "
@@ -64,8 +69,8 @@ cmd_update() {
         fi
     fi
 
-    if ! git diff --quiet || ! git diff --cached --quiet; then
-        echo -e "${YELLOW}Working tree has uncommitted changes.${NC}"
+    if [ -n "$(git status --porcelain)" ]; then
+        echo -e "${YELLOW}Working tree has uncommitted or untracked changes.${NC}"
         printf "Continue? git pull will fail if it would overwrite them. [y/N] "
         read -r answer || answer=''
         if [ "${answer}" != "y" ] && [ "${answer}" != "Y" ]; then
