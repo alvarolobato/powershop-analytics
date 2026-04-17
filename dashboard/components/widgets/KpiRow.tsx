@@ -5,6 +5,7 @@ import type { KpiRowWidget, GlossaryItem } from "@/lib/schema";
 import type { WidgetData } from "./types";
 import { formatValue } from "./format";
 import { applyGlossary } from "@/lib/glossary";
+import type { ComparisonRange } from "@/components/DateRangePicker";
 
 interface KpiRowProps {
   widget: KpiRowWidget;
@@ -22,6 +23,7 @@ interface KpiRowProps {
   trendData?: (WidgetData | null)[];
   /** Optional glossary entries for contextual tooltips on label text. */
   glossary?: GlossaryItem[];
+  comparisonRange?: ComparisonRange;
   /**
    * Optional anomaly data per KPI item (by index).
    * Each WidgetData should have N rows of single-column numeric values:

@@ -6,12 +6,14 @@ import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
+import type { ComparisonRange } from "@/components/DateRangePicker";
 
 interface LineChartWidgetProps {
   widget: LineChartWidgetSpec;
   data: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
+  comparisonRange?: ComparisonRange;
 }
 
 export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps) {

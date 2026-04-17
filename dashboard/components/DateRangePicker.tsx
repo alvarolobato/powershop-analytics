@@ -11,9 +11,19 @@ export interface DateRange {
   to: Date;
 }
 
+export interface ComparisonRange {
+  from: Date;
+  to: Date;
+}
+
+export interface DateRangePickerResult {
+  primary: DateRange;
+  comparison?: ComparisonRange;
+}
+
 export interface DateRangePickerProps {
   value: DateRange;
-  onChange: (range: DateRange) => void;
+  onChange: (result: DateRangePickerResult) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -154,7 +164,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   }, [value]);
 
   function applyPreset(preset: Preset) {
-    onChange(preset.range());
+    onChange({ primary: preset.range() });
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -164,7 +174,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     // Use T23:59:59.999 for consistency with endOfDay() used by presets
     const to = new Date(customTo + "T23:59:59.999");
     if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
-      onChange({ from, to });
+      onChange({ primary: { from, to } });
       setOpen(false);
       triggerRef.current?.focus();
     }
