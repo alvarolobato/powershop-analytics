@@ -233,14 +233,15 @@ jobs:
             - If CI was failing, your commit must fix it. Run the same commands CI runs.
 
             ## Completion
-            - If the PR has labels `ai-phase-copilot` or `ai-phase-opus`, do **NOT** call `requested_reviewers` — the workflow decides the next review step after you push.
-            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review:
+            - Run `gh pr view ${{ needs.resolve.outputs.pr_number }} --json labels` first.
+            - If the PR has **`no-pr-review`**, **`ai-phase-copilot`**, or **`ai-phase-opus`**, do **NOT** call `requested_reviewers` (no Copilot re-request; owner may have stopped all automated PR reviews).
+            - Only if **none** of those labels are present: after replying and committing, re-request Copilot review:
               ```bash
               gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
                 --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
               ```
             - Post a single summary comment listing: threads addressed (with fix), threads skipped
-              (with reason), files touched, tests run.
+              (with reason), files touched, tests run. **Do not** say you re-requested Copilot unless you actually ran the command above.
             - If you could NOT address something and need human input, post a comment tagging
               @alvarolobato explaining precisely what is blocking you. Then exit normally — do NOT
               error out, so the workflow records the blocked state.
