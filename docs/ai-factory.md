@@ -76,6 +76,8 @@ When a new issue is opened, the **Issue Triage** workflow runs automatically —
 2. Do **not** treat **`ai-ready-for-review`** as “ready for human” — it means the automation pipeline may still run another AI review.
 3. Always confirm **CI is green** (and resolve any `ai-blocked` / failing checks) before merging.
 
+**Waiting without clicking:** If you add **`no-pr-review`** (no Opus/Copilot), the **watchdog** re-dispatches **AI Address PR Feedback** on a cooldown until the PR reaches **`ai-awaiting-owner`**, unless you opted out with **`no-address-feedback`**. PRs that never get **`no-pr-review`** will not auto-handoff unless you run the full review pipeline or add that label yourself.
+
 ### c) Use slash commands in comments
 
 Comment on any issue (not PR) with one of these:
