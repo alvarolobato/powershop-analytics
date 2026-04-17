@@ -29,6 +29,7 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: write
   id-token: write
 
 jobs:
@@ -274,7 +275,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 200"
+          claude_args: "--max-turns 120"
           allowed_bots: "claude[bot],github-actions[bot]"
           prompt: |
             You are the AI Worker. Implement exactly what sub-task issue #${{ env.ISSUE_NUMBER }} describes — nothing more.
@@ -368,14 +369,15 @@ jobs:
             --remove-label "ai-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
-          # Signal the PR is ready for its first review.
-          # Must use explicit workflow_dispatch — GITHUB_TOKEN label events
-          # do not cascade to new workflow runs (loop-prevention by GitHub).
+          # Automated review: two Copilot rounds first (cheaper), then up to two Opus PR reviews.
+          # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
           gh pr edit "${{ steps.verify.outputs.pr_number }}" \
-            --add-label "ai-ready-for-review" || true
-          gh workflow run ai-pr-review.yml \
-            --repo "${{ github.repository }}" \
-            --field pr_number="${{ steps.verify.outputs.pr_number }}" || true
+            --add-label "ai-phase-copilot" || true
+          gh api "repos/${{ github.repository }}/pulls/${{ steps.verify.outputs.pr_number }}/requested_reviewers" \
+            --method POST \
+            -f 'reviewers[]=copilot-pull-request-reviewer[bot]' || true
+          gh pr comment "${{ steps.verify.outputs.pr_number }}" \
+            --body "🤖 **AI Factory**: Automated review starts with **Copilot** (round 1 of 2), then Copilot round 2, then up to **two Opus** code reviews. Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
 
       - name: Handle success (issue closed deliberately)
         if: always() && steps.verify.outputs.outcome == 'issue_closed'
