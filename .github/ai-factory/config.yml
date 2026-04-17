@@ -18,6 +18,7 @@ labels:
   no_review: "no-pr-review"   # Skip AI PR review
   auto_merge: "auto-merge"    # Auto-merge when CI + review pass
   awaiting_owner: "ai-awaiting-owner"  # Automated review cycle done — owner merges when ready
+  ci_failing: "ai-ci-failing"            # CI workflow red; AI CI remediation may run
 
   # Priority (highest first)
   priorities:
