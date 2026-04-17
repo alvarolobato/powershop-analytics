@@ -3,6 +3,8 @@
  *
  * Executive overview: retail + wholesale revenue, channel mix, margin,
  * 12-month trend (retail + wholesale), and top product families.
+ * Date filters use :curr_from/:curr_to tokens substituted at render time from the DateRangePicker.
+ * YoY KPI uses :curr_from/:curr_to for the current period and subtracts 1 year for the prior period.
  */
 import type { DashboardSpec } from "@/lib/schema";
 
@@ -20,21 +22,21 @@ export const spec: DashboardSpec = {
       type: "kpi_row",
       items: [
         {
-          label: "Ventas Retail Netas (YTD)",
+          label: "Ventas Retail Netas",
           sql: `SELECT COALESCE(SUM("total_si"), 0) AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)`,
+  AND "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to`,
           format: "currency",
           prefix: "€",
         },
         {
-          label: "Facturacion Mayorista (YTD)",
+          label: "Facturacion Mayorista",
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
-  AND "fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)`,
+  AND "fecha_factura" >= :curr_from AND "fecha_factura" <= :curr_to`,
           format: "currency",
           prefix: "€",
         },
@@ -49,7 +51,7 @@ JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)`,
+  AND lv."fecha_creacion" >= :curr_from AND lv."fecha_creacion" <= :curr_to`,
           format: "percent",
         },
         {
@@ -61,15 +63,14 @@ FROM (
   SELECT COALESCE(SUM("total_si"), 0) AS ventas
   FROM "public"."ps_ventas"
   WHERE "entrada" = true AND "tienda" <> '99'
-    AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)
-    AND "fecha_creacion" <= CURRENT_DATE
+    AND "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to
 ) curr,
 (
   SELECT COALESCE(SUM("total_si"), 0) AS ventas
   FROM "public"."ps_ventas"
   WHERE "entrada" = true AND "tienda" <> '99'
-    AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year'
-    AND "fecha_creacion" <= CURRENT_DATE - INTERVAL '1 year'
+    AND "fecha_creacion" >= :curr_from - INTERVAL '1 year'
+    AND "fecha_creacion" <= :curr_to - INTERVAL '1 year'
 ) prev`,
           format: "percent",
         },
@@ -78,31 +79,31 @@ FROM (
     {
       id: "general-mix-canales",
       type: "donut_chart",
-      title: "Mix Retail vs Mayorista (YTD)",
+      title: "Mix Retail vs Mayorista",
       sql: `SELECT 'Retail' AS label,
        COALESCE(SUM("total_si"), 0) AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)
+  AND "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to
 UNION ALL
 SELECT 'Mayorista' AS label,
        COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
-  AND "fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)`,
+  AND "fecha_factura" >= :curr_from AND "fecha_factura" <= :curr_to`,
       x: "label",
       y: "value",
     },
     {
       id: "general-ventas-por-tienda",
       type: "bar_chart",
-      title: "Ventas Retail por Tienda (YTD)",
+      title: "Ventas Retail por Tienda",
       sql: `SELECT "tienda" AS label, SUM("total_si") AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)
+  AND "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to
 GROUP BY "tienda"
 ORDER BY value DESC`,
       x: "label",
@@ -111,21 +112,21 @@ ORDER BY value DESC`,
     {
       id: "general-tendencia-12m",
       type: "line_chart",
-      title: "Tendencia Mensual Retail + Mayorista (ultimos 12 meses)",
+      title: "Tendencia Mensual Retail + Mayorista",
       sql: `SELECT mes, SUM(importe) AS y, mes AS x FROM (
   SELECT DATE_TRUNC('month', "fecha_creacion") AS mes,
          SUM("total_si") AS importe
   FROM "public"."ps_ventas"
   WHERE "entrada" = true
     AND "tienda" <> '99'
-    AND "fecha_creacion" >= CURRENT_DATE - INTERVAL '12 months'
+    AND "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to
   GROUP BY DATE_TRUNC('month', "fecha_creacion")
   UNION ALL
   SELECT DATE_TRUNC('month', "fecha_factura") AS mes,
          SUM("base1" + "base2" + "base3") AS importe
   FROM "public"."ps_gc_facturas"
   WHERE "abono" = false
-    AND "fecha_factura" >= CURRENT_DATE - INTERVAL '12 months'
+    AND "fecha_factura" >= :curr_from AND "fecha_factura" <= :curr_to
   GROUP BY DATE_TRUNC('month', "fecha_factura")
 ) combined
 GROUP BY mes
@@ -136,7 +137,7 @@ ORDER BY mes`,
     {
       id: "general-top-familias",
       type: "table",
-      title: "Top 10 Familias por Ventas (YTD)",
+      title: "Top 10 Familias por Ventas",
       sql: `SELECT fm."fami_grup_marc" AS "Familia",
        SUM(lv."total_si") AS "Ventas Netas",
        SUM(lv."unidades") AS "Unidades",
@@ -149,7 +150,7 @@ JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)
+  AND lv."fecha_creacion" >= :curr_from AND lv."fecha_creacion" <= :curr_to
 GROUP BY fm."fami_grup_marc"
 ORDER BY "Ventas Netas" DESC
 LIMIT 10`,

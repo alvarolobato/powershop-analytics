@@ -519,4 +519,167 @@ describe("DashboardRenderer", () => {
     // Should still render without crashing; valid widget eventually loads
     expect(screen.getByText("Panel con IDs Inválidos")).toBeInTheDocument();
   });
+
+  // ---------------------------------------------------------------------------
+  // Date token substitution tests
+  // ---------------------------------------------------------------------------
+
+  it("substitutes :curr_from/:curr_to tokens when dateRange is provided", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ columns: ["value"], rows: [[42]] }),
+    } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tokenSpec: DashboardSpec = {
+      title: "Token Test",
+      widgets: [
+        {
+          type: "number",
+          title: "Ventas",
+          sql: 'SELECT COUNT(*) FROM ps_ventas WHERE "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to',
+          format: "number",
+        },
+      ],
+    };
+
+    const dateRange = {
+      from: new Date(Date.UTC(2026, 0, 1)),
+      to: new Date(Date.UTC(2026, 0, 31)),
+    };
+
+    render(<DashboardRenderer spec={tokenSpec} dateRange={dateRange} />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sql).toContain("'2026-01-01'");
+    expect(body.sql).toContain("'2026-01-31'");
+    expect(body.sql).not.toContain(":curr_from");
+    expect(body.sql).not.toContain(":curr_to");
+  });
+
+  it("passes SQL unchanged when no tokens are present (backward compatibility)", async () => {
+    const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[42]] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const plainSpec: DashboardSpec = {
+      title: "Plain SQL",
+      widgets: [
+        {
+          type: "number",
+          title: "Count",
+          sql: "SELECT COUNT(*) FROM ps_ventas",
+          format: "number",
+        },
+      ],
+    };
+
+    const dateRange = {
+      from: new Date(Date.UTC(2026, 0, 1)),
+      to: new Date(Date.UTC(2026, 0, 31)),
+    };
+
+    render(<DashboardRenderer spec={plainSpec} dateRange={dateRange} />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(body.sql).toBe("SELECT COUNT(*) FROM ps_ventas");
+  });
+
+  it("refetches when dateRange changes", async () => {
+    const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[42]] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tokenSpec: DashboardSpec = {
+      title: "Date Change Test",
+      widgets: [
+        {
+          type: "number",
+          title: "Ventas",
+          sql: 'SELECT COUNT(*) FROM ps_ventas WHERE "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to',
+          format: "number",
+        },
+      ],
+    };
+
+    const dateRange1 = {
+      from: new Date(Date.UTC(2026, 0, 1)),
+      to: new Date(Date.UTC(2026, 0, 31)),
+    };
+    const dateRange2 = {
+      from: new Date(Date.UTC(2026, 1, 1)),
+      to: new Date(Date.UTC(2026, 1, 28)),
+    };
+
+    const { rerender } = render(
+      <DashboardRenderer spec={tokenSpec} dateRange={dateRange1} />
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(<DashboardRenderer spec={tokenSpec} dateRange={dateRange2} />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("substitutes :curr_from/:curr_to tokens in kpi_row item SQL", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(() => {
+        callCount++;
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({ columns: ["value"], rows: [[callCount * 100]] }),
+        } as unknown as Response);
+      })
+    );
+
+    const kpiTokenSpec: DashboardSpec = {
+      title: "KPI Token Test",
+      widgets: [
+        {
+          type: "kpi_row",
+          items: [
+            {
+              label: "Ventas",
+              sql: 'SELECT SUM("total_si") FROM ps_ventas WHERE "fecha_creacion" >= :curr_from AND "fecha_creacion" <= :curr_to',
+              format: "currency",
+              prefix: "€",
+            },
+          ],
+        },
+      ],
+    };
+
+    const dateRange = {
+      from: new Date(Date.UTC(2026, 0, 1)),
+      to: new Date(Date.UTC(2026, 0, 31)),
+    };
+
+    render(<DashboardRenderer spec={kpiTokenSpec} dateRange={dateRange} />);
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalled();
+    });
+
+    const body = JSON.parse(
+      (fetch as ReturnType<typeof vi.fn>).mock.calls[0][1].body
+    );
+    expect(body.sql).toContain("'2026-01-01'");
+    expect(body.sql).toContain("'2026-01-31'");
+    expect(body.sql).not.toContain(":curr_from");
+    expect(body.sql).not.toContain(":curr_to");
+  });
 });

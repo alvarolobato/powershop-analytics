@@ -131,7 +131,7 @@ WHERE s."stock" > 0
     JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
     WHERE v."entrada" = true
       AND lv."tienda" <> '99'
-      AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days'
+      AND lv."fecha_creacion" >= :curr_from AND lv."fecha_creacion" <= :curr_to
   )
 GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
 HAVING SUM(s."stock") > 10
@@ -141,7 +141,7 @@ LIMIT 30`,
     {
       id: "stock-traspasos-recientes",
       type: "table",
-      title: "Traspasos Recientes (ultimos 30 dias)",
+      title: "Traspasos Recientes",
       sql: `SELECT t."fecha_s" AS "Fecha",
        t."tienda_salida" AS "Origen",
        t."tienda_entrada" AS "Destino",
@@ -149,7 +149,7 @@ LIMIT 30`,
        SUM(t."unidades_s") AS "Unidades"
 FROM "public"."ps_traspasos" t
 WHERE t."entrada" = false
-  AND t."fecha_s" >= CURRENT_DATE - INTERVAL '30 days'
+  AND t."fecha_s" >= :curr_from AND t."fecha_s" <= :curr_to
 GROUP BY t."fecha_s", t."tienda_salida", t."tienda_entrada"
 ORDER BY t."fecha_s" DESC
 LIMIT 30`,
