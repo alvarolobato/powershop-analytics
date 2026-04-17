@@ -159,6 +159,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          gh pr edit ${{ needs.resolve.outputs.pr_number }} \
+            --remove-label "ai-awaiting-owner" || true
           gh pr comment ${{ needs.resolve.outputs.pr_number }} \
             --body "🤖 Addressing review feedback automatically (${{ needs.resolve.outputs.reason }}). See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
@@ -268,6 +270,7 @@ jobs:
             gh pr edit "$PR" --repo "$REPO" --remove-label "ai-ready-for-review" || true
             gh pr edit "$PR" --repo "$REPO" \
               --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+            gh pr edit "$PR" --repo "$REPO" --add-label "ai-awaiting-owner" || true
             gh pr comment "$PR" \
               --body "✅ Review cycle converged — no new changes required. PR is ready for human merge decision." || true
           }
@@ -313,6 +316,7 @@ jobs:
             if ! echo ",$LABELS," | grep -q ",ai-o-after-2,"; then
               gh pr edit "$PR" --repo "$REPO" \
                 --add-label "ai-o-after-2" \
+                --add-label "ai-awaiting-owner" \
                 --remove-label "ai-phase-opus" \
                 --remove-label "ai-ready-for-review" \
                 --remove-label "ai-blocked" \
