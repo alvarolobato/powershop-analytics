@@ -311,14 +311,25 @@ jobs:
             if ! echo ",$LABELS," | grep -q ",ai-o-after-2,"; then
               gh pr edit "$PR" --repo "$REPO" \
                 --add-label "ai-o-after-2" \
+                --add-label "ai-awaiting-owner" \
                 --remove-label "ai-phase-opus" \
                 --remove-label "ai-ready-for-review" || true
-              gh pr comment "$PR" --body "✅ **AI Factory**: Automated **Opus** passes complete (**2**/2). PR is ready for human merge decision." || true
+              gh pr comment "$PR" --body "✅ **AI Factory**: Automated **Opus** passes complete (**2**/2). This PR is **ready for your review and merge**." || true
               exit 0
             fi
           fi
 
-          # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).
+          # Legacy PRs: after 2 successful Opus passes (labels set by ai-pr-review), do not schedule more AI review.
+          if echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
+            gh pr edit "$PR" --repo "$REPO" \
+              --remove-label "ai-ready-for-review" \
+              --add-label "ai-awaiting-owner" || true
+            gh pr comment "$PR" \
+              --body "✅ **AI Factory**: Both automated Opus passes are done. This PR is **ready for your review and merge** — no further automated reviews will be scheduled." || true
+            exit 0
+          fi
+
+          # Legacy PRs (no phased labels): re-dispatch Opus review (capped in ai-pr-review via ai-legacy-opus-*).
           gh pr edit "$PR" --repo "$REPO" --add-label "ai-ready-for-review" || true
           gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
           echo "Dispatched legacy Opus PR review for PR #$PR."
