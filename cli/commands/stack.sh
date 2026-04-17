@@ -20,6 +20,7 @@ Subcommands:
   up              Start all containers
   down            Stop all containers
   restart         Restart all containers
+  update          Pull latest main, rebuild images, restart stack
   status          Show container status
   logs [svc]      Show logs (follow); optional service name
   open            Open WrenAI UI in browser
@@ -46,6 +47,41 @@ cmd_restart() {
     echo -e "${CYAN}Restarting stack...${NC}"
     $DC restart
     echo -e "${GREEN}Stack restarted.${NC}"
+}
+
+cmd_update() {
+    cd "${REPO_ROOT}"
+
+    local branch
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+    if [ "$branch" != "main" ]; then
+        echo -e "${YELLOW}Current branch is '${branch}', not 'main'.${NC}"
+        printf "Pull and rebuild on this branch anyway? [y/N] "
+        read -r answer || answer=''
+        if [ "${answer}" != "y" ] && [ "${answer}" != "Y" ]; then
+            echo "Aborted."
+            exit 0
+        fi
+    fi
+
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo -e "${YELLOW}Working tree has uncommitted changes.${NC}"
+        printf "Continue? git pull will fail if it would overwrite them. [y/N] "
+        read -r answer || answer=''
+        if [ "${answer}" != "y" ] && [ "${answer}" != "Y" ]; then
+            echo "Aborted."
+            exit 0
+        fi
+    fi
+
+    echo -e "${CYAN}Pulling latest from origin/${branch}...${NC}"
+    git pull --ff-only origin "$branch"
+
+    echo -e "${CYAN}Rebuilding images and starting stack...${NC}"
+    $DC up -d --build
+
+    echo ""
+    cmd_status
 }
 
 cmd_status() {
@@ -123,6 +159,7 @@ case "$SUBCMD" in
     up)          cmd_up ;;
     down)        cmd_down ;;
     restart)     cmd_restart ;;
+    update)      cmd_update ;;
     status)      cmd_status ;;
     logs)        cmd_logs "${1:-}" ;;
     open)        cmd_open ;;
