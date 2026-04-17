@@ -273,7 +273,15 @@ jobs:
           if [ "$CURRENT_SHA" = "$INITIAL_SHA" ]; then
             echo "No commits pushed — nothing to re-review."
             echo "pushed=false" >> "$GITHUB_OUTPUT"
-            converge_comment
+            if echo ",$LABELS," | grep -q ",no-pr-review,"; then
+              gh pr edit "$PR" --repo "$REPO" \
+                --remove-label "ai-ready-for-review" \
+                --add-label "ai-awaiting-owner" || true
+              gh pr comment "$PR" \
+                --body "✅ **AI Factory**: \`no-pr-review\` — no new commits were needed. **Ready for your review and merge** when CI is green." || true
+            else
+              converge_comment
+            fi
             exit 0
           fi
 
@@ -326,6 +334,16 @@ jobs:
               --add-label "ai-awaiting-owner" || true
             gh pr comment "$PR" \
               --body "✅ **AI Factory**: Both automated Opus passes are done. This PR is **ready for your review and merge** — no further automated reviews will be scheduled." || true
+            exit 0
+          fi
+
+          # Owner opted out of further AI PR reviews — address-feedback may still run to fix threads, but never re-dispatch Opus.
+          if echo ",$LABELS," | grep -q ",no-pr-review,"; then
+            gh pr edit "$PR" --repo "$REPO" \
+              --remove-label "ai-ready-for-review" \
+              --add-label "ai-awaiting-owner" || true
+            gh pr comment "$PR" \
+              --body "✅ **AI Factory**: \`no-pr-review\` is set — no further automated Opus/Copilot PR reviews. Pending feedback was handled in this run; **ready for your review and merge** when CI is green."
             exit 0
           fi
 
