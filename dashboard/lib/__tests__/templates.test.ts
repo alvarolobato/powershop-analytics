@@ -139,4 +139,13 @@ describe("SQL rule compliance across all templates", () => {
       }
     }
   });
+
+  it("all time-filtered SQL contains both :curr_from and :curr_to tokens", () => {
+    for (const sql of allSql) {
+      if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
+        expect(sql).toMatch(/:curr_from/);
+        expect(sql).toMatch(/:curr_to/);
+      }
+    }
+  });
 });
