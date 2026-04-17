@@ -3,6 +3,10 @@ on:
   issue_comment:
     types: [created]
 
+concurrency:
+  group: ai-plan-${{ github.run_id }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write
@@ -11,8 +15,9 @@ permissions:
 
 jobs:
   plan:
+    # Do NOT require pull_request == null — PR review threads are still "issues"
+    # in the API; that guard skips `/plan` on pull requests entirely.
     if: >-
-      github.event.issue.pull_request == null &&
       startsWith(github.event.comment.body, '/plan') &&
       (
         github.event.comment.author_association == 'OWNER' ||
@@ -29,6 +34,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: >-
+            ${{ github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number) || format('refs/heads/{0}', github.event.repository.default_branch) }}
 
       - name: Generate Implementation Plan
         uses: anthropics/claude-code-action@v1
@@ -36,11 +45,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-6 --max-turns 40"
+          claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 40"
           prompt: |
             You are the AI Planner. Generate a comprehensive implementation plan for this issue.
 
             The command was: "${{ github.event.comment.body }}"
+
+            If this thread is **pull request #${{ github.event.issue.number }}** (not a standalone issue), plan against the **PR branch** you are checked out on; post the plan as a **pull request** comment and mention linked issues by number from the PR body.
 
             ## Step 1 — Understand the request
             Read the issue title, body, and ALL comments carefully.
