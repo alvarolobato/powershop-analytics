@@ -3,6 +3,7 @@
  *
  * Wholesale channel: invoicing KPIs, breakdown by sales rep, top clients,
  * recent delivery notes, and period comparison.
+ * Dates are driven by the dashboard time picker ({{date_from}} / {{date_to}}).
  */
 import type { DashboardSpec } from "@/lib/schema";
 
@@ -14,6 +15,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
   description,
+  default_time_range: { preset: "current_month" },
   widgets: [
     {
       id: "mayorista-kpis",
@@ -24,7 +26,7 @@ export const spec: DashboardSpec = {
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
-  AND "fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -33,7 +35,7 @@ WHERE "abono" = false
           sql: `SELECT COUNT(DISTINCT "reg_factura") AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
-  AND "fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
@@ -46,7 +48,7 @@ FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura"
 WHERE lf."total" > 0
   AND f."abono" = false
-  AND f."fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND f."fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "percent",
         },
         {
@@ -54,7 +56,7 @@ WHERE lf."total" > 0
           sql: `SELECT COUNT(DISTINCT "num_cliente") AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
-  AND "fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)`,
+  AND "fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
       ],
@@ -68,7 +70,7 @@ WHERE "abono" = false
 FROM "public"."ps_gc_facturas" f
 JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial"
 WHERE f."abono" = false
-  AND f."fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND f."fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY c."comercial"
 ORDER BY value DESC`,
       x: "label",
@@ -85,7 +87,7 @@ ORDER BY value DESC`,
          (f."base1" + f."base2" + f."base3") AS neto
   FROM "public"."ps_gc_facturas" f
   WHERE f."abono" = false
-    AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+    AND f."fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'
 ), margenes AS (
   SELECT lf."num_factura",
          SUM(lf."total")       AS total_ingreso,
@@ -137,7 +139,7 @@ LIMIT 20`,
 FROM "public"."ps_gc_albaranes" a
 JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
 WHERE a."abono" = false
-  AND a."fecha_envio" >= CURRENT_DATE - INTERVAL '30 days'
+  AND a."fecha_envio" BETWEEN '{{date_from}}' AND '{{date_to}}'
 ORDER BY a."fecha_envio" DESC
 LIMIT 20`,
     },
@@ -156,7 +158,7 @@ JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura"
 JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
 WHERE f."abono" = false
   AND lf."unidades" > 0
-  AND f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE)
+  AND f."fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY p."ccrefejofacm", p."descripcion"
 ORDER BY "Importe" DESC
 LIMIT 10`,
@@ -169,7 +171,7 @@ LIMIT 10`,
        SUM(f."base1" + f."base2" + f."base3") AS y
 FROM "public"."ps_gc_facturas" f
 WHERE f."abono" = false
-  AND f."fecha_factura" >= CURRENT_DATE - INTERVAL '12 months'
+  AND f."fecha_factura" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY DATE_TRUNC('month', f."fecha_factura")
 ORDER BY x`,
       x: "x",

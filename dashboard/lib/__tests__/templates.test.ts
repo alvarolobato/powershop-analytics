@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { TEMPLATES, type DashboardTemplate } from "../templates";
 import { validateSpec, DashboardSpecSchema } from "../schema";
+import { substituteTimeRange } from "../time-range";
 
 // ---------------------------------------------------------------------------
 // Structural tests
@@ -76,7 +77,20 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
       }
     });
 
-    it("every widget SQL uses CURRENT_DATE-relative dates (no hardcoded dates)", () => {
+    it("has a valid default_time_range preset", () => {
+      const validPresets = [
+        "today",
+        "last_7_days",
+        "last_30_days",
+        "current_month",
+        "last_month",
+        "year_to_date",
+      ];
+      expect(template.spec.default_time_range).toBeDefined();
+      expect(validPresets).toContain(template.spec.default_time_range?.preset);
+    });
+
+    it("every date-filtered widget SQL uses {{date_from}}/{{date_to}} placeholders (no raw CURRENT_DATE bounds)", () => {
       const allSql: string[] = [];
       for (const widget of template.spec.widgets) {
         if (widget.type === "kpi_row") {
@@ -88,10 +102,34 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
         }
       }
       for (const sql of allSql) {
-        // If the SQL contains a date filter, it should use CURRENT_DATE, not hardcoded dates
-        if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
-          expect(sql).toMatch(/CURRENT_DATE/);
+        // If the SQL has a date range filter, it must use placeholders
+        if (/BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
+          expect(sql).toMatch(/\{\{date_from\}\}/);
+          expect(sql).toMatch(/\{\{date_to\}\}/);
         }
+        // No standalone CURRENT_DATE used as a range bound (>= CURRENT_DATE or <= CURRENT_DATE)
+        expect(sql).not.toMatch(/>= CURRENT_DATE/);
+        expect(sql).not.toMatch(/<= CURRENT_DATE/);
+      }
+    });
+
+    it("substituteTimeRange removes all placeholders from every widget SQL", () => {
+      const from = "2026-03-01";
+      const to = "2026-03-31";
+      const allSql: string[] = [];
+      for (const widget of template.spec.widgets) {
+        if (widget.type === "kpi_row") {
+          for (const item of widget.items) {
+            allSql.push(item.sql);
+          }
+        } else {
+          allSql.push(widget.sql);
+        }
+      }
+      for (const sql of allSql) {
+        const substituted = substituteTimeRange(sql, from, to);
+        expect(substituted).not.toMatch(/\{\{date_from\}\}/);
+        expect(substituted).not.toMatch(/\{\{date_to\}\}/);
       }
     });
   },
@@ -136,6 +174,13 @@ describe("SQL rule compliance across all templates", () => {
       if (/ps_ventas/.test(sql) || /ps_lineas_ventas/.test(sql)) {
         expect(sql).toMatch(/"?tienda"?\s*(<>|!=)\s*'99'/);
       }
+    }
+  });
+
+  it("all 5 templates have default_time_range defined", () => {
+    for (const t of TEMPLATES) {
+      expect(t.spec.default_time_range).toBeDefined();
+      expect(t.spec.default_time_range?.preset).toBeTruthy();
     }
   });
 });

@@ -3,7 +3,7 @@
  *
  * KPIs de ventas retail, devoluciones, desglose por tienda, tendencia semanal,
  * formas de pago, margen por tienda, top articulos con margen.
- * All dates are CURRENT_DATE-relative so the dashboard always shows fresh data.
+ * Dates are driven by the dashboard time picker ({{date_from}} / {{date_to}}).
  */
 import type { DashboardSpec } from "@/lib/schema";
 
@@ -15,6 +15,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Ventas Retail",
   description,
+  default_time_range: { preset: "current_month" },
   widgets: [
     {
       id: "ventas-kpis",
@@ -26,7 +27,7 @@ export const spec: DashboardSpec = {
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -36,7 +37,7 @@ WHERE "entrada" = true
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
@@ -45,7 +46,7 @@ WHERE "entrada" = true
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -55,7 +56,7 @@ WHERE "entrada" = true
 FROM "public"."ps_ventas"
 WHERE "entrada" = false
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "currency",
           prefix: "€",
         },
@@ -69,7 +70,7 @@ WHERE "entrada" = false
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY "tienda"
 ORDER BY value DESC`,
       x: "label",
@@ -83,7 +84,7 @@ ORDER BY value DESC`,
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
   AND "tienda" <> '99'
-  AND "fecha_creacion" >= CURRENT_DATE - INTERVAL '12 weeks'
+  AND "fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY DATE_TRUNC('week', "fecha_creacion")
 ORDER BY x`,
       x: "x",
@@ -98,7 +99,7 @@ ORDER BY x`,
 FROM "public"."ps_pagos_ventas" p
 WHERE p."entrada" = true
   AND p."tienda" <> '99'
-  AND p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND p."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY p."forma"
 ORDER BY value DESC`,
       x: "label",
@@ -116,7 +117,7 @@ JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND lv."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY lv."tienda"
 ORDER BY value DESC`,
       x: "label",
@@ -138,7 +139,7 @@ JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
+  AND lv."fecha_creacion" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY p."ccrefejofacm", p."descripcion"
 ORDER BY "Ventas Netas" DESC
 LIMIT 10`,
