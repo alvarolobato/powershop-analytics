@@ -85,18 +85,27 @@ class TestFinishRun:
             )
             with pg_conn.cursor() as cur:
                 cur.execute(
-                    "SELECT status, finished_at, duration_ms, tables_ok, tables_failed, total_rows_synced "
+                    "SELECT status, finished_at, duration_ms, tables_ok, tables_failed, total_tables, total_rows_synced "
                     "FROM etl_sync_runs WHERE id = %s",
                     (run_id,),
                 )
                 row = cur.fetchone()
             assert row is not None
-            status, finished_at, duration_ms, tables_ok, tables_failed, total_rows = row
+            (
+                status,
+                finished_at,
+                duration_ms,
+                tables_ok,
+                tables_failed,
+                total_tables,
+                total_rows,
+            ) = row
             assert status == "success"
             assert finished_at is not None
             assert duration_ms is not None and duration_ms >= 0
             assert tables_ok == 22
             assert tables_failed == 0
+            assert total_tables == 22
             assert total_rows == 50000
         finally:
             _cleanup_run(pg_conn, run_id)
