@@ -102,6 +102,8 @@ Response includes: analysis, files to modify, implementation steps, testing stra
 
 For code-change instructions, Claude creates a branch and opens a PR. For investigation instructions, Claude posts findings as an issue comment.
 
+**Manual vs automated queue:** `/ai` and `/plan` each use a unique run slot (they never wait on each other or on factory batch locks). For **AI Address PR Feedback**, **AI PR Review**, and **AI Worker**, a manual **Run workflow** defaults to **not** joining the factory serial queue; check **use global queue** only if you intentionally want to line up behind automated runs. Watchdog and in-repo `gh workflow run` dispatches always pass `use_global_queue=true` so automation stays serialized where needed.
+
 ### d) Review and merge PRs
 
 When the AI opens a PR:
