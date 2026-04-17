@@ -507,6 +507,21 @@ jobs:
             sleep 30  # stagger to avoid hammering the rate limit
           done
 
+      - name: Clear ai-ci-failing when CI is green
+        run: |
+          set -euo pipefail
+          mkdir -p .github/scripts
+          gh api "repos/$REPO_FULL/contents/.github/scripts/ci-handoff-state.sh?ref=${{ github.event.repository.default_branch }}" \
+            --jq -r .content | base64 -d > .github/scripts/ci-handoff-state.sh
+          chmod +x .github/scripts/ci-handoff-state.sh
+          gh pr list --repo "$REPO_FULL" --state open --label "ai-ci-failing" --json number --jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            hs=$(bash .github/scripts/ci-handoff-state.sh "$REPO_FULL" "$NUM")
+            if [ "$hs" = "ready" ]; then
+              gh pr edit "$NUM" --repo "$REPO_FULL" --remove-label "ai-ci-failing" || true
+            fi
+          done
+
       - name: Bot-triggered runs gated as `action_required`
         run: |
           set -euo pipefail
