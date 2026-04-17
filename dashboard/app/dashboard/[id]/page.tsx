@@ -158,11 +158,12 @@ export default function ViewDashboard() {
     fetchDashboard();
   }, [fetchDashboard]);
 
+  const defaultPreset = dashboard?.spec.default_time_range?.preset;
   useEffect(() => {
-    if (dashboard?.spec.default_time_range !== undefined) {
-      setDateRange(defaultTimeRangeToDateRange(dashboard.spec.default_time_range));
+    if (defaultPreset !== undefined) {
+      setDateRange(defaultTimeRangeToDateRange({ preset: defaultPreset }));
     }
-  }, [dashboard?.spec.default_time_range]);
+  }, [defaultPreset]);
 
   // Keep latestSpecRef in sync
   useEffect(() => {

@@ -241,7 +241,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
     });
 
     await Promise.all(promises);
-  }, []);
+  }, [applyDateRange]);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -342,7 +342,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
         retryAbortMap.current.delete(idx);
       }
     },
-    [],
+    [applyDateRange],
   );
 
   useEffect(() => {
