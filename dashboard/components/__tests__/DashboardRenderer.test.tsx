@@ -519,6 +519,43 @@ describe("DashboardRenderer", () => {
     // Should still render without crashing; valid widget eventually loads
     expect(screen.getByText("Panel con IDs Inválidos")).toBeInTheDocument();
   });
+
+  it("applies substituteDateParams to widget SQL before fetch", async () => {
+    const capturedSql: string[] = [];
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((_url: string, opts: { body: string }) => {
+      const body = JSON.parse(opts.body) as { sql: string };
+      capturedSql.push(body.sql);
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ columns: ["value"], rows: [[1]] }),
+      } as unknown as Response);
+    }));
+
+    const tokenSpec: DashboardSpec = {
+      title: "Token Test",
+      widgets: [
+        {
+          type: "number",
+          title: "Token Widget",
+          sql: "SELECT COUNT(*) FROM ps_ventas WHERE fecha_creacion BETWEEN :curr_from AND :curr_to",
+          format: "number",
+        },
+      ],
+    };
+
+    const dateRange = { from: new Date("2025-03-01"), to: new Date("2025-03-31") };
+    render(<DashboardRenderer spec={tokenSpec} dateRange={dateRange} />);
+
+    await waitFor(() => {
+      expect(capturedSql.length).toBeGreaterThan(0);
+    });
+
+    expect(capturedSql[0]).toContain("2025-03-01");
+    expect(capturedSql[0]).toContain("2025-03-31");
+    expect(capturedSql[0]).not.toContain(":curr_from");
+    expect(capturedSql[0]).not.toContain(":curr_to");
+  });
+
   it("substitutes {{date_from}} and {{date_to}} in widget SQL before fetching", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -559,5 +596,25 @@ describe("DashboardRenderer", () => {
     expect(body.sql).not.toContain("{{date_to}}");
     expect(body.sql).toContain("2026-01-01");
     expect(body.sql).toContain("2026-01-31");
+  });
+
+  it("accepts comparisonRange prop and renders without crashing", async () => {
+    vi.stubGlobal("fetch", mockFetchSuccess({
+      columns: ["tienda", "total"],
+      rows: [["Madrid", 100]],
+    }));
+
+    const comparisonRange = { from: new Date("2024-01-01"), to: new Date("2024-01-31") };
+    render(
+      <DashboardRenderer
+        spec={barSpec}
+        dateRange={{ from: new Date("2025-01-01"), to: new Date("2025-01-31") }}
+        comparisonRange={comparisonRange}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Ventas por Tienda")).toBeInTheDocument();
+    });
   });
 });

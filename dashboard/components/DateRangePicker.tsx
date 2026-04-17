@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComparisonType } from "@/lib/date-params";
 import { useState, useRef, useEffect } from "react";
 
 // ---------------------------------------------------------------------------
@@ -11,9 +12,20 @@ export interface DateRange {
   to: Date;
 }
 
+export interface ComparisonRange {
+  type: ComparisonType;
+  from: Date;
+  to: Date;
+}
+
+export interface DateRangePickerResult {
+  primary: DateRange;
+  comparison?: ComparisonRange;
+}
+
 export interface DateRangePickerProps {
   value: DateRange;
-  onChange: (range: DateRange) => void;
+  onChange: (result: DateRangePickerResult) => void;
 }
 
 interface Season {
@@ -197,7 +209,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   }, [open]);
 
   function applyPreset(preset: Preset) {
-    onChange(presetToDateRange(preset.id));
+    onChange({ primary: presetToDateRange(preset.id) });
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -215,7 +227,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     // Use T23:59:59.999 for consistency with endOfDay() used by presets
     const to = new Date(customTo + "T23:59:59.999");
     if (!isNaN(from.getTime()) && !isNaN(to.getTime()) && from <= to) {
-      onChange({ from, to });
+      onChange({ primary: { from, to } });
       setOpen(false);
       triggerRef.current?.focus();
     }

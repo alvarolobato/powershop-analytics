@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
-import type { DateRange } from "./DateRangePicker";
+import type { DateRange, ComparisonRange } from "./DateRangePicker";
+import { substituteDateParams } from "@/lib/date-params";
 import { isApiErrorResponse } from "@/lib/errors";
 import { substituteTimeRange, toISODateString } from "@/lib/time-range";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -49,6 +50,12 @@ export interface DashboardRendererProps {
    * unnecessary calls during the initial empty state.
    */
   onWidgetDataChange?: (data: Map<number, WidgetState>) => void;
+  /**
+   * Optional comparison date range from the DateRangePicker.
+   * When set, COMP_* tokens in widget SQL are substituted before fetching.
+   * Passed through to each widget component for future use (Tasks 5 and 6).
+   */
+  comparisonRange?: ComparisonRange;
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +121,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDataChange }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonRange, onWidgetDataChange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -122,23 +129,34 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
   // retryAbortMap is keyed by widget index so retrying widget A never cancels widget B.
   const fetchAllAbortRef = useRef<AbortController | null>(null);
   const retryAbortMap = useRef<Map<number, AbortController>>(new Map());
-  // Stable key derived from spec content (not referential identity) so
-  // parent re-renders that recreate the same spec object don't trigger refetches.
+  const dateRangeRef = useRef(dateRange);
+  const comparisonRangeRef = useRef(comparisonRange);
+  useEffect(() => {
+    dateRangeRef.current = dateRange;
+  }, [dateRange]);
+  useEffect(() => {
+    comparisonRangeRef.current = comparisonRange;
+  }, [comparisonRange]);
+
   const specKey = useMemo(() => JSON.stringify(spec), [spec]);
   // Track the specKey that widgetStates corresponds to, so we show skeletons
   // (not stale data) when spec changes before the effect runs.
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
-  const dateRangeRef = useRef(dateRange);
-  useEffect(() => { dateRangeRef.current = dateRange; }, [dateRange]);
-  const applyDateRange = useCallback((sql: string) => {
-    const dr = dateRangeRef.current;
-    return dr ? substituteTimeRange(sql, toISODateString(dr.from), toISODateString(dr.to)) : sql;
-  }, []);
-
   // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
+    const _fallback = { from: new Date(), to: new Date() };
+    const applySql = (sql: string) => {
+      const curr = dateRangeRef.current ?? _fallback;
+      const comp = comparisonRangeRef.current;
+      const withTime = substituteTimeRange(
+        sql,
+        toISODateString(curr.from),
+        toISODateString(curr.to),
+      );
+      return substituteDateParams(withTime, { curr, comp });
+    };
     // Abort any in-flight global load from a previous spec
     fetchAllAbortRef.current?.abort();
     const controller = new AbortController();
@@ -162,7 +180,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(applyDateRange(item.sql), signal);
+                  const data = await fetchWidgetData(applySql(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -183,7 +201,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.trend_sql), signal);
+                  return await fetchWidgetData(applySql(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -194,7 +212,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.anomaly_sql), signal);
+                  return await fetchWidgetData(applySql(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -212,7 +230,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             });
           }
         } else {
-          const data = await fetchWidgetData(applyDateRange(widget.sql), signal);
+          const data = await fetchWidgetData(applySql(widget.sql), signal);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
@@ -241,12 +259,23 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
     });
 
     await Promise.all(promises);
-  }, [applyDateRange]);
+  }, []);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
   const retryWidget = useCallback(
     async (widget: Widget, idx: number) => {
+      const _fallback = { from: new Date(), to: new Date() };
+      const applySql = (sql: string) => {
+        const curr = dateRangeRef.current ?? _fallback;
+        const comp = comparisonRangeRef.current;
+        const withTime = substituteTimeRange(
+          sql,
+          toISODateString(curr.from),
+          toISODateString(curr.to),
+        );
+        return substituteDateParams(withTime, { curr, comp });
+      };
       // Abort any previous retry for this specific widget only
       retryAbortMap.current.get(idx)?.abort();
       const controller = new AbortController();
@@ -265,7 +294,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(applyDateRange(item.sql), signal);
+                  const data = await fetchWidgetData(applySql(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -285,7 +314,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.trend_sql), signal);
+                  return await fetchWidgetData(applySql(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -295,7 +324,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.anomaly_sql), signal);
+                  return await fetchWidgetData(applySql(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -312,7 +341,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             });
           }
         } else {
-          const data = await fetchWidgetData(applyDateRange(widget.sql), signal);
+          const data = await fetchWidgetData(applySql(widget.sql), signal);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
@@ -342,7 +371,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
         retryAbortMap.current.delete(idx);
       }
     },
-    [applyDateRange],
+    [],
   );
 
   useEffect(() => {
@@ -446,6 +475,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
                     specChanged={specChanged}
                     onRetry={retryWidget}
                     glossary={spec.glossary}
+                    comparisonRange={comparisonRange}
                   />
                 </TabPanel>
               );
@@ -461,6 +491,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
           specChanged={specChanged}
           onRetry={retryWidget}
           glossary={spec.glossary}
+          comparisonRange={comparisonRange}
         />
       )}
     </div>
@@ -478,9 +509,10 @@ interface WidgetGridProps {
   specChanged: boolean;
   onRetry: (widget: Widget, idx: number) => void;
   glossary?: GlossaryItem[];
+  comparisonRange?: ComparisonRange;
 }
 
-function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry, glossary }: WidgetGridProps) {
+function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry, glossary, comparisonRange }: WidgetGridProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {widgetIndices.map((idx) => {
@@ -519,7 +551,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
 
             {/* Success state */}
             {state && !state.loading && !state.error && (
-              <WidgetSwitch widget={widget} state={state} glossary={glossary} />
+              <WidgetSwitch widget={widget} state={state} glossary={glossary} comparisonRange={comparisonRange} />
             )}
           </div>
         );
@@ -674,10 +706,12 @@ function WidgetSwitch({
   widget,
   state,
   glossary,
+  comparisonRange,
 }: {
   widget: Widget;
   state: WidgetState;
   glossary?: GlossaryItem[];
+  comparisonRange?: ComparisonRange;
 }) {
   switch (widget.type) {
     case "kpi_row":
@@ -688,31 +722,32 @@ function WidgetSwitch({
           trendData={state.trendData}
           glossary={glossary}
           anomalyData={state.anomalyData}
+          comparisonRange={comparisonRange}
         />
       );
     case "bar_chart":
       return (
-        <BarChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <BarChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} comparisonRange={comparisonRange} />
       );
     case "line_chart":
       return (
-        <LineChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <LineChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} comparisonRange={comparisonRange} />
       );
     case "area_chart":
       return (
-        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} comparisonRange={comparisonRange} />
       );
     case "donut_chart":
       return (
-        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} comparisonRange={comparisonRange} />
       );
     case "table":
       return (
-        <TableWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <TableWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} comparisonRange={comparisonRange} />
       );
     case "number":
       return (
-        <NumberWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <NumberWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} comparisonRange={comparisonRange} />
       );
     default:
       return null;

@@ -99,7 +99,8 @@ describe("DateRangePicker", () => {
     const onChange = openPicker();
     fireEvent.click(screen.getByText("Hoy"));
     expect(onChange).toHaveBeenCalledOnce();
-    const [r] = onChange.mock.calls[0];
+    const [result] = onChange.mock.calls[0];
+    const r = result.primary;
     expect(r.from).toEqual(new Date(2026, 2, 15, 0, 0, 0, 0));
     expect(r.to).toEqual(new Date(2026, 2, 15, 23, 59, 59, 999));
   });
@@ -108,7 +109,8 @@ describe("DateRangePicker", () => {
     const onChange = openPicker();
     fireEvent.click(screen.getByText("Mes anterior"));
     expect(onChange).toHaveBeenCalledOnce();
-    const [r] = onChange.mock.calls[0];
+    const [result] = onChange.mock.calls[0];
+    const r = result.primary;
     expect(r.from).toEqual(new Date(2026, 1, 1, 0, 0, 0, 0));
     expect(r.to).toEqual(new Date(2026, 1, 28, 23, 59, 59, 999));
   });
@@ -119,7 +121,8 @@ describe("DateRangePicker", () => {
     fireEvent.change(screen.getByLabelText(/hasta/i), { target: { value: "2026-01-31" } });
     fireEvent.click(screen.getByText("Aplicar"));
     expect(onChange).toHaveBeenCalledOnce();
-    const [r] = onChange.mock.calls[0];
+    const [result] = onChange.mock.calls[0];
+    const r = result.primary;
     expect(r.from.getMonth()).toBe(0);
     expect(r.from.getDate()).toBe(1);
     expect(r.to.getDate()).toBe(31);

@@ -8,7 +8,7 @@ import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
-import type { DateRange } from "@/components/DateRangePicker";
+import type { DateRange, ComparisonRange, DateRangePickerResult } from "@/components/DateRangePicker";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
@@ -92,18 +92,20 @@ export default function ViewDashboard() {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Date range filter state — default to last 30 days (day-based to avoid month-end overflow)
-  const [dateRange, setDateRange] = useState<DateRange>(() =>
-    defaultTimeRangeToDateRange(undefined)
+  // Date range filter state — default from schema helper until spec loads
+  const [primaryRange, setPrimaryRange] = useState<DateRange>(() =>
+    defaultTimeRangeToDateRange(undefined),
   );
+  const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(undefined);
 
   // When date range changes, store the range and re-run all widget queries.
   // The date range is displayed in the picker for context; actual SQL filtering
   // depends on the widget SQL containing appropriate date expressions.
   // In a future iteration, widgets with a dateColumn hint could use
   // injectDateRange() to automatically apply the range client-side.
-  const handleDateRangeChange = useCallback((range: DateRange) => {
-    setDateRange(range);
+  const handleDateRangeChange = useCallback(({ primary, comparison }: DateRangePickerResult) => {
+    setPrimaryRange(primary);
+    setComparisonRange(comparison);
     setRefreshKey((k) => k + 1);
   }, []);
 
@@ -161,7 +163,7 @@ export default function ViewDashboard() {
   const defaultPreset = dashboard?.spec.default_time_range?.preset;
   useEffect(() => {
     if (defaultPreset !== undefined) {
-      setDateRange(defaultTimeRangeToDateRange({ preset: defaultPreset }));
+      setPrimaryRange(defaultTimeRangeToDateRange({ preset: defaultPreset }));
     }
   }, [defaultPreset]);
 
@@ -561,7 +563,7 @@ export default function ViewDashboard() {
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Date range picker */}
-          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
+          <DateRangePicker value={primaryRange} onChange={handleDateRangeChange} />
 
           {/* Last refreshed timestamp */}
           <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle" data-testid="last-refreshed">
@@ -691,7 +693,8 @@ export default function ViewDashboard() {
       <DashboardRenderer
         spec={dashboard.spec}
         refreshKey={refreshKey}
-        dateRange={dateRange}
+        dateRange={primaryRange}
+        comparisonRange={comparisonRange}
         onWidgetDataChange={setWidgetData}
       />
 
