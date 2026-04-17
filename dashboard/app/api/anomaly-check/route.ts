@@ -62,7 +62,7 @@ interface AnomalyResult {
  * values[0] = current period; values[1..] = historical.
  * Returns { isAnomaly: false } when insufficient data.
  */
-function computeAnomaly(values: number[]): AnomalyResult {
+export function computeAnomaly(values: number[]): AnomalyResult {
   // values[0] = current period; values[1..] = historical
   if (values.length < MIN_HISTORICAL_VALUES + 1) {
     return { isAnomaly: false };
@@ -86,7 +86,10 @@ function computeAnomaly(values: number[]): AnomalyResult {
       stddev: 0,
       zScore: 0,
       direction: "normal",
-      explanation: `El valor actual (${formatNum(currentValue)}) es igual a la media de los últimos ${n} períodos.`,
+      explanation:
+        currentValue === mean
+          ? `El valor actual (${formatNum(currentValue)}) es igual a la media de los últimos ${n} períodos.`
+          : `El valor actual (${formatNum(currentValue)}) difiere de la media (${formatNum(mean)}), pero todos los valores históricos son idénticos — no es posible evaluar si hay anomalía.`,
     };
   }
 
