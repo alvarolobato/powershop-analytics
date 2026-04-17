@@ -6,15 +6,18 @@ import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
+import { mergeComparisonSeries } from "./BarChartWidget";
 
 interface LineChartWidgetProps {
   widget: LineChartWidgetSpec;
   data: WidgetData | null;
+  /** Pre-fetched comparison period data. Present only when comparison_sql is set and a comparison range is active. */
+  comparisonData?: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
 }
 
-export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps) {
+export function LineChartWidget({ widget, data, comparisonData, glossary }: LineChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
   if (!data || data.rows.length === 0) {
@@ -45,12 +48,18 @@ export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps
   }
 
   const { xIdx, yIdx, xCol, yCol } = resolved;
-  const chartData = data.rows
-    .filter((row) => safeNumber(row[yIdx]) !== null)
-    .map((row) => ({
-      [xCol]: String(row[xIdx]),
-      [yCol]: safeNumber(row[yIdx])!,
-    }));
+  const hasComparison = comparisonData != null && comparisonData.rows.length > 0;
+
+  const chartData = hasComparison
+    ? mergeComparisonSeries(data, comparisonData!, xIdx, yIdx, xCol)
+    : data.rows
+        .filter((row) => safeNumber(row[yIdx]) !== null)
+        .map((row) => ({
+          [xCol]: String(row[xIdx]),
+          [yCol]: safeNumber(row[yIdx])!,
+        }));
+
+  const categories = hasComparison ? ["Actual", "Anterior"] : [yCol];
 
   return (
     <Card className="p-4">
@@ -63,9 +72,10 @@ export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps
         <LineChart
           data={chartData}
           index={xCol}
-          categories={[yCol]}
+          categories={categories}
           colors={CHART_COLORS}
           showYAxis={false}
+          showLegend={hasComparison}
         />
       </div>
 
@@ -74,9 +84,10 @@ export function LineChartWidget({ widget, data, glossary }: LineChartWidgetProps
         <LineChart
           data={chartData}
           index={xCol}
-          categories={[yCol]}
+          categories={categories}
           colors={CHART_COLORS}
           yAxisWidth={60}
+          showLegend={hasComparison}
         />
       </div>
     </Card>

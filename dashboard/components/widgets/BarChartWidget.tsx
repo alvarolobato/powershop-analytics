@@ -10,11 +10,37 @@ import { applyGlossary } from "@/lib/glossary";
 interface BarChartWidgetProps {
   widget: BarChartWidgetSpec;
   data: WidgetData | null;
+  /** Pre-fetched comparison period data. Present only when comparison_sql is set and a comparison range is active. */
+  comparisonData?: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
 }
 
-export function BarChartWidget({ widget, data, glossary }: BarChartWidgetProps) {
+/** Merge primary and comparison datasets into a two-series format for Tremor charts. */
+export function mergeComparisonSeries(
+  primary: WidgetData,
+  comparison: WidgetData,
+  xIdx: number,
+  yIdx: number,
+  xCol: string,
+): Record<string, string | number | null>[] {
+  // Build lookup: x-label → comparison y value
+  const compMap = new Map<string, number | null>();
+  for (const row of comparison.rows) {
+    const xVal = String(row[xIdx] ?? "");
+    compMap.set(xVal, safeNumber(row[yIdx]));
+  }
+
+  return primary.rows
+    .filter((row) => safeNumber(row[yIdx]) !== null)
+    .map((row) => ({
+      [xCol]: row[xIdx],
+      Actual: safeNumber(row[yIdx])!,
+      Anterior: compMap.get(String(row[xIdx] ?? "")) ?? null,
+    }));
+}
+
+export function BarChartWidget({ widget, data, comparisonData, glossary }: BarChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
   if (!data || data.rows.length === 0) {
@@ -45,12 +71,18 @@ export function BarChartWidget({ widget, data, glossary }: BarChartWidgetProps) 
   }
 
   const { xIdx, yIdx, xCol, yCol } = resolved;
-  const chartData = data.rows
-    .filter((row) => safeNumber(row[yIdx]) !== null)
-    .map((row) => ({
-      [xCol]: row[xIdx],
-      [yCol]: safeNumber(row[yIdx])!,
-    }));
+  const hasComparison = comparisonData != null && comparisonData.rows.length > 0;
+
+  const chartData = hasComparison
+    ? mergeComparisonSeries(data, comparisonData!, xIdx, yIdx, xCol)
+    : data.rows
+        .filter((row) => safeNumber(row[yIdx]) !== null)
+        .map((row) => ({
+          [xCol]: row[xIdx],
+          [yCol]: safeNumber(row[yIdx])!,
+        }));
+
+  const categories = hasComparison ? ["Actual", "Anterior"] : [yCol];
 
   return (
     <Card className="p-4">
@@ -63,10 +95,10 @@ export function BarChartWidget({ widget, data, glossary }: BarChartWidgetProps) 
         <BarChart
           data={chartData}
           index={xCol}
-          categories={[yCol]}
+          categories={categories}
           colors={CHART_COLORS}
           showYAxis={false}
-          showLegend={false}
+          showLegend={hasComparison}
         />
       </div>
 
@@ -75,10 +107,10 @@ export function BarChartWidget({ widget, data, glossary }: BarChartWidgetProps) 
         <BarChart
           data={chartData}
           index={xCol}
-          categories={[yCol]}
+          categories={categories}
           colors={CHART_COLORS}
           yAxisWidth={60}
-          showLegend={false}
+          showLegend={hasComparison}
         />
       </div>
     </Card>
