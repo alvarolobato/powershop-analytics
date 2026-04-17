@@ -102,7 +102,8 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-6 --max-turns 35"
+          # Headless review: tool approvals stall the run; default cap was 35 turns.
+          claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 80"
           allowed_bots: "claude[bot],github-actions[bot],copilot-pull-request-reviewer[bot]"
           use_sticky_comment: "true"
           include_fix_links: "true"
@@ -124,6 +125,14 @@ jobs:
             ---
 
             ${{ steps.guidelines.outputs.CONTENT }}
+
+      - name: Clear PR review failure labels
+        if: success() && steps.cap.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
+            --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
 
       - name: Max automated Opus reviews reached (legacy)
         if: success() && steps.cap.outputs.skip == 'true'
