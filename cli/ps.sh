@@ -19,7 +19,7 @@ Usage: ps <command> [options] [args]
 
 Available commands:
   setup        First-time setup and prerequisites check
-  stack        Docker Compose stack management (up/down/status/logs/open/destroy)
+  stack        Docker Compose stack management (up/down/update/status/logs/open/destroy)
   etl          ETL operations (run/status/tables/logs)
   sql          4D SQL operations (schema, query, explore)
   wren         WrenAI knowledge management (push/validate/status)
@@ -34,6 +34,7 @@ Examples:
   ps setup                 First-time setup (create .env, symlink)
   ps setup check           Verify prerequisites
   ps stack up              Start all containers
+  ps stack update          Pull latest, rebuild images, restart stack
   ps stack status          Show container status
   ps stack logs [svc]      Tail logs
   ps etl run               Run ETL sync once
