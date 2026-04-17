@@ -556,6 +556,48 @@ describe("DashboardRenderer", () => {
     expect(capturedSql[0]).not.toContain("{{CURR_TO}}");
   });
 
+  it("substitutes {{date_from}} and {{date_to}} in widget SQL before fetching", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ columns: ["value"], rows: [[100]] }),
+    } as unknown as Response);
+    vi.stubGlobal("fetch", fetchMock);
+
+    const specWithPlaceholders: DashboardSpec = {
+      title: "Ventas con Fechas",
+      widgets: [
+        {
+          type: "bar_chart",
+          title: "Ventas por Tienda",
+          sql: "SELECT tienda, SUM(total) FROM ps_ventas WHERE fecha BETWEEN '{{date_from}}' AND '{{date_to}}' GROUP BY tienda",
+          x: "tienda",
+          y: "total",
+        },
+      ],
+    };
+
+    const dateRange = {
+      from: new Date("2026-01-01T00:00:00.000"),
+      to: new Date("2026-01-31T23:59:59.999"),
+    };
+
+    render(<DashboardRenderer spec={specWithPlaceholders} dateRange={dateRange} />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+
+    const queryCall = fetchMock.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === "string" && call[0].includes("/api/query")
+    );
+    expect(queryCall).toBeDefined();
+    const body = JSON.parse((queryCall![1] as { body: string }).body);
+    expect(body.sql).not.toContain("{{date_from}}");
+    expect(body.sql).not.toContain("{{date_to}}");
+    expect(body.sql).toContain("2026-01-01");
+    expect(body.sql).toContain("2026-01-31");
+  });
+
   it("accepts comparisonRange prop and renders without crashing", async () => {
     vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["tienda", "total"],

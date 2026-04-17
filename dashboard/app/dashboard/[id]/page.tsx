@@ -13,6 +13,7 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
+import { defaultTimeRangeToDateRange } from "@/lib/time-range";
 import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -91,15 +92,10 @@ export default function ViewDashboard() {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Date range filter state — default to last 30 days (day-based to avoid month-end overflow)
-  const [primaryRange, setPrimaryRange] = useState<DateRange>(() => {
-    const to = new Date();
-    const from = new Date(to);
-    from.setDate(from.getDate() - 29);
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
-    return { from, to };
-  });
+  // Date range filter state — default from schema helper until spec loads
+  const [primaryRange, setPrimaryRange] = useState<DateRange>(() =>
+    defaultTimeRangeToDateRange(undefined),
+  );
   const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(undefined);
 
   // When date range changes, store the range and re-run all widget queries.
@@ -163,6 +159,13 @@ export default function ViewDashboard() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  const defaultPreset = dashboard?.spec.default_time_range?.preset;
+  useEffect(() => {
+    if (defaultPreset !== undefined) {
+      setPrimaryRange(defaultTimeRangeToDateRange({ preset: defaultPreset }));
+    }
+  }, [defaultPreset]);
 
   // Keep latestSpecRef in sync
   useEffect(() => {

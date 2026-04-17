@@ -28,6 +28,13 @@ export interface DateRangePickerProps {
   onChange: (result: DateRangePickerResult) => void;
 }
 
+interface Season {
+  code: string;
+  label: string;
+  from: string;
+  to: string;
+}
+
 // ---------------------------------------------------------------------------
 // Preset types and helpers
 // ---------------------------------------------------------------------------
@@ -150,6 +157,8 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
+  const [seasons, setSeasons] = useState<Season[] | null>(null);
+  const fetchedRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -189,8 +198,26 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     setCustomTo(toDateInputValue(value.to));
   }, [value]);
 
+  useEffect(() => {
+    if (open && !fetchedRef.current) {
+      fetchedRef.current = true;
+      fetch("/api/seasons")
+        .then((r) => r.json())
+        .then((data: { seasons: Season[] }) => setSeasons(data.seasons))
+        .catch(() => setSeasons([]));
+    }
+  }, [open]);
+
   function applyPreset(preset: Preset) {
     onChange({ primary: presetToDateRange(preset.id) });
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function applySeason(season: Season) {
+    const from = new Date(season.from + "T00:00:00.000");
+    const to = new Date(season.to + "T23:59:59.999");
+    onChange({ from, to });
     setOpen(false);
     triggerRef.current?.focus();
   }
@@ -205,6 +232,8 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
       triggerRef.current?.focus();
     }
   }
+
+  const visibleSeasons = seasons?.slice(0, 6) ?? [];
 
   return (
     <div className="relative" ref={containerRef} data-testid="date-range-picker">
@@ -244,6 +273,24 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           aria-label="Selector de rango de fechas"
           className="absolute left-0 z-50 mt-2 w-72 rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background shadow-xl"
         >
+          {visibleSeasons.length > 0 && (
+            <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
+              <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                Temporadas
+              </p>
+              {visibleSeasons.map((season) => (
+                <button
+                  key={season.code}
+                  type="button"
+                  onClick={() => applySeason(season)}
+                  className="w-full rounded-lg px-3 py-2 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                >
+                  {season.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Presets */}
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
             <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
