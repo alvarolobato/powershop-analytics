@@ -13,14 +13,16 @@ on:
         required: true
         type: number
 
+# One Opus PR review at a time across the repo — avoids Anthropic rate limits when many PRs move together.
 concurrency:
-  group: ai-pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
-  cancel-in-progress: true
+  group: ai-pr-review-global
+  cancel-in-progress: false
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
+  actions: write
   id-token: write
 
 jobs:
@@ -38,18 +40,20 @@ jobs:
         )
       )
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
-      - name: Remove ai-ready-for-review label
-        if: github.event.action == 'labeled' && github.event.label.name == 'ai-ready-for-review'
+      # Most runs are workflow_dispatch; the label would otherwise linger and the
+      # watchdog would keep re-dispatching this workflow.
+      - name: Clear ai-ready-for-review (best-effort)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
             --remove-label "ai-ready-for-review" || true
 
-      - name: Resolve PR ref
+      - name: Resolve PR ref and title
         id: resolve
         env:
           GH_TOKEN: ${{ github.token }}
@@ -61,6 +65,10 @@ jobs:
             SHA=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.head.sha')
             echo "ref=$SHA" >> "$GITHUB_OUTPUT"
           fi
+          TITLE=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.title')
+          echo "title<<TITLE_EOF" >> "$GITHUB_OUTPUT"
+          echo "$TITLE" >> "$GITHUB_OUTPUT"
+          echo "TITLE_EOF" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
         with:
@@ -77,21 +85,37 @@ jobs:
             echo 'PR_REVIEW_EOF'
           } >> "$GITHUB_OUTPUT"
 
+      - name: Check Opus review cap (legacy PRs)
+        id: cap
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '[.labels[].name] | join(",")')
+          SKIP=false
+          if echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
+            SKIP=true
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
       - name: Claude PR Review
+        if: steps.cap.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-6"
+          claude_args: "--model claude-opus-4-6 --max-turns 35"
           allowed_bots: "claude[bot],github-actions[bot],copilot-pull-request-reviewer[bot]"
           use_sticky_comment: "true"
           include_fix_links: "true"
           classify_inline_comments: "true"
           prompt: |
-            You are reviewing PR #${{ env.PR_NUMBER }}: "${{ github.event.pull_request.title }}".
+            You are reviewing PR #${{ env.PR_NUMBER }}: "${{ steps.resolve.outputs.title }}".
 
             Follow the review guidelines below. Post a review with inline comments on the PR.
 
-            After reviewing, also request a Copilot review using:
+            ## Copilot follow-up (read carefully)
+            Run `gh pr view ${{ env.PR_NUMBER }} --json labels -q '.labels[].name'` before you finish.
+            - If the PR has label `ai-phase-opus`, do **NOT** request a Copilot review (Opus-only passes; address-feedback is dispatched by CI).
+            - Otherwise, after reviewing, request a Copilot review:
             ```bash
             gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
               --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
@@ -101,8 +125,35 @@ jobs:
 
             ${{ steps.guidelines.outputs.CONTENT }}
 
+      - name: Max automated Opus reviews reached (legacy)
+        if: success() && steps.cap.outputs.skip == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr edit "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" \
+            --remove-label "ai-ready-for-review" \
+            --remove-label "ai-auto-retry" || true
+          gh pr comment "${{ env.PR_NUMBER }}" \
+            --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. Merge or continue manually."
+
+      - name: Record legacy Opus pass
+        if: success() && steps.cap.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          LABELS=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '[.labels[].name] | join(",")')
+          if echo ",$LABELS," | grep -q ",ai-phase-copilot," || echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
+            echo "Phased PR — skip legacy Opus counters."
+            exit 0
+          fi
+          if ! echo ",$LABELS," | grep -q ",ai-legacy-opus-1,"; then
+            gh pr edit "${{ env.PR_NUMBER }}" --add-label "ai-legacy-opus-1" || true
+          elif ! echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
+            gh pr edit "${{ env.PR_NUMBER }}" --add-label "ai-legacy-opus-2" || true
+          fi
+
       - name: Dispatch address-feedback
-        if: success()
+        if: success() && steps.cap.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
