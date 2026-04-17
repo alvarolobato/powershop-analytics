@@ -20,7 +20,7 @@ import {
   sanitizeErrorMessage,
 } from "@/lib/errors";
 import { toIsoOrNull } from "@/lib/format";
-import type { EtlSyncRun } from "../route";
+import type { EtlSyncRun } from "../types";
 
 export interface EtlSyncRunTable {
   id: number;
@@ -45,8 +45,9 @@ export interface EtlRunDetailResponse {
 type RouteContext = { params: Promise<{ id: string }> };
 
 function parseId(raw: string): number | null {
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n <= 0) return null;
+  if (!/^\d+$/.test(raw)) return null;
+  const n = parseInt(raw, 10);
+  if (n <= 0) return null;
   return n;
 }
 
@@ -84,7 +85,7 @@ export async function GET(
         formatApiError(
           "Run de ETL no encontrado.",
           "NOT_FOUND",
-          "No existe ningún run con ID " + id + ".",
+          `No existe ningún run con ID ${id}.`,
           requestId,
         ),
         { status: 404 },
@@ -133,7 +134,7 @@ export async function GET(
     const response: EtlRunDetailResponse = { run, tables };
     return NextResponse.json(response);
   } catch (err) {
-    console.error("[" + requestId + "] Error loading ETL run " + id + ":", err);
+    console.error(`[${requestId}] Error loading ETL run ${id}:`, err);
     return NextResponse.json(
       formatApiError(
         "No se pudo cargar el run de ETL. Inténtalo de nuevo.",

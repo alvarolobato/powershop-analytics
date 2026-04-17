@@ -62,15 +62,60 @@ export async function GET(): Promise<NextResponse> {
   const requestId = generateRequestId();
 
   try {
-    // Fetch started_at, duration_ms, status, total_rows_synced in a single query.
-    // Reverse to oldest-first for charting (spread to avoid mutating the result array).
-    const trendResult = await query(
-      `SELECT started_at, duration_ms, status, total_rows_synced
-       FROM etl_sync_runs
-       ORDER BY started_at DESC
-       LIMIT $1`,
-      [LAST_N_RUNS],
-    );
+    // All three queries are independent reads -- run in parallel.
+    const [trendResult, tableDurResult, rateResult] = await Promise.all([
+      // Fetch last N runs ordered DESC; reversed below for charting (oldest-first).
+      query(
+        `SELECT started_at, duration_ms, status, total_rows_synced
+         FROM etl_sync_runs
+         ORDER BY started_at DESC
+         LIMIT $1`,
+        [LAST_N_RUNS],
+      ),
+
+      // Per-table avg and last duration scoped to last N runs.
+      // last_duration_ms uses a global subquery intentionally: it returns the most
+      // recent outcome for each table across all history, not just the last-N window,
+      // so the UI always shows the latest sync result even for infrequently-run tables.
+      query(
+        `SELECT
+             t.table_name,
+             COALESCE(ROUND(AVG(t.duration_ms))::int, 0) AS avg_duration_ms,
+             (SELECT t2.duration_ms
+              FROM etl_sync_run_tables t2
+              JOIN etl_sync_runs r2 ON r2.id = t2.run_id
+              WHERE t2.table_name = t.table_name
+              ORDER BY r2.started_at DESC
+              LIMIT 1) AS last_duration_ms
+        FROM etl_sync_run_tables t
+        JOIN etl_sync_runs r ON r.id = t.run_id
+        WHERE r.id IN (
+              SELECT id FROM etl_sync_runs
+              ORDER BY started_at DESC
+              LIMIT $1
+            )
+        GROUP BY t.table_name
+        ORDER BY avg_duration_ms DESC`,
+        [LAST_N_RUNS],
+      ),
+
+      // Success rate across last N runs.
+      // Note: runs with statuses other than success/partial/failed (e.g. "running")
+      // contribute to total but not to the three breakdown counts.
+      query(
+        `SELECT
+             COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE status = 'success') AS success,
+             COUNT(*) FILTER (WHERE status = 'partial') AS partial,
+             COUNT(*) FILTER (WHERE status = 'failed') AS failed
+        FROM (
+              SELECT status FROM etl_sync_runs
+              ORDER BY started_at DESC
+              LIMIT $1
+            ) sub`,
+        [LAST_N_RUNS],
+      ),
+    ]);
 
     const reversedRows = [...trendResult.rows].reverse();
 
@@ -85,50 +130,11 @@ export async function GET(): Promise<NextResponse> {
       total_rows_synced: row[3] != null ? Number(row[3]) : null,
     }));
 
-    // Per-table average and last duration (across last N runs).
-    // COALESCE ensures avg_duration_ms is 0 (not null) when all durations are null.
-    const tableDurResult = await query(
-      `SELECT
-           t.table_name,
-           COALESCE(ROUND(AVG(t.duration_ms))::int, 0) AS avg_duration_ms,
-           (SELECT t2.duration_ms
-            FROM etl_sync_run_tables t2
-            JOIN etl_sync_runs r2 ON r2.id = t2.run_id
-            WHERE t2.table_name = t.table_name
-            ORDER BY r2.started_at DESC
-            LIMIT 1) AS last_duration_ms
-      FROM etl_sync_run_tables t
-      JOIN etl_sync_runs r ON r.id = t.run_id
-      WHERE r.id IN (
-            SELECT id FROM etl_sync_runs
-            ORDER BY started_at DESC
-            LIMIT $1
-          )
-      GROUP BY t.table_name
-      ORDER BY avg_duration_ms DESC`,
-      [LAST_N_RUNS],
-    );
-
     const tableDurations: TableDuration[] = tableDurResult.rows.map((row) => ({
       table_name: String(row[0]),
       avg_duration_ms: Number(row[1]),
       last_duration_ms: row[2] != null ? Number(row[2]) : null,
     }));
-
-    // Success rate across last N runs
-    const rateResult = await query(
-      `SELECT
-           COUNT(*) AS total,
-           COUNT(*) FILTER (WHERE status = 'success') AS success,
-           COUNT(*) FILTER (WHERE status = 'partial') AS partial,
-           COUNT(*) FILTER (WHERE status = 'failed') AS failed
-      FROM (
-            SELECT status FROM etl_sync_runs
-            ORDER BY started_at DESC
-            LIMIT $1
-          ) sub`,
-      [LAST_N_RUNS],
-    );
 
     const rr = rateResult.rows[0] ?? [0, 0, 0, 0];
     const successRate: SuccessRate = {
@@ -146,7 +152,7 @@ export async function GET(): Promise<NextResponse> {
     };
     return NextResponse.json(response);
   } catch (err) {
-    console.error("[" + requestId + "] Error loading ETL stats:", err);
+    console.error(`[${requestId}] Error loading ETL stats:`, err);
     return NextResponse.json(
       formatApiError(
         "No se pudieron cargar las estadísticas de ETL. Inténtalo de nuevo.",
