@@ -944,13 +944,13 @@ def validate_sql_pairs(dsn: str) -> None:
 
             if not rows:
                 print(f"  WARN {question[:68]}")
-                print(f"       (0 rows — no data for current period?)")
+                print("       (0 rows — no data for current period?)")
                 warned += 1
             else:
                 first_val = rows[0][0]
                 if first_val is None:
                     print(f"  WARN {question[:68]}")
-                    print(f"       (first value is NULL)")
+                    print("       (first value is NULL)")
                     warned += 1
                 else:
                     n_cols = len(col_names)
@@ -1078,7 +1078,7 @@ def cross_validate(dsn: str) -> None:
                 col_names = [d[0] for d in cur.description]
 
             if not rows:
-                print(f"     WARN: no rows returned")
+                print("     WARN: no rows returned")
                 issues += 1
             else:
                 row = rows[0]
