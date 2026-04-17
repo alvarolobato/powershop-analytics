@@ -258,6 +258,18 @@ Schema metadata (table names, column names, types, row counts) is fine. Actual c
 
 Credentials live in `~/.config/powershop-analytics/` (centralized) so they work across git worktrees. Use `local/` for worktree-specific overrides only.
 
+### Python changes and commits
+
+**Before any commit that touches Python** (`.py` under `etl/`, `scripts/`, or elsewhere in the repo), run **Ruff format** on the paths you changed so CI does not fail on style. From the repo root, typical patterns:
+
+```bash
+python -m ruff format etl/ scripts/
+# or narrow to files you edited:
+python -m ruff format path/to/edited_file.py
+```
+
+Run this **after** your edits and **before** `git commit`. Formatting is required even for small diffs; skipping it has been causing repeated lint failures in PRs. `ruff check` still applies for non-format rules—fix any issues it reports on the same trees.
+
 ---
 
 ## Self-learning and documentation
