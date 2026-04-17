@@ -266,6 +266,8 @@ jobs:
 
           converge_comment() {
             gh pr edit "$PR" --repo "$REPO" --remove-label "ai-ready-for-review" || true
+            gh pr edit "$PR" --repo "$REPO" \
+              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
             gh pr comment "$PR" \
               --body "✅ Review cycle converged — no new changes required. PR is ready for human merge decision." || true
           }
@@ -312,7 +314,9 @@ jobs:
               gh pr edit "$PR" --repo "$REPO" \
                 --add-label "ai-o-after-2" \
                 --remove-label "ai-phase-opus" \
-                --remove-label "ai-ready-for-review" || true
+                --remove-label "ai-ready-for-review" \
+                --remove-label "ai-blocked" \
+                --remove-label "ai-auto-retry" || true
               gh pr comment "$PR" --body "✅ **AI Factory**: Automated **Opus** passes complete (**2**/2). PR is ready for human merge decision." || true
               exit 0
             fi
