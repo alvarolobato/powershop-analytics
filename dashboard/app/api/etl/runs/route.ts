@@ -20,7 +20,9 @@ import {
   sanitizeErrorMessage,
 } from "@/lib/errors";
 
-export type { EtlSyncRun } from "./types";
+import type { EtlSyncRun } from "../types";
+
+export type { EtlSyncRun };
 
 export interface EtlRunsResponse {
   runs: EtlSyncRun[];

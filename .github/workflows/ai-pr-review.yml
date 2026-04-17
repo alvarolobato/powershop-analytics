@@ -12,10 +12,19 @@ on:
         description: "PR number to review"
         required: true
         type: number
+      use_global_queue:
+        description: "Join factory serial queue (watchdog/CI must pass true). Leave false for urgent manual runs."
+        required: false
+        type: boolean
+        default: false
 
-# One Opus PR review at a time across the repo — avoids Anthropic rate limits when many PRs move together.
+# pull_request*: global lock. workflow_dispatch + use_global_queue=true: global.
+# workflow_dispatch + use_global_queue=false (default): immediate (own concurrency slot).
 concurrency:
-  group: ai-pr-review-global
+  group: >-
+    ${{ github.event_name != 'workflow_dispatch' && 'ai-pr-review-global'
+        || (inputs.use_global_queue == true && 'ai-pr-review-global'
+            || format('ai-pr-review-manual-{0}-{1}', inputs.pr_number, github.run_id)) }}
   cancel-in-progress: false
 
 permissions:
@@ -165,7 +174,8 @@ jobs:
           gh workflow run ai-address-feedback.yml \
             --repo "${{ github.repository }}" \
             --field pr_number="$PR_NUMBER" \
-            --field reason="post-review: addressing claude[bot] review comments" || true
+            --field reason="post-review: addressing claude[bot] review comments" \
+            --field use_global_queue=true || true
           echo "Dispatched address-feedback for PR #$PR_NUMBER."
 
       - name: Handle failure

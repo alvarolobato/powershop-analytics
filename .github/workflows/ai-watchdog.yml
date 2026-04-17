@@ -183,7 +183,8 @@ jobs:
 
             gh workflow run ai-pr-review.yml \
               --repo "$REPO_FULL" \
-              --field pr_number="$NUM" || true
+              --field pr_number="$NUM" \
+              --field use_global_queue=true || true
             gh pr comment "$NUM" --repo "$REPO_FULL" \
               --body "🔁 Watchdog: re-dispatched pr-review (stall attempt $(( STALL_RETRY_COUNT + 1 )) of $MAX_STALL_RETRIES) — label has been sitting without a review run. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             echo "Dispatched pr-review for stalled PR #$NUM ($TITLE)"
@@ -256,7 +257,8 @@ jobs:
               gh workflow run ai-address-feedback.yml \
                 --repo "$REPO_FULL" \
                 --field pr_number="$NUM" \
-                --field reason="watchdog: feedback unaddressed since $LATEST_REVIEWER_ACTIVITY" || true
+                --field reason="watchdog: feedback unaddressed since $LATEST_REVIEWER_ACTIVITY" \
+                --field use_global_queue=true || true
             else
               echo "PR #$NUM has no new unaddressed feedback."
             fi
@@ -337,12 +339,14 @@ jobs:
             if [ "$RETRY_WORKFLOW" = "ai-pr-review.yml" ]; then
               gh workflow run ai-pr-review.yml \
                 --repo "$REPO_FULL" \
-                --field pr_number="$NUM" || true
+                --field pr_number="$NUM" \
+                --field use_global_queue=true || true
             else
               gh workflow run ai-address-feedback.yml \
                 --repo "$REPO_FULL" \
                 --field pr_number="$NUM" \
-                --field reason="watchdog auto-retry after transient failure" || true
+                --field reason="watchdog auto-retry after transient failure" \
+                --field use_global_queue=true || true
             fi
             sleep 30
           done
@@ -440,7 +444,8 @@ jobs:
             gh workflow run ai-worker.yml \
               --repo "$REPO_FULL" \
               --field issue_number="$NUM" \
-              --field phase="$PHASE" || true
+              --field phase="$PHASE" \
+              --field use_global_queue=true || true
             echo "Dispatched ai-worker for issue #$NUM (phase=$PHASE)"
             sleep 30  # stagger to avoid hammering the rate limit
           done
@@ -497,7 +502,8 @@ jobs:
             gh workflow run ai-address-feedback.yml \
               --repo "$REPO_FULL" \
               --field pr_number="$NUM" \
-              --field reason="watchdog: complete no-pr-review handoff to ai-awaiting-owner" || true
+              --field reason="watchdog: complete no-pr-review handoff to ai-awaiting-owner" \
+              --field use_global_queue=true || true
             sleep 25
           done
 

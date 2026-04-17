@@ -19,14 +19,20 @@ on:
         required: false
         type: string
         default: "manual dispatch"
+      use_global_queue:
+        description: "Join factory serial queue (watchdog/CI must pass true). Leave false for urgent manual runs."
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
-  # Global group: only one address-feedback session runs at a time across all PRs.
-  # Others queue (cancel-in-progress: false). This prevents rate-limit storms when
-  # multiple PRs are unblocked simultaneously (e.g. after a rate-limit recovery).
-  # Trade-off: PRs are processed serially, not in parallel — acceptable because
-  # each session can take many minutes anyway.
-  group: ai-address-feedback-global
+  # pull_request_review: one at a time repo-wide (rate limits).
+  # workflow_dispatch + use_global_queue=true: same global lock (watchdog, pr-review, address-feedback chaining).
+  # workflow_dispatch + use_global_queue=false (default): own slot — does not wait on the global queue.
+  group: >-
+    ${{ github.event_name != 'workflow_dispatch' && 'ai-address-feedback-global'
+        || (inputs.use_global_queue == true && 'ai-address-feedback-global'
+            || format('ai-address-feedback-manual-{0}-{1}', inputs.pr_number, github.run_id)) }}
   cancel-in-progress: false
 
 permissions:
@@ -304,7 +310,7 @@ jobs:
                 --remove-label "ai-phase-copilot" \
                 --add-label "ai-phase-opus" \
                 --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" --field use_global_queue=true || true
               gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot rounds **complete** — starting **Opus** review (pass 1 of 2)." || true
               exit 0
             fi
@@ -313,7 +319,7 @@ jobs:
           if echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
             if ! echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
               gh pr edit "$PR" --repo "$REPO" --add-label "ai-o-after-1" --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" --field use_global_queue=true || true
               gh pr comment "$PR" --body "🤖 **AI Factory**: Opus pass **1**/2 addressed — running **Opus** pass 2." || true
               exit 0
             fi
@@ -350,7 +356,7 @@ jobs:
 
           # Legacy PRs (no phased labels): re-dispatch Opus review (capped in ai-pr-review via ai-legacy-opus-*).
           gh pr edit "$PR" --repo "$REPO" --add-label "ai-ready-for-review" || true
-          gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+          gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" --field use_global_queue=true || true
           echo "Dispatched legacy Opus PR review for PR #$PR."
 
       - name: Handle failure
