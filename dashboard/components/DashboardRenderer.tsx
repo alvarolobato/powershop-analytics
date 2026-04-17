@@ -33,15 +33,11 @@ export interface DashboardRendererProps {
    *  Increment it to trigger a manual or auto-refresh. */
   refreshKey?: number;
   /**
-   * Optional date range selected in the dashboard toolbar. This prop is
-   * accepted for forwards compatibility — the page component increments
-   * `refreshKey` when the date range changes, which re-runs all queries.
-   *
-   * NOTE: The date range does NOT automatically inject WHERE clauses into
-   * widget SQL. For date filtering to work, the widget's SQL queries must
-   * either already contain appropriate date expressions or be regenerated
-   * by the LLM with the selected range in mind. Use `injectDateRange()`
-   * from `DateRangePicker` for simple row-level queries only.
+   * Optional date range selected in the dashboard toolbar. When set, every
+   * widget SQL has its `{{date_from}}` and `{{date_to}}` placeholders
+   * replaced with the selected YYYY-MM-DD values via `substituteTimeRange`.
+   * Queries that contain no placeholders are executed unchanged.
+   * Changing this prop (alongside incrementing `refreshKey`) re-runs all queries.
    */
   dateRange?: DateRange;
   /**
@@ -136,6 +132,10 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
 
   const dateRangeRef = useRef(dateRange);
   useEffect(() => { dateRangeRef.current = dateRange; }, [dateRange]);
+  const applyDateRange = useCallback((sql: string) => {
+    const dr = dateRangeRef.current;
+    return dr ? substituteTimeRange(sql, toISODateString(dr.from), toISODateString(dr.to)) : sql;
+  }, []);
 
   // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
@@ -162,9 +162,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const dr = dateRangeRef.current;
-                  const effectiveSql = dr ? substituteTimeRange(item.sql, toISODateString(dr.from), toISODateString(dr.to)) : item.sql;
-                  const data = await fetchWidgetData(effectiveSql, signal);
+                  const data = await fetchWidgetData(applyDateRange(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -185,9 +183,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  const dr = dateRangeRef.current;
-                  const effectiveTrendSql = dr ? substituteTimeRange(item.trend_sql, toISODateString(dr.from), toISODateString(dr.to)) : item.trend_sql;
-                  return await fetchWidgetData(effectiveTrendSql, signal);
+                  return await fetchWidgetData(applyDateRange(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -198,9 +194,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  const dr = dateRangeRef.current;
-                  const effectiveAnomalySql = dr ? substituteTimeRange(item.anomaly_sql, toISODateString(dr.from), toISODateString(dr.to)) : item.anomaly_sql;
-                  return await fetchWidgetData(effectiveAnomalySql, signal);
+                  return await fetchWidgetData(applyDateRange(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -218,9 +212,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             });
           }
         } else {
-          const dr = dateRangeRef.current;
-          const effectiveSql = dr ? substituteTimeRange(widget.sql, toISODateString(dr.from), toISODateString(dr.to)) : widget.sql;
-          const data = await fetchWidgetData(effectiveSql, signal);
+          const data = await fetchWidgetData(applyDateRange(widget.sql), signal);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
@@ -273,9 +265,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const dr = dateRangeRef.current;
-                  const effectiveSql = dr ? substituteTimeRange(item.sql, toISODateString(dr.from), toISODateString(dr.to)) : item.sql;
-                  const data = await fetchWidgetData(effectiveSql, signal);
+                  const data = await fetchWidgetData(applyDateRange(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -295,9 +285,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  const dr = dateRangeRef.current;
-                  const effectiveTrendSql = dr ? substituteTimeRange(item.trend_sql, toISODateString(dr.from), toISODateString(dr.to)) : item.trend_sql;
-                  return await fetchWidgetData(effectiveTrendSql, signal);
+                  return await fetchWidgetData(applyDateRange(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -307,9 +295,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  const dr = dateRangeRef.current;
-                  const effectiveAnomalySql = dr ? substituteTimeRange(item.anomaly_sql, toISODateString(dr.from), toISODateString(dr.to)) : item.anomaly_sql;
-                  return await fetchWidgetData(effectiveAnomalySql, signal);
+                  return await fetchWidgetData(applyDateRange(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -326,9 +312,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             });
           }
         } else {
-          const dr = dateRangeRef.current;
-          const effectiveSql = dr ? substituteTimeRange(widget.sql, toISODateString(dr.from), toISODateString(dr.to)) : widget.sql;
-          const data = await fetchWidgetData(effectiveSql, signal);
+          const data = await fetchWidgetData(applyDateRange(widget.sql), signal);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
