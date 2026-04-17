@@ -3,6 +3,11 @@ on:
   issue_comment:
     types: [created]
 
+concurrency:
+  # `/ai` is a human slash command — never queue behind factory batch jobs.
+  group: ai-command-${{ github.run_id }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   issues: write
@@ -11,8 +16,9 @@ permissions:
 
 jobs:
   execute:
+    # Do NOT require `github.event.issue.pull_request == null` — PR threads are
+    # still `issues` in the API; that guard skips every `/ai` on a pull request.
     if: >-
-      github.event.issue.pull_request == null &&
       startsWith(github.event.comment.body, '/ai') &&
       !startsWith(github.event.comment.body, '/ai-') &&
       (
@@ -30,6 +36,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: >-
+            ${{ github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number) || format('refs/heads/{0}', github.event.repository.default_branch) }}
 
       - name: Execute AI Command
         uses: anthropics/claude-code-action@v1
@@ -37,22 +47,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # CI has no human to approve BashEdit/Write — default mode burns turns on denials
+          # and looks like "nothing happened" despite a green workflow.
+          claude_args: "--permission-mode bypassPermissions --max-turns 120"
           trigger_phrase: "/ai"
           prompt: |
-            You have been invoked via the /ai command on an issue. Execute the instruction given in the comment.
+            You have been invoked via the /ai command on GitHub **#${{ github.event.issue.number }}**.
 
-            ## Guidelines
-            - Read the full issue context (title, body, all comments) before acting
+            First determine whether **#${{ github.event.issue.number }}** is an issue or a pull request (`gh pr view ${{ github.event.issue.number }}` succeeds → PR mode).
+
+            ## PR mode (pull request thread)
+            - You are checked out at **refs/pull/${{ github.event.issue.number }}/head** in CI; verify with `gh pr view ${{ github.event.issue.number }} --json headRefName,title`.
+            - Apply the instruction, commit, and **push to the existing PR branch** only.
+            - Reply on the **pull request** with what you did. **Do not** open a second PR for this request.
+
+            ## Issue mode (standard issue)
+            - Read the full issue (title, body, all comments) before acting.
             - If the instruction involves code changes:
-              1. Create a branch: `ai/issue-{number}-{short-description}`
+              1. Create a branch: `ai/issue-${{ github.event.issue.number }}-{short-description}`
               2. Make the changes
               3. Run tests if applicable (etl: `python -m pytest`, dashboard: `npm test`)
               4. Commit with a descriptive message referencing the issue
-              5. Push and create a PR with `Closes #{number}` in the body
-            - If the instruction is a question or analysis:
-              1. Research the codebase
-              2. Post your findings as an issue comment
-            - Always reply to the issue with what you did
+              5. Push and create a PR with `Closes #${{ github.event.issue.number }}` in the body
+            - If the instruction is a question or analysis: post findings as an **issue** comment.
+
+            ## Instruction from the user comment (strip the leading `/ai` when interpreting)
+            ${{ github.event.comment.body }}
 
             ## Project Rules (from AGENTS.md)
             - Read-only SQL policy: NEVER modify the source 4D database
