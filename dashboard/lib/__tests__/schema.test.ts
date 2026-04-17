@@ -348,12 +348,48 @@ describe("comparison_sql field", () => {
       widgets: [{
         type: "line_chart",
         title: "Tendencia Semanal",
-        sql: "SELECT DATE_TRUNC(:week, fecha) AS x, SUM(total_si) AS y FROM ps_ventas GROUP BY 1",
-        comparison_sql: "SELECT DATE_TRUNC(:week, fecha) AS x, SUM(total_si) AS y FROM ps_ventas WHERE anio = 2025 GROUP BY 1",
+        sql: "SELECT DATE_TRUNC('week', fecha) AS x, SUM(total_si) AS y FROM ps_ventas GROUP BY 1",
+        comparison_sql: "SELECT DATE_TRUNC('week', fecha) AS x, SUM(total_si) AS y FROM ps_ventas WHERE anio = 2025 GROUP BY 1",
       }],
     };
     const result = validateSpec(spec);
     expect(result.widgets).toHaveLength(1);
+  });
+
+  it("accepts area_chart with comparison_sql set", () => {
+    const spec = {
+      title: "Area",
+      widgets: [{
+        type: "area_chart",
+        title: "Tendencia",
+        sql: "SELECT fecha AS x, SUM(total_si) AS y FROM ps_ventas GROUP BY 1",
+        comparison_sql: "SELECT fecha AS x, SUM(total_si) AS y FROM ps_ventas WHERE anio = 2025 GROUP BY 1",
+      }],
+    };
+    const result = validateSpec(spec);
+    const w = result.widgets[0];
+    expect(w.type).toBe("area_chart");
+    if (w.type === "area_chart") {
+      expect(w.comparison_sql).toBeDefined();
+    }
+  });
+
+  it("accepts donut_chart with comparison_sql set", () => {
+    const spec = {
+      title: "Donut",
+      widgets: [{
+        type: "donut_chart",
+        title: "Mix",
+        sql: "SELECT familia AS label, SUM(total_si) AS value FROM ps_ventas GROUP BY 1",
+        comparison_sql: "SELECT familia AS label, SUM(total_si) AS value FROM ps_ventas WHERE anio = 2025 GROUP BY 1",
+      }],
+    };
+    const result = validateSpec(spec);
+    const w = result.widgets[0];
+    expect(w.type).toBe("donut_chart");
+    if (w.type === "donut_chart") {
+      expect(w.comparison_sql).toBeDefined();
+    }
   });
 
   it("rejects kpi_row with comparison_sql (strict mode)", () => {
