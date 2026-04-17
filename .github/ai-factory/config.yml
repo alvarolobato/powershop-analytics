@@ -17,6 +17,7 @@ labels:
   no_ai: "no-ai"              # Human-only
   no_review: "no-pr-review"   # Skip AI PR review
   auto_merge: "auto-merge"    # Auto-merge when CI + review pass
+  awaiting_owner: "ai-awaiting-owner"  # Automated review cycle done — owner merges when ready
 
   # Priority (highest first)
   priorities:
