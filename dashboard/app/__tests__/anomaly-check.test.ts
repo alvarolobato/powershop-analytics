@@ -51,6 +51,21 @@ describe("computeAnomaly (pure function)", () => {
     expect(result.isAnomaly).toBe(false);
   });
 
+  it("zero stddev: explanation says 'es igual' when currentValue equals mean", () => {
+    const result = computeAnomaly([100, 100, 100, 100, 100]);
+    expect(result.isAnomaly).toBe(false);
+    expect(result.explanation).toContain("es igual a la media");
+  });
+
+  it("zero stddev: explanation says 'difiere' when currentValue does not equal mean", () => {
+    // historical: [100, 100, 100, 100] — mean=100, stddev=0, but current=50
+    const result = computeAnomaly([50, 100, 100, 100, 100]);
+    expect(result.isAnomaly).toBe(false);
+    expect(result.explanation).toContain("difiere de la media");
+    expect(result.explanation).toContain("50");
+    expect(result.explanation).toContain("100");
+  });
+
   it("acceptance test: [50, 100, 98, 102, 99, 101] where 50 is current — isAnomaly: true, direction: low", () => {
     // values[0] = 50 (current), values[1..5] = [100, 98, 102, 99, 101] (historical)
     const result = computeAnomaly([50, 100, 98, 102, 99, 101]);
