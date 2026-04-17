@@ -83,8 +83,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p .github/scripts
+          # gh api --jq must receive a single jq expression (-r is not a gh flag here).
           gh api "repos/${{ github.repository }}/contents/.github/scripts/ci-handoff-state.sh?ref=${{ github.event.repository.default_branch }}" \
-            --jq -r .content | base64 -d > .github/scripts/ci-handoff-state.sh
+            | jq -r '.content' | base64 -d > .github/scripts/ci-handoff-state.sh
           chmod +x .github/scripts/ci-handoff-state.sh
 
       - name: Load review guidelines
