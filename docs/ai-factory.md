@@ -90,7 +90,7 @@ Comment on any issue (not PR) with one of these:
 
 Response includes: analysis, files to modify, implementation steps, testing strategy, risk assessment, complexity estimate.
 
-**`/ai <instruction>`** — Claude executes a direct instruction. Restricted to `OWNER` / `MEMBER` / `COLLABORATOR`.
+**`/ai <instruction>`** — Claude executes a direct instruction. Restricted to `OWNER` / `MEMBER` / `COLLABORATOR`. Works on **issues and pull requests** (on a PR, the workflow checks out the PR head and pushes to that branch instead of opening a second PR).
 
 ```
 /ai investigate why the ETL fails on Sundays and report back
