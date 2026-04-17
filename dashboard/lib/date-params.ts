@@ -41,6 +41,8 @@ export function substituteDateParams(
   sql: string,
   ranges: DateParamRanges,
 ): string {
+  // Token names are intentionally non-prefix of each other (e.g. :curr_from is not a
+  // prefix of :curr_mes_from), so replaceAll order is safe. Keep it that way if adding tokens.
   let result = sql
     .replaceAll(CURR_FROM, toDateStr(ranges.curr.from))
     .replaceAll(CURR_TO,   toDateStr(ranges.curr.to))
