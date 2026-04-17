@@ -54,7 +54,7 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps stack up` | Start all containers |
 | `ps stack down` | Stop all containers |
 | `ps stack restart` | Restart all containers |
-| `ps stack update` | Pull latest main, rebuild images, restart stack |
+| `ps stack update` | Pull latest, rebuild images, restart stack |
 | `ps stack status` | Show container status and WrenAI UI health |
 | `ps stack logs [svc]` | Show logs (follow); optional service name |
 | `ps stack open` | Open WrenAI UI in browser |

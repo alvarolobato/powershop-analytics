@@ -20,7 +20,7 @@ Subcommands:
   up              Start all containers
   down            Stop all containers
   restart         Restart all containers
-  update          Pull latest main, rebuild images, restart stack
+  update          Pull latest, rebuild images, restart stack
   status          Show container status
   logs [svc]      Show logs (follow); optional service name
   open            Open WrenAI UI in browser
