@@ -6,6 +6,7 @@ import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
 import type { DateRange, ComparisonRange } from "./DateRangePicker";
 import { substituteDateParams } from "@/lib/date-params";
+import { substituteTimeRange, toISODateString } from "@/lib/time-range";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import { ErrorDisplay } from "./ErrorDisplay";
@@ -143,6 +144,19 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
+  // Substitute {{date_from}}/{{date_to}} placeholders in main widget SQL using the current date range.
+  const buildMainSql = useCallback(
+    (sql: string): string => {
+      if (!dateRange) return sql;
+      return substituteTimeRange(
+        sql,
+        toISODateString(dateRange.from),
+        toISODateString(dateRange.to),
+      );
+    },
+    [dateRange],
+  );
+
   // Build substituted comparison SQL for a chart widget, or null if not applicable.
   const buildComparisonSql = useCallback(
     (comparisonSql: string | undefined): string | null => {
@@ -181,7 +195,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(item.sql, signal);
+                  const data = await fetchWidgetData(buildMainSql(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -202,7 +216,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(item.trend_sql, signal);
+                  return await fetchWidgetData(buildMainSql(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -213,7 +227,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(item.anomaly_sql, signal);
+                  return await fetchWidgetData(buildMainSql(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -233,7 +247,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         } else {
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
           const [data, comparisonData] = await Promise.all([
-            fetchWidgetData(widget.sql, signal),
+            fetchWidgetData(buildMainSql(widget.sql), signal),
             compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
           ]);
           if (!signal.aborted) {
@@ -264,7 +278,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
     });
 
     await Promise.all(promises);
-  }, [buildComparisonSql]);
+  }, [buildComparisonSql, buildMainSql]);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -288,7 +302,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(item.sql, signal);
+                  const data = await fetchWidgetData(buildMainSql(item.sql), signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -308,7 +322,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(item.trend_sql, signal);
+                  return await fetchWidgetData(buildMainSql(item.trend_sql), signal);
                 } catch {
                   return null;
                 }
@@ -318,7 +332,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(item.anomaly_sql, signal);
+                  return await fetchWidgetData(buildMainSql(item.anomaly_sql), signal);
                 } catch {
                   return null;
                 }
@@ -337,7 +351,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         } else {
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
           const [data, comparisonData] = await Promise.all([
-            fetchWidgetData(widget.sql, signal),
+            fetchWidgetData(buildMainSql(widget.sql), signal),
             compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
           ]);
           if (!signal.aborted) {
@@ -369,7 +383,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         retryAbortMap.current.delete(idx);
       }
     },
-    [buildComparisonSql],
+    [buildComparisonSql, buildMainSql],
   );
 
   useEffect(() => {
