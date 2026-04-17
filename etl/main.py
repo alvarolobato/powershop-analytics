@@ -327,7 +327,6 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     run_error_msg: str | None = None
 
     try:
-
         # ------------------------------------------------------------------
         # 1. Catalog (full refresh, no watermark)
         # ------------------------------------------------------------------
@@ -575,7 +574,12 @@ def run_full_sync(conn_4d, conn_pg) -> None:
         if run_id is not None:
             try:
                 finish_run(
-                    conn_pg, run_id, run_status, tables_ok, tables_failed, total_rows_synced,
+                    conn_pg,
+                    run_id,
+                    run_status,
+                    tables_ok,
+                    tables_failed,
+                    total_rows_synced,
                     error_msg=run_error_msg,
                 )
             except Exception as exc:
