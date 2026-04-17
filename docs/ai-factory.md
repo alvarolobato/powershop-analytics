@@ -64,9 +64,19 @@ When a new issue is opened, the **Issue Triage** workflow runs automatically —
 | `ai-in-progress` | The worker is currently running (auto-set). |
 | `ai-planned` | The `/plan` command has posted an implementation plan (auto-set). |
 | `no-ai` | Human-only. Factory will not touch this issue. |
-| `no-pr-review` | Skip the AI PR review on this PR. |
+| `no-pr-review` | **Stop automated Opus/Copilot PR reviews** on this PR. Use when you only want **address-feedback** to clear inline comments, then **`ai-awaiting-owner`** when done. Does **not** block you from merging. |
+| `ai-ready-for-review` | **Automation queue only** — another AI PR review (Opus/Copilot pipeline) is scheduled or pending. This does **not** mean “ready for you”; it often means the bot is still working. |
+| `ai-awaiting-owner` | **Your cue** — automated review rounds are finished (or capped). The PR is **ready for your review and merge** (subject to CI being green). |
 | `auto-merge` | Merge automatically when CI passes and review approves *(reserved for future use)*. |
 | `p0-critical` → `p3-low` | Priority — the factory processes higher priorities first. |
+
+**When is a PR ready for you to review and merge?**
+
+1. Look for **`ai-awaiting-owner`** on the PR — the factory applies this when automated Opus passes are complete (or the legacy cap of two Opus runs is hit). That is the clearest signal.
+2. Do **not** treat **`ai-ready-for-review`** as “ready for human” — it means the automation pipeline may still run another AI review.
+3. Always confirm **CI is green** (and resolve any `ai-blocked` / failing checks) before merging.
+
+**Waiting without clicking:** If you add **`no-pr-review`** (no Opus/Copilot), the **watchdog** re-dispatches **AI Address PR Feedback** on a cooldown until the PR reaches **`ai-awaiting-owner`**, unless you opted out with **`no-address-feedback`**. PRs that never get **`no-pr-review`** will not auto-handoff unless you run the full review pipeline or add that label yourself.
 
 ### c) Use slash commands in comments
 
