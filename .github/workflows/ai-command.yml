@@ -45,6 +45,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # CI has no human to approve BashEdit/Write — default mode burns turns on denials
+          # and looks like "nothing happened" despite a green workflow.
+          claude_args: "--permission-mode bypassPermissions --max-turns 120"
           trigger_phrase: "/ai"
           prompt: |
             You have been invoked via the /ai command on GitHub **#${{ github.event.issue.number }}**.

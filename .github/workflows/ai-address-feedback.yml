@@ -181,7 +181,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 80"
+          claude_args: "--max-turns 100 --permission-mode bypassPermissions"
           allowed_bots: "claude[bot],copilot-pull-request-reviewer[bot],github-actions[bot]"
           prompt: |
             You are addressing review feedback on PR #${{ needs.resolve.outputs.pr_number }}.

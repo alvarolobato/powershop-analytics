@@ -104,6 +104,10 @@ For code-change instructions, Claude creates a branch and opens a PR. For invest
 
 **Manual vs automated queue:** `/ai` and `/plan` each use a unique run slot (they never wait on each other or on factory batch locks). For **AI Address PR Feedback**, **AI PR Review**, and **AI Worker**, a manual **Run workflow** defaults to **not** joining the factory serial queue; check **use global queue** only if you intentionally want to line up behind automated runs. Watchdog and in-repo `gh workflow run` dispatches always pass `use_global_queue=true` so automation stays serialized where needed.
 
+**"Workflow green but nothing changed" / many permission denials:** Headless Claude used to wait for tool approvals nobody can click in Actions. Coding workflows now pass **`--permission-mode bypassPermissions`** (Anthropic’s recommended mode for isolated CI runners) so edits and `git` run without burning the turn budget. If a run still hits **max turns**, re-run or narrow the request.
+
+**AI Command shows "Skipped" in the Actions list:** Any new comment on an issue/PR starts the workflow file; the **execute** job only runs when the comment starts with **`/ai`** (and you are OWNER/MEMBER/COLLABORATOR). Other comments produce a skipped run — that is normal, not a freeze.
+
 ### d) Review and merge PRs
 
 When the AI opens a PR:
