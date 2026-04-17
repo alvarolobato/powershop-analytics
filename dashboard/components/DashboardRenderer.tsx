@@ -6,7 +6,6 @@ import type { DashboardSpec, Widget } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
 import type { DateRange } from "./DateRangePicker";
 import { isApiErrorResponse } from "@/lib/errors";
-import { substituteTimeRange, toISODateString } from "@/lib/time-range";
 import type { ApiErrorResponse } from "@/lib/errors";
 import { ErrorDisplay } from "./ErrorDisplay";
 import {
@@ -33,11 +32,15 @@ export interface DashboardRendererProps {
    *  Increment it to trigger a manual or auto-refresh. */
   refreshKey?: number;
   /**
-   * Optional date range selected in the dashboard toolbar. When set, every
-   * widget SQL has its `{{date_from}}` and `{{date_to}}` placeholders
-   * replaced with the selected YYYY-MM-DD values via `substituteTimeRange`.
-   * Queries that contain no placeholders are executed unchanged.
-   * Changing this prop (alongside incrementing `refreshKey`) re-runs all queries.
+   * Optional date range selected in the dashboard toolbar. This prop is
+   * accepted for forwards compatibility — the page component increments
+   * `refreshKey` when the date range changes, which re-runs all queries.
+   *
+   * NOTE: The date range does NOT automatically inject WHERE clauses into
+   * widget SQL. For date filtering to work, the widget's SQL queries must
+   * either already contain appropriate date expressions or be regenerated
+   * by the LLM with the selected range in mind. Use `injectDateRange()`
+   * from `DateRangePicker` for simple row-level queries only.
    */
   dateRange?: DateRange;
   /**
@@ -114,7 +117,7 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDataChange }: DashboardRendererProps) {
+export function DashboardRenderer({ spec, refreshKey = 0, dateRange: _dateRange, onWidgetDataChange }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -129,13 +132,6 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
   // (not stale data) when spec changes before the effect runs.
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
-
-  const dateRangeRef = useRef(dateRange);
-  useEffect(() => { dateRangeRef.current = dateRange; }, [dateRange]);
-  const applyDateRange = useCallback((sql: string) => {
-    const dr = dateRangeRef.current;
-    return dr ? substituteTimeRange(sql, toISODateString(dr.from), toISODateString(dr.to)) : sql;
-  }, []);
 
   // Fetch all widgets for a given spec
   const fetchAll = useCallback(async (widgets: Widget[]) => {
@@ -162,7 +158,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(applyDateRange(item.sql), signal);
+                  const data = await fetchWidgetData(item.sql, signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -183,7 +179,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.trend_sql), signal);
+                  return await fetchWidgetData(item.trend_sql, signal);
                 } catch {
                   return null;
                 }
@@ -194,7 +190,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.anomaly_sql), signal);
+                  return await fetchWidgetData(item.anomaly_sql, signal);
                 } catch {
                   return null;
                 }
@@ -212,7 +208,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             });
           }
         } else {
-          const data = await fetchWidgetData(applyDateRange(widget.sql), signal);
+          const data = await fetchWidgetData(widget.sql, signal);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
@@ -241,7 +237,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
     });
 
     await Promise.all(promises);
-  }, [applyDateRange]);
+  }, []);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -265,7 +261,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(applyDateRange(item.sql), signal);
+                  const data = await fetchWidgetData(item.sql, signal);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -285,7 +281,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.trend_sql), signal);
+                  return await fetchWidgetData(item.trend_sql, signal);
                 } catch {
                   return null;
                 }
@@ -295,7 +291,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(applyDateRange(item.anomaly_sql), signal);
+                  return await fetchWidgetData(item.anomaly_sql, signal);
                 } catch {
                   return null;
                 }
@@ -312,7 +308,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
             });
           }
         } else {
-          const data = await fetchWidgetData(applyDateRange(widget.sql), signal);
+          const data = await fetchWidgetData(widget.sql, signal);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
               const next = new Map(prev);
@@ -342,7 +338,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, onWidgetDat
         retryAbortMap.current.delete(idx);
       }
     },
-    [applyDateRange],
+    [],
   );
 
   useEffect(() => {

@@ -299,6 +299,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const isComparisonActive = comparisonType !== "none";
 
+
   return (
     <div className="relative" ref={containerRef} data-testid="date-range-picker">
       {/* Trigger button */}

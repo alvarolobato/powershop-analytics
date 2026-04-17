@@ -16,6 +16,8 @@ permissions:
 
 jobs:
   execute:
+    # Do NOT require `github.event.issue.pull_request == null` — PR threads are
+    # still `issues` in the API; that guard skips every `/ai` on a pull request.
     if: >-
       startsWith(github.event.comment.body, '/ai') &&
       !startsWith(github.event.comment.body, '/ai-') &&

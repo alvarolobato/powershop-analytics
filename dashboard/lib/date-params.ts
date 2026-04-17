@@ -15,6 +15,14 @@ export const CURR_MES_TO   = ":curr_mes_to";
 export const COMP_MES_FROM = ":comp_mes_from";
 export const COMP_MES_TO   = ":comp_mes_to";
 
+export type ComparisonType =
+  | "previous_period"
+  | "previous_month"
+  | "previous_quarter"
+  | "previous_year"
+  | "yoy"
+  | "custom";
+
 export interface DateParamRanges {
   curr: { from: Date; to: Date };
   comp?: { from: Date; to: Date };
@@ -58,4 +66,15 @@ export function substituteDateParams(
   }
 
   return result;
+}
+
+export function comparisonTypeLabel(type: ComparisonType): string {
+  switch (type) {
+    case "previous_period":  return "vs período anterior";
+    case "previous_month":   return "vs mes anterior";
+    case "previous_quarter": return "vs trimestre anterior";
+    case "previous_year":    return "vs año anterior";
+    case "yoy":              return "vs mismo período año anterior";
+    case "custom":           return "vs período personalizado";
+  }
 }

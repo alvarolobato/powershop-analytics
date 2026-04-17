@@ -12,19 +12,10 @@ on:
         description: "PR number to review"
         required: true
         type: number
-      use_global_queue:
-        description: "Join factory serial queue (watchdog/CI must pass true). Leave false for urgent manual runs."
-        required: false
-        type: boolean
-        default: false
 
-# pull_request*: global lock. workflow_dispatch + use_global_queue=true: global.
-# workflow_dispatch + use_global_queue=false (default): immediate (own concurrency slot).
+# One Opus PR review at a time across the repo — avoids Anthropic rate limits when many PRs move together.
 concurrency:
-  group: >-
-    ${{ github.event_name != 'workflow_dispatch' && 'ai-pr-review-global'
-        || (inputs.use_global_queue == true && 'ai-pr-review-global'
-            || format('ai-pr-review-manual-{0}-{1}', inputs.pr_number, github.run_id)) }}
+  group: ai-pr-review-global
   cancel-in-progress: false
 
 permissions:
@@ -35,54 +26,17 @@ permissions:
   id-token: write
 
 jobs:
-  # workflow_dispatch used to ignore no-pr-review (first OR branch was always true).
-  gate:
-    runs-on: ubuntu-latest
-    outputs:
-      skip_opus: ${{ steps.check.outputs.skip_opus }}
-    steps:
-      - id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            echo "skip_opus=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          PR="${{ inputs.pr_number }}"
-          LABELS=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
-          if echo ",$LABELS," | grep -q ",no-pr-review,"; then
-            echo "skip_opus=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip_opus=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Clear stale queue label when skipping Opus
-        if: github.event_name == 'workflow_dispatch' && steps.check.outputs.skip_opus == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ inputs.pr_number }}"
-          gh pr comment "$PR" --repo "${{ github.repository }}" \
-            --body "⏭️ **AI PR Review skipped** (\`no-pr-review\`). Removed stale \`ai-ready-for-review\` — use **AI Address PR Feedback** for inline threads." || true
-          gh pr edit "$PR" --repo "${{ github.repository }}" --remove-label "ai-ready-for-review" || true
-
   review:
-    needs: gate
     if: >-
-      needs.gate.outputs.skip_opus != 'true' &&
       (
         github.event_name == 'workflow_dispatch'
-        ||
+      ) || (
+        github.event.pull_request.draft == false &&
+        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
         (
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.draft == false &&
-          !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          (
-            github.event.action != 'labeled' ||
-            github.event.label.name == 'ai-ready-for-review'
-          )
+          github.event.action != 'labeled' ||
+          github.event.label.name == 'ai-ready-for-review'
         )
       )
     runs-on: ubuntu-latest
@@ -148,7 +102,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-6 --max-turns 55 --permission-mode bypassPermissions"
+          claude_args: "--model claude-opus-4-6 --max-turns 35"
           allowed_bots: "claude[bot],github-actions[bot],copilot-pull-request-reviewer[bot]"
           use_sticky_comment: "true"
           include_fix_links: "true"
@@ -178,10 +132,9 @@ jobs:
         run: |
           gh pr edit "${{ env.PR_NUMBER }}" --repo "${{ github.repository }}" \
             --remove-label "ai-ready-for-review" \
-            --remove-label "ai-auto-retry" \
-            --add-label "ai-awaiting-owner" || true
+            --remove-label "ai-auto-retry" || true
           gh pr comment "${{ env.PR_NUMBER }}" \
-            --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. **Ready for your review and merge.**"
+            --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. Merge or continue manually."
 
       - name: Record legacy Opus pass
         if: success() && steps.cap.outputs.skip != 'true'
@@ -211,8 +164,7 @@ jobs:
           gh workflow run ai-address-feedback.yml \
             --repo "${{ github.repository }}" \
             --field pr_number="$PR_NUMBER" \
-            --field reason="post-review: addressing claude[bot] review comments" \
-            --field use_global_queue=true || true
+            --field reason="post-review: addressing claude[bot] review comments" || true
           echo "Dispatched address-feedback for PR #$PR_NUMBER."
 
       - name: Handle failure
