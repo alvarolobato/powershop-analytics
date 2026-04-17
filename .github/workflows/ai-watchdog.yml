@@ -101,6 +101,62 @@ jobs:
             fi
           done
 
+      - name: Re-enable auto-retry for exhausted ai-task issues
+        run: |
+          set -euo pipefail
+          # After MAX_RETRIES the watchdog removes `ai-auto-retry`, leaving
+          # `ai-blocked` + `ai-task` with no path back into the retry loop.
+          # Restore `ai-auto-retry` once per week per issue (and only if the
+          # issue was previously escalated) so hardened workers can run again.
+          NOW=$(date -u +%s)
+          ISSUES=$(gh issue list --repo "$REPO_FULL" --state open \
+            --label "ai-blocked" --label "ai-task" \
+            --json number,title,labels --limit 100 --search "is:issue")
+
+          echo "$ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+
+            if echo ",$LABELS," | grep -q ",ai-auto-retry,"; then
+              continue
+            fi
+            if echo ",$LABELS," | grep -q ",ai-in-progress,"; then
+              continue
+            fi
+
+            PR_COUNT=$(gh pr list --repo "$REPO_FULL" --state all \
+              --search "head:ai/issue-${NUM}- OR \"Closes #${NUM}\" in:body" \
+              --json number --jq 'length')
+            if [ "${PR_COUNT:-0}" != "0" ]; then
+              continue
+            fi
+
+            ESC_AT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("will NOT be retried automatically")))] | last | .created_at // empty' 2>/dev/null || echo "")
+            if [ -z "$ESC_AT" ]; then
+              continue
+            fi
+            ESC_TS=$(date -u -d "$ESC_AT" +%s)
+            if [ "$(( NOW - ESC_TS ))" -lt 3600 ]; then
+              continue
+            fi
+
+            LAST_RESTORE=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
+              --jq '[.[] | select(.body | test("restored ai-auto-retry for this sub-task"))] | last | .created_at // empty' 2>/dev/null || echo "")
+            if [ -n "$LAST_RESTORE" ]; then
+              LR_TS=$(date -u -d "$LAST_RESTORE" +%s)
+              if [ "$(( NOW - LR_TS ))" -lt 604800 ]; then
+                continue
+              fi
+            fi
+
+            echo "Restoring ai-auto-retry for exhausted sub-task #$NUM ($TITLE)"
+            gh issue edit "$NUM" --repo "$REPO_FULL" --add-label "ai-auto-retry" || true
+            gh issue comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔄 AI Factory watchdog: restored ai-auto-retry for this sub-task (no PR yet). Worker/permissions budgets were increased; the next auto-retry cycle will dispatch implementation. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+          done
+
       - name: Stalled ai-ready-for-review PRs
         run: |
           set -euo pipefail
@@ -360,8 +416,11 @@ jobs:
           #   - Allow up to 3 automatic retries per issue. After that, escalate to human.
           #   - Retry count = number of ❌ or ⚠️ failure comments posted by the worker.
 
-          MAX_RETRIES=3
+          MAX_RETRIES=10
           MIN_WAIT_SECS=5400  # 90 minutes
+          # Only count worker/planner failure comments from the last 14 days so
+          # old runs do not permanently exhaust the retry budget after we ship
+          # workflow fixes (e.g. bypassPermissions).
 
           # Use search API with `is:issue` to explicitly exclude PRs.
           # `gh issue list` can return PRs because GitHub's API treats them as
@@ -371,6 +430,8 @@ jobs:
             --state open --label "ai-blocked" \
             --json number,title,labels --limit 100 \
             --search "is:issue")
+
+          FAILURE_CUTOFF="$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ)"
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
@@ -387,9 +448,10 @@ jobs:
             # don't reset the clock and cause us to skip valid retries.
             FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
               --paginate \
-              --jq '[.[] | select(
+              --jq --arg cutoff "$FAILURE_CUTOFF" '[.[] | select(
                 (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
-                (.body | test("❌|⚠️.*AI (Worker|Planner)"))
+                (.body | test("❌|⚠️.*AI (Worker|Planner)")) and
+                (.created_at >= $cutoff)
               )]' 2>/dev/null || echo '[]')
 
             RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
