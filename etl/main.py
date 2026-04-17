@@ -307,11 +307,10 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     )
     from etl.sync.stock import sync_stock, sync_traspasos
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
+    from etl.db.postgres import create_run, finish_run
 
     logger.info("=== Full sync started ===")
     pipeline_start = time.time()
-
-    from etl.db.postgres import create_run, finish_run
 
     # Create monitoring run record — errors must not abort the sync.
     run_id: int | None = None
@@ -325,6 +324,7 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     tables_ok = 0
     tables_failed = 0
     run_status = "failed"
+    run_error_msg: str | None = None
 
     try:
 
@@ -568,15 +568,18 @@ def run_full_sync(conn_4d, conn_pg) -> None:
         tables_ok = sum(1 for r in _results if r)
         tables_failed = len(_results) - tables_ok
         run_status = "success" if tables_failed == 0 else "partial"
+    except Exception as exc:
+        run_error_msg = str(exc)
+        raise
     finally:
         if run_id is not None:
             try:
                 finish_run(
-                    conn_pg, run_id, run_status, tables_ok, tables_failed, total_rows_synced
+                    conn_pg, run_id, run_status, tables_ok, tables_failed, total_rows_synced,
+                    error_msg=run_error_msg,
                 )
             except Exception as exc:
                 logger.error("Failed to finish monitoring run record: %s", exc)
-
 
     total_ms = int((time.time() - pipeline_start) * 1000)
     logger.info("=== Full sync completed in %d ms ===", total_ms)
