@@ -15,14 +15,19 @@ on:
         options:
           - plan
           - implement
+      use_global_queue:
+        description: "Join per-issue serial queue (watchdog must pass true). Leave false for urgent manual runs."
+        required: false
+        type: boolean
+        default: false
 
-# Don't cancel in-progress workers. GitHub fires a `labeled` event for each
-# label added in rapid succession (e.g. triage applying component/priority labels),
-# which previously cancelled an already-running plan/implement and left the
-# issue stuck in `ai-in-progress`. We'd rather run duplicates and let the
-# inner steps no-op than leave issues orphaned.
+# issues labeled: one worker per issue. workflow_dispatch + use_global_queue=true: same.
+# workflow_dispatch + use_global_queue=false (default): own slot (no wait on issue lock).
 concurrency:
-  group: ai-worker-${{ github.event.issue.number || inputs.issue_number }}
+  group: >-
+    ${{ github.event_name == 'issues' && format('ai-worker-{0}', github.event.issue.number)
+        || (inputs.use_global_queue == true && format('ai-worker-{0}', inputs.issue_number)
+            || format('ai-worker-manual-{0}', github.run_id)) }}
   cancel-in-progress: false
 
 permissions:

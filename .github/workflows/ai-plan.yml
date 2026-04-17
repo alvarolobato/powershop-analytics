@@ -3,6 +3,11 @@ on:
   issue_comment:
     types: [created]
 
+concurrency:
+  # `/plan` is a human slash command — never queue behind factory batch jobs.
+  group: ai-plan-${{ github.run_id }}
+  cancel-in-progress: false
+
 permissions:
   contents: read
   issues: write
