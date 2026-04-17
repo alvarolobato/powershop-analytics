@@ -78,6 +78,18 @@ When a new issue is opened, the **Issue Triage** workflow runs automatically —
 
 **Waiting without clicking:** If you add **`no-pr-review`** (no Opus/Copilot), the **watchdog** re-dispatches **AI Address PR Feedback** on a cooldown until the PR reaches **`ai-awaiting-owner`**, unless you opted out with **`no-address-feedback`**. PRs that never get **`no-pr-review`** will not auto-handoff unless you run the full review pipeline or add that label yourself.
 
+### What is running right now?
+
+GitHub does not show “this PR’s bot job” on the PR page directly. Use:
+
+1. **Actions** → filter by **AI Address PR Feedback** or **AI PR Review** → open **In progress** runs.
+2. CLI (repo root, `gh` authenticated):
+   ```bash
+   gh run list --workflow "AI Address PR Feedback" --limit 8 --json status,conclusion,displayTitle,url
+   gh run list --workflow "AI PR Review" --limit 8 --json status,conclusion,displayTitle,url
+   ```
+   Only **one** address-feedback and **one** Opus PR review run at a time (global concurrency), so other PRs **queue** — a quiet PR may simply be waiting its turn.
+
 ### c) Use slash commands in comments
 
 Comment on any issue (not PR) with one of these:

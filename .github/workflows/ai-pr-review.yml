@@ -35,17 +35,54 @@ permissions:
   id-token: write
 
 jobs:
+  # workflow_dispatch used to ignore no-pr-review (first OR branch was always true).
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      skip_opus: ${{ steps.check.outputs.skip_opus }}
+    steps:
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "skip_opus=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          PR="${{ inputs.pr_number }}"
+          LABELS=$(gh api "repos/${{ github.repository }}/pulls/$PR" --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+          if echo ",$LABELS," | grep -q ",no-pr-review,"; then
+            echo "skip_opus=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_opus=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Clear stale queue label when skipping Opus
+        if: github.event_name == 'workflow_dispatch' && steps.check.outputs.skip_opus == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR="${{ inputs.pr_number }}"
+          gh pr comment "$PR" --repo "${{ github.repository }}" \
+            --body "⏭️ **AI PR Review skipped** (\`no-pr-review\`). Removed stale \`ai-ready-for-review\` — use **AI Address PR Feedback** for inline threads." || true
+          gh pr edit "$PR" --repo "${{ github.repository }}" --remove-label "ai-ready-for-review" || true
+
   review:
+    needs: gate
     if: >-
+      needs.gate.outputs.skip_opus != 'true' &&
       (
         github.event_name == 'workflow_dispatch'
-      ) || (
-        github.event.pull_request.draft == false &&
-        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
+        ||
         (
-          github.event.action != 'labeled' ||
-          github.event.label.name == 'ai-ready-for-review'
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.draft == false &&
+          !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          (
+            github.event.action != 'labeled' ||
+            github.event.label.name == 'ai-ready-for-review'
+          )
         )
       )
     runs-on: ubuntu-latest
