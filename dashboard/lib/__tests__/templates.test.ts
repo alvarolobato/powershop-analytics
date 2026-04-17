@@ -76,7 +76,7 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
       }
     });
 
-    it("every time-filtered widget SQL uses :curr_from token (not CURRENT_DATE)", () => {
+    it("every widget SQL with a date filter uses :curr_from / :curr_to tokens (no hardcoded CURRENT_DATE)", () => {
       const allSql: string[] = [];
       for (const widget of template.spec.widgets) {
         if (widget.type === "kpi_row") {
@@ -88,28 +88,11 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
         }
       }
       for (const sql of allSql) {
-        if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
-          expect(sql).not.toMatch(/CURRENT_DATE/);
-          expect(sql).toMatch(/:curr_from/);
-        }
-      }
-    });
-
-    it("every time-filtered widget SQL contains both :curr_from and :curr_to", () => {
-      const allSql: string[] = [];
-      for (const widget of template.spec.widgets) {
-        if (widget.type === "kpi_row") {
-          for (const item of widget.items) {
-            allSql.push(item.sql);
-          }
-        } else {
-          allSql.push(widget.sql);
-        }
-      }
-      for (const sql of allSql) {
+        // If the SQL contains a date filter, it must use :curr_from/:curr_to, never CURRENT_DATE
         if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
           expect(sql).toMatch(/:curr_from/);
           expect(sql).toMatch(/:curr_to/);
+          expect(sql).not.toMatch(/CURRENT_DATE/);
         }
       }
     });

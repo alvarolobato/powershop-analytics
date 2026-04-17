@@ -436,8 +436,11 @@ CREATE TABLE IF NOT EXISTS etl_sync_runs (
     status            TEXT         NOT NULL DEFAULT 'running',
     tables_ok         INTEGER,
     tables_failed     INTEGER,
+    total_tables      INTEGER,
     total_rows_synced INTEGER
 );
+
+ALTER TABLE etl_sync_runs ADD COLUMN IF NOT EXISTS total_tables INTEGER;
 
 CREATE TABLE IF NOT EXISTS etl_sync_run_tables (
     id               SERIAL       PRIMARY KEY,

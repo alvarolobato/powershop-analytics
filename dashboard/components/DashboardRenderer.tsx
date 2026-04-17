@@ -143,14 +143,12 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
-  // Substitute :curr_from/:curr_to tokens in a SQL string using the current dateRange.
+  // Substitute :curr_from/:curr_to tokens in a main widget SQL string.
   // Returns sql unchanged when dateRange is not set (backwards compatible).
   const buildMainSql = useCallback(
     (sql: string): string => {
       if (!dateRange) return sql;
-      return substituteDateParams(sql, {
-        curr: { from: dateRange.from, to: dateRange.to },
-      });
+      return substituteDateParams(sql, { curr: { from: dateRange.from, to: dateRange.to } });
     },
     [dateRange],
   );
@@ -276,7 +274,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
     });
 
     await Promise.all(promises);
-  }, [buildComparisonSql, buildMainSql]);
+  }, [buildMainSql, buildComparisonSql]);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -381,7 +379,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         retryAbortMap.current.delete(idx);
       }
     },
-    [buildComparisonSql, buildMainSql],
+    [buildMainSql, buildComparisonSql],
   );
 
   useEffect(() => {
