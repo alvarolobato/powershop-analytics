@@ -427,6 +427,35 @@ CREATE TABLE IF NOT EXISTS etl_watermarks (
     updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS etl_sync_runs (
+    id                BIGSERIAL    PRIMARY KEY,
+    started_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    finished_at       TIMESTAMPTZ,
+    duration_ms       BIGINT,
+    status            TEXT         NOT NULL DEFAULT 'running',
+    total_tables      INTEGER,
+    tables_ok         INTEGER,
+    tables_failed     INTEGER,
+    total_rows_synced BIGINT,
+    trigger           TEXT         NOT NULL DEFAULT 'scheduled'
+);
+
+CREATE TABLE IF NOT EXISTS etl_table_runs (
+    id           BIGSERIAL    PRIMARY KEY,
+    run_id       BIGINT       NOT NULL REFERENCES etl_sync_runs(id) ON DELETE CASCADE,
+    table_name   TEXT         NOT NULL,
+    started_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    finished_at  TIMESTAMPTZ,
+    duration_ms  BIGINT,
+    rows_synced  BIGINT,
+    status       TEXT         NOT NULL DEFAULT 'running',
+    error_msg    TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_etl_sync_runs_started ON etl_sync_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_etl_table_runs_run_id ON etl_table_runs(run_id);
+CREATE INDEX IF NOT EXISTS idx_etl_table_runs_table  ON etl_table_runs(table_name);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)

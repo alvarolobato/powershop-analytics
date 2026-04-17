@@ -70,30 +70,36 @@ jobs:
               PR="${{ github.event.pull_request.number }}"
               STATE="${{ github.event.review.state }}"
               ACTOR="${{ github.event.review.user.login }}"
-              # Bot reviews (claude[bot], copilot, github-actions[bot]) do NOT
-              # trigger address-feedback via this event path. Reason: GitHub does
-              # not mint OIDC tokens (id-token) for pull_request_review events
-              # from bot actors, so the claude_code_oauth_token exchange fails.
-              # Instead:
-              #   - claude[bot] reviews: pr-review explicitly dispatches address-feedback
-              #   - copilot reviews: watchdog detects and dispatches after 3 min
-              #   - github-actions[bot]: ignored (system noise)
-              # Human reviews still trigger directly here (humans get id-token).
-              if [[ "$ACTOR" == *"[bot]" ]]; then
-                REASON="ignored bot review from $ACTOR (handled via explicit dispatch or watchdog)"
-              # Run when a human requests changes OR any reviewer (including bots
-              # like Copilot) leaves a review that contains inline comments.
-              # Copilot always submits as COMMENTED even when it leaves inline
-              # change suggestions.
+              # Bot reviews must NOT run the address job on pull_request_review:
+              # OIDC → Claude app token exchange fails with "User does not have write access"
+              # when the triggering actor is a bot. Copilot sometimes appears as login
+              # "Copilot" (no "[bot]" suffix), so match broadly.
+              is_bot="false"
+              if [[ "$ACTOR" == *"[bot]" ]] || echo "$ACTOR" | grep -qi copilot; then
+                is_bot="true"
+              fi
+
+              COMMENT_COUNT="0"
+              if [ "$STATE" = "commented" ] || [ "$STATE" = "COMMENTED" ] || [ "$STATE" = "changes_requested" ]; then
+                COMMENT_COUNT=$(gh api \
+                  "repos/${{ github.repository }}/pulls/$PR/reviews/${{ github.event.review.id }}/comments" \
+                  --jq 'length' 2>/dev/null || echo "0")
+              fi
+
+              if [ "$is_bot" = "true" ]; then
+                REASON="skipped bot reviewer $ACTOR on pull_request_review (no OIDC write for bots)"
+                if [ "${COMMENT_COUNT:-0}" -gt 0 ] && { [ "$STATE" = "changes_requested" ] || [ "$STATE" = "commented" ] || [ "$STATE" = "COMMENTED" ]; }; then
+                  gh workflow run ai-address-feedback.yml \
+                    --repo "${{ github.repository }}" \
+                    --field pr_number="$PR" \
+                    --field reason="chained: bot review from $ACTOR ($COMMENT_COUNT inline) — workflow_dispatch for OIDC" \
+                    --field use_global_queue=true || true
+                  REASON="$REASON — dispatched address-feedback via workflow_dispatch ($COMMENT_COUNT inline thread(s))"
+                fi
               elif [ "$STATE" = "changes_requested" ]; then
                 SHOULD_RUN="true"
                 REASON="review requested changes (reviewer: $ACTOR)"
               elif [ "$STATE" = "commented" ] || [ "$STATE" = "COMMENTED" ]; then
-                # Only run if this review carries inline comments — a plain
-                # overview comment without suggestions isn't actionable.
-                COMMENT_COUNT=$(gh api \
-                  "repos/${{ github.repository }}/pulls/$PR/reviews/${{ github.event.review.id }}/comments" \
-                  --jq 'length' 2>/dev/null || echo "0")
                 if [ "${COMMENT_COUNT:-0}" -gt 0 ]; then
                   SHOULD_RUN="true"
                   REASON="review with $COMMENT_COUNT inline comment(s) (reviewer: $ACTOR)"
@@ -175,7 +181,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--max-turns 80"
+          claude_args: "--max-turns 100 --permission-mode bypassPermissions"
           allowed_bots: "claude[bot],copilot-pull-request-reviewer[bot],github-actions[bot]"
           prompt: |
             You are addressing review feedback on PR #${{ needs.resolve.outputs.pr_number }}.

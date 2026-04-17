@@ -537,7 +537,7 @@ describe("DashboardRenderer", () => {
         {
           type: "number",
           title: "Token Widget",
-          sql: "SELECT COUNT(*) FROM ps_ventas WHERE fecha_creacion BETWEEN {{CURR_FROM}} AND {{CURR_TO}}",
+          sql: "SELECT COUNT(*) FROM ps_ventas WHERE fecha_creacion BETWEEN :curr_from AND :curr_to",
           format: "number",
         },
       ],
@@ -552,8 +552,8 @@ describe("DashboardRenderer", () => {
 
     expect(capturedSql[0]).toContain("2025-03-01");
     expect(capturedSql[0]).toContain("2025-03-31");
-    expect(capturedSql[0]).not.toContain("{{CURR_FROM}}");
-    expect(capturedSql[0]).not.toContain("{{CURR_TO}}");
+    expect(capturedSql[0]).not.toContain(":curr_from");
+    expect(capturedSql[0]).not.toContain(":curr_to");
   });
 
   it("substitutes {{date_from}} and {{date_to}} in widget SQL before fetching", async () => {
