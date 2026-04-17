@@ -41,14 +41,14 @@ WHERE "fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
-          label: "Pedidos Recibidos (mes)",
+          label: "Pedidos Recibidos",
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_compras"
 WHERE "fecha_recibido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
-          label: "Lineas de Compra (mes)",
+          label: "Lineas de Compra",
           sql: `SELECT COUNT(*) AS value
 FROM "public"."ps_lineas_compras" lc
 JOIN "public"."ps_compras" c ON lc."num_pedido" = c."reg_pedido"

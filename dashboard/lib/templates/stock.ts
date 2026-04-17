@@ -143,7 +143,7 @@ LIMIT 30`,
     {
       id: "stock-traspasos-recientes",
       type: "table",
-      title: "Traspasos Recientes (ultimos 30 dias)",
+      title: "Traspasos Recientes",
       sql: `SELECT t."fecha_s" AS "Fecha",
        t."tienda_salida" AS "Origen",
        t."tienda_entrada" AS "Destino",

@@ -65,7 +65,7 @@ WHERE "entrada" = false
     {
       id: "ventas-por-tienda",
       type: "bar_chart",
-      title: "Ventas por Tienda (mes actual)",
+      title: "Ventas por Tienda",
       sql: `SELECT "tienda" AS label, SUM("total_si") AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
@@ -79,7 +79,7 @@ ORDER BY value DESC`,
     {
       id: "ventas-tendencia-semanal",
       type: "line_chart",
-      title: "Tendencia Semanal (ultimas 12 semanas)",
+      title: "Tendencia Semanal",
       sql: `SELECT DATE_TRUNC('week', "fecha_creacion") AS x, SUM("total_si") AS y
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
@@ -93,7 +93,7 @@ ORDER BY x`,
     {
       id: "ventas-formas-pago",
       type: "donut_chart",
-      title: "Mix de Formas de Pago (mes actual)",
+      title: "Mix de Formas de Pago",
       sql: `SELECT p."forma" AS label,
        SUM(p."importe_cob") AS value
 FROM "public"."ps_pagos_ventas" p
@@ -108,7 +108,7 @@ ORDER BY value DESC`,
     {
       id: "ventas-margen-tienda",
       type: "bar_chart",
-      title: "Margen Bruto % por Tienda (mes actual)",
+      title: "Margen Bruto % por Tienda",
       sql: `SELECT lv."tienda" AS label,
        ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
          / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS value
@@ -126,7 +126,7 @@ ORDER BY value DESC`,
     {
       id: "ventas-top-articulos",
       type: "table",
-      title: "Top 10 Artículos (mes actual)",
+      title: "Top 10 Artículos",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(lv."unidades") AS "Unidades",
