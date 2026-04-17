@@ -27,14 +27,14 @@ export const spec: DashboardSpec = {
       type: "kpi_row",
       items: [
         {
-          label: "Pedidos de Compra (mes)",
+          label: "Pedidos de Compra",
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_compras"
 WHERE "fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
           format: "number",
         },
         {
-          label: "Proveedores Activos (YTD)",
+          label: "Proveedores Activos",
           sql: `SELECT COUNT(DISTINCT "num_proveedor") AS value
 FROM "public"."ps_compras"
 WHERE "fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
@@ -60,7 +60,7 @@ WHERE c."fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'`,
     {
       id: "compras-por-proveedor",
       type: "bar_chart",
-      title: "Pedidos por Proveedor (top 10, YTD)",
+      title: "Pedidos por Proveedor (top 10)",
       sql: `SELECT pr."nombre" AS label,
        COUNT(DISTINCT c."reg_pedido") AS value
 FROM "public"."ps_compras" c
@@ -91,7 +91,7 @@ LIMIT 20`,
     {
       id: "compras-recepciones-recientes",
       type: "table",
-      title: "Recepciones Recientes (ultimos 30 dias)",
+      title: "Recepciones Recientes",
       sql: `SELECT a."reg_albaran" AS "Albaran",
        a."fecha_recibido" AS "Fecha Recibido"
 FROM "public"."ps_albaranes" a
@@ -111,7 +111,6 @@ FROM "public"."ps_compras" c
 JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
 LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = c."reg_pedido"
 WHERE c."fecha_recibido" IS NULL
-  AND c."fecha_pedido" BETWEEN '{{date_from}}' AND '{{date_to}}'
 GROUP BY c."reg_pedido", pr."nombre", c."fecha_pedido"
 ORDER BY c."fecha_pedido" DESC
 LIMIT 20`,
@@ -119,7 +118,7 @@ LIMIT 20`,
     {
       id: "compras-tendencia-mensual",
       type: "line_chart",
-      title: "Pedidos de Compra Mensuales (ultimos 12 meses)",
+      title: "Tendencia Pedidos de Compra",
       sql: `SELECT DATE_TRUNC('month', c."fecha_pedido") AS x,
        COUNT(DISTINCT c."reg_pedido") AS y
 FROM "public"."ps_compras" c

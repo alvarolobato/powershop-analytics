@@ -22,7 +22,7 @@ export const spec: DashboardSpec = {
       type: "kpi_row",
       items: [
         {
-          label: "Ventas Retail Netas (YTD)",
+          label: "Ventas Retail Netas",
           sql: `SELECT COALESCE(SUM("total_si"), 0) AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
@@ -32,7 +32,7 @@ WHERE "entrada" = true
           prefix: "€",
         },
         {
-          label: "Facturacion Mayorista (YTD)",
+          label: "Facturacion Mayorista",
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
@@ -78,7 +78,7 @@ FROM (
     {
       id: "general-mix-canales",
       type: "donut_chart",
-      title: "Mix Retail vs Mayorista (YTD)",
+      title: "Mix Retail vs Mayorista",
       sql: `SELECT 'Retail' AS label,
        COALESCE(SUM("total_si"), 0) AS value
 FROM "public"."ps_ventas"
@@ -97,7 +97,7 @@ WHERE "abono" = false
     {
       id: "general-ventas-por-tienda",
       type: "bar_chart",
-      title: "Ventas Retail por Tienda (YTD)",
+      title: "Ventas Retail por Tienda",
       sql: `SELECT "tienda" AS label, SUM("total_si") AS value
 FROM "public"."ps_ventas"
 WHERE "entrada" = true
@@ -111,7 +111,7 @@ ORDER BY value DESC`,
     {
       id: "general-tendencia-12m",
       type: "line_chart",
-      title: "Tendencia Mensual Retail + Mayorista (ultimos 12 meses)",
+      title: "Tendencia Mensual Retail + Mayorista",
       sql: `SELECT mes, SUM(importe) AS y, mes AS x FROM (
   SELECT DATE_TRUNC('month', "fecha_creacion") AS mes,
          SUM("total_si") AS importe
@@ -136,7 +136,7 @@ ORDER BY mes`,
     {
       id: "general-top-familias",
       type: "table",
-      title: "Top 10 Familias por Ventas (YTD)",
+      title: "Top 10 Familias por Ventas",
       sql: `SELECT fm."fami_grup_marc" AS "Familia",
        SUM(lv."total_si") AS "Ventas Netas",
        SUM(lv."unidades") AS "Unidades",

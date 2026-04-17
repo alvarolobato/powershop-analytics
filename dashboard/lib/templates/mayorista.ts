@@ -52,7 +52,7 @@ WHERE lf."total" > 0
           format: "percent",
         },
         {
-          label: "Clientes Activos (YTD)",
+          label: "Clientes Activos",
           sql: `SELECT COUNT(DISTINCT "num_cliente") AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
@@ -64,7 +64,7 @@ WHERE "abono" = false
     {
       id: "mayorista-por-comercial",
       type: "bar_chart",
-      title: "Facturacion por Comercial (mes actual)",
+      title: "Facturacion por Comercial",
       sql: `SELECT c."comercial" AS label,
        SUM(f."base1" + f."base2" + f."base3") AS value
 FROM "public"."ps_gc_facturas" f
@@ -79,7 +79,7 @@ ORDER BY value DESC`,
     {
       id: "mayorista-top-clientes",
       type: "table",
-      title: "Top 10 Clientes Mayorista (YTD)",
+      title: "Top 10 Clientes Mayorista",
       sql: `WITH facturas_ytd AS (
   SELECT f."reg_factura",
          f."n_factura",
@@ -130,7 +130,7 @@ LIMIT 20`,
     {
       id: "mayorista-albaranes-recientes",
       type: "table",
-      title: "Albaranes Recientes (ultimos 30 dias)",
+      title: "Albaranes Recientes",
       sql: `SELECT a."n_albaran" AS "Albaran",
        c."nombre" AS "Cliente",
        a."entregadas" AS "Unidades",
@@ -146,7 +146,7 @@ LIMIT 20`,
     {
       id: "mayorista-top-productos",
       type: "table",
-      title: "Top 10 Productos Mayorista (YTD)",
+      title: "Top 10 Productos Mayorista",
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(lf."unidades") AS "Unidades",
@@ -166,7 +166,7 @@ LIMIT 10`,
     {
       id: "mayorista-comparativa-mensual",
       type: "line_chart",
-      title: "Facturacion Mensual (ultimos 12 meses)",
+      title: "Tendencia Facturacion Mensual",
       sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS x,
        SUM(f."base1" + f."base2" + f."base3") AS y
 FROM "public"."ps_gc_facturas" f
