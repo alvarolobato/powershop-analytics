@@ -64,7 +64,7 @@ When a new issue is opened, the **Issue Triage** workflow runs automatically —
 | `ai-in-progress` | The worker is currently running (auto-set). |
 | `ai-planned` | The `/plan` command has posted an implementation plan (auto-set). |
 | `no-ai` | Human-only. Factory will not touch this issue. |
-| `no-pr-review` | Skip the AI PR review on this PR. |
+| `no-pr-review` | **Stop automated Opus/Copilot PR reviews** on this PR. Use when you only want **address-feedback** to clear inline comments, then **`ai-awaiting-owner`** when done. Does **not** block you from merging. |
 | `ai-ready-for-review` | **Automation queue only** — another AI PR review (Opus/Copilot pipeline) is scheduled or pending. This does **not** mean “ready for you”; it often means the bot is still working. |
 | `ai-awaiting-owner` | **Your cue** — automated review rounds are finished (or capped). The PR is **ready for your review and merge** (subject to CI being green). |
 | `auto-merge` | Merge automatically when CI passes and review approves *(reserved for future use)*. |
