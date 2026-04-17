@@ -394,3 +394,130 @@ def set_watermark(
     except Exception:
         conn.rollback()
         raise
+
+
+# ---------------------------------------------------------------------------
+# Sync run monitoring helpers
+# ---------------------------------------------------------------------------
+
+
+def create_run(conn, trigger: str = "scheduled") -> int:
+    """Insert a new etl_sync_runs row with status=running. Returns the run_id.
+
+    Commits on success; rolls back and re-raises on failure.
+    Callers should wrap this in try/except and log errors without aborting the sync.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_sync_runs ("trigger", status, started_at)
+                VALUES (%s, 'running', NOW())
+                RETURNING id
+                """,
+                (trigger,),
+            )
+            run_id: int = cur.fetchone()[0]
+        conn.commit()
+        return run_id
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def finish_run(
+    conn,
+    run_id: int,
+    status: str,
+    tables_ok: int,
+    tables_failed: int,
+    total_rows_synced: int,
+    error_msg: str | None = None,
+) -> None:
+    """Update etl_sync_runs with final status and totals.
+
+    Commits on success; rolls back and re-raises on failure.
+    Callers should wrap this in try/except and log errors without aborting anything.
+    """
+    total_tables = tables_ok + tables_failed
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE etl_sync_runs
+                SET
+                    finished_at       = NOW(),
+                    duration_ms       = (EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000)::bigint,
+                    status            = %s,
+                    total_tables      = %s,
+                    tables_ok         = %s,
+                    tables_failed     = %s,
+                    total_rows_synced = %s,
+                    error_msg         = %s
+                WHERE id = %s
+                """,
+                (
+                    status,
+                    total_tables,
+                    tables_ok,
+                    tables_failed,
+                    total_rows_synced,
+                    error_msg,
+                    run_id,
+                ),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def record_table_sync(
+    conn,
+    run_id: int,
+    table_name: str,
+    started_at: datetime,
+    finished_at: datetime,
+    duration_ms: int,
+    status: str,
+    rows_synced: int,
+    sync_method: str,
+    watermark_from: datetime | None = None,
+    watermark_to: datetime | None = None,
+    rows_total_after: int | None = None,
+    error_msg: str | None = None,
+) -> None:
+    """Insert one etl_sync_run_tables row for a table that was synced.
+
+    Commits on success; rolls back and re-raises on failure.
+    Callers should wrap this in try/except and log errors without aborting the sync.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_sync_run_tables
+                    (run_id, table_name, started_at, finished_at, duration_ms,
+                     status, rows_synced, rows_total_after, sync_method,
+                     watermark_from, watermark_to, error_msg)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    run_id,
+                    table_name,
+                    started_at,
+                    finished_at,
+                    duration_ms,
+                    status,
+                    rows_synced,
+                    rows_total_after,
+                    sync_method,
+                    watermark_from,
+                    watermark_to,
+                    error_msg,
+                ),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
