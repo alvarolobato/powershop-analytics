@@ -13,6 +13,7 @@ import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
+import { defaultTimeRangeToDateRange } from "@/lib/time-range";
 import type { ApiErrorResponse } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
@@ -92,14 +93,9 @@ export default function ViewDashboard() {
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Date range filter state — default to last 30 days (day-based to avoid month-end overflow)
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const to = new Date();
-    const from = new Date(to);
-    from.setDate(from.getDate() - 29);
-    from.setHours(0, 0, 0, 0);
-    to.setHours(23, 59, 59, 999);
-    return { from, to };
-  });
+  const [dateRange, setDateRange] = useState<DateRange>(() =>
+    defaultTimeRangeToDateRange(undefined)
+  );
 
   // When date range changes, store the range and re-run all widget queries.
   // The date range is displayed in the picker for context; actual SQL filtering
@@ -161,6 +157,13 @@ export default function ViewDashboard() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  const defaultPreset = dashboard?.spec.default_time_range?.preset;
+  useEffect(() => {
+    if (defaultPreset !== undefined) {
+      setDateRange(defaultTimeRangeToDateRange({ preset: defaultPreset }));
+    }
+  }, [defaultPreset]);
 
   // Keep latestSpecRef in sync
   useEffect(() => {

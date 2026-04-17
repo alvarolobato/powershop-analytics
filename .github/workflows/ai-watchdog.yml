@@ -24,7 +24,7 @@ concurrency:
 jobs:
   watchdog:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
       OWNER: ${{ github.repository_owner }}
@@ -122,6 +122,13 @@ jobs:
             TITLE=$(echo "$pr" | jq -r '.title')
             LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
 
+            # Owner stopped AI PR reviews — do not burn Opus; clear stale queue label.
+            if echo ",$LABELS," | grep -q ",no-pr-review,"; then
+              echo "PR #$NUM: has no-pr-review — removing ai-ready-for-review, skipping pr-review"
+              gh pr edit "$NUM" --repo "$REPO_FULL" --remove-label "ai-ready-for-review" || true
+              continue
+            fi
+
             # Skip blocked PRs — let the auto-retry step handle them.
             if echo ",$LABELS," | grep -q ",ai-blocked,"; then
               echo "PR #$NUM: has ai-blocked, skipping ai-ready-for-review check"
@@ -183,7 +190,8 @@ jobs:
 
             gh workflow run ai-pr-review.yml \
               --repo "$REPO_FULL" \
-              --field pr_number="$NUM" || true
+              --field pr_number="$NUM" \
+              --field use_global_queue=true || true
             gh pr comment "$NUM" --repo "$REPO_FULL" \
               --body "🔁 Watchdog: re-dispatched pr-review (stall attempt $(( STALL_RETRY_COUNT + 1 )) of $MAX_STALL_RETRIES) — label has been sitting without a review run. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             echo "Dispatched pr-review for stalled PR #$NUM ($TITLE)"
@@ -256,7 +264,8 @@ jobs:
               gh workflow run ai-address-feedback.yml \
                 --repo "$REPO_FULL" \
                 --field pr_number="$NUM" \
-                --field reason="watchdog: feedback unaddressed since $LATEST_REVIEWER_ACTIVITY" || true
+                --field reason="watchdog: feedback unaddressed since $LATEST_REVIEWER_ACTIVITY" \
+                --field use_global_queue=true || true
             else
               echo "PR #$NUM has no new unaddressed feedback."
             fi
@@ -337,12 +346,14 @@ jobs:
             if [ "$RETRY_WORKFLOW" = "ai-pr-review.yml" ]; then
               gh workflow run ai-pr-review.yml \
                 --repo "$REPO_FULL" \
-                --field pr_number="$NUM" || true
+                --field pr_number="$NUM" \
+                --field use_global_queue=true || true
             else
               gh workflow run ai-address-feedback.yml \
                 --repo "$REPO_FULL" \
                 --field pr_number="$NUM" \
-                --field reason="watchdog auto-retry after transient failure" || true
+                --field reason="watchdog auto-retry after transient failure" \
+                --field use_global_queue=true || true
             fi
             sleep 30
           done
@@ -440,9 +451,68 @@ jobs:
             gh workflow run ai-worker.yml \
               --repo "$REPO_FULL" \
               --field issue_number="$NUM" \
-              --field phase="$PHASE" || true
+              --field phase="$PHASE" \
+              --field use_global_queue=true || true
             echo "Dispatched ai-worker for issue #$NUM (phase=$PHASE)"
             sleep 30  # stagger to avoid hammering the rate limit
+          done
+
+      - name: no-pr-review PRs not yet handed off to human
+        run: |
+          set -euo pipefail
+          # PRs with no-pr-review should end on ai-awaiting-owner after address-feedback.
+          # If dispatch was cancelled, address failed repeatedly, or the run never completed,
+          # re-dispatch periodically (throttled) so waiting is enough without manual clicks.
+          PRS=$(gh pr list --repo "$REPO_FULL" --state open \
+            --label "no-pr-review" \
+            --json number,labels,updatedAt --limit 50 \
+            | jq 'sort_by(.updatedAt)')
+
+          MAX_PER_RUN=8
+          LEN=$(echo "$PRS" | jq 'length')
+          if [ "$LEN" -eq 0 ]; then
+            echo "No open PRs with label no-pr-review."
+            exit 0
+          fi
+          if [ "$LEN" -gt "$MAX_PER_RUN" ]; then
+            END=$MAX_PER_RUN
+          else
+            END=$LEN
+          fi
+          for i in $(seq 0 $(( END - 1 ))); do
+            row=$(echo "$PRS" | jq -c ".[$i]")
+            NUM=$(echo "$row" | jq -r '.number')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+
+            if echo ",$LABELS," | grep -q ",ai-awaiting-owner,"; then
+              echo "PR #$NUM: already ai-awaiting-owner — OK"
+              continue
+            fi
+            if echo ",$LABELS," | grep -q ",no-address-feedback,"; then
+              echo "PR #$NUM: opted out of address-feedback — skip"
+              continue
+            fi
+
+            # Throttle: skip if a bot "Addressing review feedback" comment appeared in the last 90 minutes
+            LAST=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("Addressing review feedback")))] | last | .created_at // empty' 2>/dev/null || echo "")
+            if [ -n "$LAST" ]; then
+              LAST_TS=$(date -u -d "$LAST" +%s 2>/dev/null || echo 0)
+              NOW=$(date -u +%s)
+              AGE=$(( NOW - LAST_TS ))
+              if [ "$AGE" -lt 5400 ]; then
+                echo "PR #$NUM: address-feedback announced ${AGE}s ago — skip (cooldown 90m)"
+                continue
+              fi
+            fi
+
+            echo "PR #$NUM: dispatching address-feedback for handoff (no-pr-review, no ai-awaiting-owner yet)"
+            gh workflow run ai-address-feedback.yml \
+              --repo "$REPO_FULL" \
+              --field pr_number="$NUM" \
+              --field reason="watchdog: complete no-pr-review handoff to ai-awaiting-owner" \
+              --field use_global_queue=true || true
+            sleep 25
           done
 
       - name: Bot-triggered runs gated as `action_required`
