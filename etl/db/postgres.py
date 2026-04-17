@@ -383,11 +383,19 @@ def finish_run(
                        status            = %s,
                        tables_ok         = %s,
                        tables_failed     = %s,
+                       total_tables      = %s,
                        total_rows_synced = %s,
                        duration_ms       = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER * 1000
                  WHERE id = %s
                 """,
-                (status, tables_ok, tables_failed, total_rows_synced, run_id),
+                (
+                    status,
+                    tables_ok,
+                    tables_failed,
+                    tables_ok + tables_failed,
+                    total_rows_synced,
+                    run_id,
+                ),
             )
         conn.commit()
     except Exception:
