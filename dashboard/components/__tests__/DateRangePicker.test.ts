@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   computeComparisonRange,
+  CURRENT_PRESETS,
+  PREVIOUS_PRESETS,
 } from "../DateRangePicker";
 import type { DateRange, ComparisonType } from "../DateRangePicker";
 
@@ -82,5 +84,155 @@ describe("computeComparisonRange", () => {
     expect(result).not.toBeNull();
     expect(result!.from).toEqual(d(2025, 3, 1));
     expect(result!.to).toEqual(d(2025, 3, 31, 23, 59, 59, 999));
+  });
+});
+
+// Fixed test date: Wednesday 2026-04-15
+const TEST_DATE = new Date(2026, 3, 15, 12, 0, 0, 0); // month is 0-indexed, April = 3
+
+describe("CURRENT_PRESETS (fixed date: 2026-04-15, Wednesday)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_DATE);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Hoy: 2026-04-15 00:00 – 2026-04-15 23:59:59", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Hoy")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 15, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("Semana actual: 2026-04-13 (Mon) – 2026-04-15 (today)", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Semana actual")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 13, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("Mes Actual: 2026-04-01 – 2026-04-15", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Mes Actual")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("Trimestre Actual: Q2 starts 2026-04-01, ends today 2026-04-15", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Trimestre Actual")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("Año actual: 2026-01-01 – 2026-04-15", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Año actual")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 1, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+});
+
+describe("PREVIOUS_PRESETS (fixed date: 2026-04-15, Wednesday)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_DATE);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Ayer: 2026-04-14 00:00 – 2026-04-14 23:59:59", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Ayer")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 14, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 14, 23, 59, 59, 999));
+  });
+
+  it("Semana Anterior: 2026-04-06 (Mon) – 2026-04-12 (Sun)", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Semana Anterior")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 6, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 12, 23, 59, 59, 999));
+  });
+
+  it("Mes Anterior: 2026-03-01 – 2026-03-31", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Mes Anterior")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 3, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
+  });
+
+  it("Trimestre Anterior: Q1 2026 = 2026-01-01 – 2026-03-31", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre Anterior")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 1, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
+  });
+
+  it("Año Anterior: 2025-01-01 – 2025-12-31", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Año Anterior")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2025, 1, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+});
+
+describe("CURRENT_PRESETS edge case: Sunday 2026-04-12", () => {
+  const SUNDAY = new Date(2026, 3, 12, 10, 0, 0, 0); // Sunday
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(SUNDAY);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Semana actual from Sunday: ISO Monday = 2026-04-06", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Semana actual")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2026, 4, 6, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 12, 23, 59, 59, 999));
+  });
+});
+
+describe("PREVIOUS_PRESETS edge case: January 2026-01-05 (Monday)", () => {
+  const JAN_MON = new Date(2026, 0, 5, 10, 0, 0, 0); // Monday Jan 5
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(JAN_MON);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("Mes Anterior from January: wraps to December 2025", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Mes Anterior")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2025, 12, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+
+  it("Trimestre Anterior from Q1: wraps to Q4 of 2025", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre Anterior")!;
+    const { from, to } = preset.range();
+    expect(from).toEqual(d(2025, 10, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+
+  it("Semana Anterior from first week of Jan: wraps to Dec 2025", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Semana Anterior")!;
+    const { from, to } = preset.range();
+    // Jan 5 is Monday, so prev week Mon = Dec 29 2025, prev week Sun = Jan 4 2026
+    expect(from).toEqual(d(2025, 12, 29, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 1, 4, 23, 59, 59, 999));
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,7 +48,18 @@ function endOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-const PRESETS: Preset[] = [
+function isoMonday(d: Date): Date {
+  const day = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  const daysFromMonday = day === 0 ? 6 : day - 1;
+  const monday = new Date(d.getFullYear(), d.getMonth(), d.getDate() - daysFromMonday);
+  return monday;
+}
+
+function quarterStartMonth(d: Date): number {
+  return Math.floor(d.getMonth() / 3) * 3;
+}
+
+export const CURRENT_PRESETS: Preset[] = [
   {
     label: "Hoy",
     range: () => {
@@ -57,32 +68,86 @@ const PRESETS: Preset[] = [
     },
   },
   {
-    label: "Última semana",
+    label: "Semana actual",
     range: () => {
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 6);
-      return { from: startOfDay(from), to: endOfDay(to) };
+      const now = new Date();
+      return { from: startOfDay(isoMonday(now)), to: endOfDay(now) };
     },
   },
   {
-    label: "Último mes",
+    label: "Mes Actual",
     range: () => {
-      // Use 30-day subtraction to avoid month-end overflow (e.g., Mar 31 - 1 month = Mar 3)
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 29);
-      return { from: startOfDay(from), to: endOfDay(to) };
+      const now = new Date();
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0), to: endOfDay(now) };
     },
   },
   {
-    label: "Último trimestre",
+    label: "Trimestre Actual",
     range: () => {
-      // Use 90-day subtraction to avoid month-end overflow
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 89);
-      return { from: startOfDay(from), to: endOfDay(to) };
+      const now = new Date();
+      return { from: new Date(now.getFullYear(), quarterStartMonth(now), 1, 0, 0, 0, 0), to: endOfDay(now) };
+    },
+  },
+  {
+    label: "Año actual",
+    range: () => {
+      const now = new Date();
+      return { from: new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0), to: endOfDay(now) };
+    },
+  },
+];
+
+export const PREVIOUS_PRESETS: Preset[] = [
+  {
+    label: "Ayer",
+    range: () => {
+      const now = new Date();
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      return { from: startOfDay(yesterday), to: endOfDay(yesterday) };
+    },
+  },
+  {
+    label: "Semana Anterior",
+    range: () => {
+      const now = new Date();
+      const monday = isoMonday(now);
+      const prevSun = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 1);
+      const prevMon = new Date(prevSun.getFullYear(), prevSun.getMonth(), prevSun.getDate() - 6);
+      return { from: startOfDay(prevMon), to: endOfDay(prevSun) };
+    },
+  },
+  {
+    label: "Mes Anterior",
+    range: () => {
+      const now = new Date();
+      const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0);
+      const prevMonthFirstDay = new Date(prevMonthLastDay.getFullYear(), prevMonthLastDay.getMonth(), 1);
+      return { from: startOfDay(prevMonthFirstDay), to: endOfDay(prevMonthLastDay) };
+    },
+  },
+  {
+    label: "Trimestre Anterior",
+    range: () => {
+      const now = new Date();
+      const curQStart = quarterStartMonth(now);
+      const prevQStart = curQStart === 0 ? 9 : curQStart - 3;
+      const prevQYear = curQStart === 0 ? now.getFullYear() - 1 : now.getFullYear();
+      const prevQEnd = new Date(prevQYear, prevQStart + 3, 0);
+      return {
+        from: new Date(prevQYear, prevQStart, 1, 0, 0, 0, 0),
+        to: endOfDay(prevQEnd),
+      };
+    },
+  },
+  {
+    label: "Año Anterior",
+    range: () => {
+      const now = new Date();
+      const prevYear = now.getFullYear() - 1;
+      return {
+        from: new Date(prevYear, 0, 1, 0, 0, 0, 0),
+        to: new Date(prevYear, 11, 31, 23, 59, 59, 999),
+      };
     },
   },
 ];
@@ -348,19 +413,32 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         >
           {/* Presets */}
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
-            <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-              Preestablecidos
-            </p>
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => applyPreset(preset)}
-                className="w-full rounded-lg px-3 py-2 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-              >
-                {preset.label}
-              </button>
-            ))}
+            <div className="grid grid-cols-2 gap-x-2">
+              <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                Periodo actual
+              </p>
+              <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                Periodo anterior
+              </p>
+              {CURRENT_PRESETS.map((preset, i) => (
+                <React.Fragment key={preset.label}>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className="rounded-lg px-2 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                  >
+                    {preset.label}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyPreset(PREVIOUS_PRESETS[i])}
+                    className="rounded-lg px-2 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                  >
+                    {PREVIOUS_PRESETS[i].label}
+                  </button>
+                </React.Fragment>
+              ))}
+            </div>
           </div>
 
           {/* Custom range */}
