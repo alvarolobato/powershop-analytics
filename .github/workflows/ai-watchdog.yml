@@ -245,6 +245,100 @@ jobs:
             echo "Dispatched pr-review for stalled PR #$NUM ($TITLE)"
           done
 
+      - name: Open PRs with no AI PR Review run (cancelled/dropped)
+        run: |
+          set -euo pipefail
+          # The AI PR Review workflow uses a global `ai-pr-review-global`
+          # concurrency group (to serialise Opus reviews and stay under
+          # Anthropic's rate limit). When a burst of PRs opens simultaneously,
+          # GitHub keeps the in-progress run + the *latest* queued run and
+          # CANCELS everything in between. Those PRs are then missing
+          # `ai-phase-copilot`, `ai-phase-opus`, `ai-awaiting-owner`, etc. —
+          # they look "unreviewed" with no label trail to re-enter the flow.
+          #
+          # This step finds open PRs with NO pr-review phase labels and NO
+          # successful pr-review run in their history, and re-dispatches the
+          # review explicitly. Cap at MAX_COLD_RETRIES per PR to avoid loops.
+          MIN_PR_AGE_SECS=300   # 5 min — give the event-driven trigger a chance
+          MAX_COLD_RETRIES=3
+
+          PRS=$(gh pr list --repo "$REPO_FULL" --state open \
+            --json number,title,headRefName,headRefOid,createdAt,labels --limit 50)
+
+          echo "$PRS" | jq -c '.[]' | while read -r pr; do
+            NUM=$(echo "$pr" | jq -r '.number')
+            TITLE=$(echo "$pr" | jq -r '.title')
+            HEAD_SHA=$(echo "$pr" | jq -r '.headRefOid')
+            HEAD_BRANCH=$(echo "$pr" | jq -r '.headRefName')
+            CREATED_AT=$(echo "$pr" | jq -r '.createdAt')
+            LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
+
+            # Any label that proves pr-review already progressed on this PR.
+            for HAS in ai-ready-for-review ai-phase-copilot ai-phase-opus \
+                       ai-awaiting-owner ai-ci-failing ai-blocked \
+                       no-pr-review; do
+              if echo ",$LABELS," | grep -q ",$HAS,"; then
+                echo "PR #$NUM has '$HAS' — pr-review flow already handled it, skipping."
+                continue 2
+              fi
+            done
+
+            # Give the event-driven trigger a grace period.
+            NOW=$(date -u +%s)
+            CREATED_TS=$(date -u -d "$CREATED_AT" +%s 2>/dev/null || echo 0)
+            AGE=$(( NOW - CREATED_TS ))
+            if [ "$AGE" -lt "$MIN_PR_AGE_SECS" ]; then
+              echo "PR #$NUM is only ${AGE}s old — too soon, skipping."
+              continue
+            fi
+
+            # Is there any non-cancelled pr-review run for this PR's branch or sha?
+            # ai-pr-review runs keyed by pull_request event carry head_branch/head_sha;
+            # workflow_dispatch runs carry the PR number in inputs.pr_number.
+            RUNS_JSON=$(gh api \
+              "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=100" \
+              --jq '.workflow_runs' 2>/dev/null || echo '[]')
+
+            MATCH_COUNT=$(echo "$RUNS_JSON" | jq --arg sha "$HEAD_SHA" --arg br "$HEAD_BRANCH" --arg num "$NUM" '
+              [ .[] | select(
+                .conclusion != "cancelled" and
+                (
+                  .head_sha == $sha or
+                  .head_branch == $br or
+                  ((.display_title // "") | test($num))
+                )
+              ) ] | length')
+
+            if [ "${MATCH_COUNT:-0}" != "0" ]; then
+              echo "PR #$NUM has $MATCH_COUNT non-cancelled pr-review run(s) — skipping."
+              continue
+            fi
+
+            # Cap watchdog re-dispatches per PR so a broken review loop can't
+            # hammer the workflow forever. Use a distinct marker from the
+            # stalled-label step above so counts don't collide.
+            COLD_RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
+              --paginate \
+              --jq '[.[] | select(.user.login == "github-actions[bot]" and (.body | test("🔁 Watchdog: cold-dispatched pr-review")))]  | length' \
+              2>/dev/null || echo "0")
+
+            if [ "$COLD_RETRY_COUNT" -ge "$MAX_COLD_RETRIES" ]; then
+              echo "PR #$NUM hit MAX_COLD_RETRIES ($MAX_COLD_RETRIES) — escalating."
+              gh pr edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" || true
+              gh pr comment "$NUM" --repo "$REPO_FULL" \
+                --body "🚨 @$OWNER_HANDLE — pr-review never ran for this PR (likely cancelled by the global concurrency group) and $MAX_COLD_RETRIES watchdog re-dispatches still produced no completed review. Added \`ai-blocked\`. Please investigate." || true
+              continue
+            fi
+
+            echo "PR #$NUM ($TITLE): no pr-review run found, dispatching."
+            gh workflow run ai-pr-review.yml \
+              --repo "$REPO_FULL" \
+              --field pr_number="$NUM" || true
+            gh pr comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔁 Watchdog: cold-dispatched pr-review (attempt $(( COLD_RETRY_COUNT + 1 )) of $MAX_COLD_RETRIES) — no completed \`ai-pr-review\` run was found for this PR, likely cancelled by the global \`ai-pr-review-global\` concurrency group during a burst of PR opens. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+            sleep 15
+          done
+
       - name: Open PRs with unaddressed reviewer feedback
         run: |
           set -euo pipefail
