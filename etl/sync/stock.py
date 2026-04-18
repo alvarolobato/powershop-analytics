@@ -131,12 +131,22 @@ def _build_expo_where(since: datetime | None, *, include_nulls: bool = False) ->
 
 
 def _count_expo(conn_4d, where: str) -> int:
-    """Return row count for Exportaciones with given WHERE clause."""
-    sql = f"SELECT COUNT(*) FROM Exportaciones {where}".strip()
+    """Return row count for Exportaciones with given WHERE clause.
+
+    Uses an explicit ``AS cnt`` alias so the returned column key is deterministic
+    across p4d driver versions — bare ``COUNT(*)`` has produced rows whose first
+    value is ``None``, which caused ``int(None)`` to blow up the whole sync. If
+    the driver still returns a row without a usable value, we treat it as 0
+    rather than abort: COUNT is used for progress logging only.
+    """
+    sql = f"SELECT COUNT(*) AS cnt FROM Exportaciones {where}".strip()
     rows = safe_fetch(conn_4d, sql)
-    # safe_fetch returns lowercase keys; COUNT(*) key depends on the 4D driver version.
-    row = rows[0]
-    return int(next(iter(row.values())))
+    if not rows:
+        return 0
+    val = rows[0].get("cnt")
+    if val is None and rows[0]:
+        val = next(iter(rows[0].values()))
+    return int(val) if val is not None else 0
 
 
 def _normalize_expo_row(src: dict) -> list[dict]:
@@ -358,11 +368,19 @@ def _build_traspasos_where(since: datetime | None) -> str:
 
 
 def _count_traspasos(conn_4d, where: str) -> int:
-    """Return row count for Traspasos with given WHERE clause."""
-    sql = f"SELECT COUNT(*) FROM Traspasos {where}".strip()
+    """Return row count for Traspasos with given WHERE clause.
+
+    See ``_count_expo`` for the rationale behind the explicit ``AS cnt`` alias
+    and the None-value fallback.
+    """
+    sql = f"SELECT COUNT(*) AS cnt FROM Traspasos {where}".strip()
     rows = safe_fetch(conn_4d, sql)
-    row = rows[0]
-    return int(next(iter(row.values())))
+    if not rows:
+        return 0
+    val = rows[0].get("cnt")
+    if val is None and rows[0]:
+        val = next(iter(rows[0].values()))
+    return int(val) if val is not None else 0
 
 
 def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:

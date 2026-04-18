@@ -18,6 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from etl.sync.stock import (
+    _count_expo,
+    _count_traspasos,
     _normalize_expo_row,
     _validate_since,
     sync_stock,
@@ -244,6 +246,58 @@ class TestValidateSince:
         """The name parameter is accepted without error."""
         dt = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
         _validate_since(dt, name="my_param")  # should not raise
+
+
+class TestCountHelpers:
+    """Unit tests for _count_expo / _count_traspasos — no real connection needed.
+
+    Regression coverage for the ``int() argument ... not 'NoneType'`` crash that
+    surfaced on stock/traspasos delta runs when the p4d driver returned a row
+    whose first value was ``None``.  The helpers are used for progress logging
+    only, so they must degrade to 0 instead of aborting the sync.
+    """
+
+    def test_count_expo_reads_cnt_alias(self):
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[{"cnt": 42}]) as mf:
+            assert _count_expo(conn, "") == 42
+        sql = mf.call_args.args[1]
+        assert "COUNT(*) AS cnt" in sql
+        assert "FROM Exportaciones" in sql
+
+    def test_count_expo_none_value_returns_zero(self):
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[{"cnt": None}]):
+            assert _count_expo(conn, "") == 0
+
+    def test_count_expo_empty_result_returns_zero(self):
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[]):
+            assert _count_expo(conn, "") == 0
+
+    def test_count_expo_falls_back_to_first_value_when_alias_missing(self):
+        """Driver quirk: if ``cnt`` key is absent, use the first populated value."""
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[{"expr_1": 7}]):
+            assert _count_expo(conn, "") == 7
+
+    def test_count_traspasos_reads_cnt_alias(self):
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[{"cnt": 3}]) as mf:
+            assert _count_traspasos(conn, "") == 3
+        sql = mf.call_args.args[1]
+        assert "COUNT(*) AS cnt" in sql
+        assert "FROM Traspasos" in sql
+
+    def test_count_traspasos_none_value_returns_zero(self):
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[{"cnt": None}]):
+            assert _count_traspasos(conn, "") == 0
+
+    def test_count_traspasos_empty_result_returns_zero(self):
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[]):
+            assert _count_traspasos(conn, "") == 0
 
 
 # ---------------------------------------------------------------------------
