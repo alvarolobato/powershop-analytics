@@ -84,6 +84,29 @@ def _map_row(source: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
     return result
 
 
+# PG column names on ps_articulos that point to catalog dimension tables via FK.
+# 4D stores "not assigned" as 0, but the catalog tables have no reg_* = 0 row —
+# coerce 0 → NULL so rows with no brand/family/etc don't violate FK constraints.
+_ARTICULOS_NULLABLE_FKS: frozenset[str] = frozenset(
+    {
+        "num_familia",
+        "num_departament",
+        "num_color",
+        "num_temporada",
+        "num_marca",
+    }
+)
+
+
+def _nullify_zero_fks(row: dict[str, Any]) -> dict[str, Any]:
+    """Replace 0 with None for optional FK columns in a mapped articulos row."""
+    for key in _ARTICULOS_NULLABLE_FKS:
+        value = row.get(key)
+        if value is not None and value == 0:
+            row[key] = None
+    return row
+
+
 # ---------------------------------------------------------------------------
 # Column mapping: 4D lowercase name → PostgreSQL column name
 # ---------------------------------------------------------------------------
@@ -245,7 +268,7 @@ def sync_articulos(conn_4d: Any, conn_pg: Any) -> int:
     from etl.db.postgres import truncate_and_insert
 
     raw_rows = safe_fetch(conn_4d, _SQL_ARTICULOS)
-    pg_rows = [_map_row(r, _ARTICULOS_MAPPING) for r in raw_rows]
+    pg_rows = [_nullify_zero_fks(_map_row(r, _ARTICULOS_MAPPING)) for r in raw_rows]
     count = truncate_and_insert(conn_pg, "ps_articulos", pg_rows)
 
     # Safety net: remove any MA rows that survived from a previous sync run
