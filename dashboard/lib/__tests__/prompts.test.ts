@@ -100,6 +100,7 @@ describe("prompts", () => {
       expect(prompt).toContain("colec");
     });
 
+
     it("donut_chart table row lists x/y fields, not category/value", () => {
       const lines = prompt.split("\n");
       const donutRow = lines.find(
@@ -111,7 +112,6 @@ describe("prompts", () => {
     });
 
     it("donut_chart JSON example uses x/y field names, not category/value as top-level keys", () => {
-      // Extract the JSON block containing "donut_chart"
       const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
         (m) => m[1].trim()
       );
@@ -136,6 +136,11 @@ describe("prompts", () => {
         widgets: [widget],
       });
       expect(result.success).toBe(true);
+    });
+
+    it("includes rule 15 prohibiting :comp_* tokens in main widget sql", () => {
+      expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
+      expect(prompt).toContain("comparison_sql");
     });
   });
 
@@ -189,6 +194,10 @@ describe("prompts", () => {
 
     it("includes the glossary field in the output format example", () => {
       expect(prompt).toContain('"glossary"');
+    });
+
+    it("includes rule 15 prohibiting :comp_* tokens in main widget sql", () => {
+      expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
     });
   });
 

@@ -213,6 +213,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 12. Table sql can return any columns — they become table headers
 13. Use NULLIF to avoid division by zero
 14. NEVER use CROSSTAB or pivot — return flat grouped data
+15. Do NOT reference :comp_from/:comp_to/:comp_mes_from/:comp_mes_to in a main widget \`sql\`. These tokens are only available in \`comparison_sql\` (chart widgets only) and \`trend_sql\`/\`anomaly_sql\` (kpi_row items only). For side-by-side "Actual vs Anterior" tables, use a \`bar_chart\` with \`sql\` (using :curr_*) and \`comparison_sql\` (using :comp_*) instead.
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
