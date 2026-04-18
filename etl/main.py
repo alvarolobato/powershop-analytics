@@ -82,13 +82,15 @@ def _run_sync(
         else:
             rows = sync_fn(conn_4d, conn_pg)
         duration_ms = int((time.time() - start) * 1000)
-        wm_to = datetime.now(timezone.utc)
-        set_watermark(conn_pg, name, wm_to, rows, "ok")
+        now = datetime.now(timezone.utc)
+        if uses_watermark:
+            wm_to = now
+        set_watermark(conn_pg, name, now, rows, "ok")
         logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
     except Exception as exc:
         duration_ms = int((time.time() - start) * 1000)
         ok = False
-        err = str(exc)
+        err = str(exc)[:2000]
         wm_to = datetime.now(timezone.utc)
         try:
             set_watermark(conn_pg, name, wm_to, 0, "error", err)
@@ -109,7 +111,7 @@ def _run_sync(
                 status="ok" if ok else "failed",
                 started_at=started_at,
                 finished_at=datetime.now(timezone.utc),
-                sync_method="upsert_delta" if uses_watermark else None,
+                sync_method="upsert_delta" if uses_watermark else "full_refresh",
                 watermark_from=wm_from,
                 watermark_to=wm_to,
                 error_msg=err,
