@@ -705,6 +705,64 @@ describe("DashboardRenderer", () => {
   });
 
   describe(":comp_* token pre-flight check", () => {
+    const compKpiSpec: DashboardSpec = {
+      title: "KPI Comparativa",
+      widgets: [
+        {
+          type: "kpi_row",
+          items: [
+            {
+              label: "Ventas Período Anterior",
+              sql: "SELECT SUM(total_si) FROM ps_ventas WHERE fecha >= :comp_from AND fecha <= :comp_to",
+              format: "currency",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("shows friendly error when kpi_row item sql has :comp_from but no comparisonRange", async () => {
+      vi.stubGlobal("fetch", vi.fn());
+
+      render(<DashboardRenderer spec={compKpiSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Este panel requiere seleccionar un período de comparación")).toBeInTheDocument();
+      });
+
+      // fetch should never be called — the pre-flight check blocks it
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("shows friendly error when kpi_row item trend_sql has :comp_from but no comparisonRange", async () => {
+      vi.stubGlobal("fetch", vi.fn());
+
+      const compTrendSpec: DashboardSpec = {
+        title: "KPI Trend Comparativa",
+        widgets: [
+          {
+            type: "kpi_row",
+            items: [
+              {
+                label: "Ventas",
+                sql: "SELECT SUM(total_si) FROM ps_ventas",
+                trend_sql: "SELECT SUM(total_si) FROM ps_ventas WHERE fecha >= :comp_from AND fecha <= :comp_to",
+                format: "currency",
+              },
+            ],
+          },
+        ],
+      };
+
+      render(<DashboardRenderer spec={compTrendSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Este panel requiere seleccionar un período de comparación")).toBeInTheDocument();
+      });
+
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
     const compSqlSpec: DashboardSpec = {
       title: "Comparativa",
       widgets: [

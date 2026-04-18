@@ -94,6 +94,16 @@ function hasCompTokens(sql: string): boolean {
   );
 }
 
+/** Collects all SQL strings from a widget (main, trend, anomaly for kpi_row). */
+function collectWidgetSqls(widget: Widget): string[] {
+  if (widget.type === "kpi_row") {
+    return widget.items.flatMap((item) =>
+      [item.sql, item.trend_sql, item.anomaly_sql].filter((s): s is string => typeof s === "string" && s.length > 0)
+    );
+  }
+  return [widget.sql];
+}
+
 /** User-facing error shown when a widget requires a comparison range that isn't set. */
 const COMP_MISSING_ERROR = "Este panel requiere seleccionar un período de comparación";
 
@@ -208,7 +218,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
       try {
         if (widget.type === "kpi_row") {
           // Pre-flight: guard kpi_row items that use comp tokens without a comparison range.
-          if (widget.items.some((item) => hasCompTokens(item.sql)) && !comparisonRange) {
+          if (collectWidgetSqls(widget).some(hasCompTokens) && !comparisonRange) {
             if (!signal.aborted) {
               setWidgetStates((prev) => {
                 const next = new Map(prev);
@@ -276,7 +286,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         } else {
           // Pre-flight: if main SQL uses comp tokens but no comparisonRange is set,
           // show a friendly error instead of letting PostgreSQL reject literal `:comp_*`.
-          if (hasCompTokens(widget.sql) && !comparisonRange) {
+          if (collectWidgetSqls(widget).some(hasCompTokens) && !comparisonRange) {
             if (!signal.aborted) {
               setWidgetStates((prev) => {
                 const next = new Map(prev);
@@ -340,7 +350,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
       try {
         if (widget.type === "kpi_row") {
           // Pre-flight: same guard as fetchAll — kpi_row items can reference comp tokens.
-          if (widget.items.some((item) => hasCompTokens(item.sql)) && !comparisonRange) {
+          if (collectWidgetSqls(widget).some(hasCompTokens) && !comparisonRange) {
             if (!signal.aborted) {
               setWidgetStates((prev) => {
                 const next = new Map(prev);
@@ -403,7 +413,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         } else {
           // Pre-flight: if main SQL uses comp tokens but no comparisonRange is set,
           // show a friendly error instead of letting PostgreSQL reject literal `:comp_*`.
-          if (hasCompTokens(widget.sql) && !comparisonRange) {
+          if (collectWidgetSqls(widget).some(hasCompTokens) && !comparisonRange) {
             if (!signal.aborted) {
               setWidgetStates((prev) => {
                 const next = new Map(prev);
