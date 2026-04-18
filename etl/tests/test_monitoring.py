@@ -220,3 +220,8 @@ def test_record_table_sync_status_on_failure():
     assert articulos_calls, "record_table_sync was not called for articulos"
     status_arg = articulos_calls[0].kwargs["status"]
     assert status_arg == "failed", f"Expected status=failed, got {status_arg!r}"
+    error_msg_arg = articulos_calls[0].kwargs.get("error_msg")
+    assert error_msg_arg is not None, "error_msg should not be None for failed sync"
+    assert "simulated articulos error" in error_msg_arg, (
+        f"Expected exception text in error_msg, got {error_msg_arg!r}"
+    )

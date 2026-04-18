@@ -89,8 +89,9 @@ def _run_sync(
         duration_ms = int((time.time() - start) * 1000)
         ok = False
         err = str(exc)
+        wm_to = datetime.now(timezone.utc)
         try:
-            set_watermark(conn_pg, name, datetime.now(timezone.utc), 0, "error", err)
+            set_watermark(conn_pg, name, wm_to, 0, "error", err)
         except Exception as wm_exc:
             logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
         logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
