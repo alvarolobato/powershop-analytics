@@ -223,11 +223,13 @@ class TestSchedulerLoopTriggerCheck:
 
             mock_sync.assert_called_once_with(conn_4d, conn_pg, trigger="manual")
 
-    def test_second_trigger_while_active_is_skipped(self):
-        """When check_and_consume_trigger returns True but a run is already active,
-        run_full_sync is NOT called."""
+    def test_second_trigger_while_active_is_not_consumed(self):
+        """When a run is already active, the trigger row is NOT consumed and
+        run_full_sync is NOT called (trigger stays pending for the next poll)."""
         with (
-            patch("etl.db.postgres.check_and_consume_trigger", return_value=True),
+            patch(
+                "etl.db.postgres.check_and_consume_trigger", return_value=True
+            ) as mock_consume,
             patch("etl.main._is_run_active", return_value=True),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),
@@ -241,6 +243,7 @@ class TestSchedulerLoopTriggerCheck:
             except StopIteration:
                 pass
 
+            mock_consume.assert_not_called()
             mock_sync.assert_not_called()
 
     def test_no_trigger_no_manual_run(self):

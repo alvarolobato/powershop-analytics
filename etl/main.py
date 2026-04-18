@@ -432,14 +432,9 @@ def _run_scheduler_loop(conn_4d, conn_pg) -> None:
 
     while True:
         schedule.run_pending()
-        if check_and_consume_trigger(conn_pg):
-            if not _is_run_active(conn_pg):
-                logger.info("Manual trigger detected — starting sync")
-                run_full_sync(conn_4d, conn_pg, trigger="manual")
-            else:
-                logger.info(
-                    "Manual trigger detected but a run is already active — skipping"
-                )
+        if not _is_run_active(conn_pg) and check_and_consume_trigger(conn_pg):
+            logger.info("Manual trigger detected — starting sync")
+            run_full_sync(conn_4d, conn_pg, trigger="manual")
         time.sleep(10)
 
 
@@ -480,7 +475,7 @@ def main() -> None:
             logger.info("Scheduler mode: daily sync at %02d:00", cron_hour)
 
             def _job() -> None:
-                run_full_sync(conn_4d, conn_pg)
+                run_full_sync(conn_4d, conn_pg, trigger="scheduled")
 
             schedule.every().day.at(f"{cron_hour:02d}:00").do(_job)
 
