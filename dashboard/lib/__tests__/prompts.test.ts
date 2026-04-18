@@ -111,7 +111,6 @@ describe("prompts", () => {
     });
 
     it("donut_chart JSON example uses x/y field names, not category/value as top-level keys", () => {
-      // Extract the JSON block containing "donut_chart"
       const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
         (m) => m[1].trim()
       );
@@ -136,6 +135,10 @@ describe("prompts", () => {
         widgets: [widget],
       });
       expect(result.success).toBe(true);
+    });
+
+    it("prohibits :comp_* tokens in main widget sql (rule 15)", () => {
+      expect(prompt).toContain("Do NOT reference :comp_from");
     });
   });
 

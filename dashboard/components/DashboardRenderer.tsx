@@ -94,12 +94,12 @@ function hasCompTokens(sql: string): boolean {
   );
 }
 
-/** Collects all SQL strings from a widget (main, trend, anomaly for kpi_row). */
+/** Collects main SQL strings only (excludes trend_sql/anomaly_sql, which may use :comp_* by design). */
 function collectWidgetSqls(widget: Widget): string[] {
   if (widget.type === "kpi_row") {
-    return widget.items.flatMap((item) =>
-      [item.sql, item.trend_sql, item.anomaly_sql].filter((s): s is string => typeof s === "string" && s.length > 0)
-    );
+    return widget.items
+      .map((item) => item.sql)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
   }
   return [widget.sql];
 }

@@ -61,6 +61,19 @@ describe("knowledge", () => {
       expect(questions).toContain("pago");
       expect(questions).toContain("margen");
     });
+
+    it("primary sql fields contain :comp_* tokens only in the known comparison-period pair", () => {
+      // :comp_* tokens are only valid in comparison_sql / trend_sql / anomaly_sql,
+      // never in a main widget sql. Guard against accidental additions.
+      const compTokenPattern = /:comp_(from|to|mes_from|mes_to)\b/;
+      const pairsWithCompTokens = SQL_PAIRS.filter((pair) =>
+        compTokenPattern.test(pair.sql)
+      );
+      expect(pairsWithCompTokens.length).toBeLessThanOrEqual(1);
+      if (pairsWithCompTokens.length === 1) {
+        expect(pairsWithCompTokens[0].question).toMatch(/comparaci[oó]n/i);
+      }
+    });
   });
 
   describe("SCHEMA", () => {
