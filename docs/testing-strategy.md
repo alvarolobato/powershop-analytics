@@ -32,14 +32,11 @@ Dashboard API routes against a real local Postgres. Documents real behaviour tha
 ### ETL (Python / pytest)
 
 ```bash
-# Install dev deps (first time / after dependency changes)
-pip install -r etl/requirements-dev.txt
-
 # Run all ETL tests (fast, Tier A + B)
-python -m pytest etl/tests/ -x -q
+docker compose run --rm etl python -m pytest etl/tests/ -x -q
 
 # With coverage report
-python -m pytest --cov=etl --cov-report=term-missing
+docker compose run --rm etl python -m pytest etl/tests/ --cov=etl --cov-report=term-missing
 ```
 
 ### Dashboard (TypeScript / Vitest)
@@ -48,7 +45,7 @@ python -m pytest --cov=etl --cov-report=term-missing
 # Run all dashboard tests
 cd dashboard && npm test
 
-# With coverage report
+# With coverage report (also checks thresholds)
 cd dashboard && npm run test:coverage
 ```
 
@@ -56,16 +53,42 @@ cd dashboard && npm run test:coverage
 
 ```bash
 # Requires local stack running and POSTGRES_DSN set
-cd dashboard && POSTGRES_DSN=postgresql://... npx vitest run
+# Runs the full test suite — integration tests activate when POSTGRES_DSN is set; unit tests still pass with mocks
+cd dashboard && POSTGRES_DSN=postgresql://... npm test
 ```
 
 ---
 
 ## Coverage Thresholds
 
-Both stacks track coverage but enforce **no blocking floor** until the first three CI runs establish a baseline. After that, thresholds will be added to the respective config files (`pytest.ini` / `vitest.config.ts`).
+Thresholds are enforced locally by vitest (`npm run test:coverage` fails if below floor). In CI they will be **non-blocking** (`continue-on-error: true`) once the workflow patch is applied (pending permissions approval). The goal is to establish a ratchet: raise thresholds as coverage improves, never lower them.
 
-Check current coverage trends in the PR summaries — do not add new untested code to the areas listed below.
+### Dashboard (Vitest / v8)
+
+Configured in `dashboard/vitest.config.ts` under `coverage.thresholds`.
+
+| Metric | Baseline (2026-04-18) | Floor (−5%) |
+|--------|----------------------|-------------|
+| Statements | 78% | **73%** |
+| Branches | 67% | **62%** |
+| Functions | 79% | **74%** |
+| Lines | 80% | **75%** |
+
+### ETL (pytest-cov)
+
+**Planned**: will be configured via `--cov-fail-under=43` in CI once the workflow patch is applied (see PR body for the pending diff).
+
+| Metric | Baseline (2026-04-18) | Floor (−5%) |
+|--------|----------------------|-------------|
+| Total lines | 48% | **43%** |
+
+> **Note**: ETL baseline is low because integration tests skip when `P4D_HOST` and `POSTGRES_DSN` are not set. The 43% floor reflects unit-only coverage. Raise after adding Tier A tests for low-coverage modules (`compras`, `maestros`, `mayorista`).
+
+### Policy for raising thresholds
+
+1. After 2–3 CI cycles where measured coverage consistently exceeds the floor, raise the floor by 5%.
+2. Update both the config file and the table above in the same PR.
+3. Never lower a threshold; if tests delete coverage, add replacements first.
 
 ---
 
@@ -76,7 +99,7 @@ If you are changing any of the following, write or update tests **first** (TDD):
 | File | Why it matters |
 |------|---------------|
 | `etl/main.py` | Pipeline orchestration, sync dispatch, error handling — a bug here breaks all nightly loads |
-| `etl/sync/ventas.py` | Delta upsert for 911K Ventas + 1.7M LineasVentas — wrong watermark = data loss or duplicates |
+| `etl/sync/ventas.py` | Delta upsert for both `ps_ventas` (911K rows) and `ps_lineas_ventas` (1.7M rows, via `sync_lineas_ventas()`) — wrong watermark = data loss or duplicates |
 | `dashboard/lib/date-params.ts` | Date substitution for every widget SQL — already covered, keep it that way |
 | `dashboard/lib/db.ts` | `validateReadOnly` blocks writes; `query` is the single DB gateway — both must stay tested |
 | `dashboard/app/api/anomaly-check/route.ts` | Anomaly detection — already covered, do not regress |
@@ -89,4 +112,4 @@ If you are changing any of the following, write or update tests **first** (TDD):
 
 ## See also
 
-- [docs/skills/testing-patterns.md](skills/testing-patterns.md) — TDD workflow, factory patterns, mocking strategies (Python + TypeScript)
+- [skills/testing-patterns.md](skills/testing-patterns.md) — TDD workflow, factory patterns, mocking strategies (Python + TypeScript)
