@@ -105,10 +105,42 @@ jobs:
         run: |
           LABELS=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '[.labels[].name] | join(",")')
           SKIP=false
+          SKIP_REASON=""
+
           if echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
             SKIP=true
+            SKIP_REASON="legacy-cap-reached"
           fi
+
+          # Claude Code Action's OIDC app-token exchange validates that workflow
+          # files on the PR branch match the default branch. If the PR modifies
+          # any `.github/workflows/*` file, the exchange fails with 401 and the
+          # Claude step hard-errors. Detect that up front and skip cleanly so
+          # PRs that edit workflows don't show a spurious red X.
+          if [ "$SKIP" != "true" ]; then
+            WORKFLOW_CHANGES=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files" --paginate \
+              --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length' 2>/dev/null || echo "0")
+            if [ "${WORKFLOW_CHANGES:-0}" -gt 0 ]; then
+              SKIP=true
+              SKIP_REASON="workflow-file-change"
+            fi
+          fi
+
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=$SKIP_REASON" >> "$GITHUB_OUTPUT"
+
+      - name: Skip Claude review — PR touches .github/workflows
+        if: steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'workflow-file-change'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
+            --remove-label "ai-ready-for-review" || true
+          # Don't re-request Copilot here — the dispatcher already did. Just
+          # explain why Claude can't review this PR so nobody thinks it failed.
+          MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. **Copilot review still runs** (no such restriction). Merge with human + Copilot review."
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$MSG" || true
 
       - name: Claude PR Review
         if: steps.cap.outputs.skip != 'true'
@@ -156,7 +188,7 @@ jobs:
             --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
 
       - name: Max automated Opus reviews reached (legacy)
-        if: success() && steps.cap.outputs.skip == 'true'
+        if: success() && steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'legacy-cap-reached'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
