@@ -276,7 +276,7 @@ class TestCountHelpers:
             assert _count_expo(conn, "") == 0
 
     def test_count_expo_falls_back_to_first_value_when_alias_missing(self):
-        """Driver quirk: if ``cnt`` key is absent, use the first populated value."""
+        """Driver quirk: if ``cnt`` key is absent, use the first value in the row."""
         conn = MagicMock()
         with patch("etl.sync.stock.safe_fetch", return_value=[{"expr_1": 7}]):
             assert _count_expo(conn, "") == 7
@@ -298,6 +298,12 @@ class TestCountHelpers:
         conn = MagicMock()
         with patch("etl.sync.stock.safe_fetch", return_value=[]):
             assert _count_traspasos(conn, "") == 0
+
+    def test_count_traspasos_falls_back_to_first_value_when_alias_missing(self):
+        """Driver quirk: if ``cnt`` key is absent, use the first value in the row."""
+        conn = MagicMock()
+        with patch("etl.sync.stock.safe_fetch", return_value=[{"expr_1": 9}]):
+            assert _count_traspasos(conn, "") == 9
 
 
 # ---------------------------------------------------------------------------
