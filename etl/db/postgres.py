@@ -415,6 +415,9 @@ def record_table_sync(
     finished_at: datetime | None = None,
     sync_method: str | None = None,
     rows_total_after: int | None = None,
+    watermark_from: datetime | None = None,
+    watermark_to: datetime | None = None,
+    error_msg: str | None = None,
 ) -> None:
     """Insert a per-table sync record into etl_sync_run_tables."""
     try:
@@ -423,8 +426,9 @@ def record_table_sync(
                 """
                 INSERT INTO etl_sync_run_tables
                     (run_id, table_name, rows_synced, duration_ms, status,
-                     started_at, finished_at, sync_method, rows_total_after)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     started_at, finished_at, sync_method, rows_total_after,
+                     watermark_from, watermark_to, error_msg)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     run_id,
@@ -436,6 +440,9 @@ def record_table_sync(
                     finished_at,
                     sync_method,
                     rows_total_after,
+                    watermark_from,
+                    watermark_to,
+                    error_msg,
                 ),
             )
         conn.commit()

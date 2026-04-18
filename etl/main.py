@@ -67,25 +67,30 @@ def _run_sync(
     from etl.db.postgres import get_watermark, set_watermark
 
     start = time.time()
+    started_at = datetime.now(timezone.utc)
     rows = 0
     ok = True
     duration_ms = 0
+    err: str | None = None
+    wm_from: datetime | None = None
+    wm_to: datetime | None = None
     try:
         if uses_watermark:
             since = get_watermark(conn_pg, name)
+            wm_from = since
             rows = sync_fn(conn_4d, conn_pg, since)
         else:
             rows = sync_fn(conn_4d, conn_pg)
         duration_ms = int((time.time() - start) * 1000)
-        set_watermark(conn_pg, name, datetime.now(timezone.utc), rows, "ok")
+        wm_to = datetime.now(timezone.utc)
+        set_watermark(conn_pg, name, wm_to, rows, "ok")
         logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
     except Exception as exc:
         duration_ms = int((time.time() - start) * 1000)
         ok = False
+        err = str(exc)
         try:
-            set_watermark(
-                conn_pg, name, datetime.now(timezone.utc), 0, "error", str(exc)
-            )
+            set_watermark(conn_pg, name, datetime.now(timezone.utc), 0, "error", err)
         except Exception as wm_exc:
             logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
         logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
@@ -101,6 +106,12 @@ def _run_sync(
                 rows,
                 duration_ms,
                 status="ok" if ok else "failed",
+                started_at=started_at,
+                finished_at=datetime.now(timezone.utc),
+                sync_method="upsert_delta" if uses_watermark else None,
+                watermark_from=wm_from,
+                watermark_to=wm_to,
+                error_msg=err,
             )
         except Exception as mon_exc:
             logger.error(
