@@ -370,13 +370,34 @@ jobs:
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
           # Automated review: two Copilot rounds first (cheaper), then up to two Opus PR reviews.
           # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
-          gh pr edit "${{ steps.verify.outputs.pr_number }}" \
-            --add-label "ai-phase-copilot" || true
-          gh api "repos/${{ github.repository }}/pulls/${{ steps.verify.outputs.pr_number }}/requested_reviewers" \
-            --method POST \
-            -f 'reviewers[]=copilot-pull-request-reviewer[bot]' || true
-          gh pr comment "${{ steps.verify.outputs.pr_number }}" \
-            --body "🤖 **AI Factory**: Automated review starts with **Copilot** (round 1 of 2), then Copilot round 2, then up to **two Opus** code reviews. Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
+          PR_NUM="${{ steps.verify.outputs.pr_number }}"
+          REPO_NAME="${{ github.repository }}"
+
+          # Self-heal: phase labels must exist in the repo for the state machine to advance.
+          gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
+          gh label create "ai-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
+
+          gh pr edit "$PR_NUM" --add-label "ai-phase-copilot" || true
+
+          # Request Copilot and verify the request actually landed — GITHUB_TOKEN
+          # sometimes silently drops Copilot reviewer requests (returns 200 but
+          # with an empty requested_reviewers array). We must not claim Copilot
+          # review was requested when the API silently ignored us.
+          POST_OUT=$(gh api "repos/$REPO_NAME/pulls/$PR_NUM/requested_reviewers" \
+            --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
+          COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
+            | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
+
+          if [ "${COPILOT_ADDED:-0}" -gt 0 ]; then
+            gh pr comment "$PR_NUM" \
+              --body "🤖 **AI Factory**: Automated review starts with **Copilot** (round 1 of 2), then Copilot round 2, then up to **two Opus** code reviews. Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
+          else
+            # Silent failure — don't advertise a review cycle that didn't start.
+            gh pr edit "$PR_NUM" --add-label "ai-blocked" || true
+            gh pr comment "$PR_NUM" \
+              --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer (likely a permissions issue with \`GITHUB_TOKEN\` — it can't assign Copilot). **Copilot review has NOT started.** cc @alvarolobato — please request Copilot review manually via the PR sidebar or ensure workflows can assign \`copilot-pull-request-reviewer[bot]\`." || true
+            echo "::warning::Copilot reviewer request silently failed on PR #$PR_NUM"
+          fi
 
       - name: Handle success (issue closed deliberately)
         if: always() && steps.verify.outputs.outcome == 'issue_closed'
