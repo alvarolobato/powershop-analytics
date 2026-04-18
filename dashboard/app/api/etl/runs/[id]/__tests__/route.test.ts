@@ -75,6 +75,14 @@ describe("GET /api/etl/runs/[id]", () => {
     expect(res.status).toBe(400);
   });
 
+  // Risk: RISK-ORCH-VALIDATION — decimal strings like "1.5" must not parse as valid integer IDs
+  it("returns 400 for decimal ID (e.g. 1.5)", async () => {
+    const res = await GET(makeRequest(), makeContext("1.5"));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("VALIDATION");
+  });
+
   it("returns empty tables array when run has no table entries", async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [MOCK_RUN_ROW], columns: [] })

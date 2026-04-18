@@ -144,4 +144,19 @@ describe("GET /api/etl/runs", () => {
     expect(body.runs[0].duration_ms).toBeNull();
     expect(body.runs[0].trigger).toBe("manual");
   });
+
+  // Risk: RISK-ORCH-DB-PARTIAL — count query succeeds but paginated SELECT fails;
+  // the catch block must still return a structured 500 (not an unhandled exception).
+  it("returns 500 when paginated SELECT fails after count succeeds", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [[5]], columns: ["count"] })
+      .mockRejectedValueOnce(new Error("connection reset"));
+
+    const res = await GET(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(body.code).toBe("DB_QUERY");
+    expect(body.requestId).toBeDefined();
+  });
 });
