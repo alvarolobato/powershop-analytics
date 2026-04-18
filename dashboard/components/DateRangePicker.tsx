@@ -250,18 +250,12 @@ export function detectPeriodType(
     return "day";
   }
 
-  // --- year: from is Jan 1, to is Dec 31 or end-of-today in same year ---
-  if (from.getMonth() === 0 && from.getDate() === 1) {
-    const endOfYear = new Date(from.getFullYear(), 11, 31, 23, 59, 59, 999);
-    if (to.getTime() === endOfYear.getTime()) return "year";
-    if (isEndToday && today.getFullYear() === from.getFullYear()) return "year";
-  }
-
   // --- month: from is 1st of any month ---
-  // Checked before quarter so that "current month" (e.g. April 1 → today when today is
-  // still in April) is labelled as a month, not a quarter, even when the month begins a
-  // quarter. For complete ranges the month's last-day check naturally falls through to the
-  // quarter check when the range spans more than one month.
+  // Checked before year so that "current month" in January (Jan 1 → today) is labelled
+  // as "Enero 2026" rather than "2026" — a partial January matches both month and year
+  // criteria and the more specific label wins. Also checked before quarter so that a
+  // quarter-starting month (Jan/Apr/Jul/Oct) is labelled as a month when the range only
+  // covers that single month.
   if (from.getDate() === 1) {
     const endOfMonth = new Date(from.getFullYear(), from.getMonth() + 1, 0, 23, 59, 59, 999);
     if (to.getTime() === endOfMonth.getTime()) return "month";
@@ -272,6 +266,14 @@ export function detectPeriodType(
     ) {
       return "month";
     }
+  }
+
+  // --- year: from is Jan 1, to is Dec 31 or end-of-today in same year ---
+  // Checked after month so that a partial January (Jan 1 → today) is labelled as a month.
+  if (from.getMonth() === 0 && from.getDate() === 1) {
+    const endOfYear = new Date(from.getFullYear(), 11, 31, 23, 59, 59, 999);
+    if (to.getTime() === endOfYear.getTime()) return "year";
+    if (isEndToday && today.getFullYear() === from.getFullYear()) return "year";
   }
 
   // --- quarter: from is 1st of a quarter month (Jan/Apr/Jul/Oct) ---

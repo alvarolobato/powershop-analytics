@@ -306,6 +306,23 @@ describe("detectPeriodType (fixed date: 2026-04-15 Wednesday)", () => {
     expect(detectPeriodType(range)).toBeNull();
   });
 
+  it("'month' not 'year': Jan 1 → today when today is in January (partial January)", () => {
+    vi.setSystemTime(new Date(2026, 0, 15, 12, 0, 0, 0)); // January 15
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 1, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("'year': complete January (Jan 1 → Jan 31) still detected as month not year", () => {
+    // A complete single month is always 'month', even in January
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 1, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("'year': full year Jan 1 → Dec 31 still detected as year", () => {
+    const range: DateRange = { from: d(2025, 1, 1, 0, 0, 0, 0), to: d(2025, 12, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("year");
+  });
+
   it("null: non-start-of-day 'from'", () => {
     const range: DateRange = { from: d(2026, 4, 1, 8, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
     expect(detectPeriodType(range)).toBeNull();
@@ -398,6 +415,12 @@ describe("formatPeriodLabel (fixed date: 2026-04-15 Wednesday)", () => {
   it("'year' → previous full year → '2025'", () => {
     const range: DateRange = { from: d(2025, 1, 1, 0, 0, 0, 0), to: d(2025, 12, 31, 23, 59, 59, 999) };
     expect(formatPeriodLabel(range)).toBe("2025");
+  });
+
+  it("January partial (Mes actual in January) → 'Enero 2026', not '2026'", () => {
+    vi.setSystemTime(new Date(2026, 0, 15, 12, 0, 0, 0)); // January 15
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 1, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Enero 2026");
   });
 
   it("null/custom → compact date pair same year → '9 abr – 15 abr 2026'", () => {
