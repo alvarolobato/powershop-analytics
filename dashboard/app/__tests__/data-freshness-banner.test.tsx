@@ -147,6 +147,32 @@ describe("DataFreshnessBanner", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("aborts fetch on unmount", async () => {
+    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
+
+    // Keep the fetch pending so the component is still waiting when we unmount
+    let resolveFetch!: () => void;
+    globalThis.fetch = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = () =>
+            resolve({ ok: true, json: () => Promise.resolve(FRESH_RESPONSE) } as Response);
+        })
+    );
+
+    const { unmount } = render(<DataFreshnessBanner />);
+
+    // Wait for the effect to start (fetch called) before unmounting
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+
+    unmount();
+
+    expect(abortSpy).toHaveBeenCalled();
+
+    // Resolve after unmount to avoid unhandled-rejection noise
+    resolveFetch();
+  });
+
   it("collapses and expands the detail list", async () => {
     globalThis.fetch = mockFetchWith(STALE_RESPONSE);
     render(<DataFreshnessBanner />);
