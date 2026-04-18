@@ -198,9 +198,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ needs.resolve.outputs.pr_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
-          MSG="ℹ️ **AI Factory**: Skipping automated address-feedback — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so Claude can't push fixes from a PR that changes workflows. **Please address Copilot's inline comments manually** (reply + commit + re-request review), then merge."
+          MSG="ℹ️ **AI Factory**: Skipping automated address-feedback — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`$DEFAULT_BRANCH\`, so Claude can't push fixes from a PR that changes workflows. **Please address Copilot's inline comments manually** (reply + commit + re-request review), then merge."
           gh pr comment "$PR" --repo "$REPO" --body "$MSG" || true
           gh pr edit "$PR" --repo "$REPO" \
             --remove-label "ai-ready-for-review" \
