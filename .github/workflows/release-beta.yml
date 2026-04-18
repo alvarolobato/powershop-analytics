@@ -1,9 +1,11 @@
 # Nightly beta release — creates a GitHub prerelease tag (vX.Y.Z-beta.N) if
 # there are commits since the last tag. Also triggerable manually.
 #
-# The created prerelease triggers release-docker.yml, which builds & pushes
-# powershop-etl and powershop-dashboard images tagged with the version and
-# the rolling `:beta` tag.
+# After creating the release, this workflow explicitly dispatches
+# release-docker.yml to build and push the ETL + Dashboard images. We
+# can't rely on the `release: published` trigger because releases created
+# by GITHUB_TOKEN inside a workflow intentionally do NOT fire downstream
+# workflow events (GitHub recursion guard).
 name: Release Beta
 
 on:
@@ -24,6 +26,7 @@ on:
 
 permissions:
   contents: write
+  actions: write  # needed to dispatch release-docker.yml after publishing
 
 concurrency:
   group: release-beta
@@ -130,14 +133,35 @@ jobs:
           } > "$NOTES"
           echo "path=$NOTES" >> "$GITHUB_OUTPUT"
 
-      - name: Create prerelease
+      - name: Create prerelease with deploy assets
         if: steps.version.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }} (beta)" \
+          # `docker-compose.prod.yml` and `wren-config.yaml` are the two
+          # files install-prod.sh downloads per release — attach them so
+          # installers don't need to clone the repo at exactly the right
+          # commit.
+          gh release create "$TAG" \
+            --title "$TAG (beta)" \
             --notes-file "${{ steps.changelog.outputs.path }}" \
             --target "${{ github.event.repository.default_branch }}" \
-            --prerelease
+            --prerelease \
+            docker-compose.prod.yml \
+            wren-config.yaml
+
+      - name: Dispatch release-docker.yml
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Releases created by GITHUB_TOKEN do not fire the `release:
+          # published` event, so we dispatch release-docker.yml directly.
+          gh workflow run release-docker.yml \
+            --ref "${{ github.event.repository.default_branch }}" \
+            --field "tag=$TAG"
+          echo "Dispatched release-docker.yml for $TAG."

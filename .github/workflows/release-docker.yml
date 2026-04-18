@@ -6,12 +6,23 @@
 #   - Prereleases also get the rolling `:beta` tag.
 #   - Stable releases (non-prerelease) also get the rolling `:latest` tag.
 #
+# Can also be invoked manually via workflow_dispatch with a release tag —
+# this is the trigger release-beta.yml uses, because releases created from
+# within a workflow by GITHUB_TOKEN don't fire the `release: published`
+# event (GitHub recursion guard).
+#
 # Required secrets: DOCKERHUB_USERNAME, DOCKERHUB_TOKEN
 name: Release Docker Images
 
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to (re)build images for (e.g. v0.1.0-beta.2)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -30,7 +41,35 @@ jobs:
             context: ./dashboard
             dockerfile: ./dashboard/Dockerfile
     steps:
-      - uses: actions/checkout@v4
+      - name: Resolve release metadata
+        id: rel
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          EVENT_PRERELEASE: ${{ github.event.release.prerelease }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            TAG="$INPUT_TAG"
+            # gh release view prints "true"/"false" for isPrerelease
+            PRERELEASE=$(gh release view "$TAG" --repo "${{ github.repository }}" --json isPrerelease --jq '.isPrerelease')
+          else
+            TAG="$EVENT_TAG"
+            PRERELEASE="$EVENT_PRERELEASE"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${PRERELEASE}" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=${TAG} prerelease=${PRERELEASE}"
+
+      - name: Check out the release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.rel.outputs.tag }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -44,8 +83,8 @@ jobs:
       - name: Compute tags
         id: tags
         env:
-          VERSION: ${{ github.event.release.tag_name }}
-          IS_PRERELEASE: ${{ github.event.release.prerelease }}
+          VERSION: ${{ steps.rel.outputs.tag }}
+          IS_PRERELEASE: ${{ steps.rel.outputs.prerelease }}
           NAMESPACE: ${{ secrets.DOCKERHUB_USERNAME }}
           IMAGE: ${{ matrix.image }}
         run: |
@@ -72,6 +111,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.tags.outputs.tags }}
           provenance: false
