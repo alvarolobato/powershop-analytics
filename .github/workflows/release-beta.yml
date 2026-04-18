@@ -118,7 +118,9 @@ jobs:
             if [ -n "${LAST_TAG:-}" ]; then
               echo "Changes since \`${LAST_TAG}\`:"
               echo
-              git log "${LAST_TAG}..HEAD" --pretty=format:'- %s (%h)' --no-merges | head -n 50
+              # Use --max-count (not `| head`) so we don't SIGPIPE git under
+              # `set -o pipefail` when there are more than 50 commits.
+              git log "${LAST_TAG}..HEAD" --max-count=50 --pretty=format:'- %s (%h)' --no-merges
               echo
               echo
               echo "**Full diff**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...${{ steps.version.outputs.tag }}"
