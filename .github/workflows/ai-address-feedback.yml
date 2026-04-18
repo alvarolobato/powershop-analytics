@@ -179,8 +179,13 @@ jobs:
           PR: ${{ needs.resolve.outputs.pr_number }}
         run: |
           set -euo pipefail
+          # `gh api --paginate --jq 'length'` emits one count per page; when
+          # the PR crosses a pagination boundary the result becomes multi-line
+          # (e.g. "2\n1") and the numeric `-gt` below errors. Stream the
+          # matching filenames instead and count lines — always a single int.
           WORKFLOW_CHANGES=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
-            --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length' 2>/dev/null || echo "0")
+            --jq '.[] | select(.filename | startswith(".github/workflows/")) | .filename' 2>/dev/null \
+            | wc -l | tr -d ' ' || echo "0")
           if [ "${WORKFLOW_CHANGES:-0}" -gt 0 ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
