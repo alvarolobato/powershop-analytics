@@ -105,10 +105,42 @@ jobs:
         run: |
           LABELS=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '[.labels[].name] | join(",")')
           SKIP=false
+          SKIP_REASON=""
+
           if echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
             SKIP=true
+            SKIP_REASON="legacy-cap-reached"
           fi
+
+          # Claude Code Action's OIDC app-token exchange validates that workflow
+          # files on the PR branch match the default branch. If the PR modifies
+          # any `.github/workflows/*` file, the exchange fails with 401 and the
+          # Claude step hard-errors. Detect that up front and skip cleanly so
+          # PRs that edit workflows don't show a spurious red X.
+          if [ "$SKIP" != "true" ]; then
+            WORKFLOW_CHANGES=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files" --paginate \
+              --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length' 2>/dev/null || echo "0")
+            if [ "${WORKFLOW_CHANGES:-0}" -gt 0 ]; then
+              SKIP=true
+              SKIP_REASON="workflow-file-change"
+            fi
+          fi
+
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+          echo "skip_reason=$SKIP_REASON" >> "$GITHUB_OUTPUT"
+
+      - name: Skip Claude review — PR touches .github/workflows
+        if: steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'workflow-file-change'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
+            --remove-label "ai-ready-for-review" || true
+          # Don't re-request Copilot here — the dispatcher already did. Just
+          # explain why Claude can't review this PR so nobody thinks it failed.
+          MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. **Copilot review still runs** (no such restriction). Merge with human + Copilot review."
+          gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$MSG" || true
 
       - name: Claude PR Review
         if: steps.cap.outputs.skip != 'true'
@@ -129,11 +161,19 @@ jobs:
             ## Copilot follow-up (read carefully)
             Run `gh pr view ${{ env.PR_NUMBER }} --json labels -q '.labels[].name'` before you finish.
             - If the PR has label `ai-phase-opus`, do **NOT** request a Copilot review (Opus-only passes; address-feedback is dispatched by CI).
-            - Otherwise, after reviewing, request a Copilot review:
+            - Otherwise, after reviewing, request a Copilot review **and verify the request landed**:
             ```bash
-            gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
-              --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+            POST_OUT=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
+              --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
+            COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
+              | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
+            if [ "${COPILOT_ADDED:-0}" -eq 0 ]; then
+              # GITHUB_TOKEN silently dropped the request — surface it loudly.
+              gh pr comment ${{ env.PR_NUMBER }} \
+                --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer (likely a token-permissions issue). **Copilot has NOT been requested.** cc @alvarolobato."
+            fi
             ```
+            Do NOT claim Copilot has reviewed the PR unless you can see an actual review from `Copilot` / `copilot-pull-request-reviewer[bot]` in `gh api repos/{owner}/{repo}/pulls/{PR}/reviews`.
 
             ---
 
@@ -148,7 +188,7 @@ jobs:
             --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
 
       - name: Max automated Opus reviews reached (legacy)
-        if: success() && steps.cap.outputs.skip == 'true'
+        if: success() && steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'legacy-cap-reached'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
