@@ -81,6 +81,20 @@ export interface WidgetState {
 }
 
 // ---------------------------------------------------------------------------
+// Comp-token detection
+// ---------------------------------------------------------------------------
+
+/** Returns true if sql contains any :comp_* date tokens. */
+function hasCompTokens(sql: string): boolean {
+  return (
+    sql.includes(":comp_from") ||
+    sql.includes(":comp_to") ||
+    sql.includes(":comp_mes_from") ||
+    sql.includes(":comp_mes_to")
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Data fetching helper
 // ---------------------------------------------------------------------------
 
@@ -143,14 +157,19 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
   const renderedKeyRef = useRef<string>(specKey);
   const specChanged = renderedKeyRef.current !== specKey;
 
-  // Substitute :curr_from/:curr_to tokens in a main widget SQL string.
+  // Substitute date tokens in a main widget SQL string.
+  // Substitutes :curr_* always when dateRange is set; also substitutes :comp_*
+  // when comparisonRange is set (so main SQL that references comp tokens works).
   // Returns sql unchanged when dateRange is not set (backwards compatible).
   const buildMainSql = useCallback(
     (sql: string): string => {
       if (!dateRange) return sql;
-      return substituteDateParams(sql, { curr: { from: dateRange.from, to: dateRange.to } });
+      return substituteDateParams(sql, {
+        curr: { from: dateRange.from, to: dateRange.to },
+        ...(comparisonRange ? { comp: { from: comparisonRange.from, to: comparisonRange.to } } : {}),
+      });
     },
-    [dateRange],
+    [dateRange, comparisonRange],
   );
 
   // Build substituted comparison SQL for a chart widget, or null if not applicable.
@@ -241,6 +260,18 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             });
           }
         } else {
+          // Pre-flight: if main SQL uses comp tokens but no comparisonRange is set,
+          // show a friendly error instead of letting PostgreSQL reject literal `:comp_*`.
+          if (hasCompTokens(widget.sql) && !comparisonRange) {
+            if (!signal.aborted) {
+              setWidgetStates((prev) => {
+                const next = new Map(prev);
+                next.set(idx, { data: null, loading: false, error: "Este panel requiere seleccionar un período de comparación" });
+                return next;
+              });
+            }
+            return;
+          }
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
           const [data, comparisonData] = await Promise.all([
             fetchWidgetData(buildMainSql(widget.sql), signal),
@@ -274,7 +305,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
     });
 
     await Promise.all(promises);
-  }, [buildMainSql, buildComparisonSql]);
+  }, [buildMainSql, buildComparisonSql, comparisonRange]);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -345,6 +376,18 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             });
           }
         } else {
+          // Pre-flight: if main SQL uses comp tokens but no comparisonRange is set,
+          // show a friendly error instead of letting PostgreSQL reject literal `:comp_*`.
+          if (hasCompTokens(widget.sql) && !comparisonRange) {
+            if (!signal.aborted) {
+              setWidgetStates((prev) => {
+                const next = new Map(prev);
+                next.set(idx, { data: null, loading: false, error: "Este panel requiere seleccionar un período de comparación" });
+                return next;
+              });
+            }
+            return;
+          }
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
           const [data, comparisonData] = await Promise.all([
             fetchWidgetData(buildMainSql(widget.sql), signal),
@@ -379,7 +422,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         retryAbortMap.current.delete(idx);
       }
     },
-    [buildMainSql, buildComparisonSql],
+    [buildMainSql, buildComparisonSql, comparisonRange],
   );
 
   useEffect(() => {

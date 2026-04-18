@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import "../widgets/__tests__/setup";
 import { DashboardRenderer } from "../DashboardRenderer";
 import type { DashboardSpec } from "@/lib/schema";
-import type { DateRange } from "../DateRangePicker";
+import type { DateRange, ComparisonRange } from "../DateRangePicker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -660,6 +660,110 @@ describe("DashboardRenderer", () => {
       );
       expect(lastBody.sql).toContain("'2026-04-01'");
       expect(lastBody.sql).toContain("'2026-04-30'");
+    });
+
+    it("substitutes :comp_from/:comp_to in main sql when comparisonRange is set", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const compTokenSpec: DashboardSpec = {
+        title: "Comp Token Test",
+        widgets: [
+          {
+            type: "number",
+            title: "Comp Value",
+            sql: "SELECT SUM(v) FROM t WHERE fecha >= :comp_from AND fecha <= :comp_to",
+            format: "number",
+          },
+        ],
+      };
+
+      const compRange: ComparisonRange = {
+        from: new Date("2026-02-01T00:00:00.000Z"),
+        to: new Date("2026-02-28T00:00:00.000Z"),
+        type: "previous_month",
+      };
+
+      render(
+        <DashboardRenderer
+          spec={compTokenSpec}
+          dateRange={dateRange}
+          comparisonRange={compRange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.sql).toContain("'2026-02-01'");
+      expect(body.sql).toContain("'2026-02-28'");
+      expect(body.sql).not.toContain(":comp_from");
+      expect(body.sql).not.toContain(":comp_to");
+    });
+  });
+
+  describe(":comp_* token pre-flight check", () => {
+    const compSqlSpec: DashboardSpec = {
+      title: "Comparativa",
+      widgets: [
+        {
+          id: "w1",
+          type: "table",
+          title: "Variación por Tienda",
+          sql: "SELECT tienda, SUM(CASE WHEN fecha >= :comp_from AND fecha <= :comp_to THEN total END) AS anterior FROM ps_ventas GROUP BY tienda",
+        },
+      ],
+    };
+
+    const dateRange: DateRange = {
+      from: new Date("2026-03-01T00:00:00.000Z"),
+      to: new Date("2026-03-31T00:00:00.000Z"),
+    };
+
+    it("shows friendly error when table widget main sql has :comp_from but no comparisonRange", async () => {
+      vi.stubGlobal("fetch", vi.fn());
+
+      render(<DashboardRenderer spec={compSqlSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Este panel requiere seleccionar un período de comparación")).toBeInTheDocument();
+      });
+
+      // fetch should never be called — the pre-flight check blocks it
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("calls fetchWidgetData with substituted SQL (no :comp_*) when comparisonRange is set", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["tienda", "anterior"], rows: [["Madrid", 500]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const compRange: ComparisonRange = {
+        from: new Date("2026-02-01T00:00:00.000Z"),
+        to: new Date("2026-02-28T00:00:00.000Z"),
+        type: "previous_month",
+      };
+
+      render(
+        <DashboardRenderer
+          spec={compSqlSpec}
+          dateRange={dateRange}
+          comparisonRange={compRange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      // comp tokens must be substituted
+      expect(body.sql).not.toContain(":comp_from");
+      expect(body.sql).not.toContain(":comp_to");
+      // substituted with actual dates
+      expect(body.sql).toContain("'2026-02-01'");
+      expect(body.sql).toContain("'2026-02-28'");
     });
   });
 });
