@@ -282,3 +282,9 @@ assert pg_count == fourd_count
 6. **Keep tests focused** — one behavior per test
 7. **For ETL**: integration tests with real PG, skip if no connection
 8. **For Dashboard**: unit tests for components, integration for API routes
+
+---
+
+## See also
+
+- [docs/testing-strategy.md](../testing-strategy.md) — test tiers, commands, coverage thresholds, and the "must cover before risky change" list
