@@ -61,6 +61,12 @@ describe("knowledge", () => {
       expect(questions).toContain("pago");
       expect(questions).toContain("margen");
     });
+
+    it("no SQL pair uses CURRENT_DATE or DATE_TRUNC with CURRENT_DATE", () => {
+      for (const pair of SQL_PAIRS) {
+        expect(pair.sql).not.toMatch(/CURRENT_DATE/);
+      }
+    });
   });
 
   describe("SCHEMA", () => {
