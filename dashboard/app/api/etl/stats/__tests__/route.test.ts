@@ -125,4 +125,22 @@ describe("GET /api/etl/stats", () => {
     expect(body.code).toBe("DB_QUERY");
     expect(body.requestId).toBeDefined();
   });
+
+  // Risk: RISK-ORCH-NULL-RATE — if the rate subquery returns no rows (e.g. empty DB),
+  // rateResult.rows[0] is undefined; the ?? [0,0,0,0] fallback must prevent a TypeError.
+  it("defaults success_rate to zeros when rate query returns no rows", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [], columns: [] })
+      .mockResolvedValueOnce({ rows: [], columns: [] })
+      .mockResolvedValueOnce({ rows: [], columns: [] }); // <-- no rate row
+
+    const res = await GET();
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success_rate.total).toBe(0);
+    expect(body.success_rate.success).toBe(0);
+    expect(body.success_rate.partial).toBe(0);
+    expect(body.success_rate.failed).toBe(0);
+  });
 });
