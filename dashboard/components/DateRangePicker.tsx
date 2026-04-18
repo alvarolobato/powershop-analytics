@@ -40,15 +40,30 @@ interface Preset {
   range: () => DateRange;
 }
 
-function startOfDay(d: Date): Date {
+export function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
 }
 
-function endOfDay(d: Date): Date {
+export function endOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
-const PRESETS: Preset[] = [
+// ISO week: Monday = day 1. Returns the Monday of the week containing `d`.
+export function isoWeekMonday(d: Date): Date {
+  const day = d.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+  const diff = day === 0 ? -6 : 1 - day; // shift so Monday = 0
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return monday;
+}
+
+export function currentQuarterStart(d: Date): Date {
+  const q = Math.floor(d.getMonth() / 3);
+  return new Date(d.getFullYear(), q * 3, 1);
+}
+
+// Current-period presets (in-progress)
+export const CURRENT_PRESETS: Preset[] = [
   {
     label: "Hoy",
     range: () => {
@@ -57,32 +72,90 @@ const PRESETS: Preset[] = [
     },
   },
   {
-    label: "Última semana",
+    label: "Semana actual",
     range: () => {
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 6);
-      return { from: startOfDay(from), to: endOfDay(to) };
+      const now = new Date();
+      const monday = isoWeekMonday(now);
+      return { from: startOfDay(monday), to: endOfDay(now) };
     },
   },
   {
-    label: "Último mes",
+    label: "Mes actual",
     range: () => {
-      // Use 30-day subtraction to avoid month-end overflow (e.g., Mar 31 - 1 month = Mar 3)
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 29);
-      return { from: startOfDay(from), to: endOfDay(to) };
+      const now = new Date();
+      const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { from: startOfDay(firstOfMonth), to: endOfDay(now) };
     },
   },
   {
-    label: "Último trimestre",
+    label: "Trimestre actual",
     range: () => {
-      // Use 90-day subtraction to avoid month-end overflow
-      const to = new Date();
-      const from = new Date(to);
-      from.setDate(from.getDate() - 89);
-      return { from: startOfDay(from), to: endOfDay(to) };
+      const now = new Date();
+      return { from: startOfDay(currentQuarterStart(now)), to: endOfDay(now) };
+    },
+  },
+  {
+    label: "Año actual",
+    range: () => {
+      const now = new Date();
+      const jan1 = new Date(now.getFullYear(), 0, 1);
+      return { from: startOfDay(jan1), to: endOfDay(now) };
+    },
+  },
+];
+
+// Previous-period presets (complete periods)
+export const PREVIOUS_PRESETS: Preset[] = [
+  {
+    label: "Ayer",
+    range: () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { from: startOfDay(yesterday), to: endOfDay(yesterday) };
+    },
+  },
+  {
+    label: "Semana anterior",
+    range: () => {
+      const now = new Date();
+      const thisMonday = isoWeekMonday(now);
+      const prevSunday = new Date(thisMonday);
+      prevSunday.setDate(thisMonday.getDate() - 1);
+      const prevMonday = new Date(thisMonday);
+      prevMonday.setDate(thisMonday.getDate() - 7);
+      return { from: startOfDay(prevMonday), to: endOfDay(prevSunday) };
+    },
+  },
+  {
+    label: "Mes anterior",
+    range: () => {
+      const now = new Date();
+      const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const lastOfPrevMonth = new Date(firstOfThisMonth);
+      lastOfPrevMonth.setDate(0); // last day of prev month
+      const firstOfPrevMonth = new Date(lastOfPrevMonth.getFullYear(), lastOfPrevMonth.getMonth(), 1);
+      return { from: startOfDay(firstOfPrevMonth), to: endOfDay(lastOfPrevMonth) };
+    },
+  },
+  {
+    label: "Trimestre anterior",
+    range: () => {
+      const now = new Date();
+      const thisQStart = currentQuarterStart(now);
+      const prevQEnd = new Date(thisQStart);
+      prevQEnd.setDate(0); // last day of month before this quarter
+      const prevQStart = currentQuarterStart(prevQEnd);
+      return { from: startOfDay(prevQStart), to: endOfDay(prevQEnd) };
+    },
+  },
+  {
+    label: "Año anterior",
+    range: () => {
+      const prevYear = new Date().getFullYear() - 1;
+      return {
+        from: new Date(prevYear, 0, 1, 0, 0, 0, 0),
+        to: new Date(prevYear, 11, 31, 23, 59, 59, 999),
+      };
     },
   },
 ];
@@ -346,21 +419,42 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           aria-label="Selector de rango de fechas"
           className="absolute left-0 z-50 mt-2 w-80 rounded-xl border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background shadow-xl"
         >
-          {/* Presets */}
+          {/* Presets — two-column grid */}
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
-            <p className="mb-1 px-2 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-              Preestablecidos
-            </p>
-            {PRESETS.map((preset) => (
-              <button
-                key={preset.label}
-                type="button"
-                onClick={() => applyPreset(preset)}
-                className="w-full rounded-lg px-3 py-2 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-              >
-                {preset.label}
-              </button>
-            ))}
+            <div className="mb-1 grid grid-cols-2 gap-x-2 px-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                Periodo actual
+              </p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                Periodo anterior
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-x-1">
+              <div>
+                {CURRENT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className="w-full rounded-lg px-3 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+              <div>
+                {PREVIOUS_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className="w-full rounded-lg px-3 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Custom range */}
