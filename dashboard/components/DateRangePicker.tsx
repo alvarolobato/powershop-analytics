@@ -88,6 +88,190 @@ const PRESETS: Preset[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Period helpers
+// ---------------------------------------------------------------------------
+
+function isoWeekMonday(d: Date): Date {
+  const day = d.getDay(); // 0 = Sun
+  const diff = day === 0 ? -6 : 1 - day;
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + diff);
+  return monday;
+}
+
+function currentQuarterStart(d: Date): Date {
+  const q = Math.floor(d.getMonth() / 3);
+  return new Date(d.getFullYear(), q * 3, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Period detection
+// ---------------------------------------------------------------------------
+
+export type PeriodType = "day" | "week" | "month" | "quarter" | "year";
+
+/**
+ * Detect whether a DateRange matches a known calendar period.
+ * Returns null for custom/rolling ranges.
+ * In-progress periods (to == end-of-today) are recognised for each type.
+ */
+export function detectPeriodType(range: DateRange): PeriodType | null {
+  const { from, to } = range;
+  const today = new Date();
+  const todayEnd = endOfDay(today);
+
+  const fromMidnight =
+    from.getHours() === 0 &&
+    from.getMinutes() === 0 &&
+    from.getSeconds() === 0 &&
+    from.getMilliseconds() === 0;
+  const toEndOfDay =
+    to.getHours() === 23 &&
+    to.getMinutes() === 59 &&
+    to.getSeconds() === 59 &&
+    to.getMilliseconds() === 999;
+
+  if (!fromMidnight || !toEndOfDay) return null;
+
+  const toIsToday = to.getTime() === todayEnd.getTime();
+
+  // Day: same calendar day
+  if (
+    from.getFullYear() === to.getFullYear() &&
+    from.getMonth() === to.getMonth() &&
+    from.getDate() === to.getDate()
+  ) {
+    return "day";
+  }
+
+  // Week: from is ISO Monday, to is the following Sunday (or today for current week)
+  const monday = isoWeekMonday(from);
+  if (
+    monday.getFullYear() === from.getFullYear() &&
+    monday.getMonth() === from.getMonth() &&
+    monday.getDate() === from.getDate()
+  ) {
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const expectedTo = endOfDay(sunday);
+    if (to.getTime() === expectedTo.getTime() || toIsToday) {
+      return "week";
+    }
+  }
+
+  // Month: from is 1st of month, to is last of that same month (or today in that month)
+  if (from.getDate() === 1) {
+    const lastDay = new Date(from.getFullYear(), from.getMonth() + 1, 0);
+    const expectedTo = endOfDay(lastDay);
+    if (to.getTime() === expectedTo.getTime()) {
+      return "month";
+    }
+    if (
+      toIsToday &&
+      from.getFullYear() === to.getFullYear() &&
+      from.getMonth() === to.getMonth()
+    ) {
+      return "month";
+    }
+  }
+
+  // Quarter: from is 1st of a quarter start month (Jan/Apr/Jul/Oct),
+  // to is last of that quarter (or today for current quarter past month 1)
+  const qStartMonth = Math.floor(from.getMonth() / 3) * 3;
+  if (from.getDate() === 1 && from.getMonth() === qStartMonth) {
+    const lastOfQ = new Date(from.getFullYear(), qStartMonth + 3, 0);
+    const expectedTo = endOfDay(lastOfQ);
+    if (to.getTime() === expectedTo.getTime()) {
+      return "quarter";
+    }
+    if (toIsToday) {
+      // Only call it a quarter if we're past the first month of the quarter,
+      // to avoid colliding with the 'month' case above.
+      const qStart = currentQuarterStart(today);
+      const isCurrentQ =
+        from.getFullYear() === qStart.getFullYear() &&
+        from.getMonth() === qStart.getMonth();
+      if (isCurrentQ && today.getMonth() !== qStartMonth) {
+        return "quarter";
+      }
+    }
+  }
+
+  // Year: from is Jan 1, to is Dec 31 (or today for current year past January)
+  if (from.getMonth() === 0 && from.getDate() === 1) {
+    const dec31 = new Date(from.getFullYear(), 11, 31);
+    const expectedTo = endOfDay(dec31);
+    if (to.getTime() === expectedTo.getTime()) {
+      return "year";
+    }
+    if (
+      toIsToday &&
+      from.getFullYear() === today.getFullYear() &&
+      today.getMonth() !== 0
+    ) {
+      return "year";
+    }
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Period navigation
+// ---------------------------------------------------------------------------
+
+/**
+ * Shift a DateRange by one period in the given direction.
+ * The period type is detected automatically. Returns range unchanged for null (custom).
+ * When navigating forward into the current period, `to` = end-of-today.
+ */
+export function navigatePeriod(range: DateRange, direction: -1 | 1): DateRange {
+  const type = detectPeriodType(range);
+  if (type === null) return range;
+
+  const today = new Date();
+  const todayEnd = endOfDay(today);
+
+  function clampTo(newFrom: Date, fullTo: Date): Date {
+    return fullTo.getTime() > todayEnd.getTime() && newFrom.getTime() <= today.getTime()
+      ? todayEnd
+      : fullTo;
+  }
+
+  switch (type) {
+    case "day": {
+      const d = new Date(range.from);
+      d.setDate(d.getDate() + direction);
+      return { from: startOfDay(d), to: endOfDay(d) };
+    }
+    case "week": {
+      const newMonday = new Date(range.from);
+      newMonday.setDate(newMonday.getDate() + direction * 7);
+      const newFrom = startOfDay(newMonday);
+      const sunday = new Date(newMonday);
+      sunday.setDate(newMonday.getDate() + 6);
+      return { from: newFrom, to: clampTo(newFrom, endOfDay(sunday)) };
+    }
+    case "month": {
+      const newFrom = new Date(range.from.getFullYear(), range.from.getMonth() + direction, 1);
+      const lastDay = new Date(newFrom.getFullYear(), newFrom.getMonth() + 1, 0);
+      return { from: startOfDay(newFrom), to: clampTo(newFrom, endOfDay(lastDay)) };
+    }
+    case "quarter": {
+      const newFrom = new Date(range.from.getFullYear(), range.from.getMonth() + direction * 3, 1);
+      const lastDay = new Date(newFrom.getFullYear(), newFrom.getMonth() + 3, 0);
+      return { from: startOfDay(newFrom), to: clampTo(newFrom, endOfDay(lastDay)) };
+    }
+    case "year": {
+      const newYear = range.from.getFullYear() + direction;
+      const newFrom = new Date(newYear, 0, 1);
+      const dec31 = new Date(newYear, 11, 31);
+      return { from: startOfDay(newFrom), to: clampTo(newFrom, endOfDay(dec31)) };
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -299,45 +483,92 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const isComparisonActive = comparisonType !== "none";
 
+  const periodType = detectPeriodType(value);
+  const showNavButtons = periodType !== null;
+
+  // → is disabled when the next period starts after today
+  const nextPeriod = showNavButtons ? navigatePeriod(value, 1) : null;
+  const startOfToday = startOfDay(new Date());
+  const forwardDisabled = nextPeriod !== null && nextPeriod.from > startOfToday;
+
+  const navButtonClass =
+    "inline-flex items-center justify-center rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-2 text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tremor-brand dark:focus-visible:ring-dark-tremor-brand disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
     <div className="relative" ref={containerRef} data-testid="date-range-picker">
-      {/* Trigger button */}
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex items-center gap-2 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tremor-brand dark:focus-visible:ring-dark-tremor-brand"
-        aria-label="Seleccionar rango de fechas"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-      >
-        {/* Calendar icon */}
-        <svg
-          className="h-4 w-4 shrink-0"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={1.5}
-          aria-hidden="true"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"
-          />
-        </svg>
-        <span className="hidden sm:inline">{formatDisplayRange(value)}</span>
-        <span className="sm:hidden">Fechas</span>
-        {isComparisonActive && (
-          <span
-            data-testid="vs-badge"
-            className="inline-flex items-center rounded bg-tremor-brand/10 dark:bg-dark-tremor-brand/10 px-1.5 py-0.5 text-xs font-semibold text-tremor-brand dark:text-dark-tremor-brand"
+      <div className="inline-flex items-center gap-1">
+        {/* ← prev button */}
+        {showNavButtons && (
+          <button
+            type="button"
+            data-testid="nav-prev"
+            aria-label="Período anterior"
+            className={navButtonClass}
+            onClick={() =>
+              onChange(buildPayload(navigatePeriod(value, -1), comparisonType, compCustomFrom, compCustomTo))
+            }
           >
-            vs
-          </span>
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+            </svg>
+          </button>
         )}
-      </button>
+
+        {/* Trigger button */}
+        <button
+          ref={triggerRef}
+          type="button"
+          onClick={() => setOpen((prev) => !prev)}
+          className="inline-flex items-center gap-2 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-tremor-brand dark:focus-visible:ring-dark-tremor-brand"
+          aria-label="Seleccionar rango de fechas"
+          aria-expanded={open}
+          aria-haspopup="dialog"
+        >
+          {/* Calendar icon */}
+          <svg
+            className="h-4 w-4 shrink-0"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={1.5}
+            aria-hidden="true"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"
+            />
+          </svg>
+          <span className="hidden sm:inline">{formatDisplayRange(value)}</span>
+          <span className="sm:hidden">Fechas</span>
+          {isComparisonActive && (
+            <span
+              data-testid="vs-badge"
+              className="inline-flex items-center rounded bg-tremor-brand/10 dark:bg-dark-tremor-brand/10 px-1.5 py-0.5 text-xs font-semibold text-tremor-brand dark:text-dark-tremor-brand"
+            >
+              vs
+            </span>
+          )}
+        </button>
+
+        {/* → next button */}
+        {showNavButtons && (
+          <button
+            type="button"
+            data-testid="nav-next"
+            aria-label="Período siguiente"
+            disabled={forwardDisabled}
+            className={navButtonClass}
+            onClick={() =>
+              onChange(buildPayload(navigatePeriod(value, 1), comparisonType, compCustomFrom, compCustomTo))
+            }
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+            </svg>
+          </button>
+        )}
+      </div>
 
       {/* Dropdown panel */}
       {open && (

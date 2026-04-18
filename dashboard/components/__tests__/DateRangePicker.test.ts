@@ -1,6 +1,8 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   computeComparisonRange,
+  detectPeriodType,
+  navigatePeriod,
 } from "../DateRangePicker";
 import type { DateRange, ComparisonType } from "../DateRangePicker";
 
@@ -82,5 +84,232 @@ describe("computeComparisonRange", () => {
     expect(result).not.toBeNull();
     expect(result!.from).toEqual(d(2025, 3, 1));
     expect(result!.to).toEqual(d(2025, 3, 31, 23, 59, 59, 999));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectPeriodType
+// ---------------------------------------------------------------------------
+
+describe("detectPeriodType", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns 'day' for a single full day", () => {
+    const range: DateRange = { from: d(2026, 3, 15), to: d(2026, 3, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("day");
+  });
+
+  it("returns 'day' for yesterday", () => {
+    const range: DateRange = { from: d(2026, 4, 17), to: d(2026, 4, 17, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("day");
+  });
+
+  it("returns 'week' for a full ISO week (Mon–Sun)", () => {
+    // Week 16 of 2026: Apr 13 (Mon) – Apr 19 (Sun)
+    const range: DateRange = { from: d(2026, 4, 13), to: d(2026, 4, 19, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("week");
+  });
+
+  it("returns 'week' for previous full ISO week", () => {
+    // Week 15: Apr 6 – Apr 12
+    const range: DateRange = { from: d(2026, 4, 6), to: d(2026, 4, 12, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("week");
+  });
+
+  it("returns 'month' for a full calendar month (March)", () => {
+    const range: DateRange = { from: d(2026, 3, 1), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("returns 'month' for February (28 days)", () => {
+    const range: DateRange = { from: d(2026, 2, 1), to: d(2026, 2, 28, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("returns 'quarter' for a full Q1 (Jan–Mar)", () => {
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("quarter");
+  });
+
+  it("returns 'quarter' for a full Q3 (Jul–Sep)", () => {
+    const range: DateRange = { from: d(2026, 7, 1), to: d(2026, 9, 30, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("quarter");
+  });
+
+  it("returns 'year' for a full calendar year", () => {
+    const range: DateRange = { from: d(2025, 1, 1), to: d(2025, 12, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("year");
+  });
+
+  it("returns null for a custom rolling range (30 days)", () => {
+    const range: DateRange = { from: d(2026, 3, 19), to: d(2026, 4, 17, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBeNull();
+  });
+
+  it("returns null when from is not midnight", () => {
+    const range: DateRange = { from: d(2026, 4, 1, 9, 0), to: d(2026, 4, 30, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBeNull();
+  });
+
+  it("returns 'month' for current in-progress month (from = 1st, to = today end)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026
+    const range: DateRange = { from: d(2026, 4, 1), to: d(2026, 4, 18, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+    vi.useRealTimers();
+  });
+
+  it("returns 'week' for current in-progress week (Mon to today)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 (Saturday in week 16, Mon=Apr 13)
+    // Actually Apr 18 2026 is a Saturday, week starts Apr 13 (Mon)
+    const range: DateRange = { from: d(2026, 4, 13), to: d(2026, 4, 18, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("week");
+    vi.useRealTimers();
+  });
+
+  it("returns 'year' for current in-progress year (Jan 1 to today, past January)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 4, 18, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("year");
+    vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// navigatePeriod
+// ---------------------------------------------------------------------------
+
+describe("navigatePeriod", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns range unchanged for custom/null period", () => {
+    const range: DateRange = { from: d(2026, 3, 19), to: d(2026, 4, 17, 23, 59, 59, 999) };
+    expect(navigatePeriod(range, -1)).toStrictEqual(range);
+    expect(navigatePeriod(range, 1)).toStrictEqual(range);
+  });
+
+  // Day navigation
+  it("day: navigates back one day", () => {
+    const range: DateRange = { from: d(2026, 4, 18), to: d(2026, 4, 18, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2026, 4, 17));
+    expect(result.to).toEqual(d(2026, 4, 17, 23, 59, 59, 999));
+  });
+
+  it("day: navigates forward one day", () => {
+    const range: DateRange = { from: d(2026, 4, 17), to: d(2026, 4, 17, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, 1);
+    expect(result.from).toEqual(d(2026, 4, 18));
+    expect(result.to).toEqual(d(2026, 4, 18, 23, 59, 59, 999));
+  });
+
+  // Week navigation
+  it("week: navigates back one full ISO week", () => {
+    // Week 16: Apr 13–19 2026
+    const range: DateRange = { from: d(2026, 4, 13), to: d(2026, 4, 19, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2026, 4, 6));
+    expect(result.to).toEqual(d(2026, 4, 12, 23, 59, 59, 999));
+  });
+
+  it("week: navigates forward one full ISO week", () => {
+    // Use a past week far from today: Jan 5–11 2026 (Mon) → Jan 12–18 2026
+    const range: DateRange = { from: d(2026, 1, 5), to: d(2026, 1, 11, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, 1);
+    expect(result.from).toEqual(d(2026, 1, 12));
+    expect(result.to).toEqual(d(2026, 1, 18, 23, 59, 59, 999));
+  });
+
+  // Month navigation
+  it("month: navigates back — April → March", () => {
+    const range: DateRange = { from: d(2026, 4, 1), to: d(2026, 4, 30, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2026, 3, 1));
+    expect(result.to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
+  });
+
+  it("month: navigates forward — March → April (current, to = today)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026
+    const range: DateRange = { from: d(2026, 3, 1), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, 1);
+    expect(result.from).toEqual(d(2026, 4, 1));
+    expect(result.to).toEqual(d(2026, 4, 18, 23, 59, 59, 999)); // end of today
+    vi.useRealTimers();
+  });
+
+  it("month: Jan → Dec wraps to previous year", () => {
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 1, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2025, 12, 1));
+    expect(result.to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+
+  it("month: Feb leap year handled correctly", () => {
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 1, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1); // → Dec 2025
+    const resultBack = navigatePeriod(result, -1); // → Nov 2025
+    expect(resultBack.from).toEqual(d(2025, 11, 1));
+    expect(resultBack.to).toEqual(d(2025, 11, 30, 23, 59, 59, 999));
+  });
+
+  // Quarter navigation
+  it("quarter: navigates back — Q2 → Q1", () => {
+    const range: DateRange = { from: d(2026, 4, 1), to: d(2026, 6, 30, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2026, 1, 1));
+    expect(result.to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
+  });
+
+  it("quarter: Q1 → Q4 of prior year", () => {
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2025, 10, 1));
+    expect(result.to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+
+  it("quarter: navigates forward — Q1 → Q2 (current, to = today)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026 (Q2)
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, 1);
+    expect(result.from).toEqual(d(2026, 4, 1));
+    expect(result.to).toEqual(d(2026, 4, 18, 23, 59, 59, 999)); // end of today
+    vi.useRealTimers();
+  });
+
+  // Year navigation
+  it("year: navigates back — 2026 → 2025", () => {
+    const range: DateRange = { from: d(2026, 1, 1), to: d(2026, 12, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, -1);
+    expect(result.from).toEqual(d(2025, 1, 1));
+    expect(result.to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+
+  it("year: navigates forward into current year (to = today)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026
+    const range: DateRange = { from: d(2025, 1, 1), to: d(2025, 12, 31, 23, 59, 59, 999) };
+    const result = navigatePeriod(range, 1);
+    expect(result.from).toEqual(d(2026, 1, 1));
+    expect(result.to).toEqual(d(2026, 4, 18, 23, 59, 59, 999)); // end of today
+    vi.useRealTimers();
+  });
+
+  // Forward disabled: navigatePeriod(currentMonth, +1).from > startOfToday
+  it("forward from current month produces next month start > today (disabled condition)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026
+    const currentMonth: DateRange = { from: d(2026, 4, 1), to: d(2026, 4, 18, 23, 59, 59, 999) };
+    const next = navigatePeriod(currentMonth, 1);
+    const startOfToday = new Date(2026, 3, 18, 0, 0, 0, 0);
+    expect(next.from > startOfToday).toBe(true); // May 1 > Apr 18 → button disabled
+    vi.useRealTimers();
   });
 });
