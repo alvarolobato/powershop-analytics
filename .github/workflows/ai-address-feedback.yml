@@ -165,8 +165,45 @@ jobs:
           gh pr comment ${{ needs.resolve.outputs.pr_number }} \
             --body "🤖 Addressing review feedback automatically (${{ needs.resolve.outputs.reason }}). See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
+      # Claude Code Action's OIDC app-token exchange validates that workflow
+      # files on the PR branch match the default branch. If the PR modifies
+      # any `.github/workflows/*` file, the exchange fails with 401 and the
+      # Claude step hard-errors. Detect that up front and skip cleanly so
+      # PRs that edit workflows don't show a spurious red X and the reviewer
+      # knows why automated address-feedback can't run.
+      - name: Detect workflow-file change
+        id: workflow_change
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.resolve.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          WORKFLOW_CHANGES=$(gh api "repos/$REPO/pulls/$PR/files" --paginate \
+            --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length' 2>/dev/null || echo "0")
+          if [ "${WORKFLOW_CHANGES:-0}" -gt 0 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip Claude address-feedback — PR touches .github/workflows
+        if: steps.workflow_change.outputs.skip == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.resolve.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          MSG="ℹ️ **AI Factory**: Skipping automated address-feedback — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so Claude can't push fixes from a PR that changes workflows. **Please address Copilot's inline comments manually** (reply + commit + re-request review), then merge."
+          gh pr comment "$PR" --repo "$REPO" --body "$MSG" || true
+          gh pr edit "$PR" --repo "$REPO" \
+            --remove-label "ai-ready-for-review" \
+            --add-label "ai-awaiting-owner" || true
+
       - name: Address Review Feedback
         id: address
+        if: steps.workflow_change.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
@@ -255,7 +292,7 @@ jobs:
             - Stay within this PR's scope — do not pull in unrelated work.
 
       - name: Fetch CI handoff helper from default branch
-        if: success()
+        if: success() && steps.workflow_change.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -267,7 +304,7 @@ jobs:
 
       - name: Route next automated review (or converge)
         id: route
-        if: success()
+        if: success() && steps.workflow_change.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

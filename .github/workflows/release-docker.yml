@@ -50,13 +50,14 @@ jobs:
           IMAGE: ${{ matrix.image }}
         run: |
           set -euo pipefail
+          # Build the multi-line tag list without any leading indentation —
+          # docker/build-push-action treats each line literally, and any
+          # embedded spaces become part of the tag and fail validation.
           TAGS="${NAMESPACE}/${IMAGE}:${VERSION}"
           if [ "$IS_PRERELEASE" = "true" ]; then
-            TAGS="${TAGS}
-          ${NAMESPACE}/${IMAGE}:beta"
+            TAGS="${TAGS}"$'\n'"${NAMESPACE}/${IMAGE}:beta"
           else
-            TAGS="${TAGS}
-          ${NAMESPACE}/${IMAGE}:latest"
+            TAGS="${TAGS}"$'\n'"${NAMESPACE}/${IMAGE}:latest"
           fi
           {
             echo 'tags<<TAGS_EOF'
