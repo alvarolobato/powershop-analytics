@@ -23,8 +23,8 @@ _WM_MODULE = "etl.db.postgres"
 # All sync targets that must be patched in every test, keyed by dotted path.
 # Order matches the pipeline in etl/main.py run_full_sync().
 _SYNC_TARGETS = [
-    "etl.sync.articulos.sync_articulos",
     "etl.sync.articulos.sync_catalogos",
+    "etl.sync.articulos.sync_articulos",
     "etl.sync.maestros.sync_tiendas",
     "etl.sync.maestros.sync_clientes",
     "etl.sync.maestros.sync_proveedores",
@@ -111,9 +111,10 @@ def test_sync_order():
         run_full_sync(conn_4d, conn_pg)
 
     expected_order = [
-        # Catalog
-        "sync_articulos",
+        # Catalog — catalogos first so TRUNCATE CASCADE on catalog tables
+        # doesn't wipe ps_articulos (which FKs into all five catalogs).
         "sync_catalogos",
+        "sync_articulos",
         # Masters
         "sync_tiendas",
         "sync_clientes",

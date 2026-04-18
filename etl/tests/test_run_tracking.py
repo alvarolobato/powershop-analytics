@@ -234,8 +234,8 @@ class TestPartialStatus:
 # Keep in sync with run_full_sync in etl/main.py
 _WM_MODULE = "etl.db.postgres"
 _SYNC_TARGETS = [
-    "etl.sync.articulos.sync_articulos",
     "etl.sync.articulos.sync_catalogos",
+    "etl.sync.articulos.sync_articulos",
     "etl.sync.maestros.sync_tiendas",
     "etl.sync.maestros.sync_clientes",
     "etl.sync.maestros.sync_proveedores",

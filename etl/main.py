@@ -280,8 +280,11 @@ def run_full_sync(conn_4d, conn_pg) -> None:
     # ------------------------------------------------------------------
     # 1. Catalog (full refresh, no watermark)
     # ------------------------------------------------------------------
-    _s("articulos", sync_articulos)
+    # Load catalogos BEFORE articulos: truncate_and_insert uses TRUNCATE ...
+    # CASCADE, and ps_articulos has FKs to all five catalog tables.  If
+    # articulos ran first, the next catalog truncate would cascade-wipe it.
     _s("catalogos", _run_sync_catalogos)
+    _s("articulos", sync_articulos)
 
     # ------------------------------------------------------------------
     # 2. Masters (full refresh, no watermark)

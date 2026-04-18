@@ -12,8 +12,8 @@ from unittest.mock import MagicMock, patch
 
 _WM_MODULE = "etl.db.postgres"
 _SYNC_TARGETS = [
-    "etl.sync.articulos.sync_articulos",
     "etl.sync.articulos.sync_catalogos",
+    "etl.sync.articulos.sync_articulos",
     "etl.sync.maestros.sync_tiendas",
     "etl.sync.maestros.sync_clientes",
     "etl.sync.maestros.sync_proveedores",
