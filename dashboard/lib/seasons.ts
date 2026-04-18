@@ -11,10 +11,11 @@ export function parseSeason(code: string): Season | null {
 
   const prefix = match[1].toUpperCase();
   const year = 2000 + parseInt(match[2], 10);
+  const normalized = `${prefix}${match[2]}`;
 
   if (prefix === "PV") {
     return {
-      code,
+      code: normalized,
       label: `Primavera-Verano ${year}`,
       from: `${year}-02-01`,
       to: `${year}-08-31`,
@@ -22,7 +23,7 @@ export function parseSeason(code: string): Season | null {
   }
 
   return {
-    code,
+    code: normalized,
     label: `Otoño-Invierno ${year}`,
     from: `${year}-09-01`,
     to: `${year + 1}-01-31`,
