@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGeneratePrompt, buildModifyPrompt } from "../prompts";
+import { DashboardSpecSchema } from "../schema";
 
 describe("prompts", () => {
   describe("buildGeneratePrompt", () => {
@@ -97,6 +98,22 @@ describe("prompts", () => {
     it("includes colecciones and clave_temporada guidance", () => {
       expect(prompt).toContain("clave_temporada");
       expect(prompt).toContain("colec");
+    });
+
+    // Skipped until Task 1 (#289) is merged: prompt still has category/value for donut_chart.
+    // Remove .skip once PR #302 is merged so this test becomes a regression guard.
+    it.skip("all JSON examples in the prompt are valid DashboardSpec widgets", () => {
+      const jsonBlocks = [...prompt.matchAll(/```json\n(\{[\s\S]*?\})\n```/g)].map(
+        (m) => m[1],
+      );
+      const widgetBlocks = jsonBlocks.filter((b) => b.includes('"type"'));
+      expect(widgetBlocks.length).toBeGreaterThan(0);
+      for (const block of widgetBlocks) {
+        const parsed = JSON.parse(block);
+        expect(() =>
+          DashboardSpecSchema.parse({ title: "test", widgets: [parsed] }),
+        ).not.toThrow();
+      }
     });
   });
 
