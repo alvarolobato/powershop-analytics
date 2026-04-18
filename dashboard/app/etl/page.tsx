@@ -79,8 +79,8 @@ export default function EtlMonitorPage() {
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchRuns = useCallback(async (p: number) => {
-    setRunsLoading(true);
+  const fetchRuns = useCallback(async (p: number, silent = false) => {
+    if (!silent) setRunsLoading(true);
     setRunsError(null);
     try {
       const res = await fetch(`/api/etl/runs?page=${p}&per_page=${PER_PAGE}`);
@@ -142,7 +142,7 @@ export default function EtlMonitorPage() {
   useEffect(() => {
     if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
     if (isRunning) {
-      pollingRef.current = setInterval(() => { void fetchRuns(page); }, 5_000);
+      pollingRef.current = setInterval(() => { void fetchRuns(page, true); }, 5_000);
     }
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [isRunning, fetchRuns, page]);
