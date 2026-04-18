@@ -2,7 +2,7 @@
 
 All tests use unittest.mock.patch — no live DB or 4D connection needed.
 
-Risk map (→ docs/skills/testing-patterns.md § Critical paths):
+Risk map (→ docs/skills/testing-patterns.md):
   RISK-ORCH-1  Sync modules skipped / not dispatched on the success path
   RISK-ORCH-2  A single-module failure aborts the remaining pipeline
   RISK-ORCH-3  create_run failure aborts the sync before any data moves
