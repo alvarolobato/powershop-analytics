@@ -462,6 +462,7 @@ ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_from TIMESTAM
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_to   TIMESTAMPTZ;
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS error_msg      TEXT;
 
+-- Transport channel: dashboard writes a row here; ETL polls and picks it up.
 CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     id           SERIAL       PRIMARY KEY,
     requested_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
