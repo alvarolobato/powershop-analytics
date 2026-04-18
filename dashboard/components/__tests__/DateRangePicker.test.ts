@@ -7,6 +7,8 @@ import {
   endOfDay,
   isoWeekMonday,
   currentQuarterStart,
+  detectPeriodType,
+  formatPeriodLabel,
 } from "../DateRangePicker";
 import type { DateRange, ComparisonType } from "../DateRangePicker";
 
@@ -219,5 +221,192 @@ describe("PREVIOUS_PRESETS (fixed date: 2026-04-15 Wednesday)", () => {
     const range = preset.range();
     expect(range.from).toEqual(d(2025, 1, 1, 0, 0, 0, 0));
     expect(range.to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// detectPeriodType — fixed date: 2026-04-15 (Wednesday, week 16)
+// ---------------------------------------------------------------------------
+
+describe("detectPeriodType (fixed date: 2026-04-15 Wednesday)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("'day': today (Hoy preset)", () => {
+    const range: DateRange = { from: d(2026, 4, 15, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("day");
+  });
+
+  it("'day': yesterday (Ayer preset)", () => {
+    const range: DateRange = { from: d(2026, 4, 14, 0, 0, 0, 0), to: d(2026, 4, 14, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("day");
+  });
+
+  it("'week': current week Mon–today (Semana actual preset)", () => {
+    const range: DateRange = { from: d(2026, 4, 13, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("week");
+  });
+
+  it("'week': previous full week Mon–Sun (Semana anterior preset)", () => {
+    const range: DateRange = { from: d(2026, 4, 6, 0, 0, 0, 0), to: d(2026, 4, 12, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("week");
+  });
+
+  it("'month': current month (Mes actual preset)", () => {
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("'month': previous full month (Mes anterior preset)", () => {
+    const range: DateRange = { from: d(2026, 3, 1, 0, 0, 0, 0), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("'month': current month is quarter start — month wins over quarter (Mes actual April)", () => {
+    // April 1 is both month-start and Q2-start; when today is still in April, result is 'month'
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("month");
+  });
+
+  it("'quarter': current quarter when today is past the first month (Trimestre actual preset)", () => {
+    // Override to May 15 so "Trimestre actual" = April 1 → May 15 (distinct from "Mes actual" = May 1 → May 15)
+    vi.setSystemTime(new Date(2026, 4, 15, 12, 0, 0, 0));
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 5, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("quarter");
+  });
+
+  it("'quarter': previous full quarter (Trimestre anterior preset)", () => {
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("quarter");
+  });
+
+  it("'year': current year (Año actual preset)", () => {
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("year");
+  });
+
+  it("'year': previous full year (Año anterior preset)", () => {
+    const range: DateRange = { from: d(2025, 1, 1, 0, 0, 0, 0), to: d(2025, 12, 31, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBe("year");
+  });
+
+  it("null: custom 7-day rolling range (Apr 9 – Apr 15)", () => {
+    const range: DateRange = { from: d(2026, 4, 9, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBeNull();
+  });
+
+  it("null: arbitrary range not matching any period", () => {
+    const range: DateRange = { from: d(2026, 3, 15, 0, 0, 0, 0), to: d(2026, 4, 10, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBeNull();
+  });
+
+  it("null: non-start-of-day 'from'", () => {
+    const range: DateRange = { from: d(2026, 4, 1, 8, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBeNull();
+  });
+
+  it("null: non-end-of-day 'to'", () => {
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 18, 0, 0, 0) };
+    expect(detectPeriodType(range)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// formatPeriodLabel — fixed date: 2026-04-15 (Wednesday, week 16)
+// ---------------------------------------------------------------------------
+
+describe("formatPeriodLabel (fixed date: 2026-04-15 Wednesday)", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("'day' → today → 'Hoy'", () => {
+    const range: DateRange = { from: d(2026, 4, 15, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Hoy");
+  });
+
+  it("'day' → yesterday → 'Ayer'", () => {
+    const range: DateRange = { from: d(2026, 4, 14, 0, 0, 0, 0), to: d(2026, 4, 14, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Ayer");
+  });
+
+  it("'day' → other day → short weekday label", () => {
+    // Monday 2026-04-13
+    const range: DateRange = { from: d(2026, 4, 13, 0, 0, 0, 0), to: d(2026, 4, 13, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("lun 13 abr 2026");
+  });
+
+  it("'week' → current week → 'Semana 16 • 13 abr →'", () => {
+    const range: DateRange = { from: d(2026, 4, 13, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Semana 16 • 13 abr →");
+  });
+
+  it("'week' → full ISO week → 'Semana 16 • 13-19 abr 2026'", () => {
+    const range: DateRange = { from: d(2026, 4, 13, 0, 0, 0, 0), to: d(2026, 4, 19, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Semana 16 • 13-19 abr 2026");
+  });
+
+  it("'week' → cross-month week → shows both months", () => {
+    // Week 14: Mar 30 – Apr 5, 2026
+    const range: DateRange = { from: d(2026, 3, 30, 0, 0, 0, 0), to: d(2026, 4, 5, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Semana 14 • 30 mar – 5 abr 2026");
+  });
+
+  it("'month' → current month → 'Abril 2026'", () => {
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Abril 2026");
+  });
+
+  it("'month' → previous month → 'Marzo 2026'", () => {
+    const range: DateRange = { from: d(2026, 3, 1, 0, 0, 0, 0), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Marzo 2026");
+  });
+
+  it("'quarter' → current quarter (today past first month) → 'T2 2026 • abr-jun'", () => {
+    // Use May 15 so the quarter range (Apr 1 – May 15) is distinct from the month range (May 1 – May 15)
+    vi.setSystemTime(new Date(2026, 4, 15, 12, 0, 0, 0));
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 5, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("T2 2026 • abr-jun");
+  });
+
+  it("'quarter' → previous full quarter → 'T1 2026 • ene-mar'", () => {
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 3, 31, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("T1 2026 • ene-mar");
+  });
+
+  it("'month' → April when April is quarter start → 'Abril 2026'", () => {
+    const range: DateRange = { from: d(2026, 4, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("Abril 2026");
+  });
+
+  it("'year' → current year → '2026'", () => {
+    const range: DateRange = { from: d(2026, 1, 1, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("2026");
+  });
+
+  it("'year' → previous full year → '2025'", () => {
+    const range: DateRange = { from: d(2025, 1, 1, 0, 0, 0, 0), to: d(2025, 12, 31, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("2025");
+  });
+
+  it("null/custom → compact date pair same year → '9 abr – 15 abr 2026'", () => {
+    const range: DateRange = { from: d(2026, 4, 9, 0, 0, 0, 0), to: d(2026, 4, 15, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("9 abr – 15 abr 2026");
+  });
+
+  it("null/custom → compact date pair cross-year → shows both years", () => {
+    const range: DateRange = { from: d(2025, 12, 15, 0, 0, 0, 0), to: d(2026, 1, 10, 23, 59, 59, 999) };
+    expect(formatPeriodLabel(range)).toBe("15 dic 2025 – 10 ene 2026");
   });
 });
