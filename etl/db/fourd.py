@@ -99,6 +99,10 @@ def safe_fetch(conn, sql: str) -> list[dict]:
     cursor = conn.cursor()
     try:
         cursor.execute(sql)
+        if cursor.description is None:
+            raise RuntimeError(
+                f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
+            )
         columns = [_decode_column_name(desc[0]) for desc in cursor.description]
         rows = cursor.fetchall()
     finally:

@@ -114,6 +114,12 @@ class TestSafeFetch:
         assert len(result) == 3
         assert result[2] == {"id": 3, "val": "c"}
 
+    def test_description_none_raises_runtime_error(self):
+        conn = _StubConn(description=None, rows=[])
+        sql = "SELECT * FROM some_table"
+        with pytest.raises(RuntimeError, match="some_table"):
+            safe_fetch(conn, sql)
+
 
 # ---------------------------------------------------------------------------
 # _validate_identifier tests
