@@ -94,6 +94,9 @@ function hasCompTokens(sql: string): boolean {
   );
 }
 
+/** User-facing error shown when a widget requires a comparison range that isn't set. */
+const COMP_MISSING_ERROR = "Este panel requiere seleccionar un período de comparación";
+
 // ---------------------------------------------------------------------------
 // Data fetching helper
 // ---------------------------------------------------------------------------
@@ -204,6 +207,17 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
     const promises = widgets.map(async (widget, idx) => {
       try {
         if (widget.type === "kpi_row") {
+          // Pre-flight: guard kpi_row items that use comp tokens without a comparison range.
+          if (widget.items.some((item) => hasCompTokens(item.sql)) && !comparisonRange) {
+            if (!signal.aborted) {
+              setWidgetStates((prev) => {
+                const next = new Map(prev);
+                next.set(idx, { data: null, loading: false, error: COMP_MISSING_ERROR });
+                return next;
+              });
+            }
+            return;
+          }
           // Kick off main KPI values, trend values, and anomaly data concurrently
           const [settled, trendResults, anomalyResults] = await Promise.all([
             // Fetch each KPI item in parallel; capture per-item errors
@@ -266,7 +280,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             if (!signal.aborted) {
               setWidgetStates((prev) => {
                 const next = new Map(prev);
-                next.set(idx, { data: null, loading: false, error: "Este panel requiere seleccionar un período de comparación" });
+                next.set(idx, { data: null, loading: false, error: COMP_MISSING_ERROR });
                 return next;
               });
             }
@@ -325,6 +339,17 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
 
       try {
         if (widget.type === "kpi_row") {
+          // Pre-flight: same guard as fetchAll — kpi_row items can reference comp tokens.
+          if (widget.items.some((item) => hasCompTokens(item.sql)) && !comparisonRange) {
+            if (!signal.aborted) {
+              setWidgetStates((prev) => {
+                const next = new Map(prev);
+                next.set(idx, { data: null, loading: false, error: COMP_MISSING_ERROR });
+                return next;
+              });
+            }
+            return;
+          }
           const [settled, trendResults, anomalyResults] = await Promise.all([
             Promise.all(
               widget.items.map(async (item) => {
@@ -382,7 +407,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             if (!signal.aborted) {
               setWidgetStates((prev) => {
                 const next = new Map(prev);
-                next.set(idx, { data: null, loading: false, error: "Este panel requiere seleccionar un período de comparación" });
+                next.set(idx, { data: null, loading: false, error: COMP_MISSING_ERROR });
                 return next;
               });
             }
