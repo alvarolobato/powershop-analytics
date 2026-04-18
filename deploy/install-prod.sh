@@ -70,7 +70,7 @@ prompt_default() {
 
 random_password() {
   if command -v openssl >/dev/null 2>&1; then
-    openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | head -c 24
+    openssl rand -base64 48 | tr -dc 'A-Za-z0-9' | head -c 24
   else
     tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24
   fi
@@ -284,9 +284,9 @@ main() {
     "${PROJECT_DIR}/data/qdrant" \
     "${PROJECT_DIR}/data/wren"
 
-  # Make the project dir writable by the invoking user so subsequent
-  # `docker compose` commands don't need sudo. Data subdirs stay as their
-  # container-user-owned defaults (postgres etc. chown on first start).
+  # Make the project dir tree writable by the invoking user so subsequent
+  # `docker compose` commands don't need sudo. This includes data subdirs,
+  # which containers will re-own on first start.
   if [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER}" != "root" ]; then
     maybe_sudo chown -R "${SUDO_USER}:${SUDO_USER}" "${PROJECT_DIR}" 2>/dev/null || true
   fi
