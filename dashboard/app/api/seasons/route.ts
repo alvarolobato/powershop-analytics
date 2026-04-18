@@ -1,36 +1,6 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
-
-export interface Season {
-  code: string;
-  label: string;
-  from: string;
-  to: string;
-}
-
-export function parseSeason(code: string): Season | null {
-  const match = /^(PV|OI)(\d{2})$/i.exec(code.trim());
-  if (!match) return null;
-
-  const prefix = match[1].toUpperCase();
-  const year = 2000 + parseInt(match[2], 10);
-
-  if (prefix === "PV") {
-    return {
-      code,
-      label: `Primavera-Verano ${year}`,
-      from: `${year}-02-01`,
-      to: `${year}-08-31`,
-    };
-  }
-
-  return {
-    code,
-    label: `Otoño-Invierno ${year}`,
-    from: `${year}-09-01`,
-    to: `${year + 1}-01-31`,
-  };
-}
+import { type Season, parseSeason } from "@/lib/seasons";
 
 export async function GET(): Promise<NextResponse> {
   try {

@@ -20,7 +20,7 @@ import {
   sanitizeErrorMessage,
 } from "@/lib/errors";
 import { toIsoOrNull } from "@/lib/format";
-import type { EtlSyncRun } from "../types";
+import type { EtlSyncRun } from "../../types";
 
 export interface EtlSyncRunTable {
   id: number;

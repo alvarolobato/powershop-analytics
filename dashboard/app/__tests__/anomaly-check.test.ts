@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { computeAnomaly } from "../api/anomaly-check/route";
+import { computeAnomaly } from "@/lib/anomaly";
 import { POST } from "../api/anomaly-check/route";
 import { NextRequest } from "next/server";
 

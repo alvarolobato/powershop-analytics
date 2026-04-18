@@ -34,7 +34,7 @@ export function mergeComparisonSeries(
   return primary.rows
     .filter((row) => safeNumber(row[yIdx]) !== null)
     .map((row) => ({
-      [xCol]: row[xIdx],
+      [xCol]: String(row[xIdx] ?? ""),
       Actual: safeNumber(row[yIdx])!,
       Anterior: compMap.get(String(row[xIdx] ?? "")) ?? null,
     }));
