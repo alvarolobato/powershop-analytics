@@ -15,7 +15,8 @@
 #   PS_PROD_HOME      — installation directory (default: /opt/powershop)
 #   VERSION           — release tag to pin (default: latest GitHub release)
 #   CHANNEL           — 'beta' (default) or 'stable'. Sets ETL_VERSION /
-#                       DASHBOARD_VERSION to `:beta` or `:latest` in .env.
+#                       DASHBOARD_VERSION to `beta` or `latest` in .env
+#                       (docker-compose.prod.yml prepends the `:` at image-pull time).
 #   NONINTERACTIVE    — '1' to skip .env prompts (you must write .env yourself)
 #
 # The script NEVER writes IPs or credentials into the repo or any committed
@@ -73,6 +74,23 @@ random_password() {
   else
     tr -dc 'A-Za-z0-9' </dev/urandom | head -c 24
   fi
+}
+
+# Single-quote a value for safe inclusion in a dotenv file. Docker Compose's
+# env-file parser treats everything after an unquoted `#` as a comment and
+# splits on whitespace; single-quoted values are taken literally. The parser
+# does NOT support escaping a single quote inside a single-quoted value, so
+# reject inputs that contain a single quote (or a newline) rather than write
+# a value that would be mis-parsed at runtime.
+dotenv_quote() {
+  local label="$1" v="$2"
+  case "$v" in
+    *\'*) die "${label} contains a single quote (') — not supported in .env values. Please pick a different value." ;;
+  esac
+  case "$v" in
+    *$'\n'*) die "${label} contains a newline — not supported in .env values." ;;
+  esac
+  printf "'%s'" "$v"
 }
 
 check_prerequisites() {
@@ -159,6 +177,19 @@ create_env() {
   local bind_addr
   bind_addr=$(prompt_default "Bind address for host ports" "0.0.0.0")
 
+  # Quote all user-supplied values before writing them into .env — a '#',
+  # space, or other meta-character in a secret would otherwise be mis-parsed
+  # by docker-compose (everything after '#' is treated as a comment).
+  local p4d_host_q p4d_user_q p4d_password_q postgres_password_q openrouter_key_q bind_addr_q soap_url_q soap_wsdl_q
+  p4d_host_q=$(dotenv_quote "P4D_HOST" "$p4d_host")
+  p4d_user_q=$(dotenv_quote "P4D_USER" "$p4d_user")
+  p4d_password_q=$(dotenv_quote "P4D_PASSWORD" "$p4d_password")
+  postgres_password_q=$(dotenv_quote "POSTGRES_PASSWORD" "$postgres_password")
+  openrouter_key_q=$(dotenv_quote "OPENROUTER_API_KEY" "$openrouter_key")
+  bind_addr_q=$(dotenv_quote "HOST_BIND" "$bind_addr")
+  soap_url_q=$(dotenv_quote "SOAP_URL" "http://${p4d_host}:8080/4DSOAP/")
+  soap_wsdl_q=$(dotenv_quote "SOAP_WSDL" "http://${p4d_host}:8080/4DSOAP/?wsdl")
+
   # Write to a secure temp file in the invoking user's space (never the
   # project dir — which may be sudo-owned under /opt). Create with 0600
   # before writing any secret, and clean up on any exit path.
@@ -184,29 +215,29 @@ DASHBOARD_VERSION=${dash_tag}
 # DOCKERHUB_NAMESPACE=alvarolobato264
 
 # --- 4D source database ---
-P4D_HOST=${p4d_host}
+P4D_HOST=${p4d_host_q}
 P4D_PORT=19812
-P4D_USER=${p4d_user}
-P4D_PASSWORD=${p4d_password}
-SOAP_URL=http://${p4d_host}:8080/4DSOAP/
-SOAP_WSDL=http://${p4d_host}:8080/4DSOAP/?wsdl
+P4D_USER=${p4d_user_q}
+P4D_PASSWORD=${p4d_password_q}
+SOAP_URL=${soap_url_q}
+SOAP_WSDL=${soap_wsdl_q}
 
 # --- PostgreSQL mirror ---
 POSTGRES_USER=postgres
-POSTGRES_PASSWORD=${postgres_password}
+POSTGRES_PASSWORD=${postgres_password_q}
 POSTGRES_DB=powershop
 
 # --- ETL scheduler ---
 ETL_CRON_HOUR=2
 
 # --- WrenAI / LLM ---
-OPENROUTER_API_KEY=${openrouter_key}
+OPENROUTER_API_KEY=${openrouter_key_q}
 WREN_LLM_MODEL=openrouter/anthropic/claude-sonnet-4-20250514
 
 # --- Host port bindings ---
 # 0.0.0.0 exposes on every interface (LAN-reachable). Use 127.0.0.1 to restrict
 # to loopback and rely entirely on Cloudflare Tunnel / reverse proxy.
-HOST_BIND=${bind_addr}
+HOST_BIND=${bind_addr_q}
 HOST_PORT=3000
 DASHBOARD_PORT=4000
 AI_SERVICE_FORWARD_PORT=5555
