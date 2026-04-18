@@ -33,7 +33,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
       POSTGRES_DB: ${POSTGRES_DB:-powershop}
     ports:
-      - "5432:5432"
+      - "${HOST_BIND:-0.0.0.0}:5432:5432"
     volumes:
       - ./data/postgres:/var/lib/postgresql/data
     networks:
@@ -52,7 +52,7 @@ services:
   # For a one-off sync: docker compose run --rm etl python -m etl.main --once
   # ---------------------------------------------------------------------------
   etl:
-    image: alvarolobato264/powershop-etl:latest
+    image: ${DOCKERHUB_NAMESPACE:-alvarolobato264}/powershop-etl:${ETL_VERSION:-latest}
     restart: unless-stopped
     environment:
       P4D_HOST: ${P4D_HOST:-}
@@ -125,7 +125,7 @@ services:
     expose:
       - ${WREN_AI_SERVICE_PORT:-5555}
     ports:
-      - "${AI_SERVICE_FORWARD_PORT:-5555}:${WREN_AI_SERVICE_PORT:-5555}"
+      - "${HOST_BIND:-0.0.0.0}:${AI_SERVICE_FORWARD_PORT:-5555}:${WREN_AI_SERVICE_PORT:-5555}"
     environment:
       PYTHONUNBUFFERED: 1
       CONFIG_PATH: /app/config.yaml
@@ -182,7 +182,7 @@ services:
       NEXT_PUBLIC_TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       EXPERIMENTAL_ENGINE_RUST_VERSION: ${EXPERIMENTAL_ENGINE_RUST_VERSION:-false}
     ports:
-      - "${HOST_PORT:-3000}:3000"
+      - "${HOST_BIND:-0.0.0.0}:${HOST_PORT:-3000}:3000"
     volumes:
       - ./data/wren:/app/data
     networks:
@@ -209,7 +209,7 @@ services:
   # Dashboard App — AI-generated dashboards (Next.js + Tremor, port 4000)
   # ---------------------------------------------------------------------------
   dashboard:
-    image: alvarolobato264/powershop-dashboard:${DASHBOARD_VERSION:-latest}
+    image: ${DOCKERHUB_NAMESPACE:-alvarolobato264}/powershop-dashboard:${DASHBOARD_VERSION:-latest}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -220,7 +220,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
     ports:
-      - "${DASHBOARD_PORT:-4000}:4000"
+      - "${HOST_BIND:-0.0.0.0}:${DASHBOARD_PORT:-4000}:4000"
     networks:
       - wren
     depends_on:

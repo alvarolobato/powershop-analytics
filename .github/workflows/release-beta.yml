@@ -1,0 +1,136 @@
+# Nightly beta release — creates a GitHub prerelease tag (vX.Y.Z-beta.N) if
+# there are commits since the last tag. Also triggerable manually.
+#
+# The created prerelease triggers release-docker.yml, which builds & pushes
+# powershop-etl and powershop-dashboard images tagged with the version and
+# the rolling `:beta` tag.
+name: Release Beta
+
+on:
+  schedule:
+    # 01:00 UTC nightly — runs after ai-auto-release (20:00 Sunday weekly stable).
+    - cron: "0 1 * * *"
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: "Base version for the next beta (e.g. 0.1.0). Leave empty to reuse the latest tag's base."
+        required: false
+        type: string
+      force:
+        description: "Create a beta release even if there are no new commits"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-beta
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute next beta tag
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_BASE_VERSION: ${{ inputs.base_version }}
+          INPUT_FORCE: ${{ inputs.force }}
+        run: |
+          set -euo pipefail
+
+          LAST_TAG=$(git tag --sort=-v:refname | head -n1 || true)
+          echo "Last tag: ${LAST_TAG:-<none>}"
+
+          # Pick the base version: explicit input > last tag's base > 0.1.0
+          if [ -n "${INPUT_BASE_VERSION:-}" ]; then
+            BASE="${INPUT_BASE_VERSION#v}"
+          elif [ -n "$LAST_TAG" ]; then
+            # Strip leading v, strip -beta.N / -rc.N / any pre-release suffix
+            BASE="${LAST_TAG#v}"
+            BASE="${BASE%%-*}"
+          else
+            BASE="0.1.0"
+          fi
+          echo "Base version: $BASE"
+
+          # Determine next beta number for this base
+          LATEST_BETA_FOR_BASE=$(git tag --list "v${BASE}-beta.*" --sort=-v:refname | head -n1 || true)
+          if [ -z "$LATEST_BETA_FOR_BASE" ]; then
+            NEXT_N=1
+          else
+            N="${LATEST_BETA_FOR_BASE##*-beta.}"
+            NEXT_N=$((N + 1))
+          fi
+          NEW_TAG="v${BASE}-beta.${NEXT_N}"
+
+          # Skip if no commits since last tag (unless forced or no tag yet)
+          if [ -n "$LAST_TAG" ] && [ "${INPUT_FORCE:-false}" != "true" ]; then
+            COMMITS=$(git rev-list "${LAST_TAG}..HEAD" --count)
+            echo "Commits since ${LAST_TAG}: ${COMMITS}"
+            if [ "$COMMITS" -eq 0 ]; then
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+              echo "No new commits — skipping beta release."
+              exit 0
+            fi
+          fi
+
+          echo "tag=${NEW_TAG}" >> "$GITHUB_OUTPUT"
+          echo "last_tag=${LAST_TAG}" >> "$GITHUB_OUTPUT"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      - name: Check CI on main
+        if: steps.version.outputs.skip != 'true'
+        id: ci
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          CI_STATUS=$(gh api "repos/${{ github.repository }}/commits/main/status" --jq '.state' 2>/dev/null || echo "unknown")
+          echo "status=${CI_STATUS}" >> "$GITHUB_OUTPUT"
+          if [ "$CI_STATUS" != "success" ]; then
+            echo "::warning::CI on main is '${CI_STATUS}'. Proceeding with beta anyway (beta allows WIP)."
+          fi
+
+      - name: Build changelog
+        if: steps.version.outputs.skip != 'true'
+        id: changelog
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LAST_TAG: ${{ steps.version.outputs.last_tag }}
+        run: |
+          set -euo pipefail
+          NOTES=/tmp/beta-notes.md
+          {
+            echo "## Beta ${{ steps.version.outputs.tag }}"
+            echo
+            if [ -n "${LAST_TAG:-}" ]; then
+              echo "Changes since \`${LAST_TAG}\`:"
+              echo
+              git log "${LAST_TAG}..HEAD" --pretty=format:'- %s (%h)' --no-merges | head -n 50
+              echo
+              echo
+              echo "**Full diff**: https://github.com/${{ github.repository }}/compare/${LAST_TAG}...${{ steps.version.outputs.tag }}"
+            else
+              echo "First beta release."
+            fi
+          } > "$NOTES"
+          echo "path=$NOTES" >> "$GITHUB_OUTPUT"
+
+      - name: Create prerelease
+        if: steps.version.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release create "${{ steps.version.outputs.tag }}" \
+            --title "${{ steps.version.outputs.tag }} (beta)" \
+            --notes-file "${{ steps.changelog.outputs.path }}" \
+            --target main \
+            --prerelease
