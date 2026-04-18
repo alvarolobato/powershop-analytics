@@ -13,7 +13,8 @@
 #
 # Environment overrides:
 #   PS_PROD_HOME      — installation directory (default: /opt/powershop)
-#   VERSION           — release tag to pin (default: latest GitHub release)
+#   VERSION           — release tag to pin (default: latest prerelease for beta
+#                       channel, latest stable release for stable channel)
 #   CHANNEL           — 'beta' (default) or 'stable'. Sets ETL_VERSION /
 #                       DASHBOARD_VERSION to `beta` or `latest` in .env
 #                       (docker-compose.prod.yml prepends the `:` at image-pull time).
