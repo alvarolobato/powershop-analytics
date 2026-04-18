@@ -43,7 +43,9 @@ export function DataFreshnessBanner() {
       return;
     }
 
-    fetch("/api/data-health")
+    const controller = new AbortController();
+
+    fetch("/api/data-health", { signal: controller.signal })
       .then((res) => {
         if (!res.ok) return null;
         return res.json() as Promise<DataHealthResponse>;
@@ -52,11 +54,13 @@ export function DataFreshnessBanner() {
         if (data) setHealth(data);
       })
       .catch(() => {
-        // Graceful degradation — do not show banner on API error
+        // Graceful degradation — includes AbortError from cleanup
       })
       .finally(() => {
         setLoaded(true);
       });
+
+    return () => controller.abort();
   }, []);
 
   const handleDismiss = () => {
