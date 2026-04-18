@@ -462,6 +462,14 @@ ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_from TIMESTAM
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_to   TIMESTAMPTZ;
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS error_msg      TEXT;
 
+CREATE TABLE IF NOT EXISTS etl_manual_trigger (
+    id           SERIAL       PRIMARY KEY,
+    requested_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    status       TEXT         NOT NULL DEFAULT 'pending',  -- pending | picked_up
+    picked_up_at TIMESTAMPTZ,
+    run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
+);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
@@ -603,3 +611,4 @@ ANALYZE dashboards;
 ANALYZE dashboard_versions;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
+ANALYZE etl_manual_trigger;

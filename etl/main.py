@@ -227,7 +227,18 @@ def _get_rows_total(conn_pg) -> dict[str, int] | None:
 # ---------------------------------------------------------------------------
 
 
-def run_full_sync(conn_4d, conn_pg) -> None:
+def _is_run_active(conn_pg) -> bool:
+    """Return True if an etl_sync_runs row with status='running' exists."""
+    try:
+        with conn_pg.cursor() as cur:
+            cur.execute("SELECT 1 FROM etl_sync_runs WHERE status = 'running' LIMIT 1")
+            return cur.fetchone() is not None
+    except Exception as exc:
+        logger.warning("_is_run_active query failed: %s", exc)
+        return False
+
+
+def run_full_sync(conn_4d, conn_pg, trigger: str = "scheduled") -> None:
     """Execute all sync tasks in topological order.
 
     Errors in individual tables are caught and logged; execution continues.
@@ -265,7 +276,7 @@ def run_full_sync(conn_4d, conn_pg) -> None:
 
     run_id: int | None = None
     try:
-        run_id = create_run(conn_pg, "scheduled")
+        run_id = create_run(conn_pg, trigger)
     except Exception:
         logger.exception(
             "Monitoring: create_run failed; continuing without run tracking"
@@ -359,6 +370,14 @@ def run_full_sync(conn_4d, conn_pg) -> None:
         except Exception:
             logger.exception("Monitoring: finish_run failed")
 
+        if trigger == "manual":
+            from etl.db.postgres import update_trigger_run_id
+
+            try:
+                update_trigger_run_id(conn_pg, run_id)
+            except Exception:
+                logger.warning("Could not update trigger run_id — non-fatal")
+
 
 # ---------------------------------------------------------------------------
 # Connection test
@@ -394,6 +413,34 @@ def _test_connections(config) -> tuple:
         sys.exit(1)
 
     return conn_4d, conn_pg
+
+
+# ---------------------------------------------------------------------------
+# Scheduler loop (extracted for testability)
+# ---------------------------------------------------------------------------
+
+
+def _run_scheduler_loop(conn_4d, conn_pg) -> None:
+    """Blocking scheduler loop: runs scheduled jobs and polls for manual triggers.
+
+    Polls every 10 seconds. When a pending trigger row is found, fires
+    run_full_sync with trigger='manual' unless a run is already active.
+    """
+    import schedule
+
+    from etl.db.postgres import check_and_consume_trigger
+
+    while True:
+        schedule.run_pending()
+        if check_and_consume_trigger(conn_pg):
+            if not _is_run_active(conn_pg):
+                logger.info("Manual trigger detected — starting sync")
+                run_full_sync(conn_4d, conn_pg, trigger="manual")
+            else:
+                logger.info(
+                    "Manual trigger detected but a run is already active — skipping"
+                )
+        time.sleep(10)
 
 
 # ---------------------------------------------------------------------------
@@ -441,9 +488,7 @@ def main() -> None:
             logger.info("Running initial sync on startup ...")
             _job()
 
-            while True:
-                schedule.run_pending()
-                time.sleep(60)
+            _run_scheduler_loop(conn_4d, conn_pg)
     finally:
         try:
             conn_4d.close()
