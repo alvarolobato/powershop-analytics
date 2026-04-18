@@ -13,5 +13,11 @@ export default defineConfig({
     globals: true,
     environment: "node",
     include: ["**/__tests__/**/*.test.{ts,tsx}"],
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov", "html"],
+      include: ["app/api/**/*.ts", "lib/**/*.ts"],
+      exclude: ["**/__tests__/**", "**/*.test.ts", "**/node_modules/**"],
+    },
   },
 });

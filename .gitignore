@@ -43,3 +43,6 @@ tmp/
 _*.py
 !__init__.py
 _*.json
+
+# Vitest coverage output
+dashboard/coverage/
