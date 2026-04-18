@@ -452,8 +452,15 @@ CREATE TABLE IF NOT EXISTS etl_sync_run_tables (
     status           TEXT         NOT NULL DEFAULT 'ok',
     rows_synced      INTEGER,
     sync_method      TEXT,
-    rows_total_after INTEGER
+    rows_total_after INTEGER,
+    watermark_from   TIMESTAMPTZ,
+    watermark_to     TIMESTAMPTZ,
+    error_msg        TEXT
 );
+
+ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_from TIMESTAMPTZ;
+ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_to   TIMESTAMPTZ;
+ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS error_msg      TEXT;
 
 -- ============================================================
 -- Unique constraints required by wholesale FK targets

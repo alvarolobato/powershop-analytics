@@ -134,18 +134,69 @@ class TestRecordTableSync:
             )
             with pg_conn.cursor() as cur:
                 cur.execute(
-                    "SELECT table_name, status, rows_synced, sync_method, rows_total_after "
+                    "SELECT table_name, status, rows_synced, sync_method, rows_total_after,"
+                    " watermark_from, watermark_to, error_msg "
                     "FROM etl_sync_run_tables WHERE run_id = %s",
                     (run_id,),
                 )
                 rows = cur.fetchall()
             assert len(rows) == 1
-            table_name, status, rows_synced, sync_method, rows_total = rows[0]
+            (
+                table_name,
+                status,
+                rows_synced,
+                sync_method,
+                rows_total,
+                wm_from,
+                wm_to,
+                error_msg,
+            ) = rows[0]
             assert table_name == "ps_ventas"
             assert status == "success"
             assert rows_synced == 1234
             assert sync_method == "upsert_delta"
             assert rows_total == 911000
+            assert wm_from is None
+            assert wm_to is None
+            assert error_msg is None
+        finally:
+            _cleanup_run(pg_conn, run_id)
+
+    @_requires_monitoring
+    def test_record_table_sync_failure_row_with_new_fields(self, pg_conn):
+        """record_table_sync persists watermark_from, watermark_to, and error_msg for failed rows."""
+        _apply_monitoring_schema(pg_conn)
+        run_id = postgres.create_run(pg_conn, "scheduled")
+        try:
+            wm_from = datetime.now(timezone.utc)
+            wm_to = datetime.now(timezone.utc)
+            postgres.record_table_sync(
+                pg_conn,
+                run_id=run_id,
+                table_name="ps_ventas",
+                started_at=wm_from,
+                finished_at=wm_to,
+                duration_ms=500,
+                status="failed",
+                rows_synced=0,
+                sync_method="upsert_delta",
+                rows_total_after=None,
+                watermark_from=wm_from,
+                watermark_to=wm_to,
+                error_msg="simulated failure",
+            )
+            with pg_conn.cursor() as cur:
+                cur.execute(
+                    "SELECT watermark_from, watermark_to, error_msg "
+                    "FROM etl_sync_run_tables WHERE run_id = %s",
+                    (run_id,),
+                )
+                rows = cur.fetchall()
+            assert len(rows) == 1
+            db_wm_from, db_wm_to, db_error_msg = rows[0]
+            assert db_wm_from is not None
+            assert db_wm_to is not None
+            assert db_error_msg == "simulated failure"
         finally:
             _cleanup_run(pg_conn, run_id)
 
