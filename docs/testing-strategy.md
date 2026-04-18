@@ -32,11 +32,14 @@ Dashboard API routes against a real local Postgres. Documents real behaviour tha
 ### ETL (Python / pytest)
 
 ```bash
+# Install dev deps (first time / after dependency changes)
+pip install -r etl/requirements-dev.txt
+
 # Run all ETL tests (fast, Tier A + B)
-docker compose run --rm etl python -m pytest etl/tests/ -x -q
+python -m pytest etl/tests/ -x -q
 
 # With coverage report
-docker compose run --rm etl python -m pytest --cov=etl --cov-report=term-missing
+python -m pytest --cov=etl --cov-report=term-missing
 ```
 
 ### Dashboard (TypeScript / Vitest)
