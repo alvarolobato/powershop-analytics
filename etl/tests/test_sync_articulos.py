@@ -13,6 +13,7 @@ What is tested:
 from __future__ import annotations
 
 import os
+from decimal import Decimal
 
 import pytest
 
@@ -167,3 +168,71 @@ class TestSyncArticulos:
             f"Only {non_empty}/{total} ({ratio:.1%}) rows have a non-empty"
             " ccrefejofacm.  Expected >= 90%."
         )
+
+
+class TestNullifyZeroFks:
+    """Unit tests for _nullify_zero_fks — no external connections needed.
+
+    4D uses 0 to mean "no brand/family/etc assigned", but the catalog tables
+    have no reg_* = 0 row, so those 0s must become NULL before insert or the
+    FK constraint rejects the row.
+    """
+
+    def test_zero_int_fks_become_none(self):
+        from etl.sync.articulos import _nullify_zero_fks
+
+        row = {
+            "reg_articulo": 123,
+            "num_familia": 0,
+            "num_departament": 0,
+            "num_color": 0,
+            "num_temporada": 0,
+            "num_marca": 0,
+            "num_proveedor": 0,
+        }
+        result = _nullify_zero_fks(row)
+        assert result["num_familia"] is None
+        assert result["num_departament"] is None
+        assert result["num_color"] is None
+        assert result["num_temporada"] is None
+        assert result["num_marca"] is None
+        # num_proveedor has no FK, must not be touched
+        assert result["num_proveedor"] == 0
+        # PK and unrelated fields untouched
+        assert result["reg_articulo"] == 123
+
+    def test_zero_decimal_fks_become_none(self):
+        from etl.sync.articulos import _nullify_zero_fks
+
+        row = {
+            "num_familia": Decimal("0"),
+            "num_marca": Decimal("0.000"),
+        }
+        result = _nullify_zero_fks(row)
+        assert result["num_familia"] is None
+        assert result["num_marca"] is None
+
+    def test_nonzero_fks_preserved(self):
+        from etl.sync.articulos import _nullify_zero_fks
+
+        row = {
+            "num_familia": Decimal("12.99"),
+            "num_departament": Decimal("3.99"),
+            "num_color": Decimal("45.99"),
+            "num_temporada": Decimal("7.99"),
+            "num_marca": Decimal("100.99"),
+        }
+        result = _nullify_zero_fks(row)
+        assert result["num_familia"] == Decimal("12.99")
+        assert result["num_departament"] == Decimal("3.99")
+        assert result["num_color"] == Decimal("45.99")
+        assert result["num_temporada"] == Decimal("7.99")
+        assert result["num_marca"] == Decimal("100.99")
+
+    def test_existing_none_preserved(self):
+        from etl.sync.articulos import _nullify_zero_fks
+
+        row = {"num_familia": None, "num_marca": None}
+        result = _nullify_zero_fks(row)
+        assert result["num_familia"] is None
+        assert result["num_marca"] is None
