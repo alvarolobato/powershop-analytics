@@ -53,7 +53,7 @@ cd dashboard && npm run test:coverage
 
 ```bash
 # Requires local stack running and POSTGRES_DSN set
-POSTGRES_DSN=postgresql://... cd dashboard && npm run test:integration
+cd dashboard && POSTGRES_DSN=postgresql://... npx vitest run
 ```
 
 ---
@@ -73,8 +73,7 @@ If you are changing any of the following, write or update tests **first** (TDD):
 | File | Why it matters |
 |------|---------------|
 | `etl/main.py` | Pipeline orchestration, sync dispatch, error handling — a bug here breaks all nightly loads |
-| `etl/sync/ventas.py` | Delta upsert for the 911K-row Ventas table — wrong watermark = data loss or duplicates |
-| `etl/sync/lineas_ventas.py` | Delta upsert for 1.7M LineasVentas — same risk as ventas |
+| `etl/sync/ventas.py` | Delta upsert for 911K Ventas + 1.7M LineasVentas — wrong watermark = data loss or duplicates |
 | `dashboard/lib/date-params.ts` | Date substitution for every widget SQL — already covered, keep it that way |
 | `dashboard/lib/db.ts` | `validateReadOnly` blocks writes; `query` is the single DB gateway — both must stay tested |
 | `dashboard/app/api/anomaly-check/route.ts` | Anomaly detection — already covered, do not regress |
