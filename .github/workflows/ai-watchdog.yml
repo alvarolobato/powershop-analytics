@@ -437,11 +437,24 @@ jobs:
               --paginate \
               --jq '[.[] | select(
                 (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
-                (.body | test("❌.*AI Address Feedback|❌.*AI Worker|⚠️.*AI (Worker|Planner)"))
+                (.body | test("❌.*AI Address Feedback|❌.*AI Worker|⚠️.*AI (Worker|Planner|PR Review)"))
               )]' 2>/dev/null || echo '[]')
 
             RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
             LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
+
+            # Rate-limit marker: the failing workflow's Handle failure step can
+            # embed "Rate limit reset at <ISO>" in the comment body when the
+            # Claude Code action hit an Anthropic 429. When present, honor it
+            # instead of the fixed MIN_WAIT_SECS floor.
+            LAST_BODY=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .body // empty')
+            RESET_ISO=$(echo "$LAST_BODY" \
+              | grep -ohE 'Rate limit reset at [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+Z-]+' \
+              | head -1 | awk '{print $NF}')
+            RESET_TS=0
+            if [ -n "$RESET_ISO" ]; then
+              RESET_TS=$(date -u -d "$RESET_ISO" +%s 2>/dev/null || echo 0)
+            fi
 
             # Fall back to now-5400 if no failure comment found (label added manually)
             if [ -z "$LAST_FAILURE_AT" ]; then
@@ -452,7 +465,7 @@ jobs:
             NOW=$(date -u +%s)
             AGE=$(( NOW - LAST_FAILURE_TS ))
 
-            echo "PR #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s last_failure=$LAST_FAILURE_AT"
+            echo "PR #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s last_failure=$LAST_FAILURE_AT reset=${RESET_ISO:-none}"
 
             if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
               echo "PR #$NUM hit max retries — escalating to human."
@@ -462,7 +475,12 @@ jobs:
               continue
             fi
 
-            if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
+            if [ "$RESET_TS" -gt "$NOW" ]; then
+              echo "PR #$NUM rate limit resets at $RESET_ISO (in $(( RESET_TS - NOW ))s) — skipping."
+              continue
+            fi
+
+            if [ -z "$RESET_ISO" ] && [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
               echo "PR #$NUM last failure was ${AGE}s ago — too soon (min ${MIN_WAIT_SECS}s). Skipping."
               continue
             fi
@@ -551,6 +569,19 @@ jobs:
             RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
             LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
 
+            # Rate-limit marker: the failing workflow's Handle failure step can
+            # embed "Rate limit reset at <ISO>" in the comment body when the
+            # Claude Code action hit an Anthropic 429. When present, honor it
+            # instead of the fixed MIN_WAIT_SECS floor.
+            LAST_BODY=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .body // empty')
+            RESET_ISO=$(echo "$LAST_BODY" \
+              | grep -ohE 'Rate limit reset at [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.+Z-]+' \
+              | head -1 | awk '{print $NF}')
+            RESET_TS=0
+            if [ -n "$RESET_ISO" ]; then
+              RESET_TS=$(date -u -d "$RESET_ISO" +%s 2>/dev/null || echo 0)
+            fi
+
             # If no failure comment found (manually tagged), treat as already past threshold
             if [ -z "$LAST_FAILURE_AT" ]; then
               LAST_FAILURE_TS=$(( $(date -u +%s) - MIN_WAIT_SECS - 1 ))
@@ -560,7 +591,7 @@ jobs:
             NOW=$(date -u +%s)
             AGE=$(( NOW - LAST_FAILURE_TS ))
 
-            echo "Issue #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s labels=$LABELS"
+            echo "Issue #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s labels=$LABELS reset=${RESET_ISO:-none}"
 
             if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
               # Exhausted retries — remove ai-auto-retry and ping human
@@ -572,7 +603,12 @@ jobs:
               continue
             fi
 
-            if [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
+            if [ "$RESET_TS" -gt "$NOW" ]; then
+              echo "Issue #$NUM rate limit resets at $RESET_ISO (in $(( RESET_TS - NOW ))s) — skipping."
+              continue
+            fi
+
+            if [ -z "$RESET_ISO" ] && [ "$AGE" -lt "$MIN_WAIT_SECS" ]; then
               echo "Issue #$NUM last failure was ${AGE}s ago — too soon to retry (min ${MIN_WAIT_SECS}s). Skipping."
               continue
             fi
