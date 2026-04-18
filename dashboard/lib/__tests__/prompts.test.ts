@@ -159,6 +159,7 @@ describe("prompts", () => {
 
     it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
       expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
+      expect(prompt).toContain("comparison_sql");
     });
   });
 });
