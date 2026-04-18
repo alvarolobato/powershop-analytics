@@ -170,6 +170,15 @@ describe("detectPeriodType", () => {
     vi.useRealTimers();
   });
 
+  it("returns null for Monday two weeks ago → today (spans >1 week, must not be 'week')", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 (Sat), current week Mon = Apr 13
+    // Two weeks ago Monday: Mar 30
+    const range: DateRange = { from: d(2026, 3, 30), to: d(2026, 4, 18, 23, 59, 59, 999) };
+    expect(detectPeriodType(range)).toBeNull();
+    vi.useRealTimers();
+  });
+
   it("returns 'year' for current in-progress year (Jan 1 to today, past January)", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 3, 18, 12, 0, 0)); // Apr 18 2026

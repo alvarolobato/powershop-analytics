@@ -154,7 +154,12 @@ export function detectPeriodType(range: DateRange): PeriodType | null {
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
     const expectedTo = endOfDay(sunday);
-    if (to.getTime() === expectedTo.getTime() || toIsToday) {
+    const currentWeekMonday = isoWeekMonday(today);
+    const isCurrentWeek =
+      from.getFullYear() === currentWeekMonday.getFullYear() &&
+      from.getMonth() === currentWeekMonday.getMonth() &&
+      from.getDate() === currentWeekMonday.getDate();
+    if (to.getTime() === expectedTo.getTime() || (toIsToday && isCurrentWeek)) {
       return "week";
     }
   }
