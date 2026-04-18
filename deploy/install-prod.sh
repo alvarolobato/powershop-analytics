@@ -12,7 +12,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install-prod.sh | bash
 #
 # Environment overrides:
-#   PS_PROD_HOME      — installation directory (default: /opt/powershop)
+#   PS_PROD_HOME      — installation directory. Default: $HOME/powershop on
+#                       macOS (Docker Desktop, no sudo), /opt/powershop on
+#                       Linux (FHS, requires sudo for the parent dir).
 #   VERSION           — release tag to pin (default: latest prerelease for beta
 #                       channel, latest stable release for stable channel)
 #   CHANNEL           — 'beta' (default) or 'stable'. Sets ETL_VERSION /
@@ -26,10 +28,22 @@
 set -euo pipefail
 
 REPO="alvarolobato/powershop-analytics"
-PROJECT_DIR="${PS_PROD_HOME:-/opt/powershop}"
 RELEASE_BASE="https://github.com/${REPO}/releases/download"
 API_BASE="https://api.github.com/repos/${REPO}"
 CHANNEL="${CHANNEL:-beta}"
+
+# Default install dir is platform-specific. On Linux we use /opt/powershop
+# (FHS-conventional, requires sudo). On macOS /opt isn't a standard spot
+# for user-installed apps and Docker Desktop runs as the logged-in user —
+# default to $HOME/powershop so the install needs no sudo.
+OS_NAME="$(uname -s)"
+if [ -n "${PS_PROD_HOME:-}" ]; then
+  PROJECT_DIR="$PS_PROD_HOME"
+elif [ "$OS_NAME" = "Darwin" ]; then
+  PROJECT_DIR="${HOME}/powershop"
+else
+  PROJECT_DIR="/opt/powershop"
+fi
 
 info()    { printf '\033[1;34m[INFO]\033[0m  %s\n' "$*"; }
 success() { printf '\033[1;32m[OK]\033[0m    %s\n' "$*"; }
@@ -96,8 +110,21 @@ dotenv_quote() {
 
 check_prerequisites() {
   info "Checking prerequisites..."
-  command -v docker >/dev/null 2>&1 || die "Docker is not installed. See https://docs.docker.com/engine/install/"
+  # Docker Desktop on macOS ships its CLI under /Applications but doesn't
+  # put it on non-login-shell PATH. If `docker` isn't found, look there
+  # before failing.
+  if ! command -v docker >/dev/null 2>&1; then
+    local mac_docker="/Applications/Docker.app/Contents/Resources/bin"
+    if [ -x "${mac_docker}/docker" ]; then
+      export PATH="${mac_docker}:$PATH"
+      info "Using Docker Desktop CLI at ${mac_docker}"
+    else
+      die "Docker is not installed. See https://docs.docker.com/engine/install/"
+    fi
+  fi
   docker compose version >/dev/null 2>&1 || die "'docker compose' v2 is not available."
+  # docker daemon must be up — on macOS this means Docker Desktop is running.
+  docker info >/dev/null 2>&1 || die "Cannot reach the Docker daemon. Start Docker Desktop (macOS) or the docker service (Linux) and retry."
   command -v curl >/dev/null 2>&1 || die "curl is required."
   success "Prerequisites OK"
 }
