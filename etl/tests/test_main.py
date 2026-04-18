@@ -53,9 +53,6 @@ _POSTGRES_HELPER_PATHS: list[str] = [
     "etl.db.postgres.record_table_sync",
 ]
 
-# Total result slots: 22 sync calls + 1 MA cleanup result = 23
-_TOTAL_RESULTS = 23
-
 
 def _make_mocks(
     *,
