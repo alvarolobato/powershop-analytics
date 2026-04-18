@@ -193,4 +193,24 @@ describe("POST /api/dashboard/generate", () => {
     const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
     expect(res.status).toBe(400);
   });
+
+  it("includes allowedFields for donut_chart when LLM uses category/value instead of x/y", async () => {
+    const badSpec = {
+      title: "T",
+      widgets: [
+        { type: "donut_chart", title: "T", sql: "S", category: "c", value: "v" },
+      ],
+    };
+    mockGenerate.mockResolvedValue(JSON.stringify(badSpec));
+
+    const res = await POST(makeRequest({ prompt: "dame un donut de ventas" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.code).toBe("LLM_INVALID_RESPONSE");
+    expect(json.details).toBeDefined();
+    expect(Array.isArray(json.allowedFields)).toBe(true);
+    expect(json.allowedFields).toContain("x");
+    expect(json.allowedFields).toContain("y");
+  });
 });

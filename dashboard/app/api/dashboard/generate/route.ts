@@ -143,14 +143,65 @@ export async function POST(request: Request): Promise<NextResponse> {
         : "Error de validación desconocido";
 
     console.error(`[${requestId}] El LLM devolvió un spec inválido:`, details);
+
+    const allowedFields =
+      err instanceof ZodError
+        ? resolveWidgetAllowedFields(err, parsed)
+        : undefined;
+
     return NextResponse.json(
-      formatApiError(
-        "El modelo de IA generó un dashboard con estructura incorrecta.",
-        "LLM_INVALID_RESPONSE",
-        details,
-        requestId,
-      ),
+      {
+        ...formatApiError(
+          "El modelo de IA generó un dashboard con estructura incorrecta.",
+          "LLM_INVALID_RESPONSE",
+          details,
+          requestId,
+        ),
+        ...(allowedFields !== undefined ? { allowedFields } : {}),
+      },
       { status: 400 },
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for allowedFields enrichment
+// ---------------------------------------------------------------------------
+
+const WIDGET_ALLOWED_FIELDS: Record<string, string[]> = {
+  kpi_row: ["id", "type", "items"],
+  bar_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  line_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  area_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  donut_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  table: ["id", "type", "title", "sql"],
+  number: ["id", "type", "title", "sql", "format", "prefix"],
+};
+
+/**
+ * When a ZodError path points to widgets.N.<key>, extract the widget type
+ * from the parsed object and return the known allowed fields for that type.
+ * Returns undefined when the error is not widget-field-level.
+ */
+function resolveWidgetAllowedFields(
+  zodError: ZodError,
+  parsed: unknown,
+): string[] | undefined {
+  for (const issue of zodError.issues) {
+    const [seg0, seg1] = issue.path;
+    if (seg0 !== "widgets" || typeof seg1 !== "number") continue;
+
+    const widgetIndex = seg1;
+    const parsedObj = parsed as Record<string, unknown> | null | undefined;
+    const widgets = parsedObj?.widgets;
+    if (!Array.isArray(widgets)) continue;
+
+    const widget = widgets[widgetIndex] as Record<string, unknown> | undefined;
+    const widgetType = typeof widget?.type === "string" ? widget.type : undefined;
+    if (!widgetType) continue;
+
+    const fields = WIDGET_ALLOWED_FIELDS[widgetType];
+    if (fields) return fields;
+  }
+  return undefined;
 }
