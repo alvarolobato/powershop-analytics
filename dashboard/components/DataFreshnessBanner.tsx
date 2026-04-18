@@ -51,13 +51,13 @@ export function DataFreshnessBanner() {
         return res.json() as Promise<DataHealthResponse>;
       })
       .then((data) => {
-        if (data) setHealth(data);
+        if (!controller.signal.aborted && data) setHealth(data);
       })
       .catch(() => {
         // Graceful degradation — includes AbortError from cleanup
       })
       .finally(() => {
-        setLoaded(true);
+        if (!controller.signal.aborted) setLoaded(true);
       });
 
     return () => controller.abort();

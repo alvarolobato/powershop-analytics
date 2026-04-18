@@ -162,7 +162,9 @@ describe("DataFreshnessBanner", () => {
 
     const { unmount } = render(<DataFreshnessBanner />);
 
-    // Unmount before the fetch resolves
+    // Wait for the effect to start (fetch called) before unmounting
+    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+
     unmount();
 
     expect(abortSpy).toHaveBeenCalled();
