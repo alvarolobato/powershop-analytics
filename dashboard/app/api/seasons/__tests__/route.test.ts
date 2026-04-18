@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const { mockQuery } = vi.hoisted(() => ({ mockQuery: vi.fn() }));
 vi.mock("@/lib/db", () => ({ query: mockQuery }));
 
-import { parseSeason, GET } from "../route";
+import { parseSeason } from "@/lib/seasons";
+import { GET } from "../route";
 
 describe("parseSeason", () => {
   it("maps PV26 to Primavera-Verano with correct dates", () => {

@@ -187,12 +187,16 @@ export interface QueryResult {
  * Execute a read-only SQL query against the PostgreSQL mirror.
  *
  * @param sql - The SQL query to execute (must be SELECT, WITH, or EXPLAIN)
+ * @param params - Optional parameterized values for $1, $2, … placeholders
  * @returns Column names and row data as arrays
  * @throws SqlValidationError if the query is not read-only
  * @throws QueryTimeoutError if the query exceeds 30 seconds
  * @throws ConnectionError if the database is unreachable
  */
-export async function query(sql: string): Promise<QueryResult> {
+export async function query(
+  sql: string,
+  params?: unknown[],
+): Promise<QueryResult> {
   validateReadOnly(sql);
 
   const pool = getPool();
@@ -200,6 +204,7 @@ export async function query(sql: string): Promise<QueryResult> {
   try {
     const result = await pool.query({
       text: sql,
+      values: params,
       rowMode: "array",
     });
 
