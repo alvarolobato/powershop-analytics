@@ -387,10 +387,11 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
     if (spec.widgets.length > 0) {
       fetchAll(spec.widgets);
     }
+    const retryMap = retryAbortMap.current;
     return () => {
       fetchAllAbortRef.current?.abort();
-      retryAbortMap.current.forEach((ctrl) => ctrl.abort());
-      retryAbortMap.current.clear();
+      retryMap.forEach((ctrl) => ctrl.abort());
+      retryMap.clear();
     };
     // specKey captures the entire spec (including widgets) so we don't need
     // spec.widgets as a separate dependency — doing so would cause spurious
