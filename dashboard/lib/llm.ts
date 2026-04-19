@@ -14,6 +14,12 @@ import { logUsage, checkDailyBudget } from "./llm-usage";
 
 export { BudgetExceededError } from "./llm-usage";
 
+const EMPTY_USAGE = {
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+} as const;
+
 // ─── Configuration ───────────────────────────────────────────────────────────
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
@@ -80,7 +86,7 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
     max_tokens: 8192,
   });
 
-  void logUsage("generateDashboard", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  void logUsage("generateDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -113,7 +119,7 @@ export async function modifyDashboard(
     max_tokens: 8192,
   });
 
-  void logUsage("modifyDashboard", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  void logUsage("modifyDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -149,7 +155,7 @@ export async function suggestDashboards(
     max_tokens: 8192,
   });
 
-  void logUsage("suggestDashboards", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  void logUsage("suggestDashboards", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -189,7 +195,7 @@ export async function analyzeGaps(
     max_tokens: 8192,
   });
 
-  void logUsage("analyzeGaps", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  void logUsage("analyzeGaps", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -223,7 +229,7 @@ export async function analyzeDashboard(
     max_tokens: 4096,
   });
 
-  void logUsage("analyzeDashboard", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  void logUsage("analyzeDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -254,7 +260,7 @@ export async function generateReview(
     max_tokens: 4096,
   });
 
-  void logUsage("generateReview", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+  void logUsage("generateReview", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -338,7 +344,7 @@ export async function generateSuggestions(
       max_tokens: 512,
     });
 
-    void logUsage("generateSuggestions", getModel(), response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+    void logUsage("generateSuggestions", getModel(), response.usage ?? EMPTY_USAGE);
 
     const content = response.choices[0]?.message?.content ?? "";
 
