@@ -472,6 +472,23 @@ CREATE TABLE IF NOT EXISTS etl_manual_trigger (
 );
 
 -- ============================================================
+-- LLM usage tracking (Dashboard App)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                  SERIAL        PRIMARY KEY,
+    endpoint            TEXT          NOT NULL,
+    model               TEXT          NOT NULL,
+    prompt_tokens       INTEGER       NOT NULL,
+    completion_tokens   INTEGER       NOT NULL,
+    total_tokens        INTEGER       NOT NULL,
+    estimated_cost_usd  NUMERIC(12,6) NOT NULL,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
+
+-- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
 -- ============================================================
@@ -613,3 +630,4 @@ ANALYZE dashboard_versions;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
 ANALYZE etl_manual_trigger;
+ANALYZE llm_usage;

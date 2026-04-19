@@ -10,7 +10,7 @@
  *   { response: string, suggestions: string[] }
  */
 import { NextResponse } from "next/server";
-import { analyzeDashboard, generateSuggestions } from "@/lib/llm";
+import { analyzeDashboard, generateSuggestions, BudgetExceededError } from "@/lib/llm";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
 import type { WidgetStateData } from "@/lib/data-serializer";
@@ -167,6 +167,12 @@ export async function POST(request: Request) {
       typeof action === "string" ? action : undefined,
     );
   } catch (err) {
+    if (err instanceof BudgetExceededError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+        { status: 429 },
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
