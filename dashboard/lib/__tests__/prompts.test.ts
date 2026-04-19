@@ -104,13 +104,13 @@ describe("prompts", () => {
       const jsonBlocks = [...prompt.matchAll(/```json\s*\n([\s\S]*?)\n```/g)].map(
         (m) => m[1],
       );
-      const widgetBlocks = jsonBlocks.flatMap((block, index) => {
+      const widgetBlocks = jsonBlocks.flatMap((block, blockIndex) => {
         let parsed: unknown;
         try {
           parsed = JSON.parse(block) as unknown;
         } catch (error) {
           throw new Error(
-            `JSON block at index ${index} could not be parsed as JSON: ${error instanceof Error ? error.message : String(error)}\nBlock:\n${block}`,
+            `JSON block at index ${blockIndex} could not be parsed as JSON: ${error instanceof Error ? error.message : String(error)}\nBlock:\n${block}`,
           );
         }
         const candidates = Array.isArray(parsed) ? parsed : [parsed];
@@ -121,10 +121,10 @@ describe("prompts", () => {
               candidate !== null &&
               "type" in candidate,
           )
-          .map((candidate) => ({ block, parsed: candidate }));
+          .map((candidate) => ({ block, parsed: candidate, blockIndex }));
       });
       let validatedWidgetCount = 0;
-      for (const [index, { block, parsed }] of widgetBlocks.entries()) {
+      for (const { block, parsed, blockIndex } of widgetBlocks) {
         // TODO(#289/#302): remove this exclusion once the prompt's donut_chart
         // example is updated to match the current widget schema.
         if (parsed.type === "donut_chart") {
@@ -134,7 +134,7 @@ describe("prompts", () => {
         const result = DashboardSpecSchema.safeParse({ title: "test", widgets: [parsed] });
         expect(
           result.success,
-          `Widget JSON block at index ${index} with type ${String(parsed.type ?? "unknown")} failed schema validation: ${result.success ? "" : result.error.message}\nBlock:\n${block}`,
+          `Widget JSON block at index ${blockIndex} with type ${String(parsed.type ?? "unknown")} failed schema validation: ${result.success ? "" : result.error.message}\nBlock:\n${block}`,
         ).toBe(true);
       }
       expect(validatedWidgetCount).toBeGreaterThan(0);
