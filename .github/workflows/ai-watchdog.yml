@@ -566,9 +566,17 @@ jobs:
             # Count failure comments and get timestamp of last one.
             # Use last-failure-comment time (not updatedAt) so label changes
             # don't reset the clock and cause us to skip valid retries.
-            FAILURE_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" \
-              --paginate \
-              --jq --arg cutoff "$FAILURE_CUTOFF" '[.[] | select(
+            #
+            # NOTE: gh api's --jq is a single-string flag. Passing
+            # `--jq --arg cutoff X 'expr'` makes "--arg" the value of --jq
+            # and the rest positional args, so the call silently fails and
+            # the `|| echo '[]'` fallback hides it — that bug let the
+            # watchdog retry every cron tick because RETRY_COUNT was always 0
+            # and LAST_FAILURE_AT was always empty. Pipe to standalone jq.
+            ALL_COMMENTS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
+              --paginate 2>/dev/null || echo '[]')
+            FAILURE_COMMENTS=$(echo "$ALL_COMMENTS" | jq --arg cutoff "$FAILURE_CUTOFF" '
+              [.[] | select(
                 (.user.login == "github-actions[bot]" or .user.login == "claude[bot]") and
                 (.body | test("❌|⚠️.*AI (Worker|Planner)")) and
                 (.created_at >= $cutoff)
@@ -576,6 +584,15 @@ jobs:
 
             RETRY_COUNT=$(echo "$FAILURE_COMMENTS" | jq 'length')
             LAST_FAILURE_AT=$(echo "$FAILURE_COMMENTS" | jq -r 'last | .updated_at // empty')
+
+            # Hard circuit breaker: count the watchdog's OWN auto-retry comments.
+            # This survives any future regression in the failure-detection regex —
+            # if we've already retried MAX_RETRIES times, stop, no matter what.
+            WATCHDOG_RETRY_COUNT=$(echo "$ALL_COMMENTS" | jq '
+              [.[] | select(
+                .user.login == "github-actions[bot]" and
+                (.body | test("AI Factory watchdog: auto-retrying"))
+              )] | length' 2>/dev/null || echo "0")
 
             # Rate-limit marker: the failing workflow's Handle failure step can
             # embed "Rate limit reset at <ISO>" in the comment body when the
@@ -607,15 +624,22 @@ jobs:
             NOW=$(date -u +%s)
             AGE=$(( NOW - LAST_FAILURE_TS ))
 
-            echo "Issue #$NUM: retry_count=$RETRY_COUNT age_since_last_failure=${AGE}s labels=$LABELS reset=${RESET_ISO:-none}"
+            echo "Issue #$NUM: retry_count=$RETRY_COUNT watchdog_retries=$WATCHDOG_RETRY_COUNT age_since_last_failure=${AGE}s labels=$LABELS reset=${RESET_ISO:-none}"
 
-            if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+            # Take the higher of the two counts so the hard circuit breaker
+            # always wins.
+            EFFECTIVE_RETRY_COUNT="$RETRY_COUNT"
+            if [ "$WATCHDOG_RETRY_COUNT" -gt "$EFFECTIVE_RETRY_COUNT" ]; then
+              EFFECTIVE_RETRY_COUNT="$WATCHDOG_RETRY_COUNT"
+            fi
+
+            if [ "$EFFECTIVE_RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
               # Exhausted retries — remove ai-auto-retry and ping human
               echo "Issue #$NUM has hit max retries ($MAX_RETRIES) — escalating to human."
               gh issue edit "$NUM" --repo "$REPO_FULL" \
                 --remove-label "ai-auto-retry" || true
               gh issue comment "$NUM" --repo "$REPO_FULL" \
-                --body "🚨 @$OWNER_HANDLE — AI Factory watchdog: issue #$NUM has failed $RETRY_COUNT times and will NOT be retried automatically. Please investigate and either fix the underlying problem or re-label with \`ai-work\` when ready." || true
+                --body "🚨 @$OWNER_HANDLE — AI Factory watchdog: issue #$NUM has failed $EFFECTIVE_RETRY_COUNT times and will NOT be retried automatically. Please investigate and either fix the underlying problem or re-label with \`ai-work\` when ready." || true
               continue
             fi
 
@@ -633,11 +657,12 @@ jobs:
             # GITHUB_TOKEN label changes do NOT fire webhook events (GitHub
             # loop-prevention), so adding `ai-work` alone would never trigger
             # ai-worker.yml. We must call `gh workflow run` explicitly.
-            echo "Retrying issue #$NUM ($TITLE) — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
+            ATTEMPT=$(( EFFECTIVE_RETRY_COUNT + 1 ))
+            echo "Retrying issue #$NUM ($TITLE) — attempt $ATTEMPT of $MAX_RETRIES"
             gh issue edit "$NUM" --repo "$REPO_FULL" \
               --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
             gh issue comment "$NUM" --repo "$REPO_FULL" \
-              --body "🔄 AI Factory watchdog: auto-retrying (attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES) after transient failure. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+              --body "🔄 AI Factory watchdog: auto-retrying (attempt $ATTEMPT of $MAX_RETRIES) after transient failure. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
 
             # Determine phase: sub-tasks (ai-task) → implement, parents → plan
             if echo ",$LABELS," | grep -q ",ai-task,"; then
