@@ -1,6 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   computeComparisonRange,
+  getHoyRange,
+  getSemanaActualRange,
+  getMesActualRange,
+  getTrimestreActualRange,
+  getAnioActualRange,
+  getAyerRange,
+  getSemanaAnteriorRange,
+  getMesAnteriorRange,
+  getTrimestreAnteriorRange,
+  getAnioAnteriorRange,
 } from "../DateRangePicker";
 import type { DateRange, ComparisonType } from "../DateRangePicker";
 
@@ -82,5 +92,85 @@ describe("computeComparisonRange", () => {
     expect(result).not.toBeNull();
     expect(result!.from).toEqual(d(2025, 3, 1));
     expect(result!.to).toEqual(d(2025, 3, 31, 23, 59, 59, 999));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Preset range functions — fixed date: Wednesday 2026-04-15
+// ---------------------------------------------------------------------------
+
+describe("preset range functions", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Wednesday 2026-04-15
+    vi.setSystemTime(new Date(2026, 3, 15));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("getHoyRange: today 00:00 – 23:59:59.999", () => {
+    const { from, to } = getHoyRange();
+    expect(from).toEqual(d(2026, 4, 15, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("getSemanaActualRange: ISO Monday of week to end of today", () => {
+    // April 15 is Wednesday; Monday of that week is April 13
+    const { from, to } = getSemanaActualRange();
+    expect(from).toEqual(d(2026, 4, 13, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("getMesActualRange: April 1 to end of today", () => {
+    const { from, to } = getMesActualRange();
+    expect(from).toEqual(d(2026, 4, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("getTrimestreActualRange: Q2 (Apr 1) to end of today", () => {
+    // April is in Q2 (Apr-Jun), which starts April 1
+    const { from, to } = getTrimestreActualRange();
+    expect(from).toEqual(d(2026, 4, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("getAnioActualRange: Jan 1 to end of today", () => {
+    const { from, to } = getAnioActualRange();
+    expect(from).toEqual(d(2026, 1, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
+  });
+
+  it("getAyerRange: yesterday 00:00 – 23:59:59.999", () => {
+    const { from, to } = getAyerRange();
+    expect(from).toEqual(d(2026, 4, 14, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 14, 23, 59, 59, 999));
+  });
+
+  it("getSemanaAnteriorRange: full previous ISO week Mon–Sun", () => {
+    // Current week Mon = Apr 13; previous week: Apr 6 (Mon) – Apr 12 (Sun)
+    const { from, to } = getSemanaAnteriorRange();
+    expect(from).toEqual(d(2026, 4, 6, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 4, 12, 23, 59, 59, 999));
+  });
+
+  it("getMesAnteriorRange: full previous calendar month (March)", () => {
+    const { from, to } = getMesAnteriorRange();
+    expect(from).toEqual(d(2026, 3, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
+  });
+
+  it("getTrimestreAnteriorRange: full Q1 (Jan 1 – Mar 31)", () => {
+    // Current quarter = Q2 (Apr); previous = Q1 (Jan-Mar)
+    const { from, to } = getTrimestreAnteriorRange();
+    expect(from).toEqual(d(2026, 1, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
+  });
+
+  it("getAnioAnteriorRange: full previous calendar year (2025)", () => {
+    const { from, to } = getAnioAnteriorRange();
+    expect(from).toEqual(d(2025, 1, 1, 0, 0, 0, 0));
+    expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
   });
 });
