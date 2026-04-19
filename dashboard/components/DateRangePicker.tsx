@@ -416,7 +416,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             <div className="grid grid-cols-2 gap-x-1">
               <div>
                 <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                  Periodo actual
+                  Período actual
                 </p>
                 {CURRENT_PRESETS.map((preset) => (
                   <button
@@ -431,7 +431,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
               </div>
               <div>
                 <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                  Periodo anterior
+                  Período anterior
                 </p>
                 {PREVIOUS_PRESETS.map((preset) => (
                   <button
