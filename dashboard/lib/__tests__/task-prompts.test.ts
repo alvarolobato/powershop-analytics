@@ -86,4 +86,10 @@ describe("TASK_PROMPTS", () => {
       expect(task.icon.length).toBeGreaterThan(0);
     }
   });
+
+  it("no task prompt embeds hardcoded SQL date expressions", () => {
+    for (const task of TASK_PROMPTS) {
+      expect(task.prompt).not.toMatch(/DATE_TRUNC|CURRENT_DATE/);
+    }
+  });
 });
