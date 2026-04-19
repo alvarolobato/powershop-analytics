@@ -153,5 +153,15 @@ describe("GET /api/admin/slow-queries", () => {
         text: expect.stringContaining("ORDER BY mean_exec_time DESC"),
       })
     );
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/LEFT\s*\(\s*query\s*,\s*500\s*\)/i),
+      })
+    );
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringMatching(/LIKE\s+['"][^'"]*ps_[^'"]*['"]/i),
+      })
+    );
   });
 });
