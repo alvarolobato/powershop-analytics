@@ -77,34 +77,51 @@ describe("POST /api/admin/explain", () => {
     expect(calledSql).toContain("SELECT id FROM ps_ventas");
   });
 
-  // ─── Write rejection (400) ────────────────────────────────────────────
+  // ─── Write rejection (403) ────────────────────────────────────────────
 
-  it("rejects DELETE with 400 and correct message", async () => {
+  it("rejects DELETE with 403", async () => {
     const res = await POST(makeRequest({ sql: "DELETE FROM ps_ventas" }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe("Only SELECT queries are allowed");
+    expect(json.error).toBeTruthy();
+    expect(json.code).toBe("VALIDATION");
   });
 
-  it("rejects UPDATE with 400", async () => {
+  it("rejects UPDATE with 403", async () => {
     const res = await POST(makeRequest({ sql: "UPDATE ps_ventas SET total_si = 0" }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe("Only SELECT queries are allowed");
+    expect(json.code).toBe("VALIDATION");
   });
 
-  it("rejects INSERT with 400", async () => {
+  it("rejects INSERT with 403", async () => {
     const res = await POST(makeRequest({ sql: "INSERT INTO ps_ventas (id) VALUES (1)" }));
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(403);
     const json = await res.json();
-    expect(json.error).toBe("Only SELECT queries are allowed");
+    expect(json.code).toBe("VALIDATION");
   });
 
-  it("rejects DROP with 400", async () => {
+  it("rejects DROP with 403", async () => {
     const res = await POST(makeRequest({ sql: "DROP TABLE ps_ventas" }));
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.code).toBe("VALIDATION");
+  });
+
+  // ─── EXPLAIN prefix rejection (400) ───────────────────────────────────
+
+  it("rejects SQL that already starts with EXPLAIN with 400", async () => {
+    const res = await POST(makeRequest({ sql: "EXPLAIN SELECT 1" }));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toBe("Only SELECT queries are allowed");
+    expect(json.code).toBe("VALIDATION");
+  });
+
+  it("rejects case-insensitive EXPLAIN prefix", async () => {
+    const res = await POST(makeRequest({ sql: "explain select 1" }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.code).toBe("VALIDATION");
   });
 
   // ─── Missing / empty sql (400) ────────────────────────────────────────
@@ -157,7 +174,25 @@ describe("POST /api/admin/explain", () => {
     const res = await POST(makeRequest({ sql: "SELECT SELEC FROM ps_ventas" }));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain("EXPLAIN failed");
+    expect(json.code).toBe("DB_QUERY");
+  });
+
+  it("returns 408 on query timeout", async () => {
+    mockQuery.mockRejectedValue({ code: "57014", message: "canceling statement due to statement timeout" });
+
+    const res = await POST(makeRequest({ sql: "SELECT 1" }));
+    expect(res.status).toBe(408);
+    const json = await res.json();
+    expect(json.code).toBe("TIMEOUT");
+  });
+
+  it("returns 503 on connection error", async () => {
+    mockQuery.mockRejectedValue({ code: "ECONNREFUSED", message: "connect ECONNREFUSED 127.0.0.1:5432" });
+
+    const res = await POST(makeRequest({ sql: "SELECT 1" }));
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.code).toBe("DB_CONNECTION");
   });
 
   it("returns 500 on unexpected errors", async () => {
@@ -166,6 +201,15 @@ describe("POST /api/admin/explain", () => {
     const res = await POST(makeRequest({ sql: "SELECT 1" }));
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toContain("Unexpected error");
+    expect(json.code).toBe("UNKNOWN");
+  });
+
+  // ─── Standard error response shape ───────────────────────────────────
+
+  it("error responses include requestId and timestamp", async () => {
+    const res = await POST(makeRequest({}));
+    const json = await res.json();
+    expect(json.requestId).toMatch(/^req_/);
+    expect(json.timestamp).toBeTruthy();
   });
 });
