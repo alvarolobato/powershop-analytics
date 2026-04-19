@@ -7,6 +7,7 @@ Covers:
   RISK-TRIG-4  A second trigger while a run is active does NOT start a second run
   RISK-TRIG-5  run_full_sync passes trigger param to create_run
   RISK-TRIG-6  Scheduled runs still use trigger='scheduled'
+  RISK-TRIG-7  Transient poll error is logged and loop continues; run_full_sync not called
 """
 
 from __future__ import annotations
@@ -235,6 +236,29 @@ class TestSchedulerLoopTriggerCheck:
         """When check_and_consume_trigger returns None, run_full_sync is not called."""
         with (
             patch("etl.db.postgres.check_and_consume_trigger", return_value=None),
+            patch("etl.main._is_run_active", return_value=False),
+            patch("etl.main.run_full_sync") as mock_sync,
+            patch("schedule.run_pending"),
+            patch("time.sleep", side_effect=StopIteration),
+        ):
+            import etl.main as main_mod
+
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            try:
+                main_mod._run_scheduler_loop(conn_4d, conn_pg)
+            except StopIteration:
+                pass
+
+            mock_sync.assert_not_called()
+
+    def test_poll_exception_does_not_crash_loop(self):
+        """RISK-TRIG-7: transient DB error in check_and_consume_trigger is logged;
+        the loop continues and run_full_sync is not called."""
+        with (
+            patch(
+                "etl.db.postgres.check_and_consume_trigger",
+                side_effect=RuntimeError("transient"),
+            ),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),

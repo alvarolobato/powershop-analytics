@@ -228,10 +228,16 @@ def _get_rows_total(conn_pg) -> dict[str, int] | None:
 
 
 def _is_run_active(conn_pg) -> bool:
-    """Return True if an etl_sync_runs row with status='running' exists."""
+    """Return True if a recent etl_sync_runs row with status='running' exists.
+
+    Rows older than 12 hours are treated as stale (crashed runs) and ignored.
+    """
     try:
         with conn_pg.cursor() as cur:
-            cur.execute("SELECT 1 FROM etl_sync_runs WHERE status = 'running' LIMIT 1")
+            cur.execute(
+                "SELECT 1 FROM etl_sync_runs WHERE status = 'running'"
+                " AND started_at > NOW() - INTERVAL '12 hours' LIMIT 1"
+            )
             return cur.fetchone() is not None
     except Exception as exc:
         logger.warning("_is_run_active query failed: %s", exc)
@@ -444,10 +450,18 @@ def _run_scheduler_loop(conn_4d, conn_pg) -> None:
     while True:
         schedule.run_pending()
         if not _is_run_active(conn_pg):
-            trigger_id = check_and_consume_trigger(conn_pg)
-            if trigger_id is not None:
-                logger.info("Manual trigger detected — starting sync")
-                run_full_sync(conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id)
+            try:
+                trigger_id = check_and_consume_trigger(conn_pg)
+            except Exception:
+                logger.exception(
+                    "Failed to poll manual ETL trigger; will retry on next tick"
+                )
+            else:
+                if trigger_id is not None:
+                    logger.info("Manual trigger detected — starting sync")
+                    run_full_sync(
+                        conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id
+                    )
         time.sleep(10)
 
 
