@@ -156,7 +156,17 @@ describe("llm-circuit-breaker", () => {
       expect(getCircuitState()).toBe("open");
     });
 
-    it("does NOT count HTTP 400 even mixed with 5xx — counter resets on success", async () => {
+    it("counts TypeError (fetch failure) as a circuit failure", async () => {
+      await triggerFailures(5, new TypeError("Failed to fetch"));
+      expect(getCircuitState()).toBe("open");
+    });
+
+    it("does NOT count application errors (no .status, no network keywords) as circuit failures", async () => {
+      await triggerFailures(5, new RangeError("index out of bounds"));
+      expect(getCircuitState()).toBe("closed");
+    });
+
+    it("does NOT count HTTP 400 even when mixed with 5xx", async () => {
       // 3 × 503 then a 400 — the 400 should still propagate but not count
       await triggerFailures(3, makeHttpError(503));
       await expect(

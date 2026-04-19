@@ -33,8 +33,17 @@ function isCircuitFailure(err: unknown): boolean {
     if (status >= 500) return true;
     return false;
   }
-  // Network error (no .status)
-  return true;
+  // Only count as a circuit failure if it looks like a network/fetch error.
+  // Application errors (TypeError from a bug, RangeError, etc.) should not
+  // trip the breaker — they indicate a code defect, not a service outage.
+  if (
+    err instanceof TypeError ||
+    (err instanceof Error &&
+      /fetch|network|ECONNREFUSED|ETIMEDOUT/i.test(err.message))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function onSuccess(): void {
