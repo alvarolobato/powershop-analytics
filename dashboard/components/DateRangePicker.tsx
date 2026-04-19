@@ -161,23 +161,6 @@ export const PREVIOUS_PRESETS: Preset[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Period helpers
-// ---------------------------------------------------------------------------
-
-function isoWeekMonday(d: Date): Date {
-  const day = d.getDay(); // 0 = Sun
-  const diff = day === 0 ? -6 : 1 - day;
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + diff);
-  return monday;
-}
-
-function currentQuarterStart(d: Date): Date {
-  const q = Math.floor(d.getMonth() / 3);
-  return new Date(d.getFullYear(), q * 3, 1);
-}
-
-// ---------------------------------------------------------------------------
 // Period detection
 // ---------------------------------------------------------------------------
 
