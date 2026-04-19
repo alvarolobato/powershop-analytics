@@ -402,6 +402,19 @@ CREATE TABLE IF NOT EXISTS dashboard_versions (
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                  SERIAL        PRIMARY KEY,
+    endpoint            TEXT          NOT NULL,
+    model               TEXT          NOT NULL,
+    prompt_tokens       INTEGER       NOT NULL DEFAULT 0,
+    completion_tokens   INTEGER       NOT NULL DEFAULT 0,
+    total_tokens        INTEGER       NOT NULL DEFAULT 0,
+    estimated_cost_usd  NUMERIC(10,6) NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
+ANALYZE llm_usage;
+
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
 -- ============================================================
@@ -601,5 +614,6 @@ ANALYZE ps_facturas_compra;
 ANALYZE etl_watermarks;
 ANALYZE dashboards;
 ANALYZE dashboard_versions;
+ANALYZE llm_usage;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
