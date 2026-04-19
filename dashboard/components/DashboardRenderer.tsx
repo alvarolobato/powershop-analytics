@@ -94,12 +94,12 @@ function hasCompTokens(sql: string): boolean {
   );
 }
 
-/** Collects all SQL strings from a widget (main, trend, anomaly for kpi_row). */
+/** Collects the MAIN SQL strings from a widget (item.sql for kpi_row, widget.sql otherwise).
+ *  trend_sql and anomaly_sql are deliberately excluded: the fetch pipeline skips them
+ *  gracefully when comparisonRange is unset, so they must not gate the main widget fetch. */
 function collectWidgetSqls(widget: Widget): string[] {
   if (widget.type === "kpi_row") {
-    return widget.items.flatMap((item) =>
-      [item.sql, item.trend_sql, item.anomaly_sql].filter((s): s is string => typeof s === "string" && s.length > 0)
-    );
+    return widget.items.map((item) => item.sql);
   }
   return [widget.sql];
 }

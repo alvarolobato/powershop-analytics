@@ -814,8 +814,9 @@ describe("DashboardRenderer", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
-    it("shows friendly error when kpi_row item trend_sql has :comp_from but no comparisonRange", async () => {
-      vi.stubGlobal("fetch", vi.fn());
+    it("fetches main sql and silently skips trend_sql when only trend_sql has :comp_from but no comparisonRange", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[500]] });
+      vi.stubGlobal("fetch", fetchMock);
 
       const compTrendSpec: DashboardSpec = {
         title: "KPI Trend Comparativa",
@@ -837,10 +838,16 @@ describe("DashboardRenderer", () => {
       render(<DashboardRenderer spec={compTrendSpec} dateRange={dateRange} />);
 
       await waitFor(() => {
-        expect(screen.getByText("Este panel requiere seleccionar un período de comparación")).toBeInTheDocument();
+        expect(fetchMock).toHaveBeenCalled();
       });
 
-      expect(fetch).not.toHaveBeenCalled();
+      const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
+        JSON.parse((c[1] as { body: string }).body)
+      );
+      const hasCompToken = bodies.some(
+        (b: { sql: string }) => b.sql.includes(":comp_from") || b.sql.includes(":comp_to")
+      );
+      expect(hasCompToken).toBe(false);
     });
 
     const compSqlSpec: DashboardSpec = {
