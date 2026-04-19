@@ -29,7 +29,7 @@ const WIDGET_TYPES = `
 | bar_chart     | Category comparison                     | title, sql, x, y                         |
 | line_chart    | Time series                             | title, sql, x, y                         |
 | area_chart    | Stacked time series                     | title, sql, x, y                         |
-| donut_chart   | Proportions                             | title, sql, category, value              |
+| donut_chart   | Proportions                             | title, sql, x, y                         |
 | table         | Detailed data rows                      | title, sql                               |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 
@@ -131,8 +131,8 @@ Each item in a kpi_row can also include:
   "type": "donut_chart",
   "title": "Mix por Familia",
   "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
-  "category": "category",
-  "value": "value"
+  "x": "category",
+  "y": "value"
 }
 \`\`\`
 

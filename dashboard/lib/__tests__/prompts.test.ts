@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGeneratePrompt, buildModifyPrompt } from "../prompts";
+import { DashboardSpecSchema } from "../schema";
 
 describe("prompts", () => {
   describe("buildGeneratePrompt", () => {
@@ -97,6 +98,44 @@ describe("prompts", () => {
     it("includes colecciones and clave_temporada guidance", () => {
       expect(prompt).toContain("clave_temporada");
       expect(prompt).toContain("colec");
+    });
+
+    it("donut_chart table row lists x/y fields, not category/value", () => {
+      const lines = prompt.split("\n");
+      const donutRow = lines.find(
+        (l) => l.includes("donut_chart") && l.includes("|")
+      );
+      expect(donutRow).toBeDefined();
+      expect(donutRow).toContain("x, y");
+      expect(donutRow).not.toMatch(/\bcategory\b.*\bvalue\b/);
+    });
+
+    it("donut_chart JSON example uses x/y field names, not category/value as top-level keys", () => {
+      // Extract the JSON block containing "donut_chart"
+      const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
+        (m) => m[1].trim()
+      );
+      const donutBlock = blocks.find((b) => b.includes('"donut_chart"'));
+      expect(donutBlock).toBeDefined();
+      const parsed = JSON.parse(donutBlock!);
+      expect(parsed).toHaveProperty("x");
+      expect(parsed).toHaveProperty("y");
+      expect(parsed).not.toHaveProperty("category");
+      expect(parsed).not.toHaveProperty("value");
+    });
+
+    it("donut_chart JSON example is valid according to DashboardSpecSchema", () => {
+      const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
+        (m) => m[1].trim()
+      );
+      const donutBlock = blocks.find((b) => b.includes('"donut_chart"'));
+      expect(donutBlock).toBeDefined();
+      const widget = JSON.parse(donutBlock!);
+      const result = DashboardSpecSchema.safeParse({
+        title: "Test",
+        widgets: [widget],
+      });
+      expect(result.success).toBe(true);
     });
   });
 
