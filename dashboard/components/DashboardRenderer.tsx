@@ -213,8 +213,10 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql || !comparisonRange) return null;
+                const trendSql = buildComparisonSql(item.trend_sql);
+                if (!trendSql) return null;
                 try {
-                  return await fetchWidgetData(buildComparisonSql(item.trend_sql)!, signal);
+                  return await fetchWidgetData(trendSql, signal);
                 } catch {
                   return null;
                 }
@@ -319,8 +321,10 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.trend_sql || !comparisonRange) return null;
+                const trendSql = buildComparisonSql(item.trend_sql);
+                if (!trendSql) return null;
                 try {
-                  return await fetchWidgetData(buildComparisonSql(item.trend_sql)!, signal);
+                  return await fetchWidgetData(trendSql, signal);
                 } catch {
                   return null;
                 }
