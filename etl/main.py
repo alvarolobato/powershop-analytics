@@ -287,6 +287,11 @@ def run_full_sync(
         logger.exception(
             "Monitoring: create_run failed; continuing without run tracking"
         )
+        if trigger == "manual" and trigger_id is not None:
+            logger.warning(
+                "Manual trigger %d will complete but run_id tracking is unavailable",
+                trigger_id,
+            )
 
     results: list[bool] = []
 

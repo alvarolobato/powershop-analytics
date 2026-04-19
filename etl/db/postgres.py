@@ -466,15 +466,15 @@ def check_and_consume_trigger(conn) -> int | None:
                 WHERE id = (
                     SELECT id FROM etl_manual_trigger
                     WHERE status = 'pending'
-                    ORDER BY requested_at
+                    ORDER BY requested_at, id
                     LIMIT 1
                     FOR UPDATE SKIP LOCKED
                 )
                 RETURNING id
                 """
             )
-            conn.commit()
             row = cur.fetchone()
+            conn.commit()
             return row[0] if row is not None else None
     except Exception:
         conn.rollback()
