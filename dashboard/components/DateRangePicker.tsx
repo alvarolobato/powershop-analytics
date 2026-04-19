@@ -183,6 +183,211 @@ function formatDisplayRange(range: DateRange): string {
 }
 
 // ---------------------------------------------------------------------------
+// Period detection and formatting
+// ---------------------------------------------------------------------------
+
+const MONTHS_ES_LONG = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+const MONTHS_ES_SHORT = [
+  "ene", "feb", "mar", "abr", "may", "jun",
+  "jul", "ago", "sep", "oct", "nov", "dic",
+];
+
+const DAYS_ES_SHORT = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+function isoWeekNumber(d: Date): number {
+  // Move to the Thursday of the week (ISO weeks are numbered by their Thursday)
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  date.setDate(date.getDate() + 3 - ((date.getDay() + 6) % 7));
+  const week1 = new Date(date.getFullYear(), 0, 4);
+  return (
+    1 +
+    Math.round(
+      ((date.getTime() - week1.getTime()) / 86400000 -
+        3 +
+        ((week1.getDay() + 6) % 7)) /
+        7,
+    )
+  );
+}
+
+export function detectPeriodType(
+  range: DateRange,
+): "day" | "week" | "month" | "quarter" | "year" | null {
+  const { from, to } = range;
+
+  // All named periods require from at start-of-day and to at end-of-day
+  if (
+    from.getHours() !== 0 ||
+    from.getMinutes() !== 0 ||
+    from.getSeconds() !== 0 ||
+    from.getMilliseconds() !== 0
+  ) {
+    return null;
+  }
+  if (
+    to.getHours() !== 23 ||
+    to.getMinutes() !== 59 ||
+    to.getSeconds() !== 59 ||
+    to.getMilliseconds() !== 999
+  ) {
+    return null;
+  }
+
+  const today = new Date();
+  const eodToday = endOfDay(today);
+  const isEndToday = to.getTime() === eodToday.getTime();
+
+  // --- day: from and to are on the same calendar date ---
+  if (
+    from.getFullYear() === to.getFullYear() &&
+    from.getMonth() === to.getMonth() &&
+    from.getDate() === to.getDate()
+  ) {
+    return "day";
+  }
+
+  // --- month: from is 1st of any month ---
+  // Checked before year so that "current month" in January (Jan 1 → today) is labelled
+  // as "Enero 2026" rather than "2026" — a partial January matches both month and year
+  // criteria and the more specific label wins. Also checked before quarter so that a
+  // quarter-starting month (Jan/Apr/Jul/Oct) is labelled as a month when the range only
+  // covers that single month.
+  if (from.getDate() === 1) {
+    const endOfMonth = new Date(from.getFullYear(), from.getMonth() + 1, 0, 23, 59, 59, 999);
+    if (to.getTime() === endOfMonth.getTime()) return "month";
+    if (
+      isEndToday &&
+      today.getFullYear() === from.getFullYear() &&
+      today.getMonth() === from.getMonth()
+    ) {
+      return "month";
+    }
+  }
+
+  // --- year: from is Jan 1, to is Dec 31 or end-of-today in same year ---
+  // Checked after month so that a partial January (Jan 1 → today) is labelled as a month.
+  if (from.getMonth() === 0 && from.getDate() === 1) {
+    const endOfYear = new Date(from.getFullYear(), 11, 31, 23, 59, 59, 999);
+    if (to.getTime() === endOfYear.getTime()) return "year";
+    if (isEndToday && today.getFullYear() === from.getFullYear()) return "year";
+  }
+
+  // --- quarter: from is 1st of a quarter month (Jan/Apr/Jul/Oct) ---
+  if (from.getDate() === 1 && from.getMonth() % 3 === 0) {
+    const qEndMonth = from.getMonth() + 2;
+    const endOfQuarter = new Date(from.getFullYear(), qEndMonth + 1, 0, 23, 59, 59, 999);
+    if (to.getTime() === endOfQuarter.getTime()) return "quarter";
+    if (isEndToday) {
+      const todayQStart = currentQuarterStart(today);
+      if (
+        todayQStart.getFullYear() === from.getFullYear() &&
+        todayQStart.getMonth() === from.getMonth()
+      ) {
+        return "quarter";
+      }
+    }
+  }
+
+  // --- week: from is ISO Monday ---
+  {
+    const monday = isoWeekMonday(from);
+    if (monday.getTime() === from.getTime()) {
+      const sunday = new Date(from);
+      sunday.setDate(from.getDate() + 6);
+      const endOfSunday = endOfDay(sunday);
+      if (to.getTime() === endOfSunday.getTime()) return "week";
+      if (isEndToday) {
+        const todayMonday = isoWeekMonday(today);
+        if (
+          todayMonday.getFullYear() === from.getFullYear() &&
+          todayMonday.getMonth() === from.getMonth() &&
+          todayMonday.getDate() === from.getDate()
+        ) {
+          return "week";
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+export function formatPeriodLabel(range: DateRange): string {
+  const type = detectPeriodType(range);
+  const { from } = range;
+  const today = new Date();
+
+  switch (type) {
+    case "day": {
+      const isToday =
+        from.getFullYear() === today.getFullYear() &&
+        from.getMonth() === today.getMonth() &&
+        from.getDate() === today.getDate();
+      if (isToday) return "Hoy";
+      const yesterday = new Date(today);
+      yesterday.setDate(today.getDate() - 1);
+      const isYesterday =
+        from.getFullYear() === yesterday.getFullYear() &&
+        from.getMonth() === yesterday.getMonth() &&
+        from.getDate() === yesterday.getDate();
+      if (isYesterday) return "Ayer";
+      const dayName = DAYS_ES_SHORT[from.getDay()];
+      return `${dayName} ${from.getDate()} ${MONTHS_ES_SHORT[from.getMonth()]} ${from.getFullYear()}`;
+    }
+
+    case "week": {
+      const weekNum = isoWeekNumber(from);
+      const eodToday = endOfDay(today);
+      const isCurrentWeek = range.to.getTime() === eodToday.getTime();
+      const startDay = from.getDate();
+      const startMon = MONTHS_ES_SHORT[from.getMonth()];
+      const startYear = from.getFullYear();
+      if (isCurrentWeek) {
+        return `Semana ${weekNum} • ${startDay} ${startMon} →`;
+      }
+      const sunday = new Date(from);
+      sunday.setDate(from.getDate() + 6);
+      const endDay = sunday.getDate();
+      const endMon = MONTHS_ES_SHORT[sunday.getMonth()];
+      const endYear = sunday.getFullYear();
+      if (startMon === endMon && startYear === endYear) {
+        return `Semana ${weekNum} • ${startDay}-${endDay} ${startMon} ${startYear}`;
+      }
+      return `Semana ${weekNum} • ${startDay} ${startMon} – ${endDay} ${endMon} ${endYear}`;
+    }
+
+    case "month":
+      return `${MONTHS_ES_LONG[from.getMonth()]} ${from.getFullYear()}`;
+
+    case "quarter": {
+      const q = Math.floor(from.getMonth() / 3) + 1;
+      const qStartMon = MONTHS_ES_SHORT[from.getMonth()];
+      const qEndMon = MONTHS_ES_SHORT[from.getMonth() + 2];
+      return `T${q} ${from.getFullYear()} • ${qStartMon}-${qEndMon}`;
+    }
+
+    case "year":
+      return `${from.getFullYear()}`;
+
+    default: {
+      // Custom/null: compact date pair "D mon – D mon year" (year shown once if same year)
+      const d1 = from.getDate();
+      const m1 = MONTHS_ES_SHORT[from.getMonth()];
+      const y1 = from.getFullYear();
+      const d2 = range.to.getDate();
+      const m2 = MONTHS_ES_SHORT[range.to.getMonth()];
+      const y2 = range.to.getFullYear();
+      if (y1 === y2) return `${d1} ${m1} – ${d2} ${m2} ${y2}`;
+      return `${d1} ${m1} ${y1} – ${d2} ${m2} ${y2}`;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // computeComparisonRange
 // ---------------------------------------------------------------------------
 
@@ -400,7 +605,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"
           />
         </svg>
-        <span className="hidden sm:inline">{formatDisplayRange(value)}</span>
+        <span className="hidden sm:inline">{formatPeriodLabel(value)}</span>
         <span className="sm:hidden">Fechas</span>
         {isComparisonActive && (
           <span
