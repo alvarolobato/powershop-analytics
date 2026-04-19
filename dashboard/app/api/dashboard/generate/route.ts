@@ -179,9 +179,12 @@ const WIDGET_ALLOWED_FIELDS: Record<string, string[]> = {
 };
 
 /**
- * When a ZodError path points to widgets.N.<key>, extract the widget type
+ * When a ZodError path targets a widget (widgets.N, path length 2) or one of
+ * its direct fields (widgets.N.<key>, path length 3), extract the widget type
  * from the parsed object and return the known allowed fields for that type.
- * Returns undefined when the error is not widget-field-level.
+ * Deeply nested errors (e.g. widgets.N.items.0.label, path length > 3) are
+ * excluded — those belong to a sub-schema and the top-level allowed-fields
+ * list would be misleading.
  */
 function resolveWidgetAllowedFields(
   zodError: ZodError,
@@ -189,7 +192,12 @@ function resolveWidgetAllowedFields(
 ): string[] | undefined {
   for (const issue of zodError.issues) {
     const [seg0, seg1] = issue.path;
-    if (seg0 !== "widgets" || typeof seg1 !== "number") continue;
+    if (
+      seg0 !== "widgets" ||
+      typeof seg1 !== "number" ||
+      issue.path.length > 3
+    )
+      continue;
 
     const widgetIndex = seg1;
     const parsedObj = parsed as Record<string, unknown> | null | undefined;
@@ -200,8 +208,11 @@ function resolveWidgetAllowedFields(
     const widgetType = typeof widget?.type === "string" ? widget.type : undefined;
     if (!widgetType) continue;
 
+    if (!Object.prototype.hasOwnProperty.call(WIDGET_ALLOWED_FIELDS, widgetType)) {
+      continue;
+    }
     const fields = WIDGET_ALLOWED_FIELDS[widgetType];
-    if (fields) return fields;
+    if (Array.isArray(fields)) return fields;
   }
   return undefined;
 }
