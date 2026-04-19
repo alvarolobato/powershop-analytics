@@ -18,20 +18,13 @@ const { mockValidateQueryCost } = vi.hoisted(() => ({
   mockValidateQueryCost: vi.fn().mockResolvedValue(42),
 }));
 
-vi.mock("@/lib/query-validator", () => {
-  class QueryTooExpensiveError extends Error {
-    cost: number;
-    constructor(cost: number) {
-      super(
-        "Esta consulta es demasiado costosa. Intente añadir un filtro de fechas o tienda.",
-      );
-      this.name = "QueryTooExpensiveError";
-      this.cost = cost;
-    }
-  }
+vi.mock("@/lib/query-validator", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/query-validator")>(
+    "@/lib/query-validator",
+  );
   return {
+    ...actual,
     validateQueryCost: mockValidateQueryCost,
-    QueryTooExpensiveError,
   };
 });
 
@@ -271,6 +264,9 @@ describe("POST /api/query", () => {
     const json = await res.json();
     expect(json.error).toContain("demasiado costosa");
     expect(json.cost).toBe(250000);
+    expect(json.code).toBe("COST_LIMIT");
+    expect(typeof json.requestId).toBe("string");
+    expect(typeof json.timestamp).toBe("string");
   });
 
   it("includes X-Query-Cost header on successful response", async () => {

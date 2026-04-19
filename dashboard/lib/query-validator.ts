@@ -52,14 +52,21 @@ export async function validateQueryCost(
   }
 
   try {
-    const result = await query(`EXPLAIN (FORMAT JSON) ${sql}`);
+    // Strip any leading EXPLAIN (with optional options/ANALYZE) so we don't
+    // produce invalid double-EXPLAIN SQL, which would fail-open.
+    const sqlForPlan = sql
+      .replace(/^\s*EXPLAIN\s*(?:ANALYZE\s+)?(?:VERBOSE\s+)?(?:\([^)]*\)\s*)?/i, "")
+      .trim();
+
+    const result = await query(`EXPLAIN (FORMAT JSON) ${sqlForPlan}`);
     const planText = result.rows[0][0];
     const plan = (
       typeof planText === "string" ? JSON.parse(planText) : planText
     ) as Array<{ Plan: PlanNode }>;
 
     const cost = plan[0]["Plan"]["Total Cost"] ?? 0;
-    const threshold = parseInt(process.env.QUERY_COST_LIMIT ?? "100000", 10);
+    const rawLimit = Number(process.env.QUERY_COST_LIMIT ?? "100000");
+    const threshold = Number.isNaN(rawLimit) ? 100000 : rawLimit;
 
     if (cost > threshold) {
       throw new QueryTooExpensiveError(cost);

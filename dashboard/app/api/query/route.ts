@@ -8,6 +8,7 @@
  *   400 — Missing or invalid SQL
  *   403 — Write operation rejected (read-only policy)
  *   408 — Query timeout (>30s)
+ *   422 — Query cost exceeds threshold (COST_LIMIT); body includes `cost` field
  *   503 — Database connection error
  *   500 — Unexpected error
  */
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof QueryTooExpensiveError) {
       return NextResponse.json(
-        { error: err.message, cost: err.cost },
+        { ...formatApiError(err.message, "COST_LIMIT", undefined, requestId), cost: err.cost },
         { status: 422 },
       );
     }
