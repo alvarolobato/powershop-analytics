@@ -470,6 +470,9 @@ CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending
+    ON etl_manual_trigger (requested_at) WHERE status = 'pending';
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)

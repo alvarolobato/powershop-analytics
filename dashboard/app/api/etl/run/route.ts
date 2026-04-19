@@ -40,6 +40,14 @@ export async function POST(): Promise<NextResponse> {
       }
     }
 
+    const pendingResult = await query(
+      `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
+    );
+    if (pendingResult.rows.length > 0) {
+      const triggerId = Number(pendingResult.rows[0][0]);
+      return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
+    }
+
     const rows = await sql<{ id: number }>(
       `INSERT INTO etl_manual_trigger (status) VALUES ('pending') RETURNING id`,
     );

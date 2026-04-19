@@ -59,7 +59,7 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps stack logs [svc]` | Show logs (follow); optional service name |
 | `ps stack open` | Open WrenAI UI in browser |
 | `ps stack destroy` | Stop containers and remove volumes (with confirmation) |
-| `ps etl run` | Run ETL sync once (will also be triggerable via the Dashboard ETL Monitor "Sincronizar ahora" button → `POST /api/etl/run`, pending issue #271) |
+| `ps etl run` | Run ETL sync once (also triggerable via the Dashboard ETL Monitor "Sincronizar ahora" button → `POST /api/etl/run`) |
 | `ps etl status` | Show watermark table (last sync per table) |
 | `ps etl tables` | Show row counts for synced tables |
 | `ps etl logs` | Show ETL container logs |
