@@ -23,6 +23,13 @@ function makePlan(
   return JSON.stringify([{ Plan: node }]);
 }
 
+function makeParsedPlan(
+  totalCost: number,
+  nodeType = "Hash Join"
+): [{ Plan: Record<string, unknown> }] {
+  return [{ Plan: { "Node Type": nodeType, "Total Cost": totalCost } }];
+}
+
 function makeSeqScanPlan(totalCost: number, tableName: string): string {
   return JSON.stringify([
     {
@@ -72,7 +79,7 @@ describe("validateQueryCost", () => {
     );
   });
 
-  it("QueryTooExpensiveError has cost property and Spanish message", async () => {
+  it("QueryTooExpensiveError has cost, limit properties and Spanish message", async () => {
     mockQuery.mockResolvedValueOnce({
       columns: ["QUERY PLAN"],
       rows: [[makePlan(150000)]],
@@ -84,7 +91,10 @@ describe("validateQueryCost", () => {
       expect(err).toBeInstanceOf(QueryTooExpensiveError);
       const e = err as QueryTooExpensiveError;
       expect(e.cost).toBe(150000);
+      expect(e.limit).toBe(100000);
       expect(e.message).toContain("demasiado costosa");
+      expect(e.message).toContain("150000");
+      expect(e.message).toContain("100000");
     }
   });
 
@@ -107,6 +117,37 @@ describe("validateQueryCost", () => {
     });
     const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(50000);
+  });
+
+  it("falls back to default limit when QUERY_COST_LIMIT is non-numeric", async () => {
+    process.env.QUERY_COST_LIMIT = "notanumber";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(50000)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(50000);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid QUERY_COST_LIMIT")
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("falls back to default limit and blocks when QUERY_COST_LIMIT is zero", async () => {
+    process.env.QUERY_COST_LIMIT = "0";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(150000)]],
+    });
+    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(
+      QueryTooExpensiveError
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid QUERY_COST_LIMIT")
+    );
+    warnSpy.mockRestore();
   });
 
   it("bypasses check when force header matches secret", async () => {
@@ -185,7 +226,7 @@ describe("validateQueryCost", () => {
     const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(0);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("EXPLAIN failed"),
+      expect.stringContaining("EXPLAIN or plan parsing failed"),
       expect.any(Error)
     );
     warnSpy.mockRestore();
@@ -201,5 +242,24 @@ describe("validateQueryCost", () => {
     expect(cost).toBe(0);
     expect(warnSpy).toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it("handles pre-parsed plan object from node-postgres (rows[0][0] is already an array)", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makeParsedPlan(500)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(500);
+  });
+
+  it("throws QueryTooExpensiveError with pre-parsed plan when cost exceeds limit", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makeParsedPlan(200000)]],
+    });
+    await expect(validateQueryCost("SELECT * FROM ps_stock_tienda")).rejects.toThrow(
+      QueryTooExpensiveError
+    );
   });
 });
