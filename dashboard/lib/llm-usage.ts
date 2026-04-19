@@ -24,10 +24,13 @@ export function logUsage(
     total_tokens: number;
   },
 ): void {
-  const rate = RATES[model] ?? DEFAULT_RATE;
+  const rate = RATES[model];
+  if (!rate)
+    console.warn(`[llm-usage] No rate for model "${model}", using default`);
+  const effectiveRate = rate ?? DEFAULT_RATE;
   const estimated_cost_usd =
-    usage.prompt_tokens * rate.prompt +
-    usage.completion_tokens * rate.completion;
+    usage.prompt_tokens * effectiveRate.prompt +
+    usage.completion_tokens * effectiveRate.completion;
 
   void sql(
     `INSERT INTO llm_usage (endpoint, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd)
