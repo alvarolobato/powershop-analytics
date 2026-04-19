@@ -235,7 +235,7 @@ def _is_run_active(conn_pg) -> bool:
             return cur.fetchone() is not None
     except Exception as exc:
         logger.warning("_is_run_active query failed: %s", exc)
-        return False
+        return True  # fail-closed: assume a run might be active
 
 
 def run_full_sync(conn_4d, conn_pg, trigger: str = "scheduled") -> None:
@@ -468,7 +468,7 @@ def main() -> None:
         _init_schema(conn_pg)
 
         if args.once:
-            run_full_sync(conn_4d, conn_pg)
+            run_full_sync(conn_4d, conn_pg, trigger="cli")
         else:
             import schedule
 
