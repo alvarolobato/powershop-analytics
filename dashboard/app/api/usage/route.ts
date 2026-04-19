@@ -98,7 +98,7 @@ export async function GET(): Promise<NextResponse> {
       endpoint: String(row.endpoint),
       calls: Number(row.calls) || 0,
       total_tokens: Number(row.total_tokens) || 0,
-      estimated_cost_usd: Number(row.estimated_cost_usd).toFixed(6),
+      estimated_cost_usd: (Number(row.estimated_cost_usd) || 0).toFixed(6),
     }));
 
     return NextResponse.json({ today, week, month, by_endpoint });
