@@ -25,10 +25,11 @@ export function logUsage(
     total_tokens: number;
   }
 ): void {
-  const rate = RATES[model] ?? (
-    console.warn(`[llm-usage] Unknown model "${model}", using default rate`),
-    DEFAULT_RATE
-  );
+  let rate = RATES[model];
+  if (!rate) {
+    console.warn(`[llm-usage] Unknown model "${model}", using default rate`);
+    rate = DEFAULT_RATE;
+  }
   const estimatedCost =
     usage.prompt_tokens * rate.prompt +
     usage.completion_tokens * rate.completion;

@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock the LLM module ---
-vi.mock("@/lib/llm", () => ({
-  generateDashboard: vi.fn(),
-}));
+vi.mock("@/lib/llm", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+  return {
+    BudgetExceededError: actual.BudgetExceededError,
+    generateDashboard: vi.fn(),
+  };
+});
 
 // --- Mock the schema module (pass-through by default) ---
 vi.mock("@/lib/schema", async () => {

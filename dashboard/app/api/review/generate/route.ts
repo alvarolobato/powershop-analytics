@@ -52,7 +52,7 @@ export async function POST(): Promise<NextResponse> {
       if (err instanceof BudgetExceededError) {
         return NextResponse.json(
           formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-          { status: 429 }
+          { status: 429 },
         );
       }
       console.error(`[${requestId}] LLM error during review generation:`, err);
