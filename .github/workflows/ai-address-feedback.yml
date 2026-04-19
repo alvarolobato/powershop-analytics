@@ -213,6 +213,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
+          # PAT for assigning copilot-pull-request-reviewer[bot]; GITHUB_TOKEN
+          # silently drops Copilot reviewer requests. Claude must use this
+          # specifically when calling requested_reviewers (see prompt below).
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--permission-mode bypassPermissions --max-turns 80"
@@ -280,9 +284,12 @@ jobs:
 
             ## Completion
             - If the PR has labels `ai-phase-copilot` or `ai-phase-opus`, do **NOT** call `requested_reviewers` — the workflow decides the next review step after you push.
-            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review:
+            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review.
+              GITHUB_TOKEN cannot assign Copilot — prefix the POST with the PAT exposed via `$COPILOT_PAT`
+              (fall back to the default token only if the env var is empty, so the warning path still fires):
               ```bash
-              gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
+              GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" gh api \
+                repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
                 --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
               ```
             - Post a single summary comment listing: threads addressed (with fix), threads skipped
@@ -313,6 +320,11 @@ jobs:
         if: success() && steps.workflow_change.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # PAT-capable token for Copilot reviewer assignment. GITHUB_TOKEN
+          # cannot assign copilot-pull-request-reviewer[bot]. Only used on
+          # the explicit requested_reviewers POST; all other gh calls still
+          # use GITHUB_TOKEN to keep PAT rate-limit spend minimal.
+          COPILOT_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ needs.resolve.outputs.pr_number }}
         run: |
@@ -355,16 +367,16 @@ jobs:
                 gh pr comment "$PR" --repo "$REPO" --body "⏳ **AI Factory**: Automated address-feedback ran, but **no Copilot or human review has landed yet**. Leaving the review request pending — will re-check on next trigger." || true
                 return 0
               fi
-              # No review and no pending request — retry Copilot.
+              # No review and no pending request — retry Copilot with the PAT-capable token.
               local post_result copilot_added
-              post_result=$(gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
+              post_result=$(GH_TOKEN="$COPILOT_TOKEN" gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
                 -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
               copilot_added=$(printf '%s' "$post_result" | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
               if [ "${copilot_added:-0}" -gt 0 ]; then
                 gh pr comment "$PR" --repo "$REPO" --body "🔁 **AI Factory**: No Copilot/human review found on PR — re-requested **Copilot** review before converging." || true
               else
                 gh pr edit "$PR" --repo "$REPO" --add-label "ai-blocked" || true
-                gh pr comment "$PR" --repo "$REPO" --body "⚠️ **AI Factory**: No Copilot/human review found **and** re-requesting Copilot returned no reviewer (likely a token-permissions issue with \`GITHUB_TOKEN\`). Not marking \`ai-awaiting-owner\`. cc @alvarolobato — please request Copilot review manually or check workflow token." || true
+                gh pr comment "$PR" --repo "$REPO" --body "⚠️ **AI Factory**: No Copilot/human review found **and** re-requesting Copilot returned no reviewer. This happens when \`secrets.COPILOT_PAT\` is missing (GITHUB_TOKEN cannot assign Copilot) or the PAT lacks \`pull_requests: write\`. Not marking \`ai-awaiting-owner\`. cc @alvarolobato — set \`COPILOT_PAT\` or request the review manually." || true
               fi
               return 0
             fi
@@ -408,7 +420,7 @@ jobs:
           if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
             if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
               gh pr edit "$PR" --repo "$REPO" --add-label "ai-cp-after-1" || true
-              POST_OUT=$(gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
+              POST_OUT=$(GH_TOKEN="$COPILOT_TOKEN" gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
                 -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
               COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
                 | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
@@ -416,7 +428,7 @@ jobs:
                 gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot round **1**/2 addressed — requested **round 2** Copilot review." || true
               else
                 gh pr edit "$PR" --repo "$REPO" --add-label "ai-blocked" || true
-                gh pr comment "$PR" --body "⚠️ **AI Factory**: Tried to request **Copilot round 2** review but the API returned no reviewer (likely \`GITHUB_TOKEN\` permissions). cc @alvarolobato — please request manually." || true
+                gh pr comment "$PR" --body "⚠️ **AI Factory**: Tried to request **Copilot round 2** review but the API returned no reviewer. Check that \`secrets.COPILOT_PAT\` is set and has \`pull_requests: write\`. cc @alvarolobato — please request manually." || true
                 echo "::warning::Copilot round-2 request silently failed on PR #$PR"
               fi
               exit 0

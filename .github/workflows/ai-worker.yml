@@ -363,6 +363,11 @@ jobs:
         if: always() && steps.verify.outputs.outcome == 'pr_created'
         env:
           GH_TOKEN: ${{ github.token }}
+          # GITHUB_TOKEN cannot assign copilot-pull-request-reviewer[bot] — the
+          # API returns 200 with an empty requested_reviewers array. Use a PAT
+          # (stored as COPILOT_PAT secret) for the Copilot POST only; fall back
+          # to GITHUB_TOKEN so the rest of the flow still works without a PAT.
+          COPILOT_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
@@ -379,11 +384,10 @@ jobs:
 
           gh pr edit "$PR_NUM" --add-label "ai-phase-copilot" || true
 
-          # Request Copilot and verify the request actually landed — GITHUB_TOKEN
-          # sometimes silently drops Copilot reviewer requests (returns 200 but
-          # with an empty requested_reviewers array). We must not claim Copilot
-          # review was requested when the API silently ignored us.
-          POST_OUT=$(gh api "repos/$REPO_NAME/pulls/$PR_NUM/requested_reviewers" \
+          # Request Copilot with the PAT-capable token and verify the request
+          # actually landed. If COPILOT_PAT is unset the fallback GITHUB_TOKEN
+          # fails silently — we still emit the warning so the owner is paged.
+          POST_OUT=$(GH_TOKEN="$COPILOT_TOKEN" gh api "repos/$REPO_NAME/pulls/$PR_NUM/requested_reviewers" \
             --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
           COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
             | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
@@ -395,7 +399,7 @@ jobs:
             # Silent failure — don't advertise a review cycle that didn't start.
             gh pr edit "$PR_NUM" --add-label "ai-blocked" || true
             gh pr comment "$PR_NUM" \
-              --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer (likely a permissions issue with \`GITHUB_TOKEN\` — it can't assign Copilot). **Copilot review has NOT started.** cc @alvarolobato — please request Copilot review manually via the PR sidebar or ensure workflows can assign \`copilot-pull-request-reviewer[bot]\`." || true
+              --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer. This happens when \`secrets.COPILOT_PAT\` is missing (GITHUB_TOKEN cannot assign Copilot) or the PAT lacks \`pull_requests: write\`. **Copilot review has NOT started.** cc @alvarolobato — set \`COPILOT_PAT\` (fine-grained PAT, Pull requests: Read and write) or request the review manually." || true
             echo "::warning::Copilot reviewer request silently failed on PR #$PR_NUM"
           fi
 
