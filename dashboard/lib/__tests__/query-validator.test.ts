@@ -14,7 +14,7 @@ vi.mock("@/lib/db", () => ({
 
 import { validateQueryCost, QueryTooExpensiveError } from "../query-validator";
 
-function makePlanResult(totalCost: number, nodeType = "Seq Scan", relationName = "ps_ventas") {
+function makePlanResult(totalCost: number, nodeType = "Index Scan", relationName = "ps_ventas") {
   const plan = [
     {
       Plan: {
@@ -31,26 +31,24 @@ function makePlanResult(totalCost: number, nodeType = "Seq Scan", relationName =
 describe("validateQueryCost", () => {
   beforeEach(() => {
     mockQuery.mockReset();
-    delete process.env.QUERY_COST_LIMIT;
-    delete process.env.QUERY_COST_OVERRIDE_SECRET;
+    vi.unstubAllEnvs();
   });
 
   afterEach(() => {
-    delete process.env.QUERY_COST_LIMIT;
-    delete process.env.QUERY_COST_OVERRIDE_SECRET;
+    vi.unstubAllEnvs();
   });
 
   // ─── Force-bypass ────────────────────────────────────────────────────────────
 
   it("returns 0 without calling EXPLAIN when force secret matches", async () => {
-    process.env.QUERY_COST_OVERRIDE_SECRET = "s3cr3t";
+    vi.stubEnv("QUERY_COST_OVERRIDE_SECRET", "s3cr3t");
     const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "s3cr3t" });
     expect(cost).toBe(0);
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it("still checks cost when force header does not match the secret", async () => {
-    process.env.QUERY_COST_OVERRIDE_SECRET = "s3cr3t";
+    vi.stubEnv("QUERY_COST_OVERRIDE_SECRET", "s3cr3t");
     mockQuery.mockResolvedValue(makePlanResult(500));
     const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "wrong" });
     expect(cost).toBe(500);
@@ -91,19 +89,19 @@ describe("validateQueryCost", () => {
   });
 
   it("respects QUERY_COST_LIMIT env var", async () => {
-    process.env.QUERY_COST_LIMIT = "5000";
+    vi.stubEnv("QUERY_COST_LIMIT", "5000");
     mockQuery.mockResolvedValue(makePlanResult(5001));
     await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(QueryTooExpensiveError);
   });
 
   it("supports float QUERY_COST_LIMIT", async () => {
-    process.env.QUERY_COST_LIMIT = "50000.5";
+    vi.stubEnv("QUERY_COST_LIMIT", "50000.5");
     mockQuery.mockResolvedValue(makePlanResult(50000.6));
     await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(QueryTooExpensiveError);
   });
 
   it("falls back to 100000 threshold when QUERY_COST_LIMIT is not a number", async () => {
-    process.env.QUERY_COST_LIMIT = "not-a-number";
+    vi.stubEnv("QUERY_COST_LIMIT", "not-a-number");
     mockQuery.mockResolvedValue(makePlanResult(99999));
     const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(99999);
@@ -111,7 +109,7 @@ describe("validateQueryCost", () => {
   });
 
   it("falls back to 100000 threshold when QUERY_COST_LIMIT is empty string", async () => {
-    process.env.QUERY_COST_LIMIT = "";
+    vi.stubEnv("QUERY_COST_LIMIT", "");
     mockQuery.mockResolvedValue(makePlanResult(99999));
     const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(99999);
