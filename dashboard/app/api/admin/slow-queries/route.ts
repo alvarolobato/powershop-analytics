@@ -14,7 +14,7 @@ const SLOW_QUERIES_SQL = `
       1
     ) AS cache_hit_ratio
   FROM pg_stat_statements
-  WHERE query LIKE '%ps\\_%' ESCAPE '\\'
+  WHERE query LIKE '%ps_%'
   ORDER BY mean_exec_time DESC
   LIMIT 20
 `;
