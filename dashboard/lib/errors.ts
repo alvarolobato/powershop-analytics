@@ -17,6 +17,7 @@ export type ErrorCode =
   | "DB_QUERY"
   | "LLM_ERROR"
   | "LLM_RATE_LIMIT"
+  | "LLM_BUDGET_EXCEEDED"
   | "LLM_INVALID_RESPONSE"
   | "VALIDATION"
   | "NOT_FOUND"

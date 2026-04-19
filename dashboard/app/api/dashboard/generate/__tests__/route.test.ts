@@ -1,8 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+// --- Hoist BudgetExceededError so it is available inside vi.mock factory ---
+const { BudgetExceededError } = vi.hoisted(() => {
+  class BudgetExceededError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "BudgetExceededError";
+    }
+  }
+  return { BudgetExceededError };
+});
+
 // --- Mock the LLM module ---
 vi.mock("@/lib/llm", () => ({
   generateDashboard: vi.fn(),
+  BudgetExceededError,
 }));
 
 // --- Mock the schema module (pass-through by default) ---
@@ -129,6 +141,19 @@ describe("POST /api/dashboard/generate", () => {
   });
 
   // --- LLM errors ---
+
+  it("returns 429 with LLM_BUDGET_EXCEEDED when budget is exhausted", async () => {
+    mockGenerate.mockRejectedValue(
+      new BudgetExceededError("Límite diario de generación alcanzado. Reintente mañana."),
+    );
+
+    const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(429);
+    expect(json.code).toBe("LLM_BUDGET_EXCEEDED");
+    expect(json.error).toContain("Límite diario");
+  });
 
   it("returns 500 when LLM throws a generic error", async () => {
     mockGenerate.mockRejectedValue(new Error("Connection timeout"));

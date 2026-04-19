@@ -8,7 +8,7 @@
  * Response: 200 with updated DashboardSpec, or 400/429/500 on error.
  */
 import { NextResponse } from "next/server";
-import { modifyDashboard } from "@/lib/llm";
+import { modifyDashboard, BudgetExceededError } from "@/lib/llm";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import {
   formatApiError,
@@ -103,6 +103,13 @@ export async function POST(request: Request) {
       prompt.trim(),
     );
   } catch (err) {
+    if (err instanceof BudgetExceededError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+        { status: 429 },
+      );
+    }
+
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);

@@ -2,12 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock the LLM module before importing the route -------------------------
 
-const { mockModifyDashboard } = vi.hoisted(() => {
-  return { mockModifyDashboard: vi.fn() };
+const { mockModifyDashboard, BudgetExceededError } = vi.hoisted(() => {
+  class BudgetExceededError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = "BudgetExceededError";
+    }
+  }
+  return { mockModifyDashboard: vi.fn(), BudgetExceededError };
 });
 
 vi.mock("@/lib/llm", () => ({
   modifyDashboard: mockModifyDashboard,
+  BudgetExceededError,
 }));
 
 import { POST } from "../route";
@@ -154,6 +161,19 @@ describe("POST /api/dashboard/modify", () => {
     const json = await res.json();
     expect(json.code).toBe("LLM_RATE_LIMIT");
     expect(json.requestId).toBeDefined();
+  });
+
+  it("returns 429 with LLM_BUDGET_EXCEEDED when budget is exhausted", async () => {
+    mockModifyDashboard.mockRejectedValue(
+      new BudgetExceededError("Límite diario de generación alcanzado. Reintente mañana."),
+    );
+
+    const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
+
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.code).toBe("LLM_BUDGET_EXCEEDED");
+    expect(json.error).toContain("Límite diario");
   });
 
   it("returns 400 when LLM returns invalid JSON", async () => {

@@ -10,6 +10,7 @@ import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import type { ReviewContent } from "./review-prompts";
+export { BudgetExceededError } from "./llm-usage";
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
