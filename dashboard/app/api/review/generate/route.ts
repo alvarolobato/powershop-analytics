@@ -25,7 +25,7 @@ import {
 } from "@/lib/errors";
 import { executeReviewQueries, formatAllResults } from "@/lib/review-queries";
 import { buildReviewPrompt } from "@/lib/review-prompts";
-import { generateReview } from "@/lib/llm";
+import { generateReview, BudgetExceededError } from "@/lib/llm";
 import { saveReview } from "@/lib/review-db";
 
 // Allow up to 90 seconds for the full review generation flow
@@ -49,6 +49,12 @@ export async function POST(): Promise<NextResponse> {
     try {
       reviewContent = await generateReview(systemPrompt);
     } catch (err) {
+      if (err instanceof BudgetExceededError) {
+        return NextResponse.json(
+          formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+          { status: 429 }
+        );
+      }
       console.error(`[${requestId}] LLM error during review generation:`, err);
       return NextResponse.json(
         formatApiError(

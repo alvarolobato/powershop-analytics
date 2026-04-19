@@ -331,11 +331,11 @@ export async function generateSuggestions(
   serializedData: string,
   lastExchange: string
 ): Promise<string[]> {
+  await checkDailyBudget();
+
   try {
     const client = getClient();
     const prompt = buildSuggestionPrompt(serializedData, lastExchange);
-
-    await checkDailyBudget();
 
     const response = await client.chat.completions.create({
       model: getModel(),

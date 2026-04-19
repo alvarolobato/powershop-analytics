@@ -25,7 +25,10 @@ export function logUsage(
     total_tokens: number;
   }
 ): void {
-  const rate = RATES[model] ?? DEFAULT_RATE;
+  const rate = RATES[model] ?? (
+    console.warn(`[llm-usage] Unknown model "${model}", using default rate`),
+    DEFAULT_RATE
+  );
   const estimatedCost =
     usage.prompt_tokens * rate.prompt +
     usage.completion_tokens * rate.completion;
@@ -57,6 +60,10 @@ export async function checkDailyBudget(): Promise<void> {
     return;
   }
 
+  // TOCTOU: concurrent requests can all pass the check before any log their cost,
+  // allowing overshoot by up to N×(max call cost). Acceptable for a daily soft cap.
+  // CURRENT_DATE uses the PostgreSQL session timezone (default UTC); the budget
+  // window resets at midnight UTC regardless of the server's local timezone.
   try {
     const rows = await sql<{ total: string }>(
       `SELECT COALESCE(SUM(estimated_cost_usd), 0)::text AS total

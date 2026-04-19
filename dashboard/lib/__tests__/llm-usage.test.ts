@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const mockSql = vi.fn();
+const { mockSql } = vi.hoisted(() => ({
+  mockSql: vi.fn(),
+}));
 
 vi.mock("@/lib/db-write", () => ({
   sql: mockSql,
