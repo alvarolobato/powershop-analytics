@@ -37,18 +37,18 @@ def _make_pg_conn(fetchone_result=None):
 
 
 class TestCheckAndConsumeTrigger:
-    def test_returns_true_when_pending_row(self):
+    def test_returns_trigger_id_when_pending_row(self):
         from etl.db.postgres import check_and_consume_trigger
 
-        conn = _make_pg_conn(fetchone_result=(1,))
-        assert check_and_consume_trigger(conn) is True
+        conn = _make_pg_conn(fetchone_result=(42,))
+        assert check_and_consume_trigger(conn) == 42
         conn.commit.assert_called_once()
 
-    def test_returns_false_when_no_pending_row(self):
+    def test_returns_none_when_no_pending_row(self):
         from etl.db.postgres import check_and_consume_trigger
 
         conn = _make_pg_conn(fetchone_result=None)
-        assert check_and_consume_trigger(conn) is False
+        assert check_and_consume_trigger(conn) is None
         conn.commit.assert_called_once()
 
     def test_rolls_back_on_exception(self):
@@ -102,7 +102,9 @@ _POSTGRES_HELPER_PATHS = [
 ]
 
 
-def _run_full_sync_mocked(trigger: str = "scheduled") -> dict:
+def _run_full_sync_mocked(
+    trigger: str = "scheduled", trigger_id: int | None = None
+) -> dict:
     """Run run_full_sync with all external calls mocked; return captured mocks."""
     from etl.main import run_full_sync
 
@@ -124,7 +126,7 @@ def _run_full_sync_mocked(trigger: str = "scheduled") -> dict:
         stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
 
         conn_4d, conn_pg = MagicMock(), MagicMock()
-        run_full_sync(conn_4d, conn_pg, trigger=trigger)
+        run_full_sync(conn_4d, conn_pg, trigger=trigger, trigger_id=trigger_id)
 
     return captured
 
@@ -169,8 +171,11 @@ class TestRunFullSyncTriggerParam:
         assert captured_trigger == ["scheduled"]
 
     def test_update_trigger_run_id_called_for_manual(self):
-        mocks = _run_full_sync_mocked(trigger="manual")
+        mocks = _run_full_sync_mocked(trigger="manual", trigger_id=1)
         mocks["update_trigger_run_id"].assert_called_once()
+        args = mocks["update_trigger_run_id"].call_args.args
+        assert args[1] == 1, f"Expected trigger_id=1, got {args[1]!r}"
+        assert args[2] == 99, f"Expected run_id=99, got {args[2]!r}"
 
     def test_update_trigger_run_id_not_called_for_scheduled(self):
         mocks = _run_full_sync_mocked(trigger="scheduled")
@@ -184,10 +189,10 @@ class TestRunFullSyncTriggerParam:
 
 class TestSchedulerLoopTriggerCheck:
     def test_manual_trigger_fires_run_full_sync(self):
-        """When check_and_consume_trigger returns True and no run is active,
-        run_full_sync is called with trigger='manual'."""
+        """When a trigger is pending and no run is active, run_full_sync is called
+        with trigger='manual' and the trigger_id."""
         with (
-            patch("etl.db.postgres.check_and_consume_trigger", return_value=True),
+            patch("etl.db.postgres.check_and_consume_trigger", return_value=7),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),
@@ -201,13 +206,15 @@ class TestSchedulerLoopTriggerCheck:
             except StopIteration:
                 pass
 
-            mock_sync.assert_called_once_with(conn_4d, conn_pg, trigger="manual")
+            mock_sync.assert_called_once_with(
+                conn_4d, conn_pg, trigger="manual", trigger_id=7
+            )
 
-    def test_second_trigger_while_active_is_skipped(self):
-        """When check_and_consume_trigger returns True but a run is already active,
-        run_full_sync is NOT called."""
+    def test_second_trigger_while_active_is_not_consumed(self):
+        """When a run is already active, check_and_consume_trigger is never called
+        so the pending trigger row is preserved for the next poll tick."""
         with (
-            patch("etl.db.postgres.check_and_consume_trigger", return_value=True),
+            patch("etl.db.postgres.check_and_consume_trigger") as mock_consume,
             patch("etl.main._is_run_active", return_value=True),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),
@@ -221,12 +228,13 @@ class TestSchedulerLoopTriggerCheck:
             except StopIteration:
                 pass
 
+            mock_consume.assert_not_called()
             mock_sync.assert_not_called()
 
     def test_no_trigger_no_manual_run(self):
-        """When check_and_consume_trigger returns False, run_full_sync is not called."""
+        """When check_and_consume_trigger returns None, run_full_sync is not called."""
         with (
-            patch("etl.db.postgres.check_and_consume_trigger", return_value=False),
+            patch("etl.db.postgres.check_and_consume_trigger", return_value=None),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),

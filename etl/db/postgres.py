@@ -451,10 +451,10 @@ def record_table_sync(
         raise
 
 
-def check_and_consume_trigger(conn) -> bool:
+def check_and_consume_trigger(conn) -> int | None:
     """Atomically pick up one pending trigger row.
 
-    Returns True if a trigger was found and picked up, False otherwise.
+    Returns the trigger row id if a trigger was found and picked up, None otherwise.
     Uses FOR UPDATE SKIP LOCKED so concurrent processes never double-pick.
     """
     try:
@@ -474,28 +474,20 @@ def check_and_consume_trigger(conn) -> bool:
                 """
             )
             conn.commit()
-            return cur.fetchone() is not None
+            row = cur.fetchone()
+            return row[0] if row is not None else None
     except Exception:
         conn.rollback()
         raise
 
 
-def update_trigger_run_id(conn, run_id: int) -> None:
-    """Set run_id on the most recently picked-up trigger row."""
+def update_trigger_run_id(conn, trigger_id: int, run_id: int) -> None:
+    """Set run_id on the trigger row with the given trigger_id."""
     try:
         with conn.cursor() as cur:
             cur.execute(
-                """
-                UPDATE etl_manual_trigger
-                SET run_id = %s
-                WHERE id = (
-                    SELECT id FROM etl_manual_trigger
-                    WHERE status = 'picked_up' AND run_id IS NULL
-                    ORDER BY picked_up_at DESC
-                    LIMIT 1
-                )
-                """,
-                (run_id,),
+                "UPDATE etl_manual_trigger SET run_id = %s WHERE id = %s",
+                (run_id, trigger_id),
             )
         conn.commit()
     except Exception:

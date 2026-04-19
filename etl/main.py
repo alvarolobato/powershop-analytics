@@ -235,10 +235,12 @@ def _is_run_active(conn_pg) -> bool:
             return cur.fetchone() is not None
     except Exception as exc:
         logger.warning("_is_run_active query failed: %s", exc)
-        return False
+        return True  # fail closed: assume active, retry next tick
 
 
-def run_full_sync(conn_4d, conn_pg, trigger: str = "scheduled") -> None:
+def run_full_sync(
+    conn_4d, conn_pg, trigger: str = "scheduled", trigger_id: int | None = None
+) -> None:
     """Execute all sync tasks in topological order.
 
     Errors in individual tables are caught and logged; execution continues.
@@ -370,11 +372,11 @@ def run_full_sync(conn_4d, conn_pg, trigger: str = "scheduled") -> None:
         except Exception:
             logger.exception("Monitoring: finish_run failed")
 
-        if trigger == "manual":
+        if trigger == "manual" and trigger_id is not None:
             from etl.db.postgres import update_trigger_run_id
 
             try:
-                update_trigger_run_id(conn_pg, run_id)
+                update_trigger_run_id(conn_pg, trigger_id, run_id)
             except Exception:
                 logger.warning("Could not update trigger run_id — non-fatal")
 
@@ -432,14 +434,11 @@ def _run_scheduler_loop(conn_4d, conn_pg) -> None:
 
     while True:
         schedule.run_pending()
-        if check_and_consume_trigger(conn_pg):
-            if not _is_run_active(conn_pg):
+        if not _is_run_active(conn_pg):
+            trigger_id = check_and_consume_trigger(conn_pg)
+            if trigger_id is not None:
                 logger.info("Manual trigger detected — starting sync")
-                run_full_sync(conn_4d, conn_pg, trigger="manual")
-            else:
-                logger.info(
-                    "Manual trigger detected but a run is already active — skipping"
-                )
+                run_full_sync(conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id)
         time.sleep(10)
 
 
