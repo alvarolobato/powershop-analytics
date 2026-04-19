@@ -468,6 +468,14 @@ jobs:
             exit 0
           fi
 
+          # Post-terminal guard: if this PR already finished its automated
+          # cycle (ai-o-after-1 set by the Opus branch above), don't fall
+          # through to the legacy path and re-dispatch Opus review.
+          if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            echo "PR #$PR already completed automated review (ai-o-after-1 present) — skipping legacy dispatch."
+            exit 0
+          fi
+
           # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).
           gh pr edit "$PR" --repo "$REPO" --add-label "ai-ready-for-review" || true
           gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
