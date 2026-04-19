@@ -130,9 +130,9 @@ Each item in a kpi_row can also include:
   "id": "w4",
   "type": "donut_chart",
   "title": "Mix por Familia",
-  "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
-  "x": "category",
-  "y": "value"
+  "sql": "SELECT fm.fami_grup_marc AS x, SUM(lv.total_si) AS y FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+  "x": "x",
+  "y": "y"
 }
 \`\`\`
 
@@ -209,7 +209,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 8. PKs are NUMERIC(20,3) — never do arithmetic on them
 9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas to filter
 10. Each KPI sql in a kpi_row must return a single row with a "value" column
-11. Chart sql must return columns matching the x/y or category/value fields
+11. Chart sql must return columns matching the x/y fields
 12. Table sql can return any columns — they become table headers
 13. Use NULLIF to avoid division by zero
 14. NEVER use CROSSTAB or pivot — return flat grouped data
