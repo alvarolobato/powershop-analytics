@@ -147,5 +147,11 @@ describe("GET /api/admin/slow-queries", () => {
     expect(body.queries).toHaveLength(2);
     expect(body.queries[0].query).toBe("SELECT * FROM ps_stock_tienda");
     expect(body.queries[1].query).toBe("SELECT * FROM ps_ventas");
+
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining("ORDER BY mean_exec_time DESC"),
+      })
+    );
   });
 });
