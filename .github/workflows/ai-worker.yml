@@ -126,10 +126,38 @@ jobs:
             in a separate command — this is required for GitHub to fire the
             `labeled` event that triggers the implementation workflow.
 
+            ### Body integrity rules — MUST follow
+
+            Issue bodies have repeatedly been corrupted by stripping JSX
+            components and TypeScript generics inside backticks (e.g. `` `<Foo />` ``
+            and `` `Promise<void>` `` arrived as empty `` `` `` and `` `Promise` ``).
+            Two known causes: (1) the shell interpreting `<Component>` as
+            I/O redirection when bodies are passed inline; (2) the LLM
+            eliding repetitive technical fragments mid-generation.
+
+            To prevent both:
+
+            1. **Always write the body to a temp file first**, then use
+               `gh issue create --body-file <path>`. Never use `--body
+               "$(cat <<…)"` or any inline construction — those can be
+               re-parsed by the shell or your own quoting layer.
+            2. **Write JSX, HTML tags, and TypeScript generics literally**
+               inside backticks. Do not abbreviate. `` `<DateRangePicker />` ``
+               must stay as `` `<DateRangePicker />` ``, not `` `` ``.
+               `` `Promise<void>` `` must stay as `` `Promise<void>` ``,
+               not `` `Promise` ``.
+            3. **After each `gh issue create`, immediately re-read the
+               issue body** with `gh issue view <NUM> --json body --jq .body`
+               and verify it does not contain `` `` `` (two adjacent backticks
+               with nothing between). If it does, the body was mangled —
+               delete the issue and re-create it.
+
+            ### Template
+
             ```bash
-            SUB_ISSUE=$(gh issue create \
-              --title "PARENT_TITLE — Task N: TASK_TITLE" \
-              --body "$(cat <<'BODY'
+            # 1. Write body to a temp file (quoted heredoc — no shell expansion).
+            TMP_BODY=$(mktemp --suffix=.md)
+            cat > "$TMP_BODY" <<'BODY'
             ## Parent issue
             Closes #${{ env.ISSUE_NUMBER }}
 
@@ -145,9 +173,21 @@ jobs:
             ## Context
             See parent issue #${{ env.ISSUE_NUMBER }} for full plan.
             BODY
-            )" | grep -o '[0-9]*$')
 
-            # Add labels separately so the labeled event fires reliably
+            # 2. Create the issue from the file (no inline shell parsing).
+            SUB_ISSUE=$(gh issue create \
+              --title "PARENT_TITLE — Task N: TASK_TITLE" \
+              --body-file "$TMP_BODY" | grep -o '[0-9]*$')
+            rm -f "$TMP_BODY"
+
+            # 3. Verify the body is intact — fail loudly if anything was mangled.
+            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -q '``'; then
+              echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans (\`\`) — likely JSX/generics were stripped. Investigate before continuing."
+              gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
+              exit 1
+            fi
+
+            # 4. Add labels separately so the labeled event fires reliably.
             gh issue edit $SUB_ISSUE --add-label "ai-task"
             gh issue edit $SUB_ISSUE --add-label "ai-work"
             ```
@@ -197,6 +237,30 @@ jobs:
           else
             echo "status=incomplete" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Detect mangled sub-issue bodies
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Defense-in-depth: even when the planner follows the per-issue
+          # verify step, Claude may forget. Scan all open sub-issues that
+          # reference this parent ("Closes #N") for empty inline code spans
+          # — the signature of stripped JSX/generics. Flag them with
+          # `ai-needs-rewrite` so a human (or a follow-up worker) can repair
+          # the body before the implementation phase tries to act on it.
+          SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
+            --state open --limit 50 \
+            --search "Closes #${ISSUE_NUMBER} in:body" \
+            --json number,body --jq '.[]' || true)
+
+          echo "$SUB_ISSUES" | jq -c 'select(.body | test("``"))' 2>/dev/null | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            echo "Sub-issue #$NUM body contains empty backticks — flagging."
+            gh issue edit "$NUM" --add-label "ai-needs-rewrite" || true
+            gh issue comment "$NUM" --body "⚠️ AI Worker: this sub-issue body contains empty inline code spans (\`\`) — likely JSX components or TypeScript generics were stripped during creation. The implementation phase will not run on it until the body is repaired and \`ai-needs-rewrite\` is removed." || true
+          done
 
       - name: Flag incomplete plan
         if: always() && steps.verify_plan.outputs.status == 'incomplete'
