@@ -1,11 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockSql } = vi.hoisted(() => ({
+const { mockSql, mockQuery } = vi.hoisted(() => ({
   mockSql: vi.fn(),
+  mockQuery: vi.fn(),
 }));
 
 vi.mock("@/lib/db-write", () => ({
   sql: mockSql,
+}));
+
+vi.mock("@/lib/db", () => ({
+  query: mockQuery,
 }));
 
 import {
@@ -80,7 +85,7 @@ describe("logUsage", () => {
 
 describe("checkDailyBudget", () => {
   beforeEach(() => {
-    mockSql.mockReset();
+    mockQuery.mockReset();
   });
 
   afterEach(() => {
@@ -90,61 +95,62 @@ describe("checkDailyBudget", () => {
   it("is a no-op when LLM_DAILY_BUDGET_USD is not set", async () => {
     delete process.env.LLM_DAILY_BUDGET_USD;
     await expect(checkDailyBudget()).resolves.toBeUndefined();
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it("is a no-op when LLM_DAILY_BUDGET_USD is empty string", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "");
     await expect(checkDailyBudget()).resolves.toBeUndefined();
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it("is a no-op when LLM_DAILY_BUDGET_USD is '0'", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "0");
     await expect(checkDailyBudget()).resolves.toBeUndefined();
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it("is a no-op when LLM_DAILY_BUDGET_USD is negative", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "-5");
     await expect(checkDailyBudget()).resolves.toBeUndefined();
-    expect(mockSql).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 
   it("allows call when daily spend is below the limit", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "10");
-    mockSql.mockResolvedValue([{ total: "5.00" }]);
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["5.00"]] });
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
   });
 
   it("throws BudgetExceededError when daily spend equals the limit", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "10");
-    mockSql.mockResolvedValue([{ total: "10.00" }]);
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["10.00"]] });
 
     await expect(checkDailyBudget()).rejects.toThrow(BudgetExceededError);
   });
 
   it("throws BudgetExceededError when daily spend exceeds the limit", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "5");
-    mockSql.mockResolvedValue([{ total: "7.50" }]);
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["7.50"]] });
 
     await expect(checkDailyBudget()).rejects.toThrow(BudgetExceededError);
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["7.50"]] });
     await expect(checkDailyBudget()).rejects.toThrow(
       "Límite diario de generación alcanzado"
     );
   });
 
-  it("is fail-open when the sql query throws", async () => {
+  it("is fail-open when the query throws", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "10");
-    mockSql.mockRejectedValue(new Error("connection refused"));
+    mockQuery.mockRejectedValue(new Error("connection refused"));
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
   });
 
   it("is fail-open when the result row is missing", async () => {
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "10");
-    mockSql.mockResolvedValue([]);
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [] });
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
   });

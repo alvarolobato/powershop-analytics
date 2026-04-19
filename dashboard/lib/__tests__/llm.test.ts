@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const mockCreate = vi.fn();
-const mockCheckDailyBudget = vi.fn();
-const mockLogUsage = vi.fn();
+const { mockCreate, mockCheckDailyBudget, mockLogUsage } = vi.hoisted(() => ({
+  mockCreate: vi.fn(),
+  mockCheckDailyBudget: vi.fn(),
+  mockLogUsage: vi.fn(),
+}));
 
 vi.mock("openai", () => {
   return {

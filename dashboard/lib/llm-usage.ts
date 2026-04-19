@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db-write";
+import { query } from "@/lib/db";
 
 // Rate table: USD per token (easy to update when OpenRouter pricing changes)
 const RATES: Record<string, { prompt: number; completion: number }> = {
@@ -66,12 +67,12 @@ export async function checkDailyBudget(): Promise<void> {
   // CURRENT_DATE uses the PostgreSQL session timezone (default UTC); the budget
   // window resets at midnight UTC regardless of the server's local timezone.
   try {
-    const rows = await sql<{ total: string }>(
+    const result = await query(
       `SELECT COALESCE(SUM(estimated_cost_usd), 0)::text AS total
        FROM llm_usage
        WHERE created_at >= CURRENT_DATE`
     );
-    const total = parseFloat(rows[0]?.total ?? "0");
+    const total = parseFloat((result.rows[0]?.[0] as string | undefined) ?? "0");
     if (total >= limit) {
       throw new BudgetExceededError();
     }
