@@ -100,19 +100,23 @@ describe("prompts", () => {
       expect(prompt).toContain("colec");
     });
 
-    // Skipped until Task 1 (#289) is merged: prompt still has category/value for donut_chart.
-    // Remove .skip once PR #302 is merged so this test becomes a regression guard.
-    it.skip("all JSON examples in the prompt are valid DashboardSpec widgets", () => {
+    it("all JSON examples in the prompt are valid DashboardSpec widgets", () => {
       const jsonBlocks = [...prompt.matchAll(/```json\n(\{[\s\S]*?\})\n```/g)].map(
         (m) => m[1],
       );
-      const widgetBlocks = jsonBlocks.filter((b) => b.includes('"type"'));
+      const widgetBlocks = jsonBlocks
+        .filter((b) => b.includes('"type"'))
+        // TODO(#289/#302): remove this exclusion once the prompt's donut_chart
+        // example is updated to match the current widget schema.
+        .filter((b) => JSON.parse(b).type !== "donut_chart");
       expect(widgetBlocks.length).toBeGreaterThan(0);
-      for (const block of widgetBlocks) {
-        const parsed = JSON.parse(block);
-        expect(() =>
-          DashboardSpecSchema.parse({ title: "test", widgets: [parsed] }),
-        ).not.toThrow();
+      for (const [index, block] of widgetBlocks.entries()) {
+        const parsed = JSON.parse(block) as { type?: unknown };
+        const result = DashboardSpecSchema.safeParse({ title: "test", widgets: [parsed] });
+        expect(
+          result.success,
+          `Widget JSON block at index ${index} with type ${String(parsed.type ?? "unknown")} failed schema validation: ${result.success ? "" : result.error.message}\nBlock:\n${block}`,
+        ).toBe(true);
       }
     });
   });
