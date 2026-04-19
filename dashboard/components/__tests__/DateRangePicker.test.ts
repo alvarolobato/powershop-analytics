@@ -114,15 +114,15 @@ describe("CURRENT_PRESETS (fixed date: 2026-04-15, Wednesday)", () => {
     expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
   });
 
-  it("Mes Actual: 2026-04-01 – 2026-04-15", () => {
-    const preset = CURRENT_PRESETS.find((p) => p.label === "Mes Actual")!;
+  it("Mes actual: 2026-04-01 – 2026-04-15", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Mes actual")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2026, 4, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
   });
 
-  it("Trimestre Actual: Q2 starts 2026-04-01, ends today 2026-04-15", () => {
-    const preset = CURRENT_PRESETS.find((p) => p.label === "Trimestre Actual")!;
+  it("Trimestre actual: Q2 starts 2026-04-01, ends today 2026-04-15", () => {
+    const preset = CURRENT_PRESETS.find((p) => p.label === "Trimestre actual")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2026, 4, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2026, 4, 15, 23, 59, 59, 999));
@@ -153,29 +153,29 @@ describe("PREVIOUS_PRESETS (fixed date: 2026-04-15, Wednesday)", () => {
     expect(to).toEqual(d(2026, 4, 14, 23, 59, 59, 999));
   });
 
-  it("Semana Anterior: 2026-04-06 (Mon) – 2026-04-12 (Sun)", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Semana Anterior")!;
+  it("Semana anterior: 2026-04-06 (Mon) – 2026-04-12 (Sun)", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Semana anterior")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2026, 4, 6, 0, 0, 0, 0));
     expect(to).toEqual(d(2026, 4, 12, 23, 59, 59, 999));
   });
 
-  it("Mes Anterior: 2026-03-01 – 2026-03-31", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Mes Anterior")!;
+  it("Mes anterior: 2026-03-01 – 2026-03-31", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Mes anterior")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2026, 3, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
   });
 
-  it("Trimestre Anterior: Q1 2026 = 2026-01-01 – 2026-03-31", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre Anterior")!;
+  it("Trimestre anterior: Q1 2026 = 2026-01-01 – 2026-03-31", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre anterior")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2026, 1, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2026, 3, 31, 23, 59, 59, 999));
   });
 
-  it("Año Anterior: 2025-01-01 – 2025-12-31", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Año Anterior")!;
+  it("Año anterior: 2025-01-01 – 2025-12-31", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Año anterior")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2025, 1, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
@@ -214,22 +214,22 @@ describe("PREVIOUS_PRESETS edge case: January 2026-01-05 (Monday)", () => {
     vi.useRealTimers();
   });
 
-  it("Mes Anterior from January: wraps to December 2025", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Mes Anterior")!;
+  it("Mes anterior from January: wraps to December 2025", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Mes anterior")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2025, 12, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
   });
 
-  it("Trimestre Anterior from Q1: wraps to Q4 of 2025", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre Anterior")!;
+  it("Trimestre anterior from Q1: wraps to Q4 of 2025", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre anterior")!;
     const { from, to } = preset.range();
     expect(from).toEqual(d(2025, 10, 1, 0, 0, 0, 0));
     expect(to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
   });
 
-  it("Semana Anterior from first week of Jan: wraps to Dec 2025", () => {
-    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Semana Anterior")!;
+  it("Semana anterior from first week of Jan: wraps to Dec 2025", () => {
+    const preset = PREVIOUS_PRESETS.find((p) => p.label === "Semana anterior")!;
     const { from, to } = preset.range();
     // Jan 5 is Monday, so prev week Mon = Dec 29 2025, prev week Sun = Jan 4 2026
     expect(from).toEqual(d(2025, 12, 29, 0, 0, 0, 0));

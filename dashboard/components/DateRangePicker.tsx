@@ -75,14 +75,14 @@ export const CURRENT_PRESETS: Preset[] = [
     },
   },
   {
-    label: "Mes Actual",
+    label: "Mes actual",
     range: () => {
       const now = new Date();
       return { from: new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0), to: endOfDay(now) };
     },
   },
   {
-    label: "Trimestre Actual",
+    label: "Trimestre actual",
     range: () => {
       const now = new Date();
       return { from: new Date(now.getFullYear(), quarterStartMonth(now), 1, 0, 0, 0, 0), to: endOfDay(now) };
@@ -107,7 +107,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
     },
   },
   {
-    label: "Semana Anterior",
+    label: "Semana anterior",
     range: () => {
       const now = new Date();
       const monday = isoMonday(now);
@@ -117,7 +117,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
     },
   },
   {
-    label: "Mes Anterior",
+    label: "Mes anterior",
     range: () => {
       const now = new Date();
       const prevMonthLastDay = new Date(now.getFullYear(), now.getMonth(), 0);
@@ -126,7 +126,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
     },
   },
   {
-    label: "Trimestre Anterior",
+    label: "Trimestre anterior",
     range: () => {
       const now = new Date();
       const curQStart = quarterStartMonth(now);
@@ -140,7 +140,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
     },
   },
   {
-    label: "Año Anterior",
+    label: "Año anterior",
     range: () => {
       const now = new Date();
       const prevYear = now.getFullYear() - 1;
@@ -151,6 +151,11 @@ export const PREVIOUS_PRESETS: Preset[] = [
     },
   },
 ];
+
+const PRESET_PAIRS = CURRENT_PRESETS.map((current, i) => ({
+  current,
+  previous: PREVIOUS_PRESETS[i] ?? null,
+}));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -415,27 +420,29 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
             <div className="grid grid-cols-2 gap-x-2">
               <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                Periodo actual
+                Período actual
               </p>
               <p className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                Periodo anterior
+                Período anterior
               </p>
-              {CURRENT_PRESETS.map((preset, i) => (
-                <React.Fragment key={preset.label}>
+              {PRESET_PAIRS.map(({ current, previous }) => (
+                <React.Fragment key={current.label}>
                   <button
                     type="button"
-                    onClick={() => applyPreset(preset)}
+                    onClick={() => applyPreset(current)}
                     className="rounded-lg px-2 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
                   >
-                    {preset.label}
+                    {current.label}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => applyPreset(PREVIOUS_PRESETS[i])}
-                    className="rounded-lg px-2 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-                  >
-                    {PREVIOUS_PRESETS[i].label}
-                  </button>
+                  {previous && (
+                    <button
+                      type="button"
+                      onClick={() => applyPreset(previous)}
+                      className="rounded-lg px-2 py-1.5 text-left text-sm text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+                    >
+                      {previous.label}
+                    </button>
+                  )}
                 </React.Fragment>
               ))}
             </div>
