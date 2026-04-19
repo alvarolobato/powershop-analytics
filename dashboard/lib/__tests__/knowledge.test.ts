@@ -62,9 +62,10 @@ describe("knowledge", () => {
       expect(questions).toContain("margen");
     });
 
-    it("no SQL pair uses CURRENT_DATE or DATE_TRUNC with CURRENT_DATE", () => {
+    it("no SQL pair uses CURRENT_DATE, DATE_TRUNC with CURRENT_DATE, or bare INTERVAL", () => {
       for (const pair of SQL_PAIRS) {
         expect(pair.sql).not.toMatch(/CURRENT_DATE/);
+        expect(pair.sql).not.toMatch(/\bINTERVAL\b/);
       }
     });
   });
