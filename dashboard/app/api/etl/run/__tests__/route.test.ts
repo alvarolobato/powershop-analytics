@@ -80,6 +80,18 @@ describe("POST /api/etl/run", () => {
     expect(body).toEqual({ trigger_id: 99 });
   });
 
+  it("coerces string trigger_id to number (BIGSERIAL returns string)", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockSql.mockResolvedValueOnce([{ id: "42" }]);
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body).toEqual({ trigger_id: 42 });
+    expect(typeof body.trigger_id).toBe("number");
+  });
+
   it("returns 503 when the database query throws", async () => {
     mockQuery.mockRejectedValueOnce(new Error("Connection refused"));
 

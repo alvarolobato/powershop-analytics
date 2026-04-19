@@ -157,7 +157,7 @@ export default function EtlMonitorPage() {
       } else if (!res.ok) {
         setTriggerError("Error al iniciar la sincronización");
       }
-      await fetchRuns(page);
+      await fetchRuns(page, true);
     } catch {
       setTriggerError("Error al iniciar la sincronización");
     } finally {

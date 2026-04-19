@@ -105,15 +105,29 @@ jobs:
             Check if the comment was `/plan --full`. If YES, create sub-issues AND kick off
             implementation:
 
+            ### Body integrity rules — MUST follow
+
+            Issue bodies have repeatedly been corrupted by stripping JSX
+            components and TypeScript generics inside backticks (e.g.
+            `` `<Foo />` `` and `` `Promise<void>` `` arrived as empty
+            `` `` `` and `` `Promise` ``). Always:
+            1. Write the body to a temp file first, then use
+               `gh issue create --body-file <path>`. Never inline-construct
+               via `--body "$(cat <<…)"`.
+            2. Keep JSX, HTML tags, and TypeScript generics literal inside
+               backticks. Do not abbreviate.
+            3. After creating each sub-issue, re-read the body with
+               `gh issue view <NUM> --json body --jq .body` and abort if
+               it contains `` `` `` (empty inline code span).
+
             For EACH task in the sub-tasks table:
             IMPORTANT: create the issue WITHOUT labels first, then add labels
             in a separate command — this is required for GitHub to fire the
             `labeled` event that triggers the implementation workflow.
 
             ```bash
-            SUB_ISSUE=$(gh issue create \
-              --title "PARENT_TITLE — Task N: TASK_TITLE" \
-              --body "$(cat <<'BODY'
+            TMP_BODY=$(mktemp --suffix=.md)
+            cat > "$TMP_BODY" <<'BODY'
             ## Parent issue
             Closes #PARENT_NUMBER
 
@@ -129,7 +143,18 @@ jobs:
             ## Context
             See parent issue #PARENT_NUMBER for full plan.
             BODY
-            )" | grep -o '[0-9]*$')
+
+            SUB_ISSUE=$(gh issue create \
+              --title "PARENT_TITLE — Task N: TASK_TITLE" \
+              --body-file "$TMP_BODY" | grep -o '[0-9]*$')
+            rm -f "$TMP_BODY"
+
+            # Verify the body is intact — fail loudly if mangled.
+            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -q '``'; then
+              echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans — JSX/generics likely stripped."
+              gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
+              exit 1
+            fi
 
             # Add labels separately so the labeled event fires reliably
             gh issue edit $SUB_ISSUE --add-label "ai-task"

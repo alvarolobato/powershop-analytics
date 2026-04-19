@@ -23,7 +23,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { analyzeGaps } from "@/lib/llm";
+import { analyzeGaps, BudgetExceededError } from "@/lib/llm";
 import { extractJson } from "@/lib/llm-json";
 import {
   formatApiError,
@@ -105,6 +105,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     rawResponse = await analyzeGaps(existingDashboards);
   } catch (err: unknown) {
+    if (err instanceof BudgetExceededError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+        { status: 429 },
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al analizar gaps con el LLM:`, err);

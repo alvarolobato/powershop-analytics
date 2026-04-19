@@ -29,7 +29,7 @@ const WIDGET_TYPES = `
 | bar_chart     | Category comparison                     | title, sql, x, y                         |
 | line_chart    | Time series                             | title, sql, x, y                         |
 | area_chart    | Stacked time series                     | title, sql, x, y                         |
-| donut_chart   | Proportions                             | title, sql, category, value              |
+| donut_chart   | Proportions                             | title, sql, x, y                         |
 | table         | Detailed data rows                      | title, sql                               |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 
@@ -93,12 +93,12 @@ Each item in a kpi_row can also include:
   "items": [
     {
       "label": "Ventas Netas",
-      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
+      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
       "format": "currency",
       "prefix": "€",
       "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
     },
-    {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "number"}
+    {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to", "format": "number"}
   ]
 }
 \`\`\`
@@ -108,7 +108,7 @@ Each item in a kpi_row can also include:
   "id": "w2",
   "type": "bar_chart",
   "title": "Ventas por Tienda",
-  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY tienda ORDER BY value DESC",
+  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
   "x": "label",
   "y": "value"
 }
@@ -119,7 +119,7 @@ Each item in a kpi_row can also include:
   "id": "w3",
   "type": "line_chart",
   "title": "Tendencia Semanal",
-  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= CURRENT_DATE - INTERVAL '12 weeks' GROUP BY 1 ORDER BY 1",
+  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1",
   "x": "x",
   "y": "y"
 }
@@ -131,8 +131,8 @@ Each item in a kpi_row can also include:
   "type": "donut_chart",
   "title": "Mix por Familia",
   "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
-  "category": "category",
-  "value": "value"
+  "x": "category",
+  "y": "value"
 }
 \`\`\`
 
@@ -150,7 +150,7 @@ Each item in a kpi_row can also include:
   "id": "w6",
   "type": "number",
   "title": "Ticket Medio",
-  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
+  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
   "format": "currency",
   "prefix": "€"
 }

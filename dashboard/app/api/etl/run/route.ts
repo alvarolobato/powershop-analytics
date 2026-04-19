@@ -57,9 +57,13 @@ export async function POST(): Promise<NextResponse> {
       `INSERT INTO etl_manual_trigger (status) VALUES ('pending') RETURNING id`,
     );
 
-    const triggerId = rows[0].id;
+    const triggerId = Number(rows[0]?.id);
+    if (!triggerId) {
+      return NextResponse.json({ error: "db_error" }, { status: 503 });
+    }
     return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
-  } catch {
+  } catch (err) {
+    console.error("[etl/run] trigger failed:", err);
     return NextResponse.json({ error: "db_error" }, { status: 503 });
   }
 }
