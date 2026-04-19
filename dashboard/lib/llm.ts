@@ -47,20 +47,28 @@ function getStatus(err: unknown): number | undefined {
   return undefined;
 }
 
+function getHeaderValue(headers: unknown, name: string): string | null | undefined {
+  if (headers instanceof Headers) {
+    return headers.get(name);
+  }
+  if (headers !== null && typeof headers === "object" && !Array.isArray(headers)) {
+    const targetName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (key.toLowerCase() === targetName && typeof value === "string") {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
 function getRetryAfterMs(err: unknown): number | undefined {
   if (err === null || typeof err !== "object" || !("headers" in err)) return undefined;
   const headers = (err as { headers: unknown }).headers;
-  let value: string | null | undefined;
-  if (headers !== null && typeof headers === "object" && !Array.isArray(headers)) {
-    if (typeof (headers as Record<string, string>)["retry-after"] === "string") {
-      value = (headers as Record<string, string>)["retry-after"];
-    } else if (headers instanceof Headers) {
-      value = headers.get("retry-after");
-    }
-  }
-  if (!value) return undefined;
+  const value = getHeaderValue(headers, "retry-after");
+  if (value === null || value === undefined || value === "") return undefined;
   const parsed = parseInt(value, 10);
-  return isNaN(parsed) || parsed <= 0 ? undefined : Math.min(parsed * 1000, MAX_RETRY_DELAY_MS);
+  return isNaN(parsed) || parsed < 0 ? undefined : Math.min(parsed * 1000, MAX_RETRY_DELAY_MS);
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
