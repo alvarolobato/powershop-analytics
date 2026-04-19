@@ -62,7 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // Guard: reject write statements before wrapping with EXPLAIN
   try {
-    validateReadOnly(sql);
+    validateReadOnly(trimmedSql);
   } catch (err) {
     if (err instanceof SqlValidationError) {
       return NextResponse.json(
