@@ -146,6 +146,14 @@ describe("validateQueryCost", () => {
     warnSpy.mockRestore();
   });
 
+  it("emits seq scan warning even when cost exceeds threshold (warning runs before throw)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValue(makePlanResult(200000, "Seq Scan", "ps_ventas"));
+    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(QueryTooExpensiveError);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ps_ventas"));
+    warnSpy.mockRestore();
+  });
+
   it("does not warn for seq scan on small tables", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     mockQuery.mockResolvedValue(makePlanResult(500, "Seq Scan", "ps_tiendas"));

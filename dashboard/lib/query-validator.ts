@@ -74,16 +74,16 @@ export async function validateQueryCost(
         : Number(rawLimit);
     const threshold = Number.isNaN(parsedLimit) ? 100000 : parsedLimit;
 
-    if (cost > threshold) {
-      throw new QueryTooExpensiveError(cost);
-    }
-
     const seqScans: Array<{ relationName: string }> = [];
     findSeqScansOnLargeTables(plan[0]["Plan"], seqScans);
     for (const { relationName } of seqScans) {
       console.warn(
         `[query-validator] Seq scan on large table: ${relationName}, cost=${cost}`,
       );
+    }
+
+    if (cost > threshold) {
+      throw new QueryTooExpensiveError(cost);
     }
 
     return cost;
