@@ -538,7 +538,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
           >
             {/* Loading skeleton */}
             {(!state || state.loading) && (
-              <WidgetSkeleton type={widget.type} />
+              <RendererSkeleton type={widget.type} />
             )}
 
             {/* Error state */}
@@ -572,7 +572,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
 
 type WidgetType = Widget["type"];
 
-function WidgetSkeleton({ type }: { type: WidgetType }) {
+function RendererSkeleton({ type }: { type: WidgetType }) {
   switch (type) {
     case "kpi_row":
       return (
