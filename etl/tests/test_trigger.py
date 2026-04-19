@@ -1,8 +1,8 @@
 """Unit tests for the manual ETL trigger mechanism.
 
 Covers:
-  RISK-TRIG-1  check_and_consume_trigger returns True when a pending row exists
-  RISK-TRIG-2  check_and_consume_trigger returns False when no pending row exists
+  RISK-TRIG-1  check_and_consume_trigger returns trigger id (int) when a pending row exists
+  RISK-TRIG-2  check_and_consume_trigger returns None when no pending row exists
   RISK-TRIG-3  Manual trigger fires run_full_sync with trigger='manual'
   RISK-TRIG-4  A second trigger while a run is active does NOT start a second run
   RISK-TRIG-5  run_full_sync passes trigger param to create_run
@@ -32,7 +32,7 @@ def _make_pg_conn(fetchone_result=None):
 
 
 # ---------------------------------------------------------------------------
-# RISK-TRIG-1: check_and_consume_trigger returns True when a pending row exists
+# RISK-TRIG-1: check_and_consume_trigger returns trigger id (int) when a pending row exists
 # ---------------------------------------------------------------------------
 
 
