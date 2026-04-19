@@ -136,6 +136,15 @@ describe("validateQueryCost", () => {
     expect(calledSql).toMatch(/^EXPLAIN \(FORMAT JSON\)/i);
   });
 
+  it("strips EXPLAIN with block comment before ANALYZE to prevent bypass", async () => {
+    mockQuery.mockResolvedValue(makePlanResult(500));
+    await validateQueryCost("EXPLAIN /*comment*/ ANALYZE SELECT * FROM ps_ventas");
+    const calledSql = mockQuery.mock.calls[0][0] as string;
+    expect(calledSql).not.toMatch(/ANALYZE/i);
+    expect(calledSql).not.toMatch(/\/\*/);
+    expect(calledSql).toMatch(/^EXPLAIN \(FORMAT JSON\) SELECT/i);
+  });
+
   // ─── Seq scan warnings ────────────────────────────────────────────────────────
 
   it("emits console.warn for seq scan on large tables", async () => {

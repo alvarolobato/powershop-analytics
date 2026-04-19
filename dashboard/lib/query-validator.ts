@@ -44,6 +44,53 @@ function findSeqScansOnLargeTables(
   }
 }
 
+function stripExplainPrefix(sql: string): string {
+  let s = sql.trimStart();
+  if (!/^EXPLAIN\b/i.test(s)) return s;
+
+  s = s.slice("EXPLAIN".length);
+
+  // Skip whitespace, SQL comments, and EXPLAIN options (ANALYZE, VERBOSE, (...))
+  // in a loop so combinations like EXPLAIN /*c*/ ANALYZE are handled robustly.
+  for (;;) {
+    s = s.trimStart();
+
+    if (s.startsWith("/*")) {
+      const end = s.indexOf("*/");
+      if (end === -1) break;
+      s = s.slice(end + 2);
+      continue;
+    }
+
+    if (s.startsWith("--")) {
+      const end = s.indexOf("\n");
+      s = end === -1 ? "" : s.slice(end + 1);
+      continue;
+    }
+
+    if (/^ANALYZE\b/i.test(s)) {
+      s = s.slice("ANALYZE".length);
+      continue;
+    }
+
+    if (/^VERBOSE\b/i.test(s)) {
+      s = s.slice("VERBOSE".length);
+      continue;
+    }
+
+    if (s.startsWith("(")) {
+      const end = s.indexOf(")");
+      if (end === -1) break;
+      s = s.slice(end + 1);
+      continue;
+    }
+
+    break;
+  }
+
+  return s.trimStart();
+}
+
 export async function validateQueryCost(
   sql: string,
   options?: { forceHeader?: string },
@@ -54,11 +101,9 @@ export async function validateQueryCost(
   }
 
   try {
-    // Strip any leading EXPLAIN (with optional options/ANALYZE) so we don't
-    // produce invalid double-EXPLAIN SQL, which would fail-open.
-    const sqlForPlan = sql
-      .replace(/^\s*EXPLAIN\s*(?:ANALYZE\s+)?(?:VERBOSE\s+)?(?:\([^)]*\)\s*)?/i, "")
-      .trim();
+    // Strip any leading EXPLAIN clause (including comments between keywords) so
+    // we don't produce invalid double-EXPLAIN SQL, which would fail-open.
+    const sqlForPlan = stripExplainPrefix(sql);
 
     const result = await query(`EXPLAIN (FORMAT JSON) ${sqlForPlan}`);
     const planText = result.rows[0][0];
