@@ -123,16 +123,16 @@ export function getTrimestreAnteriorRange(): DateRange {
   const prevYear = currentQ === 0 ? now.getFullYear() - 1 : now.getFullYear();
   const fromMonth = prevQ * 3;
   return {
-    from: new Date(prevYear, fromMonth, 1, 0, 0, 0, 0),
-    to: new Date(prevYear, fromMonth + 3, 0, 23, 59, 59, 999),
+    from: startOfDay(new Date(prevYear, fromMonth, 1)),
+    to: endOfDay(new Date(prevYear, fromMonth + 3, 0)),
   };
 }
 
 export function getAnioAnteriorRange(): DateRange {
   const prevYear = new Date().getFullYear() - 1;
   return {
-    from: new Date(prevYear, 0, 1, 0, 0, 0, 0),
-    to: new Date(prevYear, 11, 31, 23, 59, 59, 999),
+    from: startOfDay(new Date(prevYear, 0, 1)),
+    to: endOfDay(new Date(prevYear, 11, 31)),
   };
 }
 
@@ -200,8 +200,8 @@ export function computeComparisonRange(
       const prevMonth = m === 0 ? 11 : m - 1;
       const prevYear = m === 0 ? y - 1 : y;
       return {
-        from: new Date(prevYear, prevMonth, 1, 0, 0, 0, 0),
-        to: new Date(prevYear, prevMonth + 1, 0, 23, 59, 59, 999),
+        from: startOfDay(new Date(prevYear, prevMonth, 1)),
+        to: endOfDay(new Date(prevYear, prevMonth + 1, 0)),
       };
     }
     case "previous_quarter": {
@@ -212,15 +212,15 @@ export function computeComparisonRange(
       const prevYear = currentQ === 0 ? y - 1 : y;
       const fromMonth = prevQ * 3;
       return {
-        from: new Date(prevYear, fromMonth, 1, 0, 0, 0, 0),
-        to: new Date(prevYear, fromMonth + 3, 0, 23, 59, 59, 999),
+        from: startOfDay(new Date(prevYear, fromMonth, 1)),
+        to: endOfDay(new Date(prevYear, fromMonth + 3, 0)),
       };
     }
     case "previous_year": {
       const prevYear = pFrom.getFullYear() - 1;
       return {
-        from: new Date(prevYear, 0, 1, 0, 0, 0, 0),
-        to: new Date(prevYear, 11, 31, 23, 59, 59, 999),
+        from: startOfDay(new Date(prevYear, 0, 1)),
+        to: endOfDay(new Date(prevYear, 11, 31)),
       };
     }
     case "yoy": {
