@@ -5,7 +5,7 @@ const SLOW_QUERIES_SQL = `
   SELECT
     LEFT(query, 500) AS query,
     calls,
-    mean_exec_time / 1000 AS mean_exec_time_ms,
+    mean_exec_time AS mean_exec_time_ms,
     max_exec_time AS max_exec_time_ms,
     total_exec_time AS total_exec_time_ms,
     rows,
@@ -14,7 +14,7 @@ const SLOW_QUERIES_SQL = `
       1
     ) AS cache_hit_ratio
   FROM pg_stat_statements
-  WHERE query LIKE '%ps_%'
+  WHERE query LIKE '%ps\\_%' ESCAPE '\\'
   ORDER BY mean_exec_time DESC
   LIMIT 20
 `;
@@ -60,6 +60,6 @@ export async function GET(): Promise<NextResponse> {
     }
 
     console.error("[slow-queries] Unexpected error:", err);
-    return NextResponse.json({ queries: [] });
+    return NextResponse.json({ queries: [], error: "Internal server error" });
   }
 }

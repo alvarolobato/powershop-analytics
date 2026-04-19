@@ -113,7 +113,7 @@ describe("GET /api/admin/slow-queries", () => {
     expect(body.error).toBe("pg_stat_statements not enabled");
   });
 
-  it("returns empty queries on unexpected error without leaking details", async () => {
+  it("returns empty queries with generic error on unexpected error without leaking details", async () => {
     mockQuery.mockRejectedValue(new Error("something internal"));
 
     const res = await GET();
@@ -121,7 +121,7 @@ describe("GET /api/admin/slow-queries", () => {
 
     const body = await res.json();
     expect(body.queries).toEqual([]);
-    expect(body.error).toBeUndefined();
+    expect(body.error).toBe("Internal server error");
   });
 
   it("returns multiple queries ordered by slowest first", async () => {
