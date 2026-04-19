@@ -235,6 +235,10 @@ def _is_run_active(conn_pg) -> bool:
             return cur.fetchone() is not None
     except Exception as exc:
         logger.warning("_is_run_active query failed: %s", exc)
+        try:
+            conn_pg.rollback()
+        except Exception:
+            pass
         return True  # fail closed: assume active, retry next tick
 
 
