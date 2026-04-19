@@ -10,11 +10,11 @@ const LARGE_TABLES = new Set([
 
 export class QueryTooExpensiveError extends Error {
   cost: number;
-  limit: number;
+  limit?: number;
 
-  constructor(cost: number, limit: number) {
+  constructor(cost: number, limit?: number) {
     super(
-      `Esta consulta es demasiado costosa (coste: ${cost}, límite: ${limit}). Intente añadir un filtro de fechas o tienda.`
+      "Esta consulta es demasiado costosa. Intente añadir un filtro de fechas o tienda."
     );
     this.name = "QueryTooExpensiveError";
     this.cost = cost;
@@ -62,8 +62,17 @@ export async function validateQueryCost(
     return 0;
   }
 
+  // Guard against ANALYZE injection: "EXPLAIN (FORMAT JSON) ANALYZE SELECT ..." executes the query.
+  // validateReadOnly() only checks the combined EXPLAIN+sql string, so we must validate sql itself.
+  if (!/^(SELECT|WITH)\b/i.test(sql.trimStart())) {
+    console.warn(
+      "[query-validator] SQL does not start with SELECT or WITH, skipping cost check"
+    );
+    return 0;
+  }
+
   try {
-    const result = await query(`EXPLAIN (FORMAT JSON) ${sql}`); // safe: validateReadOnly() in query() rejects writes and semicolons; EXPLAIN only plans, never executes
+    const result = await query(`EXPLAIN (FORMAT JSON) ${sql}`); // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
     const raw = result.rows[0][0] as unknown;
     // node-postgres returns json columns as parsed JS values; handle both string (test mocks) and object
     const plan = (typeof raw === "string"

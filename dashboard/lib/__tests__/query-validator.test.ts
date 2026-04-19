@@ -79,7 +79,7 @@ describe("validateQueryCost", () => {
     );
   });
 
-  it("QueryTooExpensiveError has cost, limit properties and Spanish message", async () => {
+  it("QueryTooExpensiveError has cost, limit properties and fixed Spanish message", async () => {
     mockQuery.mockResolvedValueOnce({
       columns: ["QUERY PLAN"],
       rows: [[makePlan(150000)]],
@@ -92,9 +92,9 @@ describe("validateQueryCost", () => {
       const e = err as QueryTooExpensiveError;
       expect(e.cost).toBe(150000);
       expect(e.limit).toBe(100000);
-      expect(e.message).toContain("demasiado costosa");
-      expect(e.message).toContain("150000");
-      expect(e.message).toContain("100000");
+      expect(e.message).toBe(
+        "Esta consulta es demasiado costosa. Intente añadir un filtro de fechas o tienda."
+      );
     }
   });
 
@@ -261,5 +261,27 @@ describe("validateQueryCost", () => {
     await expect(validateQueryCost("SELECT * FROM ps_stock_tienda")).rejects.toThrow(
       QueryTooExpensiveError
     );
+  });
+
+  it("returns 0 and warns when sql starts with ANALYZE (injection guard)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cost = await validateQueryCost("ANALYZE SELECT * FROM ps_ventas");
+    expect(cost).toBe(0);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("does not start with SELECT or WITH")
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("returns 0 and warns when sql starts with an arbitrary non-SELECT statement", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cost = await validateQueryCost("UPDATE ps_ventas SET x=1");
+    expect(cost).toBe(0);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("does not start with SELECT or WITH")
+    );
+    warnSpy.mockRestore();
   });
 });
