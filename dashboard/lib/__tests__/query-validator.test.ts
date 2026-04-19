@@ -110,6 +110,14 @@ describe("validateQueryCost", () => {
     expect(mockQuery).toHaveBeenCalledOnce();
   });
 
+  it("falls back to 100000 threshold when QUERY_COST_LIMIT is empty string", async () => {
+    process.env.QUERY_COST_LIMIT = "";
+    mockQuery.mockResolvedValue(makePlanResult(99999));
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(99999);
+    expect(mockQuery).toHaveBeenCalledOnce();
+  });
+
   // ─── EXPLAIN prefix stripping ─────────────────────────────────────────────────
 
   it("strips leading EXPLAIN so EXPLAIN (FORMAT JSON) is not doubled", async () => {
@@ -143,6 +151,14 @@ describe("validateQueryCost", () => {
     mockQuery.mockResolvedValue(makePlanResult(500, "Seq Scan", "ps_tiendas"));
     await validateQueryCost("SELECT * FROM ps_tiendas");
     expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("emits console.warn for parallel seq scan on large tables", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValue(makePlanResult(500, "Parallel Seq Scan", "ps_stock_tienda"));
+    await validateQueryCost("SELECT * FROM ps_stock_tienda");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ps_stock_tienda"));
     warnSpy.mockRestore();
   });
 

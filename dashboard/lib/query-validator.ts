@@ -31,7 +31,8 @@ function findSeqScansOnLargeTables(
   results: Array<{ relationName: string }>,
 ): void {
   if (
-    node["Node Type"] === "Seq Scan" &&
+    (node["Node Type"] === "Seq Scan" ||
+      node["Node Type"] === "Parallel Seq Scan") &&
     node["Relation Name"] &&
     LARGE_TABLES.has(node["Relation Name"])
   ) {
@@ -65,8 +66,12 @@ export async function validateQueryCost(
     ) as Array<{ Plan: PlanNode }>;
 
     const cost = plan[0]["Plan"]["Total Cost"] ?? 0;
-    const rawLimit = Number(process.env.QUERY_COST_LIMIT ?? "100000");
-    const threshold = Number.isNaN(rawLimit) ? 100000 : rawLimit;
+    const rawLimit = process.env.QUERY_COST_LIMIT;
+    const parsedLimit =
+      rawLimit === undefined || rawLimit.trim() === ""
+        ? NaN
+        : Number(rawLimit);
+    const threshold = Number.isNaN(parsedLimit) ? 100000 : parsedLimit;
 
     if (cost > threshold) {
       throw new QueryTooExpensiveError(cost);
