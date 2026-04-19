@@ -1,4 +1,5 @@
 export { KpiRow } from "./KpiRow";
+export { default as WidgetSkeleton } from "./WidgetSkeleton";
 export { BarChartWidget } from "./BarChartWidget";
 export { LineChartWidget } from "./LineChartWidget";
 export { AreaChartWidget } from "./AreaChartWidget";
