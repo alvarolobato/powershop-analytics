@@ -104,20 +104,30 @@ describe("prompts", () => {
       const jsonBlocks = [...prompt.matchAll(/```json\n(\{[\s\S]*?\})\n```/g)].map(
         (m) => m[1],
       );
-      const widgetBlocks = jsonBlocks
-        .filter((b) => b.includes('"type"'))
+      const widgetBlocks = jsonBlocks.filter((b) => b.includes('"type"'));
+      let validatedWidgetCount = 0;
+      for (const [index, block] of widgetBlocks.entries()) {
+        let parsed: { type?: unknown };
+        try {
+          parsed = JSON.parse(block) as { type?: unknown };
+        } catch (error) {
+          throw new Error(
+            `Widget JSON block at index ${index} could not be parsed as JSON: ${error instanceof Error ? error.message : String(error)}\nBlock:\n${block}`,
+          );
+        }
         // TODO(#289/#302): remove this exclusion once the prompt's donut_chart
         // example is updated to match the current widget schema.
-        .filter((b) => JSON.parse(b).type !== "donut_chart");
-      expect(widgetBlocks.length).toBeGreaterThan(0);
-      for (const [index, block] of widgetBlocks.entries()) {
-        const parsed = JSON.parse(block) as { type?: unknown };
+        if (parsed.type === "donut_chart") {
+          continue;
+        }
+        validatedWidgetCount += 1;
         const result = DashboardSpecSchema.safeParse({ title: "test", widgets: [parsed] });
         expect(
           result.success,
           `Widget JSON block at index ${index} with type ${String(parsed.type ?? "unknown")} failed schema validation: ${result.success ? "" : result.error.message}\nBlock:\n${block}`,
         ).toBe(true);
       }
+      expect(validatedWidgetCount).toBeGreaterThan(0);
     });
   });
 
