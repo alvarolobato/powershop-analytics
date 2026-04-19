@@ -103,26 +103,19 @@ export async function POST(request: Request) {
       prompt.trim(),
     );
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    const normalizedMessage = message.toLowerCase();
+    const status = (err as { status?: number }).status;
     console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
-
-    // Detect rate limit (case-insensitive)
-    const isRateLimit =
-      normalizedMessage.includes("rate limit") ||
-      normalizedMessage.includes("ratelimit") ||
-      normalizedMessage.includes("429");
 
     return NextResponse.json(
       formatApiError(
-        isRateLimit
+        status === 429
           ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
           : "No se pudo modificar el dashboard. Inténtalo de nuevo.",
-        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+        status === 429 ? "LLM_RATE_LIMIT" : "LLM_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),
-      { status: isRateLimit ? 429 : 500 },
+      { status: status === 429 ? 429 : 500 },
     );
   }
 

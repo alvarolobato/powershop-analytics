@@ -89,26 +89,19 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     rawResponse = await generateDashboard(prompt);
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    const normalizedMessage = message.toLowerCase();
+    const status = (err as { status?: number }).status;
     console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
-
-    // Surface rate-limit errors with a specific message (case-insensitive)
-    const isRateLimit =
-      normalizedMessage.includes("rate limit") ||
-      normalizedMessage.includes("ratelimit") ||
-      normalizedMessage.includes("429");
 
     return NextResponse.json(
       formatApiError(
-        isRateLimit
+        status === 429
           ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
           : "Error al generar el dashboard. Inténtalo de nuevo.",
-        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+        status === 429 ? "LLM_RATE_LIMIT" : "LLM_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),
-      { status: isRateLimit ? 429 : 500 },
+      { status: status === 429 ? 429 : 500 },
     );
   }
 
