@@ -89,7 +89,7 @@ describe("TASK_PROMPTS", () => {
 
   it("no task prompt embeds hardcoded SQL date expressions", () => {
     for (const task of TASK_PROMPTS) {
-      expect(task.prompt).not.toMatch(/DATE_TRUNC|CURRENT_DATE/);
+      expect(task.prompt).not.toMatch(/DATE_TRUNC|CURRENT_DATE|CURRENT_TIMESTAMP|\bNOW\s*\(/);
     }
   });
 });
