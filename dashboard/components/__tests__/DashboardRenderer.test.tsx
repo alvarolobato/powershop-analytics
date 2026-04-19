@@ -630,6 +630,86 @@ describe("DashboardRenderer", () => {
       expect(body.sql).toBe("SELECT SUM(total) FROM ps_ventas");
     });
 
+    describe("trend_sql token handling", () => {
+      const dateRange: DateRange = {
+        from: new Date("2026-03-01T00:00:00.000Z"),
+        to: new Date("2026-03-31T00:00:00.000Z"),
+      };
+
+      const trendSpec: DashboardSpec = {
+        title: "KPI Trend Test",
+        widgets: [
+          {
+            type: "kpi_row",
+            items: [
+              {
+                label: "Ventas",
+                sql: "SELECT SUM(total) FROM ps_ventas WHERE fecha >= :curr_from AND fecha <= :curr_to",
+                format: "currency",
+                trend_sql:
+                  "SELECT SUM(total) FROM ps_ventas WHERE fecha BETWEEN :comp_from AND :comp_to",
+              },
+            ],
+          },
+        ],
+      };
+
+      it("skips trend_sql fetch when comparisonRange is undefined — no :comp_* tokens sent to PG", async () => {
+        const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[500]] });
+        vi.stubGlobal("fetch", fetchMock);
+
+        render(<DashboardRenderer spec={trendSpec} dateRange={dateRange} />);
+
+        await waitFor(() => {
+          expect(fetchMock).toHaveBeenCalled();
+        });
+
+        // No call should contain :comp_from or :comp_to
+        const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
+          JSON.parse((c[1] as { body: string }).body)
+        );
+        const hasCompToken = bodies.some(
+          (b: { sql: string }) =>
+            b.sql.includes(":comp_from") || b.sql.includes(":comp_to")
+        );
+        expect(hasCompToken).toBe(false);
+      });
+
+      it("fetches trend_sql via buildComparisonSql when comparisonRange is defined", async () => {
+        const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[400]] });
+        vi.stubGlobal("fetch", fetchMock);
+
+        const comparisonRange: ComparisonRange = {
+          type: "previous_month",
+          from: new Date("2026-02-01T00:00:00.000Z"),
+          to: new Date("2026-02-28T00:00:00.000Z"),
+        };
+
+        render(
+          <DashboardRenderer
+            spec={trendSpec}
+            dateRange={dateRange}
+            comparisonRange={comparisonRange}
+          />
+        );
+
+        await waitFor(() => {
+          expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
+          JSON.parse((c[1] as { body: string }).body)
+        );
+        const trendCall = bodies.find(
+          (b: { sql: string }) =>
+            b.sql.includes("2026-02-01") || b.sql.includes("2026-02-28")
+        );
+        expect(trendCall).toBeDefined();
+        expect(trendCall.sql).not.toContain(":comp_from");
+        expect(trendCall.sql).not.toContain(":comp_to");
+      });
+    });
+
     it("refetches with substituted SQL when dateRange changes", async () => {
       const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
       vi.stubGlobal("fetch", fetchMock);
