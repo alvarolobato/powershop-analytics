@@ -145,6 +145,15 @@ jobs:
       - name: Claude PR Review
         if: steps.cap.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
+        env:
+          # Default gh auth for every Claude-side call EXCEPT the Copilot
+          # reviewer POST; the prompt below switches to $COPILOT_PAT only for
+          # that single call.
+          GH_TOKEN: ${{ github.token }}
+          # PAT for assigning copilot-pull-request-reviewer[bot]; GITHUB_TOKEN
+          # silently drops Copilot reviewer requests. Claude must use this
+          # specifically when calling requested_reviewers (see prompt below).
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Headless review: tool approvals stall the run; default cap was 35 turns.
@@ -161,16 +170,18 @@ jobs:
             ## Copilot follow-up (read carefully)
             Run `gh pr view ${{ env.PR_NUMBER }} --json labels -q '.labels[].name'` before you finish.
             - If the PR has label `ai-phase-opus`, do **NOT** request a Copilot review (Opus-only passes; address-feedback is dispatched by CI).
-            - Otherwise, after reviewing, request a Copilot review **and verify the request landed**:
+            - Otherwise, after reviewing, request a Copilot review **and verify the request landed**.
+              GITHUB_TOKEN cannot assign Copilot — prefix the POST with the PAT exposed via `$COPILOT_PAT`:
             ```bash
-            POST_OUT=$(gh api repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
+            POST_OUT=$(GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" gh api \
+              repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
               --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
             COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
               | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
             if [ "${COPILOT_ADDED:-0}" -eq 0 ]; then
-              # GITHUB_TOKEN silently dropped the request — surface it loudly.
+              # PAT missing or lacks pull_requests: write — surface it loudly.
               gh pr comment ${{ env.PR_NUMBER }} \
-                --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer (likely a token-permissions issue). **Copilot has NOT been requested.** cc @alvarolobato."
+                --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer. Check that \`secrets.COPILOT_PAT\` is set with \`pull_requests: write\`. cc @alvarolobato."
             fi
             ```
             Do NOT claim Copilot has reviewed the PR unless you can see an actual review from `Copilot` / `copilot-pull-request-reviewer[bot]` in `gh api repos/{owner}/{repo}/pulls/{PR}/reviews`.
