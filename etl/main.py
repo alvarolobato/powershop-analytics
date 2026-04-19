@@ -238,7 +238,9 @@ def _is_run_active(conn_pg) -> bool:
                 "SELECT 1 FROM etl_sync_runs WHERE status = 'running'"
                 " AND started_at > NOW() - INTERVAL '12 hours' LIMIT 1"
             )
-            return cur.fetchone() is not None
+            is_active = cur.fetchone() is not None
+        conn_pg.rollback()
+        return is_active
     except Exception as exc:
         logger.warning("_is_run_active query failed: %s", exc)
         try:

@@ -25,8 +25,8 @@ def _make_pg_conn(fetchone_result=None):
     """Return a mock psycopg2 connection whose cursor().fetchone() returns *fetchone_result*."""
     conn = MagicMock(name="conn_pg")
     cursor = MagicMock()
-    cursor.__enter__ = lambda s: s
-    cursor.__exit__ = MagicMock(return_value=False)
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
     cursor.fetchone.return_value = fetchone_result
     conn.cursor.return_value = cursor
     return conn
