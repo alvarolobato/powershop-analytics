@@ -3,12 +3,10 @@ import {
   computeComparisonRange,
   CURRENT_PRESETS,
   PREVIOUS_PRESETS,
-  startOfDay,
-  endOfDay,
   isoWeekMonday,
   currentQuarterStart,
 } from "../DateRangePicker";
-import type { DateRange, ComparisonType } from "../DateRangePicker";
+import type { DateRange } from "../DateRangePicker";
 
 function d(year: number, month: number, day: number, h = 0, min = 0, sec = 0, ms = 0): Date {
   return new Date(year, month - 1, day, h, min, sec, ms);

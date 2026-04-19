@@ -423,10 +423,10 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
             <div className="mb-1 grid grid-cols-2 gap-x-2 px-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                Periodo actual
+                Período actual
               </p>
               <p className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                Periodo anterior
+                Período anterior
               </p>
             </div>
             <div className="grid grid-cols-2 gap-x-1">
