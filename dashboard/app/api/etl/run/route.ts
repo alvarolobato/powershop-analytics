@@ -40,19 +40,25 @@ export async function POST(): Promise<NextResponse> {
       }
     }
 
-    const pendingResult = await query(
-      `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
+    // The unique partial index on status='pending' prevents duplicate pending rows.
+    // ON CONFLICT DO NOTHING + RETURNING may return no rows if one already exists;
+    // fetch the existing row in that case so we always return a trigger_id.
+    const rows = await sql<{ id: number }>(
+      `INSERT INTO etl_manual_trigger (status) VALUES ('pending')
+       ON CONFLICT (status) WHERE status = 'pending' DO NOTHING
+       RETURNING id`,
     );
-    if (pendingResult.rows.length > 0) {
-      const triggerId = Number(pendingResult.rows[0][0]);
-      return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
+
+    let triggerId: number;
+    if (rows.length > 0) {
+      triggerId = rows[0].id;
+    } else {
+      const existing = await query(
+        `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
+      );
+      triggerId = Number(existing.rows[0][0]);
     }
 
-    const rows = await sql<{ id: number }>(
-      `INSERT INTO etl_manual_trigger (status) VALUES ('pending') RETURNING id`,
-    );
-
-    const triggerId = rows[0].id;
     return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
   } catch {
     return NextResponse.json({ error: "db_error" }, { status: 503 });

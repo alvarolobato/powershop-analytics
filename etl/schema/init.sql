@@ -470,8 +470,9 @@ CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending
-    ON etl_manual_trigger (requested_at) WHERE status = 'pending';
+-- Unique: at most one pending trigger row at a time (supports ON CONFLICT idempotency).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_etl_manual_trigger_single_pending
+    ON etl_manual_trigger (status) WHERE status = 'pending';
 
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
