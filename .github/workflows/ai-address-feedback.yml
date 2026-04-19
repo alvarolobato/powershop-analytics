@@ -418,29 +418,46 @@ jobs:
 
           # Phased: 1× Copilot then 1× Opus — see ai-worker.yml / ai-pr-review.yml
           if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
-            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+            if echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+              # Self-heal: a prior transition partially applied (both labels present).
+              # Complete the label move without re-dispatching Opus review.
               gh pr edit "$PR" --repo "$REPO" \
-                --add-label "ai-cp-after-1" \
                 --remove-label "ai-phase-copilot" \
                 --add-label "ai-phase-opus" \
                 --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
-              gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot review addressed — starting **Opus** review." || true
+              gh pr comment "$PR" --body "🤖 **AI Factory**: Self-healed partial phase transition — cleared \`ai-phase-copilot\`." || true
               exit 0
             fi
+            gh pr edit "$PR" --repo "$REPO" \
+              --add-label "ai-cp-after-1" \
+              --remove-label "ai-phase-copilot" \
+              --add-label "ai-phase-opus" \
+              --add-label "ai-ready-for-review" || true
+            gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+            gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot review addressed — starting **Opus** review." || true
+            exit 0
           fi
 
           if echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
-            if ! echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              # Self-heal: prior handoff partially applied. Finish clearing phase labels
+              # and re-run the handoff gate — it's idempotent (label + comment only).
               gh pr edit "$PR" --repo "$REPO" \
-                --add-label "ai-o-after-1" \
                 --remove-label "ai-phase-opus" \
                 --remove-label "ai-ready-for-review" \
                 --remove-label "ai-blocked" \
                 --remove-label "ai-auto-retry" || true
-              owner_handoff_or_ci_gate "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
+              owner_handoff_or_ci_gate "✅ **AI Factory**: Self-healed partial phase transition — automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
               exit 0
             fi
+            gh pr edit "$PR" --repo "$REPO" \
+              --add-label "ai-o-after-1" \
+              --remove-label "ai-phase-opus" \
+              --remove-label "ai-ready-for-review" \
+              --remove-label "ai-blocked" \
+              --remove-label "ai-auto-retry" || true
+            owner_handoff_or_ci_gate "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
+            exit 0
           fi
 
           # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).
