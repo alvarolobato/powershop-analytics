@@ -8,7 +8,7 @@ import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
 import { DateRangePicker } from "@/components/DateRangePicker";
-import type { DateRange } from "@/components/DateRangePicker";
+import type { DateRange, ComparisonRange } from "@/components/DateRangePicker";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
@@ -100,16 +100,21 @@ export default function ViewDashboard() {
     to.setHours(23, 59, 59, 999);
     return { from, to };
   });
+  const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(undefined);
 
   // When date range changes, store the range and re-run all widget queries.
   // The date range is displayed in the picker for context; actual SQL filtering
   // depends on the widget SQL containing appropriate date expressions.
   // In a future iteration, widgets with a dateColumn hint could use
   // injectDateRange() to automatically apply the range client-side.
-  const handleDateRangeChange = useCallback(({ primary }: { primary: DateRange; comparison?: import("@/components/DateRangePicker").ComparisonRange }) => {
-    setDateRange(primary);
-    setRefreshKey((k) => k + 1);
-  }, []);
+  const handleDateRangeChange = useCallback(
+    ({ primary, comparison }: { primary: DateRange; comparison?: ComparisonRange }) => {
+      setDateRange(primary);
+      setComparisonRange(comparison);
+      setRefreshKey((k) => k + 1);
+    },
+    [],
+  );
 
   // Export dropdown state
   const [exportOpen, setExportOpen] = useState(false);
@@ -689,6 +694,7 @@ export default function ViewDashboard() {
         spec={dashboard.spec}
         refreshKey={refreshKey}
         dateRange={dateRange}
+        comparisonRange={comparisonRange}
         onWidgetDataChange={setWidgetData}
       />
 
