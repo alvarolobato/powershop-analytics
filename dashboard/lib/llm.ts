@@ -33,6 +33,7 @@ function getModel(): string {
 
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 30_000;
 
 function getStatus(err: unknown): number | undefined {
   if (
@@ -59,7 +60,7 @@ function getRetryAfterMs(err: unknown): number | undefined {
   }
   if (!value) return undefined;
   const parsed = parseInt(value, 10);
-  return isNaN(parsed) || parsed <= 0 ? undefined : parsed * 1000;
+  return isNaN(parsed) || parsed <= 0 ? undefined : Math.min(parsed * 1000, MAX_RETRY_DELAY_MS);
 }
 
 async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
