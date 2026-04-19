@@ -207,12 +207,14 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
                 }
               })
             ),
-            // Fetch trend values (for items that have trend_sql)
+            // Fetch trend values (for items that have trend_sql).
+            // trend_sql contains :comp_from/:comp_to tokens — only fetch when comparisonRange is active,
+            // otherwise skip to avoid sending literal colon-tokens to PostgreSQL.
             Promise.all(
               widget.items.map(async (item): Promise<WidgetData | null> => {
-                if (!item.trend_sql) return null;
+                if (!item.trend_sql || !comparisonRange) return null;
                 try {
-                  return await fetchWidgetData(buildMainSql(item.trend_sql), signal);
+                  return await fetchWidgetData(buildComparisonSql(item.trend_sql)!, signal);
                 } catch {
                   return null;
                 }
@@ -316,9 +318,9 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             ),
             Promise.all(
               widget.items.map(async (item): Promise<WidgetData | null> => {
-                if (!item.trend_sql) return null;
+                if (!item.trend_sql || !comparisonRange) return null;
                 try {
-                  return await fetchWidgetData(buildMainSql(item.trend_sql), signal);
+                  return await fetchWidgetData(buildComparisonSql(item.trend_sql)!, signal);
                 } catch {
                   return null;
                 }
