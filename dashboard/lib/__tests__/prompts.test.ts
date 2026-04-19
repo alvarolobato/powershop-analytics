@@ -98,6 +98,51 @@ describe("prompts", () => {
       expect(prompt).toContain("clave_temporada");
       expect(prompt).toContain("colec");
     });
+
+    it("example JSON blocks use :curr_from/:curr_to instead of hardcoded CURRENT_DATE for date-filtered SQL", () => {
+      const combined = buildGeneratePrompt() + "\n" + buildModifyPrompt("{}");
+
+      // Extract all ```json ... ``` code blocks
+      const codeBlockRe = /```json\s*([\s\S]*?)```/g;
+      const dateColumns =
+        /fecha_creacion|fecha_documento|fecha_envio|fecha_factura/;
+      const hardcodedDate = /CURRENT_DATE/;
+
+      let match: RegExpExecArray | null;
+      while ((match = codeBlockRe.exec(combined)) !== null) {
+        const blockText = match[1];
+
+        // Walk sql/trend_sql fields (must use curr_from/curr_to)
+        const primarySqlRe =
+          /"(?:sql|trend_sql)"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+        let sqlMatch: RegExpExecArray | null;
+        while ((sqlMatch = primarySqlRe.exec(blockText)) !== null) {
+          const sql = sqlMatch[1];
+
+          // Allow-list: anomaly_sql uses generate_series intentionally — skip
+          if (sql.includes("generate_series")) continue;
+
+          // If the SQL filters on a date column, it must use curr tokens, not literals
+          if (dateColumns.test(sql)) {
+            expect(sql).toContain(":curr_from");
+            expect(sql).toContain(":curr_to");
+            expect(sql).not.toMatch(hardcodedDate);
+          }
+        }
+
+        // Walk comparison_sql fields (must use comp_from/comp_to, not literals)
+        const compSqlRe =
+          /"comparison_sql"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+        while ((sqlMatch = compSqlRe.exec(blockText)) !== null) {
+          const sql = sqlMatch[1];
+          if (dateColumns.test(sql)) {
+            expect(sql).toContain(":comp_from");
+            expect(sql).toContain(":comp_to");
+            expect(sql).not.toMatch(hardcodedDate);
+          }
+        }
+      }
+    });
   });
 
   describe("buildModifyPrompt", () => {
