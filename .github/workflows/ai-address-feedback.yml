@@ -417,6 +417,14 @@ jobs:
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
           # Phased: 1× Copilot then 1× Opus — see ai-worker.yml / ai-pr-review.yml
+          # Ensure phase/handoff labels exist; if any are missing, the single
+          # multi-label `gh pr edit` below would fail and leave the PR stuck.
+          gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
+          gh label create "ai-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
+          gh label create "ai-cp-after-1" --color "0e8a16" --description "AI Factory: addressed Copilot review" 2>/dev/null || true
+          gh label create "ai-o-after-1" --color "0e8a16" --description "AI Factory: addressed Opus review" 2>/dev/null || true
+          gh label create "ai-ready-for-review" --color "fbca04" --description "AI Factory: PR ready for automated review" 2>/dev/null || true
+
           if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
             if echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
               # Self-heal: a prior transition partially applied (both labels present).
