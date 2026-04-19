@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 
-// keep in sync with ARCHITECTURE.md § PostgreSQL key tables
+// keep in sync with ARCHITECTURE.md "### 2. PostgreSQL" -> "Key tables"
 const LARGE_TABLES = new Set([
   "ps_stock_tienda",
   "ps_lineas_ventas",
