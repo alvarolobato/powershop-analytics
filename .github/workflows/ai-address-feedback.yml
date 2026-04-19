@@ -416,52 +416,64 @@ jobs:
           echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA)."
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-          # Phased: 2× Copilot (cheap) then 2× Opus — see ai-worker.yml / ai-pr-review.yml
+          # Phased: 1× Copilot then 1× Opus — see ai-worker.yml / ai-pr-review.yml
+          # Ensure phase/handoff labels exist; if any are missing, the single
+          # multi-label `gh pr edit` below would fail and leave the PR stuck.
+          gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
+          gh label create "ai-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
+          gh label create "ai-cp-after-1" --color "0e8a16" --description "AI Factory: addressed Copilot review" 2>/dev/null || true
+          gh label create "ai-o-after-1" --color "0e8a16" --description "AI Factory: addressed Opus review" 2>/dev/null || true
+          gh label create "ai-ready-for-review" --color "fbca04" --description "AI Factory: PR ready for automated review" 2>/dev/null || true
+
           if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
-            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
-              gh pr edit "$PR" --repo "$REPO" --add-label "ai-cp-after-1" || true
-              POST_OUT=$(GH_TOKEN="$COPILOT_TOKEN" gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
-                -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
-              COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
-                | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
-              if [ "${COPILOT_ADDED:-0}" -gt 0 ]; then
-                gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot round **1**/2 addressed — requested **round 2** Copilot review." || true
-              else
-                gh pr edit "$PR" --repo "$REPO" --add-label "ai-blocked" || true
-                gh pr comment "$PR" --body "⚠️ **AI Factory**: Tried to request **Copilot round 2** review but the API returned no reviewer. Check that \`secrets.COPILOT_PAT\` is set and has \`pull_requests: write\`. cc @alvarolobato — please request manually." || true
-                echo "::warning::Copilot round-2 request silently failed on PR #$PR"
-              fi
-              exit 0
-            fi
-            if ! echo ",$LABELS," | grep -q ",ai-cp-after-2,"; then
+            if echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+              # Self-heal: a prior transition partially applied (both labels present).
+              # Complete the label move without re-dispatching Opus review.
               gh pr edit "$PR" --repo "$REPO" \
-                --add-label "ai-cp-after-2" \
                 --remove-label "ai-phase-copilot" \
                 --add-label "ai-phase-opus" \
                 --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
-              gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot rounds **complete** — starting **Opus** review (pass 1 of 2)." || true
+              gh pr comment "$PR" --body "🤖 **AI Factory**: Self-healed partial phase transition — cleared \`ai-phase-copilot\`." || true
               exit 0
             fi
+            gh pr edit "$PR" --repo "$REPO" \
+              --add-label "ai-cp-after-1" \
+              --remove-label "ai-phase-copilot" \
+              --add-label "ai-phase-opus" \
+              --add-label "ai-ready-for-review" || true
+            gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+            gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot review addressed — starting **Opus** review." || true
+            exit 0
           fi
 
           if echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
-            if ! echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
-              gh pr edit "$PR" --repo "$REPO" --add-label "ai-o-after-1" --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
-              gh pr comment "$PR" --body "🤖 **AI Factory**: Opus pass **1**/2 addressed — running **Opus** pass 2." || true
-              exit 0
-            fi
-            if ! echo ",$LABELS," | grep -q ",ai-o-after-2,"; then
+            if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              # Self-heal: prior handoff partially applied. Finish clearing phase labels
+              # and re-run the handoff gate — it's idempotent (label + comment only).
               gh pr edit "$PR" --repo "$REPO" \
-                --add-label "ai-o-after-2" \
                 --remove-label "ai-phase-opus" \
                 --remove-label "ai-ready-for-review" \
                 --remove-label "ai-blocked" \
                 --remove-label "ai-auto-retry" || true
-              owner_handoff_or_ci_gate "✅ **AI Factory**: Automated **Opus** passes complete (**2**/2). PR is ready for human merge decision."
+              owner_handoff_or_ci_gate "✅ **AI Factory**: Self-healed partial phase transition — automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
               exit 0
             fi
+            gh pr edit "$PR" --repo "$REPO" \
+              --add-label "ai-o-after-1" \
+              --remove-label "ai-phase-opus" \
+              --remove-label "ai-ready-for-review" \
+              --remove-label "ai-blocked" \
+              --remove-label "ai-auto-retry" || true
+            owner_handoff_or_ci_gate "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
+            exit 0
+          fi
+
+          # Post-terminal guard: if this PR already finished its automated
+          # cycle (ai-o-after-1 set by the Opus branch above), don't fall
+          # through to the legacy path and re-dispatch Opus review.
+          if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            echo "PR #$PR already completed automated review (ai-o-after-1 present) — skipping legacy dispatch."
+            exit 0
           fi
 
           # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).

@@ -381,7 +381,7 @@ jobs:
             --remove-label "ai-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
-          # Automated review: two Copilot rounds first (cheaper), then up to two Opus PR reviews.
+          # Automated review: Copilot first (cheaper), then Opus. One pass each.
           # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
           PR_NUM="${{ steps.verify.outputs.pr_number }}"
           REPO_NAME="${{ github.repository }}"
@@ -402,7 +402,7 @@ jobs:
 
           if [ "${COPILOT_ADDED:-0}" -gt 0 ]; then
             gh pr comment "$PR_NUM" \
-              --body "🤖 **AI Factory**: Automated review starts with **Copilot** (round 1 of 2), then Copilot round 2, then up to **two Opus** code reviews. Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
+              --body "🤖 **AI Factory**: Automated review starts with **Copilot**, then **Opus** (one pass each). Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
           else
             # Silent failure — don't advertise a review cycle that didn't start.
             gh pr edit "$PR_NUM" --add-label "ai-blocked" || true
