@@ -47,12 +47,10 @@ labels:
 
   # AI Factory — phased PR review (see ai-worker / ai-pr-review / ai-address-feedback)
   review_phases:
-    - "ai-phase-copilot"   # Awaiting / in Copilot rounds (before Opus)
-    - "ai-cp-after-1"      # Addressed feedback after Copilot round 1
-    - "ai-cp-after-2"      # Addressed feedback after Copilot round 2
-    - "ai-phase-opus"      # In Opus review passes (max 2)
-    - "ai-o-after-1"       # Addressed after Opus pass 1
-    - "ai-o-after-2"       # Addressed after Opus pass 2 (terminal for AI review)
+    - "ai-phase-copilot"   # Awaiting / in Copilot review (before Opus)
+    - "ai-cp-after-1"      # Addressed feedback after Copilot review
+    - "ai-phase-opus"      # In Opus review pass
+    - "ai-o-after-1"       # Addressed after Opus review (terminal for AI review)
     - "ai-legacy-opus-1"   # Legacy PRs: first Opus pass recorded
     - "ai-legacy-opus-2"   # Legacy PRs: second Opus pass — further Opus runs skipped
 
