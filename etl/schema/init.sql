@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+
 -- PostgreSQL DDL for the PowerShop Analytics mirror schema.
 -- All tables use the ps_ prefix.
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
