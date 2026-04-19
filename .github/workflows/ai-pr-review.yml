@@ -265,7 +265,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          RESET_LINE=""
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+            RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
+            if [ -n "$RESET_ISO" ]; then
+              RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
+            fi
+          fi
           gh pr comment "$PR_NUMBER" \
-            --body "⚠️ AI PR Review failed. Marked \`ai-ready-for-review\` + \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI PR Review failed. Marked \`ai-ready-for-review\` + \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
           gh pr edit "$PR_NUMBER" \
             --add-label "ai-ready-for-review" --add-label "ai-blocked" --add-label "ai-auto-retry" || true

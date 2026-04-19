@@ -30,6 +30,7 @@ permissions:
   issues: write
   pull-requests: write
   id-token: write
+  actions: read
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
@@ -214,12 +215,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          RESET_LINE=""
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+            RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
+            if [ -n "$RESET_ISO" ]; then
+              RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
+            fi
+          fi
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
             --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Ensure ai-in-progress is cleared on cancel
         if: cancelled()
@@ -449,12 +457,19 @@ jobs:
           if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
             BRANCH_NOTE=" Partial work pushed to branch \`${BRANCH}\`."
           fi
+          RESET_LINE=""
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+            RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
+            if [ -n "$RESET_ISO" ]; then
+              RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
+            fi
+          fi
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
             --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Ensure ai-in-progress is cleared on cancel
         if: cancelled()
