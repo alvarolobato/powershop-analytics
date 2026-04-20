@@ -30,6 +30,7 @@ permissions:
   issues: write
   pull-requests: write
   id-token: write
+  actions: read
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
@@ -125,10 +126,38 @@ jobs:
             in a separate command — this is required for GitHub to fire the
             `labeled` event that triggers the implementation workflow.
 
+            ### Body integrity rules — MUST follow
+
+            Issue bodies have repeatedly been corrupted by stripping JSX
+            components and TypeScript generics inside backticks (e.g. `` `<Foo />` ``
+            and `` `Promise<void>` `` arrived as empty `` `` `` and `` `Promise` ``).
+            Two known causes: (1) the shell interpreting `<Component>` as
+            I/O redirection when bodies are passed inline; (2) the LLM
+            eliding repetitive technical fragments mid-generation.
+
+            To prevent both:
+
+            1. **Always write the body to a temp file first**, then use
+               `gh issue create --body-file <path>`. Never use `--body
+               "$(cat <<…)"` or any inline construction — those can be
+               re-parsed by the shell or your own quoting layer.
+            2. **Write JSX, HTML tags, and TypeScript generics literally**
+               inside backticks. Do not abbreviate. `` `<DateRangePicker />` ``
+               must stay as `` `<DateRangePicker />` ``, not `` `` ``.
+               `` `Promise<void>` `` must stay as `` `Promise<void>` ``,
+               not `` `Promise` ``.
+            3. **After each `gh issue create`, immediately re-read the
+               issue body** with `gh issue view <NUM> --json body --jq .body`
+               and verify it does not contain `` `` `` (two adjacent backticks
+               with nothing between). If it does, the body was mangled —
+               delete the issue and re-create it.
+
+            ### Template
+
             ```bash
-            SUB_ISSUE=$(gh issue create \
-              --title "PARENT_TITLE — Task N: TASK_TITLE" \
-              --body "$(cat <<'BODY'
+            # 1. Write body to a temp file (quoted heredoc — no shell expansion).
+            TMP_BODY=$(mktemp --suffix=.md)
+            cat > "$TMP_BODY" <<'BODY'
             ## Parent issue
             Closes #${{ env.ISSUE_NUMBER }}
 
@@ -144,9 +173,21 @@ jobs:
             ## Context
             See parent issue #${{ env.ISSUE_NUMBER }} for full plan.
             BODY
-            )" | grep -o '[0-9]*$')
 
-            # Add labels separately so the labeled event fires reliably
+            # 2. Create the issue from the file (no inline shell parsing).
+            SUB_ISSUE=$(gh issue create \
+              --title "PARENT_TITLE — Task N: TASK_TITLE" \
+              --body-file "$TMP_BODY" | grep -o '[0-9]*$')
+            rm -f "$TMP_BODY"
+
+            # 3. Verify the body is intact — fail loudly if anything was mangled.
+            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -q '``'; then
+              echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans (\`\`) — likely JSX/generics were stripped. Investigate before continuing."
+              gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
+              exit 1
+            fi
+
+            # 4. Add labels separately so the labeled event fires reliably.
             gh issue edit $SUB_ISSUE --add-label "ai-task"
             gh issue edit $SUB_ISSUE --add-label "ai-work"
             ```
@@ -197,6 +238,30 @@ jobs:
             echo "status=incomplete" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Detect mangled sub-issue bodies
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Defense-in-depth: even when the planner follows the per-issue
+          # verify step, Claude may forget. Scan all open sub-issues that
+          # reference this parent ("Closes #N") for empty inline code spans
+          # — the signature of stripped JSX/generics. Flag them with
+          # `ai-needs-rewrite` so a human (or a follow-up worker) can repair
+          # the body before the implementation phase tries to act on it.
+          SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
+            --state open --limit 50 \
+            --search "Closes #${ISSUE_NUMBER} in:body" \
+            --json number,body --jq '.[]' || true)
+
+          echo "$SUB_ISSUES" | jq -c 'select(.body | test("``"))' 2>/dev/null | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            echo "Sub-issue #$NUM body contains empty backticks — flagging."
+            gh issue edit "$NUM" --add-label "ai-needs-rewrite" || true
+            gh issue comment "$NUM" --body "⚠️ AI Worker: this sub-issue body contains empty inline code spans (\`\`) — likely JSX components or TypeScript generics were stripped during creation. The implementation phase will not run on it until the body is repaired and \`ai-needs-rewrite\` is removed." || true
+          done
+
       - name: Flag incomplete plan
         if: always() && steps.verify_plan.outputs.status == 'incomplete'
         env:
@@ -214,12 +279,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          RESET_LINE=""
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+            RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
+            if [ -n "$RESET_ISO" ]; then
+              RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
+            fi
+          fi
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
             --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Ensure ai-in-progress is cleared on cancel
         if: cancelled()
@@ -363,12 +435,17 @@ jobs:
         if: always() && steps.verify.outputs.outcome == 'pr_created'
         env:
           GH_TOKEN: ${{ github.token }}
+          # GITHUB_TOKEN cannot assign copilot-pull-request-reviewer[bot] — the
+          # API returns 200 with an empty requested_reviewers array. Use a PAT
+          # (stored as COPILOT_PAT secret) for the Copilot POST only; fall back
+          # to GITHUB_TOKEN so the rest of the flow still works without a PAT.
+          COPILOT_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
-          # Automated review: two Copilot rounds first (cheaper), then up to two Opus PR reviews.
+          # Automated review: Copilot first (cheaper), then Opus. One pass each.
           # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
           PR_NUM="${{ steps.verify.outputs.pr_number }}"
           REPO_NAME="${{ github.repository }}"
@@ -379,23 +456,22 @@ jobs:
 
           gh pr edit "$PR_NUM" --add-label "ai-phase-copilot" || true
 
-          # Request Copilot and verify the request actually landed — GITHUB_TOKEN
-          # sometimes silently drops Copilot reviewer requests (returns 200 but
-          # with an empty requested_reviewers array). We must not claim Copilot
-          # review was requested when the API silently ignored us.
-          POST_OUT=$(gh api "repos/$REPO_NAME/pulls/$PR_NUM/requested_reviewers" \
+          # Request Copilot with the PAT-capable token and verify the request
+          # actually landed. If COPILOT_PAT is unset the fallback GITHUB_TOKEN
+          # fails silently — we still emit the warning so the owner is paged.
+          POST_OUT=$(GH_TOKEN="$COPILOT_TOKEN" gh api "repos/$REPO_NAME/pulls/$PR_NUM/requested_reviewers" \
             --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
           COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
             | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
 
           if [ "${COPILOT_ADDED:-0}" -gt 0 ]; then
             gh pr comment "$PR_NUM" \
-              --body "🤖 **AI Factory**: Automated review starts with **Copilot** (round 1 of 2), then Copilot round 2, then up to **two Opus** code reviews. Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
+              --body "🤖 **AI Factory**: Automated review starts with **Copilot**, then **Opus** (one pass each). Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
           else
             # Silent failure — don't advertise a review cycle that didn't start.
             gh pr edit "$PR_NUM" --add-label "ai-blocked" || true
             gh pr comment "$PR_NUM" \
-              --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer (likely a permissions issue with \`GITHUB_TOKEN\` — it can't assign Copilot). **Copilot review has NOT started.** cc @alvarolobato — please request Copilot review manually via the PR sidebar or ensure workflows can assign \`copilot-pull-request-reviewer[bot]\`." || true
+              --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer. This happens when \`secrets.COPILOT_PAT\` is missing (GITHUB_TOKEN cannot assign Copilot) or the PAT lacks \`pull_requests: write\`. **Copilot review has NOT started.** cc @alvarolobato — set \`COPILOT_PAT\` (fine-grained PAT, Pull requests: Read and write) or request the review manually." || true
             echo "::warning::Copilot reviewer request silently failed on PR #$PR_NUM"
           fi
 
@@ -445,12 +521,19 @@ jobs:
           if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
             BRANCH_NOTE=" Partial work pushed to branch \`${BRANCH}\`."
           fi
+          RESET_LINE=""
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+            RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
+            if [ -n "$RESET_ISO" ]; then
+              RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
+            fi
+          fi
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
             --add-label "ai-blocked" --add-label "ai-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Ensure ai-in-progress is cleared on cancel
         if: cancelled()
