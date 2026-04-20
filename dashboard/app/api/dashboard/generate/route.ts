@@ -99,7 +99,6 @@ export async function POST(request: Request): Promise<NextResponse> {
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
 
-    // Surface rate-limit errors with a specific message (case-insensitive)
     const isRateLimit =
       normalizedMessage.includes("rate limit") ||
       normalizedMessage.includes("ratelimit") ||

@@ -38,6 +38,76 @@ function getModel(): string {
   return process.env.DASHBOARD_LLM_MODEL || DEFAULT_MODEL;
 }
 
+// ─── Retry helpers ───────────────────────────────────────────────────────────
+
+const MAX_ATTEMPTS = 3;
+const BASE_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 30_000;
+
+function getStatus(err: unknown): number | undefined {
+  if (
+    err !== null &&
+    typeof err === "object" &&
+    "status" in err &&
+    typeof (err as { status: unknown }).status === "number"
+  ) {
+    return (err as { status: number }).status;
+  }
+  return undefined;
+}
+
+function getHeaderValue(headers: unknown, name: string): string | null | undefined {
+  if (headers instanceof Headers) {
+    return headers.get(name);
+  }
+  if (headers !== null && typeof headers === "object" && !Array.isArray(headers)) {
+    const targetName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (key.toLowerCase() === targetName && typeof value === "string") {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+function getRetryAfterMs(err: unknown): number | undefined {
+  if (err === null || typeof err !== "object" || !("headers" in err)) return undefined;
+  const headers = (err as { headers: unknown }).headers;
+  const value = getHeaderValue(headers, "retry-after");
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) || parsed < 0 ? undefined : Math.min(parsed * 1000, MAX_RETRY_DELAY_MS);
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const status = getStatus(err);
+
+      if (status === 400) throw err;
+      if (attempt === MAX_ATTEMPTS - 1) break;
+
+      const shouldRetry =
+        status === undefined || status === 429 || status >= 500;
+      if (!shouldRetry) throw err;
+
+      let delay = BASE_DELAY_MS * Math.pow(2, attempt);
+      if (status === 429) {
+        const retryAfterMs = getRetryAfterMs(err);
+        if (retryAfterMs !== undefined) delay = retryAfterMs;
+      }
+
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
+}
+
 // ─── Client factory ──────────────────────────────────────────────────────────
 
 let _client: OpenAI | null = null;
@@ -76,15 +146,17 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
 
   await checkDailyBudget();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 8192,
-  });
+  const response = await withRetry(() =>
+    client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 8192,
+    }),
+  );
 
   void logUsage("generateDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
@@ -109,15 +181,17 @@ export async function modifyDashboard(
 
   await checkDailyBudget();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 8192,
-  });
+  const response = await withRetry(() =>
+    client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 8192,
+    }),
+  );
 
   void logUsage("modifyDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 

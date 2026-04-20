@@ -144,8 +144,11 @@ describe("POST /api/dashboard/generate", () => {
     expect(json.error).toContain("Inténtalo de nuevo");
   });
 
-  it("returns 429 when LLM throws a rate limit error", async () => {
-    mockGenerate.mockRejectedValue(new Error("rate limit exceeded (429)"));
+  it("returns 429 when LLM throws an error with status 429", async () => {
+    const rateLimitError = Object.assign(new Error("Rate limit exceeded"), {
+      status: 429,
+    });
+    mockGenerate.mockRejectedValue(rateLimitError);
 
     const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
     expect(res.status).toBe(429);
