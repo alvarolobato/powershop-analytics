@@ -100,6 +100,44 @@ describe("prompts", () => {
       expect(prompt).toContain("colec");
     });
 
+    it("all JSON widget examples in the prompt validate against DashboardSpecSchema", () => {
+      const jsonBlocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
+        (m) => m[1].trim(),
+      );
+      const widgetBlocks = jsonBlocks.flatMap((block, blockIndex) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(block) as unknown;
+        } catch (error) {
+          throw new Error(
+            `JSON block at index ${blockIndex} could not be parsed as JSON: ${error instanceof Error ? error.message : String(error)}\nBlock:\n${block}`,
+          );
+        }
+        const candidates = Array.isArray(parsed) ? parsed : [parsed];
+        return candidates
+          .filter(
+            (candidate): candidate is { type?: unknown } =>
+              typeof candidate === "object" &&
+              candidate !== null &&
+              "type" in candidate,
+          )
+          .map((candidate) => ({ parsed: candidate, blockIndex }));
+      });
+      let validatedWidgetCount = 0;
+      for (const { parsed, blockIndex } of widgetBlocks) {
+        validatedWidgetCount += 1;
+        const result = DashboardSpecSchema.safeParse({
+          title: "test",
+          widgets: [parsed],
+        });
+        expect(
+          result.success,
+          `Widget JSON block at index ${blockIndex} with type ${String(parsed.type ?? "unknown")} failed schema validation: ${result.success ? "" : result.error.message}\nBlock:\n${JSON.stringify(parsed)}`,
+        ).toBe(true);
+      }
+      expect(validatedWidgetCount).toBeGreaterThan(0);
+    });
+
     it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
       expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
       expect(prompt).toContain("comparison_sql");
@@ -140,10 +178,6 @@ describe("prompts", () => {
         widgets: [widget],
       });
       expect(result.success).toBe(true);
-    });
-
-    it("prohibits :comp_* tokens in main widget sql (rule 15)", () => {
-      expect(prompt).toContain("Do NOT reference :comp_from");
     });
   });
 
