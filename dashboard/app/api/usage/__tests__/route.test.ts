@@ -110,6 +110,8 @@ describe("GET /api/usage", () => {
     expect(data.by_endpoint).toHaveLength(1);
     expect(data.by_endpoint[0]).toEqual({
       endpoint: "generateDashboard",
+      endpoint_label_es: "Generar dashboard",
+      endpoint_detail_es: expect.stringContaining("lenguaje natural"),
       calls: 3,
       total_tokens: 1200,
       estimated_cost_usd: "0.018000",
@@ -129,7 +131,7 @@ describe("GET /api/usage", () => {
     expect(data.by_endpoint).toEqual([]);
   });
 
-  it("by_endpoint list has all four required keys per entry", async () => {
+  it("by_endpoint list has all required keys per entry", async () => {
     mockSql
       .mockResolvedValueOnce([
         {
@@ -157,6 +159,8 @@ describe("GET /api/usage", () => {
 
     for (const entry of data.by_endpoint) {
       expect(entry).toHaveProperty("endpoint");
+      expect(entry).toHaveProperty("endpoint_label_es");
+      expect(entry).toHaveProperty("endpoint_detail_es");
       expect(entry).toHaveProperty("calls");
       expect(entry).toHaveProperty("total_tokens");
       expect(entry).toHaveProperty("estimated_cost_usd");
