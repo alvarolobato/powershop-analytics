@@ -28,8 +28,13 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import { adminApiKeyValid, adminUnauthorized } from "@/lib/admin-api-auth";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!adminApiKeyValid(request)) {
+    return adminUnauthorized();
+  }
+
   const requestId = generateRequestId();
 
   let body: unknown;

@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { NextRequest } from "next/server";
 
 const mockQuery = vi.fn();
 const mockEnd = vi.fn().mockResolvedValue(undefined);
@@ -13,11 +14,28 @@ vi.mock("pg", () => ({
 import { GET } from "../route";
 import { resetPool } from "@/lib/db";
 
+function adminRequest(): NextRequest {
+  return new NextRequest("http://localhost:4000/api/admin/slow-queries", {
+    headers: { "x-admin-key": process.env.ADMIN_API_KEY ?? "" },
+  });
+}
+
 describe("GET /api/admin/slow-queries", () => {
   beforeEach(async () => {
+    vi.stubEnv("ADMIN_API_KEY", "test-admin-secret");
     mockQuery.mockReset();
     mockEnd.mockClear();
     await resetPool();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns 401 without admin key", async () => {
+    const req = new NextRequest("http://localhost:4000/api/admin/slow-queries");
+    const res = await GET(req);
+    expect(res.status).toBe(401);
   });
 
   it("returns queries array with all 7 fields", async () => {
@@ -44,7 +62,7 @@ describe("GET /api/admin/slow-queries", () => {
       ],
     });
 
-    const res = await GET();
+    const res = await GET(adminRequest());
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -74,7 +92,7 @@ describe("GET /api/admin/slow-queries", () => {
       rows: [],
     });
 
-    const res = await GET();
+    const res = await GET(adminRequest());
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -96,16 +114,19 @@ describe("GET /api/admin/slow-queries", () => {
       rows: [["SELECT 1", "1", 0.1, 0.1, 0.1, "0", null]],
     });
 
-    const res = await GET();
+    const res = await GET(adminRequest());
     const body = await res.json();
 
     expect(body.queries[0].cache_hit_ratio).toBeNull();
   });
 
   it("returns HTTP 200 with error field when pg_stat_statements is not enabled", async () => {
-    mockQuery.mockRejectedValue({ code: "42P01", message: 'relation "pg_stat_statements" does not exist' });
+    mockQuery.mockRejectedValue({
+      code: "42P01",
+      message: 'relation "pg_stat_statements" does not exist',
+    });
 
-    const res = await GET();
+    const res = await GET(adminRequest());
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -116,7 +137,7 @@ describe("GET /api/admin/slow-queries", () => {
   it("returns empty queries with generic error on unexpected error without leaking details", async () => {
     mockQuery.mockRejectedValue(new Error("something internal"));
 
-    const res = await GET();
+    const res = await GET(adminRequest());
     expect(res.status).toBe(200);
 
     const body = await res.json();
@@ -141,7 +162,7 @@ describe("GET /api/admin/slow-queries", () => {
       ],
     });
 
-    const res = await GET();
+    const res = await GET(adminRequest());
     const body = await res.json();
 
     expect(body.queries).toHaveLength(2);
@@ -151,17 +172,38 @@ describe("GET /api/admin/slow-queries", () => {
     expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining("ORDER BY mean_exec_time DESC"),
-      })
+      }),
     );
     expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringMatching(/LEFT\s*\(\s*query\s*,\s*500\s*\)/i),
-      })
+      }),
     );
     expect(mockQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringMatching(/LIKE\s+['"][^'"]*ps_[^'"]*['"]/i),
-      })
+      }),
     );
+  });
+
+  it("accepts Authorization Bearer admin key", async () => {
+    mockQuery.mockResolvedValue({
+      fields: [
+        { name: "query" },
+        { name: "calls" },
+        { name: "mean_exec_time_ms" },
+        { name: "max_exec_time_ms" },
+        { name: "total_exec_time_ms" },
+        { name: "rows" },
+        { name: "cache_hit_ratio" },
+      ],
+      rows: [],
+    });
+
+    const req = new NextRequest("http://localhost:4000/api/admin/slow-queries", {
+      headers: { Authorization: "Bearer test-admin-secret" },
+    });
+    const res = await GET(req);
+    expect(res.status).toBe(200);
   });
 });
