@@ -5,6 +5,8 @@ export const metadata = {
   title: "Consultas lentas — Admin",
 };
 
+export const dynamic = "force-dynamic";
+
 export default async function AdminSlowQueriesPage() {
   const data = await fetchSlowQueries();
 

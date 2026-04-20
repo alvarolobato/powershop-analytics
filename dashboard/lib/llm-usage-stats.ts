@@ -103,7 +103,10 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
     }));
 
     return { today, week, month, by_endpoint };
-  } catch {
+  } catch (err) {
+    if (process.env.VITEST !== "true") {
+      console.error("[llm-usage-stats] aggregate query failed:", err);
+    }
     return {
       today: ZERO_PERIOD,
       week: ZERO_PERIOD,

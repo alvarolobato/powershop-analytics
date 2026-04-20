@@ -18,7 +18,7 @@ export async function loginAdmin(formData: FormData): Promise<void> {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    path: "/",
+    path: "/admin",
     maxAge: 60 * 60 * 8,
   });
 

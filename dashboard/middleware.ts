@@ -12,7 +12,9 @@ export function middleware(request: NextRequest): NextResponse {
         { status: 503 },
       );
     }
-    // Without a configured key, allow the login page to render (it will show an error on submit).
+    if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+      return NextResponse.redirect(new URL("/admin/login?error=2", request.url));
+    }
     return NextResponse.next();
   }
 
