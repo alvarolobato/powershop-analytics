@@ -6,6 +6,7 @@ import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
+import { WidgetSkeleton } from "./WidgetSkeleton";
 
 interface DonutChartWidgetProps {
   widget: DonutChartWidgetSpec;
@@ -19,9 +20,20 @@ interface DonutChartWidgetProps {
 export function DonutChartWidget({ widget, data, comparisonData, glossary }: DonutChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
-  if (!data || data.rows.length === 0) {
+  if (data === null) {
     return (
-      <Card className="p-4">
+      <Card className="p-4" aria-live="polite" aria-busy={true}>
+        <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">
+          {titleNode}
+        </h3>
+        <WidgetSkeleton type="chart" />
+      </Card>
+    );
+  }
+
+  if (data.rows.length === 0) {
+    return (
+      <Card className="p-4" aria-live="polite" aria-busy={false}>
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
         <p className="mt-4 text-center text-sm text-tremor-content dark:text-dark-tremor-content-emphasis">
           {EMPTY_MESSAGE}
@@ -33,7 +45,7 @@ export function DonutChartWidget({ widget, data, comparisonData, glossary }: Don
   const resolved = resolveXY(data, widget.x, widget.y);
   if (!resolved) {
     return (
-      <Card className="p-4">
+      <Card className="p-4" aria-live="polite" aria-busy={false}>
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
         <p className="mt-4 text-center text-sm text-tremor-content dark:text-dark-tremor-content-emphasis">
           {EMPTY_MESSAGE}
@@ -50,7 +62,6 @@ export function DonutChartWidget({ widget, data, comparisonData, glossary }: Don
       value: safeNumber(row[yIdx])!,
     }));
 
-  // Compute comparison total for the side-by-side label (simplest Tremor approach for donut comparison)
   let comparisonTotal: number | null = null;
   if (comparisonData && comparisonData.rows.length > 0) {
     const compResolved = resolveXY(comparisonData, widget.x, widget.y);
@@ -67,16 +78,24 @@ export function DonutChartWidget({ widget, data, comparisonData, glossary }: Don
   const currentTotal = chartData.reduce((s, d) => s + d.value, 0);
 
   return (
-    <Card className="p-4">
+    <Card className="p-4" aria-live="polite" aria-busy={false}>
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
-      <DonutChart
-        data={chartData}
-        category="value"
-        index="name"
-        colors={CHART_COLORS}
-        showLabel
-        showAnimation
-      />
+
+      <div
+        role="img"
+        aria-label={`Gráfico de donut: ${widget.title}. ${chartData.length} categorías.`}
+      >
+        <span className="sr-only">Gráfico de donut con {chartData.length} categorías.</span>
+        <DonutChart
+          data={chartData}
+          category="value"
+          index="name"
+          colors={CHART_COLORS}
+          showLabel
+          showAnimation
+        />
+      </div>
+
       {comparisonTotal !== null && (
         <div className="mt-3 flex items-center justify-center gap-4 text-xs text-tremor-content dark:text-dark-tremor-content">
           <span className="font-medium">
