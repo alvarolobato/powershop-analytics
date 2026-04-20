@@ -98,4 +98,19 @@ describe("POST /api/etl/run", () => {
     expect(res.status).toBe(503);
     expect(body).toEqual({ error: "db_error" });
   });
+
+  it("returns 202 with existing trigger_id when a pending trigger already exists (idempotent)", async () => {
+    // No active run
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    // ON CONFLICT DO NOTHING — INSERT returns no rows
+    mockSql.mockResolvedValueOnce([]);
+    // Fetch existing pending trigger
+    mockQuery.mockResolvedValueOnce({ rows: [[77]], columns: ["id"] });
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body).toEqual({ trigger_id: 77 });
+  });
 });

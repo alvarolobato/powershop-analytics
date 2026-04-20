@@ -490,6 +490,10 @@ CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
 );
 
+-- Unique: at most one pending trigger row at a time (supports ON CONFLICT idempotency).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_etl_manual_trigger_single_pending
+    ON etl_manual_trigger (status) WHERE status = 'pending';
+
 -- Supports frequent polling/claim of the oldest pending manual trigger.
 CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending_requested_at
     ON etl_manual_trigger (requested_at, id)
@@ -548,7 +552,6 @@ CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 -- Dashboard indexes
 CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
 CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
-CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
 
 CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
 CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);

@@ -442,8 +442,10 @@ def _test_connections(config) -> tuple:
 def _run_scheduler_loop(conn_4d, conn_pg) -> None:
     """Blocking scheduler loop: runs scheduled jobs and polls for manual triggers.
 
-    Polls every 10 seconds. When a pending trigger row is found, fires
-    run_full_sync with trigger='manual' unless a run is already active.
+    Polls every 10 seconds. When a pending trigger row is found and no run is
+    active, consumes it and fires run_full_sync with trigger='manual'. If a run
+    is already active the trigger row stays pending and is picked up on the next
+    poll after the active run finishes.
     """
     import schedule
 
