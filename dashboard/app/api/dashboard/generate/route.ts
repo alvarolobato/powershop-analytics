@@ -9,7 +9,11 @@
  */
 
 import { NextResponse } from "next/server";
-import { generateDashboard, BudgetExceededError } from "@/lib/llm";
+import {
+  generateDashboard,
+  BudgetExceededError,
+  CircuitBreakerOpenError,
+} from "@/lib/llm";
 import { validateSpec } from "@/lib/schema";
 import { ZodError } from "zod";
 import {
@@ -93,6 +97,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json(
         formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
         { status: 429 },
+      );
+    }
+    if (err instanceof CircuitBreakerOpenError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
+        { status: 503 },
       );
     }
     const message = err instanceof Error ? err.message : String(err);
