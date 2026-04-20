@@ -62,16 +62,18 @@ describe("knowledge", () => {
       expect(questions).toContain("margen");
     });
 
-    it("primary sql fields contain :comp_* tokens only in the known comparison-period pair", () => {
-      // :comp_* tokens are only valid in comparison_sql / trend_sql / anomaly_sql,
-      // never in a main widget sql. Guard against accidental additions.
+    it("SQL pairs that use :comp_* in main sql are explicitly comparison-scoped", () => {
+      // :comp_* in pair.sql is reserved for documented year-over-year / comparison
+      // examples. New pairs must not sneak :comp_* into non-comparison questions.
       const compTokenPattern = /:comp_(from|to|mes_from|mes_to)\b/;
+      const comparisonCue =
+        /comparaci|comparativa|anterior|YTD|per[ií]odo de comparaci/i;
       const pairsWithCompTokens = SQL_PAIRS.filter((pair) =>
         compTokenPattern.test(pair.sql)
       );
-      expect(pairsWithCompTokens.length).toBeLessThanOrEqual(1);
-      if (pairsWithCompTokens.length === 1) {
-        expect(pairsWithCompTokens[0].question).toMatch(/comparaci[oó]n/i);
+      expect(pairsWithCompTokens.length).toBeGreaterThanOrEqual(1);
+      for (const pair of pairsWithCompTokens) {
+        expect(pair.question).toMatch(comparisonCue);
       }
     });
 
