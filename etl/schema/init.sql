@@ -1,3 +1,11 @@
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_stat_statements not available — skipping (enable shared_preload_libraries to activate)';
+END
+$$;
+
 -- PostgreSQL DDL for the PowerShop Analytics mirror schema.
 -- All tables use the ps_ prefix.
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
