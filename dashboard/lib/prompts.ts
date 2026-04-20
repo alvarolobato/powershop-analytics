@@ -29,7 +29,7 @@ const WIDGET_TYPES = `
 | bar_chart     | Category comparison                     | title, sql, x, y                         |
 | line_chart    | Time series                             | title, sql, x, y                         |
 | area_chart    | Stacked time series                     | title, sql, x, y                         |
-| donut_chart   | Proportions                             | title, sql, category, value              |
+| donut_chart   | Proportions                             | title, sql, x, y                         |
 | table         | Detailed data rows                      | title, sql                               |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 
@@ -93,12 +93,12 @@ Each item in a kpi_row can also include:
   "items": [
     {
       "label": "Ventas Netas",
-      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
+      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
       "format": "currency",
       "prefix": "€",
       "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
     },
-    {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)", "format": "number"}
+    {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to", "format": "number"}
   ]
 }
 \`\`\`
@@ -108,7 +108,7 @@ Each item in a kpi_row can also include:
   "id": "w2",
   "type": "bar_chart",
   "title": "Ventas por Tienda",
-  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY tienda ORDER BY value DESC",
+  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
   "x": "label",
   "y": "value"
 }
@@ -119,7 +119,7 @@ Each item in a kpi_row can also include:
   "id": "w3",
   "type": "line_chart",
   "title": "Tendencia Semanal",
-  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= CURRENT_DATE - INTERVAL '12 weeks' GROUP BY 1 ORDER BY 1",
+  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1",
   "x": "x",
   "y": "y"
 }
@@ -130,9 +130,9 @@ Each item in a kpi_row can also include:
   "id": "w4",
   "type": "donut_chart",
   "title": "Mix por Familia",
-  "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
-  "category": "category",
-  "value": "value"
+  "sql": "SELECT fm.fami_grup_marc AS x, SUM(lv.total_si) AS y FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+  "x": "x",
+  "y": "y"
 }
 \`\`\`
 
@@ -150,7 +150,7 @@ Each item in a kpi_row can also include:
   "id": "w6",
   "type": "number",
   "title": "Ticket Medio",
-  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)",
+  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
   "format": "currency",
   "prefix": "€"
 }
@@ -209,10 +209,11 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 8. PKs are NUMERIC(20,3) — never do arithmetic on them
 9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas to filter
 10. Each KPI sql in a kpi_row must return a single row with a "value" column
-11. Chart sql must return columns matching the x/y or category/value fields
+11. Chart sql must return columns matching the x/y fields
 12. Table sql can return any columns — they become table headers
 13. Use NULLIF to avoid division by zero
 14. NEVER use CROSSTAB or pivot — return flat grouped data
+15. Do NOT reference :comp_from/:comp_to/:comp_mes_from/:comp_mes_to in a main widget \`sql\`. These tokens are only available in \`comparison_sql\` (chart widgets only) and \`trend_sql\`/\`anomaly_sql\` (kpi_row items only). For side-by-side "Actual vs Anterior" tables, use a \`bar_chart\` with \`sql\` (using :curr_*) and \`comparison_sql\` (using :comp_*) instead.
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
