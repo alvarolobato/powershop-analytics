@@ -166,12 +166,20 @@ export const PREVIOUS_PRESETS: Preset[] = [
 
 export type PeriodType = "day" | "week" | "month" | "quarter" | "year";
 
+export interface DetectPeriodOptions {
+  /** When "Trimestre actual" is selected, treat Apr 1→today as quarter instead of month. */
+  preferQuarterOverMonth?: boolean;
+}
+
 /**
  * Detect whether a DateRange matches a known calendar period.
  * Returns null for custom/rolling ranges.
  * In-progress periods (to == end-of-today) are recognised for each type.
  */
-export function detectPeriodType(range: DateRange): PeriodType | null {
+export function detectPeriodType(
+  range: DateRange,
+  opts?: DetectPeriodOptions,
+): PeriodType | null {
   const { from, to } = range;
   const today = new Date();
   const todayEnd = endOfDay(today);
@@ -217,6 +225,17 @@ export function detectPeriodType(range: DateRange): PeriodType | null {
       from.getDate() === currentWeekMonday.getDate();
     if (to.getTime() === expectedTo.getTime() || (toIsToday && isCurrentWeek)) {
       return "week";
+    }
+  }
+
+  if (opts?.preferQuarterOverMonth && toIsToday) {
+    const qStart = currentQuarterStart(today);
+    const fromIsQuarterStart =
+      from.getFullYear() === qStart.getFullYear() &&
+      from.getMonth() === qStart.getMonth() &&
+      from.getDate() === 1;
+    if (fromIsQuarterStart) {
+      return "quarter";
     }
   }
 
@@ -286,8 +305,12 @@ export function detectPeriodType(range: DateRange): PeriodType | null {
  * The period type is detected automatically. Returns range unchanged for null (custom).
  * When navigating forward into the current period, `to` = end-of-today.
  */
-export function navigatePeriod(range: DateRange, direction: -1 | 1): DateRange {
-  const type = detectPeriodType(range);
+export function navigatePeriod(
+  range: DateRange,
+  direction: -1 | 1,
+  opts?: DetectPeriodOptions,
+): DateRange {
+  const type = detectPeriodType(range, opts);
   if (type === null) return range;
 
   const today = new Date();
@@ -343,15 +366,105 @@ function toDateInputValue(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function formatDisplayRange(range: DateRange): string {
-  const opts: Intl.DateTimeFormatOptions = {
-    day: "2-digit",
+/** Compact Spanish range: year once when both dates share the same year. */
+function formatCustomRangeCompact(range: DateRange): string {
+  const sameYear = range.from.getFullYear() === range.to.getFullYear();
+  const fromPart = range.from.toLocaleDateString("es-ES", {
+    day: "numeric",
+    month: "short",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+  const toPart = range.to.toLocaleDateString("es-ES", {
+    day: "numeric",
     month: "short",
     year: "numeric",
-  };
-  const from = range.from.toLocaleDateString("es-ES", opts);
-  const to = range.to.toLocaleDateString("es-ES", opts);
-  return `${from} – ${to}`;
+  });
+  return `${fromPart} – ${toPart}`;
+}
+
+const MONTH_LONG_YEAR_FMT = new Intl.DateTimeFormat("es-ES", {
+  month: "long",
+  year: "numeric",
+});
+
+function sameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/** ISO week number (1–53) for the Monday-based week containing *d*. */
+function isoWeekNumber(d: Date): number {
+  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  return Math.ceil(((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+const QUARTER_SHORT = ["ene-mar", "abr-jun", "jul-sep", "oct-dic"] as const;
+
+/**
+ * Human-readable label for the date-range trigger (Spanish).
+ * Falls back to a compact range when the range is not a recognised calendar period.
+ */
+export function formatPeriodLabel(
+  range: DateRange,
+  opts?: DetectPeriodOptions,
+): string {
+  const type = detectPeriodType(range, opts);
+  if (type === null) {
+    return formatCustomRangeCompact(range);
+  }
+
+  const todayStart = startOfDay(new Date());
+
+  if (type === "day") {
+    if (sameCalendarDay(range.from, todayStart)) return "Hoy";
+    const y = new Date(todayStart);
+    y.setDate(y.getDate() - 1);
+    if (sameCalendarDay(range.from, y)) return "Ayer";
+    return range.from.toLocaleDateString("es-ES", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  if (type === "week") {
+    const week = isoWeekNumber(range.from);
+    const fromStr = range.from.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+    const toStr = range.to.toLocaleDateString("es-ES", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const mondayThisWeek = isoWeekMonday(new Date());
+    const isCurrentWeek = sameCalendarDay(isoWeekMonday(range.from), mondayThisWeek);
+    if (isCurrentWeek) {
+      return `Semana ${week} • ${fromStr} →`;
+    }
+    return `Semana ${week} • ${fromStr}–${toStr}`;
+  }
+
+  if (type === "month") {
+    return MONTH_LONG_YEAR_FMT.format(range.from);
+  }
+
+  if (type === "quarter") {
+    const q = Math.floor(range.from.getMonth() / 3) + 1;
+    const y = range.from.getFullYear();
+    return `T${q} ${y} • ${QUARTER_SHORT[q - 1]}`;
+  }
+
+  if (type === "year") {
+    return String(range.from.getFullYear());
+  }
+
+  return formatCustomRangeCompact(range);
 }
 
 // ---------------------------------------------------------------------------
@@ -445,6 +558,7 @@ const COMPARISON_LABELS: Record<ComparisonType, string> = {
  */
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
+  const [preferQuarterForLabel, setPreferQuarterForLabel] = useState(false);
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
   const [comparisonType, setComparisonType] = useState<ComparisonType>("none");
@@ -512,6 +626,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   }
 
   function applyPreset(preset: Preset) {
+    setPreferQuarterForLabel(preset.label === "Trimestre actual");
     const primary = preset.range();
     onChange(buildPayload(primary, comparisonType, compCustomFrom, compCustomTo));
     setOpen(false);
@@ -519,6 +634,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   }
 
   function applyCustomRange() {
+    setPreferQuarterForLabel(false);
     const from = new Date(customFrom + "T00:00:00.000");
     // Use T23:59:59.999 for consistency with endOfDay() used by presets
     const to = new Date(customTo + "T23:59:59.999");
@@ -544,11 +660,14 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const isComparisonActive = comparisonType !== "none";
 
-  const periodType = detectPeriodType(value);
+  const periodDetectOpts: DetectPeriodOptions | undefined = preferQuarterForLabel
+    ? { preferQuarterOverMonth: true }
+    : undefined;
+  const periodType = detectPeriodType(value, periodDetectOpts);
   const showNavButtons = periodType !== null;
 
   // → is disabled when the next period starts after today
-  const nextPeriod = showNavButtons ? navigatePeriod(value, 1) : null;
+  const nextPeriod = showNavButtons ? navigatePeriod(value, 1, periodDetectOpts) : null;
   const startOfToday = startOfDay(new Date());
   const forwardDisabled = nextPeriod !== null && nextPeriod.from > startOfToday;
 
@@ -566,7 +685,14 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             aria-label="Período anterior"
             className={navButtonClass}
             onClick={() =>
-              onChange(buildPayload(navigatePeriod(value, -1), comparisonType, compCustomFrom, compCustomTo))
+              onChange(
+                buildPayload(
+                  navigatePeriod(value, -1, periodDetectOpts),
+                  comparisonType,
+                  compCustomFrom,
+                  compCustomTo,
+                ),
+              )
             }
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -600,7 +726,9 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
               d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"
             />
           </svg>
-          <span className="hidden sm:inline">{formatDisplayRange(value)}</span>
+          <span className="hidden sm:inline">
+            {formatPeriodLabel(value, periodDetectOpts)}
+          </span>
           <span className="sm:hidden">Fechas</span>
           {isComparisonActive && (
             <span
@@ -621,7 +749,14 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             disabled={forwardDisabled}
             className={navButtonClass}
             onClick={() =>
-              onChange(buildPayload(navigatePeriod(value, 1), comparisonType, compCustomFrom, compCustomTo))
+              onChange(
+                buildPayload(
+                  navigatePeriod(value, 1, periodDetectOpts),
+                  comparisonType,
+                  compCustomFrom,
+                  compCustomTo,
+                ),
+              )
             }
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden="true">
@@ -741,7 +876,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                 data-testid="comparison-hint"
                 className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle"
               >
-                {formatDisplayRange(comparisonHint)}
+                {formatPeriodLabel(comparisonHint)}
               </p>
             )}
 
