@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getLlmUsageAggregates } from "@/lib/llm-usage-stats";
+import { getDashboardLlmModel } from "@/lib/llm-model-config";
 import {
   formatIntegerEs,
   formatTokensWithCompact,
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminUsagePage() {
   const u = await getLlmUsageAggregates();
+  const modelId = getDashboardLlmModel();
 
   return (
     <div className="space-y-6">
@@ -70,8 +72,9 @@ export default async function AdminUsagePage() {
         <p className="mt-1 leading-relaxed">
           Cada llamada guarda tokens de entrada y salida. El importe en USD es una{" "}
           <strong>estimación interna</strong>: se multiplica cada tipo de token por un precio
-          fijo por millón definido en el código del servidor (alineado con la tarifa de lista del
-          modelo configurado, hoy <code className="rounded bg-black/5 px-1 dark:bg-white/10">anthropic/claude-sonnet-4</code>
+          fijo por millón definido en el código del servidor (tabla de tarifas alineada con la
+          tarifa de lista del modelo que usa el dashboard:{" "}
+          <code className="rounded bg-black/5 px-1 dark:bg-white/10">{modelId}</code>
           ). <strong>No</strong> se consulta la facturación ni la API de costes de OpenRouter, así
           que puede diferir del cargo real (descuentos, caché, redondeos, cambios de tarifa).
         </p>
