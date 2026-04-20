@@ -59,7 +59,7 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps stack logs [svc]` | Show logs (follow); optional service name |
 | `ps stack open` | Open WrenAI UI in browser |
 | `ps stack destroy` | Stop containers and remove volumes (with confirmation) |
-| `ps etl run` | Run ETL sync once |
+| `ps etl run` | Run ETL sync once (also triggerable via the Dashboard ETL Monitor "Sincronizar ahora" button → `POST /api/etl/run`) |
 | `ps etl status` | Show watermark table (last sync per table) |
 | `ps etl tables` | Show row counts for synced tables |
 | `ps etl logs` | Show ETL container logs |
@@ -400,6 +400,12 @@ git worktree remove ../<repo>-<worktree-name>
     --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
   ```
   Do NOT use `gh pr review --request copilot` (doesn't work) or `gh pr edit --add-reviewer copilot` (can't resolve bot users). The REST API with `copilot-pull-request-reviewer[bot]` is the only working CLI method.
+- **From GitHub Actions**, the default `GITHUB_TOKEN` **cannot** assign `copilot-pull-request-reviewer[bot]` — the API returns 200 but with an empty `requested_reviewers` array. Workflows must use a PAT stored in the repo secret `COPILOT_PAT` (fine-grained PAT, scope `Pull requests: Read and write`). Pattern:
+  ```bash
+  GH_TOKEN="$COPILOT_PAT" gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers \
+    --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+  ```
+  Always verify the response contains `Copilot` in `requested_reviewers` before claiming the review was requested.
 - Poll for the review result: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`
 - Address all feedback, reply to each comment, then re-request review.
 - Only merge after Copilot has reviewed and there is no unresolved feedback.

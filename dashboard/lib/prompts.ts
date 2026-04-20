@@ -29,7 +29,7 @@ const WIDGET_TYPES = `
 | bar_chart     | Category comparison                     | title, sql, x, y                         |
 | line_chart    | Time series                             | title, sql, x, y                         |
 | area_chart    | Stacked time series                     | title, sql, x, y                         |
-| donut_chart   | Proportions                             | title, sql, category, value              |
+| donut_chart   | Proportions                             | title, sql, x, y                         |
 | table         | Detailed data rows                      | title, sql                               |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 
@@ -130,9 +130,9 @@ Each item in a kpi_row can also include:
   "id": "w4",
   "type": "donut_chart",
   "title": "Mix por Familia",
-  "sql": "SELECT fm.fami_grup_marc AS category, SUM(lv.total_si) AS value FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
-  "category": "category",
-  "value": "value"
+  "sql": "SELECT fm.fami_grup_marc AS x, SUM(lv.total_si) AS y FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+  "x": "x",
+  "y": "y"
 }
 \`\`\`
 
@@ -209,10 +209,11 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 8. PKs are NUMERIC(20,3) — never do arithmetic on them
 9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas to filter
 10. Each KPI sql in a kpi_row must return a single row with a "value" column
-11. Chart sql must return columns matching the x/y or category/value fields
+11. Chart sql must return columns matching the x/y fields
 12. Table sql can return any columns — they become table headers
 13. Use NULLIF to avoid division by zero
 14. NEVER use CROSSTAB or pivot — return flat grouped data
+15. Do NOT reference :comp_from/:comp_to/:comp_mes_from/:comp_mes_to in a main widget \`sql\`. These tokens are only available in \`comparison_sql\` (chart widgets only) and \`trend_sql\`/\`anomaly_sql\` (kpi_row items only). For side-by-side "Actual vs Anterior" tables, use a \`bar_chart\` with \`sql\` (using :curr_*) and \`comparison_sql\` (using :comp_*) instead.
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

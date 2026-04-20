@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import EtlMonitorPage from "../etl/page";
 
@@ -39,6 +39,24 @@ const MOCK_RUNS_RESPONSE = {
       tables_failed: 0,
       total_rows_synced: 45000,
       trigger: "scheduled",
+    },
+  ],
+  total: 1,
+};
+
+const MOCK_RUNNING_RUNS_RESPONSE = {
+  runs: [
+    {
+      id: 2,
+      started_at: new Date().toISOString(),
+      finished_at: null,
+      duration_ms: null,
+      status: "running",
+      total_tables: 22,
+      tables_ok: 0,
+      tables_failed: 0,
+      total_rows_synced: 0,
+      trigger: "manual",
     },
   ],
   total: 1,
@@ -250,6 +268,189 @@ describe("EtlMonitorPage", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("evolution-charts")).toBeInTheDocument();
+    });
+  });
+
+  // ── 9. "Sincronizar ahora" button renders and is enabled when idle ────────
+
+  it("renders the sync button enabled when no run is active", async () => {
+    globalThis.fetch = mockFetch();
+    render(<EtlMonitorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).toBeInTheDocument();
+    });
+
+    const button = screen.getByTestId("sync-now-button");
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveTextContent("Sincronizar ahora");
+  });
+
+  // ── 10. Button is disabled and shows spinner when a run is running ────────
+
+  it("disables the sync button and shows spinner while a run is running", async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.startsWith("/api/etl/runs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_RUNNING_RUNS_RESPONSE),
+        });
+      }
+      if (url.startsWith("/api/etl/stats")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_STATS_RESPONSE),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+    });
+
+    render(<EtlMonitorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).toBeDisabled();
+    });
+
+    const button = screen.getByTestId("sync-now-button");
+    expect(button).toHaveTextContent("Sincronizando…");
+  });
+
+  // ── 11. Clicking button calls POST /api/etl/run ───────────────────────────
+
+  it("calls POST /api/etl/run when clicked and is idle", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === "/api/etl/run" && options?.method === "POST") {
+        return Promise.resolve({ ok: true, status: 202, json: () => Promise.resolve({ trigger_id: 1 }) });
+      }
+      if (url.startsWith("/api/etl/runs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_RUNS_RESPONSE),
+        });
+      }
+      if (url.startsWith("/api/etl/stats")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_STATS_RESPONSE),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<EtlMonitorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).not.toBeDisabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("sync-now-button"));
+    });
+
+    await waitFor(() => {
+      const postCalls = fetchMock.mock.calls.filter(
+        ([url, opts]: [string, RequestInit | undefined]) =>
+          url === "/api/etl/run" && opts?.method === "POST"
+      );
+      expect(postCalls.length).toBe(1);
+    });
+  });
+
+  // ── 12. 409 response keeps UI in running state without showing error ───────
+
+  it("handles 409 from POST /api/etl/run silently", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === "/api/etl/run" && options?.method === "POST") {
+        return Promise.resolve({ ok: false, status: 409, json: () => Promise.resolve({ error: "already_running", run_id: 2 }) });
+      }
+      if (url.startsWith("/api/etl/runs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_RUNS_RESPONSE),
+        });
+      }
+      if (url.startsWith("/api/etl/stats")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_STATS_RESPONSE),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<EtlMonitorPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).not.toBeDisabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("sync-now-button"));
+    });
+
+    // No error message should appear for a 409
+    await waitFor(() => {
+      expect(screen.queryByText("Error al iniciar la sincronización")).not.toBeInTheDocument();
+    });
+  });
+
+  // ── 13. Button stays disabled while POST is in-flight ─────────────────────
+
+  it("button stays disabled while POST /api/etl/run is in-flight", async () => {
+    let resolvePost!: (value: Response) => void;
+    const postPromise = new Promise<Response>((resolve) => {
+      resolvePost = resolve;
+    });
+
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === "/api/etl/run" && options?.method === "POST") {
+        return postPromise;
+      }
+      if (url.startsWith("/api/etl/runs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_RUNS_RESPONSE),
+        });
+      }
+      if (url.startsWith("/api/etl/stats")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_STATS_RESPONSE),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<EtlMonitorPage />);
+
+    // Wait for idle state
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).not.toBeDisabled();
+    });
+
+    // Click the button to start the POST (in-flight)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("sync-now-button"));
+    });
+
+    // While POST is pending the button must be disabled and show "Iniciando…"
+    expect(screen.getByTestId("sync-now-button")).toBeDisabled();
+    expect(screen.getByTestId("sync-now-button")).toHaveTextContent("Iniciando…");
+
+    // Resolve the POST → button re-enables (no active run in this mock)
+    await act(async () => {
+      resolvePost({
+        ok: true,
+        status: 202,
+        json: () => Promise.resolve({ trigger_id: 1 }),
+      } as unknown as Response);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).not.toBeDisabled();
     });
   });
 });

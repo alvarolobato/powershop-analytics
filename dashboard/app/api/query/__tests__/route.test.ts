@@ -13,8 +13,24 @@ vi.mock("pg", () => {
   };
 });
 
+// Use vi.hoisted so mockValidateQueryCost is initialized before vi.mock factories run.
+const { mockValidateQueryCost } = vi.hoisted(() => ({
+  mockValidateQueryCost: vi.fn().mockResolvedValue(42),
+}));
+
+vi.mock("@/lib/query-validator", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/query-validator")>(
+    "@/lib/query-validator",
+  );
+  return {
+    ...actual,
+    validateQueryCost: mockValidateQueryCost,
+  };
+});
+
 import { POST } from "../route";
 import { resetPool } from "@/lib/db";
+import { QueryTooExpensiveError } from "@/lib/query-validator";
 import { NextRequest } from "next/server";
 
 function makeRequest(body: unknown): NextRequest {
@@ -29,6 +45,8 @@ describe("POST /api/query", () => {
   beforeEach(async () => {
     mockQuery.mockReset();
     mockEnd.mockClear();
+    mockValidateQueryCost.mockReset();
+    mockValidateQueryCost.mockResolvedValue(42);
     await resetPool();
   });
 
@@ -231,5 +249,74 @@ describe("POST /api/query", () => {
     const json = await res.json();
     expect(json.error).not.toContain("internal");
     expect(json.error).toContain("inesperado");
+  });
+
+  // ─── Query cost guard (422) ───────────────────────────────────────────
+
+  it("returns 422 when validateQueryCost throws QueryTooExpensiveError", async () => {
+    mockValidateQueryCost.mockRejectedValue(new QueryTooExpensiveError(250000));
+
+    const res = await POST(
+      makeRequest({ sql: "SELECT * FROM ps_stock_tienda" })
+    );
+    expect(res.status).toBe(422);
+
+    const json = await res.json();
+    expect(json.error).toContain("demasiado costosa");
+    expect(json.cost).toBe(250000);
+    expect(json.code).toBe("COST_LIMIT");
+    expect(typeof json.requestId).toBe("string");
+    expect(typeof json.timestamp).toBe("string");
+  });
+
+  it("includes X-Query-Cost header on successful response", async () => {
+    mockValidateQueryCost.mockResolvedValue(1234);
+    mockQuery.mockResolvedValue({
+      fields: [{ name: "id" }],
+      rows: [[1]],
+    });
+
+    const res = await POST(makeRequest({ sql: "SELECT id FROM ps_ventas LIMIT 1" }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-Query-Cost")).toBe("1234");
+  });
+
+  it("SELECT 1 still returns 200 with data when cost is low", async () => {
+    mockValidateQueryCost.mockResolvedValue(0.01);
+    mockQuery.mockResolvedValue({
+      fields: [{ name: "?column?" }],
+      rows: [[1]],
+    });
+
+    const res = await POST(makeRequest({ sql: "SELECT 1" }));
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.rows).toEqual([[1]]);
+    expect(res.headers.get("X-Query-Cost")).toBe("0.01");
+  });
+
+  it("passes X-Query-Force header to validateQueryCost", async () => {
+    mockValidateQueryCost.mockResolvedValue(0);
+    mockQuery.mockResolvedValue({
+      fields: [{ name: "id" }],
+      rows: [[1]],
+    });
+
+    const req = new NextRequest("http://localhost:4000/api/query", {
+      method: "POST",
+      body: JSON.stringify({ sql: "SELECT id FROM ps_ventas" }),
+      headers: {
+        "Content-Type": "application/json",
+        "X-Query-Force": "my-secret",
+      },
+    });
+
+    await POST(req);
+
+    expect(mockValidateQueryCost).toHaveBeenCalledWith(
+      "SELECT id FROM ps_ventas",
+      { forceHeader: "my-secret" },
+    );
   });
 });

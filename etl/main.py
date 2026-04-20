@@ -227,7 +227,32 @@ def _get_rows_total(conn_pg) -> dict[str, int] | None:
 # ---------------------------------------------------------------------------
 
 
-def run_full_sync(conn_4d, conn_pg) -> None:
+def _is_run_active(conn_pg) -> bool:
+    """Return True if a recent etl_sync_runs row with status='running' exists.
+
+    Rows older than 12 hours are treated as stale (crashed runs) and ignored.
+    """
+    try:
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM etl_sync_runs WHERE status = 'running'"
+                " AND started_at > NOW() - INTERVAL '12 hours' LIMIT 1"
+            )
+            is_active = cur.fetchone() is not None
+        conn_pg.rollback()
+        return is_active
+    except Exception as exc:
+        logger.warning("_is_run_active query failed: %s", exc)
+        try:
+            conn_pg.rollback()
+        except Exception:
+            pass
+        return True  # fail closed: assume active, retry next tick
+
+
+def run_full_sync(
+    conn_4d, conn_pg, trigger: str = "scheduled", trigger_id: int | None = None
+) -> None:
     """Execute all sync tasks in topological order.
 
     Errors in individual tables are caught and logged; execution continues.
@@ -265,11 +290,16 @@ def run_full_sync(conn_4d, conn_pg) -> None:
 
     run_id: int | None = None
     try:
-        run_id = create_run(conn_pg, "scheduled")
+        run_id = create_run(conn_pg, trigger)
     except Exception:
         logger.exception(
             "Monitoring: create_run failed; continuing without run tracking"
         )
+        if trigger == "manual" and trigger_id is not None:
+            logger.warning(
+                "Manual trigger %d will complete but run_id tracking is unavailable",
+                trigger_id,
+            )
 
     results: list[bool] = []
 
@@ -359,6 +389,14 @@ def run_full_sync(conn_4d, conn_pg) -> None:
         except Exception:
             logger.exception("Monitoring: finish_run failed")
 
+        if trigger == "manual" and trigger_id is not None:
+            from etl.db.postgres import update_trigger_run_id
+
+            try:
+                update_trigger_run_id(conn_pg, trigger_id, run_id)
+            except Exception:
+                logger.warning("Could not update trigger run_id — non-fatal")
+
 
 # ---------------------------------------------------------------------------
 # Connection test
@@ -397,6 +435,41 @@ def _test_connections(config) -> tuple:
 
 
 # ---------------------------------------------------------------------------
+# Scheduler loop (extracted for testability)
+# ---------------------------------------------------------------------------
+
+
+def _run_scheduler_loop(conn_4d, conn_pg) -> None:
+    """Blocking scheduler loop: runs scheduled jobs and polls for manual triggers.
+
+    Polls every 10 seconds. When a pending trigger row is found and no run is
+    active, consumes it and fires run_full_sync with trigger='manual'. If a run
+    is already active the trigger row stays pending and is picked up on the next
+    poll after the active run finishes.
+    """
+    import schedule
+
+    from etl.db.postgres import check_and_consume_trigger
+
+    while True:
+        schedule.run_pending()
+        if not _is_run_active(conn_pg):
+            try:
+                trigger_id = check_and_consume_trigger(conn_pg)
+            except Exception:
+                logger.exception(
+                    "Failed to poll manual ETL trigger; will retry on next tick"
+                )
+            else:
+                if trigger_id is not None:
+                    logger.info("Manual trigger detected — starting sync")
+                    run_full_sync(
+                        conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id
+                    )
+        time.sleep(10)
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -426,14 +499,14 @@ def main() -> None:
         _init_schema(conn_pg)
 
         if args.once:
-            run_full_sync(conn_4d, conn_pg)
+            run_full_sync(conn_4d, conn_pg, trigger="cli")
         else:
             import schedule
 
             logger.info("Scheduler mode: daily sync at %02d:00", cron_hour)
 
             def _job() -> None:
-                run_full_sync(conn_4d, conn_pg)
+                run_full_sync(conn_4d, conn_pg, trigger="scheduled")
 
             schedule.every().day.at(f"{cron_hour:02d}:00").do(_job)
 
@@ -441,9 +514,7 @@ def main() -> None:
             logger.info("Running initial sync on startup ...")
             _job()
 
-            while True:
-                schedule.run_pending()
-                time.sleep(60)
+            _run_scheduler_loop(conn_4d, conn_pg)
     finally:
         try:
             conn_4d.close()

@@ -10,6 +10,15 @@ import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import type { ReviewContent } from "./review-prompts";
+import { logUsage, checkDailyBudget } from "./llm-usage";
+
+export { BudgetExceededError } from "./llm-usage";
+
+const EMPTY_USAGE = {
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+};
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -27,6 +36,76 @@ function getApiKey(): string {
 
 function getModel(): string {
   return process.env.DASHBOARD_LLM_MODEL || DEFAULT_MODEL;
+}
+
+// ─── Retry helpers ───────────────────────────────────────────────────────────
+
+const MAX_ATTEMPTS = 3;
+const BASE_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 30_000;
+
+function getStatus(err: unknown): number | undefined {
+  if (
+    err !== null &&
+    typeof err === "object" &&
+    "status" in err &&
+    typeof (err as { status: unknown }).status === "number"
+  ) {
+    return (err as { status: number }).status;
+  }
+  return undefined;
+}
+
+function getHeaderValue(headers: unknown, name: string): string | null | undefined {
+  if (headers instanceof Headers) {
+    return headers.get(name);
+  }
+  if (headers !== null && typeof headers === "object" && !Array.isArray(headers)) {
+    const targetName = name.toLowerCase();
+    for (const [key, value] of Object.entries(headers as Record<string, unknown>)) {
+      if (key.toLowerCase() === targetName && typeof value === "string") {
+        return value;
+      }
+    }
+  }
+  return undefined;
+}
+
+function getRetryAfterMs(err: unknown): number | undefined {
+  if (err === null || typeof err !== "object" || !("headers" in err)) return undefined;
+  const headers = (err as { headers: unknown }).headers;
+  const value = getHeaderValue(headers, "retry-after");
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = parseInt(value, 10);
+  return isNaN(parsed) || parsed < 0 ? undefined : Math.min(parsed * 1000, MAX_RETRY_DELAY_MS);
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastError = err;
+      const status = getStatus(err);
+
+      if (status === 400) throw err;
+      if (attempt === MAX_ATTEMPTS - 1) break;
+
+      const shouldRetry =
+        status === undefined || status === 429 || status >= 500;
+      if (!shouldRetry) throw err;
+
+      let delay = BASE_DELAY_MS * Math.pow(2, attempt);
+      if (status === 429) {
+        const retryAfterMs = getRetryAfterMs(err);
+        if (retryAfterMs !== undefined) delay = retryAfterMs;
+      }
+
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastError;
 }
 
 // ─── Client factory ──────────────────────────────────────────────────────────
@@ -65,15 +144,21 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
   const client = getClient();
   const systemPrompt = buildGeneratePrompt();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 8192,
-  });
+  await checkDailyBudget();
+
+  const response = await withRetry(() =>
+    client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 8192,
+    }),
+  );
+
+  void logUsage("generateDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -94,15 +179,21 @@ export async function modifyDashboard(
   const client = getClient();
   const systemPrompt = buildModifyPrompt(currentSpec);
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 8192,
-  });
+  await checkDailyBudget();
+
+  const response = await withRetry(() =>
+    client.chat.completions.create({
+      model: getModel(),
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      max_tokens: 8192,
+    }),
+  );
+
+  void logUsage("modifyDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -123,6 +214,8 @@ export async function suggestDashboards(
   const client = getClient();
   const systemPrompt = buildSuggestPrompt(role, existingDashboards);
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -135,6 +228,8 @@ export async function suggestDashboards(
     temperature: 0.2,
     max_tokens: 8192,
   });
+
+  void logUsage("suggestDashboards", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -158,6 +253,8 @@ export async function analyzeGaps(
   const client = getClient();
   const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -171,6 +268,8 @@ export async function analyzeGaps(
     temperature: 0.2,
     max_tokens: 8192,
   });
+
+  void logUsage("analyzeGaps", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -192,6 +291,8 @@ export async function analyzeDashboard(
   const client = getClient();
   const systemPrompt = buildAnalyzePrompt(serializedData, action);
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -201,6 +302,8 @@ export async function analyzeDashboard(
     temperature: 0.3,
     max_tokens: 4096,
   });
+
+  void logUsage("analyzeDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -220,6 +323,8 @@ export async function generateReview(
 ): Promise<ReviewContent> {
   const client = getClient();
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -228,6 +333,8 @@ export async function generateReview(
     temperature: 0.2,
     max_tokens: 4096,
   });
+
+  void logUsage("generateReview", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -299,6 +406,7 @@ export async function generateSuggestions(
   lastExchange: string
 ): Promise<string[]> {
   try {
+    await checkDailyBudget();
     const client = getClient();
     const prompt = buildSuggestionPrompt(serializedData, lastExchange);
 
@@ -308,6 +416,8 @@ export async function generateSuggestions(
       temperature: 0.5,
       max_tokens: 512,
     });
+
+    void logUsage("generateSuggestions", getModel(), response.usage ?? EMPTY_USAGE);
 
     const content = response.choices[0]?.message?.content ?? "";
 
