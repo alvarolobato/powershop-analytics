@@ -238,7 +238,7 @@ describe("RunDetail component", () => {
     render(<RunDetail runId="3" />);
     await waitFor(() => { expect(screen.getByTestId("run-detail")).toBeInTheDocument(); });
     const countAfterLoad = fetchCount;
-    act(() => { vi.advanceTimersByTime(30_000); });
+    await act(async () => { vi.advanceTimersByTime(30_000); });
     await waitFor(() => { expect(fetchCount).toBeGreaterThan(countAfterLoad); });
     vi.useRealTimers();
   });

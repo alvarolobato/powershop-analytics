@@ -51,16 +51,16 @@ export async function POST(): Promise<NextResponse> {
 
     let triggerId: number;
     if (rows.length > 0) {
-      triggerId = rows[0].id;
+      triggerId = Number(rows[0].id);
     } else {
       const existing = await query(
         `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
       );
       triggerId = Number(existing.rows[0][0]);
     }
-
     return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
-  } catch {
+  } catch (err) {
+    console.error("[etl/run] trigger failed:", err);
     return NextResponse.json({ error: "db_error" }, { status: 503 });
   }
 }

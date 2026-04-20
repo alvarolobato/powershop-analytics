@@ -1,16 +1,18 @@
 /**
- * POST /api/query — Execute a read-only SQL query against PostgreSQL.
+ * POST /api/admin/explain — Run EXPLAIN on a user-supplied SQL query.
  *
  * Accepts: { sql: string }
- * Returns: { columns: string[], rows: unknown[][] }
+ * Returns: { plan: string }
+ *
+ * Uses EXPLAIN (FORMAT TEXT) without ANALYZE — the query is never executed,
+ * keeping this route read-only per the project policy.
  *
  * Error codes:
- *   400 — Missing or invalid SQL
- *   403 — Write operation rejected (read-only policy)
- *   408 — Query timeout (>30s)
- *   422 — Query cost exceeds threshold (COST_LIMIT); body includes `cost` field
- *   503 — Database connection error
+ *   400 — Missing/empty sql, sql starts with EXPLAIN, or PG syntax error
+ *   403 — Write statement rejected (read-only policy)
+ *   408 — Query timeout
  *   500 — Unexpected error
+ *   503 — Database connection error
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -26,7 +28,6 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
-import { validateQueryCost, QueryTooExpensiveError } from "@/lib/query-validator";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = generateRequestId();
@@ -43,22 +44,46 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      formatApiError(
-        "El cuerpo JSON debe ser un objeto.",
-        "VALIDATION",
-        undefined,
-        requestId,
-      ),
+      formatApiError("El cuerpo JSON debe ser un objeto.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
-  const { sql } = body as { sql?: string };
+  const { sql } = body as { sql?: unknown };
 
   if (!sql || typeof sql !== "string" || !sql.trim()) {
     return NextResponse.json(
+      formatApiError("Falta el campo 'sql' o está vacío.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const trimmedSql = sql.trim();
+
+  // Guard: reject write statements before wrapping with EXPLAIN
+  try {
+    validateReadOnly(trimmedSql);
+  } catch (err) {
+    if (err instanceof SqlValidationError) {
+      return NextResponse.json(
+        formatApiError(
+          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
+          "VALIDATION",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 403 },
+      );
+    }
+    throw err;
+  }
+
+  // Reject SQL that already starts with EXPLAIN — wrapping it again produces
+  // "EXPLAIN (FORMAT TEXT) EXPLAIN ..." which is invalid PostgreSQL syntax.
+  if (/^\s*EXPLAIN\b/i.test(trimmedSql)) {
+    return NextResponse.json(
       formatApiError(
-        "Falta el campo 'sql' o está vacío.",
+        "Envía la consulta SQL sin EXPLAIN; este endpoint lo añade automáticamente.",
         "VALIDATION",
         undefined,
         requestId,
@@ -67,62 +92,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Validate read-only before executing
-  try {
-    validateReadOnly(sql);
-  } catch (err) {
-    if (err instanceof SqlValidationError) {
-      return NextResponse.json(
-        formatApiError(
-          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
-          "VALIDATION",
-          sanitizeErrorMessage(err),
-          requestId,
-        ),
-        { status: 403 },
-      );
-    }
-    throw err;
-  }
+  // EXPLAIN without ANALYZE — planner plan only, query is never executed
+  const explainSql = `EXPLAIN (FORMAT TEXT) ${trimmedSql}`;
 
-  // Validate query cost via EXPLAIN before executing
-  let cost = 0;
-  const forceHeader = request.headers.get("X-Query-Force") ?? undefined;
   try {
-    cost = await validateQueryCost(sql, { forceHeader });
+    const result = await query(explainSql);
+    const plan = result.rows.map((row) => row[0] as string).join("\n");
+    return NextResponse.json({ plan });
   } catch (err) {
-    if (err instanceof QueryTooExpensiveError) {
-      return NextResponse.json(
-        { ...formatApiError(err.message, "COST_LIMIT", undefined, requestId), cost: err.cost },
-        { status: 422 },
-      );
-    }
-    throw err;
-  }
-
-  // Execute the query
-  try {
-    const result = await query(sql);
-    const response = NextResponse.json(result);
-    response.headers.set("X-Query-Cost", String(cost));
-    return response;
-  } catch (err) {
-    if (err instanceof SqlValidationError) {
-      return NextResponse.json(
-        formatApiError(
-          "La consulta contiene operaciones no permitidas (solo se permiten consultas de lectura).",
-          "VALIDATION",
-          sanitizeErrorMessage(err),
-          requestId,
-        ),
-        { status: 403 },
-      );
-    }
     if (err instanceof QueryTimeoutError) {
-      console.error(`[${requestId}] Timeout en consulta SQL:`, err);
+      console.error(`[${requestId}] EXPLAIN timeout:`, err);
       return NextResponse.json(
         formatApiError(
-          "La consulta excedió el tiempo máximo de espera.",
+          "La consulta EXPLAIN excedió el tiempo máximo de espera.",
           "TIMEOUT",
           sanitizeErrorMessage(err),
           requestId,
@@ -130,6 +112,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 408 },
       );
     }
+
     if (err instanceof ConnectionError) {
       console.error(`[${requestId}] Error de conexión a la base de datos:`, err);
       return NextResponse.json(
@@ -143,15 +126,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    // For known client-caused PG errors, return 400 with the message.
-    // Class 22 = data_exception, Class 42 = syntax/access errors (excl. permission).
-    // For truly unexpected errors, return 500 without leaking internals.
     const pgErr = err as { code?: string; message?: string };
     const code = pgErr.code || "";
-    const isPermissionError = code === "42501"; // insufficient_privilege
+    const isPermissionError = code === "42501";
     const isClientError =
-      !isPermissionError &&
-      (code.startsWith("22") || code.startsWith("42"));
+      !isPermissionError && (code.startsWith("22") || code.startsWith("42"));
 
     if (isClientError) {
       return NextResponse.json(
@@ -165,10 +144,10 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
 
-    console.error(`[${requestId}] Error inesperado al ejecutar consulta SQL:`, err);
+    console.error(`[${requestId}] Error inesperado al ejecutar EXPLAIN:`, err);
     return NextResponse.json(
       formatApiError(
-        "Error inesperado al ejecutar la consulta.",
+        "Error inesperado al ejecutar EXPLAIN.",
         "UNKNOWN",
         sanitizeErrorMessage(err),
         requestId,
