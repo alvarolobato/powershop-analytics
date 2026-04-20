@@ -18,6 +18,7 @@ export type ErrorCode =
   | "LLM_ERROR"
   | "LLM_RATE_LIMIT"
   | "LLM_BUDGET_EXCEEDED"
+  | "LLM_CIRCUIT_OPEN"
   | "LLM_INVALID_RESPONSE"
   | "VALIDATION"
   | "NOT_FOUND"
