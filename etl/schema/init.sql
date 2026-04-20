@@ -471,6 +471,11 @@ CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
 );
 
+-- Supports frequent polling/claim of the oldest pending manual trigger.
+CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending_requested_at
+    ON etl_manual_trigger (requested_at, id)
+    WHERE status = 'pending';
+
 -- ============================================================
 -- LLM usage tracking (Dashboard App)
 -- ============================================================
