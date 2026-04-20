@@ -1,7 +1,14 @@
 import { sql } from "@/lib/db-write";
 import { query } from "@/lib/db";
 
-// Rate table: USD per token (easy to update when OpenRouter pricing changes)
+/**
+ * Rate table: **estimated** USD per token used only for `llm_usage.estimated_cost_usd`.
+ *
+ * - Values follow public list pricing for the configured model (today: Claude Sonnet 4).
+ * - OpenRouter may apply discounts, caching, or rounding; this app does **not** read
+ *   OpenRouter’s billing API, so displayed costs are **indicative**, not invoice-accurate.
+ * - Unknown models fall back to `DEFAULT_RATE` (same as Sonnet 4) with a console warning.
+ */
 const RATES: Record<string, { prompt: number; completion: number }> = {
   "anthropic/claude-sonnet-4": {
     prompt: 3.0 / 1_000_000,

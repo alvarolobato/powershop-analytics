@@ -1,4 +1,5 @@
 import { sql } from "@/lib/db-write";
+import { getLlmEndpointMetaEs } from "@/lib/llm-endpoint-meta";
 
 export interface PeriodStats {
   prompt_tokens: number;
@@ -9,6 +10,10 @@ export interface PeriodStats {
 
 export interface EndpointStats {
   endpoint: string;
+  /** Human-readable name in Spanish (stable for known `logUsage` keys). */
+  endpoint_label_es: string;
+  /** What triggered this usage row (Spanish). */
+  endpoint_detail_es: string;
   calls: number;
   total_tokens: number;
   estimated_cost_usd: string;
@@ -95,12 +100,18 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
       estimated_cost_usd: r.month_cost,
     });
 
-    const by_endpoint: EndpointStats[] = endpointRows.map((row) => ({
-      endpoint: String(row.endpoint),
-      calls: Number(row.calls) || 0,
-      total_tokens: Number(row.total_tokens) || 0,
-      estimated_cost_usd: (Number(row.estimated_cost_usd) || 0).toFixed(6),
-    }));
+    const by_endpoint: EndpointStats[] = endpointRows.map((row) => {
+      const endpoint = String(row.endpoint);
+      const meta = getLlmEndpointMetaEs(endpoint);
+      return {
+        endpoint,
+        endpoint_label_es: meta.label,
+        endpoint_detail_es: meta.detail,
+        calls: Number(row.calls) || 0,
+        total_tokens: Number(row.total_tokens) || 0,
+        estimated_cost_usd: (Number(row.estimated_cost_usd) || 0).toFixed(6),
+      };
+    });
 
     return { today, week, month, by_endpoint };
   } catch (err) {
