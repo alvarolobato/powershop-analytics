@@ -845,7 +845,8 @@ describe("DashboardRenderer", () => {
         JSON.parse((c[1] as { body: string }).body)
       );
       const hasCompToken = bodies.some(
-        (b: { sql: string }) => b.sql.includes(":comp_from") || b.sql.includes(":comp_to")
+        (b: { sql: string }) =>
+          b.sql.includes(":comp_from") || b.sql.includes(":comp_to")
       );
       expect(hasCompToken).toBe(false);
     });

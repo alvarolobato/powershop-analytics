@@ -99,7 +99,9 @@ function hasCompTokens(sql: string): boolean {
  *  gracefully when comparisonRange is unset, so they must not gate the main widget fetch. */
 function collectWidgetSqls(widget: Widget): string[] {
   if (widget.type === "kpi_row") {
-    return widget.items.map((item) => item.sql);
+    return widget.items
+      .map((item) => item.sql)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
   }
   return [widget.sql];
 }
@@ -622,7 +624,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
           >
             {/* Loading skeleton */}
             {(!state || state.loading) && (
-              <WidgetSkeleton type={widget.type} />
+              <RendererSkeleton type={widget.type} />
             )}
 
             {/* Error state */}
@@ -656,7 +658,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
 
 type WidgetType = Widget["type"];
 
-function WidgetSkeleton({ type }: { type: WidgetType }) {
+function RendererSkeleton({ type }: { type: WidgetType }) {
   switch (type) {
     case "kpi_row":
       return (
