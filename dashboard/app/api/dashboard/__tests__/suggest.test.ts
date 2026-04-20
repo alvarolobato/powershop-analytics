@@ -5,9 +5,13 @@ const { mockSuggestDashboards } = vi.hoisted(() => ({
   mockSuggestDashboards: vi.fn(),
 }));
 
-vi.mock("@/lib/llm", () => ({
-  suggestDashboards: mockSuggestDashboards,
-}));
+vi.mock("@/lib/llm", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+  return {
+    BudgetExceededError: actual.BudgetExceededError,
+    suggestDashboards: mockSuggestDashboards,
+  };
+});
 
 import { POST } from "../suggest/route";
 

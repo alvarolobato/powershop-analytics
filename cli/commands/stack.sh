@@ -10,7 +10,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-DC="docker compose -f ${REPO_ROOT}/docker-compose.yml"
+DC=(docker compose -f "${REPO_ROOT}/docker-compose.yml")
 
 usage() {
     cat <<EOF
@@ -32,20 +32,20 @@ EOF
 
 cmd_up() {
     echo -e "${CYAN}Starting stack...${NC}"
-    $DC up -d
+    "${DC[@]}" up -d
     echo ""
     echo -e "${GREEN}Stack is up.${NC} Run 'ps stack status' to check containers."
 }
 
 cmd_down() {
     echo -e "${CYAN}Stopping stack...${NC}"
-    $DC down
+    "${DC[@]}" down
     echo -e "${GREEN}Stack stopped.${NC}"
 }
 
 cmd_restart() {
     echo -e "${CYAN}Restarting stack...${NC}"
-    $DC restart
+    "${DC[@]}" restart
     echo -e "${GREEN}Stack restarted.${NC}"
 }
 
@@ -83,7 +83,7 @@ cmd_update() {
     git pull --ff-only origin "$branch"
 
     echo -e "${CYAN}Rebuilding images and starting stack...${NC}"
-    $DC up -d --build
+    "${DC[@]}" up -d --build
 
     echo ""
     cmd_status
@@ -91,7 +91,7 @@ cmd_update() {
 
 cmd_status() {
     echo -e "${CYAN}Container status:${NC}"
-    $DC ps --format table
+    "${DC[@]}" ps --format table
     echo ""
 
     # Check WrenAI UI
@@ -106,9 +106,9 @@ cmd_status() {
 cmd_logs() {
     local svc="${1:-}"
     if [ -n "$svc" ]; then
-        $DC logs -f "$svc"
+        "${DC[@]}" logs -f "$svc"
     else
-        $DC logs -f
+        "${DC[@]}" logs -f
     fi
 }
 
@@ -135,7 +135,7 @@ cmd_destroy() {
     read -r answer || answer=''
     if [ "${answer}" = "y" ] || [ "${answer}" = "Y" ]; then
         echo -e "${CYAN}Destroying stack and volumes...${NC}"
-        $DC down -v
+        "${DC[@]}" down -v
         echo -e "${GREEN}Stack destroyed.${NC}"
     else
         echo "Aborted."

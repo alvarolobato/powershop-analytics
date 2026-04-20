@@ -121,12 +121,17 @@ jobs:
           echo "" >> /tmp/changelog.md
 
           echo "### Other Changes" >> /tmp/changelog.md
-          # Exclude PRs already listed under Features or Bug Fixes
+          # PRs without enhancement/ai-idea/bug/ai-bug labels are listed here.
+          # NOTE: gh's --jq is a single-string flag and cannot accept jq's
+          # `--arg` / `--argjson` directly. We previously passed
+          # `--jq --argjson listed [...] '<expr>'`, which made "--argjson"
+          # the value of --jq and silently broke the call (so this section
+          # was empty in every release). The label `select` already excludes
+          # the feature/bug PRs, so the number-based exclusion isn't needed.
           gh pr list --state merged --base main \
             --search "merged:>=${SINCE_DATE}" \
             --json number,title,labels \
-            --jq --argjson listed "[$(echo "${LISTED_NUMBERS}" | tr ',' '\n' | grep -v '^$' | tr '\n' ',' | sed 's/,$//')]" \
-            '.[] | select(.labels | map(.name) | all(. != "enhancement" and . != "ai-idea" and . != "bug" and . != "ai-bug")) | "- \(.title) (#\(.number))"' \
+            --jq '.[] | select(.labels | map(.name) | all(. != "enhancement" and . != "ai-idea" and . != "bug" and . != "ai-bug")) | "- \(.title) (#\(.number))"' \
             >> /tmp/changelog.md 2>/dev/null || true
           echo "" >> /tmp/changelog.md
 

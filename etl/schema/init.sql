@@ -1,3 +1,11 @@
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pg_stat_statements not available — skipping (enable shared_preload_libraries to activate)';
+END
+$$;
+
 -- PostgreSQL DDL for the PowerShop Analytics mirror schema.
 -- All tables use the ps_ prefix.
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
@@ -402,6 +410,17 @@ CREATE TABLE IF NOT EXISTS dashboard_versions (
     created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                  SERIAL        PRIMARY KEY,
+    endpoint            TEXT          NOT NULL,
+    model               TEXT          NOT NULL,
+    prompt_tokens       INTEGER       NOT NULL DEFAULT 0,
+    completion_tokens   INTEGER       NOT NULL DEFAULT 0,
+    total_tokens        INTEGER       NOT NULL DEFAULT 0,
+    estimated_cost_usd  NUMERIC(10,6) NOT NULL DEFAULT 0,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
 -- ============================================================
@@ -462,6 +481,37 @@ ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_from TIMESTAM
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_to   TIMESTAMPTZ;
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS error_msg      TEXT;
 
+-- Transport channel: dashboard writes a row here; ETL polls and picks it up.
+CREATE TABLE IF NOT EXISTS etl_manual_trigger (
+    id           SERIAL       PRIMARY KEY,
+    requested_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    status       TEXT         NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'picked_up')),
+    picked_up_at TIMESTAMPTZ,
+    run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
+);
+
+-- Supports frequent polling/claim of the oldest pending manual trigger.
+CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending_requested_at
+    ON etl_manual_trigger (requested_at, id)
+    WHERE status = 'pending';
+
+-- ============================================================
+-- LLM usage tracking (Dashboard App)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                  SERIAL        PRIMARY KEY,
+    endpoint            TEXT          NOT NULL,
+    model               TEXT          NOT NULL,
+    prompt_tokens       INTEGER       NOT NULL,
+    completion_tokens   INTEGER       NOT NULL,
+    total_tokens        INTEGER       NOT NULL,
+    estimated_cost_usd  NUMERIC(12,6) NOT NULL,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
@@ -498,6 +548,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 -- Dashboard indexes
 CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
 CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
 
 CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
 CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);
@@ -601,5 +652,8 @@ ANALYZE ps_facturas_compra;
 ANALYZE etl_watermarks;
 ANALYZE dashboards;
 ANALYZE dashboard_versions;
+ANALYZE llm_usage;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
+ANALYZE etl_manual_trigger;
+ANALYZE llm_usage;
