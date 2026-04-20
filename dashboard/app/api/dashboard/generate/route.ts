@@ -9,7 +9,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { generateDashboard } from "@/lib/llm";
+import { generateDashboard, BudgetExceededError } from "@/lib/llm";
 import { validateSpec } from "@/lib/schema";
 import { ZodError } from "zod";
 import {
@@ -89,6 +89,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     rawResponse = await generateDashboard(prompt);
   } catch (err: unknown) {
+    if (err instanceof BudgetExceededError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+        { status: 429 },
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);

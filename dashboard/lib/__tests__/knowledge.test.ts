@@ -61,6 +61,28 @@ describe("knowledge", () => {
       expect(questions).toContain("pago");
       expect(questions).toContain("margen");
     });
+
+    it("SQL pairs that use :comp_* in main sql are explicitly comparison-scoped", () => {
+      // :comp_* in pair.sql is reserved for documented year-over-year / comparison
+      // examples. New pairs must not sneak :comp_* into non-comparison questions.
+      const compTokenPattern = /:comp_(from|to|mes_from|mes_to)\b/;
+      const comparisonCue =
+        /comparaci|comparativa|anterior|YTD|per[ií]odo de comparaci/i;
+      const pairsWithCompTokens = SQL_PAIRS.filter((pair) =>
+        compTokenPattern.test(pair.sql)
+      );
+      expect(pairsWithCompTokens.length).toBeGreaterThanOrEqual(1);
+      for (const pair of pairsWithCompTokens) {
+        expect(pair.question).toMatch(comparisonCue);
+      }
+    });
+
+    it("no SQL pair uses CURRENT_DATE, DATE_TRUNC with CURRENT_DATE, or bare INTERVAL", () => {
+      for (const pair of SQL_PAIRS) {
+        expect(pair.sql).not.toMatch(/CURRENT_DATE/);
+        expect(pair.sql).not.toMatch(/\bINTERVAL\b/);
+      }
+    });
   });
 
   describe("SCHEMA", () => {
