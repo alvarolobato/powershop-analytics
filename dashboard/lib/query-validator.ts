@@ -95,7 +95,7 @@ export async function validateQueryCost(
   sql: string,
   options?: { forceHeader?: string },
 ): Promise<number> {
-  const secret = process.env.QUERY_COST_OVERRIDE_SECRET;
+  const secret = process.env.QUERY_COST_OVERRIDE_SECRET?.trim();
   if (secret && options?.forceHeader === secret) {
     return 0;
   }

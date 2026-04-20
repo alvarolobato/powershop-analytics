@@ -62,6 +62,14 @@ describe("validateQueryCost", () => {
     expect(mockQuery).toHaveBeenCalledOnce();
   });
 
+  it("still checks cost when secret is whitespace-only (treated as unset)", async () => {
+    vi.stubEnv("QUERY_COST_OVERRIDE_SECRET", "   ");
+    mockQuery.mockResolvedValue(makePlanResult(500));
+    const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "   " });
+    expect(cost).toBe(500);
+    expect(mockQuery).toHaveBeenCalledOnce();
+  });
+
   // ─── Cost threshold ──────────────────────────────────────────────────────────
 
   it("returns cost when below default threshold (100000)", async () => {
