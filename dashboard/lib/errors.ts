@@ -24,6 +24,7 @@ export type ErrorCode =
   | "NOT_FOUND"
   | "TIMEOUT"
   | "COST_LIMIT"
+  | "REVIEW_EXISTS"
   | "UNKNOWN";
 
 // ---------------------------------------------------------------------------
@@ -41,6 +42,10 @@ export interface ApiErrorResponse {
   timestamp: string;
   /** Correlation ID for matching frontend error to server log. */
   requestId: string;
+  /** When code is REVIEW_EXISTS — id of the saved review for that week. */
+  existing_id?: number;
+  /** When code is REVIEW_EXISTS — Monday (YYYY-MM-DD) of the reviewed week. */
+  week_start?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,7 +111,9 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
     typeof v.timestamp === "string" &&
     typeof v.requestId === "string" &&
     // details must be absent or a string (never an object/array)
-    (v.details === undefined || typeof v.details === "string")
+    (v.details === undefined || typeof v.details === "string") &&
+    (v.existing_id === undefined || typeof v.existing_id === "number") &&
+    (v.week_start === undefined || typeof v.week_start === "string")
   );
 }
 

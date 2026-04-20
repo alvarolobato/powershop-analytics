@@ -7,7 +7,7 @@ import type { WidgetState } from "@/components/DashboardRenderer";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
-import { DateRangePicker } from "@/components/DateRangePicker";
+import { DateRangePicker, computeComparisonRange } from "@/components/DateRangePicker";
 import type { DateRange, ComparisonRange } from "@/components/DateRangePicker";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -35,6 +35,29 @@ interface DashboardRecord {
 
 const REFRESH_INTERVALS = [5, 15, 30] as const;
 type RefreshInterval = (typeof REFRESH_INTERVALS)[number];
+
+function getDefaultDashboardDateRange(): DateRange {
+  const today = new Date();
+  const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
+  const to = new Date(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate(),
+    23,
+    59,
+    59,
+    999,
+  );
+  return { from, to };
+}
+
+function defaultComparisonRangeFor(
+  primary: DateRange,
+): ComparisonRange | undefined {
+  const r = computeComparisonRange(primary, "previous_period");
+  if (!r) return undefined;
+  return { type: "previous_period", ...r };
+}
 
 // ---------------------------------------------------------------------------
 // Helper: format widget data as text for clipboard copy
@@ -91,14 +114,11 @@ export default function ViewDashboard() {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Date range filter state — default to current month (1st to end of today)
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const today = new Date();
-    const from = new Date(today.getFullYear(), today.getMonth(), 1, 0, 0, 0, 0);
-    const to = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-    return { from, to };
-  });
-  const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(undefined);
+  // Date range filter — default current month; comparison — default same-length period immediately before
+  const [dateRange, setDateRange] = useState<DateRange>(() => getDefaultDashboardDateRange());
+  const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(() =>
+    defaultComparisonRangeFor(getDefaultDashboardDateRange()),
+  );
 
   // When date range changes, store the range and re-run all widget queries.
   // The date range is displayed in the picker for context; actual SQL filtering

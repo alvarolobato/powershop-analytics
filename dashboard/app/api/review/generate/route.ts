@@ -2,15 +2,16 @@
  * POST /api/review/generate
  *
  * Orchestration route for the automated weekly business review:
- * 1. Execute all predefined SQL queries
- * 2. Format results as text
- * 3. Build LLM prompt
- * 4. Call OpenRouter LLM (Claude)
+ * 1. Resolve the **last completed ISO week** (Mon–Sun before the current week)
+ * 2. Skip with 409 if a review for that week_start already exists
+ * 3. Execute all predefined SQL queries for that window ($1/$2 bounds)
+ * 4. Format results as text, build LLM prompt, call OpenRouter
  * 5. Parse and validate the structured review
  * 6. Persist to weekly_reviews table
  * 7. Return the full review with its DB id
  *
  * Error codes:
+ *   409 — Review already stored for that closed week
  *   503 — Database connection error
  *   502 — LLM error
  *   500 — Unexpected error
@@ -35,16 +36,68 @@ export async function POST(): Promise<NextResponse> {
   const requestId = generateRequestId();
 
   try {
-    // 1. Execute all predefined SQL queries (partial failures are tolerated)
-    const queryResults = await executeReviewQueries(query);
+    // 1. Last **completed** ISO week: Monday = DATE_TRUNC('week', today) - 7 days
+    const boundsRes = await query(
+      `SELECT
+         TO_CHAR((DATE_TRUNC('week', CURRENT_DATE::timestamp) - INTERVAL '7 days')::date, 'YYYY-MM-DD') AS week_start,
+         TO_CHAR((DATE_TRUNC('week', CURRENT_DATE::timestamp) - INTERVAL '1 day')::date, 'YYYY-MM-DD') AS week_end_sunday,
+         TO_CHAR(DATE_TRUNC('week', CURRENT_DATE::timestamp)::date, 'YYYY-MM-DD') AS week_end_exclusive`
+    );
+    const weekStartStr = String(boundsRes.rows[0]?.[0] ?? "");
+    const weekEndSundayStr = String(boundsRes.rows[0]?.[1] ?? "");
+    const weekEndExclusiveStr = String(boundsRes.rows[0]?.[2] ?? "");
+    if (!weekStartStr || !weekEndExclusiveStr) {
+      return NextResponse.json(
+        formatApiError(
+          "No se pudo calcular la semana de análisis.",
+          "UNKNOWN",
+          undefined,
+          requestId,
+        ),
+        { status: 500 },
+      );
+    }
 
-    // 2. Format query results as text for the LLM
+    // 2. Do not regenerate if this closed week was already analyzed
+    const existingRes = await query(
+      `SELECT id FROM weekly_reviews WHERE week_start = $1::date ORDER BY id DESC LIMIT 1`,
+      [weekStartStr],
+    );
+    const existingId = existingRes.rows[0]?.[0];
+    if (existingId != null && existingId !== undefined) {
+      return NextResponse.json(
+        {
+          ...formatApiError(
+            "Ya existe una revisión para la última semana cerrada. Ábrala desde el historial; no se volverá a generar hasta una nueva semana completa.",
+            "REVIEW_EXISTS",
+            undefined,
+            requestId,
+          ),
+          existing_id: Number(existingId),
+          week_start: weekStartStr,
+        },
+        { status: 409 },
+      );
+    }
+
+    // 3. Execute all predefined SQL queries (partial failures are tolerated)
+    const queryResults = await executeReviewQueries(
+      (sql, params) => query(sql, params),
+      weekStartStr,
+      weekEndExclusiveStr,
+    );
+
+    // 4. Format query results as text for the LLM
     const formattedResults = formatAllResults(queryResults);
 
-    // 3. Build the LLM prompt
-    const systemPrompt = buildReviewPrompt(formattedResults);
+    const reviewedWeekDescription =
+      `Los resultados corresponden a la **semana ISO cerrada** del **${weekStartStr}** (lunes) al **${weekEndSundayStr}** (domingo). ` +
+      `La semana en curso no se incluye (sigue en progreso).`;
 
-    // 4. Call the LLM
+    // 5. Build the LLM prompt
+    const systemPrompt = buildReviewPrompt(formattedResults, reviewedWeekDescription);
+
+    // 6. Call the LLM
     let reviewContent;
     try {
       reviewContent = await generateReview(systemPrompt);
@@ -71,13 +124,6 @@ export async function POST(): Promise<NextResponse> {
     if (!reviewContent.generated_at) {
       reviewContent.generated_at = new Date().toISOString();
     }
-
-    // 5. Determine the Monday of the current week using PostgreSQL
-    // (avoids timezone mismatches between Node.js and the DB)
-    const weekStartResult = await query(
-      `SELECT TO_CHAR(DATE_TRUNC('week', CURRENT_DATE)::date, 'YYYY-MM-DD') AS week_start`
-    );
-    const weekStartStr = (weekStartResult.rows[0]?.[0] as string | undefined) ?? new Date().toISOString().split("T")[0];
 
     let reviewId: number;
     try {

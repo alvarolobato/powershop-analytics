@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS ps_articulos (
     num_marca        NUMERIC(20,3),
     num_proveedor    NUMERIC(20,3),
     precio_coste     NUMERIC(15,2),
+    precio1          NUMERIC(15,2),  -- PVP tarifa 1 (4D Articulos.Precio1)
     pr_coste_ne      NUMERIC(15,2),
     p_iva            NUMERIC(5,2),
     anulado          BOOLEAN,

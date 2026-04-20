@@ -42,6 +42,7 @@ _NUMERIC_FIELDS = {
     "nummarca",
     "numproveedor",
     "preciocoste",
+    "precio1",
     "prcostene",
     "piva",
     # ps_familias
@@ -124,6 +125,7 @@ _ARTICULOS_MAPPING: dict[str, str] = {
     "nummarca": "num_marca",
     "numproveedor": "num_proveedor",
     "preciocoste": "precio_coste",
+    "precio1": "precio1",
     "prcostene": "pr_coste_ne",
     "piva": "p_iva",
     "anulado": "anulado",
@@ -190,7 +192,7 @@ _MARCAS_MAPPING: dict[str, str] = {
 _SQL_ARTICULOS = (
     "SELECT RegArticulo, Codigo, CCRefeJOFACM, Descripcion, CodigoBarra,"
     " NumFamilia, NumDepartament, NumColor, NumTemporada, NumMarca, NumProveedor,"
-    " PrecioCoste, PrCosteNe, PIva, Anulado, FechaCreacion, FechaModifica,"
+    " PrecioCoste, Precio1, PrCosteNe, PIva, Anulado, FechaCreacion, FechaModifica,"
     " Color, ClaveTemporada, Modelo, Sexo"
     " FROM Articulos"
     " WHERE CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA'"

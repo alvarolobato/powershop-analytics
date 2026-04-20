@@ -595,7 +595,8 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [preferQuarterForLabel, setPreferQuarterForLabel] = useState(false);
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
-  const [comparisonType, setComparisonType] = useState<ComparisonType>("none");
+  /** Default to previous calendar period so comparison_sql charts work without extra UX steps. */
+  const [comparisonType, setComparisonType] = useState<ComparisonType>("previous_period");
   const [compCustomFrom, setCompCustomFrom] = useState("");
   const [compCustomTo, setCompCustomTo] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
