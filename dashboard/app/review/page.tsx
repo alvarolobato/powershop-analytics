@@ -147,38 +147,8 @@ export default function ReviewPage() {
     fetchPastReviews();
   }, [fetchPastReviews]);
 
-  // Generate a new review
-  const handleGenerate = async () => {
-    setView("loading");
-    setReviewError(null);
-    setCurrentReview(null);
-    try {
-      const res = await fetch("/api/review/generate", { method: "POST" });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => null);
-        setReviewError(
-          isApiErrorResponse(errBody)
-            ? errBody
-            : (errBody?.error as string) || "Error al generar la revisión"
-        );
-        setView("error");
-        return;
-      }
-      const data = await res.json();
-      setCurrentReview(data.review as FullReview);
-      setView("review");
-      // Refresh the past reviews list in background
-      fetchPastReviews();
-    } catch (err) {
-      setReviewError(
-        err instanceof Error ? err.message : "Error al generar la revisión"
-      );
-      setView("error");
-    }
-  };
-
-  // Load a past review by ID
-  const handleLoadReview = async (id: number) => {
+  // Load a past review by ID (used by list and by "Generar" when the closed week already exists)
+  const handleLoadReview = useCallback(async (id: number) => {
     setView("loading");
     setReviewError(null);
     setCurrentReview(null);
@@ -204,7 +174,46 @@ export default function ReviewPage() {
       );
       setView("error");
     }
-  };
+  }, []);
+
+  // Generate a new review (last closed ISO week only; 409 opens existing row)
+  const handleGenerate = useCallback(async () => {
+    setView("loading");
+    setReviewError(null);
+    setCurrentReview(null);
+    try {
+      const res = await fetch("/api/review/generate", { method: "POST" });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        if (
+          res.status === 409 &&
+          isApiErrorResponse(errBody) &&
+          errBody.code === "REVIEW_EXISTS" &&
+          typeof errBody.existing_id === "number"
+        ) {
+          await handleLoadReview(errBody.existing_id);
+          void fetchPastReviews();
+          return;
+        }
+        setReviewError(
+          isApiErrorResponse(errBody)
+            ? errBody
+            : (errBody?.error as string) || "Error al generar la revisión"
+        );
+        setView("error");
+        return;
+      }
+      const data = await res.json();
+      setCurrentReview(data.review as FullReview);
+      setView("review");
+      void fetchPastReviews();
+    } catch (err) {
+      setReviewError(
+        err instanceof Error ? err.message : "Error al generar la revisión"
+      );
+      setView("error");
+    }
+  }, [fetchPastReviews, handleLoadReview]);
 
   const handleBackToList = () => {
     setCurrentReview(null);

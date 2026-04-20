@@ -35,14 +35,22 @@ function formatInstructions(instructions: Instruction[]): string {
  * Build the system prompt for the weekly review LLM call.
  *
  * @param queryResults - Text representation of all SQL query results
+ * @param reviewedWeekDescription - One or two sentences: which closed ISO week the data covers
  * @returns System prompt string
  */
-export function buildReviewPrompt(queryResults: string): string {
+export function buildReviewPrompt(
+  queryResults: string,
+  reviewedWeekDescription: string,
+): string {
   const instructionsText = formatInstructions(INSTRUCTIONS);
 
   return `Eres un analista de negocio experto en retail y moda que prepara la revisión semanal del negocio.
 
-Tu misión: analizar los datos de la semana actual de PowerShop Analytics y redactar una revisión semanal completa, concisa y orientada a la acción, escrita en español.
+Tu misión: analizar los datos de PowerShop Analytics y redactar una revisión semanal completa, concisa y orientada a la acción, escrita en español.
+
+**Ventana temporal:** ${reviewedWeekDescription}
+
+No asumas datos de la semana en curso si no aparecen en las consultas: el sistema solo agrega la **última semana ISO ya cerrada** (lunes 00:00 a domingo 23:59) para evitar cifras parciales. Usa la consulta "ventas_semana_previa" (y análogas) como referencia de la semana inmediatamente anterior a la analizada.
 
 ## Reglas de negocio
 
@@ -61,7 +69,7 @@ El JSON tiene los campos: executive_summary (Resumen Ejecutivo de la semana), se
   "sections": [
     {
       "title": "Ventas Retail",
-      "content": "<2-4 párrafos analizando las ventas retail de la semana, comparando con la semana anterior, destacando tiendas destacadas y artículos más vendidos>"
+      "content": "<2-4 párrafos analizando las ventas retail de la semana cerrada, comparando con la semana previa (consulta ventas_semana_previa), destacando tiendas y artículos más vendidos>"
     },
     {
       "title": "Canal Mayorista",
@@ -73,7 +81,7 @@ El JSON tiene los campos: executive_summary (Resumen Ejecutivo de la semana), se
     },
     {
       "title": "Compras",
-      "content": "<2-4 párrafos sobre pedidos de compra de la semana comparados con la semana anterior>"
+      "content": "<2-4 párrafos sobre pedidos de compra de la semana cerrada comparados con la semana previa (compras_semana_previa)>"
     }
   ],
   "action_items": [
@@ -83,7 +91,7 @@ El JSON tiene los campos: executive_summary (Resumen Ejecutivo de la semana), se
   "generated_at": "<ISO 8601 timestamp>"
 }
 
-## Datos de la semana
+## Datos analizados
 
 A continuación se presentan los resultados de las consultas ejecutadas contra la base de datos:
 

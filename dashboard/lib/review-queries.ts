@@ -72,11 +72,16 @@ export function formatQueryResultAsText(
 
 // ─── Queries ─────────────────────────────────────────────────────────────────
 
+/**
+ * Weekly review SQL uses $1 = Monday of the **closed** ISO week under analysis (inclusive)
+ * and $2 = Monday of the following week (exclusive upper bound). The API sets these to the
+ * last completed calendar week — never the in-progress current week.
+ */
 export const REVIEW_QUERIES: ReviewQuery[] = [
   // ── Ventas Retail ──────────────────────────────────────────────────────────
 
   {
-    name: "ventas_semana_actual",
+    name: "ventas_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
   COALESCE(SUM(total_si), 0) AS ventas_netas,
@@ -85,10 +90,11 @@ export const REVIEW_QUERIES: ReviewQuery[] = [
 FROM ps_ventas
 WHERE entrada = true
   AND tienda <> '99'
-  AND fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)`,
+  AND fecha_creacion >= $1::date
+  AND fecha_creacion < $2::date`,
   },
   {
-    name: "ventas_semana_anterior",
+    name: "ventas_semana_previa",
     domain: "ventas_retail",
     sql: `SELECT
   COALESCE(SUM(total_si), 0) AS ventas_netas,
@@ -97,11 +103,11 @@ WHERE entrada = true
 FROM ps_ventas
 WHERE entrada = true
   AND tienda <> '99'
-  AND fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
-  AND fecha_creacion < DATE_TRUNC('week', CURRENT_DATE)`,
+  AND fecha_creacion >= ($1::date - INTERVAL '7 days')
+  AND fecha_creacion < $1::date`,
   },
   {
-    name: "top3_tiendas_semana",
+    name: "top3_tiendas_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
   tienda,
@@ -110,13 +116,14 @@ WHERE entrada = true
 FROM ps_ventas
 WHERE entrada = true
   AND tienda <> '99'
-  AND fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)
+  AND fecha_creacion >= $1::date
+  AND fecha_creacion < $2::date
 GROUP BY tienda
 ORDER BY ventas_netas DESC
 LIMIT 3`,
   },
   {
-    name: "bottom3_tiendas_semana",
+    name: "bottom3_tiendas_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
   tienda,
@@ -125,13 +132,14 @@ LIMIT 3`,
 FROM ps_ventas
 WHERE entrada = true
   AND tienda <> '99'
-  AND fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)
+  AND fecha_creacion >= $1::date
+  AND fecha_creacion < $2::date
 GROUP BY tienda
 ORDER BY ventas_netas ASC
 LIMIT 3`,
   },
   {
-    name: "top5_articulos_unidades_semana",
+    name: "top5_articulos_unidades_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
   lv.codigo,
@@ -144,14 +152,15 @@ JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas
 LEFT JOIN ps_articulos a ON a.codigo = lv.codigo
 WHERE v.entrada = true
   AND lv.tienda <> '99'
-  AND lv.fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)
+  AND lv.fecha_creacion >= $1::date
+  AND lv.fecha_creacion < $2::date
   AND lv.unidades > 0
 GROUP BY lv.codigo, a.ccrefejofacm, a.descripcion
 ORDER BY unidades_vendidas DESC
 LIMIT 5`,
   },
   {
-    name: "tasa_devolucion_semana",
+    name: "tasa_devolucion_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
   COALESCE(SUM(CASE WHEN entrada = true THEN total_si ELSE 0 END), 0) AS ventas_brutas_si,
@@ -165,23 +174,25 @@ LIMIT 5`,
   ) AS tasa_devolucion_pct
 FROM ps_ventas
 WHERE tienda <> '99'
-  AND fecha_creacion >= DATE_TRUNC('week', CURRENT_DATE)`,
+  AND fecha_creacion >= $1::date
+  AND fecha_creacion < $2::date`,
   },
 
   // ── Canal Mayorista ────────────────────────────────────────────────────────
 
   {
-    name: "facturacion_mayorista_semana",
+    name: "facturacion_mayorista_semana_cerrada",
     domain: "canal_mayorista",
     sql: `SELECT
   COALESCE(SUM(base1 + base2 + base3), 0) AS facturacion_neta,
   COUNT(*) AS num_facturas
 FROM ps_gc_facturas
 WHERE abono = false
-  AND fecha_factura >= DATE_TRUNC('week', CURRENT_DATE)`,
+  AND fecha_factura >= $1::date
+  AND fecha_factura < $2::date`,
   },
   {
-    name: "top3_clientes_mayorista_semana",
+    name: "top3_clientes_mayorista_semana_cerrada",
     domain: "canal_mayorista",
     sql: `SELECT
   f.num_cliente,
@@ -191,7 +202,8 @@ WHERE abono = false
 FROM ps_gc_facturas f
 LEFT JOIN ps_clientes c ON c.num_cliente = f.num_cliente
 WHERE f.abono = false
-  AND f.fecha_factura >= DATE_TRUNC('week', CURRENT_DATE)
+  AND f.fecha_factura >= $1::date
+  AND f.fecha_factura < $2::date
 GROUP BY f.num_cliente, c.nombre
 ORDER BY facturacion_neta DESC
 LIMIT 3`,
@@ -208,7 +220,8 @@ WHERE NOT EXISTS (
       AND f.fecha_factura >= a.fecha_envio
       AND f.fecha_factura < a.fecha_envio + INTERVAL '30 days'
   )
-  AND a.fecha_envio >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '30 days'`,
+  AND a.fecha_envio >= $1::date - INTERVAL '30 days'
+  AND a.fecha_envio < $2::date`,
   },
 
   // ── Stock ──────────────────────────────────────────────────────────────────
@@ -237,35 +250,36 @@ ORDER BY stock_total ASC
 LIMIT 20`,
   },
   {
-    name: "traspasos_semana",
+    name: "traspasos_semana_cerrada",
     domain: "stock",
     sql: `SELECT
   COUNT(DISTINCT reg_traspaso) AS num_traspasos,
   COALESCE(SUM(unidades_s), 0) AS unidades_enviadas,
   COALESCE(SUM(unidades_e), 0) AS unidades_recibidas
 FROM ps_traspasos
-WHERE fecha_s >= DATE_TRUNC('week', CURRENT_DATE)
-   OR fecha_e >= DATE_TRUNC('week', CURRENT_DATE)`,
+WHERE (fecha_s >= $1::date AND fecha_s < $2::date)
+   OR (fecha_e >= $1::date AND fecha_e < $2::date)`,
   },
 
   // ── Compras ────────────────────────────────────────────────────────────────
 
   {
-    name: "compras_semana_actual",
+    name: "compras_semana_cerrada",
     domain: "compras",
     sql: `SELECT
   COUNT(*) AS num_pedidos
 FROM ps_compras
-WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE)`,
+WHERE fecha_pedido >= $1::date
+  AND fecha_pedido < $2::date`,
   },
   {
-    name: "compras_semana_anterior",
+    name: "compras_semana_previa",
     domain: "compras",
     sql: `SELECT
   COUNT(*) AS num_pedidos
 FROM ps_compras
-WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
-  AND fecha_pedido < DATE_TRUNC('week', CURRENT_DATE)`,
+WHERE fecha_pedido >= ($1::date - INTERVAL '7 days')
+  AND fecha_pedido < $1::date`,
   },
 ];
 
@@ -282,14 +296,19 @@ WHERE fecha_pedido >= DATE_TRUNC('week', CURRENT_DATE) - INTERVAL '7 days'
  * is re-thrown immediately so the API route can return a 503 without incurring
  * LLM cost.
  *
- * @param queryFn - Function that accepts SQL and returns a QueryResult promise
+ * @param queryFn - Function that accepts SQL and optional `$1,$2` params (week bounds)
+ * @param weekStart - Monday of the closed review week (YYYY-MM-DD), inclusive
+ * @param weekEndExclusive - Monday after the review week (YYYY-MM-DD), exclusive upper bound
  * @returns Array of ReviewQueryResult (success or error per query)
  */
 export async function executeReviewQueries(
-  queryFn: (sql: string) => Promise<QueryResult>
+  queryFn: (sql: string, params?: unknown[]) => Promise<QueryResult>,
+  weekStart: string,
+  weekEndExclusive: string,
 ): Promise<ReviewQueryResult[]> {
+  const weekParams = [weekStart, weekEndExclusive];
   const results = await Promise.allSettled(
-    REVIEW_QUERIES.map((q) => queryFn(q.sql))
+    REVIEW_QUERIES.map((q) => queryFn(q.sql, weekParams))
   );
 
   return REVIEW_QUERIES.map((q, i) => {

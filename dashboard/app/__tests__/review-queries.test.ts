@@ -62,6 +62,9 @@ describe("REVIEW_QUERIES", () => {
 
 // ─── executeReviewQueries ─────────────────────────────────────────────────────
 
+const SAMPLE_WEEK_START = "2026-04-06";
+const SAMPLE_WEEK_END_EXCL = "2026-04-13";
+
 describe("executeReviewQueries", () => {
   it("returns results for all queries when all succeed", async () => {
     const mockQueryFn = vi.fn().mockResolvedValue({
@@ -69,7 +72,11 @@ describe("executeReviewQueries", () => {
       rows: [[1, "test"]],
     });
 
-    const results = await executeReviewQueries(mockQueryFn);
+    const results = await executeReviewQueries(
+      mockQueryFn,
+      SAMPLE_WEEK_START,
+      SAMPLE_WEEK_END_EXCL,
+    );
 
     expect(results).toHaveLength(REVIEW_QUERIES.length);
     expect(mockQueryFn).toHaveBeenCalledTimes(REVIEW_QUERIES.length);
@@ -91,7 +98,11 @@ describe("executeReviewQueries", () => {
       return Promise.resolve({ columns: ["value"], rows: [[42]] });
     });
 
-    const results = await executeReviewQueries(mockQueryFn);
+    const results = await executeReviewQueries(
+      mockQueryFn,
+      SAMPLE_WEEK_START,
+      SAMPLE_WEEK_END_EXCL,
+    );
 
     // All queries attempted
     expect(results).toHaveLength(REVIEW_QUERIES.length);
@@ -108,7 +119,11 @@ describe("executeReviewQueries", () => {
 
   it("returns correct query metadata for each result", async () => {
     const mockQueryFn = vi.fn().mockResolvedValue({ columns: [], rows: [] });
-    const results = await executeReviewQueries(mockQueryFn);
+    const results = await executeReviewQueries(
+      mockQueryFn,
+      SAMPLE_WEEK_START,
+      SAMPLE_WEEK_END_EXCL,
+    );
 
     // Each result references the correct query
     for (let i = 0; i < REVIEW_QUERIES.length; i++) {
@@ -117,12 +132,12 @@ describe("executeReviewQueries", () => {
     }
   });
 
-  it("calls the query function with the SQL of each query", async () => {
+  it("calls the query function with the SQL of each query and week bounds", async () => {
     const mockQueryFn = vi.fn().mockResolvedValue({ columns: [], rows: [] });
-    await executeReviewQueries(mockQueryFn);
+    await executeReviewQueries(mockQueryFn, SAMPLE_WEEK_START, SAMPLE_WEEK_END_EXCL);
 
     for (const q of REVIEW_QUERIES) {
-      expect(mockQueryFn).toHaveBeenCalledWith(q.sql);
+      expect(mockQueryFn).toHaveBeenCalledWith(q.sql, [SAMPLE_WEEK_START, SAMPLE_WEEK_END_EXCL]);
     }
   });
 });
@@ -132,11 +147,11 @@ describe("executeReviewQueries", () => {
 describe("formatQueryResultAsText", () => {
   it("produces a readable text table with name header", () => {
     const result = formatQueryResultAsText(
-      "ventas_semana_actual",
+      "ventas_semana_cerrada",
       ["ventas_netas", "num_tickets"],
       [[12345.67, 100]]
     );
-    expect(result).toContain("ventas_semana_actual");
+    expect(result).toContain("ventas_semana_cerrada");
     expect(result).toContain("ventas_netas");
     expect(result).toContain("num_tickets");
   });
