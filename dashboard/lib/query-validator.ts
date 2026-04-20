@@ -83,26 +83,25 @@ export async function validateQueryCost(
     const rootPlan = plan[0].Plan;
     const cost = rootPlan["Total Cost"] ?? 0;
 
-    const defaultLimit = 100000;
-    const rawLimit = process.env.QUERY_COST_LIMIT;
-    const parsedLimit =
-      rawLimit === undefined ? defaultLimit : parseInt(rawLimit, 10);
-    const limit =
-      Number.isFinite(parsedLimit) && parsedLimit > 0
-        ? parsedLimit
-        : defaultLimit;
-    if (
-      rawLimit !== undefined &&
-      limit === defaultLimit &&
-      parsedLimit !== defaultLimit
-    ) {
-      console.warn(
-        `[query-validator] Invalid QUERY_COST_LIMIT="${rawLimit}", using default ${defaultLimit}`
-      );
+    // Cost rejection is opt-in: set QUERY_COST_LIMIT to a positive integer to
+    // block queries whose planner total cost exceeds that threshold. When unset
+    // (or invalid / zero), we still run EXPLAIN for seq-scan warnings below but
+    // never reject on cost — large default dashboards must not fail here.
+    const rawLimit = process.env.QUERY_COST_LIMIT?.trim();
+    let enforcedLimit: number | undefined;
+    if (rawLimit !== undefined && rawLimit !== "") {
+      const parsed = parseInt(rawLimit, 10);
+      if (Number.isFinite(parsed) && parsed > 0) {
+        enforcedLimit = parsed;
+      } else {
+        console.warn(
+          `[query-validator] Invalid or zero QUERY_COST_LIMIT="${rawLimit}" — cost guard disabled`
+        );
+      }
     }
 
-    if (cost > limit) {
-      throw new QueryTooExpensiveError(cost, limit);
+    if (enforcedLimit !== undefined && cost > enforcedLimit) {
+      throw new QueryTooExpensiveError(cost, enforcedLimit);
     }
 
     const seqScans = extractSeqScansOnLargeTables(rootPlan);

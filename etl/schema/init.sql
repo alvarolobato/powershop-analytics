@@ -254,7 +254,8 @@ CREATE TABLE IF NOT EXISTS ps_gc_albaranes (
     entregadas      NUMERIC(10,2),
     transportista   TEXT,
     num_comercial   NUMERIC(20,3),
-    temporada       TEXT
+    temporada       TEXT,
+    abono           BOOLEAN
 );
 
 CREATE TABLE IF NOT EXISTS ps_gc_lin_albarane (

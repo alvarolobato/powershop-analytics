@@ -149,4 +149,19 @@ describe("SQL rule compliance across all templates", () => {
       }
     }
   });
+
+  it("YoY-style SQL uses :curr_*::date before INTERVAL (avoids PG 'invalid input syntax for type interval')", () => {
+    const general = TEMPLATES.find((t) => t.slug === "general");
+    expect(general).toBeDefined();
+    const kpi = general!.spec.widgets.find((w) => w.id === "general-kpis");
+    expect(kpi?.type).toBe("kpi_row");
+    if (kpi?.type !== "kpi_row") {
+      expect.fail("general-kpis must be kpi_row");
+    }
+    const yoyItem = kpi.items.find((i) => i.label === "Retail YoY %");
+    expect(yoyItem).toBeDefined();
+    const sql = yoyItem!.sql;
+    expect(sql).toMatch(/:curr_from::date\s*-\s*INTERVAL\s+'1 year'/);
+    expect(sql).toMatch(/:curr_to::date\s*-\s*INTERVAL\s+'1 year'/);
+  });
 });

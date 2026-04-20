@@ -132,6 +132,7 @@ _ALBARANES_MAPPING: dict[str, str] = {
     "transportista": "transportista",
     "numcomercial": "num_comercial",
     "temporada": "temporada",
+    "abono": "abono",
 }
 
 _LIN_ALBARANE_MAPPING: dict[str, str] = {
@@ -224,7 +225,7 @@ _LIN_PEDIDOS_MAPPING: dict[str, str] = {
 _SQL_ALBARANES_DELTA = (
     "SELECT RegAlbaran, NAlbaran, NumCliente, FechaEnvio, FechaValor,"
     " Modifica, Base1, Base2, Base3, Unidades, Transportista,"
-    " NumComercial, Temporada"
+    " NumComercial, Temporada, Abono"
     " FROM GCAlbaranes"
     " WHERE Modifica > {since}"
 )
@@ -232,7 +233,7 @@ _SQL_ALBARANES_DELTA = (
 _SQL_ALBARANES_ALL = (
     "SELECT RegAlbaran, NAlbaran, NumCliente, FechaEnvio, FechaValor,"
     " Modifica, Base1, Base2, Base3, Unidades, Transportista,"
-    " NumComercial, Temporada"
+    " NumComercial, Temporada, Abono"
     " FROM GCAlbaranes"
 )
 
