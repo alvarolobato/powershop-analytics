@@ -272,6 +272,35 @@ describe("navigatePeriod", () => {
     expect(result.to).toEqual(d(2026, 1, 18, 23, 59, 59, 999));
   });
 
+  it("week: Mon-only current week is detected as day; periodType week steps back one ISO week", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 13, 12, 0, 0)); // Apr 13 2026 = Monday
+    const range: DateRange = {
+      from: d(2026, 4, 13, 0, 0, 0, 0),
+      to: d(2026, 4, 13, 23, 59, 59, 999),
+    };
+    expect(detectPeriodType(range)).toBe("day");
+    const result = navigatePeriod(range, -1, { periodType: "week" });
+    expect(result.from).toEqual(d(2026, 4, 6, 0, 0, 0, 0));
+    expect(result.to).toEqual(d(2026, 4, 12, 23, 59, 59, 999));
+    vi.useRealTimers();
+  });
+
+  it("week: Mon-only current week with periodType week steps forward to next ISO week (→ disabled in UI)", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 13, 12, 0, 0)); // Monday Apr 13 2026
+    const range: DateRange = {
+      from: d(2026, 4, 13, 0, 0, 0, 0),
+      to: d(2026, 4, 13, 23, 59, 59, 999),
+    };
+    const result = navigatePeriod(range, 1, { periodType: "week" });
+    expect(result.from).toEqual(d(2026, 4, 20, 0, 0, 0, 0));
+    expect(result.to).toEqual(d(2026, 4, 26, 23, 59, 59, 999));
+    const startOfToday = new Date(2026, 3, 13, 0, 0, 0, 0);
+    expect(result.from > startOfToday).toBe(true);
+    vi.useRealTimers();
+  });
+
   // Month navigation
   it("month: navigates back — April → March", () => {
     const range: DateRange = { from: d(2026, 4, 1), to: d(2026, 4, 30, 23, 59, 59, 999) };

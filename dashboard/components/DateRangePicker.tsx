@@ -160,6 +160,29 @@ export const PREVIOUS_PRESETS: Preset[] = [
   },
 ];
 
+/** Maps a preset label to the period used for ← / → navigation (disambiguates identical date ranges). */
+function presetLabelToNavMode(label: string): PeriodType | null {
+  switch (label) {
+    case "Hoy":
+    case "Ayer":
+      return "day";
+    case "Semana actual":
+    case "Semana anterior":
+      return "week";
+    case "Mes actual":
+    case "Mes anterior":
+      return "month";
+    case "Trimestre actual":
+    case "Trimestre anterior":
+      return "quarter";
+    case "Año actual":
+    case "Año anterior":
+      return "year";
+    default:
+      return null;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Period detection
 // ---------------------------------------------------------------------------
@@ -170,6 +193,16 @@ export interface DetectPeriodOptions {
   /** When "Trimestre actual" is selected, treat Apr 1→today as quarter instead of month. */
   preferQuarterOverMonth?: boolean;
 }
+
+/** Options for {@link navigatePeriod}; extends {@link DetectPeriodOptions}. */
+export type NavigatePeriodOptions = DetectPeriodOptions & {
+  /**
+   * When set, step by this period instead of {@link detectPeriodType}.
+   * Used to disambiguate presets (e.g. "Semana actual" on a Monday is the same
+   * calendar range as "Hoy" but must advance by ISO weeks, not single days).
+   */
+  periodType?: PeriodType;
+};
 
 /**
  * Detect whether a DateRange matches a known calendar period.
@@ -308,9 +341,9 @@ export function detectPeriodType(
 export function navigatePeriod(
   range: DateRange,
   direction: -1 | 1,
-  opts?: DetectPeriodOptions,
+  opts?: NavigatePeriodOptions,
 ): DateRange {
-  const type = detectPeriodType(range, opts);
+  const type = opts?.periodType ?? detectPeriodType(range, opts);
   if (type === null) return range;
 
   const today = new Date();
@@ -558,6 +591,8 @@ const COMPARISON_LABELS: Record<ComparisonType, string> = {
  */
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
+  /** When non-null, ← / → use this period even if the range matches another (e.g. Mon-only current week). */
+  const [navPeriodMode, setNavPeriodMode] = useState<PeriodType | null>(null);
   const [preferQuarterForLabel, setPreferQuarterForLabel] = useState(false);
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
@@ -627,6 +662,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   function applyPreset(preset: Preset) {
     setPreferQuarterForLabel(preset.label === "Trimestre actual");
+    setNavPeriodMode(presetLabelToNavMode(preset.label));
     const primary = preset.range();
     onChange(buildPayload(primary, comparisonType, compCustomFrom, compCustomTo));
     setOpen(false);
@@ -635,6 +671,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   function applyCustomRange() {
     setPreferQuarterForLabel(false);
+    setNavPeriodMode(null);
     const from = new Date(customFrom + "T00:00:00.000");
     // Use T23:59:59.999 for consistency with endOfDay() used by presets
     const to = new Date(customTo + "T23:59:59.999");
@@ -663,11 +700,16 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const periodDetectOpts: DetectPeriodOptions | undefined = preferQuarterForLabel
     ? { preferQuarterOverMonth: true }
     : undefined;
-  const periodType = detectPeriodType(value, periodDetectOpts);
-  const showNavButtons = periodType !== null;
+  const detectedPeriod = detectPeriodType(value, periodDetectOpts);
+  const effectiveNavPeriod = navPeriodMode ?? detectedPeriod;
+  const showNavButtons = effectiveNavPeriod !== null;
+  const navigateOpts: NavigatePeriodOptions = {
+    ...periodDetectOpts,
+    ...(effectiveNavPeriod != null ? { periodType: effectiveNavPeriod } : {}),
+  };
 
   // → is disabled when the next period starts after today
-  const nextPeriod = showNavButtons ? navigatePeriod(value, 1, periodDetectOpts) : null;
+  const nextPeriod = showNavButtons ? navigatePeriod(value, 1, navigateOpts) : null;
   const startOfToday = startOfDay(new Date());
   const forwardDisabled = nextPeriod !== null && nextPeriod.from > startOfToday;
 
@@ -687,7 +729,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             onClick={() =>
               onChange(
                 buildPayload(
-                  navigatePeriod(value, -1, periodDetectOpts),
+                  navigatePeriod(value, -1, navigateOpts),
                   comparisonType,
                   compCustomFrom,
                   compCustomTo,
@@ -751,7 +793,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             onClick={() =>
               onChange(
                 buildPayload(
-                  navigatePeriod(value, 1, periodDetectOpts),
+                  navigatePeriod(value, 1, navigateOpts),
                   comparisonType,
                   compCustomFrom,
                   compCustomTo,
