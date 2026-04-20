@@ -184,9 +184,9 @@ describe("BarChartWidget", () => {
     expect(screen.getByText("Ventas por Tienda")).toBeInTheDocument();
   });
 
-  it("shows empty message for null data", () => {
+  it("shows skeleton for null data (loading)", () => {
     render(<BarChartWidget widget={widget} data={null} />);
-    expect(screen.getByText("Sin datos")).toBeInTheDocument();
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
   });
 
   it("shows empty message for empty rows", () => {
@@ -227,9 +227,9 @@ describe("LineChartWidget", () => {
     expect(screen.getByText("Tendencia")).toBeInTheDocument();
   });
 
-  it("shows empty message for null data", () => {
+  it("shows skeleton for null data (loading)", () => {
     render(<LineChartWidget widget={widget} data={null} />);
-    expect(screen.getByText("Sin datos")).toBeInTheDocument();
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
   });
 });
 
@@ -255,9 +255,9 @@ describe("AreaChartWidget", () => {
     expect(screen.getByText("Ingresos")).toBeInTheDocument();
   });
 
-  it("shows empty message for null data", () => {
+  it("shows skeleton for null data (loading)", () => {
     render(<AreaChartWidget widget={widget} data={null} />);
-    expect(screen.getByText("Sin datos")).toBeInTheDocument();
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
   });
 });
 
@@ -283,9 +283,9 @@ describe("DonutChartWidget", () => {
     expect(screen.getByText("Mix Familias")).toBeInTheDocument();
   });
 
-  it("shows empty message for null data", () => {
+  it("shows skeleton for null data (loading)", () => {
     render(<DonutChartWidget widget={widget} data={null} />);
-    expect(screen.getByText("Sin datos")).toBeInTheDocument();
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
   });
 });
 

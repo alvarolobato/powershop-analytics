@@ -7,6 +7,7 @@ import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
 import { mergeComparisonSeries } from "./BarChartWidget";
+import { WidgetSkeleton } from "./WidgetSkeleton";
 
 interface AreaChartWidgetProps {
   widget: AreaChartWidgetSpec;
@@ -20,9 +21,20 @@ interface AreaChartWidgetProps {
 export function AreaChartWidget({ widget, data, comparisonData, glossary }: AreaChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
-  if (!data || data.rows.length === 0) {
+  if (data === null) {
     return (
-      <Card className="p-4">
+      <Card className="p-4" aria-live="polite" aria-busy={true}>
+        <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
+          {titleNode}
+        </h3>
+        <WidgetSkeleton type="chart" />
+      </Card>
+    );
+  }
+
+  if (data.rows.length === 0) {
+    return (
+      <Card className="p-4" aria-live="polite" aria-busy={false}>
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
           {titleNode}
         </h3>
@@ -36,7 +48,7 @@ export function AreaChartWidget({ widget, data, comparisonData, glossary }: Area
   const resolved = resolveXY(data, widget.x, widget.y);
   if (!resolved) {
     return (
-      <Card className="p-4">
+      <Card className="p-4" aria-live="polite" aria-busy={false}>
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
           {titleNode}
         </h3>
@@ -62,33 +74,35 @@ export function AreaChartWidget({ widget, data, comparisonData, glossary }: Area
   const categories = hasComparison ? ["Actual", "Anterior"] : [yCol];
 
   return (
-    <Card className="p-4">
+    <Card className="p-4" aria-live="polite" aria-busy={false}>
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
         {titleNode}
       </h3>
 
-      {/* Mobile: no y-axis to prevent overflow */}
-      <div className="sm:hidden">
-        <AreaChart
-          data={chartData}
-          index={xCol}
-          categories={categories}
-          colors={CHART_COLORS}
-          showYAxis={false}
-          showLegend={hasComparison}
-        />
-      </div>
+      <div role="img" aria-label={`Gráfico de área: ${widget.title}.`}>
+        <span className="sr-only">Gráfico de área.</span>
 
-      {/* Desktop: full y-axis */}
-      <div className="hidden sm:block">
-        <AreaChart
-          data={chartData}
-          index={xCol}
-          categories={categories}
-          colors={CHART_COLORS}
-          yAxisWidth={60}
-          showLegend={hasComparison}
-        />
+        <div className="sm:hidden">
+          <AreaChart
+            data={chartData}
+            index={xCol}
+            categories={categories}
+            colors={CHART_COLORS}
+            showYAxis={false}
+            showLegend={hasComparison}
+          />
+        </div>
+
+        <div className="hidden sm:block">
+          <AreaChart
+            data={chartData}
+            index={xCol}
+            categories={categories}
+            colors={CHART_COLORS}
+            yAxisWidth={60}
+            showLegend={hasComparison}
+          />
+        </div>
       </div>
     </Card>
   );

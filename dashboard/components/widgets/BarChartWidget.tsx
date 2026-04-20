@@ -6,6 +6,7 @@ import type { WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
+import { WidgetSkeleton } from "./WidgetSkeleton";
 
 interface BarChartWidgetProps {
   widget: BarChartWidgetSpec;
@@ -43,9 +44,20 @@ export function mergeComparisonSeries(
 export function BarChartWidget({ widget, data, comparisonData, glossary }: BarChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
-  if (!data || data.rows.length === 0) {
+  if (data === null) {
     return (
-      <Card className="p-4">
+      <Card className="p-4" aria-live="polite" aria-busy={true}>
+        <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
+          {titleNode}
+        </h3>
+        <WidgetSkeleton type="chart" />
+      </Card>
+    );
+  }
+
+  if (data.rows.length === 0) {
+    return (
+      <Card className="p-4" aria-live="polite" aria-busy={false}>
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
           {titleNode}
         </h3>
@@ -59,7 +71,7 @@ export function BarChartWidget({ widget, data, comparisonData, glossary }: BarCh
   const resolved = resolveXY(data, widget.x, widget.y);
   if (!resolved) {
     return (
-      <Card className="p-4">
+      <Card className="p-4" aria-live="polite" aria-busy={false}>
         <h3 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
           {titleNode}
         </h3>
@@ -85,33 +97,42 @@ export function BarChartWidget({ widget, data, comparisonData, glossary }: BarCh
   const categories = hasComparison ? ["Actual", "Anterior"] : [yCol];
 
   return (
-    <Card className="p-4">
+    <Card className="p-4" aria-live="polite" aria-busy={false}>
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
         {titleNode}
       </h3>
 
-      {/* Mobile: no y-axis to prevent overflow */}
-      <div className="sm:hidden">
-        <BarChart
-          data={chartData}
-          index={xCol}
-          categories={categories}
-          colors={CHART_COLORS}
-          showYAxis={false}
-          showLegend={hasComparison}
-        />
-      </div>
+      <div
+        role="img"
+        aria-label={`Gráfico de barras: ${widget.title}. ${chartData.length} categorías.`}
+      >
+        <span className="sr-only">
+          Gráfico de barras con {chartData.length} categorías.
+        </span>
 
-      {/* Desktop: full y-axis */}
-      <div className="hidden sm:block">
-        <BarChart
-          data={chartData}
-          index={xCol}
-          categories={categories}
-          colors={CHART_COLORS}
-          yAxisWidth={60}
-          showLegend={hasComparison}
-        />
+        {/* Mobile: no y-axis to prevent overflow */}
+        <div className="sm:hidden">
+          <BarChart
+            data={chartData}
+            index={xCol}
+            categories={categories}
+            colors={CHART_COLORS}
+            showYAxis={false}
+            showLegend={hasComparison}
+          />
+        </div>
+
+        {/* Desktop: full y-axis */}
+        <div className="hidden sm:block">
+          <BarChart
+            data={chartData}
+            index={xCol}
+            categories={categories}
+            colors={CHART_COLORS}
+            yAxisWidth={60}
+            showLegend={hasComparison}
+          />
+        </div>
       </div>
     </Card>
   );
