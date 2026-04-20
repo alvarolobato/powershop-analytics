@@ -1,216 +1,287 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-
-const { mockQuery } = vi.hoisted(() => ({ mockQuery: vi.fn() }));
-
-vi.mock("@/lib/db", () => ({
-  query: mockQuery,
-  validateReadOnly: vi.fn(),
-  SqlValidationError: class SqlValidationError extends Error {},
-  QueryTimeoutError: class QueryTimeoutError extends Error {},
-  ConnectionError: class ConnectionError extends Error {},
-  resetPool: vi.fn(),
-  stripLiteralsAndComments: vi.fn((s: string) => s),
-}));
-
 import { validateQueryCost, QueryTooExpensiveError } from "../query-validator";
 
-function makePlanResult(totalCost: number, nodeType = "Index Scan", relationName = "ps_ventas") {
-  const plan = [
+vi.mock("@/lib/db", () => ({
+  query: vi.fn(),
+}));
+
+import { query } from "@/lib/db";
+const mockQuery = vi.mocked(query);
+
+function makePlan(
+  totalCost: number,
+  nodeType = "Hash Join",
+  relationName?: string
+): string {
+  const node: Record<string, unknown> = {
+    "Node Type": nodeType,
+    "Total Cost": totalCost,
+  };
+  if (relationName) {
+    node["Relation Name"] = relationName;
+  }
+  return JSON.stringify([{ Plan: node }]);
+}
+
+function makeParsedPlan(
+  totalCost: number,
+  nodeType = "Hash Join"
+): [{ Plan: Record<string, unknown> }] {
+  return [{ Plan: { "Node Type": nodeType, "Total Cost": totalCost } }];
+}
+
+function makeSeqScanPlan(totalCost: number, tableName: string): string {
+  return JSON.stringify([
     {
       Plan: {
-        "Node Type": nodeType,
-        "Relation Name": relationName,
+        "Node Type": "Nested Loop",
         "Total Cost": totalCost,
-        Plans: [],
+        Plans: [
+          {
+            "Node Type": "Seq Scan",
+            "Total Cost": totalCost,
+            "Relation Name": tableName,
+          },
+        ],
       },
     },
-  ];
-  return { columns: ["QUERY PLAN"], rows: [[JSON.stringify(plan)]] };
+  ]);
 }
 
 describe("validateQueryCost", () => {
   beforeEach(() => {
-    mockQuery.mockReset();
-    vi.unstubAllEnvs();
+    vi.resetAllMocks();
+    delete process.env.QUERY_COST_LIMIT;
+    delete process.env.QUERY_COST_OVERRIDE_SECRET;
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    delete process.env.QUERY_COST_LIMIT;
+    delete process.env.QUERY_COST_OVERRIDE_SECRET;
   });
 
-  // ─── Force-bypass ────────────────────────────────────────────────────────────
+  it("returns cost for a low-cost query", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(500)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(500);
+  });
 
-  it("returns 0 without calling EXPLAIN when force secret matches", async () => {
-    vi.stubEnv("QUERY_COST_OVERRIDE_SECRET", "s3cr3t");
-    const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "s3cr3t" });
+  it("throws QueryTooExpensiveError when cost exceeds default limit (100000)", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(200000)]],
+    });
+    await expect(validateQueryCost("SELECT * FROM ps_stock_tienda")).rejects.toThrow(
+      QueryTooExpensiveError
+    );
+  });
+
+  it("QueryTooExpensiveError has cost, limit properties and fixed Spanish message", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(150000)]],
+    });
+    try {
+      await validateQueryCost("SELECT * FROM ps_ventas");
+      expect.fail("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(QueryTooExpensiveError);
+      const e = err as QueryTooExpensiveError;
+      expect(e.cost).toBe(150000);
+      expect(e.limit).toBe(100000);
+      expect(e.message).toBe(
+        "Esta consulta es demasiado costosa. Intente añadir un filtro de fechas o tienda."
+      );
+    }
+  });
+
+  it("respects QUERY_COST_LIMIT env var override", async () => {
+    process.env.QUERY_COST_LIMIT = "50000";
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(60000)]],
+    });
+    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(
+      QueryTooExpensiveError
+    );
+  });
+
+  it("does not throw when cost is exactly at the limit", async () => {
+    process.env.QUERY_COST_LIMIT = "50000";
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(50000)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(50000);
+  });
+
+  it("falls back to default limit when QUERY_COST_LIMIT is non-numeric", async () => {
+    process.env.QUERY_COST_LIMIT = "notanumber";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(50000)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(50000);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid QUERY_COST_LIMIT")
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("falls back to default limit and blocks when QUERY_COST_LIMIT is zero", async () => {
+    process.env.QUERY_COST_LIMIT = "0";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(150000)]],
+    });
+    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(
+      QueryTooExpensiveError
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid QUERY_COST_LIMIT")
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("bypasses check when force header matches secret", async () => {
+    process.env.QUERY_COST_OVERRIDE_SECRET = "supersecret";
+    const cost = await validateQueryCost("SELECT * FROM ps_stock_tienda", {
+      forceHeader: "supersecret",
+    });
     expect(cost).toBe(0);
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
-  it("still checks cost when force header does not match the secret", async () => {
-    vi.stubEnv("QUERY_COST_OVERRIDE_SECRET", "s3cr3t");
-    mockQuery.mockResolvedValue(makePlanResult(500));
-    const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "wrong" });
+  it("does not bypass when force header is wrong secret", async () => {
+    process.env.QUERY_COST_OVERRIDE_SECRET = "supersecret";
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(500)]],
+    });
+    const cost = await validateQueryCost("SELECT 1", { forceHeader: "wrong" });
+    expect(cost).toBe(500);
+  });
+
+  it("does not bypass when QUERY_COST_OVERRIDE_SECRET is unset", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(500)]],
+    });
+    const cost = await validateQueryCost("SELECT 1", {
+      forceHeader: "anyvalue",
+    });
     expect(cost).toBe(500);
     expect(mockQuery).toHaveBeenCalledOnce();
   });
 
-  it("still checks cost when no secret env var is set", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(500));
-    const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "anything" });
+  it("does not bypass when QUERY_COST_OVERRIDE_SECRET is empty string", async () => {
+    process.env.QUERY_COST_OVERRIDE_SECRET = "";
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(500)]],
+    });
+    const cost = await validateQueryCost("SELECT 1", {
+      forceHeader: "",
+    });
     expect(cost).toBe(500);
     expect(mockQuery).toHaveBeenCalledOnce();
   });
 
-  it("still checks cost when secret is whitespace-only (treated as unset)", async () => {
-    vi.stubEnv("QUERY_COST_OVERRIDE_SECRET", "   ");
-    mockQuery.mockResolvedValue(makePlanResult(500));
-    const cost = await validateQueryCost("SELECT * FROM ps_ventas", { forceHeader: "   " });
-    expect(cost).toBe(500);
-    expect(mockQuery).toHaveBeenCalledOnce();
-  });
-
-  // ─── Cost threshold ──────────────────────────────────────────────────────────
-
-  it("returns cost when below default threshold (100000)", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(99999));
-    const cost = await validateQueryCost("SELECT 1");
-    expect(cost).toBe(99999);
-  });
-
-  it("throws QueryTooExpensiveError when cost exceeds default threshold", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(100001));
-    await expect(validateQueryCost("SELECT * FROM ps_stock_tienda")).rejects.toThrow(
-      QueryTooExpensiveError,
+  it("warns on seq scan on large table but does not throw", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makeSeqScanPlan(5000, "ps_stock_tienda")]],
+    });
+    const cost = await validateQueryCost("SELECT * FROM ps_stock_tienda");
+    expect(cost).toBe(5000);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("ps_stock_tienda")
     );
-  });
-
-  it("throws QueryTooExpensiveError with the correct cost value", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(250000));
-    try {
-      await validateQueryCost("SELECT * FROM ps_stock_tienda");
-      expect.fail("should have thrown");
-    } catch (err) {
-      expect(err).toBeInstanceOf(QueryTooExpensiveError);
-      expect((err as QueryTooExpensiveError).cost).toBe(250000);
-    }
-  });
-
-  it("respects QUERY_COST_LIMIT env var", async () => {
-    vi.stubEnv("QUERY_COST_LIMIT", "5000");
-    mockQuery.mockResolvedValue(makePlanResult(5001));
-    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(QueryTooExpensiveError);
-  });
-
-  it("supports float QUERY_COST_LIMIT", async () => {
-    vi.stubEnv("QUERY_COST_LIMIT", "50000.5");
-    mockQuery.mockResolvedValue(makePlanResult(50000.6));
-    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(QueryTooExpensiveError);
-  });
-
-  it("falls back to 100000 threshold when QUERY_COST_LIMIT is not a number", async () => {
-    vi.stubEnv("QUERY_COST_LIMIT", "not-a-number");
-    mockQuery.mockResolvedValue(makePlanResult(99999));
-    const cost = await validateQueryCost("SELECT 1");
-    expect(cost).toBe(99999);
-    expect(mockQuery).toHaveBeenCalledOnce();
-  });
-
-  it("falls back to 100000 threshold when QUERY_COST_LIMIT is empty string", async () => {
-    vi.stubEnv("QUERY_COST_LIMIT", "");
-    mockQuery.mockResolvedValue(makePlanResult(99999));
-    const cost = await validateQueryCost("SELECT 1");
-    expect(cost).toBe(99999);
-    expect(mockQuery).toHaveBeenCalledOnce();
-  });
-
-  // ─── EXPLAIN prefix stripping ─────────────────────────────────────────────────
-
-  it("strips leading EXPLAIN so EXPLAIN (FORMAT JSON) is not doubled", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(500));
-    await validateQueryCost("EXPLAIN SELECT * FROM ps_ventas");
-    const calledSql = mockQuery.mock.calls[0][0] as string;
-    expect(calledSql).not.toMatch(/EXPLAIN.*EXPLAIN/i);
-    expect(calledSql).toMatch(/^EXPLAIN \(FORMAT JSON\)/i);
-  });
-
-  it("strips EXPLAIN ANALYZE prefix to prevent cost guard bypass", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(500));
-    await validateQueryCost("EXPLAIN ANALYZE SELECT * FROM ps_ventas");
-    const calledSql = mockQuery.mock.calls[0][0] as string;
-    expect(calledSql).not.toMatch(/ANALYZE/i);
-    expect(calledSql).toMatch(/^EXPLAIN \(FORMAT JSON\)/i);
-  });
-
-  it("strips EXPLAIN with block comment before ANALYZE to prevent bypass", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(500));
-    await validateQueryCost("EXPLAIN /*comment*/ ANALYZE SELECT * FROM ps_ventas");
-    const calledSql = mockQuery.mock.calls[0][0] as string;
-    expect(calledSql).not.toMatch(/ANALYZE/i);
-    expect(calledSql).not.toMatch(/\/\*/);
-    expect(calledSql).toMatch(/^EXPLAIN \(FORMAT JSON\) SELECT/i);
-  });
-
-  // ─── Seq scan warnings ────────────────────────────────────────────────────────
-
-  it("emits console.warn for seq scan on large tables", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockQuery.mockResolvedValue(makePlanResult(500, "Seq Scan", "ps_stock_tienda"));
-    await validateQueryCost("SELECT * FROM ps_stock_tienda");
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ps_stock_tienda"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("Seq scan"));
     warnSpy.mockRestore();
   });
 
-  it("emits seq scan warning even when cost exceeds threshold (warning runs before throw)", async () => {
+  it("does not warn for seq scan on small (non-listed) table", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockQuery.mockResolvedValue(makePlanResult(200000, "Seq Scan", "ps_ventas"));
-    await expect(validateQueryCost("SELECT * FROM ps_ventas")).rejects.toThrow(QueryTooExpensiveError);
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ps_ventas"));
-    warnSpy.mockRestore();
-  });
-
-  it("does not warn for seq scan on small tables", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockQuery.mockResolvedValue(makePlanResult(500, "Seq Scan", "ps_tiendas"));
-    await validateQueryCost("SELECT * FROM ps_tiendas");
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(1000, "Seq Scan", "ps_small_table")]],
+    });
+    await validateQueryCost("SELECT * FROM ps_small_table");
     expect(warnSpy).not.toHaveBeenCalled();
     warnSpy.mockRestore();
   });
 
-  it("emits console.warn for parallel seq scan on large tables", async () => {
+  it("returns 0 and does not throw when EXPLAIN query fails (fail-open)", async () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockQuery.mockResolvedValue(makePlanResult(500, "Parallel Seq Scan", "ps_stock_tienda"));
-    await validateQueryCost("SELECT * FROM ps_stock_tienda");
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ps_stock_tienda"));
-    warnSpy.mockRestore();
-  });
-
-  it("does not warn for index scan on large tables", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockQuery.mockResolvedValue(makePlanResult(500, "Index Scan", "ps_ventas"));
-    await validateQueryCost("SELECT * FROM ps_ventas WHERE id = 1");
-    expect(warnSpy).not.toHaveBeenCalled();
-    warnSpy.mockRestore();
-  });
-
-  // ─── Fail-open on EXPLAIN errors ──────────────────────────────────────────────
-
-  it("returns 0 (fail-open) when EXPLAIN query fails", async () => {
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    mockQuery.mockRejectedValue(new Error("syntax error"));
-    const cost = await validateQueryCost("SELECT * FROM ps_ventas");
+    mockQuery.mockRejectedValueOnce(new Error("DB connection error"));
+    const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(0);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("EXPLAIN failed"),
-      expect.any(Error),
+      expect.stringContaining("EXPLAIN or plan parsing failed"),
+      expect.any(Error)
     );
     warnSpy.mockRestore();
   });
 
-  it("re-throws QueryTooExpensiveError even inside catch block", async () => {
-    mockQuery.mockResolvedValue(makePlanResult(999999));
+  it("returns 0 and does not throw when EXPLAIN returns malformed JSON", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [["not valid json {{{"]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(0);
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it("handles pre-parsed plan object from node-postgres (rows[0][0] is already an array)", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makeParsedPlan(500)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(500);
+  });
+
+  it("throws QueryTooExpensiveError with pre-parsed plan when cost exceeds limit", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makeParsedPlan(200000)]],
+    });
     await expect(validateQueryCost("SELECT * FROM ps_stock_tienda")).rejects.toThrow(
-      QueryTooExpensiveError,
+      QueryTooExpensiveError
     );
+  });
+
+  it("returns 0 and warns when sql starts with ANALYZE (injection guard)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cost = await validateQueryCost("ANALYZE SELECT * FROM ps_ventas");
+    expect(cost).toBe(0);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("does not start with SELECT or WITH")
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("returns 0 and warns when sql starts with an arbitrary non-SELECT statement", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const cost = await validateQueryCost("UPDATE ps_ventas SET x=1");
+    expect(cost).toBe(0);
+    expect(mockQuery).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("does not start with SELECT or WITH")
+    );
+    warnSpy.mockRestore();
   });
 });

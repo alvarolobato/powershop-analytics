@@ -5,9 +5,13 @@ const { mockAnalyzeGaps } = vi.hoisted(() => ({
   mockAnalyzeGaps: vi.fn(),
 }));
 
-vi.mock("@/lib/llm", () => ({
-  analyzeGaps: mockAnalyzeGaps,
-}));
+vi.mock("@/lib/llm", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+  return {
+    BudgetExceededError: actual.BudgetExceededError,
+    analyzeGaps: mockAnalyzeGaps,
+  };
+});
 
 import { POST } from "../gaps/route";
 

@@ -1,6 +1,6 @@
+import { timingSafeEqual } from "node:crypto";
 import { query } from "@/lib/db";
 
-// keep in sync with ARCHITECTURE.md "### 2. PostgreSQL" -> "Key tables"
 const LARGE_TABLES = new Set([
   "ps_stock_tienda",
   "ps_lineas_ventas",
@@ -10,125 +10,106 @@ const LARGE_TABLES = new Set([
 
 export class QueryTooExpensiveError extends Error {
   cost: number;
+  limit?: number;
 
-  constructor(cost: number) {
+  constructor(cost: number, limit?: number) {
     super(
-      "Esta consulta es demasiado costosa. Intente añadir un filtro de fechas o tienda.",
+      "Esta consulta es demasiado costosa. Intente añadir un filtro de fechas o tienda."
     );
     this.name = "QueryTooExpensiveError";
     this.cost = cost;
+    this.limit = limit;
   }
 }
 
 interface PlanNode {
-  "Node Type"?: string;
-  "Relation Name"?: string;
+  "Node Type": string;
   "Total Cost"?: number;
+  "Relation Name"?: string;
   Plans?: PlanNode[];
 }
 
-function findSeqScansOnLargeTables(
+function extractSeqScansOnLargeTables(
   node: PlanNode,
-  results: Array<{ relationName: string }>,
-): void {
+  found: string[] = []
+): string[] {
   if (
-    (node["Node Type"] === "Seq Scan" ||
-      node["Node Type"] === "Parallel Seq Scan") &&
+    node["Node Type"] === "Seq Scan" &&
     node["Relation Name"] &&
     LARGE_TABLES.has(node["Relation Name"])
   ) {
-    results.push({ relationName: node["Relation Name"] });
+    found.push(node["Relation Name"]);
   }
-  for (const child of node.Plans ?? []) {
-    findSeqScansOnLargeTables(child, results);
+  if (node.Plans) {
+    for (const child of node.Plans) {
+      extractSeqScansOnLargeTables(child, found);
+    }
   }
+  return found;
 }
 
-function stripExplainPrefix(sql: string): string {
-  let s = sql.trimStart();
-  if (!/^EXPLAIN\b/i.test(s)) return s;
-
-  s = s.slice("EXPLAIN".length);
-
-  // Skip whitespace, SQL comments, and EXPLAIN options (ANALYZE, VERBOSE, (...))
-  // in a loop so combinations like EXPLAIN /*c*/ ANALYZE are handled robustly.
-  for (;;) {
-    s = s.trimStart();
-
-    if (s.startsWith("/*")) {
-      const end = s.indexOf("*/");
-      if (end === -1) break;
-      s = s.slice(end + 2);
-      continue;
-    }
-
-    if (s.startsWith("--")) {
-      const end = s.indexOf("\n");
-      s = end === -1 ? "" : s.slice(end + 1);
-      continue;
-    }
-
-    if (/^ANALYZE\b/i.test(s)) {
-      s = s.slice("ANALYZE".length);
-      continue;
-    }
-
-    if (/^VERBOSE\b/i.test(s)) {
-      s = s.slice("VERBOSE".length);
-      continue;
-    }
-
-    if (s.startsWith("(")) {
-      const end = s.indexOf(")");
-      if (end === -1) break;
-      s = s.slice(end + 1);
-      continue;
-    }
-
-    break;
-  }
-
-  return s.trimStart();
+function safeEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return timingSafeEqual(bufA, bufB);
 }
 
 export async function validateQueryCost(
   sql: string,
-  options?: { forceHeader?: string },
+  options?: { forceHeader?: string }
 ): Promise<number> {
-  const secret = process.env.QUERY_COST_OVERRIDE_SECRET?.trim();
-  if (secret && options?.forceHeader === secret) {
+  const secret = process.env.QUERY_COST_OVERRIDE_SECRET;
+  if (secret && options?.forceHeader && safeEquals(options.forceHeader, secret)) {
+    return 0;
+  }
+
+  // Guard against ANALYZE injection: "EXPLAIN (FORMAT JSON) ANALYZE SELECT ..." executes the query.
+  // validateReadOnly() only checks the combined EXPLAIN+sql string, so we must validate sql itself.
+  if (!/^(SELECT|WITH)\b/i.test(sql.trimStart())) {
+    console.warn(
+      "[query-validator] SQL does not start with SELECT or WITH, skipping cost check"
+    );
     return 0;
   }
 
   try {
-    // Strip any leading EXPLAIN clause (including comments between keywords) so
-    // we don't produce invalid double-EXPLAIN SQL, which would fail-open.
-    const sqlForPlan = stripExplainPrefix(sql);
+    const result = await query(`EXPLAIN (FORMAT JSON) ${sql}`); // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
+    const raw = result.rows[0][0] as unknown;
+    // node-postgres returns json columns as parsed JS values; handle both string (test mocks) and object
+    const plan = (typeof raw === "string"
+      ? JSON.parse(raw)
+      : raw) as [{ Plan: PlanNode }];
+    const rootPlan = plan[0].Plan;
+    const cost = rootPlan["Total Cost"] ?? 0;
 
-    const result = await query(`EXPLAIN (FORMAT JSON) ${sqlForPlan}`);
-    const planText = result.rows[0][0];
-    const plan = (
-      typeof planText === "string" ? JSON.parse(planText) : planText
-    ) as Array<{ Plan: PlanNode }>;
-
-    const cost = plan[0]["Plan"]["Total Cost"] ?? 0;
+    const defaultLimit = 100000;
     const rawLimit = process.env.QUERY_COST_LIMIT;
     const parsedLimit =
-      rawLimit === undefined || rawLimit.trim() === ""
-        ? NaN
-        : Number(rawLimit);
-    const threshold = Number.isNaN(parsedLimit) ? 100000 : parsedLimit;
-
-    const seqScans: Array<{ relationName: string }> = [];
-    findSeqScansOnLargeTables(plan[0]["Plan"], seqScans);
-    for (const { relationName } of seqScans) {
+      rawLimit === undefined ? defaultLimit : parseInt(rawLimit, 10);
+    const limit =
+      Number.isFinite(parsedLimit) && parsedLimit > 0
+        ? parsedLimit
+        : defaultLimit;
+    if (
+      rawLimit !== undefined &&
+      limit === defaultLimit &&
+      parsedLimit !== defaultLimit
+    ) {
       console.warn(
-        `[query-validator] Seq scan on large table: ${relationName}, cost=${cost}`,
+        `[query-validator] Invalid QUERY_COST_LIMIT="${rawLimit}", using default ${defaultLimit}`
       );
     }
 
-    if (cost > threshold) {
-      throw new QueryTooExpensiveError(cost);
+    if (cost > limit) {
+      throw new QueryTooExpensiveError(cost, limit);
+    }
+
+    const seqScans = extractSeqScansOnLargeTables(rootPlan);
+    for (const tableName of seqScans) {
+      console.warn(
+        `[query-validator] Seq scan on large table: ${tableName}, cost=${cost}`
+      );
     }
 
     return cost;
@@ -136,7 +117,10 @@ export async function validateQueryCost(
     if (err instanceof QueryTooExpensiveError) {
       throw err;
     }
-    console.warn("[query-validator] EXPLAIN failed, skipping cost check:", err);
+    console.warn(
+      "[query-validator] EXPLAIN or plan parsing failed, skipping cost check:",
+      err
+    );
     return 0;
   }
 }

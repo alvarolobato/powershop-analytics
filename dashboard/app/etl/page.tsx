@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card } from "@tremor/react";
 import { RunList } from "@/components/etl/RunList";
 import { EvolutionCharts } from "@/components/etl/EvolutionCharts";
@@ -75,8 +75,12 @@ export default function EtlMonitorPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [statsError, setStatsError] = useState<ApiErrorResponse | string | null>(null);
 
-  const fetchRuns = useCallback(async (p: number) => {
-    setRunsLoading(true);
+  const [triggering, setTriggering] = useState(false);
+  const [triggerError, setTriggerError] = useState<string | null>(null);
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchRuns = useCallback(async (p: number, silent = false) => {
+    if (!silent) setRunsLoading(true);
     setRunsError(null);
     try {
       const res = await fetch(`/api/etl/runs?page=${p}&per_page=${PER_PAGE}`);
@@ -132,6 +136,35 @@ export default function EtlMonitorPage() {
     fetchRuns(newPage);
   };
 
+  const isRunning = runs.some((r) => r.status === "running");
+
+  // Poll every 5 s while a run is active; stop when none are running
+  useEffect(() => {
+    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
+    if (isRunning) {
+      pollingRef.current = setInterval(() => { void fetchRuns(page, true); }, 5_000);
+    }
+    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+  }, [isRunning, fetchRuns, page]);
+
+  const handleTrigger = useCallback(async () => {
+    setTriggering(true);
+    setTriggerError(null);
+    try {
+      const res = await fetch("/api/etl/run", { method: "POST" });
+      if (res.status === 409) {
+        // already running — let polling pick it up
+      } else if (!res.ok) {
+        setTriggerError("Error al iniciar la sincronización");
+      }
+      await fetchRuns(page, true);
+    } catch {
+      setTriggerError("Error al iniciar la sincronización");
+    } finally {
+      setTriggering(false);
+    }
+  }, [fetchRuns, page]);
+
   // Last non-running run for KPI row
   const lastRun = runs.find((r) => r.status !== "running") ?? null;
   const successRateStr = stats ? formatSuccessRate(stats.success_rate) : null;
@@ -139,13 +172,34 @@ export default function EtlMonitorPage() {
   return (
     <div className="space-y-6" data-testid="etl-monitor-page">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-          Monitor ETL
-        </h1>
-        <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
-          Historial y estadísticas de sincronización de datos
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+            Monitor ETL
+          </h1>
+          <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
+            Historial y estadísticas de sincronización de datos
+          </p>
+        </div>
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={() => { void handleTrigger(); }}
+            disabled={triggering || isRunning}
+            data-testid="sync-now-button"
+            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+          >
+            {(triggering || isRunning) && (
+              <span
+                className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                aria-hidden="true"
+              />
+            )}
+            {triggering ? "Iniciando…" : isRunning ? "Sincronizando…" : "Sincronizar ahora"}
+          </button>
+          {triggerError && (
+            <p className="text-xs text-red-600 dark:text-red-400">{triggerError}</p>
+          )}
+        </div>
       </div>
 
       {/* KPI summary row — last completed run */}
