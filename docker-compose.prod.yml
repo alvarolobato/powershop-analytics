@@ -52,7 +52,7 @@ services:
   # For a one-off sync: docker compose run --rm etl python -m etl.main --once
   # ---------------------------------------------------------------------------
   etl:
-    image: ${DOCKERHUB_NAMESPACE:-alvarolobato264}/powershop-etl:${ETL_VERSION:-latest}
+    image: ${DOCKERHUB_NAMESPACE:-alobato}/powershop-etl:${ETL_VERSION:-latest}
     restart: unless-stopped
     environment:
       P4D_HOST: ${P4D_HOST:-}
@@ -209,7 +209,7 @@ services:
   # Dashboard App — AI-generated dashboards (Next.js + Tremor, port 4000)
   # ---------------------------------------------------------------------------
   dashboard:
-    image: ${DOCKERHUB_NAMESPACE:-alvarolobato264}/powershop-dashboard:${DASHBOARD_VERSION:-latest}
+    image: ${DOCKERHUB_NAMESPACE:-alobato}/powershop-dashboard:${DASHBOARD_VERSION:-latest}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
