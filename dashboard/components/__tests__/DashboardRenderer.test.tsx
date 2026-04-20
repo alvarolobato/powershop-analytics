@@ -4,7 +4,7 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import "../widgets/__tests__/setup";
 import { DashboardRenderer } from "../DashboardRenderer";
 import type { DashboardSpec } from "@/lib/schema";
-import type { DateRange } from "../DateRangePicker";
+import type { DateRange, ComparisonRange } from "../DateRangePicker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -630,6 +630,86 @@ describe("DashboardRenderer", () => {
       expect(body.sql).toBe("SELECT SUM(total) FROM ps_ventas");
     });
 
+    describe("trend_sql token handling", () => {
+      const dateRange: DateRange = {
+        from: new Date("2026-03-01T00:00:00.000Z"),
+        to: new Date("2026-03-31T00:00:00.000Z"),
+      };
+
+      const trendSpec: DashboardSpec = {
+        title: "KPI Trend Test",
+        widgets: [
+          {
+            type: "kpi_row",
+            items: [
+              {
+                label: "Ventas",
+                sql: "SELECT SUM(total) FROM ps_ventas WHERE fecha >= :curr_from AND fecha <= :curr_to",
+                format: "currency",
+                trend_sql:
+                  "SELECT SUM(total) FROM ps_ventas WHERE fecha BETWEEN :comp_from AND :comp_to",
+              },
+            ],
+          },
+        ],
+      };
+
+      it("skips trend_sql fetch when comparisonRange is undefined — no :comp_* tokens sent to PG", async () => {
+        const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[500]] });
+        vi.stubGlobal("fetch", fetchMock);
+
+        render(<DashboardRenderer spec={trendSpec} dateRange={dateRange} />);
+
+        await waitFor(() => {
+          expect(fetchMock).toHaveBeenCalled();
+        });
+
+        // No call should contain :comp_from or :comp_to
+        const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
+          JSON.parse((c[1] as { body: string }).body)
+        );
+        const hasCompToken = bodies.some(
+          (b: { sql: string }) =>
+            b.sql.includes(":comp_from") || b.sql.includes(":comp_to")
+        );
+        expect(hasCompToken).toBe(false);
+      });
+
+      it("fetches trend_sql via buildComparisonSql when comparisonRange is defined", async () => {
+        const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[400]] });
+        vi.stubGlobal("fetch", fetchMock);
+
+        const comparisonRange: ComparisonRange = {
+          type: "previous_month",
+          from: new Date("2026-02-01T00:00:00.000Z"),
+          to: new Date("2026-02-28T00:00:00.000Z"),
+        };
+
+        render(
+          <DashboardRenderer
+            spec={trendSpec}
+            dateRange={dateRange}
+            comparisonRange={comparisonRange}
+          />
+        );
+
+        await waitFor(() => {
+          expect(fetchMock).toHaveBeenCalledTimes(2);
+        });
+
+        const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
+          JSON.parse((c[1] as { body: string }).body)
+        );
+        const trendCall = bodies.find(
+          (b: { sql: string }) =>
+            b.sql.includes("2026-02-01") || b.sql.includes("2026-02-28")
+        );
+        expect(trendCall).toBeDefined();
+        expect(trendCall.sql).not.toContain(":comp_from");
+        expect(trendCall.sql).not.toContain(":comp_to");
+      });
+    });
+
     it("refetches with substituted SQL when dateRange changes", async () => {
       const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
       vi.stubGlobal("fetch", fetchMock);
@@ -660,6 +740,176 @@ describe("DashboardRenderer", () => {
       );
       expect(lastBody.sql).toContain("'2026-04-01'");
       expect(lastBody.sql).toContain("'2026-04-30'");
+    });
+
+    it("substitutes :comp_from/:comp_to in main sql when comparisonRange is set", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[1000]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const compTokenSpec: DashboardSpec = {
+        title: "Comp Token Test",
+        widgets: [
+          {
+            type: "number",
+            title: "Comp Value",
+            sql: "SELECT SUM(v) FROM t WHERE fecha >= :comp_from AND fecha <= :comp_to",
+            format: "number",
+          },
+        ],
+      };
+
+      const compRange: ComparisonRange = {
+        from: new Date("2026-02-01T00:00:00.000Z"),
+        to: new Date("2026-02-28T00:00:00.000Z"),
+        type: "previous_month",
+      };
+
+      render(
+        <DashboardRenderer
+          spec={compTokenSpec}
+          dateRange={dateRange}
+          comparisonRange={compRange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      expect(body.sql).toContain("'2026-02-01'");
+      expect(body.sql).toContain("'2026-02-28'");
+      expect(body.sql).not.toContain(":comp_from");
+      expect(body.sql).not.toContain(":comp_to");
+    });
+  });
+
+  describe(":comp_* token pre-flight check", () => {
+    const compKpiSpec: DashboardSpec = {
+      title: "KPI Comparativa",
+      widgets: [
+        {
+          type: "kpi_row",
+          items: [
+            {
+              label: "Ventas Período Anterior",
+              sql: "SELECT SUM(total_si) FROM ps_ventas WHERE fecha >= :comp_from AND fecha <= :comp_to",
+              format: "currency",
+            },
+          ],
+        },
+      ],
+    };
+
+    it("shows friendly error when kpi_row item sql has :comp_from but no comparisonRange", async () => {
+      vi.stubGlobal("fetch", vi.fn());
+
+      render(<DashboardRenderer spec={compKpiSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Este panel requiere seleccionar un período de comparación")).toBeInTheDocument();
+      });
+
+      // fetch should never be called — the pre-flight check blocks it
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("fetches main sql and silently skips trend_sql when only trend_sql has :comp_from but no comparisonRange", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[500]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const compTrendSpec: DashboardSpec = {
+        title: "KPI Trend Comparativa",
+        widgets: [
+          {
+            type: "kpi_row",
+            items: [
+              {
+                label: "Ventas",
+                sql: "SELECT SUM(total_si) FROM ps_ventas",
+                trend_sql: "SELECT SUM(total_si) FROM ps_ventas WHERE fecha >= :comp_from AND fecha <= :comp_to",
+                format: "currency",
+              },
+            ],
+          },
+        ],
+      };
+
+      render(<DashboardRenderer spec={compTrendSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
+        JSON.parse((c[1] as { body: string }).body)
+      );
+      const hasCompToken = bodies.some(
+        (b: { sql: string }) =>
+          b.sql.includes(":comp_from") || b.sql.includes(":comp_to")
+      );
+      expect(hasCompToken).toBe(false);
+    });
+
+    const compSqlSpec: DashboardSpec = {
+      title: "Comparativa",
+      widgets: [
+        {
+          id: "w1",
+          type: "table",
+          title: "Variación por Tienda",
+          sql: "SELECT tienda, SUM(CASE WHEN fecha >= :comp_from AND fecha <= :comp_to THEN total END) AS anterior FROM ps_ventas GROUP BY tienda",
+        },
+      ],
+    };
+
+    const dateRange: DateRange = {
+      from: new Date("2026-03-01T00:00:00.000Z"),
+      to: new Date("2026-03-31T00:00:00.000Z"),
+    };
+
+    it("shows friendly error when table widget main sql has :comp_from but no comparisonRange", async () => {
+      vi.stubGlobal("fetch", vi.fn());
+
+      render(<DashboardRenderer spec={compSqlSpec} dateRange={dateRange} />);
+
+      await waitFor(() => {
+        expect(screen.getByText("Este panel requiere seleccionar un período de comparación")).toBeInTheDocument();
+      });
+
+      // fetch should never be called — the pre-flight check blocks it
+      expect(fetch).not.toHaveBeenCalled();
+    });
+
+    it("calls fetchWidgetData with substituted SQL (no :comp_*) when comparisonRange is set", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["tienda", "anterior"], rows: [["Madrid", 500]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const compRange: ComparisonRange = {
+        from: new Date("2026-02-01T00:00:00.000Z"),
+        to: new Date("2026-02-28T00:00:00.000Z"),
+        type: "previous_month",
+      };
+
+      render(
+        <DashboardRenderer
+          spec={compSqlSpec}
+          dateRange={dateRange}
+          comparisonRange={compRange}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const body = JSON.parse(fetchMock.mock.calls[0][1].body);
+      // comp tokens must be substituted
+      expect(body.sql).not.toContain(":comp_from");
+      expect(body.sql).not.toContain(":comp_to");
+      // substituted with actual dates
+      expect(body.sql).toContain("'2026-02-01'");
+      expect(body.sql).toContain("'2026-02-28'");
     });
   });
 });
