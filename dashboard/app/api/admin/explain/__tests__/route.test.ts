@@ -20,15 +20,23 @@ function makeRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost:4000/api/admin/explain", {
     method: "POST",
     body: JSON.stringify(body),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-admin-key": process.env.ADMIN_API_KEY ?? "",
+    },
   });
 }
 
 describe("POST /api/admin/explain", () => {
   beforeEach(async () => {
+    vi.stubEnv("ADMIN_API_KEY", "test-admin-secret");
     mockQuery.mockReset();
     mockEnd.mockClear();
     await resetPool();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   // ─── Successful EXPLAIN ───────────────────────────────────────────────
@@ -160,10 +168,23 @@ describe("POST /api/admin/explain", () => {
     const req = new NextRequest("http://localhost:4000/api/admin/explain", {
       method: "POST",
       body: "not json",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "x-admin-key": "test-admin-secret",
+      },
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
+  });
+
+  it("returns 401 without admin key", async () => {
+    const req = new NextRequest("http://localhost:4000/api/admin/explain", {
+      method: "POST",
+      body: JSON.stringify({ sql: "SELECT 1" }),
+      headers: { "Content-Type": "application/json" },
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(401);
   });
 
   // ─── DB errors ────────────────────────────────────────────────────────
