@@ -3,6 +3,7 @@ import {
   computeComparisonRange,
   detectPeriodType,
   navigatePeriod,
+  formatPeriodLabel,
   CURRENT_PRESETS,
   PREVIOUS_PRESETS,
   isoWeekMonday,
@@ -455,5 +456,55 @@ describe("PREVIOUS_PRESETS (fixed date: 2026-04-15 Wednesday)", () => {
     const range = preset.range();
     expect(range.from).toEqual(d(2025, 1, 1, 0, 0, 0, 0));
     expect(range.to).toEqual(d(2025, 12, 31, 23, 59, 59, 999));
+  });
+});
+
+describe("formatPeriodLabel", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("labels Hoy for today preset", () => {
+    const range = CURRENT_PRESETS.find((p) => p.label === "Hoy")!.range();
+    expect(formatPeriodLabel(range)).toBe("Hoy");
+  });
+
+  it("labels Ayer for yesterday preset", () => {
+    const range = PREVIOUS_PRESETS.find((p) => p.label === "Ayer")!.range();
+    expect(formatPeriodLabel(range)).toBe("Ayer");
+  });
+
+  it("labels previous month as long month + year", () => {
+    const range = PREVIOUS_PRESETS.find((p) => p.label === "Mes anterior")!.range();
+    expect(formatPeriodLabel(range)).toMatch(/marzo.*2026/i);
+  });
+
+  it("labels previous quarter as T1 • ene-mar", () => {
+    const range = PREVIOUS_PRESETS.find((p) => p.label === "Trimestre anterior")!.range();
+    expect(formatPeriodLabel(range)).toBe("T1 2026 • ene-mar");
+  });
+
+  it("labels previous year as 2025", () => {
+    const range = PREVIOUS_PRESETS.find((p) => p.label === "Año anterior")!.range();
+    expect(formatPeriodLabel(range)).toBe("2025");
+  });
+
+  it("labels current week with arrow suffix", () => {
+    const range = CURRENT_PRESETS.find((p) => p.label === "Semana actual")!.range();
+    expect(formatPeriodLabel(range)).toMatch(/^Semana \d+ • .+→$/);
+  });
+
+  it("falls back to compact range for custom rolling range", () => {
+    const range: DateRange = {
+      from: d(2026, 4, 10, 0, 0, 0, 0),
+      to: d(2026, 4, 18, 23, 59, 59, 999),
+    };
+    expect(detectPeriodType(range)).toBeNull();
+    expect(formatPeriodLabel(range)).toContain("–");
   });
 });

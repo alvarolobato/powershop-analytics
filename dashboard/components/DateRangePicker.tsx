@@ -354,6 +354,83 @@ function formatDisplayRange(range: DateRange): string {
   return `${from} – ${to}`;
 }
 
+function sameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
+}
+
+/** ISO week number (1–53) for the Monday-based week containing *d*. */
+function isoWeekNumber(d: Date): number {
+  const utc = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const dayNum = utc.getUTCDay() || 7;
+  utc.setUTCDate(utc.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(utc.getUTCFullYear(), 0, 1));
+  return Math.ceil(((utc.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+}
+
+const QUARTER_SHORT = ["ene-mar", "abr-jun", "jul-sep", "oct-dic"] as const;
+
+/**
+ * Human-readable label for the date-range trigger (Spanish).
+ * Falls back to {@link formatDisplayRange} when the range is not a recognised calendar period.
+ */
+export function formatPeriodLabel(range: DateRange): string {
+  const type = detectPeriodType(range);
+  if (type === null) {
+    return formatDisplayRange(range);
+  }
+
+  const todayStart = startOfDay(new Date());
+
+  if (type === "day") {
+    if (sameCalendarDay(range.from, todayStart)) return "Hoy";
+    const y = new Date(todayStart);
+    y.setDate(y.getDate() - 1);
+    if (sameCalendarDay(range.from, y)) return "Ayer";
+    return range.from.toLocaleDateString("es-ES", {
+      weekday: "short",
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  if (type === "week") {
+    const week = isoWeekNumber(range.from);
+    const fromStr = range.from.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+    const toStr = range.to.toLocaleDateString("es-ES", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
+    const mondayThisWeek = isoWeekMonday(new Date());
+    const isCurrentWeek = sameCalendarDay(isoWeekMonday(range.from), mondayThisWeek);
+    if (isCurrentWeek) {
+      return `Semana ${week} • ${fromStr} →`;
+    }
+    return `Semana ${week} • ${fromStr}–${toStr}`;
+  }
+
+  if (type === "month") {
+    return range.from.toLocaleDateString("es-ES", { month: "long", year: "numeric" });
+  }
+
+  if (type === "quarter") {
+    const q = Math.floor(range.from.getMonth() / 3) + 1;
+    const y = range.from.getFullYear();
+    return `T${q} ${y} • ${QUARTER_SHORT[q - 1]}`;
+  }
+
+  if (type === "year") {
+    return String(range.from.getFullYear());
+  }
+
+  return formatDisplayRange(range);
+}
+
 // ---------------------------------------------------------------------------
 // computeComparisonRange
 // ---------------------------------------------------------------------------
@@ -600,7 +677,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
               d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5"
             />
           </svg>
-          <span className="hidden sm:inline">{formatDisplayRange(value)}</span>
+          <span className="hidden sm:inline">{formatPeriodLabel(value)}</span>
           <span className="sm:hidden">Fechas</span>
           {isComparisonActive && (
             <span
@@ -741,7 +818,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                 data-testid="comparison-hint"
                 className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle"
               >
-                {formatDisplayRange(comparisonHint)}
+                {formatPeriodLabel(comparisonHint)}
               </p>
             )}
 
