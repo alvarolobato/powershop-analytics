@@ -31,6 +31,21 @@ export interface DateRangePickerProps {
   onChange: (range: { primary: DateRange; comparison?: ComparisonRange }) => void;
 }
 
+export type PeriodType = "day" | "week" | "month" | "quarter" | "year";
+
+export interface DetectPeriodOptions {
+  /** When "Trimestre actual" is selected, treat Apr 1→today as quarter instead of month. */
+  preferQuarterOverMonth?: boolean;
+}
+
+export type FormatPeriodLabelOptions = DetectPeriodOptions & {
+  /**
+   * When set, label as this calendar period even if {@link detectPeriodType} differs
+   * (e.g. "Semana actual" on a Monday matches a single day).
+   */
+  navPeriodOverride?: PeriodType;
+};
+
 // ---------------------------------------------------------------------------
 // Presets
 // ---------------------------------------------------------------------------
@@ -38,6 +53,8 @@ export interface DateRangePickerProps {
 interface Preset {
   label: string;
   range: () => DateRange;
+  /** Period used for ← / → and for the trigger label after this preset is applied. */
+  navPeriod: PeriodType;
 }
 
 export function startOfDay(d: Date): Date {
@@ -66,6 +83,7 @@ export function currentQuarterStart(d: Date): Date {
 export const CURRENT_PRESETS: Preset[] = [
   {
     label: "Hoy",
+    navPeriod: "day",
     range: () => {
       const now = new Date();
       return { from: startOfDay(now), to: endOfDay(now) };
@@ -73,6 +91,7 @@ export const CURRENT_PRESETS: Preset[] = [
   },
   {
     label: "Semana actual",
+    navPeriod: "week",
     range: () => {
       const now = new Date();
       const monday = isoWeekMonday(now);
@@ -81,6 +100,7 @@ export const CURRENT_PRESETS: Preset[] = [
   },
   {
     label: "Mes actual",
+    navPeriod: "month",
     range: () => {
       const now = new Date();
       const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -89,6 +109,7 @@ export const CURRENT_PRESETS: Preset[] = [
   },
   {
     label: "Trimestre actual",
+    navPeriod: "quarter",
     range: () => {
       const now = new Date();
       return { from: startOfDay(currentQuarterStart(now)), to: endOfDay(now) };
@@ -96,6 +117,7 @@ export const CURRENT_PRESETS: Preset[] = [
   },
   {
     label: "Año actual",
+    navPeriod: "year",
     range: () => {
       const now = new Date();
       const jan1 = new Date(now.getFullYear(), 0, 1);
@@ -108,6 +130,7 @@ export const CURRENT_PRESETS: Preset[] = [
 export const PREVIOUS_PRESETS: Preset[] = [
   {
     label: "Ayer",
+    navPeriod: "day",
     range: () => {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
@@ -116,6 +139,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
   },
   {
     label: "Semana anterior",
+    navPeriod: "week",
     range: () => {
       const now = new Date();
       const thisMonday = isoWeekMonday(now);
@@ -128,6 +152,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
   },
   {
     label: "Mes anterior",
+    navPeriod: "month",
     range: () => {
       const now = new Date();
       const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -139,6 +164,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
   },
   {
     label: "Trimestre anterior",
+    navPeriod: "quarter",
     range: () => {
       const now = new Date();
       const thisQStart = currentQuarterStart(now);
@@ -150,6 +176,7 @@ export const PREVIOUS_PRESETS: Preset[] = [
   },
   {
     label: "Año anterior",
+    navPeriod: "year",
     range: () => {
       const prevYear = new Date().getFullYear() - 1;
       return {
@@ -164,12 +191,15 @@ export const PREVIOUS_PRESETS: Preset[] = [
 // Period detection
 // ---------------------------------------------------------------------------
 
-export type PeriodType = "day" | "week" | "month" | "quarter" | "year";
-
-export interface DetectPeriodOptions {
-  /** When "Trimestre actual" is selected, treat Apr 1→today as quarter instead of month. */
-  preferQuarterOverMonth?: boolean;
-}
+/** Options for {@link navigatePeriod}; extends {@link DetectPeriodOptions}. */
+export type NavigatePeriodOptions = DetectPeriodOptions & {
+  /**
+   * When set, step by this period instead of {@link detectPeriodType}.
+   * Used to disambiguate presets (e.g. "Semana actual" on a Monday is the same
+   * calendar range as "Hoy" but must advance by ISO weeks, not single days).
+   */
+  periodType?: PeriodType;
+};
 
 /**
  * Detect whether a DateRange matches a known calendar period.
@@ -308,9 +338,9 @@ export function detectPeriodType(
 export function navigatePeriod(
   range: DateRange,
   direction: -1 | 1,
-  opts?: DetectPeriodOptions,
+  opts?: NavigatePeriodOptions,
 ): DateRange {
-  const type = detectPeriodType(range, opts);
+  const type = opts?.periodType ?? detectPeriodType(range, opts);
   if (type === null) return range;
 
   const today = new Date();
@@ -412,9 +442,11 @@ const QUARTER_SHORT = ["ene-mar", "abr-jun", "jul-sep", "oct-dic"] as const;
  */
 export function formatPeriodLabel(
   range: DateRange,
-  opts?: DetectPeriodOptions,
+  opts?: FormatPeriodLabelOptions,
 ): string {
-  const type = detectPeriodType(range, opts);
+  const { navPeriodOverride, ...detectOpts } = opts ?? {};
+  const detected = detectPeriodType(range, detectOpts);
+  const type = navPeriodOverride ?? detected;
   if (type === null) {
     return formatCustomRangeCompact(range);
   }
@@ -558,6 +590,8 @@ const COMPARISON_LABELS: Record<ComparisonType, string> = {
  */
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
+  /** When non-null, ← / → use this period even if the range matches another (e.g. Mon-only current week). */
+  const [navPeriodMode, setNavPeriodMode] = useState<PeriodType | null>(null);
   const [preferQuarterForLabel, setPreferQuarterForLabel] = useState(false);
   const [customFrom, setCustomFrom] = useState(toDateInputValue(value.from));
   const [customTo, setCustomTo] = useState(toDateInputValue(value.to));
@@ -627,6 +661,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   function applyPreset(preset: Preset) {
     setPreferQuarterForLabel(preset.label === "Trimestre actual");
+    setNavPeriodMode(preset.navPeriod);
     const primary = preset.range();
     onChange(buildPayload(primary, comparisonType, compCustomFrom, compCustomTo));
     setOpen(false);
@@ -635,6 +670,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   function applyCustomRange() {
     setPreferQuarterForLabel(false);
+    setNavPeriodMode(null);
     const from = new Date(customFrom + "T00:00:00.000");
     // Use T23:59:59.999 for consistency with endOfDay() used by presets
     const to = new Date(customTo + "T23:59:59.999");
@@ -663,11 +699,20 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const periodDetectOpts: DetectPeriodOptions | undefined = preferQuarterForLabel
     ? { preferQuarterOverMonth: true }
     : undefined;
-  const periodType = detectPeriodType(value, periodDetectOpts);
-  const showNavButtons = periodType !== null;
+  const labelOpts: FormatPeriodLabelOptions = {
+    ...periodDetectOpts,
+    ...(navPeriodMode != null ? { navPeriodOverride: navPeriodMode } : {}),
+  };
+  const detectedPeriod = detectPeriodType(value, periodDetectOpts);
+  const effectiveNavPeriod = navPeriodMode ?? detectedPeriod;
+  const showNavButtons = effectiveNavPeriod !== null;
+  const navigateOpts: NavigatePeriodOptions = {
+    ...periodDetectOpts,
+    ...(effectiveNavPeriod != null ? { periodType: effectiveNavPeriod } : {}),
+  };
 
   // → is disabled when the next period starts after today
-  const nextPeriod = showNavButtons ? navigatePeriod(value, 1, periodDetectOpts) : null;
+  const nextPeriod = showNavButtons ? navigatePeriod(value, 1, navigateOpts) : null;
   const startOfToday = startOfDay(new Date());
   const forwardDisabled = nextPeriod !== null && nextPeriod.from > startOfToday;
 
@@ -687,7 +732,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             onClick={() =>
               onChange(
                 buildPayload(
-                  navigatePeriod(value, -1, periodDetectOpts),
+                  navigatePeriod(value, -1, navigateOpts),
                   comparisonType,
                   compCustomFrom,
                   compCustomTo,
@@ -727,7 +772,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             />
           </svg>
           <span className="hidden sm:inline">
-            {formatPeriodLabel(value, periodDetectOpts)}
+            {formatPeriodLabel(value, labelOpts)}
           </span>
           <span className="sm:hidden">Fechas</span>
           {isComparisonActive && (
@@ -751,7 +796,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             onClick={() =>
               onChange(
                 buildPayload(
-                  navigatePeriod(value, 1, periodDetectOpts),
+                  navigatePeriod(value, 1, navigateOpts),
                   comparisonType,
                   compCustomFrom,
                   compCustomTo,
