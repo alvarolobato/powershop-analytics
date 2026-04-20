@@ -99,7 +99,9 @@ function hasCompTokens(sql: string): boolean {
  *  gracefully when comparisonRange is unset, so they must not gate the main widget fetch. */
 function collectWidgetSqls(widget: Widget): string[] {
   if (widget.type === "kpi_row") {
-    return widget.items.map((item) => item.sql);
+    return widget.items
+      .map((item) => item.sql)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
   }
   return [widget.sql];
 }
