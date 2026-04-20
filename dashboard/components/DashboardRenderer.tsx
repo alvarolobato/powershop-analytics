@@ -94,7 +94,9 @@ function hasCompTokens(sql: string): boolean {
   );
 }
 
-/** Collects main SQL strings only (excludes trend_sql/anomaly_sql, which may use :comp_* by design). */
+/** Collects the MAIN SQL strings from a widget (item.sql for kpi_row, widget.sql otherwise).
+ *  trend_sql and anomaly_sql are deliberately excluded: the fetch pipeline skips them
+ *  gracefully when comparisonRange is unset, so they must not gate the main widget fetch. */
 function collectWidgetSqls(widget: Widget): string[] {
   if (widget.type === "kpi_row") {
     return widget.items
@@ -622,7 +624,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
           >
             {/* Loading skeleton */}
             {(!state || state.loading) && (
-              <WidgetSkeleton type={widget.type} />
+              <RendererSkeleton type={widget.type} />
             )}
 
             {/* Error state */}
@@ -656,7 +658,7 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
 
 type WidgetType = Widget["type"];
 
-function WidgetSkeleton({ type }: { type: WidgetType }) {
+function RendererSkeleton({ type }: { type: WidgetType }) {
   switch (type) {
     case "kpi_row":
       return (

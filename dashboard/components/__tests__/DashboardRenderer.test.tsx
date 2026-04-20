@@ -814,8 +814,8 @@ describe("DashboardRenderer", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
-    it("skips trend_sql fetch (no error) when kpi_row item trend_sql has :comp_from but no comparisonRange", async () => {
-      const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[300]] });
+    it("fetches main sql and silently skips trend_sql when only trend_sql has :comp_from but no comparisonRange", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["sum"], rows: [[500]] });
       vi.stubGlobal("fetch", fetchMock);
 
       const compTrendSpec: DashboardSpec = {
@@ -841,7 +841,6 @@ describe("DashboardRenderer", () => {
         expect(fetchMock).toHaveBeenCalled();
       });
 
-      // trend_sql fetch is skipped — no :comp_* tokens should reach PG
       const bodies = fetchMock.mock.calls.map((c: unknown[]) =>
         JSON.parse((c[1] as { body: string }).body)
       );
