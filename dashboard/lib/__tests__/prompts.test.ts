@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGeneratePrompt, buildModifyPrompt } from "../prompts";
+import { DashboardSpecSchema } from "../schema";
 
 describe("prompts", () => {
   describe("buildGeneratePrompt", () => {
@@ -103,6 +104,44 @@ describe("prompts", () => {
       expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
       expect(prompt).toContain("comparison_sql");
     });
+
+    it("donut_chart table row lists x/y fields, not category/value", () => {
+      const lines = prompt.split("\n");
+      const donutRow = lines.find(
+        (l) => l.includes("donut_chart") && l.includes("|")
+      );
+      expect(donutRow).toBeDefined();
+      expect(donutRow).toContain("x, y");
+      expect(donutRow).not.toMatch(/\bcategory\b.*\bvalue\b/);
+    });
+
+    it("donut_chart JSON example uses x/y field names, not category/value as top-level keys", () => {
+      // Extract the JSON block containing "donut_chart"
+      const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
+        (m) => m[1].trim()
+      );
+      const donutBlock = blocks.find((b) => b.includes('"donut_chart"'));
+      expect(donutBlock).toBeDefined();
+      const parsed = JSON.parse(donutBlock!);
+      expect(parsed).toHaveProperty("x");
+      expect(parsed).toHaveProperty("y");
+      expect(parsed).not.toHaveProperty("category");
+      expect(parsed).not.toHaveProperty("value");
+    });
+
+    it("donut_chart JSON example is valid according to DashboardSpecSchema", () => {
+      const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
+        (m) => m[1].trim()
+      );
+      const donutBlock = blocks.find((b) => b.includes('"donut_chart"'));
+      expect(donutBlock).toBeDefined();
+      const widget = JSON.parse(donutBlock!);
+      const result = DashboardSpecSchema.safeParse({
+        title: "Test",
+        widgets: [widget],
+      });
+      expect(result.success).toBe(true);
+    });
   });
 
   describe("buildModifyPrompt", () => {
@@ -160,6 +199,82 @@ describe("prompts", () => {
     it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
       expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
       expect(prompt).toContain("comparison_sql");
+    });
+  });
+
+  describe("date token regression — no CURRENT_DATE literals in prompt examples", () => {
+    const DATE_COLS = /fecha_creacion|fecha_documento|fecha_envio|fecha_factura/;
+    const CURRENT_DATE_LITERAL = /CURRENT_DATE/;
+    const SQL_FIELDS = ["sql", "trend_sql", "comparison_sql"];
+
+    function extractJsonBlocks(text: string): string[] {
+      const blocks: string[] = [];
+      const fence = /```json\s*([\s\S]*?)```/g;
+      let m: RegExpExecArray | null;
+      while ((m = fence.exec(text)) !== null) {
+        blocks.push(m[1].trim());
+      }
+      return blocks;
+    }
+
+    function walkSqlFields(obj: unknown, field: string): string[] {
+      const values: string[] = [];
+      if (typeof obj === "string") return values;
+      if (Array.isArray(obj)) {
+        for (const item of obj) values.push(...walkSqlFields(item, field));
+        return values;
+      }
+      if (obj && typeof obj === "object") {
+        for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+          if (k === field && typeof v === "string") {
+            values.push(v);
+          } else {
+            values.push(...walkSqlFields(v, field));
+          }
+        }
+      }
+      return values;
+    }
+
+    it("all date-filtered SQL in prompt examples uses :curr_from/:curr_to, not CURRENT_DATE literals", () => {
+      const combinedPrompt =
+        buildGeneratePrompt() +
+        "\n" +
+        buildModifyPrompt(
+          JSON.stringify({ title: "T", widgets: [{ id: "w1", type: "number", title: "T", sql: "SELECT 1" }] })
+        );
+
+      const blocks = extractJsonBlocks(combinedPrompt);
+      expect(blocks.length).toBeGreaterThan(0);
+
+      for (const block of blocks) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(block);
+        } catch {
+          continue;
+        }
+
+        for (const field of SQL_FIELDS) {
+          for (const sql of walkSqlFields(parsed, field)) {
+            if (DATE_COLS.test(sql) && CURRENT_DATE_LITERAL.test(sql)) {
+              throw new Error(
+                `Prompt example "${field}" contains CURRENT_DATE literal instead of :curr_from/:curr_to:\n${sql}`
+              );
+            }
+          }
+        }
+
+        // anomaly_sql with generate_series is intentionally exempt
+        for (const sql of walkSqlFields(parsed, "anomaly_sql")) {
+          if (/generate_series/.test(sql)) continue;
+          if (DATE_COLS.test(sql) && CURRENT_DATE_LITERAL.test(sql)) {
+            throw new Error(
+              `Prompt example "anomaly_sql" (non-generate_series) contains CURRENT_DATE literal:\n${sql}`
+            );
+          }
+        }
+      }
     });
   });
 });

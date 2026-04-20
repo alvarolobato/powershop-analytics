@@ -4,6 +4,16 @@
 
 ## Decision Log
 
+### D-016: Proposed PostgreSQL trigger table for manual ETL sync — 2026-04-18
+**Context**: Issue #271 defines a "Sincronizar ahora" button for the ETL Monitor dashboard page.
+The button needs to signal the ETL container (a pure Python scheduler with no HTTP API) to start an out-of-schedule sync.
+**Proposed design**: Use a PostgreSQL `etl_manual_trigger` table. Dashboard writes a `pending` row; ETL polls the table every 10 s and atomically picks it up (`FOR UPDATE SKIP LOCKED`).
+**Alternatives rejected**:
+- ETL HTTP endpoint: requires adding Flask/aiohttp, exposing a new port in docker-compose, and handling concurrency in a single-threaded scheduler process.
+- Shared filesystem flag file: fragile across container restarts, no atomicity.
+**Rationale**: PG is already the shared state store for both containers. No new deps, no new ports, idempotent polling, single source of truth.
+**Status**: Not yet implemented. The `etl_manual_trigger` table/DDL is not present in `etl/schema/init.sql`; the dashboard write and ETL polling flow are planned work tracked in issue #271.
+
 ### D-015: Deep schema extraction from application server files — 2026-04-05
 **Context**: Issue #142 identified gaps in our data model knowledge. A copy of the production application server, client, and database files became available locally.
 **Decision**: Perform string extraction on the compiled `.4DC` structure file (360 MB) and query all SQL views (`_USER_VIEWS`) directly from the live server.
@@ -98,6 +108,9 @@
 ---
 
 ## Changelog
+
+### 2026-04-18
+- Documented D-016 for Dashboard ETL Monitor manual sync design via PostgreSQL `etl_manual_trigger` table (issue #271)
 
 ### 2026-04-05
 - AI Factory design: 20 workflows across 6 phases for autonomous development (D-011 through D-014)
