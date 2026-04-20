@@ -20,7 +20,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { suggestDashboards } from "@/lib/llm";
+import { suggestDashboards, BudgetExceededError } from "@/lib/llm";
 import { extractJson } from "@/lib/llm-json";
 import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import {
@@ -120,6 +120,12 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     rawResponse = await suggestDashboards(role, existingDashboards);
   } catch (err: unknown) {
+    if (err instanceof BudgetExceededError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+        { status: 429 },
+      );
+    }
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al obtener sugerencias del LLM:`, err);
