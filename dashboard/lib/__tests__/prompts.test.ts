@@ -100,6 +100,11 @@ describe("prompts", () => {
       expect(prompt).toContain("colec");
     });
 
+    it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
+      expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
+      expect(prompt).toContain("comparison_sql");
+    });
+
     it("donut_chart table row lists x/y fields, not category/value", () => {
       const lines = prompt.split("\n");
       const donutRow = lines.find(
@@ -189,6 +194,11 @@ describe("prompts", () => {
 
     it("includes the glossary field in the output format example", () => {
       expect(prompt).toContain('"glossary"');
+    });
+
+    it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
+      expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
+      expect(prompt).toContain("comparison_sql");
     });
   });
 
