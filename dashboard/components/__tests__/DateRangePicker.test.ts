@@ -499,12 +499,33 @@ describe("formatPeriodLabel", () => {
     expect(formatPeriodLabel(range)).toMatch(/^Semana \d+ • .+→$/);
   });
 
-  it("falls back to compact range for custom rolling range", () => {
+  it("falls back to compact range for custom rolling range (year once)", () => {
     const range: DateRange = {
       from: d(2026, 4, 10, 0, 0, 0, 0),
       to: d(2026, 4, 18, 23, 59, 59, 999),
     };
     expect(detectPeriodType(range)).toBeNull();
-    expect(formatPeriodLabel(range)).toContain("–");
+    const label = formatPeriodLabel(range);
+    expect(label).toContain("–");
+    expect(label.match(/2026/g)?.length).toBe(1);
+  });
+
+  it("labels current quarter as T2 when preferQuarterOverMonth is set (April in-progress)", () => {
+    const range = CURRENT_PRESETS.find((p) => p.label === "Trimestre actual")!.range();
+    expect(detectPeriodType(range)).toBe("month");
+    expect(detectPeriodType(range, { preferQuarterOverMonth: true })).toBe("quarter");
+    expect(formatPeriodLabel(range, { preferQuarterOverMonth: true })).toBe(
+      "T2 2026 • abr-jun",
+    );
+  });
+
+  it("labels Monday start of current week with arrow suffix", () => {
+    const monday = isoWeekMonday(FIXED_NOW);
+    const range: DateRange = {
+      from: d(monday.getFullYear(), monday.getMonth() + 1, monday.getDate(), 0, 0, 0, 0),
+      to: d(2026, 4, 15, 23, 59, 59, 999),
+    };
+    expect(detectPeriodType(range)).toBe("week");
+    expect(formatPeriodLabel(range)).toMatch(/^Semana \d+ • .+→$/);
   });
 });
