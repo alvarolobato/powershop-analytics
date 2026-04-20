@@ -528,6 +528,15 @@ describe("formatPeriodLabel", () => {
     expect(formatPeriodLabel(range)).toMatch(/^Semana \d+ • .+→$/);
   });
 
+  it("labels Semana actual on Monday as week (not Hoy) when navPeriodOverride is week", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 3, 13, 12, 0, 0)); // Monday Apr 13 2026
+    const range = CURRENT_PRESETS.find((p) => p.label === "Semana actual")!.range();
+    expect(detectPeriodType(range)).toBe("day");
+    expect(formatPeriodLabel(range, { navPeriodOverride: "week" })).toMatch(/^Semana \d+ • .+→$/);
+    vi.useRealTimers();
+  });
+
   it("falls back to compact range for custom rolling range (year once)", () => {
     const range: DateRange = {
       from: d(2026, 4, 10, 0, 0, 0, 0),
