@@ -12,6 +12,7 @@ import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import type { ReviewContent } from "./review-prompts";
 import { logUsage, checkDailyBudget } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
+import { getDashboardLlmModel } from "./llm-model-config";
 
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
@@ -24,8 +25,6 @@ const EMPTY_USAGE = {
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
-const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
-
 function getApiKey(): string {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) {
@@ -37,7 +36,7 @@ function getApiKey(): string {
 }
 
 function getModel(): string {
-  return process.env.DASHBOARD_LLM_MODEL || DEFAULT_MODEL;
+  return getDashboardLlmModel();
 }
 
 // ─── Retry helpers ───────────────────────────────────────────────────────────

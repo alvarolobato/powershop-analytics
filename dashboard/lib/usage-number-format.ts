@@ -25,7 +25,10 @@ export function formatIntegerEs(n: number): string {
   return intFmt.format(Math.round(n));
 }
 
-/** Compact form (e.g. 1,2 M, 345 k). */
+/**
+ * Compact form via `Intl` for `es-ES` (e.g. millions as "1,2 M"; thousands often as "12 mil",
+ * not a literal "k" — exact string depends on the runtime's Spanish compact rules).
+ */
 export function formatCompactEs(n: number): string {
   if (!Number.isFinite(n)) return "—";
   return compactFmt.format(n);
@@ -33,7 +36,7 @@ export function formatCompactEs(n: number): string {
 
 /**
  * Primary full integer + compact suffix for dense UI.
- * Example: primary "1.234.567", compact "1,2 M"
+ * Example: primary "1.234.567", compact might be "1,2 M" (millions) or "12 mil" (thousands).
  */
 export function formatTokensWithCompact(n: number): { primary: string; compact: string } {
   return {
