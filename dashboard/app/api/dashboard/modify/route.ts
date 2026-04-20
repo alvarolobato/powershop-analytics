@@ -8,7 +8,7 @@
  * Response: 200 with updated DashboardSpec, or 400/429/500 on error.
  */
 import { NextResponse } from "next/server";
-import { modifyDashboard } from "@/lib/llm";
+import { modifyDashboard, BudgetExceededError } from "@/lib/llm";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import {
   formatApiError,
@@ -103,19 +103,31 @@ export async function POST(request: Request) {
       prompt.trim(),
     );
   } catch (err) {
-    const status = (err as { status?: number }).status;
+    if (err instanceof BudgetExceededError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+        { status: 429 },
+      );
+    }
+    const message = err instanceof Error ? err.message : String(err);
+    const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
+
+    const isRateLimit =
+      normalizedMessage.includes("rate limit") ||
+      normalizedMessage.includes("ratelimit") ||
+      normalizedMessage.includes("429");
 
     return NextResponse.json(
       formatApiError(
-        status === 429
+        isRateLimit
           ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
           : "No se pudo modificar el dashboard. Inténtalo de nuevo.",
-        status === 429 ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),
-      { status: status === 429 ? 429 : 500 },
+      { status: isRateLimit ? 429 : 500 },
     );
   }
 

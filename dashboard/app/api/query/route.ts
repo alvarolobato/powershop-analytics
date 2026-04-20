@@ -8,6 +8,7 @@
  *   400 — Missing or invalid SQL
  *   403 — Write operation rejected (read-only policy)
  *   408 — Query timeout (>30s)
+ *   422 — Query cost exceeds threshold (COST_LIMIT); body includes `cost` field
  *   503 — Database connection error
  *   500 — Unexpected error
  */
@@ -25,6 +26,7 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import { validateQueryCost, QueryTooExpensiveError } from "@/lib/query-validator";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = generateRequestId();
@@ -83,10 +85,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
+  // Validate query cost via EXPLAIN before executing
+  let cost = 0;
+  const forceHeader = request.headers.get("X-Query-Force") ?? undefined;
+  try {
+    cost = await validateQueryCost(sql, { forceHeader });
+  } catch (err) {
+    if (err instanceof QueryTooExpensiveError) {
+      return NextResponse.json(
+        { ...formatApiError(err.message, "COST_LIMIT", undefined, requestId), cost: err.cost },
+        { status: 422 },
+      );
+    }
+    throw err;
+  }
+
   // Execute the query
   try {
     const result = await query(sql);
-    return NextResponse.json(result);
+    const response = NextResponse.json(result);
+    response.headers.set("X-Query-Cost", String(cost));
+    return response;
   } catch (err) {
     if (err instanceof SqlValidationError) {
       return NextResponse.json(

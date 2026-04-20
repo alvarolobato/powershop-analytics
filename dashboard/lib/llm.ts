@@ -10,6 +10,15 @@ import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import type { ReviewContent } from "./review-prompts";
+import { logUsage, checkDailyBudget } from "./llm-usage";
+
+export { BudgetExceededError } from "./llm-usage";
+
+const EMPTY_USAGE = {
+  prompt_tokens: 0,
+  completion_tokens: 0,
+  total_tokens: 0,
+};
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 
@@ -135,6 +144,8 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
   const client = getClient();
   const systemPrompt = buildGeneratePrompt();
 
+  await checkDailyBudget();
+
   const response = await withRetry(() =>
     client.chat.completions.create({
       model: getModel(),
@@ -144,8 +155,10 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
       ],
       temperature: 0.2,
       max_tokens: 8192,
-    })
+    }),
   );
+
+  void logUsage("generateDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -166,6 +179,8 @@ export async function modifyDashboard(
   const client = getClient();
   const systemPrompt = buildModifyPrompt(currentSpec);
 
+  await checkDailyBudget();
+
   const response = await withRetry(() =>
     client.chat.completions.create({
       model: getModel(),
@@ -175,8 +190,10 @@ export async function modifyDashboard(
       ],
       temperature: 0.2,
       max_tokens: 8192,
-    })
+    }),
   );
+
+  void logUsage("modifyDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -197,6 +214,8 @@ export async function suggestDashboards(
   const client = getClient();
   const systemPrompt = buildSuggestPrompt(role, existingDashboards);
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -209,6 +228,8 @@ export async function suggestDashboards(
     temperature: 0.2,
     max_tokens: 8192,
   });
+
+  void logUsage("suggestDashboards", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -232,6 +253,8 @@ export async function analyzeGaps(
   const client = getClient();
   const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -245,6 +268,8 @@ export async function analyzeGaps(
     temperature: 0.2,
     max_tokens: 8192,
   });
+
+  void logUsage("analyzeGaps", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -266,6 +291,8 @@ export async function analyzeDashboard(
   const client = getClient();
   const systemPrompt = buildAnalyzePrompt(serializedData, action);
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -275,6 +302,8 @@ export async function analyzeDashboard(
     temperature: 0.3,
     max_tokens: 4096,
   });
+
+  void logUsage("analyzeDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -294,6 +323,8 @@ export async function generateReview(
 ): Promise<ReviewContent> {
   const client = getClient();
 
+  await checkDailyBudget();
+
   const response = await client.chat.completions.create({
     model: getModel(),
     messages: [
@@ -302,6 +333,8 @@ export async function generateReview(
     temperature: 0.2,
     max_tokens: 4096,
   });
+
+  void logUsage("generateReview", getModel(), response.usage ?? EMPTY_USAGE);
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -373,6 +406,7 @@ export async function generateSuggestions(
   lastExchange: string
 ): Promise<string[]> {
   try {
+    await checkDailyBudget();
     const client = getClient();
     const prompt = buildSuggestionPrompt(serializedData, lastExchange);
 
@@ -382,6 +416,8 @@ export async function generateSuggestions(
       temperature: 0.5,
       max_tokens: 512,
     });
+
+    void logUsage("generateSuggestions", getModel(), response.usage ?? EMPTY_USAGE);
 
     const content = response.choices[0]?.message?.content ?? "";
 

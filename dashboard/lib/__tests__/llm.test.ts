@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const mockCreate = vi.fn();
+const { mockCreate, mockCheckDailyBudget, mockLogUsage } = vi.hoisted(() => ({
+  mockCreate: vi.fn(),
+  mockCheckDailyBudget: vi.fn(),
+  mockLogUsage: vi.fn(),
+}));
 
 vi.mock("openai", () => {
   return {
@@ -13,6 +17,17 @@ vi.mock("openai", () => {
     },
   };
 });
+
+vi.mock("../llm-usage", () => ({
+  checkDailyBudget: mockCheckDailyBudget,
+  logUsage: mockLogUsage,
+  BudgetExceededError: class BudgetExceededError extends Error {
+    constructor() {
+      super("Límite diario de generación alcanzado. Reintente mañana.");
+      this.name = "BudgetExceededError";
+    }
+  },
+}));
 
 import { generateDashboard, modifyDashboard, resetClient } from "../llm";
 
@@ -291,6 +306,66 @@ describe("llm", () => {
         (m: { role: string }) => m.role === "user"
       )?.content;
       expect(userContent).toBe("Añade gráfico de tendencia");
+    });
+  });
+
+  describe("budget enforcement and usage logging", () => {
+    beforeEach(() => {
+      mockCheckDailyBudget.mockResolvedValue(undefined);
+      mockLogUsage.mockReturnValue(undefined);
+    });
+
+    it("awaits checkDailyBudget before calling the LLM", async () => {
+      const callOrder: string[] = [];
+      mockCheckDailyBudget.mockImplementation(async () => {
+        callOrder.push("budget");
+      });
+      mockCreate.mockImplementation(async () => {
+        callOrder.push("llm");
+        return { choices: [{ message: { content: "{}" } }] };
+      });
+
+      await generateDashboard("test");
+
+      expect(callOrder).toEqual(["budget", "llm"]);
+    });
+
+    it("calls logUsage with EMPTY_USAGE fallback when response.usage is missing", async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: "{}" } }],
+        // no usage field
+      });
+
+      await generateDashboard("test");
+
+      expect(mockLogUsage).toHaveBeenCalledWith(
+        "generateDashboard",
+        expect.any(String),
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+      );
+    });
+
+    it("calls logUsage with actual usage when response.usage is present", async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: "{}" } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      });
+
+      await generateDashboard("test");
+
+      expect(mockLogUsage).toHaveBeenCalledWith(
+        "generateDashboard",
+        expect.any(String),
+        { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+      );
+    });
+
+    it("propagates BudgetExceededError from checkDailyBudget", async () => {
+      const { BudgetExceededError } = await import("../llm-usage");
+      mockCheckDailyBudget.mockRejectedValue(new BudgetExceededError());
+
+      await expect(generateDashboard("test")).rejects.toThrow(BudgetExceededError);
+      expect(mockCreate).not.toHaveBeenCalled();
     });
   });
 });
