@@ -466,43 +466,43 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuáles son las ventas netas por tienda este mes?",
-    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
+    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
   },
   {
     question: "¿Cuáles son las ventas de la semana pasada por tienda?",
-    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL '7 days' AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
+    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
   },
   {
     question: "¿Cuál es el ticket medio?",
-    sql: `SELECT ROUND(SUM("total_si") / COUNT(DISTINCT "reg_ventas"), 2) AS "Ticket Medio" FROM "public"."ps_ventas" WHERE "entrada" = true AND "tienda" <> '99' AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+    sql: `SELECT ROUND(SUM("total_si") / COUNT(DISTINCT "reg_ventas"), 2) AS "Ticket Medio" FROM "public"."ps_ventas" WHERE "entrada" = true AND "tienda" <> '99' AND "fecha_creacion" BETWEEN :curr_from AND :curr_to`,
   },
   {
     question: "¿Cuántas devoluciones hubo este mes?",
-    sql: `SELECT COUNT(*) AS "Devoluciones", ABS(SUM("total_si")) AS "Importe Devuelto" FROM "public"."ps_ventas" WHERE "entrada" = false AND "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)`,
+    sql: `SELECT COUNT(*) AS "Devoluciones", ABS(SUM("total_si")) AS "Importe Devuelto" FROM "public"."ps_ventas" WHERE "entrada" = false AND "fecha_creacion" BETWEEN :curr_from AND :curr_to`,
   },
   {
     question: "¿Cuáles son las ventas de hoy?",
-    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" = CURRENT_DATE AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
+    sql: `SELECT v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true AND v."tienda" <> '99' GROUP BY v."tienda" ORDER BY "Ventas Netas" DESC`,
   },
   {
     question: "¿Cuánto vendimos ayer?",
-    sql: `SELECT SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" = CURRENT_DATE - INTERVAL '1 day' AND "entrada" = true`,
+    sql: `SELECT SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" BETWEEN :curr_from AND :curr_to AND "entrada" = true`,
   },
   {
     question: "¿Ventas netas acumuladas del año (YTD) comparadas con el año anterior?",
-    sql: `SELECT 'Este año' AS "Período", SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) AND "fecha_creacion" <= CURRENT_DATE AND "entrada" = true UNION ALL SELECT 'Año anterior' AS "Período", SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' AND "fecha_creacion" <= CURRENT_DATE - INTERVAL '1 year' AND "entrada" = true`,
+    sql: `SELECT 'Este año' AS "Período", SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" BETWEEN :curr_from AND :curr_to AND "entrada" = true UNION ALL SELECT 'Año anterior' AS "Período", SUM("total_si") AS "Ventas Netas", COUNT(DISTINCT "reg_ventas") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" BETWEEN :comp_from AND :comp_to AND "entrada" = true`,
   },
   {
     question: "¿Ventas mensuales por tienda en el año actual?",
-    sql: `SELECT DATE_TRUNC('month', v."fecha_creacion") AS "Mes", v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) AND v."entrada" = true AND v."tienda" <> '99' GROUP BY DATE_TRUNC('month', v."fecha_creacion"), v."tienda" ORDER BY "Mes", v."tienda"`,
+    sql: `SELECT DATE_TRUNC('month', v."fecha_creacion") AS "Mes", v."tienda" AS "Tienda", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true AND v."tienda" <> '99' GROUP BY DATE_TRUNC('month', v."fecha_creacion"), v."tienda" ORDER BY "Mes", v."tienda"`,
   },
   {
     question: "¿Cuántas unidades vendimos la semana pasada?",
-    sql: `SELECT SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL '7 days' AND v."entrada" = true`,
+    sql: `SELECT SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true`,
   },
   {
     question: "¿Ventas por día de la semana?",
-    sql: `SELECT TO_CHAR(v."fecha_creacion", 'Day') AS "Día", EXTRACT(DOW FROM v."fecha_creacion") AS "Num Día", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days' AND v."entrada" = true AND v."tienda" <> '99' GROUP BY TO_CHAR(v."fecha_creacion", 'Day'), EXTRACT(DOW FROM v."fecha_creacion") ORDER BY EXTRACT(DOW FROM v."fecha_creacion")`,
+    sql: `SELECT TO_CHAR(v."fecha_creacion", 'Day') AS "Día", EXTRACT(DOW FROM v."fecha_creacion") AS "Num Día", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true AND v."tienda" <> '99' GROUP BY TO_CHAR(v."fecha_creacion", 'Day'), EXTRACT(DOW FROM v."fecha_creacion") ORDER BY EXTRACT(DOW FROM v."fecha_creacion")`,
   },
 
   // ── Products ───────────────────────────────────────────────────────
@@ -558,11 +558,11 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Artículos con stock pero sin ventas recientes (dead stock)?",
-    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock", p."clave_temporada" AS "Temporada" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 10 AND p."anulado" = false AND p."codigo" NOT IN (SELECT DISTINCT lv."codigo" FROM "public"."ps_lineas_ventas" lv WHERE lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '90 days' AND lv."entrada" = true) GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada" ORDER BY "Stock" DESC LIMIT 30`,
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock", p."clave_temporada" AS "Temporada" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 10 AND p."anulado" = false AND p."codigo" NOT IN (SELECT DISTINCT lv."codigo" FROM "public"."ps_lineas_ventas" lv WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."entrada" = true) GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada" ORDER BY "Stock" DESC LIMIT 30`,
   },
   {
     question: "¿Top artículos vendidos con su stock actual?",
-    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days' AND lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20`,
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20`,
   },
 
   // ── Wholesale ──────────────────────────────────────────────────────
@@ -572,7 +572,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Facturación mayorista mensual del año actual?",
-    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" >= DATE_TRUNC('year', CURRENT_DATE) AND f."abono" = false GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
+    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND f."abono" = false GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
   },
   {
     question: "¿Cuáles son los principales clientes mayoristas por facturación?",
@@ -580,11 +580,11 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuántos albaranes mayoristas se enviaron este mes?",
-    sql: `SELECT COUNT(*) AS "Albaranes", SUM("entregadas") AS "Unidades", SUM("base1" + "base2" + "base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" WHERE "fecha_envio" >= DATE_TRUNC('month', CURRENT_DATE) AND "abono" = false`,
+    sql: `SELECT COUNT(*) AS "Albaranes", SUM("entregadas") AS "Unidades", SUM("base1" + "base2" + "base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" WHERE "fecha_envio" BETWEEN :curr_from AND :curr_to AND "abono" = false`,
   },
   {
     question: "¿Notas de crédito mayoristas (abonos) del año?",
-    sql: `SELECT c."nombre" AS "Cliente", COUNT(*) AS "Abonos", SUM(a."base1" + a."base2" + a."base3") AS "Total Abonado" FROM "public"."ps_gc_albaranes" a JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente" WHERE a."abono" = true AND a."fecha_envio" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY c."nombre" ORDER BY "Total Abonado" DESC LIMIT 20`,
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(*) AS "Abonos", SUM(a."base1" + a."base2" + a."base3") AS "Total Abonado" FROM "public"."ps_gc_albaranes" a JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente" WHERE a."abono" = true AND a."fecha_envio" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Total Abonado" DESC LIMIT 20`,
   },
   {
     question: "¿Productos más vendidos en canal mayorista?",
@@ -594,37 +594,37 @@ export const SQL_PAIRS: SqlPair[] = [
   // ── Customers ─────────────────────────────────────────────────────
   {
     question: "¿Cuáles son los mejores clientes retail por compras?",
-    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT v."reg_ventas") AS "Compras", SUM(v."total_si") AS "Total Gastado" FROM "public"."ps_ventas" v JOIN "public"."ps_clientes" c ON v."num_cliente" = c."reg_cliente" WHERE v."num_cliente" > 0 AND v."entrada" = true AND v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY c."nombre" ORDER BY "Total Gastado" DESC LIMIT 20`,
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT v."reg_ventas") AS "Compras", SUM(v."total_si") AS "Total Gastado" FROM "public"."ps_ventas" v JOIN "public"."ps_clientes" c ON v."num_cliente" = c."reg_cliente" WHERE v."num_cliente" > 0 AND v."entrada" = true AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Total Gastado" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántos clientes únicos compraron este mes?",
-    sql: `SELECT COUNT(DISTINCT "num_cliente") AS "Clientes Identificados", SUM(CASE WHEN "num_cliente" = 0 THEN 1 ELSE 0 END) AS "Tickets Anónimos", COUNT(*) AS "Total Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND "entrada" = true`,
+    sql: `SELECT COUNT(DISTINCT "num_cliente") AS "Clientes Identificados", SUM(CASE WHEN "num_cliente" = 0 THEN 1 ELSE 0 END) AS "Tickets Anónimos", COUNT(*) AS "Total Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" BETWEEN :curr_from AND :curr_to AND "entrada" = true`,
   },
   {
     question: "¿Nuevos clientes registrados este año?",
-    sql: `SELECT COUNT(*) AS "Nuevos Clientes", SUM(CASE WHEN "mayorista" = false THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "mayorista" = true THEN 1 ELSE 0 END) AS "Mayoristas" FROM "public"."ps_clientes" WHERE "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE)`,
+    sql: `SELECT COUNT(*) AS "Nuevos Clientes", SUM(CASE WHEN "mayorista" = false THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "mayorista" = true THEN 1 ELSE 0 END) AS "Mayoristas" FROM "public"."ps_clientes" WHERE "fecha_creacion" BETWEEN :curr_from AND :curr_to`,
   },
   {
     question: "¿Frecuencia de compra de clientes?",
-    sql: `SELECT CASE WHEN compras = 1 THEN '1 compra' WHEN compras BETWEEN 2 AND 3 THEN '2-3 compras' WHEN compras BETWEEN 4 AND 10 THEN '4-10 compras' ELSE 'Más de 10' END AS "Segmento", COUNT(*) AS "Clientes" FROM (SELECT "num_cliente", COUNT(DISTINCT "reg_ventas") AS compras FROM "public"."ps_ventas" WHERE "num_cliente" > 0 AND "entrada" = true AND "fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY "num_cliente") t GROUP BY 1 ORDER BY 2 DESC`,
+    sql: `SELECT CASE WHEN compras = 1 THEN '1 compra' WHEN compras BETWEEN 2 AND 3 THEN '2-3 compras' WHEN compras BETWEEN 4 AND 10 THEN '4-10 compras' ELSE 'Más de 10' END AS "Segmento", COUNT(*) AS "Clientes" FROM (SELECT "num_cliente", COUNT(DISTINCT "reg_ventas") AS compras FROM "public"."ps_ventas" WHERE "num_cliente" > 0 AND "entrada" = true AND "fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY "num_cliente") t GROUP BY 1 ORDER BY 2 DESC`,
   },
 
   // ── Payments ───────────────────────────────────────────────────────
   {
     question: "¿Ingresos por método de pago este mes?",
-    sql: `SELECT p."forma" AS "Forma de Pago", COUNT(*) AS "Transacciones", SUM(p."importe_cob") AS "Importe Cobrado" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND p."entrada" = true GROUP BY p."forma" ORDER BY "Importe Cobrado" DESC`,
+    sql: `SELECT p."forma" AS "Forma de Pago", COUNT(*) AS "Transacciones", SUM(p."importe_cob") AS "Importe Cobrado" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" BETWEEN :curr_from AND :curr_to AND p."entrada" = true GROUP BY p."forma" ORDER BY "Importe Cobrado" DESC`,
   },
   {
     question: "¿Mix de formas de pago por tienda?",
-    sql: `SELECT p."tienda" AS "Tienda", p."forma" AS "Forma de Pago", COUNT(*) AS "Transacciones", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND p."entrada" = true AND p."tienda" <> '99' GROUP BY p."tienda", p."forma" ORDER BY p."tienda", "Importe" DESC`,
+    sql: `SELECT p."tienda" AS "Tienda", p."forma" AS "Forma de Pago", COUNT(*) AS "Transacciones", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" BETWEEN :curr_from AND :curr_to AND p."entrada" = true AND p."tienda" <> '99' GROUP BY p."tienda", p."forma" ORDER BY p."tienda", "Importe" DESC`,
   },
   {
     question: "¿Efectivo vs tarjeta por tienda?",
-    sql: `SELECT p."tienda" AS "Tienda", SUM(CASE WHEN p."codigo_forma" = '01' THEN p."importe_cob" ELSE 0 END) AS "Efectivo", SUM(CASE WHEN p."codigo_forma" <> '01' THEN p."importe_cob" ELSE 0 END) AS "Tarjeta/Otro", SUM(p."importe_cob") AS "Total" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) AND p."entrada" = true AND p."tienda" <> '99' GROUP BY p."tienda" ORDER BY "Total" DESC`,
+    sql: `SELECT p."tienda" AS "Tienda", SUM(CASE WHEN p."codigo_forma" = '01' THEN p."importe_cob" ELSE 0 END) AS "Efectivo", SUM(CASE WHEN p."codigo_forma" <> '01' THEN p."importe_cob" ELSE 0 END) AS "Tarjeta/Otro", SUM(p."importe_cob") AS "Total" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" BETWEEN :curr_from AND :curr_to AND p."entrada" = true AND p."tienda" <> '99' GROUP BY p."tienda" ORDER BY "Total" DESC`,
   },
   {
     question: "¿Evolución diaria de ingresos por forma de pago?",
-    sql: `SELECT p."fecha_creacion" AS "Fecha", p."forma" AS "Forma de Pago", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days' AND p."entrada" = true GROUP BY p."fecha_creacion", p."forma" ORDER BY p."fecha_creacion", p."forma"`,
+    sql: `SELECT p."fecha_creacion" AS "Fecha", p."forma" AS "Forma de Pago", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" BETWEEN :curr_from AND :curr_to AND p."entrada" = true GROUP BY p."fecha_creacion", p."forma" ORDER BY p."fecha_creacion", p."forma"`,
   },
 
   // ── Margins ────────────────────────────────────────────────────────
@@ -652,11 +652,11 @@ export const SQL_PAIRS: SqlPair[] = [
   // ── Transfers ──────────────────────────────────────────────────────
   {
     question: "¿Volumen de traspasos por ruta?",
-    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."fecha_s" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
+    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
   },
   {
     question: "¿Traspasos diarios de stock?",
-    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."fecha_s" >= CURRENT_DATE - INTERVAL '30 days' GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
+    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
   },
   {
     question: "¿Movimientos de stock de un artículo?",
@@ -674,17 +674,17 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Ventas por temporada de origen del artículo?",
-    sql: `SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC`,
+    sql: `SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC`,
   },
 
   // ── Store performance ──────────────────────────────────────────────
   {
     question: "¿Rendimiento YTD por tienda con comparativa año anterior?",
-    sql: `SELECT v."tienda" AS "Tienda", SUM(CASE WHEN v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) THEN v."total_si" ELSE 0 END) AS "Ventas Este Año", SUM(CASE WHEN v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' AND v."fecha_creacion" < DATE_TRUNC('year', CURRENT_DATE) AND v."fecha_creacion" <= CURRENT_DATE - INTERVAL '1 year' THEN v."total_si" ELSE 0 END) AS "Ventas Año Anterior" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' GROUP BY v."tienda" ORDER BY "Ventas Este Año" DESC`,
+    sql: `SELECT v."tienda" AS "Tienda", SUM(CASE WHEN v."fecha_creacion" BETWEEN :curr_from AND :curr_to THEN v."total_si" ELSE 0 END) AS "Ventas Este Año", SUM(CASE WHEN v."fecha_creacion" BETWEEN :comp_from AND :comp_to THEN v."total_si" ELSE 0 END) AS "Ventas Año Anterior" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND (v."fecha_creacion" BETWEEN :curr_from AND :curr_to OR v."fecha_creacion" BETWEEN :comp_from AND :comp_to) GROUP BY v."tienda" ORDER BY "Ventas Este Año" DESC`,
   },
   {
     question: "¿Ticket medio por tienda?",
-    sql: `SELECT v."tienda" AS "Tienda", COUNT(DISTINCT v."reg_ventas") AS "Tickets", ROUND(SUM(v."total_si") / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2) AS "Ticket Medio" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY v."tienda" ORDER BY "Ticket Medio" DESC`,
+    sql: `SELECT v."tienda" AS "Tienda", COUNT(DISTINCT v."reg_ventas") AS "Tickets", ROUND(SUM(v."total_si") / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2) AS "Ticket Medio" FROM "public"."ps_ventas" v WHERE v."entrada" = true AND v."tienda" <> '99' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY v."tienda" ORDER BY "Ticket Medio" DESC`,
   },
 
   // ── Comparison period example (using :comp_from/:comp_to tokens) ───

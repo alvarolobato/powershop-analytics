@@ -95,12 +95,10 @@ export async function POST(request: Request): Promise<NextResponse> {
         { status: 429 },
       );
     }
-
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
 
-    // Surface rate-limit errors with a specific message (case-insensitive)
     const isRateLimit =
       normalizedMessage.includes("rate limit") ||
       normalizedMessage.includes("ratelimit") ||
@@ -150,14 +148,76 @@ export async function POST(request: Request): Promise<NextResponse> {
         : "Error de validación desconocido";
 
     console.error(`[${requestId}] El LLM devolvió un spec inválido:`, details);
+
+    const allowedFields =
+      err instanceof ZodError
+        ? resolveWidgetAllowedFields(err, parsed)
+        : undefined;
+
     return NextResponse.json(
-      formatApiError(
-        "El modelo de IA generó un dashboard con estructura incorrecta.",
-        "LLM_INVALID_RESPONSE",
-        details,
-        requestId,
-      ),
+      {
+        ...formatApiError(
+          "El modelo de IA generó un dashboard con estructura incorrecta.",
+          "LLM_INVALID_RESPONSE",
+          details,
+          requestId,
+        ),
+        ...(allowedFields !== undefined ? { allowedFields } : {}),
+      },
       { status: 400 },
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for allowedFields enrichment
+// ---------------------------------------------------------------------------
+
+const WIDGET_ALLOWED_FIELDS: Record<string, string[]> = {
+  kpi_row: ["id", "type", "items"],
+  bar_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  line_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  area_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  donut_chart: ["id", "type", "title", "sql", "x", "y", "comparison_sql"],
+  table: ["id", "type", "title", "sql"],
+  number: ["id", "type", "title", "sql", "format", "prefix"],
+};
+
+/**
+ * When a ZodError path targets a widget (widgets.N, path length 2) or one of
+ * its direct fields (widgets.N.<key>, path length 3), extract the widget type
+ * from the parsed object and return the known allowed fields for that type.
+ * Deeply nested errors (e.g. widgets.N.items.0.label, path length > 3) are
+ * excluded — those belong to a sub-schema and the top-level allowed-fields
+ * list would be misleading.
+ */
+function resolveWidgetAllowedFields(
+  zodError: ZodError,
+  parsed: unknown,
+): string[] | undefined {
+  for (const issue of zodError.issues) {
+    const [seg0, seg1] = issue.path;
+    if (
+      seg0 !== "widgets" ||
+      typeof seg1 !== "number" ||
+      issue.path.length > 3
+    )
+      continue;
+
+    const widgetIndex = seg1;
+    const parsedObj = parsed as Record<string, unknown> | null | undefined;
+    const widgets = parsedObj?.widgets;
+    if (!Array.isArray(widgets)) continue;
+
+    const widget = widgets[widgetIndex] as Record<string, unknown> | undefined;
+    const widgetType = typeof widget?.type === "string" ? widget.type : undefined;
+    if (!widgetType) continue;
+
+    if (!Object.prototype.hasOwnProperty.call(WIDGET_ALLOWED_FIELDS, widgetType)) {
+      continue;
+    }
+    const fields = WIDGET_ALLOWED_FIELDS[widgetType];
+    if (Array.isArray(fields)) return fields;
+  }
+  return undefined;
 }

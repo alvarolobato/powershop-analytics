@@ -22,6 +22,7 @@ export type ErrorCode =
   | "VALIDATION"
   | "NOT_FOUND"
   | "TIMEOUT"
+  | "COST_LIMIT"
   | "UNKNOWN";
 
 // ---------------------------------------------------------------------------

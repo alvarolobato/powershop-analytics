@@ -2,22 +2,20 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock the LLM module before importing the route -------------------------
 
-const { mockModifyDashboard, BudgetExceededError } = vi.hoisted(() => {
-  class BudgetExceededError extends Error {
-    constructor(message: string) {
-      super(message);
-      this.name = "BudgetExceededError";
-    }
-  }
-  return { mockModifyDashboard: vi.fn(), BudgetExceededError };
-});
-
-vi.mock("@/lib/llm", () => ({
-  modifyDashboard: mockModifyDashboard,
-  BudgetExceededError,
+const { mockModifyDashboard } = vi.hoisted(() => ({
+  mockModifyDashboard: vi.fn(),
 }));
 
+vi.mock("@/lib/llm", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+  return {
+    BudgetExceededError: actual.BudgetExceededError,
+    modifyDashboard: mockModifyDashboard,
+  };
+});
+
 import { POST } from "../route";
+import { BudgetExceededError } from "@/lib/llm";
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -152,8 +150,11 @@ describe("POST /api/dashboard/modify", () => {
     expect(json.requestId).toBeDefined();
   });
 
-  it("returns 429 when LLM throws a rate limit error", async () => {
-    mockModifyDashboard.mockRejectedValue(new Error("rate limit exceeded (429)"));
+  it("returns 429 when LLM throws an error with status 429", async () => {
+    const rateLimitError = Object.assign(new Error("Rate limit exceeded"), {
+      status: 429,
+    });
+    mockModifyDashboard.mockRejectedValue(rateLimitError);
 
     const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
 

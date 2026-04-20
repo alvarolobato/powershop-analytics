@@ -4,10 +4,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock LLM module before importing the route
 // ---------------------------------------------------------------------------
 
-vi.mock("@/lib/llm", () => ({
-  analyzeDashboard: vi.fn(),
-  generateSuggestions: vi.fn(),
-}));
+vi.mock("@/lib/llm", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+  return {
+    BudgetExceededError: actual.BudgetExceededError,
+    analyzeDashboard: vi.fn(),
+    generateSuggestions: vi.fn(),
+  };
+});
 
 // Import AFTER mock setup
 import { POST } from "../api/dashboard/analyze/route";
