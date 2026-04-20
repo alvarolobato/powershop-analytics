@@ -129,7 +129,22 @@ describe("validateQueryCost", () => {
     const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(50000);
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining("Invalid or zero QUERY_COST_LIMIT")
+      expect.stringContaining("Invalid QUERY_COST_LIMIT")
+    );
+    warnSpy.mockRestore();
+  });
+
+  it("disables cost guard for partially numeric strings (no silent parseInt truncation)", async () => {
+    process.env.QUERY_COST_LIMIT = "100000foo";
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(500_000)]],
+    });
+    const cost = await validateQueryCost("SELECT 1");
+    expect(cost).toBe(500_000);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Invalid QUERY_COST_LIMIT")
     );
     warnSpy.mockRestore();
   });

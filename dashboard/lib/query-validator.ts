@@ -90,13 +90,20 @@ export async function validateQueryCost(
     const rawLimit = process.env.QUERY_COST_LIMIT?.trim();
     let enforcedLimit: number | undefined;
     if (rawLimit !== undefined && rawLimit !== "") {
-      const parsed = parseInt(rawLimit, 10);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        enforcedLimit = parsed;
-      } else {
+      // Strict parse: reject partial numbers like "100000foo" (parseInt would not).
+      if (!/^\d+$/.test(rawLimit)) {
         console.warn(
-          `[query-validator] Invalid or zero QUERY_COST_LIMIT="${rawLimit}" — cost guard disabled`
+          `[query-validator] Invalid QUERY_COST_LIMIT="${rawLimit}" — cost guard disabled`
         );
+      } else {
+        const parsed = parseInt(rawLimit, 10);
+        if (parsed > 0) {
+          enforcedLimit = parsed;
+        } else {
+          console.warn(
+            `[query-validator] Invalid or zero QUERY_COST_LIMIT="${rawLimit}" — cost guard disabled`
+          );
+        }
       }
     }
 
