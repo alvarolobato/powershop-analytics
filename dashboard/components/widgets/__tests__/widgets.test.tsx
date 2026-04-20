@@ -10,6 +10,7 @@ import {
   DonutChartWidget,
   TableWidget,
   NumberWidget,
+  WidgetSkeleton,
 } from "../index";
 import { mergeComparisonSeries } from "../BarChartWidget";
 import type {
@@ -454,5 +455,38 @@ describe("DonutChartWidget with comparison", () => {
     render(<DonutChartWidget widget={widget} data={data} comparisonData={null} />);
     // No "Anterior:" text should appear (the title doesn't contain it)
     expect(screen.queryByText(/Anterior:/)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// WidgetSkeleton
+// ---------------------------------------------------------------------------
+
+describe("WidgetSkeleton", () => {
+  it("renders chart skeleton with data-testid and aria attributes", () => {
+    render(<WidgetSkeleton type="chart" />);
+    const el = screen.getByTestId("widget-skeleton");
+    expect(el).toBeInTheDocument();
+    expect(el).toHaveAttribute("role", "status");
+    expect(el).toHaveAttribute("aria-label", "Loading");
+  });
+
+  it("renders kpi skeleton with three placeholder blocks", () => {
+    const { container } = render(<WidgetSkeleton type="kpi" />);
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
+    // three sibling flex children
+    expect(container.querySelectorAll("[data-testid='widget-skeleton'] > div")).toHaveLength(3);
+  });
+
+  it("renders table skeleton with five row placeholders", () => {
+    const { container } = render(<WidgetSkeleton type="table" />);
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
+    expect(container.querySelectorAll("[data-testid='widget-skeleton'] > div")).toHaveLength(5);
+  });
+
+  it("renders number skeleton with a single placeholder block", () => {
+    const { container } = render(<WidgetSkeleton type="number" />);
+    expect(screen.getByTestId("widget-skeleton")).toBeInTheDocument();
+    expect(container.querySelectorAll("[data-testid='widget-skeleton'] > div")).toHaveLength(1);
   });
 });
