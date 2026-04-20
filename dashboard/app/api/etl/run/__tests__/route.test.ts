@@ -23,7 +23,8 @@ describe("POST /api/etl/run", () => {
   });
 
   it("returns 202 with trigger_id when no run is active", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // active run check
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockResolvedValueOnce([{ id: 42 }]);
 
     const res = await POST();
@@ -34,6 +35,18 @@ describe("POST /api/etl/run", () => {
     expect(mockSql).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO etl_manual_trigger"),
     );
+  });
+
+  it("returns 202 with already_queued when a pending trigger exists", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // active run check
+    mockQuery.mockResolvedValueOnce({ rows: [[55]], columns: ["id"] }); // pending trigger exists
+
+    const res = await POST();
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body).toEqual({ trigger_id: 55, already_queued: true });
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it("returns 409 with run_id when a non-stale run is active", async () => {
@@ -57,6 +70,7 @@ describe("POST /api/etl/run", () => {
       rows: [[3, staleStart]],
       columns: ["id", "started_at"],
     });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockResolvedValueOnce([{ id: 99 }]);
 
     const res = await POST();
@@ -67,7 +81,8 @@ describe("POST /api/etl/run", () => {
   });
 
   it("coerces string trigger_id to number (BIGSERIAL returns string)", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // active run check
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockResolvedValueOnce([{ id: "42" }]);
 
     const res = await POST();
@@ -89,7 +104,8 @@ describe("POST /api/etl/run", () => {
   });
 
   it("returns 503 when the INSERT throws", async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // active run check
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockRejectedValueOnce(new Error("DB write error"));
 
     const res = await POST();
@@ -101,6 +117,8 @@ describe("POST /api/etl/run", () => {
 
   it("returns 202 with existing trigger_id when a pending trigger already exists (idempotent)", async () => {
     // No active run
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    // No pending before INSERT (race: another client inserted between SELECT and INSERT)
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
     // ON CONFLICT DO NOTHING — INSERT returns no rows
     mockSql.mockResolvedValueOnce([]);

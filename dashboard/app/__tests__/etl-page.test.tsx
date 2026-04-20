@@ -395,4 +395,62 @@ describe("EtlMonitorPage", () => {
       expect(screen.queryByText("Error al iniciar la sincronización")).not.toBeInTheDocument();
     });
   });
+
+  // ── 13. Button stays disabled while POST is in-flight ─────────────────────
+
+  it("button stays disabled while POST /api/etl/run is in-flight", async () => {
+    let resolvePost!: (value: Response) => void;
+    const postPromise = new Promise<Response>((resolve) => {
+      resolvePost = resolve;
+    });
+
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url === "/api/etl/run" && options?.method === "POST") {
+        return postPromise;
+      }
+      if (url.startsWith("/api/etl/runs")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_RUNS_RESPONSE),
+        });
+      }
+      if (url.startsWith("/api/etl/stats")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(MOCK_STATS_RESPONSE),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<EtlMonitorPage />);
+
+    // Wait for idle state
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).not.toBeDisabled();
+    });
+
+    // Click the button to start the POST (in-flight)
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("sync-now-button"));
+    });
+
+    // While POST is pending the button must be disabled and show "Iniciando…"
+    expect(screen.getByTestId("sync-now-button")).toBeDisabled();
+    expect(screen.getByTestId("sync-now-button")).toHaveTextContent("Iniciando…");
+
+    // Resolve the POST → button re-enables (no active run in this mock)
+    await act(async () => {
+      resolvePost({
+        ok: true,
+        status: 202,
+        json: () => Promise.resolve({ trigger_id: 1 }),
+      } as unknown as Response);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("sync-now-button")).not.toBeDisabled();
+    });
+  });
 });

@@ -499,14 +499,14 @@ def main() -> None:
         _init_schema(conn_pg)
 
         if args.once:
-            run_full_sync(conn_4d, conn_pg)
+            run_full_sync(conn_4d, conn_pg, trigger="cli")
         else:
             import schedule
 
             logger.info("Scheduler mode: daily sync at %02d:00", cron_hour)
 
             def _job() -> None:
-                run_full_sync(conn_4d, conn_pg)
+                run_full_sync(conn_4d, conn_pg, trigger="scheduled")
 
             schedule.every().day.at(f"{cron_hour:02d}:00").do(_job)
 
