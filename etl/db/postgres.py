@@ -451,6 +451,50 @@ def record_table_sync(
         raise
 
 
+def check_and_consume_trigger(conn) -> int | None:
+    """Atomically pick up one pending trigger row.
+
+    Returns the trigger row id if a trigger was found and picked up, None otherwise.
+    Uses FOR UPDATE SKIP LOCKED so concurrent processes never double-pick.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE etl_manual_trigger
+                SET status = 'picked_up', picked_up_at = NOW()
+                WHERE id = (
+                    SELECT id FROM etl_manual_trigger
+                    WHERE status = 'pending'
+                    ORDER BY requested_at, id
+                    LIMIT 1
+                    FOR UPDATE SKIP LOCKED
+                )
+                RETURNING id
+                """
+            )
+            row = cur.fetchone()
+            conn.commit()
+            return row[0] if row is not None else None
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def update_trigger_run_id(conn, trigger_id: int, run_id: int) -> None:
+    """Set run_id on the trigger row with the given trigger_id."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE etl_manual_trigger SET run_id = %s WHERE id = %s",
+                (run_id, trigger_id),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def set_watermark(
     conn,
     table_name: str,
