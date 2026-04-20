@@ -34,7 +34,7 @@ jobs:
         if: always()
         with:
           name: etl-coverage
-          path: etl/coverage.xml
+          path: coverage.xml
 
   dashboard-test:
     runs-on: ubuntu-latest
