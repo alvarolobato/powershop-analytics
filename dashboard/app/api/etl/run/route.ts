@@ -4,11 +4,12 @@
  * Requests a manual ETL sync by inserting a row into etl_manual_trigger.
  * Returns 409 if a non-stale sync is already running (started < 4h ago).
  * A run started more than 4 hours ago is treated as stale and does not block.
- * Deduplicates pending triggers: if one already exists, returns it directly.
+ * If a pending trigger already exists, returns it with already_queued: true
+ * without inserting again. Races (two concurrent first inserts) use ON CONFLICT.
  *
  * Response codes:
  *   202 { trigger_id: number }                                — trigger inserted
- *   202 { trigger_id: number, already_queued: true }          — pending trigger exists
+ *   202 { trigger_id: number, already_queued: true }          — pending trigger already existed
  *   409 { error: "already_running", run_id: number }          — sync already active
  *   503 { error: "db_error" }                                 — database unreachable
  */
@@ -53,13 +54,23 @@ export async function POST(): Promise<NextResponse> {
       );
     }
 
+    // The unique partial index on status='pending' prevents duplicate pending rows.
+    // ON CONFLICT DO NOTHING + RETURNING may return no rows if one already exists;
+    // fetch the existing row in that case so we always return a trigger_id.
     const rows = await sql<{ id: number }>(
-      `INSERT INTO etl_manual_trigger (status) VALUES ('pending') RETURNING id`,
+      `INSERT INTO etl_manual_trigger (status) VALUES ('pending')
+       ON CONFLICT (status) WHERE status = 'pending' DO NOTHING
+       RETURNING id`,
     );
 
-    const triggerId = Number(rows[0]?.id);
-    if (!triggerId) {
-      return NextResponse.json({ error: "db_error" }, { status: 503 });
+    let triggerId: number;
+    if (rows.length > 0) {
+      triggerId = Number(rows[0].id);
+    } else {
+      const existing = await query(
+        `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
+      );
+      triggerId = Number(existing.rows[0][0]);
     }
     return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
   } catch (err) {

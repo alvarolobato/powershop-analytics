@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock the LLM module before importing the route -------------------------
 
-const { mockModifyDashboard } = vi.hoisted(() => {
-  return { mockModifyDashboard: vi.fn() };
-});
+const { mockModifyDashboard } = vi.hoisted(() => ({
+  mockModifyDashboard: vi.fn(),
+}));
 
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
@@ -15,6 +15,7 @@ vi.mock("@/lib/llm", async () => {
 });
 
 import { POST } from "../route";
+import { BudgetExceededError } from "@/lib/llm";
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -149,8 +150,11 @@ describe("POST /api/dashboard/modify", () => {
     expect(json.requestId).toBeDefined();
   });
 
-  it("returns 429 when LLM throws a rate limit error", async () => {
-    mockModifyDashboard.mockRejectedValue(new Error("rate limit exceeded (429)"));
+  it("returns 429 when LLM throws an error with status 429", async () => {
+    const rateLimitError = Object.assign(new Error("Rate limit exceeded"), {
+      status: 429,
+    });
+    mockModifyDashboard.mockRejectedValue(rateLimitError);
 
     const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
 
@@ -158,6 +162,19 @@ describe("POST /api/dashboard/modify", () => {
     const json = await res.json();
     expect(json.code).toBe("LLM_RATE_LIMIT");
     expect(json.requestId).toBeDefined();
+  });
+
+  it("returns 429 with LLM_BUDGET_EXCEEDED when budget is exhausted", async () => {
+    mockModifyDashboard.mockRejectedValue(
+      new BudgetExceededError("Límite diario de generación alcanzado. Reintente mañana."),
+    );
+
+    const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
+
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.code).toBe("LLM_BUDGET_EXCEEDED");
+    expect(json.error).toContain("Límite diario");
   });
 
   it("returns 400 when LLM returns invalid JSON", async () => {

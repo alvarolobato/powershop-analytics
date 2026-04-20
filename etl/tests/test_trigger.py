@@ -1,14 +1,15 @@
 """Unit tests for the manual ETL trigger mechanism.
 
 Covers:
-  RISK-TRIG-1  check_and_consume_trigger returns True when a pending row exists
-  RISK-TRIG-2  check_and_consume_trigger returns False when no pending row exists
+  RISK-TRIG-1  check_and_consume_trigger returns trigger id (int) when a pending row exists
+  RISK-TRIG-2  check_and_consume_trigger returns None when no pending row exists
   RISK-TRIG-3  Manual trigger fires run_full_sync with trigger='manual'
   RISK-TRIG-4  A second trigger while a run is active does NOT start a second run
   RISK-TRIG-5  run_full_sync passes trigger param to create_run
   RISK-TRIG-6  Scheduled runs still use trigger='scheduled'
   RISK-TRIG-7  check_and_consume_trigger marks row status='picked_up'
-  RISK-TRIG-8  Integration: real PG trigger row → check_and_consume_trigger → manual run
+  RISK-TRIG-8  Transient poll error is logged and loop continues; run_full_sync not called
+  RISK-TRIG-9  Integration: real PG trigger row → check_and_consume_trigger → manual run
 """
 
 from __future__ import annotations
@@ -26,8 +27,8 @@ def _make_pg_conn(fetchone_result=None):
     """Return a mock psycopg2 connection whose cursor().fetchone() returns *fetchone_result*."""
     conn = MagicMock(name="conn_pg")
     cursor = MagicMock()
-    cursor.__enter__ = lambda s: s
-    cursor.__exit__ = MagicMock(return_value=False)
+    cursor.__enter__.return_value = cursor
+    cursor.__exit__.return_value = False
     cursor.fetchone.return_value = fetchone_result
     conn.cursor.return_value = cursor
     return conn
@@ -39,18 +40,18 @@ def _make_pg_conn(fetchone_result=None):
 
 
 class TestCheckAndConsumeTrigger:
-    def test_returns_true_when_pending_row(self):
+    def test_returns_trigger_id_when_pending_row(self):
         from etl.db.postgres import check_and_consume_trigger
 
-        conn = _make_pg_conn(fetchone_result=(1,))
-        assert check_and_consume_trigger(conn) is True
+        conn = _make_pg_conn(fetchone_result=(42,))
+        assert check_and_consume_trigger(conn) == 42
         conn.commit.assert_called_once()
 
-    def test_returns_false_when_no_pending_row(self):
+    def test_returns_none_when_no_pending_row(self):
         from etl.db.postgres import check_and_consume_trigger
 
         conn = _make_pg_conn(fetchone_result=None)
-        assert check_and_consume_trigger(conn) is False
+        assert check_and_consume_trigger(conn) is None
         conn.commit.assert_called_once()
 
     def test_marks_status_picked_up(self):
@@ -117,7 +118,9 @@ _POSTGRES_HELPER_PATHS = [
 ]
 
 
-def _run_full_sync_mocked(trigger: str = "scheduled") -> dict:
+def _run_full_sync_mocked(
+    trigger: str = "scheduled", trigger_id: int | None = None
+) -> dict:
     """Run run_full_sync with all external calls mocked; return captured mocks."""
     from etl.main import run_full_sync
 
@@ -139,7 +142,7 @@ def _run_full_sync_mocked(trigger: str = "scheduled") -> dict:
         stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
 
         conn_4d, conn_pg = MagicMock(), MagicMock()
-        run_full_sync(conn_4d, conn_pg, trigger=trigger)
+        run_full_sync(conn_4d, conn_pg, trigger=trigger, trigger_id=trigger_id)
 
     return captured
 
@@ -189,8 +192,11 @@ class TestRunFullSyncTriggerParam:
         assert captured_trigger == ["scheduled"]
 
     def test_update_trigger_run_id_called_for_manual(self):
-        mocks = _run_full_sync_mocked(trigger="manual")
+        mocks = _run_full_sync_mocked(trigger="manual", trigger_id=1)
         mocks["update_trigger_run_id"].assert_called_once()
+        args = mocks["update_trigger_run_id"].call_args.args
+        assert args[1] == 1, f"Expected trigger_id=1, got {args[1]!r}"
+        assert args[2] == 99, f"Expected run_id=99, got {args[2]!r}"
 
     def test_update_trigger_run_id_not_called_for_scheduled(self):
         mocks = _run_full_sync_mocked(trigger="scheduled")
@@ -204,10 +210,10 @@ class TestRunFullSyncTriggerParam:
 
 class TestSchedulerLoopTriggerCheck:
     def test_manual_trigger_fires_run_full_sync(self):
-        """When check_and_consume_trigger returns True and no run is active,
-        run_full_sync is called with trigger='manual'."""
+        """When a trigger is pending and no run is active, run_full_sync is called
+        with trigger='manual' and the trigger_id."""
         with (
-            patch("etl.db.postgres.check_and_consume_trigger", return_value=True),
+            patch("etl.db.postgres.check_and_consume_trigger", return_value=7),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),
@@ -221,15 +227,15 @@ class TestSchedulerLoopTriggerCheck:
             except StopIteration:
                 pass
 
-            mock_sync.assert_called_once_with(conn_4d, conn_pg, trigger="manual")
+            mock_sync.assert_called_once_with(
+                conn_4d, conn_pg, trigger="manual", trigger_id=7
+            )
 
     def test_second_trigger_while_active_is_not_consumed(self):
-        """When a run is already active, the trigger row is NOT consumed and
-        run_full_sync is NOT called (trigger stays pending for the next poll)."""
+        """When a run is already active, check_and_consume_trigger is never called
+        so the pending trigger row is preserved for the next poll tick."""
         with (
-            patch(
-                "etl.db.postgres.check_and_consume_trigger", return_value=True
-            ) as mock_consume,
+            patch("etl.db.postgres.check_and_consume_trigger") as mock_consume,
             patch("etl.main._is_run_active", return_value=True),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),
@@ -247,9 +253,32 @@ class TestSchedulerLoopTriggerCheck:
             mock_sync.assert_not_called()
 
     def test_no_trigger_no_manual_run(self):
-        """When check_and_consume_trigger returns False, run_full_sync is not called."""
+        """When check_and_consume_trigger returns None, run_full_sync is not called."""
         with (
-            patch("etl.db.postgres.check_and_consume_trigger", return_value=False),
+            patch("etl.db.postgres.check_and_consume_trigger", return_value=None),
+            patch("etl.main._is_run_active", return_value=False),
+            patch("etl.main.run_full_sync") as mock_sync,
+            patch("schedule.run_pending"),
+            patch("time.sleep", side_effect=StopIteration),
+        ):
+            import etl.main as main_mod
+
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            try:
+                main_mod._run_scheduler_loop(conn_4d, conn_pg)
+            except StopIteration:
+                pass
+
+            mock_sync.assert_not_called()
+
+    def test_poll_exception_does_not_crash_loop(self):
+        """RISK-TRIG-7: transient DB error in check_and_consume_trigger is logged;
+        the loop continues and run_full_sync is not called."""
+        with (
+            patch(
+                "etl.db.postgres.check_and_consume_trigger",
+                side_effect=RuntimeError("transient"),
+            ),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("schedule.run_pending"),
@@ -267,7 +296,7 @@ class TestSchedulerLoopTriggerCheck:
 
 
 # ---------------------------------------------------------------------------
-# RISK-TRIG-8: Integration test (real PostgreSQL via pg_conn fixture)
+# RISK-TRIG-9: Integration test (real PostgreSQL via pg_conn fixture)
 # ---------------------------------------------------------------------------
 
 
@@ -290,9 +319,10 @@ class TestIntegrationTrigger:
         pg_conn.commit()
 
         try:
-            # check_and_consume_trigger must find it and return True
             found = check_and_consume_trigger(pg_conn)
-            assert found is True, "check_and_consume_trigger should return True"
+            assert found == trigger_id, (
+                f"check_and_consume_trigger should return trigger id {trigger_id}, got {found!r}"
+            )
 
             # Row must be marked picked_up in the DB
             with pg_conn.cursor() as cur:
@@ -330,7 +360,7 @@ class TestIntegrationTrigger:
                 from etl.main import run_full_sync
 
                 conn_4d = MagicMock()
-                run_full_sync(conn_4d, pg_conn, trigger="manual")
+                run_full_sync(conn_4d, pg_conn, trigger="manual", trigger_id=trigger_id)
 
                 mock_create_run.assert_called_once()
                 call_trigger = mock_create_run.call_args.args[1]

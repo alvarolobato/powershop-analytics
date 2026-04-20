@@ -135,6 +135,146 @@ describe("llm", () => {
     });
   });
 
+  describe("retry and backoff", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    it("retries on 429 with 1s then 2s delay", async () => {
+      const error429 = Object.assign(new Error("Rate limit exceeded"), {
+        status: 429,
+        headers: {},
+      });
+      mockCreate
+        .mockRejectedValueOnce(error429)
+        .mockRejectedValueOnce(error429)
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: '{"ok":true}' } }],
+        });
+
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+      const resultPromise = generateDashboard("test");
+
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(result).toBe('{"ok":true}');
+      expect(mockCreate).toHaveBeenCalledTimes(3);
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 2000);
+    });
+
+    it("does not retry on 400 bad request", async () => {
+      const error400 = Object.assign(new Error("Bad request"), { status: 400 });
+      mockCreate.mockRejectedValue(error400);
+
+      await expect(generateDashboard("test")).rejects.toMatchObject({
+        status: 400,
+      });
+      expect(mockCreate).toHaveBeenCalledTimes(1);
+    });
+
+    it("retries on network error (no status) with backoff", async () => {
+      const networkError = new Error("Network failure");
+      mockCreate
+        .mockRejectedValueOnce(networkError)
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: '{"ok":true}' } }],
+        });
+
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+      const resultPromise = generateDashboard("test");
+
+      await vi.runAllTimersAsync();
+      const result = await resultPromise;
+
+      expect(result).toBe('{"ok":true}');
+      expect(mockCreate).toHaveBeenCalledTimes(2);
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1000);
+    });
+
+    it("exhausts retries and re-throws after 3 attempts", async () => {
+      const error503 = Object.assign(new Error("Service unavailable"), {
+        status: 503,
+      });
+      mockCreate.mockRejectedValue(error503);
+
+      // Attach rejection handler before advancing timers to avoid unhandled rejection
+      const assertion = expect(generateDashboard("test")).rejects.toMatchObject({
+        status: 503,
+      });
+      await vi.runAllTimersAsync();
+      await assertion;
+      expect(mockCreate).toHaveBeenCalledTimes(3);
+    });
+
+    it("respects Retry-After header on 429", async () => {
+      const error429 = Object.assign(new Error("Rate limit exceeded"), {
+        status: 429,
+        headers: { "retry-after": "5" },
+      });
+      mockCreate
+        .mockRejectedValueOnce(error429)
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: '{"ok":true}' } }],
+        });
+
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+      const resultPromise = generateDashboard("test");
+
+      await vi.runAllTimersAsync();
+      await resultPromise;
+
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 5000);
+    });
+
+    it("respects Retry-After header with canonical casing", async () => {
+      const error429 = Object.assign(new Error("Rate limit exceeded"), {
+        status: 429,
+        headers: { "Retry-After": "7" },
+      });
+      mockCreate
+        .mockRejectedValueOnce(error429)
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: '{"ok":true}' } }],
+        });
+
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+      const resultPromise = generateDashboard("test");
+
+      await vi.runAllTimersAsync();
+      await resultPromise;
+
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 7000);
+    });
+
+    it("respects Retry-After header from a Headers instance", async () => {
+      const hdrs = new Headers({ "retry-after": "3" });
+      const error429 = Object.assign(new Error("Rate limit exceeded"), {
+        status: 429,
+        headers: hdrs,
+      });
+      mockCreate
+        .mockRejectedValueOnce(error429)
+        .mockResolvedValueOnce({
+          choices: [{ message: { content: '{"ok":true}' } }],
+        });
+
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout");
+      const resultPromise = generateDashboard("test");
+
+      await vi.runAllTimersAsync();
+      await resultPromise;
+
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 3000);
+    });
+  });
+
   describe("modifyDashboard", () => {
     it("includes current spec in the system prompt", async () => {
       const currentSpec = '{"title":"Existing","widgets":[]}';

@@ -113,7 +113,6 @@ export async function POST(request: Request) {
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
 
-    // Detect rate limit (case-insensitive)
     const isRateLimit =
       normalizedMessage.includes("rate limit") ||
       normalizedMessage.includes("ratelimit") ||
