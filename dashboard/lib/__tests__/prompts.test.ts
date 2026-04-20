@@ -100,7 +100,7 @@ describe("prompts", () => {
       expect(prompt).toContain("colec");
     });
 
-    it("all JSON examples in the prompt are valid DashboardSpec widgets", () => {
+    it("all JSON examples in the prompt except donut_chart are valid DashboardSpec widgets", () => {
       const jsonBlocks = [...prompt.matchAll(/```json\s*\n([\s\S]*?)\n```/g)].map(
         (m) => m[1],
       );
