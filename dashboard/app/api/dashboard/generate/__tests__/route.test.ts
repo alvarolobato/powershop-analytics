@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock the LLM module ---
-vi.mock("@/lib/llm", () => ({
-  generateDashboard: vi.fn(),
-}));
+vi.mock("@/lib/llm", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
+  return {
+    BudgetExceededError: actual.BudgetExceededError,
+    generateDashboard: vi.fn(),
+  };
+});
 
 // --- Mock the schema module (pass-through by default) ---
 vi.mock("@/lib/schema", async () => {
@@ -192,5 +196,79 @@ describe("POST /api/dashboard/generate", () => {
 
     const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
     expect(res.status).toBe(400);
+  });
+
+  it("includes allowedFields for donut_chart when LLM uses category/value instead of x/y", async () => {
+    const badSpec = {
+      title: "T",
+      widgets: [
+        { type: "donut_chart", title: "T", sql: "S", category: "c", value: "v" },
+      ],
+    };
+    mockGenerate.mockResolvedValue(JSON.stringify(badSpec));
+
+    const res = await POST(makeRequest({ prompt: "dame un donut de ventas" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.code).toBe("LLM_INVALID_RESPONSE");
+    expect(json.details).toBeDefined();
+    expect(Array.isArray(json.allowedFields)).toBe(true);
+    expect(json.allowedFields).toContain("x");
+    expect(json.allowedFields).toContain("y");
+  });
+
+  // --- donut_chart smoke tests ---
+
+  describe("donut_chart validation", () => {
+    it("accepts a donut_chart spec with x/y fields", async () => {
+      const mockSpec = {
+        title: "Mix por Familia",
+        widgets: [
+          {
+            id: "w1",
+            type: "donut_chart",
+            title: "Mix por Familia",
+            sql: "SELECT fami AS category, SUM(total_si) AS value FROM ps_ventas GROUP BY 1",
+            x: "category",
+            y: "value",
+          },
+        ],
+      };
+      mockGenerate.mockResolvedValue(JSON.stringify(mockSpec));
+
+      const res = await POST(makeRequest({ prompt: "dame un donut de ventas por familia" }));
+      const json = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(json.title).toBe("Mix por Familia");
+      expect(json.widgets).toHaveLength(1);
+      expect(json.widgets[0].type).toBe("donut_chart");
+      expect(json.widgets[0].x).toBe("category");
+      expect(json.widgets[0].y).toBe("value");
+    });
+
+    it("rejects a donut_chart spec with category/value fields (old buggy shape)", async () => {
+      const badSpec = {
+        title: "Mix por Familia",
+        widgets: [
+          {
+            id: "w1",
+            type: "donut_chart",
+            title: "Mix por Familia",
+            sql: "SELECT fami AS category, SUM(total_si) AS value FROM ps_ventas GROUP BY 1",
+            category: "category",
+            value: "value",
+          },
+        ],
+      };
+      mockGenerate.mockResolvedValue(JSON.stringify(badSpec));
+
+      const res = await POST(makeRequest({ prompt: "dame un donut de ventas por familia" }));
+      const json = await res.json();
+
+      expect(res.status).toBe(400);
+      expect(json.code).toBe("LLM_INVALID_RESPONSE");
+    });
   });
 });

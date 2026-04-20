@@ -470,6 +470,37 @@ ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_from TIMESTAM
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_to   TIMESTAMPTZ;
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS error_msg      TEXT;
 
+-- Transport channel: dashboard writes a row here; ETL polls and picks it up.
+CREATE TABLE IF NOT EXISTS etl_manual_trigger (
+    id           SERIAL       PRIMARY KEY,
+    requested_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    status       TEXT         NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'picked_up')),
+    picked_up_at TIMESTAMPTZ,
+    run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
+);
+
+-- Supports frequent polling/claim of the oldest pending manual trigger.
+CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending_requested_at
+    ON etl_manual_trigger (requested_at, id)
+    WHERE status = 'pending';
+
+-- ============================================================
+-- LLM usage tracking (Dashboard App)
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS llm_usage (
+    id                  SERIAL        PRIMARY KEY,
+    endpoint            TEXT          NOT NULL,
+    model               TEXT          NOT NULL,
+    prompt_tokens       INTEGER       NOT NULL,
+    completion_tokens   INTEGER       NOT NULL,
+    total_tokens        INTEGER       NOT NULL,
+    estimated_cost_usd  NUMERIC(12,6) NOT NULL,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)
@@ -611,3 +642,5 @@ ANALYZE dashboards;
 ANALYZE dashboard_versions;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
+ANALYZE etl_manual_trigger;
+ANALYZE llm_usage;

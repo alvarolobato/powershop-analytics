@@ -213,6 +213,10 @@ jobs:
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
+          # PAT for assigning copilot-pull-request-reviewer[bot]; GITHUB_TOKEN
+          # silently drops Copilot reviewer requests. Claude must use this
+          # specifically when calling requested_reviewers (see prompt below).
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--permission-mode bypassPermissions --max-turns 80"
@@ -280,9 +284,12 @@ jobs:
 
             ## Completion
             - If the PR has labels `ai-phase-copilot` or `ai-phase-opus`, do **NOT** call `requested_reviewers` — the workflow decides the next review step after you push.
-            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review:
+            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review.
+              GITHUB_TOKEN cannot assign Copilot — prefix the POST with the PAT exposed via `$COPILOT_PAT`
+              (fall back to the default token only if the env var is empty, so the warning path still fires):
               ```bash
-              gh api repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
+              GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" gh api \
+                repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
                 --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
               ```
             - Post a single summary comment listing: threads addressed (with fix), threads skipped
@@ -313,6 +320,11 @@ jobs:
         if: success() && steps.workflow_change.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          # PAT-capable token for Copilot reviewer assignment. GITHUB_TOKEN
+          # cannot assign copilot-pull-request-reviewer[bot]. Only used on
+          # the explicit requested_reviewers POST; all other gh calls still
+          # use GITHUB_TOKEN to keep PAT rate-limit spend minimal.
+          COPILOT_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ needs.resolve.outputs.pr_number }}
         run: |
@@ -355,16 +367,16 @@ jobs:
                 gh pr comment "$PR" --repo "$REPO" --body "⏳ **AI Factory**: Automated address-feedback ran, but **no Copilot or human review has landed yet**. Leaving the review request pending — will re-check on next trigger." || true
                 return 0
               fi
-              # No review and no pending request — retry Copilot.
+              # No review and no pending request — retry Copilot with the PAT-capable token.
               local post_result copilot_added
-              post_result=$(gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
+              post_result=$(GH_TOKEN="$COPILOT_TOKEN" gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
                 -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
               copilot_added=$(printf '%s' "$post_result" | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
               if [ "${copilot_added:-0}" -gt 0 ]; then
                 gh pr comment "$PR" --repo "$REPO" --body "🔁 **AI Factory**: No Copilot/human review found on PR — re-requested **Copilot** review before converging." || true
               else
                 gh pr edit "$PR" --repo "$REPO" --add-label "ai-blocked" || true
-                gh pr comment "$PR" --repo "$REPO" --body "⚠️ **AI Factory**: No Copilot/human review found **and** re-requesting Copilot returned no reviewer (likely a token-permissions issue with \`GITHUB_TOKEN\`). Not marking \`ai-awaiting-owner\`. cc @alvarolobato — please request Copilot review manually or check workflow token." || true
+                gh pr comment "$PR" --repo "$REPO" --body "⚠️ **AI Factory**: No Copilot/human review found **and** re-requesting Copilot returned no reviewer. This happens when \`secrets.COPILOT_PAT\` is missing (GITHUB_TOKEN cannot assign Copilot) or the PAT lacks \`pull_requests: write\`. Not marking \`ai-awaiting-owner\`. cc @alvarolobato — set \`COPILOT_PAT\` or request the review manually." || true
               fi
               return 0
             fi
@@ -404,52 +416,64 @@ jobs:
           echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA)."
           echo "pushed=true" >> "$GITHUB_OUTPUT"
 
-          # Phased: 2× Copilot (cheap) then 2× Opus — see ai-worker.yml / ai-pr-review.yml
+          # Phased: 1× Copilot then 1× Opus — see ai-worker.yml / ai-pr-review.yml
+          # Ensure phase/handoff labels exist; if any are missing, the single
+          # multi-label `gh pr edit` below would fail and leave the PR stuck.
+          gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
+          gh label create "ai-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
+          gh label create "ai-cp-after-1" --color "0e8a16" --description "AI Factory: addressed Copilot review" 2>/dev/null || true
+          gh label create "ai-o-after-1" --color "0e8a16" --description "AI Factory: addressed Opus review" 2>/dev/null || true
+          gh label create "ai-ready-for-review" --color "fbca04" --description "AI Factory: PR ready for automated review" 2>/dev/null || true
+
           if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
-            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
-              gh pr edit "$PR" --repo "$REPO" --add-label "ai-cp-after-1" || true
-              POST_OUT=$(gh api "repos/$REPO/pulls/$PR/requested_reviewers" --method POST \
-                -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
-              COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
-                | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
-              if [ "${COPILOT_ADDED:-0}" -gt 0 ]; then
-                gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot round **1**/2 addressed — requested **round 2** Copilot review." || true
-              else
-                gh pr edit "$PR" --repo "$REPO" --add-label "ai-blocked" || true
-                gh pr comment "$PR" --body "⚠️ **AI Factory**: Tried to request **Copilot round 2** review but the API returned no reviewer (likely \`GITHUB_TOKEN\` permissions). cc @alvarolobato — please request manually." || true
-                echo "::warning::Copilot round-2 request silently failed on PR #$PR"
-              fi
-              exit 0
-            fi
-            if ! echo ",$LABELS," | grep -q ",ai-cp-after-2,"; then
+            if echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+              # Self-heal: a prior transition partially applied (both labels present).
+              # Complete the label move without re-dispatching Opus review.
               gh pr edit "$PR" --repo "$REPO" \
-                --add-label "ai-cp-after-2" \
                 --remove-label "ai-phase-copilot" \
                 --add-label "ai-phase-opus" \
                 --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
-              gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot rounds **complete** — starting **Opus** review (pass 1 of 2)." || true
+              gh pr comment "$PR" --body "🤖 **AI Factory**: Self-healed partial phase transition — cleared \`ai-phase-copilot\`." || true
               exit 0
             fi
+            gh pr edit "$PR" --repo "$REPO" \
+              --add-label "ai-cp-after-1" \
+              --remove-label "ai-phase-copilot" \
+              --add-label "ai-phase-opus" \
+              --add-label "ai-ready-for-review" || true
+            gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+            gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot review addressed — starting **Opus** review." || true
+            exit 0
           fi
 
           if echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
-            if ! echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
-              gh pr edit "$PR" --repo "$REPO" --add-label "ai-o-after-1" --add-label "ai-ready-for-review" || true
-              gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
-              gh pr comment "$PR" --body "🤖 **AI Factory**: Opus pass **1**/2 addressed — running **Opus** pass 2." || true
-              exit 0
-            fi
-            if ! echo ",$LABELS," | grep -q ",ai-o-after-2,"; then
+            if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              # Self-heal: prior handoff partially applied. Finish clearing phase labels
+              # and re-run the handoff gate — it's idempotent (label + comment only).
               gh pr edit "$PR" --repo "$REPO" \
-                --add-label "ai-o-after-2" \
                 --remove-label "ai-phase-opus" \
                 --remove-label "ai-ready-for-review" \
                 --remove-label "ai-blocked" \
                 --remove-label "ai-auto-retry" || true
-              owner_handoff_or_ci_gate "✅ **AI Factory**: Automated **Opus** passes complete (**2**/2). PR is ready for human merge decision."
+              owner_handoff_or_ci_gate "✅ **AI Factory**: Self-healed partial phase transition — automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
               exit 0
             fi
+            gh pr edit "$PR" --repo "$REPO" \
+              --add-label "ai-o-after-1" \
+              --remove-label "ai-phase-opus" \
+              --remove-label "ai-ready-for-review" \
+              --remove-label "ai-blocked" \
+              --remove-label "ai-auto-retry" || true
+            owner_handoff_or_ci_gate "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
+            exit 0
+          fi
+
+          # Post-terminal guard: if this PR already finished its automated
+          # cycle (ai-o-after-1 set by the Opus branch above), don't fall
+          # through to the legacy path and re-dispatch Opus review.
+          if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            echo "PR #$PR already completed automated review (ai-o-after-1 present) — skipping legacy dispatch."
+            exit 0
           fi
 
           # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).
@@ -462,7 +486,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          RESET_LINE=""
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+            RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
+            if [ -n "$RESET_ISO" ]; then
+              RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
+            fi
+          fi
           gh pr comment ${{ needs.resolve.outputs.pr_number }} \
-            --body "❌ AI Address Feedback failed (rate limit or transient error). Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Address Feedback failed (rate limit or transient error). Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
           gh pr edit ${{ needs.resolve.outputs.pr_number }} \
             --add-label "ai-blocked" --add-label "ai-auto-retry" || true
