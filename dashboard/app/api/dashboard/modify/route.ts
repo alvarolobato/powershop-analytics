@@ -8,7 +8,11 @@
  * Response: 200 with updated DashboardSpec, or 400/429/500 on error.
  */
 import { NextResponse } from "next/server";
-import { modifyDashboard, BudgetExceededError } from "@/lib/llm";
+import {
+  modifyDashboard,
+  BudgetExceededError,
+  CircuitBreakerOpenError,
+} from "@/lib/llm";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import {
   formatApiError,
@@ -102,11 +106,17 @@ export async function POST(request: Request) {
       JSON.stringify(specParse.data),
       prompt.trim(),
     );
-  } catch (err) {
+  } catch (err: unknown) {
     if (err instanceof BudgetExceededError) {
       return NextResponse.json(
         formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
         { status: 429 },
+      );
+    }
+    if (err instanceof CircuitBreakerOpenError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
+        { status: 503 },
       );
     }
     const message = err instanceof Error ? err.message : String(err);

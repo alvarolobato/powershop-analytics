@@ -29,10 +29,12 @@ vi.mock("../llm-usage", () => ({
   },
 }));
 
+import { _resetCircuitBreaker } from "../llm-circuit-breaker";
 import { generateDashboard, modifyDashboard, resetClient } from "../llm";
 
 describe("llm", () => {
   beforeEach(() => {
+    _resetCircuitBreaker();
     vi.stubEnv("OPENROUTER_API_KEY", "test-key-123");
     resetClient();
     mockCreate.mockReset();
@@ -41,6 +43,7 @@ describe("llm", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     resetClient();
+    _resetCircuitBreaker();
   });
 
   describe("generateDashboard", () => {

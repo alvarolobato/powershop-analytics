@@ -11,8 +11,10 @@ import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import type { ReviewContent } from "./review-prompts";
 import { logUsage, checkDailyBudget } from "./llm-usage";
+import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 
 export { BudgetExceededError } from "./llm-usage";
+export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
 
 const EMPTY_USAGE = {
   prompt_tokens: 0,
@@ -146,16 +148,18 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
 
   await checkDailyBudget();
 
-  const response = await withRetry(() =>
-    client.chat.completions.create({
-      model: getModel(),
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 8192,
-    }),
+  const response = await callWithCircuitBreaker(() =>
+    withRetry(() =>
+      client.chat.completions.create({
+        model: getModel(),
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+      }),
+    ),
   );
 
   void logUsage("generateDashboard", getModel(), response.usage ?? EMPTY_USAGE);
@@ -181,16 +185,18 @@ export async function modifyDashboard(
 
   await checkDailyBudget();
 
-  const response = await withRetry(() =>
-    client.chat.completions.create({
-      model: getModel(),
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      temperature: 0.2,
-      max_tokens: 8192,
-    }),
+  const response = await callWithCircuitBreaker(() =>
+    withRetry(() =>
+      client.chat.completions.create({
+        model: getModel(),
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+      }),
+    ),
   );
 
   void logUsage("modifyDashboard", getModel(), response.usage ?? EMPTY_USAGE);
@@ -216,18 +222,22 @@ export async function suggestDashboards(
 
   await checkDailyBudget();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
-      },
-    ],
-    temperature: 0.2,
-    max_tokens: 8192,
-  });
+  const response = await callWithCircuitBreaker(() =>
+    withRetry(() =>
+      client.chat.completions.create({
+        model: getModel(),
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content: `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+      }),
+    ),
+  );
 
   void logUsage("suggestDashboards", getModel(), response.usage ?? EMPTY_USAGE);
 
@@ -255,19 +265,23 @@ export async function analyzeGaps(
 
   await checkDailyBudget();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content:
-          "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
-      },
-    ],
-    temperature: 0.2,
-    max_tokens: 8192,
-  });
+  const response = await callWithCircuitBreaker(() =>
+    withRetry(() =>
+      client.chat.completions.create({
+        model: getModel(),
+        messages: [
+          { role: "system", content: systemPrompt },
+          {
+            role: "user",
+            content:
+              "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
+          },
+        ],
+        temperature: 0.2,
+        max_tokens: 8192,
+      }),
+    ),
+  );
 
   void logUsage("analyzeGaps", getModel(), response.usage ?? EMPTY_USAGE);
 
@@ -293,15 +307,19 @@ export async function analyzeDashboard(
 
   await checkDailyBudget();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.3,
-    max_tokens: 4096,
-  });
+  const response = await callWithCircuitBreaker(() =>
+    withRetry(() =>
+      client.chat.completions.create({
+        model: getModel(),
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 4096,
+      }),
+    ),
+  );
 
   void logUsage("analyzeDashboard", getModel(), response.usage ?? EMPTY_USAGE);
 
@@ -325,14 +343,16 @@ export async function generateReview(
 
   await checkDailyBudget();
 
-  const response = await client.chat.completions.create({
-    model: getModel(),
-    messages: [
-      { role: "system", content: systemPrompt },
-    ],
-    temperature: 0.2,
-    max_tokens: 4096,
-  });
+  const response = await callWithCircuitBreaker(() =>
+    withRetry(() =>
+      client.chat.completions.create({
+        model: getModel(),
+        messages: [{ role: "system", content: systemPrompt }],
+        temperature: 0.2,
+        max_tokens: 4096,
+      }),
+    ),
+  );
 
   void logUsage("generateReview", getModel(), response.usage ?? EMPTY_USAGE);
 
@@ -410,12 +430,16 @@ export async function generateSuggestions(
     const client = getClient();
     const prompt = buildSuggestionPrompt(serializedData, lastExchange);
 
-    const response = await client.chat.completions.create({
-      model: getModel(),
-      messages: [{ role: "user", content: prompt }],
-      temperature: 0.5,
-      max_tokens: 512,
-    });
+    const response = await callWithCircuitBreaker(() =>
+      withRetry(() =>
+        client.chat.completions.create({
+          model: getModel(),
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.5,
+          max_tokens: 512,
+        }),
+      ),
+    );
 
     void logUsage("generateSuggestions", getModel(), response.usage ?? EMPTY_USAGE);
 

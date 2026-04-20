@@ -5,6 +5,7 @@ vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
     BudgetExceededError: actual.BudgetExceededError,
+    CircuitBreakerOpenError: actual.CircuitBreakerOpenError,
     generateDashboard: vi.fn(),
   };
 });
@@ -18,7 +19,11 @@ vi.mock("@/lib/schema", async () => {
 });
 
 import { POST } from "../route";
-import { generateDashboard, BudgetExceededError } from "@/lib/llm";
+import {
+  generateDashboard,
+  BudgetExceededError,
+  CircuitBreakerOpenError,
+} from "@/lib/llm";
 
 const mockGenerate = vi.mocked(generateDashboard);
 
@@ -145,6 +150,17 @@ describe("POST /api/dashboard/generate", () => {
     expect(res.status).toBe(429);
     expect(json.code).toBe("LLM_BUDGET_EXCEEDED");
     expect(json.error).toContain("Límite diario");
+  });
+
+  it("returns 503 with LLM_CIRCUIT_OPEN when the LLM circuit is open", async () => {
+    mockGenerate.mockRejectedValue(new CircuitBreakerOpenError());
+
+    const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(503);
+    expect(json.code).toBe("LLM_CIRCUIT_OPEN");
+    expect(json.error).toMatch(/no disponible|Inténtelo/i);
   });
 
   it("returns 500 when LLM throws a generic error", async () => {

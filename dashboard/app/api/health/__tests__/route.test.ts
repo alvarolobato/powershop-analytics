@@ -7,6 +7,7 @@ describe("GET /api/health", () => {
     expect(response.status).toBe(200);
 
     const body = await response.json();
-    expect(body).toEqual({ status: "ok" });
+    expect(body.status).toBe("ok");
+    expect(["closed", "open", "half-open"]).toContain(body.llm_circuit);
   });
 });
