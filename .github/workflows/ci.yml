@@ -25,11 +25,16 @@ jobs:
         with:
           python-version: '3.12'
       - run: pip install -r etl/requirements-dev.txt
-      - run: pytest etl/tests/ -x --tb=short -q
+      - run: pytest etl/tests/ -x --tb=short -q --cov=etl --cov-report=term-missing --cov-report=xml
         env:
           # Tests that need live connections will skip gracefully
           P4D_HOST: ""
           POSTGRES_DSN: ""
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: etl-coverage
+          path: coverage.xml
 
   dashboard-test:
     runs-on: ubuntu-latest

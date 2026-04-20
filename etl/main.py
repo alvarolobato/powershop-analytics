@@ -399,42 +399,6 @@ def run_full_sync(
 
 
 # ---------------------------------------------------------------------------
-# Connection test
-# ---------------------------------------------------------------------------
-
-
-def _test_connections(config) -> tuple:
-    """Attempt to connect to both 4D and PostgreSQL.  Exit(1) on failure.
-
-    Returns (conn_4d, conn_pg) on success.
-    """
-    from etl.db import fourd, postgres
-
-    conn_4d = None
-    conn_pg = None
-
-    logger.info("Testing 4D connection to %s:%d ...", config.p4d_host, config.p4d_port)
-    try:
-        conn_4d = fourd.get_connection(config)
-        logger.info("4D connection OK")
-    except Exception as exc:
-        logger.error("Cannot connect to 4D: %s", exc)
-        sys.exit(1)
-
-    logger.info("Testing PostgreSQL connection ...")
-    try:
-        conn_pg = postgres.get_connection(config)
-        logger.info("PostgreSQL connection OK")
-    except Exception as exc:
-        logger.error("Cannot connect to PostgreSQL: %s", exc)
-        if conn_4d is not None:
-            conn_4d.close()
-        sys.exit(1)
-
-    return conn_4d, conn_pg
-
-
-# ---------------------------------------------------------------------------
 # Scheduler loop (extracted for testability)
 # ---------------------------------------------------------------------------
 
@@ -493,11 +457,39 @@ def main() -> None:
 
     cron_hour = int(os.environ.get("ETL_CRON_HOUR", "2"))
 
-    conn_4d, conn_pg = _test_connections(config)
+    from etl.db import fourd, postgres
+
+    logger.info("Connecting to PostgreSQL ...")
+    try:
+        conn_pg = postgres.get_connection(config)
+        logger.info("PostgreSQL connection OK")
+    except Exception as exc:
+        logger.error("Cannot connect to PostgreSQL: %s", exc)
+        sys.exit(1)
 
     try:
         _init_schema(conn_pg)
+    except Exception:
+        logger.exception("Schema initialisation failed")
+        try:
+            conn_pg.close()
+        except Exception:
+            pass
+        sys.exit(1)
 
+    logger.info("Testing 4D connection to %s:%d ...", config.p4d_host, config.p4d_port)
+    try:
+        conn_4d = fourd.get_connection(config)
+        logger.info("4D connection OK")
+    except Exception as exc:
+        logger.error("Cannot connect to 4D: %s", exc)
+        try:
+            conn_pg.close()
+        except Exception:
+            pass
+        sys.exit(1)
+
+    try:
         if args.once:
             run_full_sync(conn_4d, conn_pg, trigger="cli")
         else:
