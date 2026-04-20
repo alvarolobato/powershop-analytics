@@ -58,7 +58,11 @@ conn.close()
     describe)
         TABLE="${1:?Table name required}"
         "$VENV_PYTHON" -c "
-import p4d, os, sys
+import p4d, os, re, sys
+_SAFE_ID = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+if not _SAFE_ID.match(sys.argv[1]):
+    print(f'ERROR: Invalid table name: {sys.argv[1]!r}. Only letters, digits, and underscores allowed.', file=sys.stderr)
+    sys.exit(1)
 conn = p4d.connect(host=os.environ['P4D_HOST'], port=int(os.environ['P4D_PORT']),
                    user=os.environ.get('P4D_USER',''), password=os.environ.get('P4D_PASSWORD',''))
 cur = conn.cursor()
@@ -114,7 +118,18 @@ conn.close()
         TABLE="${1:?Table name required}"
         N="${2:-5}"
         "$VENV_PYTHON" -c "
-import p4d, os, sys
+import p4d, os, re, sys
+_SAFE_ID = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+if not _SAFE_ID.match(sys.argv[1]):
+    print(f'ERROR: Invalid table name: {sys.argv[1]!r}. Only letters, digits, and underscores allowed.', file=sys.stderr)
+    sys.exit(1)
+try:
+    limit = int(sys.argv[2])
+    if limit <= 0:
+        raise ValueError
+except ValueError:
+    print(f'ERROR: Invalid LIMIT: {sys.argv[2]!r}. Must be a positive integer.', file=sys.stderr)
+    sys.exit(1)
 conn = p4d.connect(host=os.environ['P4D_HOST'], port=int(os.environ['P4D_PORT']),
                    user=os.environ.get('P4D_USER',''), password=os.environ.get('P4D_PASSWORD',''))
 cur = conn.cursor()
@@ -129,7 +144,7 @@ if not supported:
 display_cols = supported[:30]
 col_list = ', '.join(display_cols)
 try:
-    cur.execute(f'SELECT {col_list} FROM {sys.argv[1]} LIMIT {sys.argv[2]}')
+    cur.execute(f'SELECT {col_list} FROM {sys.argv[1]} LIMIT {limit}')
     if cur.description:
         headers = [d[0] for d in cur.description]
         rows = cur.fetchall()
@@ -152,7 +167,11 @@ conn.close()
     count)
         TABLE="${1:?Table name required}"
         "$VENV_PYTHON" -c "
-import p4d, os, sys
+import p4d, os, re, sys
+_SAFE_ID = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+if not _SAFE_ID.match(sys.argv[1]):
+    print(f'ERROR: Invalid table name: {sys.argv[1]!r}. Only letters, digits, and underscores allowed.', file=sys.stderr)
+    sys.exit(1)
 conn = p4d.connect(host=os.environ['P4D_HOST'], port=int(os.environ['P4D_PORT']),
                    user=os.environ.get('P4D_USER',''), password=os.environ.get('P4D_PASSWORD',''))
 cur = conn.cursor()
