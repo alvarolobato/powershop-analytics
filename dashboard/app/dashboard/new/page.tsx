@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
@@ -37,6 +37,14 @@ interface Gap {
 }
 
 type CreationTab = "templates" | "assistant" | "free";
+
+const CREATION_TAB_ORDER: CreationTab[] = ["templates", "assistant", "free"];
+
+function focusCreationTabButton(id: CreationTab) {
+  requestAnimationFrame(() => {
+    document.getElementById(`creation-tab-${id}-btn`)?.focus();
+  });
+}
 
 // ─── Role options ─────────────────────────────────────────────────────────────
 
@@ -301,6 +309,32 @@ export default function NewDashboard() {
 
   const isDisabled = loading || loadingTemplate !== null || loadingSuggestions || loadingGaps;
 
+  const handleCreationTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, current: CreationTab) => {
+    const idx = CREATION_TAB_ORDER.indexOf(current);
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = CREATION_TAB_ORDER[(idx + 1) % CREATION_TAB_ORDER.length]!;
+      setTab(next);
+      focusCreationTabButton(next);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const next =
+        CREATION_TAB_ORDER[(idx - 1 + CREATION_TAB_ORDER.length) % CREATION_TAB_ORDER.length]!;
+      setTab(next);
+      focusCreationTabButton(next);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      const next = CREATION_TAB_ORDER[0]!;
+      setTab(next);
+      focusCreationTabButton(next);
+    } else if (e.key === "End") {
+      e.preventDefault();
+      const next = CREATION_TAB_ORDER[CREATION_TAB_ORDER.length - 1]!;
+      setTab(next);
+      focusCreationTabButton(next);
+    }
+  };
+
   const tabDefs: { id: CreationTab; label: string; hint: string }[] = [
     { id: "templates", label: "Plantillas", hint: "Sin IA, inmediato" },
     { id: "assistant", label: "Asistente IA", hint: "Tareas, rol y cobertura" },
@@ -370,9 +404,11 @@ export default function NewDashboard() {
                 role="tab"
                 aria-selected={selected}
                 id={`creation-tab-${t.id}-btn`}
-                aria-controls={`creation-tab-panel-${t.id}`}
+                aria-controls={selected ? `creation-tab-panel-${t.id}` : undefined}
+                tabIndex={selected ? 0 : -1}
                 data-testid={`creation-tab-${t.id}`}
                 onClick={() => setTab(t.id)}
+                onKeyDown={(e) => handleCreationTabKeyDown(e, t.id)}
                 className={`relative -mb-px rounded-t-md border border-b-0 px-4 py-2.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                   selected
                     ? "border-tremor-border bg-tremor-background text-blue-600 dark:border-dark-tremor-border dark:bg-dark-tremor-background dark:text-blue-400"
@@ -387,13 +423,13 @@ export default function NewDashboard() {
         </div>
 
         {/* ─── Plantillas ─────────────────────────────────────────────────── */}
-        {tab === "templates" && (
-          <div
-            id="creation-tab-panel-templates"
-            role="tabpanel"
-            aria-labelledby="creation-tab-templates-btn"
-            className="pt-8"
-          >
+        <div
+          id="creation-tab-panel-templates"
+          role="tabpanel"
+          aria-labelledby="creation-tab-templates-btn"
+          hidden={tab !== "templates"}
+          className="pt-8"
+        >
             <div>
               <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                 Plantillas predefinidas
@@ -438,17 +474,16 @@ export default function NewDashboard() {
                 ))}
               </div>
             </div>
-          </div>
-        )}
+        </div>
 
         {/* ─── Asistente IA ───────────────────────────────────────────────── */}
-        {tab === "assistant" && (
-          <div
-            id="creation-tab-panel-assistant"
-            role="tabpanel"
-            aria-labelledby="creation-tab-assistant-btn"
-            className="space-y-10 pt-8"
-          >
+        <div
+          id="creation-tab-panel-assistant"
+          role="tabpanel"
+          aria-labelledby="creation-tab-assistant-btn"
+          hidden={tab !== "assistant"}
+          className="space-y-10 pt-8"
+        >
             <div>
               <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                 ¿Qué necesitas hacer?
@@ -628,17 +663,16 @@ export default function NewDashboard() {
                 </p>
               )}
             </div>
-          </div>
-        )}
+        </div>
 
         {/* ─── Descripción libre ───────────────────────────────────────────── */}
-        {tab === "free" && (
-          <div
-            id="creation-tab-panel-free"
-            role="tabpanel"
-            aria-labelledby="creation-tab-free-btn"
-            className="pt-8"
-          >
+        <div
+          id="creation-tab-panel-free"
+          role="tabpanel"
+          aria-labelledby="creation-tab-free-btn"
+          hidden={tab !== "free"}
+          className="pt-8"
+        >
             <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
               Descripción libre
             </h2>
@@ -677,8 +711,7 @@ export default function NewDashboard() {
                 {loading ? "Generando..." : "Generar Dashboard"}
               </button>
             </div>
-          </div>
-        )}
+        </div>
       </div>
     </div>
   );
