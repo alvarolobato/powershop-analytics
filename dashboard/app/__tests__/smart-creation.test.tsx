@@ -62,6 +62,26 @@ describe("NewDashboard page — smart creation sections", () => {
     expect(screen.getByTestId("creation-tab-free")).toBeInTheDocument();
   });
 
+  it("moves tab selection with Arrow keys (roving tabindex)", async () => {
+    render(<NewDashboard />);
+    const assistantBtn = screen.getByTestId("creation-tab-assistant");
+    assistantBtn.focus();
+    await act(async () => {
+      fireEvent.keyDown(assistantBtn, { key: "ArrowRight" });
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(screen.getByTestId("creation-tab-free"));
+    });
+
+    const freeBtn = screen.getByTestId("creation-tab-free");
+    await act(async () => {
+      fireEvent.keyDown(freeBtn, { key: "ArrowLeft" });
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(assistantBtn);
+    });
+  });
+
   it("renders the task cards section heading", () => {
     render(<NewDashboard />);
     expect(screen.getByText("¿Qué necesitas hacer?")).toBeInTheDocument();
