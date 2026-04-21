@@ -50,6 +50,7 @@ describe("NewDashboard page", () => {
 
   it("renders prompt textarea and generate button", () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
     expect(
       screen.getByPlaceholderText("Describe el dashboard que necesitas..."),
@@ -59,6 +60,7 @@ describe("NewDashboard page", () => {
 
   it("disables generate button when prompt is empty", () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
     const btn = screen.getByText("Generar Dashboard");
     expect(btn).toBeDisabled();
@@ -66,6 +68,7 @@ describe("NewDashboard page", () => {
 
   it("enables generate button when prompt has text", async () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
     const textarea = screen.getByPlaceholderText(
       "Describe el dashboard que necesitas...",
@@ -108,6 +111,9 @@ describe("NewDashboard page", () => {
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("creation-tab-free"));
+    });
 
     const textarea = screen.getByPlaceholderText(
       "Describe el dashboard que necesitas...",
@@ -144,6 +150,9 @@ describe("NewDashboard page", () => {
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
 
     render(<NewDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("creation-tab-free"));
+    });
 
     await act(async () => {
       fireEvent.change(
@@ -167,6 +176,9 @@ describe("NewDashboard page", () => {
     });
 
     render(<NewDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("creation-tab-free"));
+    });
 
     await act(async () => {
       fireEvent.change(

@@ -53,7 +53,14 @@ describe("NewDashboard page — smart creation sections", () => {
     globalThis.fetch = originalFetch;
   });
 
-  // ── Task cards section ──────────────────────────────────────────────────
+  // ── Tabs & task cards section ───────────────────────────────────────────
+
+  it("renders creation mode tabs", () => {
+    render(<NewDashboard />);
+    expect(screen.getByTestId("creation-tab-templates")).toBeInTheDocument();
+    expect(screen.getByTestId("creation-tab-assistant")).toBeInTheDocument();
+    expect(screen.getByTestId("creation-tab-free")).toBeInTheDocument();
+  });
 
   it("renders the task cards section heading", () => {
     render(<NewDashboard />);
@@ -379,6 +386,7 @@ describe("NewDashboard page — smart creation sections", () => {
 
   it("still renders free-form prompt textarea", () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
     expect(
       screen.getByPlaceholderText("Describe el dashboard que necesitas...")
     ).toBeInTheDocument();
@@ -387,6 +395,7 @@ describe("NewDashboard page — smart creation sections", () => {
 
   it("still renders template cards section", () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-templates"));
     expect(screen.getByText("Plantillas predefinidas")).toBeInTheDocument();
   });
 
