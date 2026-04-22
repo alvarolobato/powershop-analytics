@@ -14,6 +14,7 @@ import {
   analyzeDashboard,
   generateSuggestions,
   BudgetExceededError,
+  CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
 import { DashboardSpecSchema } from "@/lib/schema";
@@ -216,6 +217,12 @@ export async function POST(request: Request) {
       return NextResponse.json(
         formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
         { status: 429 },
+      );
+    }
+    if (err instanceof CircuitBreakerOpenError) {
+      return NextResponse.json(
+        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
+        { status: 503 },
       );
     }
     const message = err instanceof Error ? err.message : String(err);
