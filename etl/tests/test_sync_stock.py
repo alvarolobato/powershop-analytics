@@ -165,6 +165,34 @@ class TestNormalizeExpoRow:
         for r in result:
             assert r["cc_stock"] == expected
 
+    def test_stock_65535_decodes_to_negative_one(self):
+        """WORD-style unsigned -1 (65535) must become -1 in ps_stock_tienda.stock."""
+        row = self._make_row([("38", 65535)])
+        result = _normalize_expo_row(row)
+        assert len(result) == 1
+        assert result[0]["stock"] == -1
+
+    def test_stock_65534_decodes_to_negative_two(self):
+        row = self._make_row([("44", 65534)])
+        result = _normalize_expo_row(row)
+        assert result[0]["stock"] == -2
+
+    def test_mixed_unsigned_negatives_sum_like_powershop(self):
+        """Five slots at -1, one at -2, one at 0 → total stock -7 (matches CC-style sums)."""
+        row = self._make_row(
+            [
+                ("38", 65535),
+                ("40", 65535),
+                ("42", 65534),
+                ("44", 65535),
+                ("46", 65535),
+                ("48", 65535),
+                ("50", 0),
+            ]
+        )
+        result = _normalize_expo_row(row)
+        assert sum(r["stock"] for r in result) == -7
+
 
 _STORE_CODE_PATTERN = re.compile(r"^[A-Za-z0-9/_-]+$")
 

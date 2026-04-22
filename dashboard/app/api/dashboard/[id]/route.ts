@@ -12,6 +12,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql, getPool } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
+import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import {
   formatApiError,
@@ -242,8 +243,9 @@ export async function PUT(
     );
   }
 
+  let validatedSpec: ReturnType<typeof validateSpec>;
   try {
-    validateSpec(spec);
+    validatedSpec = validateSpec(spec);
   } catch (err) {
     if (err instanceof ZodError) {
       return NextResponse.json(
@@ -257,6 +259,19 @@ export async function PUT(
       );
     }
     throw err;
+  }
+
+  const sqlLint = lintDashboardSpec(validatedSpec);
+  if (sqlLint.length > 0) {
+    return NextResponse.json(
+      formatApiError(
+        "Las consultas SQL contienen patrones inválidos para PostgreSQL.",
+        "SQL_LINT",
+        sqlLint.join(" | "),
+        requestId,
+      ),
+      { status: 400 },
+    );
   }
 
   const normalizedPrompt =
@@ -316,7 +331,7 @@ export async function PUT(
 
     // Build dynamic SET clause and parameters
     const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
-    const params: unknown[] = [JSON.stringify(spec), id];
+    const params: unknown[] = [JSON.stringify(validatedSpec), id];
     let paramIdx = 3;
 
     if (trimmedName) {

@@ -214,6 +214,9 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 13. Use NULLIF to avoid division by zero
 14. NEVER use CROSSTAB or pivot — return flat grouped data
 15. Do NOT reference :comp_from/:comp_to/:comp_mes_from/:comp_mes_to in a main widget \`sql\`. These tokens are only available in \`comparison_sql\` (chart widgets only) and \`trend_sql\`/\`anomaly_sql\` (kpi_row items only). For side-by-side "Actual vs Anterior" tables, use a \`bar_chart\` with \`sql\` (using :curr_*) and \`comparison_sql\` (using :comp_*) instead.
+16. **Days between dates (PostgreSQL):** If columns are \`date\` (or \`timestamp::date\)), subtracting yields an **integer** number of days: \`(CURRENT_DATE - MAX(v.fecha_creacion::date))\` or \`(fecha_fin - fecha_ini)\`. **Do NOT** wrap that subtraction in \`EXTRACT(days FROM ...)\` — there is no \`days\` field; \`date - date\` is already days, and \`EXTRACT(day FROM integer)\` errors. For a true \`interval\` (e.g. two timestamps), use \`EXTRACT(day FROM intervalo)\` (singular \`day\`).
+17. **Never mix date and text in COALESCE:** \`COALESCE(MAX(fecha), 'Sin ventas')\` fails because PostgreSQL coerces the literal to \`date\`. Use \`COALESCE(MAX(fecha)::text, 'Sin ventas')\` or \`TO_CHAR(MAX(fecha), 'YYYY-MM-DD')\`.
+18. **"Días sin venta" pattern:** Prefer \`COALESCE((CURRENT_DATE - MAX(ultima_venta.fecha)), 999)\` when the join yields a single last-sale date per SKU (guard NULL with COALESCE), instead of EXTRACT on a date difference.
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

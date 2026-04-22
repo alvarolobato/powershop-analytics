@@ -27,6 +27,10 @@ row-value comparators was not validated at implementation time.
 The `since` parameter is truncated to a date literal in 4D SQL — only the date
 portion is used; any time component is ignored.  Pass a date-aligned datetime.
 
+``Stock1``…``Stock34`` in 4D are 16-bit WORD fields: negatives are delivered as
+unsigned values (e.g. ``65535`` for ``-1``).  ``_normalize_expo_row`` decodes them
+via ``decode_signed_int16_word`` before persisting to PostgreSQL.
+
 TiendaCodigo format: "store_code/article_code" (e.g. "104/169").  It is NOT
 just a store code.  The compound PK for ps_stock_tienda is (codigo, tienda_codigo, talla).
 
@@ -45,7 +49,7 @@ import re
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 
-from etl.db.fourd import safe_fetch
+from etl.db.fourd import decode_signed_int16_word, safe_fetch
 from etl.db.postgres import insert_ignore, upsert
 
 logger = logging.getLogger(__name__)
@@ -192,7 +196,11 @@ def _normalize_expo_row(src: dict) -> list[dict]:
         if talla is None or (isinstance(talla, str) and not talla.strip()):
             continue
         talla_str = talla.strip() if isinstance(talla, str) else str(talla)
-        stock_val = int(stock_raw) if stock_raw is not None else 0
+        if stock_raw is None:
+            stock_val = 0
+        else:
+            decoded = decode_signed_int16_word(stock_raw)
+            stock_val = int(decoded)
         out.append(
             {
                 "codigo": codigo,

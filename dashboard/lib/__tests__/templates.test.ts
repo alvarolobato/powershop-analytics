@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { TEMPLATES, type DashboardTemplate } from "../templates";
 import { validateSpec, DashboardSpecSchema } from "../schema";
+import { lintDashboardSpec, collectWidgetSqlStrings } from "../sql-heuristics";
 
 // ---------------------------------------------------------------------------
 // Structural tests
@@ -106,16 +107,14 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
 describe("SQL rule compliance across all templates", () => {
   const allSql: string[] = [];
   for (const t of TEMPLATES) {
-    for (const widget of t.spec.widgets) {
-      if (widget.type === "kpi_row") {
-        for (const item of widget.items) {
-          allSql.push(item.sql);
-        }
-      } else {
-        allSql.push(widget.sql);
-      }
-    }
+    allSql.push(...collectWidgetSqlStrings(t.spec));
   }
+
+  it("passes PostgreSQL SQL heuristics (EXTRACT days / COALESCE date+text)", () => {
+    for (const t of TEMPLATES) {
+      expect(lintDashboardSpec(t.spec), `template ${t.slug}`).toEqual([]);
+    }
+  });
 
   it("never uses the 'total' column without _si suffix for retail ventas", () => {
     for (const sql of allSql) {

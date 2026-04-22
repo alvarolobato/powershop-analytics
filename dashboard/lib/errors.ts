@@ -21,6 +21,7 @@ export type ErrorCode =
   | "LLM_CIRCUIT_OPEN"
   | "LLM_INVALID_RESPONSE"
   | "VALIDATION"
+  | "SQL_LINT"
   | "NOT_FOUND"
   | "TIMEOUT"
   | "COST_LIMIT"

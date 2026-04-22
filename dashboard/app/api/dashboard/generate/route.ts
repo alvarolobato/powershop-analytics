@@ -15,6 +15,7 @@ import {
   CircuitBreakerOpenError,
 } from "@/lib/llm";
 import { validateSpec } from "@/lib/schema";
+import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import {
   formatApiError,
@@ -150,6 +151,24 @@ export async function POST(request: Request): Promise<NextResponse> {
   // --- Validate against DashboardSpec schema ---
   try {
     const spec = validateSpec(parsed);
+    const sqlLint = lintDashboardSpec(spec);
+    if (sqlLint.length > 0) {
+      console.error(
+        `[${requestId}] SQL heurístico rechazó el spec del LLM:`,
+        sqlLint.join(" | "),
+      );
+      return NextResponse.json(
+        {
+          ...formatApiError(
+            "El modelo generó SQL con patrones inválidos para PostgreSQL (fechas/EXTRACT/COALESCE). Vuelve a generar o reformula el prompt.",
+            "SQL_LINT",
+            sqlLint.join(" | "),
+            requestId,
+          ),
+        },
+        { status: 400 },
+      );
+    }
     return NextResponse.json(spec, { status: 200 });
   } catch (err: unknown) {
     const details =

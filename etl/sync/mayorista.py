@@ -17,6 +17,11 @@ Sync strategy notes
   3. Re-fetch and re-insert the lines from 4D.
   For initial load (since=None): truncate + full extract.
 
+Integer quantities (``Unidades``, ``Entregadas``, ``Pendientes`` on GC* lines)
+are **not** passed through ``decode_signed_int16_word``: wholesale lines can
+legitimately exceed 32767 units, which would be mis-decoded as negative if the
+16-bit WORD reinterpretation were applied.
+
 FK corrections (critical)
 -------------------------
 - GCLinAlbarane.NAlbaran  → GCAlbaranes.NAlbaran  (NOT RegAlbaran)
