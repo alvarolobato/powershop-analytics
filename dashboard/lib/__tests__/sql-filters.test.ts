@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  compileGlobalFilterSql,
-  listReferencedGlobalFilterIds,
-  hasUnresolvedGlobalFilterTokens,
-} from "../sql-filters";
+import { compileGlobalFilterSql, listReferencedGlobalFilterIds } from "../sql-filters";
 import type { DashboardSpec } from "../schema";
 
 const FILTERS_SPEC: Pick<DashboardSpec, "filters"> = {
@@ -76,13 +72,5 @@ describe("listReferencedGlobalFilterIds", () => {
     expect(
       listReferencedGlobalFilterIds(`__gf_tienda__ AND __gf_familia__ OR __gf_tienda__`),
     ).toEqual(["familia", "tienda"]);
-  });
-});
-
-describe("hasUnresolvedGlobalFilterTokens", () => {
-  it("detects leftover tokens", () => {
-    expect(
-      hasUnresolvedGlobalFilterTokens("SELECT 1 WHERE __gf_tienda__", FILTERS_SPEC.filters),
-    ).toBe(true);
   });
 });

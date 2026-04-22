@@ -94,17 +94,6 @@ export function compileGlobalFilterSql(
   return { sql: out, params };
 }
 
-/** True if `sql` still contains any global filter token for the given definitions. */
-export function hasUnresolvedGlobalFilterTokens(
-  sql: string,
-  filters: DashboardSpec["filters"] | undefined,
-): boolean {
-  for (const f of filters ?? []) {
-    if (sql.includes(tokenForFilterId(f.id))) return true;
-  }
-  return false;
-}
-
 /** Regex that matches any `__gf_<id>__` token with a sane id slug. */
 const GF_TOKEN_RE = /__gf_([a-z][a-z0-9_]*)__/g;
 

@@ -116,6 +116,8 @@ export function DashboardFiltersBar({
           {f.type === "single_select" ? (
             <select
               id={`gf-${f.id}`}
+              aria-label={f.label}
+              aria-busy={!!loading[f.id]}
               className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
               value={typeof value[f.id] === "string" ? (value[f.id] as string) : ""}
               disabled={!!loading[f.id]}
@@ -138,6 +140,8 @@ export function DashboardFiltersBar({
             <select
               id={`gf-${f.id}`}
               multiple
+              aria-label={f.label}
+              aria-busy={!!loading[f.id]}
               size={Math.min(6, Math.max(3, (optionsById[f.id] ?? []).length || 3))}
               className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis min-h-[72px]"
               disabled={!!loading[f.id]}
