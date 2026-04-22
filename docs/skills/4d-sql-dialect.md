@@ -46,7 +46,7 @@ These are the numeric type codes returned by the system tables:
 | Type ID | Type Name | Python (p4d) Mapping |
 |---------|-----------|---------------------|
 | 1 | Boolean | `bool` |
-| 3 | Integer (16-bit) | `int` |
+| 3 | Integer (16-bit) | `int` (see **SQL vs native sign** below) |
 | 4 | Long Integer (32-bit) | `int` |
 | 6 | Real (float) | `float` |
 | 8 | Date | `datetime.date` or `str` (YYYY-MM-DD) |
@@ -55,6 +55,17 @@ These are the numeric type codes returned by the system tables:
 | 12 | Picture/Blob | `bytes` (avoid querying) |
 | 18 | Blob | `bytes` |
 | 21 | Object (JSON) | `str` (JSON) or `bytes` |
+
+### 16-bit integers over SQL (`DATA_TYPE = 3`, `DATA_LENGTH = 2`)
+
+`_USER_COLUMNS` reports **16-bit integer** fields (type **3**, length **2**) — e.g. all **`Exportaciones.Stock1`…`Stock34`** (34 columns, each type 3 / length 2 in production).
+
+- **Native 4D** (forms, compiled methods, `WORD` variables) keeps **signed** semantics: `−1` stays `−1`.
+- **4D SQL + p4d** can still return the same bit pattern widened as an **unsigned** 32-bit value, so **`−1` appears as `65535`**, **`−2` as `65534`**, etc. The **`CCStock`** column on the same row is **`DATA_TYPE = 6` (Real)** and continues to show the correct **row-level net** (e.g. `−6.0`), which is why the POS grid matches **`CCStock`** while raw **`StockN`** look “huge” until reinterpreted.
+
+**ETL fix:** `etl/db/fourd.py` → `decode_signed_int16_word()` — applied **only** when unpivoting **`Exportaciones.Stock1`…`Stock34`**, because **`_USER_COLUMNS`** marks those columns as **type 3 / length 2** only. There is **no `p4d.connect()` flag** to force signed 16-bit decoding.
+
+**Do not** apply this decode to **Real** columns (type **6**) or to any column that is not **type 3 / length 2** in `_USER_COLUMNS`: wholesale line quantities can exceed **32767** and would be mis-decoded as negative if the int16 rule were applied blindly.
 
 ### Python p4d Type Notes
 

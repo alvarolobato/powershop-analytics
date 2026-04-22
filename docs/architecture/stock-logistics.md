@@ -157,11 +157,11 @@ The `Exportaciones` table (2,058,201 rows) is the preferred source for per-store
 
 **Structure (confirmed from `Exportaciones_SQL` view, 2026-04-05):** One row per (article, store) pair with a **34-slot size matrix**:
 - `Talla1..Talla34` — size label per slot (e.g. "XS", "S", "M", "L", "XL", "40", "42"...)
-- `Stock1..Stock34` — current stock quantity per size
+- `Stock1..Stock34` — current stock quantity per size (**`_USER_COLUMNS`:** `DATA_TYPE = 3`, `DATA_LENGTH = 2` — **16-bit integer** in the 4D structure). Via **4D SQL / p4d**, negatives are often returned as **unsigned** (`65535` = `−1`); the ETL reinterprets before `ps_stock_tienda.stock`. Compare with the POS grid: per-size cells show signed values natively.
 - `Minimo1..Minimo34` — minimum stock quantity per size
 - `REPPorcentaje1..REPPorcentaje34` — replenishment percentage per size
-- `STStock` — pre-aggregated total stock (all sizes, all slots) — **use this for totals**
-- `CCStock` — central warehouse stock flag/reference (single column, not the CCStock table)
+- `STStock` — **Real** (`DATA_TYPE = 6`) — secondary numeric field on the export row (legacy naming; not a substitute for slot-level analysis).
+- `CCStock` — **Real** (`DATA_TYPE = 6`) — **row-level net stock** for that `(Codigo, TiendaCodigo)` (matches the “TS” style total in POS when slots are signed). This is **not** the wide **`CCStock` table** in the Products domain (582 columns); same name, different object.
 - `Tienda` (store name), `TiendaCodigo` (composite key), `Codigo` (article code)
 - `FechaModifica`, `HoraModifica` — delta sync fields
 - `Ubicacion1`, `Ubicacion2`, `Ubicacion3` — warehouse location codes
@@ -176,7 +176,7 @@ The `Exportaciones` table (2,058,201 rows) is the preferred source for per-store
 
 **Key gotcha — TiendaCodigo format:** The `TiendaCodigo` field is `"tienda/articulo"` (e.g. `"104/169"`), NOT just a store code. The compound `(Codigo, TiendaCodigo)` is the natural PK.
 
-**ETL normalization:** The wide format must be unpivoted to `(codigo, tienda_codigo, talla, stock)` rows for PostgreSQL. Filter out empty talla slots (`WHERE talla != ''`). See [etl-sync-strategy.md](../etl-sync-strategy.md).
+**ETL normalization:** The wide format must be unpivoted to `(codigo, tienda_codigo, talla, stock)` rows for PostgreSQL. Filter out empty talla slots (`WHERE talla != ''`). Each `StockN` is decoded with `decode_signed_int16_word()` so SQL-layer unsigned values become signed integers. See [etl-sync-strategy.md](../etl-sync-strategy.md).
 
 ## Size Series System (FamiGrupMarc.SerieTallas)
 

@@ -230,6 +230,30 @@ describe("POST /api/dashboard/generate", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 SQL_LINT when LLM returns EXTRACT(days FROM …) (PostgreSQL anti-pattern)", async () => {
+    const badSqlSpec = {
+      title: "Stock",
+      description: "Test",
+      glossary: [{ term: "a", definition: "b" }],
+      widgets: [
+        {
+          id: "w1",
+          type: "table",
+          title: "T",
+          sql: "SELECT EXTRACT(days FROM CURRENT_DATE - MAX(fecha_creacion)) AS dias FROM ps_ventas v GROUP BY v.reg_ventas",
+        },
+      ],
+    };
+    mockGenerate.mockResolvedValue(JSON.stringify(badSqlSpec));
+
+    const res = await POST(makeRequest({ prompt: "stock lento" }));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.code).toBe("SQL_LINT");
+    expect(String(json.details ?? "")).toMatch(/EXTRACT|PostgreSQL/i);
+  });
+
   it("includes allowedFields for donut_chart when LLM uses category/value instead of x/y", async () => {
     const badSpec = {
       title: "T",

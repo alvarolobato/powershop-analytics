@@ -14,6 +14,7 @@ import {
   CircuitBreakerOpenError,
 } from "@/lib/llm";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
+import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import {
   formatApiError,
   generateRequestId,
@@ -173,6 +174,25 @@ export async function POST(request: Request) {
         undefined,
         requestId,
       ),
+      { status: 400 },
+    );
+  }
+
+  const sqlLint = lintDashboardSpec(updatedSpec);
+  if (sqlLint.length > 0) {
+    console.error(
+      `[${requestId}] SQL heurístico rechazó el spec modificado por el LLM:`,
+      sqlLint.join(" | "),
+    );
+    return NextResponse.json(
+      {
+        ...formatApiError(
+          "El modelo devolvió SQL con patrones inválidos para PostgreSQL. Reformula el cambio o inténtalo de nuevo.",
+          "SQL_LINT",
+          sqlLint.join(" | "),
+          requestId,
+        ),
+      },
       { status: 400 },
     );
   }

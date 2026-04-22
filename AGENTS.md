@@ -195,8 +195,10 @@ To add new instructions or SQL pairs: add entries to `INSTRUCTIONS` or `SQL_PAIR
 - **325 tables**, ~8.6 million rows across key tables
 - **Key domains:** Products (Articulos), Sales (Ventas/LineasVentas), Customers (Clientes), Wholesale (GC* tables), Purchasing (Compras), Invoicing (Facturas), Stock (Exportaciones/CCStock), Logistics, HR (RRHH*), Finance, Stores (Tiendas)
 - **Schema details:** Run `ps sql schema` to generate locally (git-ignored, contains real data)
+- **Authoritative field types:** Query **`_USER_COLUMNS`** on the live 4D server (`ps sql query "SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM _USER_COLUMNS WHERE TABLE_NAME = 'Exportaciones' AND COLUMN_NAME LIKE 'Stock%'"`). Type IDs are documented in [docs/skills/4d-sql-dialect.md](docs/skills/4d-sql-dialect.md). A local **PowerShop Server / PSClient** directory tree (install or backup files) is mainly **binaries and resources** — it does **not** replace structure discovery; use SQL system tables or vendor `*_SQL` views.
 - Primary keys use Real (float) fields with a `.99` suffix pattern — store as `NUMERIC` in PostgreSQL, never `FLOAT8`
 - CCStock has 582 columns (wide-format stock matrix); prefer `Exportaciones` for ETL (has FechaModifica, simpler structure)
+- **`Exportaciones.Stock1..Stock34`:** **`_USER_COLUMNS`** declares **every** slot as **`DATA_TYPE = 3`**, **`DATA_LENGTH = 2`** (16-bit integer). The **4D SQL + p4d** path can return **unsigned widened** values for negatives (`65535` = `−1`). The ETL applies **`decode_signed_int16_word()`** (subtract 65536 when `32768 ≤ n ≤ 65535` — exact int16 bit reinterpretation) **only** on these columns before `ps_stock_tienda.stock`. **`CCStock`** is **Real** (type 6) and is not passed through that decoder. See [docs/skills/data-access.md](docs/skills/data-access.md), `DECISIONS-AND-CHANGES.md` D-017.
 - Articulos has 379 columns (prices, sizes, multilingual descriptions) — never `SELECT *`, always specify columns
 - **ETL sync strategy:** See [docs/etl-sync-strategy.md](docs/etl-sync-strategy.md) for validated delta fields, PKs, and sync method per table
 

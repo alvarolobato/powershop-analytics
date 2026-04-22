@@ -13,11 +13,18 @@ Gotchas handled here:
   stored as a float may round incorrectly).  Sync modules are responsible for
   this conversion.
 - None values are passed through unchanged.
+- **Signed 16-bit integers over SQL** (``_USER_COLUMNS`` type **3**, length **2** —
+  e.g. all ``Exportaciones.Stock1``…``Stock34``): the SQL/p4d path may widen the
+  bit pattern as unsigned (``65535`` for ``-1``). Call ``decode_signed_int16_word()``
+  **only** for those columns (rule: **metadata** says 16-bit integer, not guesswork).
+  Do **not** apply to ``DATA_TYPE = 6`` (Real) columns such as ``LineasVentas.Unidades``.
 """
 
 from __future__ import annotations
 
+import math
 import re
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -27,6 +34,8 @@ if TYPE_CHECKING:
 # 4D table names in this project follow this pattern; reject anything that
 # does not match to prevent SQL injection via get_queryable_columns().
 _SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# Integer strings (optional leading minus) for WORD decode coercion.
+_SIGNED_INT16_DECIMAL_STR = re.compile(r"-?\d+$")
 
 
 def _validate_identifier(name: str) -> str:
@@ -74,6 +83,62 @@ def _decode_value(v: Any) -> Any:
         # Also strip NUL from native str values (p4d may return str with NUL).
         return v.replace("\x00", "") if "\x00" in v else v
     return v
+
+
+def decode_signed_int16_word(value: Any) -> Any:
+    """Map an unsigned 32-bit carrier of a **signed int16** bit pattern to Python ``int``.
+
+    This is **not** a business heuristic: integers in ``32768..65535`` are exactly
+    the unsigned widening of signed int16 negatives (``65535`` → ``-1``, etc.) —
+    reinterpret the low 16 bits as two's-complement signed.
+
+    **When to call:** only for 4D columns that ``_USER_COLUMNS`` declares as
+    **``DATA_TYPE = 3``** and **``DATA_LENGTH = 2``** (16-bit integer). In this
+    project that is **exclusively** ``Exportaciones.Stock1``…``Stock34`` (verified
+    on production). Do **not** call for ``DATA_TYPE = 6`` (Real) fields.
+
+    The SQL/p4d stack sometimes delivers small negatives in those 16-bit slots
+    as ``65535``, ``65534``, etc.
+
+    Args:
+        value: Raw value from ``safe_fetch`` (``int``, whole ``float``, ``Decimal``, ``str``, …).
+
+    Returns:
+        Signed ``int`` when the numeric value is in ``32768..65535``; otherwise
+        the input unchanged (including ``None``, non-numerics, fractional floats,
+        and values already in ``-32768..32767``).
+    """
+    if value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        s = value.strip()
+        if _SIGNED_INT16_DECIMAL_STR.fullmatch(s):
+            value = int(s)
+        else:
+            return value
+    if isinstance(value, int):
+        if 32768 <= value <= 65535:
+            return value - 65536
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return value
+        if not value.is_integer():
+            return value
+        iv = int(value)
+        if 32768 <= iv <= 65535:
+            return iv - 65536
+        return value
+    if isinstance(value, Decimal):
+        if not value.is_finite():
+            return value
+        if value != value.to_integral_value():
+            return value
+        iv = int(value)
+        if 32768 <= iv <= 65535:
+            return iv - 65536
+        return value
+    return value
 
 
 def _decode_column_name(name: Any) -> str:

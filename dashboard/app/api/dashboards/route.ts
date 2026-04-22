@@ -10,6 +10,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sql } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
+import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import {
   formatApiError,
@@ -116,8 +117,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  let validatedSpec;
   try {
-    validateSpec(spec);
+    validatedSpec = validateSpec(spec);
   } catch (err) {
     if (err instanceof ZodError) {
       return NextResponse.json(
@@ -133,13 +135,26 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     throw err;
   }
 
+  const sqlLint = lintDashboardSpec(validatedSpec);
+  if (sqlLint.length > 0) {
+    return NextResponse.json(
+      formatApiError(
+        "Las consultas SQL contienen patrones inválidos para PostgreSQL.",
+        "SQL_LINT",
+        sqlLint.join(" | "),
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+
   // Insert
   try {
     const rows = await sql(
       `INSERT INTO dashboards (name, description, spec)
        VALUES ($1, $2, $3)
        RETURNING id, name, description, spec, created_at, updated_at`,
-      [name.trim(), description?.trim() || null, JSON.stringify(spec)],
+      [name.trim(), description?.trim() || null, JSON.stringify(validatedSpec)],
     );
     return NextResponse.json(rows[0], { status: 201 });
   } catch (err) {

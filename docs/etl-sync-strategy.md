@@ -68,7 +68,7 @@ SELECT ... FROM Ventas WHERE FechaModifica > :last_sync
 | Exportaciones | 2,058,201 | `(Codigo, TiendaCodigo)` compound | `FechaModifica` (some NULLs for zero-stock articles) | UPSERT delta + normalize |
 | Traspasos | 262,689 | `RegTraspaso` | `FechaS` (send date) | Append-only by `FechaS` |
 
-**Exportaciones normalization:** The source table is wide-format (Talla1..Talla34 + Stock1..Stock34 per row). ETL must expand each row into `(codigo, tienda_codigo, talla, stock)` tuples. Target table: `ps_stock_tienda`.
+**Exportaciones normalization:** The source table is wide-format (Talla1..Talla34 + Stock1..Stock34 per row). `_USER_COLUMNS` shows every **`Stock1`…`Stock34`** as **`DATA_TYPE = 3`**, **`DATA_LENGTH = 2`** (16-bit integer). Through **4D SQL / p4d**, slot values can arrive as **unsigned** (`65535` for `−1`); ETL applies **`decode_signed_int16_word()`** (`etl/db/fourd.py`) before `int` cast so `ps_stock_tienda.stock` matches native/POS signed semantics. **`CCStock`** on the same row is **Real** and already carries the signed row total. Re-run a full stock sync after deploying the decoder to refresh existing mirror rows.
 
 `TiendaCodigo` format: `"104/169"` = store 104 / article 169. The compound `(Codigo, TiendaCodigo)` is the natural PK — verified by row count.
 

@@ -45,6 +45,8 @@ conn = p4d.connect(
 - **Ventas.FechaDocumento is NULL for all records**: Never use this field for date filtering or delta sync. Use `FechaModifica` (max = today) or `FechaCreacion` instead.
 - **LineasCompras does not exist**: The purchase order line table is `CCLineasCompr` (44K rows). It links to `Compras` via `NumPedido`, not a direct `NumCompra` field.
 - **Exportaciones.TiendaCodigo format**: This field is `"tienda/articulo"` (e.g. `"104/169"`), not just a store code. The compound `(Codigo, TiendaCodigo)` is the natural PK for this table.
+- **Exportaciones `Stock1..Stock34` are 16-bit integers in 4D** (`_USER_COLUMNS`: `DATA_TYPE = 3`, `DATA_LENGTH = 2` for all 34 columns). Through **4D SQL / p4d**, negative per-size quantities often appear as **unsigned** values (`65535` = `−1`, `65534` = `−2`). The **`CCStock`** field on the same row is **Real** (`DATA_TYPE = 6`) and matches the **signed** total the POS shows. The ETL decodes slot stock with `decode_signed_int16_word()` in `etl/db/fourd.py` before writing `ps_stock_tienda.stock`. Re-sync stock after deploying that fix.
+- **Schema evidence**: Prefer live **`SELECT ... FROM _USER_COLUMNS WHERE TABLE_NAME = 'Exportaciones'`** on the 4D server. A local **PowerShop Server / PSClient** tree (install media) usually contains **binaries and resources**, not the `.4DProject` structure — it rarely documents individual table fields.
 - **Ventas/LineasVentas/PagosVentas are NOT append-only**: 19–21% of historical records have been modified after creation (returns, TBAI corrections, payment flags). Always UPSERT by `FechaModifica` — never plain INSERT.
 - **PKs are REAL floats**: Store PKs as `NUMERIC(20,3)` in PostgreSQL, not `FLOAT8`, to avoid precision loss. Use 3 decimal places — some PKs have 3dp (e.g. `RegCliente = 4.152, 4.153`). NUMERIC(20,2) caused duplicate-key collisions. Always convert Python floats to `Decimal(str(value))` before inserting.
 - **4D SQL uses `<>` not `!=`**: The inequality operator in 4D SQL is `<>`. Using `!=` causes "Failed to parse statement". This applies to all SQL including system table queries like `_USER_COLUMNS WHERE DATA_TYPE <> 0`.
@@ -105,7 +107,7 @@ WHERE CAST(Tienda AS INT) = 152
   AND CCStock <> 0
 ```
 
-Key columns: `Tienda` (store code), `Codigo` (article code), `CCStock` (total stock), `Stock1..Stock17` (per-size stock).
+Key columns: `Tienda` (store code), `Codigo` (article code), `CCStock` (row-level net stock, Real), `Stock1..Stock34` (per-size stock, 16-bit integer slots — see gotcha on unsigned negatives via SQL).
 
 This method is faster for bulk queries (all articles in a store at once) and does not require SOAP authentication.
 
