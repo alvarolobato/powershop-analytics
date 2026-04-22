@@ -28,6 +28,8 @@ export interface ChatSidebarProps {
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   isOpen: boolean;
   onToggle: () => void;
+  /** Saved dashboard id for agentic analyze tools (optional). */
+  dashboardId?: number;
   /** Live widget data from DashboardRenderer, used in the Analizar tab. */
   widgetData?: Map<number, WidgetState>;
   /** Initial analyze messages to restore on page load. */
@@ -492,6 +494,7 @@ function AnalizarTab({
   setMessages,
   onMessagesChange,
   isActive,
+  dashboardId,
 }: {
   spec: DashboardSpec;
   widgetData?: Map<number, WidgetState>;
@@ -499,6 +502,7 @@ function AnalizarTab({
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
+  dashboardId?: number;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -546,6 +550,7 @@ function AnalizarTab({
             widgetData: serializeWidgetDataForApi(widgetData),
             prompt: trimmed,
             ...(action ? { action } : {}),
+            ...(dashboardId !== undefined ? { dashboardId } : {}),
           }),
         });
 
@@ -628,7 +633,7 @@ function AnalizarTab({
         setLoading(false);
       }
     },
-    [loading, spec, widgetData, messages, setMessages, onMessagesChange]
+    [loading, spec, widgetData, messages, setMessages, onMessagesChange, dashboardId]
   );
 
   const handleInputSend = useCallback(() => {
@@ -756,6 +761,7 @@ export default function ChatSidebar({
   onSpecUpdate,
   isOpen,
   onToggle,
+  dashboardId,
   widgetData,
   initialAnalyzeMessages,
   onAnalyzeMessagesChange,
@@ -868,6 +874,7 @@ export default function ChatSidebar({
             setMessages={setAnalyzeMessages}
             onMessagesChange={onAnalyzeMessagesChange}
             isActive={activeTab === "analizar"}
+            dashboardId={dashboardId}
           />
         )}
       </div>

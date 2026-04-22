@@ -26,7 +26,8 @@ export type ErrorCode =
   | "TIMEOUT"
   | "COST_LIMIT"
   | "REVIEW_EXISTS"
-  | "UNKNOWN";
+  | "UNKNOWN"
+  | "AGENTIC_RUNNER";
 
 // ---------------------------------------------------------------------------
 // Standard API error response shape

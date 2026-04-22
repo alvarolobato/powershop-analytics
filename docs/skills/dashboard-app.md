@@ -25,7 +25,8 @@ dashboard/
 │   ├── ChatSidebar.tsx      # Chat interface for dashboard modification
 │   └── DashboardList.tsx    # Dashboard listing page
 ├── lib/
-│   ├── llm.ts              # OpenRouter API client
+│   ├── llm.ts              # OpenRouter API client (single-shot + agentic)
+│   ├── llm-tools/          # Agentic runner, tool catalog, SQL/dashboard handlers
 │   ├── db.ts               # PostgreSQL client (pg)
 │   ├── prompts.ts          # System prompts with knowledge context
 │   ├── schema.ts           # Dashboard spec TypeScript types
@@ -41,6 +42,9 @@ dashboard/
 The LLM receives: system prompt (schema + knowledge + widget types) + user prompt.
 It returns: a JSON spec with `title`, `description`, `widgets[]`.
 Each widget has: `type`, `title`, `sql`, and type-specific config (x/y for charts, format for KPIs).
+
+### Agentic tools (generate / modify / analyze)
+When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `lib/llm.ts` routes those three flows through `lib/llm-tools/runner.ts` with OpenRouter function calling. The model can list/describe `ps_*` tables, validate or run read-only SQL, and inspect saved dashboards before the final JSON or markdown answer. Hard limits and telemetry are documented in [docs/dashboard-agentic-tools.md](../dashboard-agentic-tools.md).
 
 ### Dashboard Modification
 User sends: current spec JSON + modification prompt.

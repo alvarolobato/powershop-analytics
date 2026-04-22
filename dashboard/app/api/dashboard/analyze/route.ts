@@ -10,7 +10,12 @@
  *   { response: string, suggestions: string[] }
  */
 import { NextResponse } from "next/server";
-import { analyzeDashboard, generateSuggestions, BudgetExceededError } from "@/lib/llm";
+import {
+  analyzeDashboard,
+  generateSuggestions,
+  BudgetExceededError,
+  AgenticRunnerError,
+} from "@/lib/llm";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
 import type { WidgetStateData } from "@/lib/data-serializer";
@@ -99,7 +104,10 @@ export async function POST(request: Request) {
     );
   }
 
-  const { spec, widgetData, prompt, action } = body as Record<string, unknown>;
+  const { spec, widgetData, prompt, action, dashboardId } = body as Record<
+    string,
+    unknown
+  >;
 
   // --- Validate required fields --------------------------------------------
   if (spec === undefined) {
@@ -148,6 +156,27 @@ export async function POST(request: Request) {
     );
   }
 
+  let dashboardIdNum: number | undefined;
+  if (dashboardId !== undefined && dashboardId !== null) {
+    if (typeof dashboardId === "number" && Number.isInteger(dashboardId) && dashboardId > 0) {
+      dashboardIdNum = dashboardId;
+    } else if (typeof dashboardId === "string" && /^\d+$/.test(dashboardId)) {
+      const n = parseInt(dashboardId, 10);
+      if (n > 0) dashboardIdNum = n;
+    }
+    if (dashboardIdNum === undefined) {
+      return NextResponse.json(
+        formatApiError(
+          "El campo 'dashboardId' debe ser un entero positivo cuando se envía.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+  }
+
   // --- Deserialize widget data ---------------------------------------------
   const widgetDataMap = deserializeWidgetData(
     typeof widgetData === "object" && widgetData !== null && !Array.isArray(widgetData)
@@ -165,8 +194,24 @@ export async function POST(request: Request) {
       serializedData,
       prompt.trim(),
       typeof action === "string" ? action : undefined,
+      {
+        requestId,
+        endpoint: "analyzeDashboard",
+        dashboardId: dashboardIdNum,
+      },
     );
   } catch (err) {
+    if (err instanceof AgenticRunnerError) {
+      return NextResponse.json(
+        formatApiError(
+          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
+          "AGENTIC_RUNNER",
+          `${err.code}: ${err.message}`,
+          err.requestId,
+        ),
+        { status: 500 },
+      );
+    }
     if (err instanceof BudgetExceededError) {
       return NextResponse.json(
         formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),

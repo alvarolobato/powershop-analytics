@@ -721,6 +721,7 @@ export default function ViewDashboard() {
         spec={dashboard.spec}
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
+        dashboardId={dashboard.id}
         onToggle={() =>
           setChatOpen((prev) => {
             const nextOpen = !prev;

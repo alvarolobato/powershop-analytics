@@ -4,8 +4,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
-    BudgetExceededError: actual.BudgetExceededError,
-    CircuitBreakerOpenError: actual.CircuitBreakerOpenError,
+    ...actual,
     generateDashboard: vi.fn(),
   };
 });

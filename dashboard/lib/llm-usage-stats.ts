@@ -1,5 +1,12 @@
 import { sql } from "@/lib/db-write";
 import { getLlmEndpointMetaEs } from "@/lib/llm-endpoint-meta";
+import {
+  fetchToolCallAggregates,
+  type ToolCallAggregateRow,
+} from "@/lib/llm-tools/logging";
+
+export type { ToolCallAggregateRow };
+export { fetchToolCallAggregates as getLlmToolCallAggregates };
 
 export interface PeriodStats {
   prompt_tokens: number;

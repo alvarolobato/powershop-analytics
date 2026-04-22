@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
-    BudgetExceededError: actual.BudgetExceededError,
+    ...actual,
     analyzeDashboard: vi.fn(),
     generateSuggestions: vi.fn(),
   };
@@ -92,6 +92,10 @@ describe("POST /api/dashboard/analyze", () => {
       expect.any(String), // serialized data
       "Propón un plan de acción",
       "plan_accion",
+      expect.objectContaining({
+        endpoint: "analyzeDashboard",
+        requestId: expect.stringMatching(/^req_/),
+      }),
     );
   });
 

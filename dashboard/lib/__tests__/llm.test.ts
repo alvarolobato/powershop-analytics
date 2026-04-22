@@ -36,6 +36,7 @@ describe("llm", () => {
   beforeEach(() => {
     _resetCircuitBreaker();
     vi.stubEnv("OPENROUTER_API_KEY", "test-key-123");
+    vi.stubEnv("DASHBOARD_AGENTIC_TOOLS_ENABLED", "false");
     resetClient();
     mockCreate.mockReset();
   });

@@ -4,6 +4,19 @@
 
 ## Decision Log
 
+### D-018: Native tool-calling (agentic) for Dashboard LLM flows — 2026-04-22
+**Context**: Issue #384 — `generate`, `modify`, and `analyze` were single-shot: the model could not iterate with read-only SQL or saved-dashboard context before answering.
+**Decision**:
+- Use OpenRouter `chat.completions` with `tools` + `tool_choice: auto` and a **backend-controlled loop** (`dashboard/lib/llm-tools/runner.ts`).
+- **Mandatory** for the three flows when `DASHBOARD_AGENTIC_TOOLS_ENABLED` is true (default); when `false`, keep the prior single-shot path (operational kill switch).
+- **No silent fallback** if the agentic runner throws (limits, empty final message) — APIs return `AGENTIC_RUNNER` with structured details.
+- **Catalog (MVP)**: `validate_query`, `execute_query`, `explain_query`, `list_ps_tables`, `describe_ps_table`, `list_dashboards`, `get_dashboard_spec`, `get_dashboard_queries`, `get_dashboard_widget_raw_values`, `get_dashboard_all_widget_status`.
+- **Limits** (env-tunable, defaults per issue): 4 tool rounds, 12 tool calls/request, 15s timeout per tool, execute capped at 200×30 cells, 20k chars per tool JSON payload to the model.
+- **Telemetry**: every tool invocation inserts into PostgreSQL `llm_tool_calls`; admin GET `/api/admin/tool-calls` returns 30-day aggregates.
+**Alternatives rejected**: Single-shot with RAG-only context (cannot validate live SQL); client-side tool execution (security/compliance).
+**Rationale**: Read-only policy stays centralized in `db.ts` / `query-validator` / `sql-heuristics`; the model can self-correct before emitting final JSON or markdown.
+**See**: [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md), `dashboard/lib/llm-tools/*`, `etl/schema/init.sql` (`llm_tool_calls`).
+
 ### D-017: Signed 16-bit `Exportaciones.StockN` over 4D SQL / p4d — 2026-04-22
 **Context**: Dashboard stock KPIs showed hundreds of millions of units; investigation showed `ps_stock_tienda.stock = 65535` while PowerShop POS showed `−1` for the same slot, with `CCStock` (Real) matching the signed row total. Users asked whether metadata and a “native 4D” path exist.
 **Evidence**:
@@ -121,6 +134,7 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 ## Changelog
 
 ### 2026-04-22
+- Dashboard App (issue #384): agentic OpenRouter tool-calling for `POST /api/dashboard/generate|modify|analyze` with SQL + dashboard context tools, hard limits, `llm_tool_calls` telemetry, admin aggregates — D-018; see [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md)
 - ETL: `decode_signed_int16_word()` **only** for `Exportaciones.Stock1..Stock34` (`_USER_COLUMNS` type 3, length 2); D-017 tightened — no decode on Real-typed quantity columns
 - Docs: AGENTS.md, `docs/skills/4d-sql-dialect.md`, `docs/skills/data-access.md`, `docs/architecture/stock-logistics.md`, `docs/etl-sync-strategy.md` — `_USER_COLUMNS` evidence, SQL vs native 4D, PowerShop file-tree limits
 
