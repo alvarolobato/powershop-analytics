@@ -46,6 +46,7 @@ export interface ToolCallAggregateRow {
   status: string;
   calls: number;
   avg_latency_ms: number | null;
+  /** Summed byte counts (may exceed JS safe integer; parsed as float from PG). */
   total_payload_in: number | null;
   total_payload_out: number | null;
 }
@@ -60,8 +61,8 @@ export async function fetchToolCallAggregates(): Promise<ToolCallAggregateRow[]>
         status,
         COUNT(*)::integer AS calls,
         (AVG(latency_ms))::integer AS avg_latency_ms,
-        SUM(payload_in_bytes)::bigint AS total_payload_in,
-        SUM(payload_out_bytes)::bigint AS total_payload_out
+        SUM(payload_in_bytes)::float8 AS total_payload_in,
+        SUM(payload_out_bytes)::float8 AS total_payload_out
       FROM llm_tool_calls
       WHERE created_at >= NOW() - INTERVAL '30 days'
       GROUP BY endpoint, tool_name, status

@@ -11,7 +11,7 @@ function readInt(name: string, fallback: number): number {
 }
 
 function readBool(name: string, defaultTrue: boolean): boolean {
-  const raw = process.env[name]?.trim().toLowerCase();
+  const raw = process.env[name]?.trim()?.toLowerCase();
   if (raw === undefined || raw === "") return defaultTrue;
   if (raw === "true" || raw === "1" || raw === "yes") return true;
   if (raw === "false" || raw === "0" || raw === "no") return false;

@@ -33,18 +33,36 @@ export function toolOk<T>(data: T): ToolOkBody<T> {
 export function stringifyToolPayload(
   body: ToolResponseBody,
   maxChars: number,
+  ctx: LlmAgenticContext,
 ): string {
-  let s: string;
   try {
-    s = JSON.stringify(body);
+    const s = JSON.stringify(body);
+    if (s.length <= maxChars) return s;
+    const envelope: ToolOkBody<{
+      _truncated: true;
+      original_length: number;
+      preview: string;
+    }> = {
+      ok: true,
+      data: {
+        _truncated: true,
+        original_length: s.length,
+        preview: s.slice(0, Math.max(0, maxChars - 220)),
+      },
+    };
+    let out = JSON.stringify(envelope);
+    if (out.length > maxChars) {
+      out = JSON.stringify(
+        toolOk({
+          _truncated: true,
+          preview: "[tool result exceeded size limit]",
+        }),
+      );
+    }
+    return out;
   } catch {
-    s = JSON.stringify(
-      toolError("SERIALIZATION_ERROR", "Could not serialize tool result.", {
-        requestId: "",
-        endpoint: "",
-      }),
+    return JSON.stringify(
+      toolError("SERIALIZATION_ERROR", "Could not serialize tool result.", ctx),
     );
   }
-  if (s.length <= maxChars) return s;
-  return `${s.slice(0, Math.max(0, maxChars - 40))}\n...[truncated]`;
 }

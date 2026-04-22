@@ -177,7 +177,7 @@ export async function runAgenticChat(
       const rawArgs = fn?.arguments ?? "{}";
       const t0 = Date.now();
       let body: ToolResponseBody;
-      let status: "ok" | "error" = "ok";
+      let telemetryStatus: "ok" | "error" = "ok";
       let errorCode: string | null = null;
 
       try {
@@ -185,11 +185,12 @@ export async function runAgenticChat(
           dispatchTool(name, rawArgs, ctx),
           cfg.toolTimeoutMs,
         );
+        telemetryStatus = body.ok ? "ok" : "error";
         if (!body.ok) {
           errorCode = body.code;
         }
       } catch (e) {
-        status = "error";
+        telemetryStatus = "error";
         if (e instanceof Error && e.message === "TOOL_TIMEOUT") {
           errorCode = "TOOL_TIMEOUT";
           body = toolError("TOOL_TIMEOUT", "Tool exceeded time limit.", ctx);
@@ -199,14 +200,14 @@ export async function runAgenticChat(
         }
       }
 
-      const payload = stringifyToolPayload(body, cfg.maxResultChars);
+      const payload = stringifyToolPayload(body, cfg.maxResultChars, ctx);
       const latency = Date.now() - t0;
 
       void logLlmToolCall({
         toolName: name || "(missing)",
         endpoint: ctx.endpoint,
         requestId: ctx.requestId,
-        status,
+        status: telemetryStatus,
         latencyMs: latency,
         payloadInBytes: Buffer.byteLength(rawArgs, "utf8"),
         payloadOutBytes: Buffer.byteLength(payload, "utf8"),
