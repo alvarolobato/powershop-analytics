@@ -104,9 +104,12 @@ def decode_signed_int16_word(value: Any) -> Any:
         value: Raw value from ``safe_fetch`` (``int``, whole ``float``, ``Decimal``, ``str``, …).
 
     Returns:
-        Signed ``int`` when the numeric value is in ``32768..65535``; otherwise
-        the input unchanged (including ``None``, non-numerics, fractional floats,
-        and values already in ``-32768..32767``).
+        Values in ``32768..65535`` become signed ``int`` (``-32768..-1``).
+        Finite integral ``Decimal`` outside that band becomes ``int`` with the same
+        numeric value. ``None``, booleans, non-numeric strings, and fractional
+        ``float`` / ``Decimal`` are unchanged. ``int`` outside the decode band is
+        unchanged; whole ``float`` outside the band is returned as the original
+        ``float``.
     """
     if value is None or isinstance(value, bool):
         return value
@@ -137,7 +140,7 @@ def decode_signed_int16_word(value: Any) -> Any:
         iv = int(value)
         if 32768 <= iv <= 65535:
             return iv - 65536
-        return value
+        return iv
     return value
 
 
