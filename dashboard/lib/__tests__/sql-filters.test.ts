@@ -54,6 +54,41 @@ describe("compileGlobalFilterSql", () => {
     expect(params).toEqual([["A", "B"]]);
   });
 
+  it("binds numeric single_select from string or number", () => {
+    const filters = [
+      {
+        id: "n",
+        type: "single_select" as const,
+        label: "N",
+        bind_expr: "t.x",
+        value_type: "numeric" as const,
+        options_sql: "SELECT 1",
+      },
+    ];
+    const a = compileGlobalFilterSql(`SELECT 1 WHERE __gf_n__`, filters, { n: "42" });
+    expect(a.params).toEqual([42]);
+    const b = compileGlobalFilterSql(`SELECT 1 WHERE __gf_n__`, filters, { n: 7 });
+    expect(b.params).toEqual([7]);
+  });
+
+  it("binds numeric multi_select arrays", () => {
+    const filters = [
+      {
+        id: "n",
+        type: "multi_select" as const,
+        label: "N",
+        bind_expr: "t.x",
+        value_type: "numeric" as const,
+        options_sql: "SELECT 1",
+      },
+    ];
+    const { sql, params } = compileGlobalFilterSql(`WHERE __gf_n__`, filters, {
+      n: [1, 2, 3],
+    });
+    expect(sql).toContain("::numeric[]");
+    expect(params).toEqual([[1, 2, 3]]);
+  });
+
   it("excludeFilterId forces TRUE for that token", () => {
     const { sql } = compileGlobalFilterSql(
       `SELECT 1 WHERE __gf_tienda__ AND __gf_familia__`,

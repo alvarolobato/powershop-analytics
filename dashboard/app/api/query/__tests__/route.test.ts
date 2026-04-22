@@ -346,4 +346,19 @@ describe("POST /api/query", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("accepts number[] for ANY-style bind params", async () => {
+    mockValidateQueryCost.mockResolvedValue(0.1);
+    mockQuery.mockResolvedValue({
+      fields: [{ name: "x" }],
+      rows: [[1]],
+    });
+    const res = await POST(
+      makeRequest({
+        sql: "SELECT x FROM (VALUES ($1::int), ($2::int)) AS t(x) WHERE t.x = ANY($3::int[])",
+        params: [1, 2, [1, 2]],
+      }),
+    );
+    expect(res.status).toBe(200);
+  });
 });

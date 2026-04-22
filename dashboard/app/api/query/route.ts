@@ -47,9 +47,15 @@ export function normalizeQueryParams(raw: unknown): unknown[] | null {
       out.push(p);
       continue;
     }
-    if (Array.isArray(p) && p.every((x) => typeof x === "string")) {
-      out.push(p);
-      continue;
+    if (Array.isArray(p)) {
+      if (p.every((x) => typeof x === "string")) {
+        out.push(p);
+        continue;
+      }
+      if (p.every((x) => typeof x === "number")) {
+        out.push(p);
+        continue;
+      }
     }
     return null;
   }
@@ -99,7 +105,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   if (params === null) {
     return NextResponse.json(
       formatApiError(
-        "El campo 'params' debe ser un array de valores escalares o arrays de string.",
+        "El campo 'params' debe ser un array de valores escalares o arrays homogéneos de string o de number.",
         "VALIDATION",
         undefined,
         requestId,

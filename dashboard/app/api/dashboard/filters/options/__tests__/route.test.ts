@@ -100,4 +100,16 @@ describe("POST /api/dashboard/filters/options", () => {
     const res = await POST(req({ dashboardId: 1, filterId: "no_existe" }));
     expect(res.status).toBe(400);
   });
+
+  it("returns 400 when dateRange strings are not valid dates", async () => {
+    mockSql.mockResolvedValueOnce([{ spec: STORED_SPEC }]);
+    const res = await POST(
+      req({
+        dashboardId: 1,
+        filterId: "tienda",
+        dateRange: { from: "not-a-date", to: "also-bad" },
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
 });

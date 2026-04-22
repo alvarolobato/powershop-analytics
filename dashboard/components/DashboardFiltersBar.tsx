@@ -9,7 +9,6 @@ export interface DashboardFiltersBarProps {
   dashboardId: number;
   spec: DashboardSpec;
   dateRange?: DateRange;
-  comparisonRange?: ComparisonRange;
   value: GlobalFilterValues;
   onChange: (next: GlobalFilterValues) => void;
 }

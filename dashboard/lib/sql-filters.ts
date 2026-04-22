@@ -10,18 +10,35 @@
 import type { DashboardSpec, GlobalFilter } from "./schema";
 
 /** Active values keyed by global filter `id`. */
-export type GlobalFilterValues = Record<string, string | string[]>;
-
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
+export type GlobalFilterScalar = string | number;
+export type GlobalFilterValues = Record<
+  string,
+  GlobalFilterScalar | GlobalFilterScalar[]
+>;
 
 function isNonEmptyString(v: unknown): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+function coalesceNumericScalar(v: unknown): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim().length > 0) {
+    const n = Number(v);
+    if (!Number.isNaN(n) && Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function isNonEmptyStringArray(v: unknown): v is string[] {
   return Array.isArray(v) && v.length > 0 && v.every((x) => typeof x === "string" && x.length > 0);
+}
+
+function isNonEmptyNumberArray(v: unknown): v is number[] {
+  return (
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((x) => typeof x === "number" && Number.isFinite(x))
+  );
 }
 
 function tokenForFilterId(id: string): string {
@@ -67,20 +84,25 @@ export function compileGlobalFilterSql(
     const raw = values[filter.id];
 
     if (filter.type === "single_select") {
-      if (!isNonEmptyString(raw)) {
+      const castKind = pgScalarCast(filter);
+      const scalar =
+        castKind === "numeric" ? coalesceNumericScalar(raw) : isNonEmptyString(raw) ? raw.trim() : null;
+      if (scalar === null) {
         out = out.replaceAll(token, "TRUE");
         continue;
       }
       const idx = params.length + 1;
-      const cast = pgScalarCast(filter);
-      params.push(raw);
+      const cast = castKind;
+      params.push(scalar);
       const fragment = `((${filter.bind_expr}) = $${idx}::${cast})`;
       out = out.replaceAll(token, fragment);
       continue;
     }
 
     // multi_select
-    if (!isNonEmptyStringArray(raw)) {
+    const useNumeric = filter.value_type === "numeric";
+    const arrOk = useNumeric ? isNonEmptyNumberArray(raw) : isNonEmptyStringArray(raw);
+    if (!arrOk) {
       out = out.replaceAll(token, "TRUE");
       continue;
     }

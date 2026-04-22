@@ -42,6 +42,16 @@ function parseDashboardId(raw: unknown): number | null {
   return null;
 }
 
+function parseIsoDateRange(dr: {
+  from: string;
+  to: string;
+}): { from: Date; to: Date } | null {
+  const from = new Date(dr.from);
+  const to = new Date(dr.to);
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  return { from, to };
+}
+
 function normalizeBody(raw: unknown): z.infer<typeof BodySchema> | null {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
@@ -133,12 +143,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   let optionsSql = filter.options_sql;
   if (parsed.dateRange) {
-    optionsSql = substituteDateParams(optionsSql, {
-      curr: {
-        from: new Date(parsed.dateRange.from),
-        to: new Date(parsed.dateRange.to),
-      },
-    });
+    const dr = parseIsoDateRange(parsed.dateRange);
+    if (!dr) {
+      return NextResponse.json(
+        formatApiError(
+          "dateRange.from y dateRange.to deben ser fechas ISO válidas.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    optionsSql = substituteDateParams(optionsSql, { curr: dr });
   }
 
   let compiled;
