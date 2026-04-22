@@ -243,7 +243,7 @@ export async function PUT(
     );
   }
 
-  let validatedSpec;
+  let validatedSpec: ReturnType<typeof validateSpec>;
   try {
     validatedSpec = validateSpec(spec);
   } catch (err) {

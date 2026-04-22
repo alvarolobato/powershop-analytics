@@ -64,33 +64,40 @@ export function lintWidgetSql(sql: string): string[] {
 
 /** Lint every widget SQL in a spec; aggregates unique messages with widget paths. */
 export function lintDashboardSpec(spec: DashboardSpec): string[] {
+  const seenMessages = new Set<string>();
   const messages: string[] = [];
+  const pushUniqueMessage = (message: string): void => {
+    if (!seenMessages.has(message)) {
+      seenMessages.add(message);
+      messages.push(message);
+    }
+  };
   spec.widgets.forEach((widget, idx) => {
     const wid = widget.id ?? `index ${idx}`;
     if (widget.type === "kpi_row") {
-      widget.items.forEach((item, j) => {
+      widget.items.forEach((item) => {
         for (const msg of lintWidgetSql(item.sql)) {
-          messages.push(`Widget ${wid} (KPI «${item.label}»): ${msg}`);
+          pushUniqueMessage(`Widget ${wid} (KPI «${item.label}»): ${msg}`);
         }
         if (item.trend_sql) {
           for (const msg of lintWidgetSql(item.trend_sql)) {
-            messages.push(`Widget ${wid} (KPI «${item.label}», trend_sql): ${msg}`);
+            pushUniqueMessage(`Widget ${wid} (KPI «${item.label}», trend_sql): ${msg}`);
           }
         }
         if (item.anomaly_sql) {
           for (const msg of lintWidgetSql(item.anomaly_sql)) {
-            messages.push(`Widget ${wid} (KPI «${item.label}», anomaly_sql): ${msg}`);
+            pushUniqueMessage(`Widget ${wid} (KPI «${item.label}», anomaly_sql): ${msg}`);
           }
         }
       });
     } else {
       const title = "title" in widget ? widget.title : wid;
       for (const msg of lintWidgetSql(widget.sql)) {
-        messages.push(`Widget ${wid} («${title}»): ${msg}`);
+        pushUniqueMessage(`Widget ${wid} («${title}»): ${msg}`);
       }
       if ("comparison_sql" in widget && widget.comparison_sql) {
         for (const msg of lintWidgetSql(widget.comparison_sql)) {
-          messages.push(`Widget ${wid} («${title}», comparison_sql): ${msg}`);
+          pushUniqueMessage(`Widget ${wid} («${title}», comparison_sql): ${msg}`);
         }
       }
     }

@@ -47,4 +47,25 @@ describe("lintDashboardSpec", () => {
     expect(msgs.some((m) => m.includes("w1"))).toBe(true);
     expect(msgs.some((m) => m.includes("EXTRACT(days"))).toBe(true);
   });
+
+  it("deduplicates identical widget path messages", () => {
+    const badSql = "SELECT EXTRACT(days FROM CURRENT_DATE - fecha) AS x FROM foo";
+    const spec: DashboardSpec = {
+      title: "T",
+      description: "D",
+      widgets: [
+        {
+          id: "w1",
+          type: "kpi_row",
+          items: [
+            { label: "A", sql: badSql, format: "number" as const },
+            { label: "A", sql: badSql, format: "number" as const },
+          ],
+        },
+      ],
+      glossary: [{ term: "a", definition: "b" }],
+    };
+    const msgs = lintDashboardSpec(spec);
+    expect(msgs.length).toBe(1);
+  });
 });
