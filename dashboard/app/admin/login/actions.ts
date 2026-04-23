@@ -17,7 +17,7 @@ export async function loginAdmin(formData: FormData): Promise<void> {
     redirect(buildLoginRedirect("/admin/login?error=1", target));
   }
 
-  const jar = await cookies();
+  const jar = cookies();
   const secureFlag = process.env.ADMIN_COOKIE_SECURE === "true";
   const cookieBase = {
     httpOnly: true,
