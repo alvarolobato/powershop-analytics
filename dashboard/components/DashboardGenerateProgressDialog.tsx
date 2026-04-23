@@ -23,7 +23,15 @@ export function DashboardGenerateProgressDialog({
   onDismiss,
 }: DashboardGenerateProgressDialogProps) {
   return (
-    <Dialog open={open} onClose={() => {}} className="relative z-50">
+    <Dialog
+      open={open}
+      onClose={() => {
+        if (phase !== "running") {
+          onDismiss();
+        }
+      }}
+      className="relative z-50"
+    >
       <DialogBackdrop className="fixed inset-0 bg-black/40 backdrop-blur-[1px]" />
       <div className="fixed inset-0 flex items-center justify-center p-4">
         <DialogPanel className="w-full max-w-lg rounded-xl border border-tremor-border bg-tremor-background p-5 shadow-xl dark:border-dark-tremor-border dark:bg-dark-tremor-background">

@@ -54,57 +54,65 @@ export async function runDashboardGenerateStream(
   let buffer = "";
   let finalSpec: DashboardSpec | null = null;
 
+  const processLine = (rawLine: string) => {
+    const line = rawLine.trim();
+    if (!line) return;
+
+    let msg: Record<string, unknown>;
+    try {
+      msg = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      return;
+    }
+
+    if (msg.type === "meta" && typeof msg.requestId === "string") {
+      const lines: string[] = [];
+      if (typeof msg.message === "string") lines.push(msg.message);
+      if (typeof msg.promptPreview === "string") {
+        lines.push(`Resumen del prompt: ${msg.promptPreview}`);
+      }
+      handlers.onMeta?.(msg.requestId, lines);
+    }
+
+    if (msg.type === "progress" && msg.event) {
+      handlers.onLine?.(formatAgenticProgressLineEs(msg.event as AgenticProgressEvent));
+    }
+
+    if (msg.type === "phase" && typeof msg.message === "string") {
+      handlers.onLine?.(String(msg.message));
+    }
+
+    if (msg.type === "result" && msg.spec) {
+      finalSpec = msg.spec as DashboardSpec;
+    }
+
+    if (msg.type === "error") {
+      const payload: ApiErrorResponse = {
+        error: String(msg.error ?? "Error"),
+        code:
+          typeof msg.code === "string" ? (msg.code as ErrorCode) : ("UNKNOWN" as ErrorCode),
+        ...(typeof msg.details === "string" ? { details: msg.details } : {}),
+        timestamp: typeof msg.timestamp === "string" ? msg.timestamp : new Date().toISOString(),
+        requestId: typeof msg.requestId === "string" ? msg.requestId : "",
+      };
+      throw payload;
+    }
+  };
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     let nl: number;
     while ((nl = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, nl).trim();
+      const line = buffer.slice(0, nl);
       buffer = buffer.slice(nl + 1);
-      if (!line) continue;
-
-      let msg: Record<string, unknown>;
-      try {
-        msg = JSON.parse(line) as Record<string, unknown>;
-      } catch {
-        continue;
-      }
-
-      if (msg.type === "meta" && typeof msg.requestId === "string") {
-        const lines: string[] = [];
-        if (typeof msg.message === "string") lines.push(msg.message);
-        if (typeof msg.promptPreview === "string") {
-          lines.push(`Resumen del prompt: ${msg.promptPreview}`);
-        }
-        handlers.onMeta?.(msg.requestId, lines);
-      }
-
-      if (msg.type === "progress" && msg.event) {
-        handlers.onLine?.(formatAgenticProgressLineEs(msg.event as AgenticProgressEvent));
-      }
-
-      if (msg.type === "phase" && typeof msg.message === "string") {
-        handlers.onLine?.(String(msg.message));
-      }
-
-      if (msg.type === "result" && msg.spec) {
-        finalSpec = msg.spec as DashboardSpec;
-      }
-
-      if (msg.type === "error") {
-        const payload: ApiErrorResponse = {
-          error: String(msg.error ?? "Error"),
-          code:
-            typeof msg.code === "string" ? (msg.code as ErrorCode) : ("UNKNOWN" as ErrorCode),
-          ...(typeof msg.details === "string" ? { details: msg.details } : {}),
-          timestamp: typeof msg.timestamp === "string" ? msg.timestamp : new Date().toISOString(),
-          requestId: typeof msg.requestId === "string" ? msg.requestId : "",
-        };
-        throw payload;
-      }
+      processLine(line);
     }
   }
+
+  buffer += decoder.decode();
+  processLine(buffer);
 
   if (!finalSpec) {
     throw new Error("La generación terminó sin resultado del panel");

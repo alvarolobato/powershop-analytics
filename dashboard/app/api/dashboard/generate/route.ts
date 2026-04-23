@@ -21,7 +21,6 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
-import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
@@ -98,10 +97,6 @@ function finishGenerateFromRawLlm(rawResponse: string, requestId: string): Gener
       } as Record<string, unknown>,
     };
   }
-}
-
-function logAgenticProgress(requestId: string, event: AgenticProgressEvent): void {
-  console.info(`[agentic][generateDashboard][${requestId}]`, JSON.stringify(event));
 }
 
 function mapGenerateLlmError(err: unknown, requestId: string): GenerateFinishErr {
@@ -255,7 +250,6 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
             requestId,
             endpoint: "generateDashboard",
             onAgenticProgress: (ev) => {
-              logAgenticProgress(requestId, ev);
               send({ type: "progress", requestId, event: ev });
             },
           });
@@ -303,7 +297,6 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
     rawResponse = await generateDashboard(prompt, {
       requestId,
       endpoint: "generateDashboard",
-      onAgenticProgress: (ev) => logAgenticProgress(requestId, ev),
     });
   } catch (err: unknown) {
     const mapped = mapGenerateLlmError(err, requestId);
