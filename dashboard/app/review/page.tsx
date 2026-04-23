@@ -68,6 +68,41 @@ function formatRelativeTime(isoStr: string): string {
   }
 }
 
+// ─── Regenerate-mode copy (single source of truth) ───────────────────────────
+// Describes each regenerate mode for the select `title`, the option `title`s,
+// and the accessible visible hint below the <select>. Keeping one map prevents
+// these strings from drifting out of sync.
+
+type RegenMode = "refresh_data" | "alternate_angle";
+
+interface RegenModeCopy {
+  label: string;
+  /** Short description used in option/select tooltips and the hint text. */
+  description: string;
+}
+
+const REGEN_MODE_COPY: Record<RegenMode, RegenModeCopy> = {
+  refresh_data: {
+    label: "Actualizar datos",
+    description: "Vuelve a ejecutar las consultas SQL para traer datos actualizados.",
+  },
+  alternate_angle: {
+    label: "Reformular análisis (nuevo enfoque)",
+    description:
+      "Vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL.",
+  },
+};
+
+/** Fallback hint shown when no mode is selected. */
+const REGEN_MODE_DEFAULT_HINT =
+  "Elige cómo regenerar: actualizar datos reejecuta SQL; reformular análisis pide al modelo otro enfoque sobre los mismos datos.";
+
+function regenModeHint(mode: RegenMode | null): string {
+  if (mode === null) return REGEN_MODE_DEFAULT_HINT;
+  const copy = REGEN_MODE_COPY[mode];
+  return `${copy.label}: ${copy.description}`;
+}
+
 function ReviewSkeleton() {
   return (
     <div className="space-y-4 animate-pulse" aria-busy="true" role="status">
@@ -95,7 +130,7 @@ export default function ReviewPage() {
   const [revisions, setRevisions] = useState<RevisionMeta[]>([]);
   const [priorContent, setPriorContent] = useState<ReviewContent | null>(null);
   const [reviewError, setReviewError] = useState<ApiErrorResponse | string | null>(null);
-  const [regenMode, setRegenMode] = useState<"refresh_data" | "alternate_angle" | null>(null);
+  const [regenMode, setRegenMode] = useState<RegenMode | null>(null);
 
   const fetchPastReviews = useCallback(async () => {
     setListLoading(true);
@@ -360,30 +395,23 @@ export default function ReviewPage() {
                   className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
                   value={regenMode ?? ""}
                   onChange={(e) =>
-                    setRegenMode(
-                      e.target.value === ""
-                        ? null
-                        : (e.target.value as "refresh_data" | "alternate_angle"),
-                    )
+                    setRegenMode(e.target.value === "" ? null : (e.target.value as RegenMode))
                   }
                   data-testid="regen-mode-select"
                   aria-label="Modo de regeneración de la revisión semanal"
                   aria-describedby="regen-mode-hint"
-                  title="Elige cómo regenerar: reejecuta SQL o pide al modelo otro enfoque sobre los mismos datos."
+                  title={REGEN_MODE_DEFAULT_HINT}
                 >
                   <option value="">Regenerar…</option>
-                  <option
-                    value="refresh_data"
-                    title="Vuelve a ejecutar las consultas SQL para traer datos actualizados."
-                  >
-                    Actualizar datos
-                  </option>
-                  <option
-                    value="alternate_angle"
-                    title="Vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL."
-                  >
-                    Reformular análisis (nuevo enfoque)
-                  </option>
+                  {(Object.keys(REGEN_MODE_COPY) as RegenMode[]).map((mode) => (
+                    <option
+                      key={mode}
+                      value={mode}
+                      title={REGEN_MODE_COPY[mode].description}
+                    >
+                      {REGEN_MODE_COPY[mode].label}
+                    </option>
+                  ))}
                 </select>
                 <button
                   type="button"
@@ -400,18 +428,13 @@ export default function ReviewPage() {
                 `<option title>` tooltips are unreliable across browsers/touch
                 devices and not announced by screen readers, so we expose the
                 current mode's meaning here and wire it via `aria-describedby`.
-                See PR #402 Copilot feedback.
               */}
               <p
                 id="regen-mode-hint"
                 data-testid="regen-mode-hint"
                 className="text-[11px] leading-tight text-tremor-content dark:text-dark-tremor-content"
               >
-                {regenMode === "refresh_data"
-                  ? "Actualizar datos: vuelve a ejecutar las consultas SQL para traer datos actualizados."
-                  : regenMode === "alternate_angle"
-                    ? "Reformular análisis: vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL."
-                    : "Elige cómo regenerar: actualizar datos reejecuta SQL; reformular análisis pide al modelo otro enfoque sobre los mismos datos."}
+                {regenModeHint(regenMode)}
               </p>
             </div>
           </div>
