@@ -21,8 +21,8 @@ const ALL_SETS = {
 };
 
 describe.each(Object.entries(ALL_SETS))("template-global-filters: %s set", (name, set) => {
-  it(`${name} set has at least two filters`, () => {
-    expect(set.length).toBeGreaterThanOrEqual(2);
+  it(`${name} set has at least one filter`, () => {
+    expect(set.length).toBeGreaterThanOrEqual(1);
   });
 
   it(`${name} filters each pass GlobalFilterSchema`, () => {
@@ -82,9 +82,19 @@ describe("stock filter coverage", () => {
 });
 
 describe("compras filter coverage", () => {
-  it("includes proveedor_compras and familia", () => {
+  it("includes proveedor_compras", () => {
     const ids = templateGlobalFiltersCompras.map((f) => f.id);
-    expect(ids).toEqual(expect.arrayContaining(["proveedor_compras", "familia"]));
+    expect(ids).toEqual(expect.arrayContaining(["proveedor_compras"]));
+  });
+
+  // Guardrail: we removed familia/temporada from compras because no compras
+  // widget joins ps_lineas_compras → ps_articulos → ps_familias. If someone
+  // wires those joins in later, they should add the filter AND remove this
+  // exclusion rather than silently reintroducing dead chrome.
+  it("does NOT include familia or temporada (no compras widget joins articulos)", () => {
+    const ids = templateGlobalFiltersCompras.map((f) => f.id);
+    expect(ids).not.toContain("familia");
+    expect(ids).not.toContain("temporada");
   });
 });
 

@@ -85,11 +85,15 @@ function MultiCombobox(props: MultiFilterComboboxProps) {
 
   const filtered = useMemo(() => filterOptions(options, query), [options, query]);
 
+  const isLocked = Boolean(disabled || loading);
+
   const handleRemove = (v: string) => {
+    if (isLocked) return;
     onChange(value.filter((x) => x !== v));
   };
 
   const handleClear = () => {
+    if (isLocked) return;
     onChange([]);
     setQuery("");
   };
@@ -117,7 +121,8 @@ function MultiCombobox(props: MultiFilterComboboxProps) {
                 <button
                   type="button"
                   aria-label={`Quitar ${labelByValue(options, v)}`}
-                  className="leading-none text-tremor-brand hover:text-tremor-brand-emphasis dark:text-dark-tremor-brand"
+                  className="leading-none text-tremor-brand hover:text-tremor-brand-emphasis dark:text-dark-tremor-brand disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={isLocked}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleRemove(v);
@@ -253,6 +258,15 @@ function SingleCombobox(props: SingleFilterComboboxProps) {
               className="flex-1 bg-transparent text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis outline-none placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle"
               placeholder={placeholder ?? "Buscar…"}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                // Headless UI owns Escape for closing the listbox; we only
+                // consume it here when the user has typed a query so that
+                // Esc clears the in-progress search text without preventing
+                // the default close behavior.
+                if (event.key === "Escape" && query) {
+                  setQuery("");
+                }
+              }}
               displayValue={(v: string) => labelByValue(options, v || "")}
             />
             {value && !disabled && !loading ? (

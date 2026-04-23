@@ -14,7 +14,7 @@ import type { GlobalFilter } from "./schema";
  *
  *   v   — "public"."ps_ventas"
  *   lv  — "public"."ps_lineas_ventas"
- *   p   — "public"."ps_articulos"   (alias `pa` is also tolerated by aliasing bind_expr)
+ *   p   — "public"."ps_articulos"
  *   fm  — "public"."ps_familias"
  *   pr  — "public"."ps_proveedores"
  *   lf  — "public"."ps_gc_lin_facturas"
@@ -211,9 +211,15 @@ export const templateGlobalFiltersStock: GlobalFilter[] = [
   MARCA,
 ];
 
-/** Purchasing dashboards. proveedor_compras binds to ps_compras.num_proveedor. */
+/**
+ * Purchasing dashboards. proveedor_compras binds to ps_compras.num_proveedor.
+ *
+ * NOTE: familia / temporada are intentionally NOT included here. The compras
+ * template widgets do not join ps_lineas_compras → ps_articulos → ps_familias
+ * / ps_temporadas, so declaring those filters would render combobox chrome
+ * that has no effect on any widget. Wire the joins into compras widgets first
+ * before adding those filters back.
+ */
 export const templateGlobalFiltersCompras: GlobalFilter[] = [
   PROVEEDOR_COMPRAS,
-  FAMILIA_CATALOG,
-  TEMPORADA,
 ];

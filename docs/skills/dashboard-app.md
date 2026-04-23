@@ -102,7 +102,7 @@ shared sets in `dashboard/lib/template-global-filters.ts`:
 | `templateGlobalFiltersRetail` | ventas, general | tienda, familia, temporada, marca, sexo, departamento |
 | `templateGlobalFiltersMayorista` | mayorista | cliente_mayorista, familia, temporada, marca |
 | `templateGlobalFiltersStock` | stock | tienda (stock-scoped), familia, temporada, marca |
-| `templateGlobalFiltersCompras` | compras | proveedor_compras, familia, temporada |
+| `templateGlobalFiltersCompras` | compras | proveedor_compras |
 
 Rules when writing widget SQL for these templates:
 
