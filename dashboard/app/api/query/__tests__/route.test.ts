@@ -316,7 +316,49 @@ describe("POST /api/query", () => {
 
     expect(mockValidateQueryCost).toHaveBeenCalledWith(
       "SELECT id FROM ps_ventas",
-      { forceHeader: "my-secret" },
+      { forceHeader: "my-secret", params: [] },
     );
+  });
+
+  it("executes parameterized SELECT with params array", async () => {
+    mockValidateQueryCost.mockResolvedValue(1);
+    mockQuery.mockResolvedValue({
+      fields: [{ name: "n" }],
+      rows: [[42]],
+    });
+
+    const res = await POST(
+      makeRequest({ sql: "SELECT n FROM (VALUES ($1::int)) AS t(n)", params: [42] }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "SELECT n FROM (VALUES ($1::int)) AS t(n)",
+        values: [42],
+        rowMode: "array",
+      }),
+    );
+  });
+
+  it("rejects invalid params shape with 400", async () => {
+    const res = await POST(
+      makeRequest({ sql: "SELECT 1", params: { a: 1 } }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts number[] for ANY-style bind params", async () => {
+    mockValidateQueryCost.mockResolvedValue(0.1);
+    mockQuery.mockResolvedValue({
+      fields: [{ name: "x" }],
+      rows: [[1]],
+    });
+    const res = await POST(
+      makeRequest({
+        sql: "SELECT x FROM (VALUES ($1::int), ($2::int)) AS t(x) WHERE t.x = ANY($3::int[])",
+        params: [1, 2, [1, 2]],
+      }),
+    );
+    expect(res.status).toBe(200);
   });
 });

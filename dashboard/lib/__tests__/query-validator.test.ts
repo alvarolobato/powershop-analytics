@@ -69,6 +69,19 @@ describe("validateQueryCost", () => {
     expect(cost).toBe(500);
   });
 
+  it("forwards bind params to EXPLAIN query", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(12)]],
+    });
+    await validateQueryCost("SELECT * FROM ps_ventas WHERE id = $1", { params: [1] });
+    expect(mockQuery).toHaveBeenCalledTimes(1);
+    const [text, values] = mockQuery.mock.calls[0] as [string, unknown[] | undefined];
+    expect(text).toContain("EXPLAIN (FORMAT JSON)");
+    expect(text).toContain("SELECT * FROM ps_ventas WHERE id = $1");
+    expect(values).toEqual([1]);
+  });
+
   it("does not throw when QUERY_COST_LIMIT is unset even for very high planner cost", async () => {
     mockQuery.mockResolvedValueOnce({
       columns: ["QUERY PLAN"],

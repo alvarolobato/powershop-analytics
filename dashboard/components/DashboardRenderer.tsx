@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
-import type { DashboardSpec, Widget } from "@/lib/schema";
+import type { DashboardSpec, Widget, GlossaryItem } from "@/lib/schema";
 import type { WidgetData } from "./widgets/types";
 import type { DateRange, ComparisonRange } from "./DateRangePicker";
 import { substituteDateParams } from "@/lib/date-params";
+import { compileGlobalFilterSql } from "@/lib/sql-filters";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import { ErrorDisplay } from "./ErrorDisplay";
@@ -18,7 +19,9 @@ import {
   TableWidget,
   NumberWidget,
 } from "./widgets";
-import type { GlossaryItem } from "@/lib/schema";
+import type { GlobalFilterValues } from "@/lib/sql-filters";
+
+const EMPTY_GLOBAL_FILTERS: GlobalFilterValues = Object.freeze({});
 
 // ---------------------------------------------------------------------------
 // Props
@@ -51,6 +54,8 @@ export interface DashboardRendererProps {
    * passed to chart widgets so they can render two series side by side.
    */
   comparisonRange?: ComparisonRange;
+  /** Active global dashboard filter values (bound as SQL parameters). */
+  globalFilterValues?: GlobalFilterValues;
   /**
    * Optional callback fired whenever widget states change (e.g. a widget
    * finishes loading).  Use this to expose live widget data to the parent
@@ -116,11 +121,14 @@ const COMP_MISSING_ERROR = "Este panel requiere seleccionar un período de compa
 async function fetchWidgetData(
   sql: string,
   signal?: AbortSignal,
+  params?: unknown[],
 ): Promise<WidgetData> {
+  const body: { sql: string; params?: unknown[] } = { sql };
+  if (params && params.length > 0) body.params = params;
   const res = await fetch("/api/query", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sql }),
+    body: JSON.stringify(body),
     signal,
   });
   if (!res.ok) {
@@ -156,7 +164,14 @@ async function fetchWidgetData(
 // Component
 // ---------------------------------------------------------------------------
 
-export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonRange, onWidgetDataChange }: DashboardRendererProps) {
+export function DashboardRenderer({
+  spec,
+  refreshKey = 0,
+  dateRange,
+  comparisonRange,
+  globalFilterValues,
+  onWidgetDataChange,
+}: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -166,6 +181,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
   const retryAbortMap = useRef<Map<number, AbortController>>(new Map());
   // Stable key derived from spec content (not referential identity) so
   // parent re-renders that recreate the same spec object don't trigger refetches.
+  // Intentionally exclude globalFilterValues: parents should bump `refreshKey`
+  // when filter values change (avoids double-stringifying huge specs each render).
   const specKey = useMemo(() => JSON.stringify(spec), [spec]);
   // Track the specKey that widgetStates corresponds to, so we show skeletons
   // (not stale data) when spec changes before the effect runs.
@@ -198,6 +215,24 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
       return substituteDateParams(comparisonSql, ranges);
     },
     [dateRange, comparisonRange],
+  );
+
+  // Use a ref so parent re-renders with inline `globalFilterValues={{...}}` objects
+  // do not recreate fetch pipelines every frame (would re-trigger effects / OOM).
+  const globalFilterValuesRef = useRef<GlobalFilterValues>(EMPTY_GLOBAL_FILTERS);
+  globalFilterValuesRef.current = globalFilterValues ?? EMPTY_GLOBAL_FILTERS;
+
+  // Key off `specKey` (serialized spec) so a parent that recreates `spec.filters`
+  // with identical content does not recreate `bindGlobalFilters` / `fetchAll` / refetch.
+  const bindGlobalFilters = useCallback(
+    (sqlAfterDates: string): { sql: string; params: unknown[] } =>
+      compileGlobalFilterSql(
+        sqlAfterDates,
+        spec.filters,
+        globalFilterValuesRef.current,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally `specKey` only; `spec` is read from the same render as this key
+    [specKey],
   );
 
   // Fetch all widgets for a given spec
@@ -236,7 +271,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(buildMainSql(item.sql), signal);
+                  const q = bindGlobalFilters(buildMainSql(item.sql));
+                  const data = await fetchWidgetData(q.sql, signal, q.params);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -261,7 +297,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
                 const trendSql = buildComparisonSql(item.trend_sql);
                 if (!trendSql) return null;
                 try {
-                  return await fetchWidgetData(trendSql, signal);
+                  const q = bindGlobalFilters(trendSql);
+                  return await fetchWidgetData(q.sql, signal, q.params);
                 } catch {
                   return null;
                 }
@@ -272,7 +309,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(buildMainSql(item.anomaly_sql), signal);
+                  const q = bindGlobalFilters(buildMainSql(item.anomaly_sql));
+                  return await fetchWidgetData(q.sql, signal, q.params);
                 } catch {
                   return null;
                 }
@@ -303,9 +341,13 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             return;
           }
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
+          const mainQ = bindGlobalFilters(buildMainSql(widget.sql));
+          const compQ = compSql ? bindGlobalFilters(compSql) : null;
           const [data, comparisonData] = await Promise.all([
-            fetchWidgetData(buildMainSql(widget.sql), signal),
-            compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
+            fetchWidgetData(mainQ.sql, signal, mainQ.params),
+            compQ
+              ? fetchWidgetData(compQ.sql, signal, compQ.params).catch(() => null)
+              : Promise.resolve(null),
           ]);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
@@ -335,7 +377,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
     });
 
     await Promise.all(promises);
-  }, [buildMainSql, buildComparisonSql, comparisonRange]);
+  }, [buildMainSql, buildComparisonSql, comparisonRange, bindGlobalFilters]);
 
   // Retry a single widget by re-fetching it.
   // Uses a per-widget AbortController so retrying one widget never cancels another.
@@ -370,7 +412,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             Promise.all(
               widget.items.map(async (item) => {
                 try {
-                  const data = await fetchWidgetData(buildMainSql(item.sql), signal);
+                  const q = bindGlobalFilters(buildMainSql(item.sql));
+                  const data = await fetchWidgetData(q.sql, signal, q.params);
                   return { data, error: null as ApiErrorResponse | string | null };
                 } catch (err) {
                   const structured =
@@ -392,7 +435,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
                 const trendSql = buildComparisonSql(item.trend_sql);
                 if (!trendSql) return null;
                 try {
-                  return await fetchWidgetData(trendSql, signal);
+                  const q = bindGlobalFilters(trendSql);
+                  return await fetchWidgetData(q.sql, signal, q.params);
                 } catch {
                   return null;
                 }
@@ -402,7 +446,8 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
               widget.items.map(async (item): Promise<WidgetData | null> => {
                 if (!item.anomaly_sql) return null;
                 try {
-                  return await fetchWidgetData(buildMainSql(item.anomaly_sql), signal);
+                  const q = bindGlobalFilters(buildMainSql(item.anomaly_sql));
+                  return await fetchWidgetData(q.sql, signal, q.params);
                 } catch {
                   return null;
                 }
@@ -432,9 +477,13 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
             return;
           }
           const compSql = "comparison_sql" in widget ? buildComparisonSql(widget.comparison_sql) : null;
+          const mainQ = bindGlobalFilters(buildMainSql(widget.sql));
+          const compQ = compSql ? bindGlobalFilters(compSql) : null;
           const [data, comparisonData] = await Promise.all([
-            fetchWidgetData(buildMainSql(widget.sql), signal),
-            compSql ? fetchWidgetData(compSql, signal).catch(() => null) : Promise.resolve(null),
+            fetchWidgetData(mainQ.sql, signal, mainQ.params),
+            compQ
+              ? fetchWidgetData(compQ.sql, signal, compQ.params).catch(() => null)
+              : Promise.resolve(null),
           ]);
           if (!signal.aborted) {
             setWidgetStates((prev) => {
@@ -465,7 +514,7 @@ export function DashboardRenderer({ spec, refreshKey = 0, dateRange, comparisonR
         retryAbortMap.current.delete(idx);
       }
     },
-    [buildMainSql, buildComparisonSql, comparisonRange],
+    [buildMainSql, buildComparisonSql, comparisonRange, bindGlobalFilters],
   );
 
   useEffect(() => {

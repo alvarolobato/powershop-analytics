@@ -881,6 +881,62 @@ describe("DashboardRenderer", () => {
       expect(fetch).not.toHaveBeenCalled();
     });
 
+    it("sends SQL params when spec uses __gf tokens and globalFilterValues are set", async () => {
+      const fetchMock = mockFetchSuccess({ columns: ["value"], rows: [[1]] });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const specWithFilters: DashboardSpec = {
+        title: "Con filtros",
+        filters: [
+          {
+            id: "tienda",
+            type: "single_select",
+            label: "Tienda",
+            bind_expr: `v."tienda"`,
+            value_type: "text",
+            options_sql: "SELECT 1 AS value, 1 AS label",
+          },
+        ],
+        widgets: [
+          {
+            type: "number",
+            title: "N",
+            sql: 'SELECT 1 AS value FROM "public"."ps_ventas" v WHERE __gf_tienda__',
+            format: "number",
+          },
+        ],
+      };
+
+      const { rerender } = render(
+        <DashboardRenderer
+          spec={specWithFilters}
+          globalFilterValues={{ tienda: "01" }}
+          refreshKey={0}
+        />,
+      );
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+      const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+      expect(firstBody.sql).toContain("$1::text");
+      expect(firstBody.params).toEqual(["01"]);
+
+      rerender(
+        <DashboardRenderer
+          spec={specWithFilters}
+          globalFilterValues={{ tienda: "02" }}
+          refreshKey={1}
+        />,
+      );
+
+      await waitFor(() => {
+        const last = JSON.parse(
+          fetchMock.mock.calls[fetchMock.mock.calls.length - 1][1].body as string,
+        );
+        expect(last.params).toEqual(["02"]);
+      });
+    });
+
     it("calls fetchWidgetData with substituted SQL (no :comp_*) when comparisonRange is set", async () => {
       const fetchMock = mockFetchSuccess({ columns: ["tienda", "anterior"], rows: [["Madrid", 500]] });
       vi.stubGlobal("fetch", fetchMock);

@@ -322,6 +322,85 @@ describe("WidgetSchema", () => {
 // default_time_range field tests
 // ---------------------------------------------------------------------------
 
+describe("DashboardSpecSchema — filters (global)", () => {
+  const BASE = {
+    title: "T",
+    widgets: [{ type: "table", title: "W", sql: "SELECT 1" }],
+  };
+
+  it("accepts spec without filters (optional)", () => {
+    expect(() => DashboardSpecSchema.parse(BASE)).not.toThrow();
+  });
+
+  it("accepts valid single_select and multi_select filters", () => {
+    const spec = {
+      ...BASE,
+      filters: [
+        {
+          id: "tienda",
+          type: "single_select",
+          label: "Tienda",
+          bind_expr: `v."tienda"`,
+          value_type: "text",
+          options_sql: "SELECT 1 AS value, 1 AS label",
+        },
+        {
+          id: "familia",
+          type: "multi_select",
+          label: "Familia",
+          bind_expr: `fm."fami_grup_marc"`,
+          value_type: "text",
+          options_sql: "SELECT 1 AS value, 1 AS label",
+        },
+      ],
+    };
+    const r = DashboardSpecSchema.parse(spec);
+    expect(r.filters).toHaveLength(2);
+  });
+
+  it("rejects duplicate filter ids", () => {
+    const spec = {
+      ...BASE,
+      filters: [
+        {
+          id: "tienda",
+          type: "single_select",
+          label: "A",
+          bind_expr: "v.a",
+          value_type: "text",
+          options_sql: "SELECT 1 AS value, 1 AS label",
+        },
+        {
+          id: "tienda",
+          type: "single_select",
+          label: "B",
+          bind_expr: "v.b",
+          value_type: "text",
+          options_sql: "SELECT 1 AS value, 1 AS label",
+        },
+      ],
+    };
+    expect(() => DashboardSpecSchema.parse(spec)).toThrow(ZodError);
+  });
+
+  it("rejects invalid filter id slug", () => {
+    const spec = {
+      ...BASE,
+      filters: [
+        {
+          id: "1bad",
+          type: "single_select",
+          label: "X",
+          bind_expr: "x",
+          value_type: "text",
+          options_sql: "SELECT 1 AS value, 1 AS label",
+        },
+      ],
+    };
+    expect(() => DashboardSpecSchema.parse(spec)).toThrow(ZodError);
+  });
+});
+
 describe("DashboardSpecSchema — default_time_range", () => {
   const BASE = {
     title: "T",

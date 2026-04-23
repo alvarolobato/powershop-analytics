@@ -1,7 +1,7 @@
 /**
  * POST /api/query — Execute a read-only SQL query against PostgreSQL.
  *
- * Accepts: { sql: string }
+ * Accepts: { sql: string, params?: unknown[] }
  * Returns: { columns: string[], rows: unknown[][] }
  *
  * Error codes:
@@ -28,6 +28,40 @@ import {
 } from "@/lib/errors";
 import { validateQueryCost, QueryTooExpensiveError } from "@/lib/query-validator";
 
+function isParamScalar(v: unknown): boolean {
+  return (
+    v === null ||
+    typeof v === "string" ||
+    typeof v === "number" ||
+    typeof v === "boolean"
+  );
+}
+
+/** Normalize JSON `params` for pg — scalars or string[] for ANY($n::text[]). */
+export function normalizeQueryParams(raw: unknown): unknown[] | null {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return null;
+  const out: unknown[] = [];
+  for (const p of raw) {
+    if (isParamScalar(p)) {
+      out.push(p);
+      continue;
+    }
+    if (Array.isArray(p)) {
+      if (p.every((x) => typeof x === "string")) {
+        out.push(p);
+        continue;
+      }
+      if (p.every((x) => typeof x === "number")) {
+        out.push(p);
+        continue;
+      }
+    }
+    return null;
+  }
+  return out;
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = generateRequestId();
 
@@ -53,12 +87,25 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { sql } = body as { sql?: string };
+  const { sql, params: rawParams } = body as { sql?: string; params?: unknown };
 
   if (!sql || typeof sql !== "string" || !sql.trim()) {
     return NextResponse.json(
       formatApiError(
         "Falta el campo 'sql' o está vacío.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+
+  const params = normalizeQueryParams(rawParams);
+  if (params === null) {
+    return NextResponse.json(
+      formatApiError(
+        "El campo 'params' debe ser un array de valores escalares o arrays homogéneos de string o de number.",
         "VALIDATION",
         undefined,
         requestId,
@@ -89,7 +136,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   let cost = 0;
   const forceHeader = request.headers.get("X-Query-Force") ?? undefined;
   try {
-    cost = await validateQueryCost(sql, { forceHeader });
+    cost = await validateQueryCost(sql, { forceHeader, params });
   } catch (err) {
     if (err instanceof QueryTooExpensiveError) {
       return NextResponse.json(
@@ -102,7 +149,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   // Execute the query
   try {
-    const result = await query(sql);
+    const result = await query(sql, params.length > 0 ? params : undefined);
     const response = NextResponse.json(result);
     response.headers.set("X-Query-Cost", String(cost));
     return response;
