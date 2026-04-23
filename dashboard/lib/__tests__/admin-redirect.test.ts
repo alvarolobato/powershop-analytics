@@ -62,6 +62,10 @@ describe("safeAdminRedirectTarget", () => {
       ["/admin/", "bare /admin/ (maps to default landing)"],
       ["/admin?foo=1", "bare /admin with query"],
       ["/admin#top", "bare /admin with hash"],
+      // Dot-segment bypass attempts — normalize to a non-admin path.
+      ["/admin/../", "dot-segment escaping admin root"],
+      ["/admin/../dashboard", "dot-segment escaping to dashboard"],
+      ["/etl/../../somewhere", "double dot-segment escaping etl"],
     ])("rejects %s (%s)", (value, _label) => {
       expect(safeAdminRedirectTarget(value as string | null | undefined)).toBe(DEFAULT_ADMIN_LANDING);
     });

@@ -138,6 +138,32 @@ describe("middleware — admin UI gating", () => {
       );
       expect(res.status).toBe(401);
     });
+
+    it("allows /api/etl/* when Bearer is valid even if x-admin-key is wrong (OR logic)", async () => {
+      // Both headers present; x-admin-key is wrong but Bearer is correct.
+      const req = makeRequest("/api/etl/stats", { bearer: ADMIN_KEY });
+      // Manually add the bad x-admin-key header on top of the Bearer one.
+      const headers = new Headers(req.headers);
+      headers.set("x-admin-key", "wrong-key");
+      const res = middleware(new NextRequest(req.url, { headers, method: req.method }));
+      expect(res.status).not.toBe(401);
+    });
+
+    it("returns 401 for /api/admin/* when both headers are wrong", async () => {
+      const req = makeRequest("/api/admin/usage", { bearer: "wrong" });
+      const headers = new Headers(req.headers);
+      headers.set("x-admin-key", "also-wrong");
+      const res = middleware(new NextRequest(req.url, { headers, method: req.method }));
+      expect(res.status).toBe(401);
+    });
+
+    it("allows /api/admin/* when x-admin-key is valid even if Bearer is wrong (OR logic)", async () => {
+      const req = makeRequest("/api/admin/usage", { headerKey: ADMIN_KEY });
+      const headers = new Headers(req.headers);
+      headers.set("authorization", "Bearer wrong-token");
+      const res = middleware(new NextRequest(req.url, { headers, method: req.method }));
+      expect(res.status).not.toBe(401);
+    });
   });
 
   describe("when ADMIN_API_KEY is missing", () => {

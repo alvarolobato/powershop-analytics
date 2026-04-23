@@ -62,28 +62,32 @@ export function safeAdminRedirectTarget(input: string | null | undefined): strin
   // Reject any control characters (including CR/LF) or whitespace.
   if (CONTROL_OR_WHITESPACE.test(value)) return DEFAULT_ADMIN_LANDING;
 
-  // Only admin-area paths are allowed.
-  if (!ADMIN_AREA_PATH.test(value)) return DEFAULT_ADMIN_LANDING;
+  // Normalize dot-segments (e.g. `/admin/../` → `/`) so that paths like
+  // `/admin/../somewhere` cannot pass the allowlist check but resolve to a
+  // non-admin path after user-agent normalization.
+  let parsed: URL;
+  try {
+    parsed = new URL(value, "http://local");
+  } catch {
+    return DEFAULT_ADMIN_LANDING;
+  }
+  const pathOnly = parsed.pathname;
+
+  // Only admin-area paths are allowed after normalizing dot segments.
+  if (!ADMIN_AREA_PATH.test(pathOnly)) return DEFAULT_ADMIN_LANDING;
 
   // Never bounce back to the login page itself.
-  if (
-    value === "/admin/login" ||
-    value.startsWith("/admin/login/") ||
-    value.startsWith("/admin/login?") ||
-    value.startsWith("/admin/login#")
-  ) {
+  if (pathOnly === "/admin/login" || pathOnly.startsWith("/admin/login/")) {
     return DEFAULT_ADMIN_LANDING;
   }
 
   // Bare `/admin` redirects to the default landing page (app/admin/page.tsx
   // exists but only server-redirects to DEFAULT_ADMIN_LANDING). Mapping it
   // here avoids an extra round-trip and prevents redirect chaining in the
-  // login flow. The query/hash variants are covered by stripping them before
-  // matching.
-  const pathOnly = value.split(/[?#]/, 1)[0];
+  // login flow.
   if (pathOnly === "/admin" || pathOnly === "/admin/") {
     return DEFAULT_ADMIN_LANDING;
   }
 
-  return value;
+  return `${pathOnly}${parsed.search}${parsed.hash}`;
 }

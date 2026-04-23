@@ -39,16 +39,17 @@ function buildLoginRedirect(request: NextRequest, errorCode?: "2"): URL {
 }
 
 /**
- * Extracts the admin API key from `x-admin-key` or `Authorization: Bearer`
- * headers. Returns `null` when neither header is present or the Bearer prefix
- * is missing, so callers can compare the result directly against `ADMIN_API_KEY`.
+ * Returns true when at least one of the two API-key header schemes carries the
+ * expected admin key. Both `x-admin-key` and `Authorization: Bearer …` are
+ * treated as equals (OR, not precedence) so a valid credential is accepted even
+ * when a client accidentally includes an incorrect second header.
  */
-function parseAdminBearer(request: NextRequest): string | null {
+function adminBearerValid(request: NextRequest, expected: string): boolean {
   const headerKey = request.headers.get("x-admin-key")?.trim();
-  if (headerKey) return headerKey;
+  if (headerKey === expected) return true;
   const auth = request.headers.get("authorization");
-  if (auth?.startsWith("Bearer ")) return auth.slice(7).trim();
-  return null;
+  if (auth?.startsWith("Bearer ") && auth.slice(7).trim() === expected) return true;
+  return false;
 }
 
 export function middleware(request: NextRequest): NextResponse {
@@ -75,8 +76,7 @@ export function middleware(request: NextRequest): NextResponse {
   }
 
   if (pathname.startsWith("/api/admin")) {
-    const provided = parseAdminBearer(request);
-    if (provided !== adminKey) {
+    if (!adminBearerValid(request, adminKey)) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
   }
@@ -86,11 +86,8 @@ export function middleware(request: NextRequest): NextResponse {
     // Also accept the header/Bearer scheme for server-to-server callers that
     // already authenticate against /api/admin/*.
     const cookie = request.cookies.get("ps_admin")?.value;
-    if (cookie !== adminKey) {
-      const provided = parseAdminBearer(request);
-      if (provided !== adminKey) {
-        return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-      }
+    if (cookie !== adminKey && !adminBearerValid(request, adminKey)) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
   }
 
