@@ -7,6 +7,7 @@
  * Time-filtered queries (transfers, dead-stock lookback) use :curr_from / :curr_to tokens.
  */
 import type { DashboardSpec } from "@/lib/schema";
+import { templateGlobalFiltersStock } from "@/lib/template-global-filters";
 
 export const name = "Responsable de Stock";
 
@@ -16,6 +17,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Stock",
   description,
+  filters: templateGlobalFiltersStock,
   widgets: [
     {
       id: "stock-kpis",
@@ -58,10 +60,16 @@ WHERE s."stock" > 0 AND p."anulado" = false`,
       id: "stock-por-tienda",
       type: "bar_chart",
       title: "Stock por Tienda (excluye almacén central)",
-      sql: `SELECT "tienda" AS label, SUM("stock") AS value
-FROM "public"."ps_stock_tienda"
-WHERE "stock" > 0 AND "tienda" <> '99'
-GROUP BY "tienda"
+      sql: `SELECT s."tienda" AS label, SUM(s."stock") AS value
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0 AND s."tienda" <> '99'
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+GROUP BY s."tienda"
 ORDER BY value DESC`,
       x: "label",
       y: "value",
@@ -76,6 +84,10 @@ FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
 JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE s."stock" > 0 AND p."anulado" = false
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
 GROUP BY fm."fami_grup_marc"
 ORDER BY value DESC
 LIMIT 10`,
@@ -92,9 +104,14 @@ LIMIT 10`,
        SUM(s."stock") AS "Stock"
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE s."stock" > 0 AND s."stock" < 5
   AND s."tienda" <> '99'
   AND p."anulado" = false
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
 GROUP BY s."tienda", p."ccrefejofacm", p."descripcion"
 ORDER BY "Stock" ASC
 LIMIT 50`,

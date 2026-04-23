@@ -6,6 +6,7 @@
  * All date filters use :curr_from / :curr_to tokens set by the date picker.
  */
 import type { DashboardSpec } from "@/lib/schema";
+import { templateGlobalFiltersMayorista } from "@/lib/template-global-filters";
 
 export const name = "Director Mayorista";
 
@@ -15,6 +16,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
   description,
+  filters: templateGlobalFiltersMayorista,
   widgets: [
     {
       id: "mayorista-kpis",
@@ -22,21 +24,23 @@ export const spec: DashboardSpec = {
       items: [
         {
           label: "Facturacion Neta",
-          sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
-FROM "public"."ps_gc_facturas"
-WHERE "abono" = false
-  AND "fecha_factura" >= :curr_from
-  AND "fecha_factura" <= :curr_to`,
+          sql: `SELECT COALESCE(SUM(f."base1" + f."base2" + f."base3"), 0) AS value
+FROM "public"."ps_gc_facturas" f
+WHERE f."abono" = false
+  AND f."fecha_factura" >= :curr_from
+  AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__`,
           format: "currency",
           prefix: "€",
         },
         {
           label: "Facturas",
-          sql: `SELECT COUNT(DISTINCT "reg_factura") AS value
-FROM "public"."ps_gc_facturas"
-WHERE "abono" = false
-  AND "fecha_factura" >= :curr_from
-  AND "fecha_factura" <= :curr_to`,
+          sql: `SELECT COUNT(DISTINCT f."reg_factura") AS value
+FROM "public"."ps_gc_facturas" f
+WHERE f."abono" = false
+  AND f."fecha_factura" >= :curr_from
+  AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__`,
           format: "number",
         },
         {
@@ -47,19 +51,26 @@ WHERE "abono" = false
 ) AS value
 FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura"
+JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
+JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE lf."total" > 0
   AND f."abono" = false
   AND f."fecha_factura" >= :curr_from
-  AND f."fecha_factura" <= :curr_to`,
+  AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__`,
           format: "percent",
         },
         {
           label: "Clientes Activos (período seleccionado)",
-          sql: `SELECT COUNT(DISTINCT "num_cliente") AS value
-FROM "public"."ps_gc_facturas"
-WHERE "abono" = false
-  AND "fecha_factura" >= :curr_from
-  AND "fecha_factura" <= :curr_to`,
+          sql: `SELECT COUNT(DISTINCT f."num_cliente") AS value
+FROM "public"."ps_gc_facturas" f
+WHERE f."abono" = false
+  AND f."fecha_factura" >= :curr_from
+  AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__`,
           format: "number",
         },
       ],
@@ -75,6 +86,7 @@ JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial"
 WHERE f."abono" = false
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__
 GROUP BY c."comercial"
 ORDER BY value DESC`,
       x: "label",
@@ -93,6 +105,7 @@ ORDER BY value DESC`,
   WHERE f."abono" = false
     AND f."fecha_factura" >= :curr_from
     AND f."fecha_factura" <= :curr_to
+    AND __gf_cliente_mayorista__
 ), margenes AS (
   SELECT lf."num_factura",
          SUM(lf."total")       AS total_ingreso,
@@ -162,10 +175,15 @@ LIMIT 20`,
 FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura"
 JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
+JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE f."abono" = false
   AND lf."unidades" > 0
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
 GROUP BY p."ccrefejofacm", p."descripcion"
 ORDER BY "Importe" DESC
 LIMIT 10`,
@@ -180,6 +198,7 @@ FROM "public"."ps_gc_facturas" f
 WHERE f."abono" = false
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
+  AND __gf_cliente_mayorista__
 GROUP BY DATE_TRUNC('month', f."fecha_factura")
 ORDER BY x`,
       x: "x",
