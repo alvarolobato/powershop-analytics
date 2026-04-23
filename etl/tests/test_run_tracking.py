@@ -348,3 +348,115 @@ class TestMonitoringResilience:
         assert _SYNC_FUNCTION_NAMES == set(called), (
             f"Not all sync functions were called. Missing: {_SYNC_FUNCTION_NAMES - set(called)}"
         )
+
+
+class TestTotalRowsSyncedAccumulator:
+    """run_full_sync must accumulate per-table rows and pass the sum to finish_run.
+
+    Prior to issue #398 the call to finish_run omitted ``total_rows_synced`` so
+    the Monitor ETL "Filas sincronizadas" KPI was always 0 despite
+    etl_sync_run_tables.rows_synced being populated correctly.
+    """
+
+    def test_finish_run_receives_sum_of_table_rows(self):
+        conn_4d = MagicMock()
+        conn_pg = MagicMock()
+
+        # Assign a deterministic row count per sync function so we can verify
+        # the expected sum. Catalogos returns a dict (its helper sums values).
+        per_fn_rows = 7
+        num_fns = len(_SYNC_TARGETS)  # 22 sync fns exercised in run_full_sync
+        # Catalogos returns {"x": 7, "y": 7} via the _run_sync_catalogos wrapper,
+        # which will sum to 14. All others return 7. Expected total:
+        #   (num_fns - 1) * 7  +  14
+        expected_total = (num_fns - 1) * per_fn_rows + 2 * per_fn_rows
+
+        def _rows(name):
+            def _fn(*args, **kwargs):
+                if name == "sync_catalogos":
+                    return {"a": per_fn_rows, "b": per_fn_rows}
+                return per_fn_rows
+
+            return _fn
+
+        with ExitStack() as stack:
+            for target in _SYNC_TARGETS:
+                name = target.rsplit(".", 1)[-1]
+                stack.enter_context(patch(target, side_effect=_rows(name)))
+            stack.enter_context(patch(f"{_WM_MODULE}.get_watermark", return_value=None))
+            stack.enter_context(patch(f"{_WM_MODULE}.set_watermark"))
+            create_run_mock = stack.enter_context(
+                patch(f"{_WM_MODULE}.create_run", return_value=1, create=True)
+            )
+            finish_run_mock = stack.enter_context(
+                patch(f"{_WM_MODULE}.finish_run", create=True)
+            )
+            stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync", create=True))
+            stack.enter_context(patch(f"{_WM_MODULE}.update_trigger_run_id"))
+            stack.enter_context(
+                patch("etl.main._get_rows_total", return_value=None, create=True)
+            )
+            stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
+
+            from etl.main import run_full_sync
+
+            run_full_sync(conn_4d, conn_pg)
+
+        assert create_run_mock.call_count == 1
+        finish_run_mock.assert_called_once()
+        kwargs = finish_run_mock.call_args.kwargs
+        assert "total_rows_synced" in kwargs, (
+            "finish_run must receive total_rows_synced so the KPI is populated"
+        )
+        assert kwargs["total_rows_synced"] == expected_total, (
+            f"Expected {expected_total} total rows, got {kwargs['total_rows_synced']}"
+        )
+
+    def test_failed_sync_does_not_add_to_total(self):
+        """If a sync function raises, _run_sync returns (0, False) so the
+        total_rows_synced accumulator is unaffected by that table."""
+        conn_4d = MagicMock()
+        conn_pg = MagicMock()
+
+        def _raise(*args, **kwargs):
+            raise RuntimeError("simulated failure")
+
+        def _make_fn(name):
+            if name == "sync_stock":
+                return _raise
+            if name == "sync_catalogos":
+                # Single-entry dict sums to 5.
+                return lambda *a, **kw: {"x": 5}
+            return lambda *a, **kw: 5
+
+        with ExitStack() as stack:
+            for target in _SYNC_TARGETS:
+                short = target.rsplit(".", 1)[-1]
+                stack.enter_context(patch(target, side_effect=_make_fn(short)))
+            stack.enter_context(patch(f"{_WM_MODULE}.get_watermark", return_value=None))
+            stack.enter_context(patch(f"{_WM_MODULE}.set_watermark"))
+            stack.enter_context(
+                patch(f"{_WM_MODULE}.create_run", return_value=1, create=True)
+            )
+            finish_run_mock = stack.enter_context(
+                patch(f"{_WM_MODULE}.finish_run", create=True)
+            )
+            stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync", create=True))
+            stack.enter_context(patch(f"{_WM_MODULE}.update_trigger_run_id"))
+            stack.enter_context(
+                patch("etl.main._get_rows_total", return_value=None, create=True)
+            )
+            stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
+
+            from etl.main import run_full_sync
+
+            run_full_sync(conn_4d, conn_pg)
+
+        finish_run_mock.assert_called_once()
+        kwargs = finish_run_mock.call_args.kwargs
+        # 22 sync targets total; sync_stock raises (contributes 0). The other
+        # 21 each contribute 5 rows. Expected = 21 * 5 = 105.
+        expected = (len(_SYNC_TARGETS) - 1) * 5
+        assert kwargs["total_rows_synced"] == expected, (
+            f"Expected failed sync to contribute 0, got {kwargs['total_rows_synced']}"
+        )

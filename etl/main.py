@@ -302,10 +302,18 @@ def run_full_sync(
             )
 
     results: list[bool] = []
+    total_rows = 0
 
     def _s(name, fn, *, wm=False):
-        _, ok = _run_sync(name, fn, conn_4d, conn_pg, uses_watermark=wm, run_id=run_id)
+        nonlocal total_rows
+        rows, ok = _run_sync(
+            name, fn, conn_4d, conn_pg, uses_watermark=wm, run_id=run_id
+        )
         results.append(ok)
+        # Accumulate row counts for etl_sync_runs.total_rows_synced so the
+        # Monitor ETL "Filas sincronizadas" KPI reflects the real sum across
+        # all tables. Failures return rows=0, so they do not skew the total.
+        total_rows += rows
 
     # ------------------------------------------------------------------
     # 1. Catalog (full refresh, no watermark)
@@ -385,7 +393,14 @@ def run_full_sync(
         tables_failed = len(results) - tables_ok
         status = "success" if tables_failed == 0 else "partial"
         try:
-            finish_run(conn_pg, run_id, status, tables_ok, tables_failed)
+            finish_run(
+                conn_pg,
+                run_id,
+                status,
+                tables_ok,
+                tables_failed,
+                total_rows_synced=total_rows,
+            )
         except Exception:
             logger.exception("Monitoring: finish_run failed")
 
