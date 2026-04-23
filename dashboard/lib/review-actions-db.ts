@@ -47,7 +47,11 @@ export async function replaceActionsFromReviewContent(
     }
     await client.query("COMMIT");
   } catch (err) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback failures (connection may already be aborted)
+    }
     throw err;
   } finally {
     client.release();
