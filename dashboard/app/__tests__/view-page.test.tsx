@@ -12,9 +12,12 @@ import type { DashboardSpec } from "@/lib/schema";
 const mockPush = vi.fn();
 const mockId = "1";
 
+const mockSearchParamsRef = { current: new URLSearchParams() };
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
   useParams: () => ({ id: mockId }),
+  useSearchParams: () => mockSearchParamsRef.current,
 }));
 
 // ---------------------------------------------------------------------------
@@ -90,6 +93,7 @@ describe("ViewDashboard page", () => {
     vi.useRealTimers();
     mockPush.mockReset();
     rendererProps.length = 0;
+    mockSearchParamsRef.current = new URLSearchParams();
   });
 
   afterEach(() => {

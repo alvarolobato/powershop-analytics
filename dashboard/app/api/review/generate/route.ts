@@ -1,106 +1,156 @@
 /**
- * POST /api/review/generate
+ * POST /api/review/generate — Generate or regenerate a weekly business review (v2).
  *
- * Orchestration route for the automated weekly business review:
- * 1. Resolve the **last completed ISO week** (Mon–Sun before the current week)
- * 2. Skip with 409 if a review for that week_start already exists
- * 3. Execute all predefined SQL queries for that window ($1/$2 bounds)
- * 4. Format results as text, build LLM prompt, call OpenRouter
- * 5. Parse and validate the structured review
- * 6. Persist to weekly_reviews table
- * 7. Return the full review with its DB id
- *
- * Error codes:
- *   409 — Review already stored for that closed week
- *   503 — Database connection error
- *   502 — LLM error
- *   500 — Unexpected error
+ * Body (JSON, optional):
+ *   week_start?: "YYYY-MM-DD" (default: last completed ISO week)
+ *   regenerate?: boolean (default false)
+ *   mode?: "refresh_data" | "alternate_angle" (required when regenerate=true)
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { query, ConnectionError, QueryTimeoutError } from "@/lib/db";
 import {
   formatApiError,
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
-import { executeReviewQueries, formatAllResults } from "@/lib/review-queries";
+import { executeReviewQueries, formatAllResults, type ReviewQueryResult } from "@/lib/review-queries";
 import { buildReviewPrompt } from "@/lib/review-prompts";
 import { generateReview, BudgetExceededError } from "@/lib/llm";
-import { saveReview } from "@/lib/review-db";
+import {
+  getLatestReviewIdForWeek,
+  getMaxRevisionForWeek,
+  saveReview,
+} from "@/lib/review-db";
+import { replaceActionsFromReviewContent } from "@/lib/review-actions-db";
+import { addDaysIso } from "@/lib/review-dashboard-links";
+import { getOrCreateReviewDashboardId } from "@/lib/review-dashboard-seed";
+import { buildDashboardReviewHref } from "@/lib/review-dashboard-links";
+import { enrichReviewContent, computeQueryFailureRate } from "@/lib/review-evidence";
+import type { ReviewContent } from "@/lib/review-schema";
+import { REVIEW_DASHBOARD_KEYS } from "@/lib/review-schema";
 
-// Allow up to 90 seconds for the full review generation flow
 export const maxDuration = 90;
 
-export async function POST(): Promise<NextResponse> {
+interface GenerateBody {
+  week_start?: string;
+  regenerate?: boolean;
+  mode?: "refresh_data" | "alternate_angle";
+}
+
+function isIsoDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s);
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = generateRequestId();
+  const started = Date.now();
+
+  let body: GenerateBody = {};
+  try {
+    body = (await request.json()) as GenerateBody;
+  } catch {
+    body = {};
+  }
+
+  const regenerate = Boolean(body.regenerate);
+  const mode = body.mode;
+  if (regenerate && (mode !== "refresh_data" && mode !== "alternate_angle")) {
+    return NextResponse.json(
+      formatApiError(
+        "Si regenerate=true, mode debe ser refresh_data o alternate_angle.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
 
   try {
-    // 1. Last **completed** ISO week: Monday = DATE_TRUNC('week', today) - 7 days
-    const boundsRes = await query(
-      `SELECT
-         TO_CHAR((DATE_TRUNC('week', CURRENT_DATE::timestamp) - INTERVAL '7 days')::date, 'YYYY-MM-DD') AS week_start,
-         TO_CHAR((DATE_TRUNC('week', CURRENT_DATE::timestamp) - INTERVAL '1 day')::date, 'YYYY-MM-DD') AS week_end_sunday,
-         TO_CHAR(DATE_TRUNC('week', CURRENT_DATE::timestamp)::date, 'YYYY-MM-DD') AS week_end_exclusive`
-    );
-    const weekStartStr = String(boundsRes.rows[0]?.[0] ?? "");
-    const weekEndSundayStr = String(boundsRes.rows[0]?.[1] ?? "");
-    const weekEndExclusiveStr = String(boundsRes.rows[0]?.[2] ?? "");
-    if (!weekStartStr || !weekEndExclusiveStr) {
-      return NextResponse.json(
-        formatApiError(
-          "No se pudo calcular la semana de análisis.",
-          "UNKNOWN",
-          undefined,
-          requestId,
-        ),
-        { status: 500 },
+    let weekStartStr: string;
+    if (body.week_start) {
+      if (!isIsoDate(body.week_start)) {
+        return NextResponse.json(
+          formatApiError("week_start debe ser YYYY-MM-DD.", "VALIDATION", undefined, requestId),
+          { status: 400 },
+        );
+      }
+      weekStartStr = body.week_start;
+    } else {
+      const boundsRes = await query(
+        `SELECT TO_CHAR((DATE_TRUNC('week', CURRENT_DATE::timestamp) - INTERVAL '7 days')::date, 'YYYY-MM-DD') AS week_start`,
       );
+      weekStartStr = String(boundsRes.rows[0]?.[0] ?? "");
+      if (!weekStartStr) {
+        return NextResponse.json(
+          formatApiError("No se pudo calcular la semana de análisis.", "UNKNOWN", undefined, requestId),
+          { status: 500 },
+        );
+      }
     }
 
-    // 2. Do not regenerate if this closed week was already analyzed
-    const existingRes = await query(
-      `SELECT id FROM weekly_reviews WHERE week_start = $1::date ORDER BY id DESC LIMIT 1`,
-      [weekStartStr],
-    );
-    const existingId = existingRes.rows[0]?.[0];
-    if (existingId != null && existingId !== undefined) {
+    const weekEndSundayStr = addDaysIso(weekStartStr, 6);
+    const weekEndExclusiveStr = addDaysIso(weekStartStr, 7);
+
+    const latestId = await getLatestReviewIdForWeek(weekStartStr);
+
+    if (!regenerate && latestId != null) {
       return NextResponse.json(
         {
           ...formatApiError(
-            "Ya existe una revisión para la última semana cerrada. Ábrala desde el historial; no se volverá a generar hasta una nueva semana completa.",
+            "Ya existe una revisión para esa semana. Use regenerate=true para crear una nueva versión.",
             "REVIEW_EXISTS",
             undefined,
             requestId,
           ),
-          existing_id: Number(existingId),
+          existing_id: latestId,
           week_start: weekStartStr,
         },
         { status: 409 },
       );
     }
 
-    // 3. Execute all predefined SQL queries (partial failures are tolerated)
-    const queryResults = await executeReviewQueries(
+    if (regenerate && latestId == null) {
+      return NextResponse.json(
+        formatApiError(
+          "No existe ninguna revisión previa para esa semana; no se puede regenerar.",
+          "NOT_FOUND",
+          undefined,
+          requestId,
+        ),
+        { status: 404 },
+      );
+    }
+
+    const generationMode: "initial" | "refresh_data" | "alternate_angle" = regenerate
+      ? (mode as "refresh_data" | "alternate_angle")
+      : "initial";
+
+    const queryResults: ReviewQueryResult[] = await executeReviewQueries(
       (sql, params) => query(sql, params),
       weekStartStr,
       weekEndExclusiveStr,
     );
 
-    // 4. Format query results as text for the LLM
+    const failureRate = computeQueryFailureRate(queryResults);
+    const failedNames = queryResults.filter((r) => r.error || !r.result).map((r) => r.query.name);
+
     const formattedResults = formatAllResults(queryResults);
 
     const reviewedWeekDescription =
       `Los resultados corresponden a la **semana ISO cerrada** del **${weekStartStr}** (lunes) al **${weekEndSundayStr}** (domingo). ` +
       `La semana en curso no se incluye (sigue en progreso).`;
 
-    // 5. Build the LLM prompt
-    const systemPrompt = buildReviewPrompt(formattedResults, reviewedWeekDescription);
+    const systemPrompt = buildReviewPrompt(
+      formattedResults,
+      reviewedWeekDescription,
+      generationMode,
+    );
 
-    // 6. Call the LLM
-    let reviewContent;
+    let llmOut;
     try {
-      reviewContent = await generateReview(systemPrompt);
+      llmOut = await generateReview(systemPrompt);
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         return NextResponse.json(
@@ -114,38 +164,90 @@ export async function POST(): Promise<NextResponse> {
           "Error al generar la revisión con el modelo de IA. Inténtalo de nuevo.",
           "LLM_ERROR",
           sanitizeErrorMessage(err),
-          requestId
+          requestId,
         ),
-        { status: 502 }
+        { status: 502 },
       );
     }
 
-    // Ensure generated_at is set
-    if (!reviewContent.generated_at) {
-      reviewContent.generated_at = new Date().toISOString();
+    const generatedAt = llmOut.generated_at || new Date().toISOString();
+
+    let content: ReviewContent = {
+      review_schema_version: 2,
+      executive_summary: llmOut.executive_summary,
+      sections: llmOut.sections.map((s) => ({ ...s })),
+      action_items: llmOut.action_items.map((a) => ({
+        ...a,
+        owner_name: "",
+      })),
+      data_quality_notes: [...llmOut.data_quality_notes],
+      generated_at: generatedAt,
+      quality_status: failureRate > 0.3 ? "degraded" : "ok",
+    };
+
+    if (failureRate > 0.3) {
+      content.data_quality_notes.push(
+        `Calidad degradada: ${Math.round(failureRate * 100)}% de consultas fallaron o sin resultado (${failedNames.join(", ") || "n/a"}).`,
+      );
     }
+
+    const dashboardUrls: Record<string, string> = {};
+    for (const key of REVIEW_DASHBOARD_KEYS) {
+      const dashId = await getOrCreateReviewDashboardId(key);
+      dashboardUrls[key] = buildDashboardReviewHref(dashId, weekStartStr, weekEndSundayStr);
+    }
+
+    content = enrichReviewContent(content, queryResults, dashboardUrls);
+
+    const nextRevision = (await getMaxRevisionForWeek(weekStartStr)) + 1;
+    const supersedes = regenerate ? latestId : null;
+
+    const durationMs = Date.now() - started;
+    console.info(
+      JSON.stringify({
+        event: "review_generate",
+        requestId,
+        week_start: weekStartStr,
+        revision: nextRevision,
+        mode: generationMode,
+        regenerate,
+        query_failures: failedNames.length,
+        query_total: queryResults.length,
+        duration_ms: durationMs,
+      }),
+    );
 
     let reviewId: number;
     try {
-      reviewId = await saveReview(weekStartStr, reviewContent);
+      reviewId = await saveReview({
+        weekStart: weekStartStr,
+        windowStart: weekStartStr,
+        windowEnd: weekEndSundayStr,
+        revision: nextRevision,
+        generationMode,
+        supersedesReviewId: supersedes,
+        content,
+      });
+      await replaceActionsFromReviewContent(reviewId, content);
     } catch (err) {
       console.error(`[${requestId}] Error saving review to DB:`, err);
-      // Return review even if persistence fails — the user still gets value
       return NextResponse.json(
-        { review: { ...reviewContent, id: null, week_start: weekStartStr } },
-        { status: 200 }
+        { review: { ...content, id: null, week_start: weekStartStr, revision: nextRevision } },
+        { status: 200 },
       );
     }
 
     return NextResponse.json(
       {
         review: {
-          ...reviewContent,
+          ...content,
           id: reviewId,
           week_start: weekStartStr,
+          revision: nextRevision,
+          generation_mode: generationMode,
         },
       },
-      { status: 200 }
+      { status: 200 },
     );
   } catch (err) {
     if (err instanceof ConnectionError) {
@@ -155,9 +257,9 @@ export async function POST(): Promise<NextResponse> {
           "No se pudo conectar a la base de datos. Inténtalo de nuevo más tarde.",
           "DB_CONNECTION",
           sanitizeErrorMessage(err),
-          requestId
+          requestId,
         ),
-        { status: 503 }
+        { status: 503 },
       );
     }
     if (err instanceof QueryTimeoutError) {
@@ -167,9 +269,9 @@ export async function POST(): Promise<NextResponse> {
           "Las consultas tardaron demasiado. Inténtalo de nuevo.",
           "TIMEOUT",
           sanitizeErrorMessage(err),
-          requestId
+          requestId,
         ),
-        { status: 503 }
+        { status: 503 },
       );
     }
 
@@ -179,9 +281,9 @@ export async function POST(): Promise<NextResponse> {
         "Error inesperado al generar la revisión.",
         "UNKNOWN",
         sanitizeErrorMessage(err),
-        requestId
+        requestId,
       ),
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

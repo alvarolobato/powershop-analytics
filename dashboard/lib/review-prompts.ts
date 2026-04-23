@@ -1,27 +1,16 @@
 /**
- * LLM prompt builder for the automated weekly business review.
- *
- * Generates a system prompt that instructs the LLM to produce a structured
- * Spanish business review in JSON format.
+ * LLM prompt builder for the automated weekly business review (v2 schema).
  */
 
 import { INSTRUCTIONS, type Instruction } from "./knowledge";
+import { REVIEW_QUERIES } from "./review-queries";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export interface ReviewContent {
-  executive_summary: string;
-  sections: ReviewSection[];
-  action_items: string[];
-  generated_at: string;
-}
-
-export interface ReviewSection {
-  title: string;
-  content: string;
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+export type {
+  ReviewContent,
+  ReviewSectionV2,
+  ReviewActionItemV2,
+  ReviewDashboardKey,
+} from "./review-schema";
 
 function formatInstructions(instructions: Instruction[]): string {
   return instructions
@@ -29,73 +18,110 @@ function formatInstructions(instructions: Instruction[]): string {
     .join("\n");
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
+const QUERY_NAMES_LIST = REVIEW_QUERIES.map((q) => q.name).join(", ");
 
 /**
- * Build the system prompt for the weekly review LLM call.
- *
- * @param queryResults - Text representation of all SQL query results
- * @param reviewedWeekDescription - One or two sentences: which closed ISO week the data covers
- * @returns System prompt string
+ * Build the system prompt for the weekly review LLM call (strict JSON v2).
  */
 export function buildReviewPrompt(
   queryResults: string,
   reviewedWeekDescription: string,
+  generationMode: "initial" | "refresh_data" | "alternate_angle" = "initial",
 ): string {
   const instructionsText = formatInstructions(INSTRUCTIONS);
 
-  return `Eres un analista de negocio experto en retail y moda que prepara la revisión semanal del negocio.
+  const modeHint =
+    generationMode === "alternate_angle"
+      ? "Enfoque alternativo: prioriza riesgos, cuellos de botella y decisiones pendientes; evita repetir la misma redacción de una revisión anterior."
+      : "Enfoque estándar: equilibrio entre diagnóstico y oportunidades.";
 
-Tu misión: analizar los datos de PowerShop Analytics y redactar una revisión semanal completa, concisa y orientada a la acción, escrita en español.
+  return `Eres un analista de negocio experto en retail y moda que prepara la revisión semanal del negocio para DIRECCIÓN.
+
+Tu misión: analizar los datos y devolver una revisión accionable en español, con evidencia explícita (nombres de consultas) y prioridades claras.
 
 **Ventana temporal:** ${reviewedWeekDescription}
 
-No asumas datos de la semana en curso si no aparecen en las consultas: el sistema solo agrega la **última semana ISO ya cerrada** (lunes 00:00 a domingo 23:59) para evitar cifras parciales. Usa la consulta "ventas_semana_previa" (y análogas) como referencia de la semana inmediatamente anterior a la analizada.
+**Modo de generación:** ${generationMode}. ${modeHint}
+
+No asumas datos de la semana en curso si no aparecen en las consultas.
 
 ## Reglas de negocio
 
-Las siguientes instrucciones son críticas para interpretar correctamente los datos:
-
 ${instructionsText}
 
-## Formato de salida
+## Consultas permitidas para evidencia
 
-Debes devolver ÚNICAMENTE un objeto JSON válido con la siguiente estructura exacta (sin bloques de código markdown, sin texto antes o después).
+Solo puedes referenciar estos nombres exactos en los arrays evidence_queries:
+${QUERY_NAMES_LIST}
 
-El JSON tiene los campos: executive_summary (Resumen Ejecutivo de la semana), sections (secciones por dominio), action_items (Acciones Recomendadas) y generated_at (timestamp de generación).
+## Formato de salida (v2)
+
+**Resumen Ejecutivo:** corresponde al campo JSON \`executive_summary\` (array de 3 a 5 bullets en español).
+
+Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto extra) con esta forma:
 
 {
-  "executive_summary": "<3-4 puntos clave separados por \\n, en formato '• punto clave'",
+  "executive_summary": ["bullet 1", "bullet 2", "bullet 3"],
   "sections": [
     {
+      "key": "ventas_retail",
       "title": "Ventas Retail",
-      "content": "<2-4 párrafos analizando las ventas retail de la semana cerrada, comparando con la semana previa (consulta ventas_semana_previa), destacando tiendas y artículos más vendidos>"
+      "narrative": "2-4 párrafos separados por \\n\\n",
+      "kpis": ["KPI breve 1", "KPI breve 2"],
+      "evidence_queries": ["ventas_semana_cerrada", "ventas_semana_previa"],
+      "dashboard_key": "ventas_retail"
     },
     {
+      "key": "canal_mayorista",
       "title": "Canal Mayorista",
-      "content": "<2-4 párrafos sobre facturación mayorista, principales clientes, albaranes pendientes>"
+      "narrative": "...",
+      "kpis": ["...", "..."],
+      "evidence_queries": ["facturacion_mayorista_semana_cerrada"],
+      "dashboard_key": "canal_mayorista"
     },
     {
+      "key": "stock",
       "title": "Stock y Logística",
-      "content": "<2-4 párrafos sobre el estado del stock, artículos en stock crítico, traspasos realizados>"
+      "narrative": "...",
+      "kpis": ["...", "..."],
+      "evidence_queries": ["stock_total_unidades", "articulos_stock_critico"],
+      "dashboard_key": "stock"
     },
     {
+      "key": "compras",
       "title": "Compras",
-      "content": "<2-4 párrafos sobre pedidos de compra de la semana cerrada comparados con la semana previa (compras_semana_previa)>"
+      "narrative": "...",
+      "kpis": ["...", "..."],
+      "evidence_queries": ["compras_semana_cerrada", "compras_semana_previa"],
+      "dashboard_key": "compras"
     }
   ],
   "action_items": [
-    "<acción concreta y priorizada, ej: Revisar stock crítico de artículos con menos de 5 unidades>",
-    "<2-5 acciones adicionales>"
+    {
+      "action_key": "revisar_stock_critico_top",
+      "priority": "alta",
+      "owner_role": "Dirección de tiendas",
+      "due_date": "YYYY-MM-DD",
+      "action": "Texto accionable concreto",
+      "expected_impact": "Impacto esperado cuantificado o cualificado",
+      "evidence_queries": ["articulos_stock_critico"],
+      "dashboard_key": "stock"
+    }
   ],
-  "generated_at": "<ISO 8601 timestamp>"
+  "data_quality_notes": [],
+  "generated_at": "<ISO 8601>"
 }
+
+Restricciones:
+- sections debe tener exactamente 4 entradas y las claves key deben ser ventas_retail, canal_mayorista, stock, compras (una cada una).
+- executive_summary: 3 a 5 strings.
+- action_items: mínimo 3, máximo 8; cada action_key en snake_case único dentro del JSON.
+- priority solo: alta | media | baja.
+- due_date siempre YYYY-MM-DD (fecha objetivo de seguimiento).
+- evidence_queries nunca vacío; solo nombres de la lista permitida.
+- data_quality_notes incluye avisos si faltan datos o una consulta falló (según el bloque de resultados).
 
 ## Datos analizados
 
-A continuación se presentan los resultados de las consultas ejecutadas contra la base de datos:
-
-${queryResults}
-
-Analiza estos datos con criterio de negocio. Si algún dato falta o tiene errores, indícalo brevemente en la sección correspondiente y continúa con los datos disponibles. Prioriza las acciones más urgentes primero. Recuerda que el resumen ejecutivo debe ser conciso (3-4 bullets) y las secciones deben ser analíticas (no solo descriptivas de los datos en bruto).`;
+${queryResults}`;
 }

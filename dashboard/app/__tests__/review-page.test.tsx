@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import ReviewPage from "../review/page";
-import type { ReviewContent } from "@/lib/review-prompts";
+import type { ReviewContent } from "@/lib/review-schema";
 
 // ─── Mock next/navigation ─────────────────────────────────────────────────────
 
@@ -12,53 +12,171 @@ vi.mock("next/navigation", () => ({
   useParams: () => ({}),
 }));
 
-// ─── Test data ────────────────────────────────────────────────────────────────
+// ─── Shared v2 review content ─────────────────────────────────────────────────
 
-const mockReview: ReviewContent & { id: number; week_start: string } = {
-  id: 1,
-  week_start: "2026-03-31",
-  executive_summary:
-    "• Ventas semanales 45.230€, +12% vs semana anterior\n• Tienda 03 lidera con 8.200€\n• Stock crítico en 8 referencias",
+const reviewContentV2: ReviewContent = {
+  review_schema_version: 2,
+  executive_summary: [
+    "Ventas semanales 45.230€, +12% vs semana anterior",
+    "Tienda 03 lidera con 8.200€",
+    "Stock crítico en 8 referencias",
+  ],
   sections: [
     {
+      key: "ventas_retail",
       title: "Ventas Retail",
-      content: "Las ventas retail alcanzaron 45.230€ esta semana.",
+      narrative: "Las ventas retail alcanzaron 45.230€ esta semana.",
+      kpis: ["Ventas netas +12%"],
+      evidence_queries: ["ventas_semana_cerrada"],
+      dashboard_key: "ventas_retail",
     },
     {
+      key: "canal_mayorista",
       title: "Canal Mayorista",
-      content: "La facturación mayorista asciende a 23.500€.",
+      narrative: "La facturación mayorista asciende a 23.500€.",
+      kpis: ["Facturación B2B"],
+      evidence_queries: ["facturacion_mayorista_semana_cerrada"],
+      dashboard_key: "canal_mayorista",
     },
     {
+      key: "stock",
       title: "Stock y Logística",
-      content: "Stock total de 12.450 unidades.",
+      narrative: "Stock total de 12.450 unidades.",
+      kpis: ["Stock total"],
+      evidence_queries: ["stock_total_unidades"],
+      dashboard_key: "stock",
     },
     {
+      key: "compras",
       title: "Compras",
-      content: "3 pedidos de compra esta semana.",
+      narrative: "3 pedidos de compra esta semana.",
+      kpis: ["3 pedidos"],
+      evidence_queries: ["compras_semana_cerrada"],
+      dashboard_key: "compras",
     },
   ],
   action_items: [
-    "Revisar stock crítico de 8 referencias",
-    "Planificar traspasos entre tiendas",
+    {
+      action_key: "revisar_stock_critico",
+      priority: "alta",
+      owner_role: "Logística",
+      owner_name: "",
+      due_date: "2026-04-10",
+      action: "Revisar stock crítico de 8 referencias",
+      expected_impact: "Menos roturas",
+      evidence_queries: ["articulos_stock_critico"],
+      dashboard_key: "stock",
+    },
+    {
+      action_key: "contactar_mayoristas",
+      priority: "media",
+      owner_role: "Ventas B2B",
+      owner_name: "",
+      due_date: "2026-04-11",
+      action: "Contactar con los 3 clientes mayoristas pendientes de factura",
+      expected_impact: "Mejor cobro",
+      evidence_queries: ["top3_clientes_mayorista_semana_cerrada"],
+      dashboard_key: "canal_mayorista",
+    },
+    {
+      action_key: "planificar_traspasos",
+      priority: "baja",
+      owner_role: "Tiendas",
+      owner_name: "",
+      due_date: "2026-04-12",
+      action: "Planificar traspasos entre tiendas para optimizar el stock",
+      expected_impact: "Mejor distribución",
+      evidence_queries: ["traspasos_semana_cerrada"],
+      dashboard_key: "stock",
+    },
   ],
+  data_quality_notes: [],
   generated_at: "2026-04-05T10:00:00.000Z",
+  quality_status: "ok",
 };
 
-const mockPastReviews = [
+const mockPastReviewSummaries = [
   {
-    id: 1,
     week_start: "2026-03-31",
-    executive_summary:
-      "• Ventas semanales 45.230€\n• Stock crítico en 8 referencias",
+    latest_id: 1,
+    latest_revision: 1,
+    revision_count: 1,
+    executive_summary: reviewContentV2.executive_summary.join(" · "),
     created_at: "2026-04-05T10:00:00.000Z",
   },
   {
-    id: 2,
     week_start: "2026-03-24",
-    executive_summary: "• Ventas 40.000€\n• Sin alertas de stock",
+    latest_id: 2,
+    latest_revision: 1,
+    revision_count: 1,
+    executive_summary: "Ventas 40.000€ · Sin alertas de stock",
     created_at: "2026-03-29T09:00:00.000Z",
   },
 ];
+
+const revisionRowForWeek = {
+  id: 1,
+  week_start: "2026-03-31",
+  revision: 1,
+  generation_mode: "initial",
+  created_at: "2026-04-05T10:00:00.000Z",
+  preview: reviewContentV2.executive_summary[0],
+};
+
+const fullReviewApiPayload = {
+  id: 1,
+  week_start: "2026-03-31",
+  revision: 1,
+  generation_mode: "initial",
+  content: reviewContentV2,
+  actions: [] as const,
+};
+
+function requestPath(input: RequestInfo | URL): string {
+  const raw = typeof input === "string" ? input : String(input);
+  try {
+    return new URL(raw, "http://localhost").pathname;
+  } catch {
+    return raw;
+  }
+}
+
+function jsonResponse(ok: boolean, data: unknown, status?: number) {
+  return Promise.resolve({
+    ok,
+    status: status ?? (ok ? 200 : 500),
+    json: () => Promise.resolve(data),
+  });
+}
+
+function installGenerateSuccessFetch() {
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const path = requestPath(input);
+    const method = (init?.method ?? "GET").toUpperCase();
+
+    if (method === "POST" && path === "/api/review/generate") {
+      return jsonResponse(true, {
+        review: {
+          ...reviewContentV2,
+          id: 1,
+          week_start: "2026-03-31",
+          revision: 1,
+          generation_mode: "initial",
+        },
+      });
+    }
+    if (path.startsWith("/api/review/week/")) {
+      return jsonResponse(true, [revisionRowForWeek]);
+    }
+    if (/^\/api\/review\/\d+$/.test(path)) {
+      return jsonResponse(true, fullReviewApiPayload);
+    }
+    if (path === "/api/review") {
+      return jsonResponse(true, []);
+    }
+    return jsonResponse(false, { error: "unexpected fetch " + path }, 404);
+  });
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -104,18 +222,16 @@ describe("ReviewPage", () => {
   it("shows loading spinner while fetching past reviews", () => {
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
     render(<ReviewPage />);
-    // The spinner has aria-label "Cargando revisiones"
     expect(screen.getByLabelText("Cargando revisiones")).toBeInTheDocument();
   });
 
   it("renders past reviews list after loading", async () => {
-    globalThis.fetch = mockFetch([{ ok: true, data: mockPastReviews }]);
+    globalThis.fetch = mockFetch([{ ok: true, data: mockPastReviewSummaries }]);
     render(<ReviewPage />);
 
     await waitFor(() => {
       expect(screen.getAllByText(/Semana del/).length).toBeGreaterThanOrEqual(1);
     });
-    // Both reviews should be rendered as buttons
     expect(screen.getByTestId("past-review-1")).toBeInTheDocument();
     expect(screen.getByTestId("past-review-2")).toBeInTheDocument();
   });
@@ -130,9 +246,7 @@ describe("ReviewPage", () => {
   });
 
   it("shows error state when list fetch fails", async () => {
-    globalThis.fetch = mockFetch([
-      { ok: false, data: { error: "Server error" } },
-    ]);
+    globalThis.fetch = mockFetch([{ ok: false, data: { error: "Server error" } }]);
     render(<ReviewPage />);
 
     await waitFor(() => {
@@ -141,18 +255,17 @@ describe("ReviewPage", () => {
   });
 
   it("shows loading skeleton when generate is clicked", async () => {
-    globalThis.fetch = vi.fn()
-      // First call: list reviews
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([]),
-      })
-      // Second call: generate — never resolves (keeps loading)
-      .mockReturnValueOnce(new Promise(() => {}));
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestPath(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST" && path === "/api/review/generate") {
+        return new Promise(() => {});
+      }
+      return jsonResponse(true, []);
+    });
 
     render(<ReviewPage />);
 
-    // Wait for list to load
     await waitFor(() => {
       expect(screen.getByText("No hay revisiones anteriores")).toBeInTheDocument();
     });
@@ -162,28 +275,11 @@ describe("ReviewPage", () => {
     });
 
     expect(screen.getByRole("status")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Generando revisión/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Generando revisión/)).toBeInTheDocument();
   });
 
   it("renders the review after successful generation", async () => {
-    globalThis.fetch = vi.fn()
-      // First call: list reviews
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([]),
-      })
-      // Second call: generate
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ review: mockReview }),
-      })
-      // Third call: refresh list after generation
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([mockPastReviews[0]]),
-      });
+    installGenerateSuccessFetch();
 
     render(<ReviewPage />);
 
@@ -204,12 +300,10 @@ describe("ReviewPage", () => {
 
   it("shows error when generation fails", async () => {
     globalThis.fetch = vi.fn()
-      // First call: list reviews
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve([]),
       })
-      // Second call: generate fails
       .mockResolvedValueOnce({
         ok: false,
         status: 503,
@@ -239,24 +333,23 @@ describe("ReviewPage", () => {
   });
 
   it("loads a past review when clicking on it", async () => {
-    const fullReviewData = {
-      id: 1,
-      week_start: "2026-03-31",
-      content: mockReview,
-      created_at: "2026-04-05T10:00:00.000Z",
-    };
-
-    globalThis.fetch = vi.fn()
-      // First call: list reviews
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockPastReviews),
-      })
-      // Second call: load review by id
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(fullReviewData),
-      });
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = requestPath(input);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "POST") {
+        return jsonResponse(false, {}, 400);
+      }
+      if (path.startsWith("/api/review/week/")) {
+        return jsonResponse(true, [revisionRowForWeek]);
+      }
+      if (/^\/api\/review\/\d+$/.test(path)) {
+        return jsonResponse(true, fullReviewApiPayload);
+      }
+      if (path === "/api/review") {
+        return jsonResponse(true, mockPastReviewSummaries);
+      }
+      return jsonResponse(false, { error: "unexpected" }, 404);
+    });
 
     render(<ReviewPage />);
 
@@ -274,19 +367,7 @@ describe("ReviewPage", () => {
   });
 
   it("shows 'Volver a la lista' button when viewing a review", async () => {
-    globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([]),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ review: mockReview }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([]),
-      });
+    installGenerateSuccessFetch();
 
     render(<ReviewPage />);
 
@@ -304,19 +385,7 @@ describe("ReviewPage", () => {
   });
 
   it("returns to list when 'Volver a la lista' is clicked", async () => {
-    globalThis.fetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([]),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ review: mockReview }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve([]),
-      });
+    installGenerateSuccessFetch();
 
     render(<ReviewPage />);
 

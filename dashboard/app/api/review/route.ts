@@ -1,7 +1,7 @@
 /**
  * GET /api/review — List past weekly reviews (summary only).
  *
- * Returns: Array of { id, week_start, executive_summary, created_at }
+ * Returns: Array of week summaries (latest revision per week).
  *
  * Error codes:
  *   503 — Database connection error
@@ -14,7 +14,7 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
-import { getReviews } from "@/lib/review-db";
+import { getReviewWeekSummaries } from "@/lib/review-db";
 
 /** pg error codes that indicate a connection failure */
 const PG_CONNECTION_CODES = new Set([
@@ -34,7 +34,7 @@ export async function GET(): Promise<NextResponse> {
   const requestId = generateRequestId();
 
   try {
-    const reviews = await getReviews();
+    const reviews = await getReviewWeekSummaries();
     return NextResponse.json(reviews);
   } catch (err) {
     if (isConnectionError(err)) {

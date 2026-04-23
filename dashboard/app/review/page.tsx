@@ -1,41 +1,44 @@
 "use client";
 
-/**
- * Revisión Semanal — AI-generated weekly business review page.
- *
- * States:
- *   - list: shows past reviews and "Generar revisión" button
- *   - loading: skeleton while generating
- *   - review: shows the generated/loaded review via ReviewDisplay
- *   - error: shows ErrorDisplay
- */
-
 import { useState, useEffect, useCallback } from "react";
 import ReviewDisplay from "@/components/ReviewDisplay";
+import { ReviewActionsBoard } from "@/components/ReviewActionsBoard";
+import { ReviewRevisionTimeline } from "@/components/ReviewRevisionTimeline";
+import { ReviewDiffPanel } from "@/components/ReviewDiffPanel";
 import ErrorDisplay from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
-import type { ReviewContent } from "@/lib/review-prompts";
+import type { ReviewContent } from "@/lib/review-schema";
+import type { ReviewActionRow } from "@/lib/review-actions-db";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-interface ReviewSummary {
-  id: number;
+interface ReviewWeekSummary {
   week_start: string;
+  latest_id: number;
+  latest_revision: number;
+  revision_count: number;
   executive_summary: string;
   created_at: string;
 }
 
-interface FullReview extends ReviewContent {
-  id: number | null;
+interface RevisionMeta {
+  id: number;
   week_start: string;
+  revision: number;
+  generation_mode: string;
+  created_at: string;
+  preview: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+interface FullReviewState {
+  id: number;
+  week_start: string;
+  revision: number;
+  generation_mode: string;
+  content: ReviewContent;
+}
 
 function formatWeekDate(dateStr: string): string {
   try {
-    // dateStr is YYYY-MM-DD (Monday of that week)
     const date = new Date(dateStr + "T00:00:00");
     return date.toLocaleDateString("es-ES", {
       weekday: "long",
@@ -65,63 +68,35 @@ function formatRelativeTime(isoStr: string): string {
   }
 }
 
-// ─── Loading Skeleton ─────────────────────────────────────────────────────────
-
 function ReviewSkeleton() {
   return (
     <div className="space-y-4 animate-pulse" aria-busy="true" role="status">
       <p className="text-sm text-tremor-content dark:text-dark-tremor-content text-center py-2">
         Generando revisión... esto puede tardar hasta un minuto
       </p>
-      {/* Executive summary skeleton */}
       <div className="rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-5 space-y-3">
         <div className="h-4 w-40 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
         <div className="space-y-2">
           <div className="h-3 w-full rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
           <div className="h-3 w-5/6 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-          <div className="h-3 w-4/6 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-          <div className="h-3 w-5/6 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-        </div>
-      </div>
-      {/* Section skeletons */}
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div
-          key={i}
-          className="rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-5 space-y-3"
-        >
-          <div className="h-4 w-36 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-          <div className="space-y-2">
-            <div className="h-3 w-full rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-            <div className="h-3 w-5/6 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-            <div className="h-3 w-full rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-            <div className="h-3 w-4/6 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-          </div>
-        </div>
-      ))}
-      {/* Action items skeleton */}
-      <div className="rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-5 space-y-3">
-        <div className="h-4 w-48 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-        <div className="space-y-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-3 w-5/6 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
-          ))}
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
 export default function ReviewPage() {
   const [view, setView] = useState<"list" | "loading" | "review" | "error">("list");
-  const [pastReviews, setPastReviews] = useState<ReviewSummary[]>([]);
+  const [pastReviews, setPastReviews] = useState<ReviewWeekSummary[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<ApiErrorResponse | string | null>(null);
-  const [currentReview, setCurrentReview] = useState<FullReview | null>(null);
+  const [current, setCurrent] = useState<FullReviewState | null>(null);
+  const [actions, setActions] = useState<ReviewActionRow[]>([]);
+  const [revisions, setRevisions] = useState<RevisionMeta[]>([]);
+  const [priorContent, setPriorContent] = useState<ReviewContent | null>(null);
   const [reviewError, setReviewError] = useState<ApiErrorResponse | string | null>(null);
+  const [regenMode, setRegenMode] = useState<"refresh_data" | "alternate_angle" | null>(null);
 
-  // Load past reviews list
   const fetchPastReviews = useCallback(async () => {
     setListLoading(true);
     setListError(null);
@@ -129,12 +104,10 @@ export default function ReviewPage() {
       const res = await fetch("/api/review");
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        setListError(
-          isApiErrorResponse(errBody) ? errBody : "Error al cargar las revisiones"
-        );
+        setListError(isApiErrorResponse(errBody) ? errBody : "Error al cargar las revisiones");
         return;
       }
-      const data: ReviewSummary[] = await res.json();
+      const data: ReviewWeekSummary[] = await res.json();
       setPastReviews(data);
     } catch (err) {
       setListError(err instanceof Error ? err.message : "Error al cargar las revisiones");
@@ -144,101 +117,197 @@ export default function ReviewPage() {
   }, []);
 
   useEffect(() => {
-    fetchPastReviews();
+    void fetchPastReviews();
   }, [fetchPastReviews]);
 
-  // Load a past review by ID (used by list and by "Generar" when the closed week already exists)
-  const handleLoadReview = useCallback(async (id: number) => {
-    setView("loading");
-    setReviewError(null);
-    setCurrentReview(null);
-    try {
+  const loadReviewById = useCallback(
+    async (id: number, revList: RevisionMeta[]) => {
       const res = await fetch(`/api/review/${id}`);
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        setReviewError(
-          isApiErrorResponse(errBody)
-            ? errBody
-            : (errBody?.error as string) || "Error al cargar la revisión"
-        );
-        setView("error");
-        return;
+        throw isApiErrorResponse(errBody)
+          ? errBody
+          : new Error((errBody?.error as string) || "Error al cargar la revisión");
       }
-      const data = await res.json();
-      // data is { id, week_start, content, created_at }
-      setCurrentReview({ ...data.content, id: data.id, week_start: data.week_start });
-      setView("review");
-    } catch (err) {
-      setReviewError(
-        err instanceof Error ? err.message : "Error al cargar la revisión"
-      );
-      setView("error");
-    }
-  }, []);
+      const data = (await res.json()) as {
+        id: number;
+        week_start: string;
+        revision: number;
+        generation_mode: string;
+        content: ReviewContent;
+        actions: ReviewActionRow[];
+      };
+      setCurrent({
+        id: data.id,
+        week_start: data.week_start,
+        revision: data.revision,
+        generation_mode: data.generation_mode,
+        content: data.content,
+      });
+      setActions(data.actions ?? []);
 
-  // Generate a new review (last closed ISO week only; 409 opens existing row)
+      const idx = revList.findIndex((r) => r.id === id);
+      if (idx !== -1 && idx < revList.length - 1) {
+        const prevId = revList[idx + 1].id;
+        const pr = await fetch(`/api/review/${prevId}`);
+        if (pr.ok) {
+          const pd = (await pr.json()) as { content: ReviewContent };
+          setPriorContent(pd.content);
+        } else {
+          setPriorContent(null);
+        }
+      } else {
+        setPriorContent(null);
+      }
+    },
+    [],
+  );
+
+  const openWeek = useCallback(
+    async (weekStart: string, preferredId?: number) => {
+      setView("loading");
+      setReviewError(null);
+      setCurrent(null);
+      setActions([]);
+      setPriorContent(null);
+      try {
+        const revRes = await fetch(`/api/review/week/${encodeURIComponent(weekStart)}`);
+        if (!revRes.ok) {
+          const errBody = await revRes.json().catch(() => null);
+          throw isApiErrorResponse(errBody)
+            ? errBody
+            : new Error("Error al cargar versiones de la semana");
+        }
+        const revList = (await revRes.json()) as RevisionMeta[];
+        setRevisions(revList);
+        const targetId = preferredId ?? revList[0]?.id;
+        if (!targetId) {
+          setReviewError("No hay revisiones para esa semana.");
+          setView("error");
+          return;
+        }
+        await loadReviewById(targetId, revList);
+        setView("review");
+      } catch (err) {
+        setReviewError(err instanceof Error ? err.message : String(err));
+        setView("error");
+      }
+    },
+    [loadReviewById],
+  );
+
+  const handleLoadFromList = useCallback(
+    async (row: ReviewWeekSummary) => {
+      await openWeek(row.week_start, row.latest_id);
+    },
+    [openWeek],
+  );
+
   const handleGenerate = useCallback(async () => {
     setView("loading");
     setReviewError(null);
-    setCurrentReview(null);
+    setCurrent(null);
+    setActions([]);
+    setPriorContent(null);
     try {
-      const res = await fetch("/api/review/generate", { method: "POST" });
+      const res = await fetch("/api/review/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const errBody = await res.json().catch(() => null);
       if (!res.ok) {
-        const errBody = await res.json().catch(() => null);
         if (
           res.status === 409 &&
           isApiErrorResponse(errBody) &&
           errBody.code === "REVIEW_EXISTS" &&
+          typeof errBody.week_start === "string" &&
           typeof errBody.existing_id === "number"
         ) {
-          await handleLoadReview(errBody.existing_id);
+          await openWeek(errBody.week_start, errBody.existing_id);
           void fetchPastReviews();
           return;
         }
-        setReviewError(
-          isApiErrorResponse(errBody)
-            ? errBody
-            : (errBody?.error as string) || "Error al generar la revisión"
-        );
+        setReviewError(isApiErrorResponse(errBody) ? errBody : "Error al generar la revisión");
         setView("error");
         return;
       }
-      const data = await res.json();
-      setCurrentReview(data.review as FullReview);
-      setView("review");
+      const data = (await res.json()) as {
+        review: ReviewContent & {
+          id: number | null;
+          week_start: string;
+          revision?: number;
+          generation_mode?: string;
+        };
+      };
+      const r = data.review;
+      if (!r.id || !r.week_start) {
+        setReviewError("La revisión se generó pero no se pudo persistir (sin id).");
+        setView("error");
+        return;
+      }
+      await openWeek(r.week_start, r.id);
       void fetchPastReviews();
     } catch (err) {
-      setReviewError(
-        err instanceof Error ? err.message : "Error al generar la revisión"
-      );
+      setReviewError(err instanceof Error ? err.message : "Error al generar la revisión");
       setView("error");
     }
-  }, [fetchPastReviews, handleLoadReview]);
+  }, [fetchPastReviews, openWeek]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (!current || !regenMode) return;
+    setView("loading");
+    setReviewError(null);
+    try {
+      const res = await fetch("/api/review/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          week_start: current.week_start,
+          regenerate: true,
+          mode: regenMode,
+        }),
+      });
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => null);
+        setReviewError(isApiErrorResponse(errBody) ? errBody : "Error al regenerar");
+        setView("error");
+        return;
+      }
+      setRegenMode(null);
+      await openWeek(current.week_start);
+      void fetchPastReviews();
+    } catch (err) {
+      setReviewError(err instanceof Error ? err.message : "Error al regenerar");
+      setView("error");
+    }
+  }, [current, fetchPastReviews, openWeek, regenMode]);
 
   const handleBackToList = () => {
-    setCurrentReview(null);
+    setCurrent(null);
+    setActions([]);
+    setRevisions([]);
+    setPriorContent(null);
     setReviewError(null);
+    setRegenMode(null);
     setView("list");
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">
             Revisión Semanal
           </h1>
           <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
-            Análisis automático del negocio generado con inteligencia artificial
+            Análisis con evidencias y seguimiento de acciones para Dirección
           </p>
         </div>
         {(view === "list" || view === "error") && (
           <button
             type="button"
-            onClick={handleGenerate}
+            onClick={() => void handleGenerate()}
             className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
             data-testid="generate-button"
           >
@@ -247,11 +316,9 @@ export default function ReviewPage() {
         )}
       </div>
 
-      {/* Loading state */}
       {view === "loading" && <ReviewSkeleton />}
 
-      {/* Review state */}
-      {view === "review" && currentReview && (
+      {view === "review" && current && (
         <div className="space-y-4">
           <button
             type="button"
@@ -260,22 +327,80 @@ export default function ReviewPage() {
           >
             ← Volver a la lista
           </button>
-          <ReviewDisplay review={currentReview} />
+
+          <div className="flex flex-wrap items-center gap-3 print:hidden">
+            <ReviewRevisionTimeline
+              revisions={revisions.map((r) => ({
+                id: r.id,
+                revision: r.revision,
+                generation_mode: r.generation_mode,
+                created_at: r.created_at,
+              }))}
+              selectedId={current.id}
+              onSelect={(id) => {
+                void (async () => {
+                  setView("loading");
+                  try {
+                    await loadReviewById(id, revisions);
+                    setView("review");
+                  } catch (e) {
+                    setReviewError(e instanceof Error ? e.message : String(e));
+                    setView("error");
+                  }
+                })();
+              }}
+            />
+            <div className="flex items-center gap-2">
+              <select
+                className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
+                value={regenMode ?? ""}
+                onChange={(e) =>
+                  setRegenMode(
+                    e.target.value === ""
+                      ? null
+                      : (e.target.value as "refresh_data" | "alternate_angle"),
+                  )
+                }
+                data-testid="regen-mode-select"
+              >
+                <option value="">Regenerar…</option>
+                <option value="refresh_data">Actualizar datos</option>
+                <option value="alternate_angle">Ángulo alternativo</option>
+              </select>
+              <button
+                type="button"
+                disabled={!regenMode}
+                onClick={() => void handleRegenerate()}
+                className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium disabled:opacity-40"
+                data-testid="regenerate-button"
+              >
+                Regenerar
+              </button>
+            </div>
+          </div>
+
+          <ReviewDiffPanel prior={priorContent} current={current.content} />
+
+          <ReviewDisplay review={{ ...current.content, id: current.id, week_start: current.week_start }} />
+
+          {current.id > 0 && (
+            <ReviewActionsBoard
+              reviewId={current.id}
+              actions={actions}
+              onActionPatched={(row) =>
+                setActions((prev) => prev.map((a) => (a.action_key === row.action_key ? row : a)))
+              }
+            />
+          )}
         </div>
       )}
 
-      {/* Error state */}
       {view === "error" && reviewError && (
-        <ErrorDisplay
-          error={reviewError}
-          onRetry={handleGenerate}
-        />
+        <ErrorDisplay error={reviewError} onRetry={() => void handleGenerate()} />
       )}
 
-      {/* List state */}
       {view === "list" && (
         <div className="space-y-4">
-          {/* List loading */}
           {listLoading && (
             <div className="flex justify-center py-8">
               <div
@@ -286,12 +411,8 @@ export default function ReviewPage() {
             </div>
           )}
 
-          {/* List error */}
-          {!listLoading && listError && (
-            <ErrorDisplay error={listError} onRetry={fetchPastReviews} />
-          )}
+          {!listLoading && listError && <ErrorDisplay error={listError} onRetry={fetchPastReviews} />}
 
-          {/* Empty state */}
           {!listLoading && !listError && pastReviews.length === 0 && (
             <div className="rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-8 text-center">
               <p className="text-sm text-tremor-content-strong dark:text-dark-tremor-content-strong font-medium">
@@ -303,19 +424,18 @@ export default function ReviewPage() {
             </div>
           )}
 
-          {/* Past reviews list */}
           {!listLoading && !listError && pastReviews.length > 0 && (
             <div>
               <h2 className="text-sm font-medium text-tremor-content dark:text-dark-tremor-content mb-3">
-                Revisiones anteriores
+                Semanas revisadas
               </h2>
               <div className="space-y-2">
                 {pastReviews.map((r) => (
                   <button
-                    key={r.id}
+                    key={r.week_start}
                     type="button"
-                    onClick={() => handleLoadReview(r.id)}
-                    data-testid={`past-review-${r.id}`}
+                    onClick={() => void handleLoadFromList(r)}
+                    data-testid={`past-review-${r.latest_id}`}
                     className="w-full text-left rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4 hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
                   >
                     <div className="flex items-start justify-between gap-4">
@@ -323,9 +443,12 @@ export default function ReviewPage() {
                         <p className="text-sm font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong">
                           Semana del {formatWeekDate(r.week_start)}
                         </p>
+                        <p className="mt-1 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+                          Última versión: v{r.latest_revision} · {r.revision_count} versiones
+                        </p>
                         {r.executive_summary && (
                           <p className="mt-1 text-xs text-tremor-content dark:text-dark-tremor-content line-clamp-2">
-                            {r.executive_summary.split("\n")[0]?.replace(/^[•\-–*]\s*/, "")}
+                            {r.executive_summary}
                           </p>
                         )}
                       </div>
