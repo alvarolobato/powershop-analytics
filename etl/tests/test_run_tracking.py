@@ -383,7 +383,7 @@ class TestForceResyncFromTrigger:
             stack.enter_context(
                 patch(
                     f"{_WM_MODULE}.get_trigger_force_flags",
-                    return_value=(force_full, force_tables),
+                    return_value=(force_full, force_tables, "dashboard"),
                     create=True,
                 )
             )

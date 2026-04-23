@@ -67,7 +67,7 @@ function ChartSkeleton() {
       className="grid grid-cols-1 gap-4 sm:grid-cols-2 animate-pulse"
       aria-busy="true"
     >
-      {Array.from({ length: 4 }).map((_, i) => (
+      {Array.from({ length: 5 }).map((_, i) => (
         <Card key={i} className="p-4">
           <div className="h-4 w-40 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle mb-4" />
           <div className="h-40 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />

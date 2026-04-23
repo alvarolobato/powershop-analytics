@@ -63,9 +63,11 @@ interface BodyParseFailure {
 type BodyParseResult = BodyParseSuccess | BodyParseFailure;
 
 async function parseBody(request: Request): Promise<BodyParseResult> {
-  // No body at all (empty POST) is allowed and means "default incremental run".
+  // No body at all (or whitespace-only body) is allowed and means
+  // "default incremental run". Trim before checking so clients that send
+  // a trailing newline are not rejected with a misleading JSON parse error.
   const raw = await request.text().catch(() => "");
-  if (!raw) return { ok: true, value: { forceFull: false, tables: [] } };
+  if (!raw.trim()) return { ok: true, value: { forceFull: false, tables: [] } };
 
   let parsed: unknown;
   try {
