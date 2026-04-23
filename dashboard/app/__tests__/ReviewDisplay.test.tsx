@@ -212,4 +212,41 @@ describe("ReviewDisplay", () => {
       expect(screen.getByText("Copiado")).toBeInTheDocument();
     });
   });
+
+  // ─── Contrast / amber palette regression tests (issue #399) ────────────────
+  // The previous palette used `text-amber-200` on a translucent amber tint,
+  // which failed WCAG AA on light theme. Lock in a palette that sits on a
+  // darker amber text for light mode and a lighter amber text for dark mode.
+
+  it("renders the 'Calidad de datos degradada' badge with accessible amber classes", () => {
+    const degraded: ReviewContent & { id: number; week_start: string } = {
+      ...sampleReview,
+      quality_status: "degraded",
+    };
+    render(<ReviewDisplay review={degraded} />);
+    const badge = screen.getByTestId("quality-degraded");
+    const className = badge.className;
+    // Must carry a dark-ink amber text token for light mode.
+    expect(className).toMatch(/\btext-amber-(800|900)\b/);
+    // Must keep a light-ink amber text token for dark mode.
+    expect(className).toMatch(/\bdark:text-amber-(50|100)\b/);
+    // Must NOT keep the broken light amber text on light mode.
+    expect(className).not.toMatch(/(^|\s)text-amber-(100|200)(\s|$)/);
+  });
+
+  it("renders the data-quality-notes panel with accessible amber classes", () => {
+    const withNotes: ReviewContent & { id: number; week_start: string } = {
+      ...sampleReview,
+      data_quality_notes: ["Faltan ventas de la tienda 07 para el lunes"],
+    };
+    render(<ReviewDisplay review={withNotes} />);
+    const panel = screen.getByTestId("data-quality-notes");
+    const className = panel.className;
+    // Dark ink for light mode.
+    expect(className).toMatch(/\btext-amber-(800|900)\b/);
+    // Light ink for dark mode.
+    expect(className).toMatch(/\bdark:text-amber-(50|100)\b/);
+    // Must NOT keep the broken light amber text on light mode.
+    expect(className).not.toMatch(/(^|\s)text-amber-(100|200)(\s|$)/);
+  });
 });
