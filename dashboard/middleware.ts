@@ -13,6 +13,16 @@ function isAdminUiPath(pathname: string): boolean {
   return false;
 }
 
+/**
+ * ETL data API routes. Gated by the `ps_admin` cookie — the ETL UI calls
+ * these same-origin and the browser attaches the cookie automatically.
+ * Leaving them ungated would expose sync status and manual-trigger POSTs
+ * even when the UI itself is protected.
+ */
+function isEtlApiPath(pathname: string): boolean {
+  return pathname === "/api/etl" || pathname.startsWith("/api/etl/");
+}
+
 function buildLoginRedirect(request: NextRequest, errorCode?: "2"): URL {
   const url = new URL("/admin/login", request.url);
   if (errorCode) {
@@ -39,6 +49,12 @@ export function middleware(request: NextRequest): NextResponse {
         { status: 503 },
       );
     }
+    if (isEtlApiPath(pathname)) {
+      return NextResponse.json(
+        { error: "admin_not_configured", detail: "Set ADMIN_API_KEY in the environment." },
+        { status: 503 },
+      );
+    }
     if (isAdminUiPath(pathname)) {
       return NextResponse.redirect(buildLoginRedirect(request, "2"));
     }
@@ -55,6 +71,22 @@ export function middleware(request: NextRequest): NextResponse {
     }
   }
 
+  if (isEtlApiPath(pathname)) {
+    // Same-origin UI calls carry the `ps_admin` cookie set by /admin/login.
+    // Also accept the header/Bearer scheme for server-to-server callers that
+    // already authenticate against /api/admin/*.
+    const cookie = request.cookies.get("ps_admin")?.value;
+    if (cookie !== adminKey) {
+      const headerKey = request.headers.get("x-admin-key")?.trim();
+      const auth = request.headers.get("authorization");
+      const bearer = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
+      const provided = headerKey ?? bearer;
+      if (provided !== adminKey) {
+        return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+      }
+    }
+  }
+
   if (isAdminUiPath(pathname)) {
     const cookie = request.cookies.get("ps_admin")?.value;
     if (cookie !== adminKey) {
@@ -66,5 +98,11 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/api/admin/:path*", "/admin/:path*", "/etl", "/etl/:path*"],
+  matcher: [
+    "/api/admin/:path*",
+    "/api/etl/:path*",
+    "/admin/:path*",
+    "/etl",
+    "/etl/:path*",
+  ],
 };

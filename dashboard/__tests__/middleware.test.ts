@@ -21,14 +21,26 @@ afterAll(() => {
 
 function makeRequest(
   pathname: string,
-  opts: { cookie?: string; search?: string } = {},
+  opts: {
+    cookie?: string;
+    search?: string;
+    method?: string;
+    headerKey?: string;
+    bearer?: string;
+  } = {},
 ): NextRequest {
   const url = `http://localhost:4000${pathname}${opts.search ?? ""}`;
   const headers: Record<string, string> = {};
   if (opts.cookie) {
     headers["cookie"] = `ps_admin=${opts.cookie}`;
   }
-  return new NextRequest(url, { headers });
+  if (opts.headerKey) {
+    headers["x-admin-key"] = opts.headerKey;
+  }
+  if (opts.bearer) {
+    headers["authorization"] = `Bearer ${opts.bearer}`;
+  }
+  return new NextRequest(url, { headers, method: opts.method });
 }
 
 describe("middleware — admin UI gating", () => {
@@ -90,6 +102,48 @@ describe("middleware — admin UI gating", () => {
       const res = middleware(makeRequest("/api/admin/usage"));
       expect(res.status).toBe(401);
     });
+
+    it("returns 401 JSON for /api/etl/runs without cookie or header", async () => {
+      const res = middleware(makeRequest("/api/etl/runs"));
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 401 JSON for /api/etl/run POST without cookie or header", async () => {
+      const res = middleware(makeRequest("/api/etl/run", { method: "POST" }));
+      expect(res.status).toBe(401);
+    });
+
+    it("returns 401 JSON for /api/etl/* with wrong cookie", async () => {
+      const res = middleware(makeRequest("/api/etl/stats", { cookie: "stale" }));
+      expect(res.status).toBe(401);
+    });
+
+    it("allows /api/etl/* with valid ps_admin cookie", async () => {
+      const res = middleware(makeRequest("/api/etl/runs", { cookie: ADMIN_KEY }));
+      expect(res.status).not.toBe(401);
+      expect(res.headers.get("location")).toBeNull();
+    });
+
+    it("allows /api/etl/* with valid x-admin-key header", async () => {
+      const res = middleware(
+        makeRequest("/api/etl/stats", { headerKey: ADMIN_KEY }),
+      );
+      expect(res.status).not.toBe(401);
+    });
+
+    it("allows /api/etl/* with valid Bearer token", async () => {
+      const res = middleware(
+        makeRequest("/api/etl/stats", { bearer: ADMIN_KEY }),
+      );
+      expect(res.status).not.toBe(401);
+    });
+
+    it("returns 401 JSON for /api/etl/* with wrong header key", async () => {
+      const res = middleware(
+        makeRequest("/api/etl/stats", { headerKey: "wrong" }),
+      );
+      expect(res.status).toBe(401);
+    });
   });
 
   describe("when ADMIN_API_KEY is missing", () => {
@@ -99,6 +153,11 @@ describe("middleware — admin UI gating", () => {
 
     it("returns 503 JSON for /api/admin/*", async () => {
       const res = middleware(makeRequest("/api/admin/usage"));
+      expect(res.status).toBe(503);
+    });
+
+    it("returns 503 JSON for /api/etl/*", async () => {
+      const res = middleware(makeRequest("/api/etl/runs"));
       expect(res.status).toBe(503);
     });
 

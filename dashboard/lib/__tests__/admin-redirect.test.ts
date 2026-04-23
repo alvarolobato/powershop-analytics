@@ -4,7 +4,6 @@ import { safeAdminRedirectTarget, DEFAULT_ADMIN_LANDING } from "@/lib/admin-redi
 describe("safeAdminRedirectTarget", () => {
   describe("returns the value for safe admin-area paths", () => {
     it.each([
-      "/admin",
       "/admin/slow-queries",
       "/admin/tool-calls",
       "/admin/usage",
@@ -57,6 +56,11 @@ describe("safeAdminRedirectTarget", () => {
       ["/etl-stats", "hyphen after etl"],
       // Missing leading slash.
       ["admin/slow-queries", "relative path"],
+      // Bare /admin has no route (no app/admin/page.tsx) — must not 404 post-login.
+      ["/admin", "bare /admin (no route)"],
+      ["/admin/", "bare /admin/ (no route)"],
+      ["/admin?foo=1", "bare /admin with query"],
+      ["/admin#top", "bare /admin with hash"],
     ])("rejects %s (%s)", (value, _label) => {
       expect(safeAdminRedirectTarget(value as string | null | undefined)).toBe(DEFAULT_ADMIN_LANDING);
     });

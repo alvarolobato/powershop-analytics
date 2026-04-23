@@ -35,6 +35,10 @@ const ADMIN_AREA_PATH = /^\/(admin|etl)(\/|\?|#|$)/;
  * - contain no control characters or whitespace.
  * - begin with `/admin` or `/etl` followed by `/`, `?`, `#`, or end-of-string.
  * - are not the login page itself.
+ *
+ * The bare `/admin` (and `/admin/`, with or without query/hash) is also mapped
+ * to `DEFAULT_ADMIN_LANDING` because there is no route at `app/admin/page.tsx`
+ * — sending the user there post-login would 404.
  */
 export function safeAdminRedirectTarget(input: string | null | undefined): string {
   if (typeof input !== "string") return DEFAULT_ADMIN_LANDING;
@@ -60,6 +64,14 @@ export function safeAdminRedirectTarget(input: string | null | undefined): strin
     value.startsWith("/admin/login?") ||
     value.startsWith("/admin/login#")
   ) {
+    return DEFAULT_ADMIN_LANDING;
+  }
+
+  // Bare `/admin` has no route (no `app/admin/page.tsx`). Send the user to
+  // the default landing instead of a post-login 404. The query/hash variants
+  // are covered by stripping them before matching.
+  const pathOnly = value.split(/[?#]/, 1)[0];
+  if (pathOnly === "/admin" || pathOnly === "/admin/") {
     return DEFAULT_ADMIN_LANDING;
   }
 
