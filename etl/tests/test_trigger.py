@@ -14,8 +14,20 @@ Covers:
 
 from __future__ import annotations
 
+import sys
+import types
 from contextlib import ExitStack
 from unittest.mock import MagicMock, patch
+
+# ---------------------------------------------------------------------------
+# Stub out the `schedule` third-party library so these unit tests run without
+# it being installed in the local dev environment (it IS listed in
+# etl/requirements.txt and is always present in the Docker image).
+# ---------------------------------------------------------------------------
+if "schedule" not in sys.modules:
+    _schedule_stub = types.ModuleType("schedule")
+    _schedule_stub.run_pending = MagicMock()  # type: ignore[attr-defined]
+    sys.modules["schedule"] = _schedule_stub
 
 
 # ---------------------------------------------------------------------------
