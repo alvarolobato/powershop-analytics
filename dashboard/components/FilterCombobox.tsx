@@ -172,9 +172,18 @@ function MultiCombobox(props: MultiFilterComboboxProps) {
             className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background py-1 text-sm shadow-lg focus:outline-none"
           >
             {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+              // Intentionally a <div>, not a <li>: Headless UI
+              // ComboboxOptions is a <ul>, but the empty state is not an
+              // option (no role=option, no value) — keeping it as a <li>
+              // would pollute listbox semantics and trigger invalid-nesting
+              // warnings when the container tag changes.
+              <div
+                role="status"
+                aria-live="polite"
+                className="px-3 py-2 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle"
+              >
                 {loading ? "Cargando…" : "Sin resultados"}
-              </li>
+              </div>
             ) : (
               filtered.map((opt) => (
                 <ComboboxOption
@@ -305,9 +314,18 @@ function SingleCombobox(props: SingleFilterComboboxProps) {
               Todos
             </ComboboxOption>
             {filtered.length === 0 ? (
-              <li className="px-3 py-2 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+              // Intentionally a <div>, not a <li>: Headless UI
+              // ComboboxOptions is a <ul>, but the empty state is not an
+              // option (no role=option, no value) — keeping it as a <li>
+              // would pollute listbox semantics and trigger invalid-nesting
+              // warnings when the container tag changes.
+              <div
+                role="status"
+                aria-live="polite"
+                className="px-3 py-2 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle"
+              >
                 {loading ? "Cargando…" : "Sin resultados"}
-              </li>
+              </div>
             ) : (
               filtered.map((opt) => (
                 <ComboboxOption

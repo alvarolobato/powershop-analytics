@@ -59,6 +59,8 @@ WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."fecha_creacion" >= :curr_from
   AND lv."fecha_creacion" <= :curr_to
+  AND fm."fami_grup_marc" IS NOT NULL
+  AND fm."fami_grup_marc" <> ''
   AND __gf_tienda__
 ORDER BY 1`,
 };
