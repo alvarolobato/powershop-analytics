@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start -p ${DASHBOARD_PORT:-4000}",
     "lint": "next lint",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
