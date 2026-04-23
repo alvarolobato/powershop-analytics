@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from etl.config import Config
@@ -490,6 +490,11 @@ def check_and_consume_trigger(conn) -> int | None:
 
     Returns the trigger row id if a trigger was found and picked up, None otherwise.
     Uses FOR UPDATE SKIP LOCKED so concurrent processes never double-pick.
+
+    Note: the force-resync metadata (``force_full``, ``force_tables``) is not
+    returned here; call :func:`get_trigger_force_flags` with the id to read
+    those fields. Keeping this helper's return type stable preserves backward
+    compatibility with callers that expect a plain int.
     """
     try:
         with conn.cursor() as cur:
@@ -510,6 +515,100 @@ def check_and_consume_trigger(conn) -> int | None:
             row = cur.fetchone()
             conn.commit()
             return row[0] if row is not None else None
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def get_trigger_force_flags(conn, trigger_id: int) -> tuple[bool, list[str]]:
+    """Return ``(force_full, force_tables)`` for *trigger_id*.
+
+    Used by the scheduler after ``check_and_consume_trigger`` claims a row:
+    the scheduler needs to know whether to reset watermarks before calling
+    :func:`run_full_sync`. Missing/unknown ids return ``(False, [])`` so the
+    scheduler treats them as a plain incremental sync.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT force_full, force_tables FROM etl_manual_trigger WHERE id = %s",
+                (trigger_id,),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            if row is None:
+                return (False, [])
+            force_full, force_tables = row
+            return (bool(force_full), list(force_tables) if force_tables else [])
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def create_manual_trigger(
+    conn,
+    *,
+    force_full: bool = False,
+    force_tables: Sequence[str] | None = None,
+) -> int:
+    """Insert a pending manual trigger row and return its id.
+
+    The partial unique index on ``status='pending'`` guarantees at most one
+    pending row exists at a time; callers that race can catch the resulting
+    ``UniqueViolation`` and fall back to fetching the existing pending row.
+
+    Args:
+        force_full: if ``True``, the ETL will reset all watermarks before the run.
+        force_tables: optional list of sync names whose watermarks should be
+            cleared before the run. Ignored when ``force_full=True``. Caller is
+            responsible for validating names against the known sync registry —
+            this helper only ensures ``force_tables`` is serialised as a
+            ``TEXT[]`` (never ``NULL``).
+    """
+    tables = list(force_tables) if force_tables else []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_manual_trigger (status, force_full, force_tables)
+                VALUES ('pending', %s, %s)
+                RETURNING id
+                """,
+                (bool(force_full), tables),
+            )
+            trigger_id: int = cur.fetchone()[0]
+        conn.commit()
+        return int(trigger_id)
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def reset_watermarks(conn, table_names: Sequence[str]) -> int:
+    """Delete watermark rows for *table_names* so the next run re-materialises them.
+
+    Returns the number of deleted rows. A table name that has no watermark row
+    (e.g. the first time the sync runs) is a silent no-op. Commits on success;
+    rolls back and re-raises on failure.
+
+    An empty ``table_names`` argument is a no-op and returns 0 — never deletes
+    every watermark by accident. Use a separate explicit helper (or pass the
+    full registry) to wipe all watermarks.
+    """
+    if not table_names:
+        return 0
+
+    names = list(table_names)
+    try:
+        _ensure_watermarks_table(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM etl_watermarks WHERE table_name = ANY(%s)",
+                (names,),
+            )
+            deleted = cur.rowcount
+        conn.commit()
+        return int(deleted)
     except Exception:
         conn.rollback()
         raise
