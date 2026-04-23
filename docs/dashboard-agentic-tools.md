@@ -56,7 +56,7 @@ This document describes the **native tool-calling** path for the Dashboard App L
 
 | Symptom | Check |
 |---------|--------|
-| 500 `AGENTIC_RUNNER` / `AGENTIC_MAX_TOOL_ROUNDS` | Model stuck in tools — simplify prompt or raise rounds (ops only). |
+| 500 `AGENTIC_RUNNER` / `AGENTIC_MAX_ROUNDS` | Model stuck in tool rounds — simplify prompt or raise `DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS` (ops only). |
 | 500 `AGENTIC_MAX_TOOL_CALLS` | Too many parallel tools — reduce prompt complexity. |
 | Tool JSON truncated in logs | Normal if result hit `DASHBOARD_AGENTIC_MAX_RESULT_CHARS`. |
 | `llm_tool_calls` insert errors | Ensure migrations applied (`init.sql` / fresh PG). |

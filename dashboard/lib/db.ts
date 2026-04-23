@@ -237,3 +237,61 @@ export async function query(
     throw err;
   }
 }
+
+/**
+ * Run a read-only query inside a short transaction with `SET LOCAL statement_timeout`
+ * so PostgreSQL cancels long-running work even if the caller only has a JS timeout.
+ *
+ * @param statementTimeoutMs - Upper bound in milliseconds (clamped to 1..300_000).
+ */
+export async function queryReadOnlyWithStatementTimeout(
+  sql: string,
+  params: unknown[] | undefined,
+  statementTimeoutMs: number,
+): Promise<QueryResult> {
+  validateReadOnly(sql);
+
+  const pool = getPool();
+  const ms = Math.max(1, Math.min(Math.floor(statementTimeoutMs), 300_000));
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+    await client.query(`SET LOCAL statement_timeout = ${ms}`);
+    const result = await client.query({
+      text: sql,
+      values: params,
+      rowMode: "array",
+    });
+    await client.query("COMMIT");
+
+    const columns = result.fields.map((f) => f.name);
+    const rows = result.rows as unknown[][];
+    return { columns, rows };
+  } catch (err: unknown) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback errors (e.g. connection already closed)
+    }
+    const pgErr = err as { code?: string; message?: string };
+    if (pgErr.code === "57014") {
+      throw new QueryTimeoutError(
+        `Query timed out after ${Math.round(ms / 1000)} seconds (statement_timeout)`
+      );
+    }
+    if (
+      pgErr.code === "ECONNREFUSED" ||
+      pgErr.code === "ENOTFOUND" ||
+      pgErr.code === "ETIMEDOUT" ||
+      pgErr.code === "57P01"
+    ) {
+      throw new ConnectionError(
+        `Database connection failed: ${pgErr.message || "unknown error"}`
+      );
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
+}

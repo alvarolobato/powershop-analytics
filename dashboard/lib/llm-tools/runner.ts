@@ -59,6 +59,13 @@ export interface AgenticRunResult {
   usage: AgenticUsageTotals;
 }
 
+/**
+ * JavaScript-side deadline so the model receives `TOOL_TIMEOUT` promptly.
+ * SQL tools also use PostgreSQL `SET LOCAL statement_timeout` on the mirror
+ * connection (`queryReadOnlyWithStatementTimeout`) so the server can cancel
+ * expensive statements. Non-SQL tools may still finish shortly after this
+ * promise rejects if their backing I/O ignores cancellation.
+ */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise((resolve, reject) => {
     const id = setTimeout(() => reject(new Error("TOOL_TIMEOUT")), ms);

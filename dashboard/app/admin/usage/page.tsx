@@ -24,6 +24,9 @@ export default async function AdminUsagePage() {
           Uso del modelo (llm_usage)
         </h1>
         <nav className="flex gap-3 text-sm">
+          <Link href="/admin/tool-calls" className="text-blue-600 hover:underline dark:text-blue-400">
+            Herramientas LLM
+          </Link>
           <Link href="/admin/slow-queries" className="text-blue-600 hover:underline dark:text-blue-400">
             Consultas lentas
           </Link>

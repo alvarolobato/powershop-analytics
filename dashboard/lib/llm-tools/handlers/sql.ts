@@ -3,7 +3,12 @@
  */
 
 import { z } from "zod";
-import { query, SqlValidationError, validateReadOnly } from "@/lib/db";
+import {
+  query,
+  queryReadOnlyWithStatementTimeout,
+  SqlValidationError,
+  validateReadOnly,
+} from "@/lib/db";
 import { validateQueryCost, QueryTooExpensiveError } from "@/lib/query-validator";
 import { lintWidgetSql } from "@/lib/sql-heuristics";
 import type { LlmAgenticContext } from "../types";
@@ -20,6 +25,15 @@ const TableSchema = z.object({
     .min(1)
     .regex(/^ps_[a-z0-9_]+$/i, "table must be a ps_* identifier"),
 });
+
+/** Agentic SQL tools must not accept bare EXPLAIN / EXPLAIN ANALYZE (cost bypass + side effects). */
+function agenticSelectOrWithReason(sql: string): string | null {
+  const trimmed = sql.trimStart();
+  if (!/^(SELECT|WITH)\b/i.test(trimmed)) {
+    return "Only SELECT or WITH queries are allowed (no bare EXPLAIN or other statements).";
+  }
+  return null;
+}
 
 function clipRowsCols(
   columns: string[],
@@ -46,6 +60,14 @@ export async function handleValidateQuery(
   } catch {
     return toolError("INVALID_ARGS", "Invalid arguments for validate_query.", ctx);
   }
+  const agenticSqlErr = agenticSelectOrWithReason(args.sql);
+  if (agenticSqlErr) {
+    return toolOk({
+      valid: false,
+      lint_issues: lintWidgetSql(args.sql),
+      reason: agenticSqlErr,
+    });
+  }
   try {
     validateReadOnly(args.sql);
   } catch (e) {
@@ -59,8 +81,11 @@ export async function handleValidateQuery(
     return toolError("VALIDATION_FAILED", "SQL validation failed.", ctx);
   }
   const lint_issues = lintWidgetSql(args.sql);
+  const { toolTimeoutMs } = getAgenticConfig();
   try {
-    const cost = await validateQueryCost(args.sql);
+    const cost = await validateQueryCost(args.sql, {
+      statementTimeoutMs: toolTimeoutMs,
+    });
     return toolOk({ valid: true, estimated_cost: cost, lint_issues });
   } catch (e) {
     if (e instanceof QueryTooExpensiveError) {
@@ -108,7 +133,11 @@ export async function handleExplainQuery(
   try {
     const planSql = `EXPLAIN (FORMAT JSON) ${args.sql}`;
     validateReadOnly(planSql);
-    const res = await query(planSql);
+    const res = await queryReadOnlyWithStatementTimeout(
+      planSql,
+      undefined,
+      getAgenticConfig().toolTimeoutMs,
+    );
     const raw = res.rows[0]?.[0];
     return toolOk({ explain: raw });
   } catch {
@@ -123,12 +152,20 @@ export async function handleExecuteQuery(
   rawArgs: string,
   ctx: LlmAgenticContext,
 ): Promise<ToolResponseBody> {
-  const { maxRows, maxColumns } = getAgenticConfig();
+  const { maxRows, maxColumns, toolTimeoutMs } = getAgenticConfig();
   let args: z.infer<typeof SqlSchema>;
   try {
     args = SqlSchema.parse(JSON.parse(rawArgs || "{}"));
   } catch {
     return toolError("INVALID_ARGS", "Invalid arguments for execute_query.", ctx);
+  }
+  const agenticSqlErr = agenticSelectOrWithReason(args.sql);
+  if (agenticSqlErr) {
+    return toolOk({
+      rows: [],
+      columns: [],
+      error: agenticSqlErr,
+    });
   }
   try {
     validateReadOnly(args.sql);
@@ -139,7 +176,7 @@ export async function handleExecuteQuery(
     return toolError("VALIDATION_FAILED", "SQL validation failed.", ctx);
   }
   try {
-    await validateQueryCost(args.sql);
+    await validateQueryCost(args.sql, { statementTimeoutMs: toolTimeoutMs });
   } catch (e) {
     if (e instanceof QueryTooExpensiveError) {
       return toolOk({
@@ -152,7 +189,11 @@ export async function handleExecuteQuery(
     }
   }
   try {
-    const res = await query(args.sql);
+    const res = await queryReadOnlyWithStatementTimeout(
+      args.sql,
+      undefined,
+      toolTimeoutMs,
+    );
     const clipped = clipRowsCols(res.columns, res.rows, maxColumns, maxRows);
     return toolOk({
       columns: clipped.columns,
