@@ -16,6 +16,8 @@ jobs:
       - run: pip install ruff
       - run: ruff check etl/
       - run: ruff format --check etl/
+      - name: Verify ETL mappings vs init.sql DDL
+        run: python scripts/verify_etl_schema.py
 
   test:
     runs-on: ubuntu-latest
