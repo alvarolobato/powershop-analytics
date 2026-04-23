@@ -206,7 +206,11 @@ services:
   # Dashboard App — AI-generated dashboards (Next.js + Tremor, port 4000)
   # ---------------------------------------------------------------------------
   dashboard:
-    build: ./dashboard
+    build:
+      context: ./dashboard
+      args:
+        # Set automatically by `ps stack` when .git exists; override for CI (e.g. git describe --tags --always --dirty)
+        APP_GIT_DESCRIBE: ${APP_GIT_DESCRIBE:-}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
