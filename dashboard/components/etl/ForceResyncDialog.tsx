@@ -37,6 +37,9 @@ interface ForceResyncDialogProps {
   disabled?: boolean;
 }
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function ForceResyncDialog({
   open,
   onClose,
@@ -48,19 +51,64 @@ export function ForceResyncDialog({
     () => new Set(DEFAULT_SELECTED),
   );
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  // Track the element that had focus before the dialog opened so we can
+  // restore it when the dialog closes.
+  const previousFocusRef = useRef<Element | null>(null);
 
   // Reset every time the dialog is (re)opened so stale state never leaks.
+  // Also save/restore focus and move focus into the dialog on open.
   useEffect(() => {
     if (open) {
+      previousFocusRef.current = document.activeElement;
       setForceFull(false);
       setSelected(new Set(DEFAULT_SELECTED));
+      // Move focus to the first focusable element inside the dialog.
+      // rAF defers until after the browser has painted the newly opened dialog.
+      const raf = requestAnimationFrame(() => {
+        const first = dialogRef.current?.querySelector<HTMLElement>(
+          FOCUSABLE_SELECTORS,
+        );
+        first?.focus();
+      });
+      return () => cancelAnimationFrame(raf);
+    } else {
+      // Restore focus to the previously focused element when dialog closes.
+      if (
+        previousFocusRef.current instanceof HTMLElement ||
+        previousFocusRef.current instanceof SVGElement
+      ) {
+        previousFocusRef.current.focus();
+      }
     }
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      // Focus trap: keep Tab/Shift+Tab cycling within the dialog.
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS),
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);

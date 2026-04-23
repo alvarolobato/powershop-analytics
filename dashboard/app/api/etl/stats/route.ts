@@ -153,9 +153,8 @@ export async function GET(): Promise<NextResponse> {
         [LAST_N_RUNS],
       ),
 
-      // Top N tables by rows synced in the most recent finished run. Falls
-      // back to the latest run that actually recorded any rows, so a failed
-      // run with zero rows does not blank out the chart.
+      // Top N tables by rows synced in the most recent finished (success/partial) run.
+      // Returns empty if the latest finished run has no etl_sync_run_tables rows.
       query(
         `SELECT t.table_name, t.rows_synced
          FROM etl_sync_run_tables t
