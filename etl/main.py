@@ -223,6 +223,57 @@ def _get_rows_total(conn_pg) -> dict[str, int] | None:
 
 
 # ---------------------------------------------------------------------------
+# Sync registry (single source of truth for known sync names)
+# ---------------------------------------------------------------------------
+# Must stay in sync with the _s(...) calls in run_full_sync below. This
+# registry is used for two things:
+#   1. Validating `force_tables` names coming from the dashboard / API so we
+#      never reset watermarks for a misspelled table.
+#   2. Supporting `force_full=True` by expanding to every watermark-backed
+#      sync. Non-watermark syncs (catalogos, tiendas, clientes, ...) always
+#      full-refresh anyway, so they are excluded — resetting their watermark
+#      (which does not exist) would be a no-op.
+SYNC_NAMES_WITH_WATERMARK: tuple[str, ...] = (
+    "ventas",
+    "lineas_ventas",
+    "pagos_ventas",
+    "gc_albaranes",
+    "gc_lin_albarane",
+    "gc_facturas",
+    "gc_lin_facturas",
+    "stock",
+    "traspasos",
+)
+
+# All sync names, including full-refresh tables. Exposed for the dashboard
+# whitelist so the UI can show every available option.
+SYNC_NAMES: tuple[str, ...] = (
+    "catalogos",
+    "articulos",
+    "tiendas",
+    "clientes",
+    "proveedores",
+    "gc_comerciales",
+    "ventas",
+    "lineas_ventas",
+    "pagos_ventas",
+    "gc_albaranes",
+    "gc_lin_albarane",
+    "gc_facturas",
+    "gc_lin_facturas",
+    "gc_pedidos",
+    "gc_lin_pedidos",
+    "compras",
+    "lineas_compras",
+    "facturas",
+    "albaranes",
+    "facturas_compra",
+    "stock",
+    "traspasos",
+)
+
+
+# ---------------------------------------------------------------------------
 # Full sync pipeline
 # ---------------------------------------------------------------------------
 
@@ -259,7 +310,12 @@ def run_full_sync(
     Monitoring (create_run / record_table_sync / finish_run) is best-effort:
     failures there never abort the data sync.
     """
-    from etl.db.postgres import create_run, finish_run
+    from etl.db.postgres import (
+        create_run,
+        finish_run,
+        get_trigger_force_flags,
+        reset_watermarks,
+    )
     from etl.sync.articulos import sync_articulos
     from etl.sync.compras import (
         sync_albaranes,
@@ -287,6 +343,72 @@ def run_full_sync(
 
     logger.info("=== Full sync started ===")
     pipeline_start = time.time()
+
+    # ------------------------------------------------------------------
+    # Honour manual trigger's force flags BEFORE creating the run, so the
+    # watermark reset happens even if create_run fails downstream. Resetting
+    # watermarks is idempotent and safe: the worst case is one extra pass over
+    # incremental tables on the next sync.
+    # ------------------------------------------------------------------
+    if trigger == "manual" and trigger_id is not None:
+        try:
+            force_full, force_tables = get_trigger_force_flags(conn_pg, trigger_id)
+        except Exception:
+            logger.exception(
+                "Trigger %d: could not read force flags — running incrementally",
+                trigger_id,
+            )
+            force_full, force_tables = False, []
+
+        if force_full:
+            logger.warning(
+                "Trigger %d requested force_full=True — clearing ALL watermarks "
+                "for %d tables (this can dramatically increase sync duration)",
+                trigger_id,
+                len(SYNC_NAMES_WITH_WATERMARK),
+            )
+            try:
+                deleted = reset_watermarks(conn_pg, list(SYNC_NAMES_WITH_WATERMARK))
+                logger.info(
+                    "Trigger %d: reset_watermarks(force_full) deleted %d rows",
+                    trigger_id,
+                    deleted,
+                )
+            except Exception:
+                logger.exception(
+                    "Trigger %d: force_full watermark reset failed; continuing",
+                    trigger_id,
+                )
+        elif force_tables:
+            # Filter to known watermark-backed syncs only. A name absent from
+            # SYNC_NAMES_WITH_WATERMARK is dropped with a warning — API/UI
+            # already validate, this is a defense-in-depth check.
+            valid = [t for t in force_tables if t in SYNC_NAMES_WITH_WATERMARK]
+            unknown = sorted(set(force_tables) - set(valid))
+            if unknown:
+                logger.warning(
+                    "Trigger %d: ignoring unknown force_tables %s (not in registry)",
+                    trigger_id,
+                    unknown,
+                )
+            if valid:
+                logger.info(
+                    "Trigger %d: force_tables=%s — resetting watermarks",
+                    trigger_id,
+                    valid,
+                )
+                try:
+                    deleted = reset_watermarks(conn_pg, valid)
+                    logger.info(
+                        "Trigger %d: reset_watermarks deleted %d row(s)",
+                        trigger_id,
+                        deleted,
+                    )
+                except Exception:
+                    logger.exception(
+                        "Trigger %d: reset_watermarks failed; continuing incrementally",
+                        trigger_id,
+                    )
 
     run_id: int | None = None
     try:

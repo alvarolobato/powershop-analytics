@@ -350,6 +350,86 @@ class TestMonitoringResilience:
         )
 
 
+class TestForceResyncFromTrigger:
+    """Manual trigger's force_full / force_tables must clear watermarks before sync."""
+
+    def _run_with_trigger(
+        self,
+        *,
+        force_full: bool,
+        force_tables: list[str],
+    ):
+        conn_4d = MagicMock()
+        conn_pg = MagicMock()
+
+        with ExitStack() as stack:
+            for target in _SYNC_TARGETS:
+                stack.enter_context(
+                    patch(
+                        target,
+                        side_effect=lambda *a, _n=target, **kw: (
+                            {"x": 1} if _n.endswith("sync_catalogos") else 1
+                        ),
+                    )
+                )
+            stack.enter_context(patch(f"{_WM_MODULE}.get_watermark", return_value=None))
+            stack.enter_context(patch(f"{_WM_MODULE}.set_watermark"))
+            stack.enter_context(
+                patch(f"{_WM_MODULE}.create_run", return_value=1, create=True)
+            )
+            stack.enter_context(patch(f"{_WM_MODULE}.finish_run", create=True))
+            stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync", create=True))
+            stack.enter_context(patch(f"{_WM_MODULE}.update_trigger_run_id"))
+            stack.enter_context(
+                patch(
+                    f"{_WM_MODULE}.get_trigger_force_flags",
+                    return_value=(force_full, force_tables),
+                    create=True,
+                )
+            )
+            reset_mock = stack.enter_context(
+                patch(f"{_WM_MODULE}.reset_watermarks", create=True)
+            )
+            reset_mock.return_value = 0
+            stack.enter_context(
+                patch("etl.main._get_rows_total", return_value=None, create=True)
+            )
+            stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
+
+            from etl.main import run_full_sync
+
+            run_full_sync(conn_4d, conn_pg, trigger="manual", trigger_id=42)
+            return reset_mock
+
+    def test_force_full_resets_all_watermarked_syncs(self):
+        from etl.main import SYNC_NAMES_WITH_WATERMARK
+
+        reset_mock = self._run_with_trigger(force_full=True, force_tables=[])
+        reset_mock.assert_called_once()
+        names = reset_mock.call_args.args[1]
+        assert set(names) == set(SYNC_NAMES_WITH_WATERMARK)
+
+    def test_force_tables_resets_only_named(self):
+        reset_mock = self._run_with_trigger(
+            force_full=False, force_tables=["stock", "ventas"]
+        )
+        reset_mock.assert_called_once()
+        names = reset_mock.call_args.args[1]
+        assert sorted(names) == ["stock", "ventas"]
+
+    def test_unknown_force_table_is_filtered(self):
+        reset_mock = self._run_with_trigger(
+            force_full=False, force_tables=["stock", "not_a_real_table"]
+        )
+        reset_mock.assert_called_once()
+        names = reset_mock.call_args.args[1]
+        assert names == ["stock"]
+
+    def test_no_force_flags_does_not_call_reset(self):
+        reset_mock = self._run_with_trigger(force_full=False, force_tables=[])
+        reset_mock.assert_not_called()
+
+
 class TestTotalRowsSyncedAccumulator:
     """run_full_sync must accumulate per-table rows and pass the sum to finish_run.
 
