@@ -93,12 +93,20 @@ const REGEN_MODE_COPY: Record<RegenMode, RegenModeCopy> = {
   },
 };
 
-/** Fallback hint shown when no mode is selected. */
+/** Fallback hint shown when no mode is selected or an unknown value slips in. */
 const REGEN_MODE_DEFAULT_HINT =
   "Elige cómo regenerar: actualizar datos reejecuta SQL; reformular análisis pide al modelo otro enfoque sobre los mismos datos.";
 
+/** Type guard — true iff `value` is a recognised regenerate mode. */
+function isRegenMode(value: string): value is RegenMode {
+  return Object.prototype.hasOwnProperty.call(REGEN_MODE_COPY, value);
+}
+
 function regenModeHint(mode: RegenMode | null): string {
-  if (mode === null) return REGEN_MODE_DEFAULT_HINT;
+  // Defensive: if an unexpected DOM value ever reaches state (e.g. a stale
+  // option from a previous build), fall back to the default hint rather than
+  // crashing on `REGEN_MODE_COPY[mode]` returning `undefined`.
+  if (mode === null || !isRegenMode(mode)) return REGEN_MODE_DEFAULT_HINT;
   const copy = REGEN_MODE_COPY[mode];
   return `${copy.label}: ${copy.description}`;
 }
@@ -394,9 +402,12 @@ export default function ReviewPage() {
                   id="regen-mode-select"
                   className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
                   value={regenMode ?? ""}
-                  onChange={(e) =>
-                    setRegenMode(e.target.value === "" ? null : (e.target.value as RegenMode))
-                  }
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    // Only accept recognised modes; anything else resets to null
+                    // so downstream consumers (hint, regenerate) stay consistent.
+                    setRegenMode(v === "" || !isRegenMode(v) ? null : v);
+                  }}
                   data-testid="regen-mode-select"
                   aria-label="Modo de regeneración de la revisión semanal"
                   aria-describedby="regen-mode-hint"
