@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS ps_articulos (
     sexo             TEXT
 );
 
+-- Mirrors created before precio1 existed: CREATE TABLE IF NOT EXISTS does not add columns.
+ALTER TABLE ps_articulos ADD COLUMN IF NOT EXISTS precio1 NUMERIC(15, 2);
+
 CREATE TABLE IF NOT EXISTS ps_familias (
     reg_familia      NUMERIC(20,3) PRIMARY KEY,
     clave            TEXT,
