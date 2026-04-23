@@ -400,7 +400,7 @@ export default function ReviewPage() {
                   data-testid="regen-mode-select"
                   aria-label="Modo de regeneración de la revisión semanal"
                   aria-describedby="regen-mode-hint"
-                  title={REGEN_MODE_DEFAULT_HINT}
+                  title={regenModeHint(regenMode)}
                 >
                   <option value="">Regenerar…</option>
                   {(Object.keys(REGEN_MODE_COPY) as RegenMode[]).map((mode) => (

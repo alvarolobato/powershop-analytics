@@ -441,7 +441,7 @@ describe("ReviewPage", () => {
     expect(refreshOption?.textContent).toMatch(/Actualizar datos/);
   });
 
-  // ─── Accessible regenerate hint (Copilot review on PR #402) ───────────────
+  // ─── Accessible regenerate hint ───────────────────────────────────────────
   // Native `<option title>` tooltips are not reliably announced by screen
   // readers and not available on touch. Expose the meaning of the options via
   // a visible hint that is wired to the <select> with aria-describedby, plus
