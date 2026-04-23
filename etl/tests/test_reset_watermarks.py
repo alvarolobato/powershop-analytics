@@ -98,11 +98,12 @@ class TestCreateManualTrigger:
         _clear_trigger_rows(pg_conn)
         try:
             trigger_id = postgres.create_manual_trigger(pg_conn)
-            force_full, force_tables = postgres.get_trigger_force_flags(
+            force_full, force_tables, triggered_by = postgres.get_trigger_force_flags(
                 pg_conn, trigger_id
             )
             assert force_full is False
             assert force_tables == []
+            assert triggered_by == "dashboard"
         finally:
             _clear_trigger_rows(pg_conn)
 
@@ -114,7 +115,7 @@ class TestCreateManualTrigger:
             trigger_id = postgres.create_manual_trigger(
                 pg_conn, force_full=True, force_tables=["stock", "ventas"]
             )
-            force_full, force_tables = postgres.get_trigger_force_flags(
+            force_full, force_tables, triggered_by = postgres.get_trigger_force_flags(
                 pg_conn, trigger_id
             )
             assert force_full is True
@@ -125,9 +126,26 @@ class TestCreateManualTrigger:
     @_requires_feature
     def test_unknown_trigger_returns_defaults(self, pg_conn):
         _apply_schema(pg_conn)
-        force_full, force_tables = postgres.get_trigger_force_flags(pg_conn, 10_000_000)
+        force_full, force_tables, triggered_by = postgres.get_trigger_force_flags(
+            pg_conn, 10_000_000
+        )
         assert force_full is False
         assert force_tables == []
+        assert triggered_by is None
+
+    @_requires_feature
+    def test_triggered_by_persists(self, pg_conn):
+        """triggered_by audit field is stored and returned correctly."""
+        _apply_schema(pg_conn)
+        _clear_trigger_rows(pg_conn)
+        try:
+            trigger_id = postgres.create_manual_trigger(
+                pg_conn, triggered_by="192.168.1.10"
+            )
+            _, _, triggered_by = postgres.get_trigger_force_flags(pg_conn, trigger_id)
+            assert triggered_by == "192.168.1.10"
+        finally:
+            _clear_trigger_rows(pg_conn)
 
     @_requires_feature
     def test_check_and_consume_returns_existing_id(self, pg_conn):
@@ -141,7 +159,7 @@ class TestCreateManualTrigger:
             claimed = postgres.check_and_consume_trigger(pg_conn)
             assert claimed == trigger_id
             # After consume, the row exists as picked_up; force flags still readable.
-            force_full, force_tables = postgres.get_trigger_force_flags(
+            force_full, force_tables, triggered_by = postgres.get_trigger_force_flags(
                 pg_conn, trigger_id
             )
             assert force_full is False

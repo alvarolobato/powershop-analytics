@@ -352,13 +352,21 @@ def run_full_sync(
     # ------------------------------------------------------------------
     if trigger == "manual" and trigger_id is not None:
         try:
-            force_full, force_tables = get_trigger_force_flags(conn_pg, trigger_id)
+            force_full, force_tables, triggered_by = get_trigger_force_flags(
+                conn_pg, trigger_id
+            )
         except Exception:
             logger.exception(
                 "Trigger %d: could not read force flags — running incrementally",
                 trigger_id,
             )
-            force_full, force_tables = False, []
+            force_full, force_tables, triggered_by = False, [], None
+
+        logger.info(
+            "Trigger %d: triggered_by=%r",
+            trigger_id,
+            triggered_by if triggered_by else "unknown",
+        )
 
         if force_full:
             logger.warning(

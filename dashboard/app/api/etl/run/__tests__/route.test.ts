@@ -42,7 +42,7 @@ describe("POST /api/etl/run", () => {
     expect(body).toEqual({ trigger_id: 42 });
     expect(mockSql).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO etl_manual_trigger"),
-      [false, []],
+      [false, [], "dashboard"],
     );
   });
 
@@ -146,7 +146,7 @@ describe("POST /api/etl/run", () => {
 
     const res = await POST(makeRequest({ force_full: true }));
     expect(res.status).toBe(202);
-    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [true, []]);
+    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [true, [], "dashboard"]);
   });
 
   it("accepts { tables: [...] } and passes the array to the INSERT", async () => {
@@ -159,6 +159,7 @@ describe("POST /api/etl/run", () => {
     expect(mockSql).toHaveBeenCalledWith(expect.any(String), [
       false,
       ["stock", "ventas"],
+      "dashboard",
     ]);
   });
 
@@ -171,7 +172,7 @@ describe("POST /api/etl/run", () => {
       makeRequest({ force_full: true, tables: ["stock"] }),
     );
     expect(res.status).toBe(202);
-    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [true, []]);
+    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [true, [], "dashboard"]);
   });
 
   it("rejects unknown table names with 400 invalid_body", async () => {
@@ -220,6 +221,7 @@ describe("POST /api/etl/run", () => {
     expect(mockSql).toHaveBeenCalledWith(expect.any(String), [
       false,
       ["stock", "ventas"],
+      "dashboard",
     ]);
   });
 });

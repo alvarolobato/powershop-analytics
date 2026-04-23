@@ -520,26 +520,37 @@ def check_and_consume_trigger(conn) -> int | None:
         raise
 
 
-def get_trigger_force_flags(conn, trigger_id: int) -> tuple[bool, list[str]]:
-    """Return ``(force_full, force_tables)`` for *trigger_id*.
+def get_trigger_force_flags(
+    conn, trigger_id: int
+) -> tuple[bool, list[str], str | None]:
+    """Return ``(force_full, force_tables, triggered_by)`` for *trigger_id*.
 
     Used by the scheduler after ``check_and_consume_trigger`` claims a row:
     the scheduler needs to know whether to reset watermarks before calling
-    :func:`run_full_sync`. Missing/unknown ids return ``(False, [])`` so the
-    scheduler treats them as a plain incremental sync.
+    :func:`run_full_sync`. Missing/unknown ids return ``(False, [], None)`` so
+    the scheduler treats them as a plain incremental sync.
+
+    ``triggered_by`` is an audit string identifying who requested the sync (e.g.
+    a client IP address, ``"dashboard"``, or ``"cli"``). May be ``None`` for
+    legacy rows inserted before this column was added.
     """
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT force_full, force_tables FROM etl_manual_trigger WHERE id = %s",
+                "SELECT force_full, force_tables, triggered_by"
+                " FROM etl_manual_trigger WHERE id = %s",
                 (trigger_id,),
             )
             row = cur.fetchone()
             conn.commit()
             if row is None:
-                return (False, [])
-            force_full, force_tables = row
-            return (bool(force_full), list(force_tables) if force_tables else [])
+                return (False, [], None)
+            force_full, force_tables, triggered_by = row
+            return (
+                bool(force_full),
+                list(force_tables) if force_tables else [],
+                triggered_by,
+            )
     except Exception:
         conn.rollback()
         raise
@@ -550,6 +561,7 @@ def create_manual_trigger(
     *,
     force_full: bool = False,
     force_tables: Sequence[str] | None = None,
+    triggered_by: str = "dashboard",
 ) -> int:
     """Insert a pending manual trigger row and return its id.
 
@@ -564,17 +576,20 @@ def create_manual_trigger(
             responsible for validating names against the known sync registry —
             this helper only ensures ``force_tables`` is serialised as a
             ``TEXT[]`` (never ``NULL``).
+        triggered_by: audit string identifying the requester (e.g. client IP,
+            ``"dashboard"``, ``"cli"``). Stored verbatim; no validation performed
+            here — callers are responsible for sanitising untrusted input.
     """
     tables = list(force_tables) if force_tables else []
     try:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO etl_manual_trigger (status, force_full, force_tables)
-                VALUES ('pending', %s, %s)
+                INSERT INTO etl_manual_trigger (status, force_full, force_tables, triggered_by)
+                VALUES ('pending', %s, %s, %s)
                 RETURNING id
                 """,
-                (bool(force_full), tables),
+                (bool(force_full), tables, triggered_by),
             )
             trigger_id: int = cur.fetchone()[0]
         conn.commit()

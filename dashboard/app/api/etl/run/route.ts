@@ -164,12 +164,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     // The unique partial index on status='pending' prevents duplicate pending rows.
     // ON CONFLICT DO NOTHING + RETURNING may return no rows if one already exists;
     // fetch the existing row in that case so we always return a trigger_id.
+    const triggeredBy =
+      request.headers.get("x-forwarded-for") ||
+      request.headers.get("x-real-ip") ||
+      "dashboard";
     const rows = await sql<{ id: number }>(
-      `INSERT INTO etl_manual_trigger (status, force_full, force_tables)
-       VALUES ('pending', $1, $2)
+      `INSERT INTO etl_manual_trigger (status, force_full, force_tables, triggered_by)
+       VALUES ('pending', $1, $2, $3)
        ON CONFLICT (status) WHERE status = 'pending' DO NOTHING
        RETURNING id`,
-      [forceFull, tables],
+      [forceFull, tables, triggeredBy],
     );
 
     let triggerId: number;

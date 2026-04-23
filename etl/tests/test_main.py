@@ -7,6 +7,7 @@ Risk map (→ docs/skills/testing-patterns.md):
   RISK-ORCH-2  A single-module failure aborts the remaining pipeline
   RISK-ORCH-3  create_run failure aborts the sync before any data moves
   RISK-ORCH-4  finish_run called before all syncs complete (wrong order)
+  RISK-ORCH-5  reset_watermarks must be called before create_run (Opus finding #7)
 """
 
 from __future__ import annotations
@@ -225,4 +226,66 @@ class TestRunTrackingOrder:
         )
         assert call_order[-1] == "finish_run", (
             f"Expected finish_run last, got {call_order[-1]!r}"
+        )
+
+
+class TestResetWatermarksBeforeCreateRun:
+    """RISK-ORCH-5: reset_watermarks must be called before create_run (Opus finding #7).
+
+    When a manual trigger with force_full=True is processed, watermarks must be
+    cleared *before* the run record is created.  This ensures that if create_run
+    fails, the watermarks are already gone so the next retry automatically does a
+    full re-sync rather than an incremental one.
+    """
+
+    def test_reset_watermarks_called_before_create_run_on_force_full(self):
+        """Uses a shared parent MagicMock to capture relative call order."""
+        call_order: list[str] = []
+
+        with ExitStack() as stack:
+            for path in _SYNC_FN_PATHS:
+                stack.enter_context(patch(path, return_value=100))
+
+            for path in _POSTGRES_HELPER_PATHS:
+                short = path.rsplit(".", 1)[-1]
+                m = stack.enter_context(patch(path))
+                name = short
+                if short == "create_run":
+                    m.return_value = 42
+                    m.side_effect = lambda *a, _n=name, **kw: (
+                        call_order.append(_n) or 42
+                    )
+
+            # reset_watermarks and get_trigger_force_flags are only called when
+            # trigger='manual', so we patch them separately.
+            mock_reset = stack.enter_context(
+                patch("etl.db.postgres.reset_watermarks", return_value=9)
+            )
+            mock_reset.side_effect = (
+                lambda *a, **kw: call_order.append("reset_watermarks") or 9
+            )
+            stack.enter_context(
+                patch(
+                    "etl.db.postgres.get_trigger_force_flags",
+                    return_value=(True, [], None),
+                )
+            )
+            stack.enter_context(patch("etl.db.postgres.update_trigger_run_id"))
+            stack.enter_context(
+                patch("etl.sync.articulos.get_ma_article_codes", return_value=[])
+            )
+            stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
+
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            run_full_sync(conn_4d, conn_pg, trigger="manual", trigger_id=1)
+
+        assert "reset_watermarks" in call_order, (
+            "reset_watermarks was not called during a force_full manual trigger run"
+        )
+        assert "create_run" in call_order, "create_run was not called during the run"
+        rw_idx = call_order.index("reset_watermarks")
+        cr_idx = call_order.index("create_run")
+        assert rw_idx < cr_idx, (
+            f"reset_watermarks (position {rw_idx}) must be called before "
+            f"create_run (position {cr_idx}); got order: {call_order}"
         )
