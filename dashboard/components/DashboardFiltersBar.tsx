@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DashboardSpec, GlobalFilter } from "@/lib/schema";
 import type { GlobalFilterValues } from "@/lib/sql-filters";
 import type { DateRange } from "./DateRangePicker";
+import { FilterCombobox } from "./FilterCombobox";
 
 export interface DashboardFiltersBarProps {
   dashboardId: number;
@@ -15,7 +16,7 @@ export interface DashboardFiltersBarProps {
 
 type OptionRow = { value: string; label: string };
 
-/** HTML `<select>` value is always string — coerce stored numbers for controlled value. */
+/** HTML form value is always string — coerce stored numbers for controlled value. */
 function singleSelectFormValue(
   filter: GlobalFilter,
   value: GlobalFilterValues,
@@ -130,78 +131,64 @@ export function DashboardFiltersBar({
       <span className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle w-full sm:w-auto">
         Filtros
       </span>
-      {filters.map((f) => (
-        <div key={f.id} className="flex min-w-[160px] flex-col gap-1">
-          <label
-            htmlFor={`gf-${f.id}`}
-            className="text-xs text-tremor-content dark:text-dark-tremor-content"
-          >
-            {f.label}
-          </label>
-          {f.type === "single_select" ? (
-            <select
-              id={`gf-${f.id}`}
-              aria-label={f.label}
-              aria-busy={!!loading[f.id]}
-              className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
-              value={singleSelectFormValue(f, value)}
-              disabled={!!loading[f.id]}
-              onChange={(ev) => {
-                const v = ev.target.value;
-                const next = { ...value };
-                if (!v) delete next[f.id];
-                else if (f.value_type === "numeric") {
-                  const n = Number(v);
-                  next[f.id] = Number.isFinite(n) ? n : v;
-                } else {
-                  next[f.id] = v;
-                }
-                onChange(next);
-              }}
+      {filters.map((f) => {
+        const fOptions = optionsById[f.id] ?? [];
+        const fError = errors[f.id];
+        const fLoading = !!loading[f.id];
+        return (
+          <div key={f.id} className="flex min-w-[200px] flex-col gap-1">
+            <label
+              htmlFor={`gf-${f.id}`}
+              className="text-xs text-tremor-content dark:text-dark-tremor-content"
             >
-              <option value="">Todos</option>
-              {(optionsById[f.id] ?? []).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <select
-              id={`gf-${f.id}`}
-              multiple
-              aria-label={f.label}
-              aria-busy={!!loading[f.id]}
-              size={Math.min(6, Math.max(3, (optionsById[f.id] ?? []).length || 3))}
-              className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis min-h-[72px]"
-              disabled={!!loading[f.id]}
-              value={multiSelectFormValue(f, value)}
-              onChange={(ev) => {
-                const selected = Array.from(ev.target.selectedOptions).map((o) => o.value);
-                const next = { ...value };
-                if (selected.length === 0) delete next[f.id];
-                else if (f.value_type === "numeric") {
-                  next[f.id] = selected
-                    .map((s) => Number(s))
-                    .filter((n) => Number.isFinite(n));
-                } else {
-                  next[f.id] = selected;
-                }
-                onChange(next);
-              }}
-            >
-              {(optionsById[f.id] ?? []).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          )}
-          {errors[f.id] && (
-            <span className="text-xs text-red-500">{errors[f.id]}</span>
-          )}
-        </div>
-      ))}
+              {f.label}
+            </label>
+            {f.type === "single_select" ? (
+              <FilterCombobox
+                id={f.id}
+                label={f.label}
+                options={fOptions}
+                loading={fLoading}
+                error={fError ?? null}
+                value={singleSelectFormValue(f, value)}
+                onChange={(v) => {
+                  const next = { ...value };
+                  if (!v) delete next[f.id];
+                  else if (f.value_type === "numeric") {
+                    const n = Number(v);
+                    next[f.id] = Number.isFinite(n) ? n : v;
+                  } else {
+                    next[f.id] = v;
+                  }
+                  onChange(next);
+                }}
+              />
+            ) : (
+              <FilterCombobox
+                id={f.id}
+                label={f.label}
+                multiple
+                options={fOptions}
+                loading={fLoading}
+                error={fError ?? null}
+                value={multiSelectFormValue(f, value)}
+                onChange={(selected) => {
+                  const next = { ...value };
+                  if (selected.length === 0) delete next[f.id];
+                  else if (f.value_type === "numeric") {
+                    next[f.id] = selected
+                      .map((s) => Number(s))
+                      .filter((n) => Number.isFinite(n));
+                  } else {
+                    next[f.id] = selected;
+                  }
+                  onChange(next);
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
