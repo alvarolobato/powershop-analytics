@@ -401,6 +401,8 @@ export default function ViewDashboard() {
     } else {
       prompt = `Más información sobre ${ctx.label}`;
     }
+    setGlossaryOpen(false);
+    setHistoryOpen(false);
     drillDownIdRef.current += 1;
     setPendingModify({ prompt, id: drillDownIdRef.current });
     setChatOpen(true);

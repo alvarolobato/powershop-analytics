@@ -344,9 +344,7 @@ function ModificarTab({
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
     });
-    // onPrefillApplied omitted from deps: parent uses useCallback; avoids duplicate consume on identity churn.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefillRequest?.id, prefillRequest?.text]);
+  }, [prefillRequest?.id, prefillRequest?.text, onPrefillApplied]);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();

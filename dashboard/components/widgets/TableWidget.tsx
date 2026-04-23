@@ -118,8 +118,8 @@ export function TableWidget({ widget, data, glossary, onDataPointClick }: TableW
                 key={rIdx}
                 className={
                   onDataPointClick
-                    ? "border-b border-tremor-border dark:border-dark-tremor-border cursor-pointer hover:bg-tremor-background-muted"
-                    : "border-b border-tremor-border dark:border-dark-tremor-border hover:bg-dark-tremor-background-subtle"
+                    ? "border-b border-tremor-border dark:border-dark-tremor-border cursor-pointer hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle"
+                    : "border-b border-tremor-border dark:border-dark-tremor-border hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle"
                 }
                 onClick={
                   onDataPointClick
