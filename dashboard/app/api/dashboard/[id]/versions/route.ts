@@ -61,22 +61,28 @@ export async function GET(
       widget_count: number;
       created_at: Date;
     }>(
-      `WITH ranked AS (
+      `       WITH ranked AS (
          SELECT id,
                 spec,
                 prompt,
                 created_at,
-                ROW_NUMBER() OVER (PARTITION BY dashboard_id ORDER BY created_at) AS version_number
+                ROW_NUMBER() OVER (
+                  PARTITION BY dashboard_id ORDER BY created_at ASC, id ASC
+                ) AS version_number
          FROM dashboard_versions
          WHERE dashboard_id = $1
        )
        SELECT id,
               version_number,
               prompt,
-              COALESCE(jsonb_array_length(spec->'widgets'), 0)::int AS widget_count,
+              CASE
+                WHEN jsonb_typeof(spec -> 'widgets') = 'array'
+                  THEN jsonb_array_length(spec -> 'widgets')
+                ELSE 0
+              END::int AS widget_count,
               created_at
        FROM ranked
-       ORDER BY created_at DESC`,
+       ORDER BY created_at DESC, id DESC`,
       [id],
     );
 

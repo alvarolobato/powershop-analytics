@@ -126,10 +126,17 @@ export function VersionHistory({
         setError(msg);
         return;
       }
-      const record = data as { spec: DashboardSpec };
-      if (record && record.spec && typeof record.spec === "object") {
-        onRestore(record.spec);
+      if (
+        !data ||
+        typeof data !== "object" ||
+        !("spec" in data) ||
+        !data.spec ||
+        typeof data.spec !== "object"
+      ) {
+        setError("Respuesta del servidor no válida.");
+        return;
       }
+      onRestore(data.spec as DashboardSpec);
     } catch {
       setError("Error de red al restaurar.");
     } finally {

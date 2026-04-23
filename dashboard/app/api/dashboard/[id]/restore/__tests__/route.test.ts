@@ -136,6 +136,48 @@ describe("POST /api/dashboard/[id]/restore", () => {
     expect(res.status).toBe(400);
   });
 
+  it("returns 400 when stored spec fails schema validation", async () => {
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 10, spec: { title: "Sin widgets" }, version_number: 1 }],
+      })
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+
+    const res = await POST(makePostRequest({ version_id: 10 }), makeContext("1"));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.code).toBe("VALIDATION");
+    expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
+  });
+
+  it("returns 400 when stored spec fails SQL lint", async () => {
+    const badLintSpec = {
+      title: "Lint",
+      widgets: [
+        {
+          type: "table" as const,
+          title: "T",
+          sql: "SELECT EXTRACT(days FROM CURRENT_DATE)",
+        },
+      ],
+    };
+    mockClientQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({
+        rows: [{ id: 10, spec: badLintSpec, version_number: 1 }],
+      })
+      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+
+    const res = await POST(makePostRequest({ version_id: 10 }), makeContext("1"));
+    const json = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(json.code).toBe("SQL_LINT");
+    expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
+  });
+
   it("returns 400 for invalid dashboard id", async () => {
     const res = await POST(makePostRequest({ version_id: 1 }), makeContext("abc"));
     expect(res.status).toBe(400);

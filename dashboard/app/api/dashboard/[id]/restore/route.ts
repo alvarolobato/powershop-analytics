@@ -6,12 +6,15 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { ZodError } from "zod";
 import { getPool } from "@/lib/db-write";
 import {
   formatApiError,
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import { validateSpec } from "@/lib/schema";
+import { lintDashboardSpec } from "@/lib/sql-heuristics";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -110,7 +113,9 @@ export async function POST(
        FROM (
          SELECT id,
                 spec,
-                ROW_NUMBER() OVER (PARTITION BY dashboard_id ORDER BY created_at) AS version_number
+                ROW_NUMBER() OVER (
+                  PARTITION BY dashboard_id ORDER BY created_at ASC, id ASC
+                ) AS version_number
          FROM dashboard_versions
          WHERE dashboard_id = $1
        ) sub
@@ -133,6 +138,39 @@ export async function POST(
 
     const targetRow = targetResult.rows[0];
     const versionNumber = Number(targetRow.version_number);
+
+    let validatedSpec: ReturnType<typeof validateSpec>;
+    try {
+      validatedSpec = validateSpec(targetRow.spec);
+    } catch (err) {
+      await client.query("ROLLBACK");
+      if (err instanceof ZodError) {
+        return NextResponse.json(
+          formatApiError(
+            "La versión seleccionada no cumple el esquema actual del dashboard.",
+            "VALIDATION",
+            err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
+      throw err;
+    }
+
+    const sqlLint = lintDashboardSpec(validatedSpec);
+    if (sqlLint.length > 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json(
+        formatApiError(
+          "Las consultas SQL de la versión restaurada contienen patrones inválidos para PostgreSQL.",
+          "SQL_LINT",
+          sqlLint.join(" | "),
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
 
     const existingResult = await client.query<{ spec: unknown }>(
       `SELECT spec FROM dashboards WHERE id = $1 FOR UPDATE`,
@@ -169,7 +207,7 @@ export async function POST(
        SET spec = $1, updated_at = NOW()
        WHERE id = $2
        RETURNING id, name, description, spec, chat_messages_analyze, created_at, updated_at`,
-      [JSON.stringify(targetRow.spec), dashboardId],
+      [JSON.stringify(validatedSpec), dashboardId],
     );
 
     await client.query("COMMIT");
