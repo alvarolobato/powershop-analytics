@@ -1,11 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { validateQueryCost, QueryTooExpensiveError } from "../query-validator";
 
-vi.mock("@/lib/db", () => ({
-  query: vi.fn(),
-}));
+vi.mock("@/lib/db", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/db")>();
+  const shared = vi.fn();
+  return {
+    ...actual,
+    query: shared,
+    queryReadOnlyWithStatementTimeout: shared,
+  };
+});
 
-import { query } from "@/lib/db";
+import { query, QueryTimeoutError } from "@/lib/db";
 const mockQuery = vi.mocked(query);
 
 function makePlan(
@@ -67,6 +73,30 @@ describe("validateQueryCost", () => {
     });
     const cost = await validateQueryCost("SELECT 1");
     expect(cost).toBe(500);
+  });
+
+  it("runs EXPLAIN via queryReadOnlyWithStatementTimeout when statementTimeoutMs is set", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(77)]],
+    });
+    const cost = await validateQueryCost("SELECT 1", { statementTimeoutMs: 5000 });
+    expect(cost).toBe(77);
+    expect(mockQuery).toHaveBeenCalledOnce();
+    expect(mockQuery.mock.calls[0][0]).toContain("EXPLAIN (FORMAT JSON) SELECT 1");
+    expect(mockQuery.mock.calls[0][2]).toBe(5000);
+  });
+
+  it("returns 0 when EXPLAIN hits statement timeout (fail-open)", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockQuery.mockRejectedValueOnce(new QueryTimeoutError("timed out"));
+    const cost = await validateQueryCost("SELECT 1", { statementTimeoutMs: 100 });
+    expect(cost).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("EXPLAIN timed out"),
+      expect.any(QueryTimeoutError),
+    );
+    warnSpy.mockRestore();
   });
 
   it("forwards bind params to EXPLAIN query", async () => {

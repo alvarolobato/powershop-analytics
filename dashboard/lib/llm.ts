@@ -6,16 +6,25 @@
  */
 
 import OpenAI from "openai";
-import { buildGeneratePrompt, buildModifyPrompt } from "./prompts";
+import {
+  buildGeneratePrompt,
+  buildModifyPrompt,
+  buildAgenticToolPreamble,
+} from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import type { ReviewContent } from "./review-prompts";
 import { logUsage, checkDailyBudget } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import { getDashboardLlmModel } from "./llm-model-config";
+import { isAgenticToolsEnabled } from "./llm-tools/config";
+import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
+import type { LlmAgenticContext } from "./llm-tools/types";
 
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
+export { AgenticRunnerError };
+export type { LlmAgenticContext };
 
 const EMPTY_USAGE = {
   prompt_tokens: 0,
@@ -137,11 +146,37 @@ export function resetClient(): void {
  *
  * Returns the raw LLM response text, which should be a JSON dashboard spec.
  */
-export async function generateDashboard(userPrompt: string): Promise<string> {
+export async function generateDashboard(
+  userPrompt: string,
+  ctx?: LlmAgenticContext,
+): Promise<string> {
   const client = getClient();
-  const systemPrompt = buildGeneratePrompt();
+  const requestCtx: LlmAgenticContext = ctx ?? {
+    requestId: "req_local",
+    endpoint: "generateDashboard",
+  };
 
   await checkDailyBudget();
+
+  if (isAgenticToolsEnabled()) {
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      withRetry(() =>
+        runAgenticChat({
+          client,
+          model: getModel(),
+          systemPrompt: `${buildGeneratePrompt()}\n\n${buildAgenticToolPreamble()}`,
+          userContent: userPrompt,
+          ctx: requestCtx,
+          temperature: 0.2,
+          maxTokens: 8192,
+        }),
+      ),
+    );
+    void logUsage("generateDashboard", getModel(), usage);
+    return content;
+  }
+
+  const systemPrompt = buildGeneratePrompt();
 
   const response = await callWithCircuitBreaker(() =>
     withRetry(() =>
@@ -173,12 +208,36 @@ export async function generateDashboard(userPrompt: string): Promise<string> {
  */
 export async function modifyDashboard(
   currentSpec: string,
-  userPrompt: string
+  userPrompt: string,
+  ctx?: LlmAgenticContext,
 ): Promise<string> {
   const client = getClient();
-  const systemPrompt = buildModifyPrompt(currentSpec);
+  const requestCtx: LlmAgenticContext = ctx ?? {
+    requestId: "req_local",
+    endpoint: "modifyDashboard",
+  };
 
   await checkDailyBudget();
+
+  if (isAgenticToolsEnabled()) {
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      withRetry(() =>
+        runAgenticChat({
+          client,
+          model: getModel(),
+          systemPrompt: `${buildModifyPrompt(currentSpec)}\n\n${buildAgenticToolPreamble()}`,
+          userContent: userPrompt,
+          ctx: requestCtx,
+          temperature: 0.2,
+          maxTokens: 8192,
+        }),
+      ),
+    );
+    void logUsage("modifyDashboard", getModel(), usage);
+    return content;
+  }
+
+  const systemPrompt = buildModifyPrompt(currentSpec);
 
   const response = await callWithCircuitBreaker(() =>
     withRetry(() =>
@@ -295,12 +354,41 @@ export async function analyzeGaps(
 export async function analyzeDashboard(
   serializedData: string,
   userPrompt: string,
-  action?: string
+  action?: string,
+  ctx?: LlmAgenticContext,
 ): Promise<string> {
   const client = getClient();
-  const systemPrompt = buildAnalyzePrompt(serializedData, action);
+  const requestCtx: LlmAgenticContext = ctx ?? {
+    requestId: "req_local",
+    endpoint: "analyzeDashboard",
+  };
 
   await checkDailyBudget();
+
+  if (isAgenticToolsEnabled()) {
+    const systemPrompt = `${buildAnalyzePrompt(serializedData, action, {
+      dashboardId: requestCtx.dashboardId,
+    })}\n\n${buildAgenticToolPreamble()}`;
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      withRetry(() =>
+        runAgenticChat({
+          client,
+          model: getModel(),
+          systemPrompt,
+          userContent: userPrompt,
+          ctx: requestCtx,
+          temperature: 0.3,
+          maxTokens: 4096,
+        }),
+      ),
+    );
+    void logUsage("analyzeDashboard", getModel(), usage);
+    return content;
+  }
+
+  const systemPrompt = buildAnalyzePrompt(serializedData, action, {
+    dashboardId: requestCtx.dashboardId,
+  });
 
   const response = await callWithCircuitBreaker(() =>
     withRetry(() =>

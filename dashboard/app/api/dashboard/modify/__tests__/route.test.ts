@@ -9,8 +9,7 @@ const { mockModifyDashboard } = vi.hoisted(() => ({
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
-    BudgetExceededError: actual.BudgetExceededError,
-    CircuitBreakerOpenError: actual.CircuitBreakerOpenError,
+    ...actual,
     modifyDashboard: mockModifyDashboard,
   };
 });
@@ -219,6 +218,10 @@ describe("POST /api/dashboard/modify", () => {
     expect(mockModifyDashboard).toHaveBeenCalledWith(
       JSON.stringify(validSpec),
       "Añade margen",
+      expect.objectContaining({
+        endpoint: "modifyDashboard",
+        requestId: expect.stringMatching(/^req_/),
+      }),
     );
   });
 

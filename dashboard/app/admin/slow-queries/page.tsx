@@ -20,6 +20,9 @@ export default async function AdminSlowQueriesPage() {
           <Link href="/admin/usage" className="text-blue-600 hover:underline dark:text-blue-400">
             Uso LLM
           </Link>
+          <Link href="/admin/tool-calls" className="text-blue-600 hover:underline dark:text-blue-400">
+            Herramientas LLM
+          </Link>
           <Link href="/" className="text-tremor-content dark:text-dark-tremor-content hover:underline">
             Inicio
           </Link>

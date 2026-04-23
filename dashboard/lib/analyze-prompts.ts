@@ -61,9 +61,15 @@ function formatBusinessRules(): string {
  * @param serializedData  — Formatted widget data string from serializeWidgetData()
  * @param action          — Optional preset action that drives specific instructions
  */
+export interface BuildAnalyzePromptOptions {
+  /** When set, the model may use dashboard tools with this id. */
+  dashboardId?: number;
+}
+
 export function buildAnalyzePrompt(
   serializedData: string,
-  action?: string
+  action?: string,
+  options?: BuildAnalyzePromptOptions,
 ): string {
   const sections: string[] = [
     "# Rol",
@@ -95,6 +101,19 @@ export function buildAnalyzePrompt(
   sections.push("");
   sections.push(serializedData);
   sections.push("");
+
+  if (options?.dashboardId !== undefined) {
+    sections.push("# Panel guardado");
+    sections.push("");
+    sections.push(
+      `Este dashboard está guardado con id numérico **${options.dashboardId}**. ` +
+        "Puedes usar las herramientas list_dashboards, get_dashboard_spec, get_dashboard_queries, " +
+        "get_dashboard_widget_raw_values y get_dashboard_all_widget_status con ese id si necesitas " +
+        "comparar el JSON persistido o inspeccionar el SQL incrustado.",
+    );
+    sections.push("");
+  }
+
   sections.push(formatBusinessRules());
 
   return sections.join("\n");

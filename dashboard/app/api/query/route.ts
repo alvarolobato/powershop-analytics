@@ -38,7 +38,7 @@ function isParamScalar(v: unknown): boolean {
 }
 
 /** Normalize JSON `params` for pg — scalars or string[] for ANY($n::text[]). */
-export function normalizeQueryParams(raw: unknown): unknown[] | null {
+function normalizeQueryParams(raw: unknown): unknown[] | null {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) return null;
   const out: unknown[] = [];

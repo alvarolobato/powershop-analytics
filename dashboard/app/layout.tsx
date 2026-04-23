@@ -45,6 +45,12 @@ function Sidebar() {
             Admin consultas
           </Link>
           <Link
+            href="/admin/tool-calls"
+            className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+          >
+            Admin herramientas
+          </Link>
+          <Link
             href="/dashboard/new"
             className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
@@ -93,6 +99,12 @@ function Sidebar() {
             className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
             Admin
+          </Link>
+          <Link
+            href="/admin/tool-calls"
+            className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+          >
+            Tools
           </Link>
           <Link
             href="/dashboard/new"

@@ -299,6 +299,25 @@ export function buildGeneratePrompt(): string {
 }
 
 /**
+ * Instructions appended when the dashboard LLM runs in agentic (tool) mode.
+ */
+export function buildAgenticToolPreamble(): string {
+  return [
+    "# Agentic tools (required workflow)",
+    "",
+    "You have function-calling tools to inspect the PostgreSQL mirror (ps_*) and saved dashboards.",
+    "Before your final answer you MUST use tools to validate assumptions — e.g. list/describe tables,",
+    "EXPLAIN or validate SQL, and optionally execute small read-only SELECTs (results are capped).",
+    "",
+    "Rules:",
+    "- Only read-only SQL. Never attempt writes.",
+    "- Prefer validate_query / explain_query before execute_query.",
+    "- After you finish tool use, respond with ONLY the final artifact required by the task",
+    "  (for generate/modify: raw JSON dashboard spec, no markdown fences; for analyze: markdown analysis).",
+  ].join("\n");
+}
+
+/**
  * Build the system prompt for modifying an existing dashboard.
  */
 export function buildModifyPrompt(currentSpec: string): string {

@@ -100,8 +100,9 @@ PowerShop Analytics is a platform that extracts data from a vendor-managed Power
 ┌───────────────────────────▼───────────────────────────┐
 │  Next.js API Routes                                   │
 │                                                       │
-│  POST /api/dashboard/generate  ← prompt → LLM → spec │
-│  POST /api/dashboard/modify    ← prompt + spec → LLM │
+│  POST /api/dashboard/generate  ← prompt → LLM (+ tools) → spec │
+│  POST /api/dashboard/modify    ← prompt + spec → LLM (+ tools) │
+│  POST /api/dashboard/analyze   ← spec + widget data → LLM (+ tools) │
 │  POST /api/query               ← SQL → PG → data     │
 │  GET  /api/dashboard/:id       ← load saved spec      │
 │  POST /api/dashboard/:id/save  ← persist spec         │
@@ -175,12 +176,14 @@ User question → WrenAI UI → AI Service (RAG + LLM) → SQL → ibis-server �
 ```
 User prompt (Spanish)
   → Next.js API route
-  → OpenRouter LLM (with knowledge context: instructions + SQL pairs + schema)
+  → OpenRouter LLM (knowledge context + optional agentic tools: validate/explain/execute SQL, list/describe ps_* tables, inspect saved dashboards)
   → Dashboard JSON spec (widgets + SQL queries)
   → Frontend renders spec with Tremor components
   → Each widget's SQL executed against PostgreSQL
   → Data rendered in charts/tables
 ```
+
+When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `generate`, `modify`, and `analyze` use a bounded tool loop (`dashboard/lib/llm-tools/runner.ts`) instead of a single completion. Tool calls are logged to PostgreSQL `llm_tool_calls`. See [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md).
 
 ### Dashboard Modification Flow
 ```
@@ -208,6 +211,7 @@ User: "Añade el margen por familia"
 | `OPENROUTER_API_KEY` | WrenAI + Dashboard App | LLM + Embeddings |
 | `WREN_LLM_MODEL` | WrenAI | LLM model for WrenAI |
 | `DASHBOARD_LLM_MODEL` | Dashboard App | LLM model for dashboards (default: same) |
+| `DASHBOARD_AGENTIC_*` | Dashboard App | Tool-calling limits and kill switch — see [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md) |
 | `DASHBOARD_PORT` | Dashboard App | HTTP port (default: 4000) |
 
 ## Data Persistence

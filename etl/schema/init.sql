@@ -518,6 +518,22 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 
 CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
 
+-- Dashboard App — per tool call telemetry (agentic LLM)
+CREATE TABLE IF NOT EXISTS llm_tool_calls (
+    id                  SERIAL        PRIMARY KEY,
+    tool_name           TEXT          NOT NULL,
+    endpoint            TEXT          NOT NULL,
+    request_id          TEXT,
+    status              TEXT          NOT NULL CHECK (status IN ('ok', 'error')),
+    latency_ms          INTEGER       NOT NULL,
+    payload_in_bytes    INTEGER,
+    payload_out_bytes   INTEGER,
+    error_code          TEXT,
+    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_created_at ON llm_tool_calls(created_at);
+CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_endpoint_tool ON llm_tool_calls(endpoint, tool_name);
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)

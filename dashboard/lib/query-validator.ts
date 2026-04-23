@@ -1,5 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
-import { query } from "@/lib/db";
+import {
+  query,
+  queryReadOnlyWithStatementTimeout,
+  QueryTimeoutError,
+} from "@/lib/db";
 
 const LARGE_TABLES = new Set([
   "ps_stock_tienda",
@@ -57,7 +61,11 @@ function safeEquals(a: string, b: string): boolean {
 
 export async function validateQueryCost(
   sql: string,
-  options?: { forceHeader?: string; params?: unknown[] }
+  options?: {
+    forceHeader?: string;
+    statementTimeoutMs?: number;
+    params?: unknown[];
+  },
 ): Promise<number> {
   const secret = process.env.QUERY_COST_OVERRIDE_SECRET;
   if (secret && options?.forceHeader && safeEquals(options.forceHeader, secret)) {
@@ -74,8 +82,16 @@ export async function validateQueryCost(
   }
 
   try {
+    const explainSql = `EXPLAIN (FORMAT JSON) ${sql}`; // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
     const params = options?.params ?? [];
-    const result = await query(`EXPLAIN (FORMAT JSON) ${sql}`, params); // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
+    const result =
+      options?.statementTimeoutMs !== undefined
+        ? await queryReadOnlyWithStatementTimeout(
+            explainSql,
+            params,
+            options.statementTimeoutMs,
+          )
+        : await query(explainSql, params);
     const raw = result.rows[0][0] as unknown;
     // node-postgres returns json columns as parsed JS values; handle both string (test mocks) and object
     const plan = (typeof raw === "string"
@@ -123,6 +139,13 @@ export async function validateQueryCost(
   } catch (err) {
     if (err instanceof QueryTooExpensiveError) {
       throw err;
+    }
+    if (err instanceof QueryTimeoutError) {
+      console.warn(
+        "[query-validator] EXPLAIN timed out (statement_timeout), skipping cost check:",
+        err
+      );
+      return 0;
     }
     console.warn(
       "[query-validator] EXPLAIN or plan parsing failed, skipping cost check:",

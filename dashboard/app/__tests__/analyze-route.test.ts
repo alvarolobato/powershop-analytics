@@ -7,7 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
-    BudgetExceededError: actual.BudgetExceededError,
+    ...actual,
     analyzeDashboard: vi.fn(),
     generateSuggestions: vi.fn(),
   };
@@ -92,6 +92,10 @@ describe("POST /api/dashboard/analyze", () => {
       expect.any(String), // serialized data
       "Propón un plan de acción",
       "plan_accion",
+      expect.objectContaining({
+        endpoint: "analyzeDashboard",
+        requestId: expect.stringMatching(/^req_/),
+      }),
     );
   });
 
@@ -223,6 +227,21 @@ describe("POST /api/dashboard/analyze", () => {
     expect(res.status).toBe(429);
     const body = await res.json();
     expect(body.code).toBe("LLM_RATE_LIMIT");
+  });
+
+  it("returns 503 when analyzeDashboard throws circuit breaker open", async () => {
+    vi.mocked(llm.analyzeDashboard).mockRejectedValue(new llm.CircuitBreakerOpenError());
+
+    const req = makeRequest({
+      spec: baseSpec,
+      widgetData: {},
+      prompt: "Analiza",
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.code).toBe("LLM_CIRCUIT_OPEN");
   });
 
   it("returns 200 even when generateSuggestions returns empty array", async () => {

@@ -12,6 +12,7 @@ import {
   modifyDashboard,
   BudgetExceededError,
   CircuitBreakerOpenError,
+  AgenticRunnerError,
 } from "@/lib/llm";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
@@ -106,8 +107,20 @@ export async function POST(request: Request) {
     rawResponse = await modifyDashboard(
       JSON.stringify(specParse.data),
       prompt.trim(),
+      { requestId, endpoint: "modifyDashboard" },
     );
   } catch (err: unknown) {
+    if (err instanceof AgenticRunnerError) {
+      return NextResponse.json(
+        formatApiError(
+          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el cambio o inténtalo de nuevo.",
+          "AGENTIC_RUNNER",
+          `${err.code}: ${err.message}`,
+          err.requestId,
+        ),
+        { status: 500 },
+      );
+    }
     if (err instanceof BudgetExceededError) {
       return NextResponse.json(
         formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),

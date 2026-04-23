@@ -13,6 +13,7 @@ import {
   generateDashboard,
   BudgetExceededError,
   CircuitBreakerOpenError,
+  AgenticRunnerError,
 } from "@/lib/llm";
 import { validateSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
@@ -92,8 +93,22 @@ export async function POST(request: Request): Promise<NextResponse> {
   // --- Call LLM ---
   let rawResponse: string;
   try {
-    rawResponse = await generateDashboard(prompt);
+    rawResponse = await generateDashboard(prompt, {
+      requestId,
+      endpoint: "generateDashboard",
+    });
   } catch (err: unknown) {
+    if (err instanceof AgenticRunnerError) {
+      return NextResponse.json(
+        formatApiError(
+          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el prompt o inténtalo de nuevo.",
+          "AGENTIC_RUNNER",
+          `${err.code}: ${err.message}`,
+          err.requestId,
+        ),
+        { status: 500 },
+      );
+    }
     if (err instanceof BudgetExceededError) {
       return NextResponse.json(
         formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
