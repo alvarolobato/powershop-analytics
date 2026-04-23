@@ -43,12 +43,11 @@ const EMPTY_USAGE = {
 
 export { resetOpenRouterClient as resetClient };
 
-function usageMeta(ctx: Pick<LlmAgenticContext, "llmProvider" | "llmDriver"> | undefined): LlmUsageProviderMeta {
-  const p = ctx?.llmProvider ?? "openrouter";
-  const d = ctx?.llmDriver ?? null;
+/** Usage row metadata: always align with the configured backend, not caller-supplied ctx (avoids stale ctx). */
+function usageMetaFromCfg(cfg: DashboardLlmConfig): LlmUsageProviderMeta {
   return {
-    provider: p,
-    driver: d,
+    provider: cfg.provider,
+    driver: cfg.provider === "cli" ? cfg.cliDriver : null,
   };
 }
 
@@ -65,11 +64,10 @@ async function chatText(
   temperature: number,
   maxTokens: number,
   endpoint: string,
-  ctx?: LlmAgenticContext,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
   const model = getEffectiveDashboardModel(cfg);
-  const meta = usageMeta(ctx);
+  const meta = usageMetaFromCfg(cfg);
 
   if (cfg.provider === "cli") {
     const combined = messages
@@ -141,7 +139,7 @@ export async function generateDashboard(
         maxTokens: 8192,
       }),
     );
-    void logUsage("generateDashboard", model, usage, usageMeta(requestCtx));
+    void logUsage("generateDashboard", model, usage, usageMetaFromCfg(cfg));
     return content;
   }
 
@@ -154,7 +152,6 @@ export async function generateDashboard(
     0.2,
     8192,
     "generateDashboard",
-    requestCtx,
   );
 }
 
@@ -190,7 +187,7 @@ export async function modifyDashboard(
         maxTokens: 8192,
       }),
     );
-    void logUsage("modifyDashboard", model, usage, usageMeta(requestCtx));
+    void logUsage("modifyDashboard", model, usage, usageMetaFromCfg(cfg));
     return content;
   }
 
@@ -203,7 +200,6 @@ export async function modifyDashboard(
     0.2,
     8192,
     "modifyDashboard",
-    requestCtx,
   );
 }
 
@@ -216,12 +212,6 @@ export async function suggestDashboards(
   role: string,
   existingDashboards: { title: string; description: string }[],
 ): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-  const ctx = attachTelemetry(
-    { requestId: "req_local", endpoint: "suggestDashboards" },
-    cfg,
-  );
-
   const systemPrompt = buildSuggestPrompt(role, existingDashboards);
 
   await checkDailyBudget();
@@ -237,7 +227,6 @@ export async function suggestDashboards(
     0.2,
     8192,
     "suggestDashboards",
-    ctx,
   );
 
   if (!content) {
@@ -258,9 +247,6 @@ export async function analyzeGaps(
     widgetTitles: string[];
   }[],
 ): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-  const ctx = attachTelemetry({ requestId: "req_local", endpoint: "analyzeGaps" }, cfg);
-
   const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
 
   await checkDailyBudget();
@@ -277,7 +263,6 @@ export async function analyzeGaps(
     0.2,
     8192,
     "analyzeGaps",
-    ctx,
   );
 
   if (!content) {
@@ -322,7 +307,7 @@ export async function analyzeDashboard(
         maxTokens: 4096,
       }),
     );
-    void logUsage("analyzeDashboard", model, usage, usageMeta(requestCtx));
+    void logUsage("analyzeDashboard", model, usage, usageMetaFromCfg(cfg));
     return content;
   }
 
@@ -338,7 +323,6 @@ export async function analyzeDashboard(
     0.3,
     4096,
     "analyzeDashboard",
-    requestCtx,
   );
 }
 
@@ -359,7 +343,6 @@ export async function generateReview(systemPrompt: string): Promise<ReviewLlmOut
     0.2,
     4096,
     "generateReview",
-    ctx,
   );
 
   const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
@@ -393,16 +376,10 @@ export async function generateSuggestions(
   lastExchange: string,
 ): Promise<string[]> {
   try {
-    const cfg = loadDashboardLlmConfig();
-    const ctx = attachTelemetry(
-      { requestId: "req_local", endpoint: "generateSuggestions" },
-      cfg,
-    );
-
     await checkDailyBudget();
     const prompt = buildSuggestionPrompt(serializedData, lastExchange);
 
-    const content = await chatText([{ role: "user", content: prompt }], 0.5, 512, "generateSuggestions", ctx);
+    const content = await chatText([{ role: "user", content: prompt }], 0.5, 512, "generateSuggestions");
 
     const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
     const jsonStr = fenced ? fenced[1].trim() : content.trim();

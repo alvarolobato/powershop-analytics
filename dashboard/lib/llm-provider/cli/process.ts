@@ -46,7 +46,9 @@ class CappedBufferCollector {
 }
 
 /**
- * Spawn `file` with `args` (no shell). Rejects on timeout; resolves with exit code and capped streams.
+ * Spawn `file` with `args` (no shell). Always resolves when the child exits; sets `timedOut`
+ * if the watchdog fired before then. Use `assertCliSuccess` to throw on timeout, truncation,
+ * or non-zero exit.
  */
 export async function runCliProcess(params: RunCliProcessParams): Promise<RunProcessResult> {
   const { file, args, stdin, timeoutMs, maxStdoutBytes, maxStderrBytes } = params;

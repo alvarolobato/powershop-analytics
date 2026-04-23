@@ -1,6 +1,7 @@
 import { sql } from "@/lib/db-write";
 import { query } from "@/lib/db";
 import type { LlmUsageProviderMeta } from "@/lib/llm-provider/types";
+import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 
 /**
  * Rate table: **estimated** USD per token used only for `llm_usage.estimated_cost_usd`.
@@ -78,6 +79,11 @@ export async function checkDailyBudget(): Promise<void> {
 
   const limit = parseFloat(budgetStr);
   if (isNaN(limit) || limit <= 0) {
+    return;
+  }
+
+  // CLI provider does not add OpenRouter-estimated spend; do not block on API budget.
+  if (loadDashboardLlmConfig().provider === "cli") {
     return;
   }
 

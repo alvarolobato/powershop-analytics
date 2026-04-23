@@ -18,6 +18,7 @@ import {
   checkDailyBudget,
   BudgetExceededError,
 } from "../llm-usage";
+import { resetDashboardLlmConfigCache } from "../llm-model-config";
 
 describe("logUsage", () => {
   beforeEach(() => {
@@ -106,10 +107,12 @@ describe("logUsage", () => {
 describe("checkDailyBudget", () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    resetDashboardLlmConfigCache();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetDashboardLlmConfigCache();
   });
 
   it("is a no-op when LLM_DAILY_BUDGET_USD is not set", async () => {
@@ -173,5 +176,14 @@ describe("checkDailyBudget", () => {
     mockQuery.mockResolvedValue({ columns: ["total"], rows: [] });
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
+  });
+
+  it("skips the PostgreSQL budget query when dashboard LLM provider is cli", async () => {
+    vi.stubEnv("LLM_DAILY_BUDGET_USD", "1");
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+    mockQuery.mockClear();
+
+    await expect(checkDailyBudget()).resolves.toBeUndefined();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });
