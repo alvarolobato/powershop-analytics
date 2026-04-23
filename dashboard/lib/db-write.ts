@@ -8,6 +8,23 @@
 
 import { Pool, type PoolConfig, type QueryResultRow } from "pg";
 
+// ─── llm_interactions types ─────────────────────────────────────────────────
+
+/**
+ * A structured progress line stored in `llm_interactions.lines`.
+ * Uses `kind` so callers can format them by type in the UI.
+ */
+export interface InteractionLine {
+  /** Logical line type for UI formatting. */
+  kind: "meta" | "tool_call" | "tool_result" | "assistant_text" | "error" | "phase";
+  /** Human-readable text (Spanish). */
+  text: string;
+  /** ISO timestamp when the line was emitted. */
+  ts: string;
+}
+
+export type InteractionEndpoint = "generate" | "modify" | "analyze";
+
 // ─── Pool configuration ─────────────────────────────────────────────────────
 
 const STATEMENT_TIMEOUT_MS = 30_000;
@@ -65,4 +82,74 @@ export async function sql<T extends QueryResultRow = QueryResultRow>(
   const pool = getPool();
   const result = await pool.query<T>(text, params);
   return result.rows;
+}
+
+// ─── llm_interactions helpers ────────────────────────────────────────────────
+
+/**
+ * Insert a new `llm_interactions` row with status='running' and return its UUID.
+ *
+ * Fire-and-forget safe: callers should not await this in the hot path if they
+ * want to avoid blocking the stream; however the returned promise can be awaited
+ * to get the row id for subsequent updates.
+ */
+export async function createInteraction(opts: {
+  requestId: string;
+  endpoint: InteractionEndpoint;
+  dashboardId?: number | null;
+  prompt: string;
+  llmProvider?: string | null;
+  llmDriver?: string | null;
+}): Promise<string> {
+  const rows = await sql<{ id: string }>(
+    `INSERT INTO llm_interactions
+       (request_id, endpoint, dashboard_id, prompt, llm_provider, llm_driver, started_at, status)
+     VALUES ($1, $2, $3, $4, $5, $6, NOW(), 'running')
+     RETURNING id`,
+    [
+      opts.requestId,
+      opts.endpoint,
+      opts.dashboardId ?? null,
+      opts.prompt,
+      opts.llmProvider ?? null,
+      opts.llmDriver ?? null,
+    ],
+  );
+  if (!rows[0]) throw new Error("createInteraction: no row returned");
+  return rows[0].id;
+}
+
+/**
+ * Append a batch of lines to `llm_interactions.lines` (JSONB concatenation).
+ * Non-blocking in production — errors are logged but not re-thrown.
+ */
+export async function appendInteractionLines(
+  id: string,
+  lines: InteractionLine[],
+): Promise<void> {
+  if (lines.length === 0) return;
+  await sql(
+    `UPDATE llm_interactions
+        SET lines = lines || $2::jsonb
+      WHERE id = $1`,
+    [id, JSON.stringify(lines)],
+  );
+}
+
+/**
+ * Mark an interaction as completed or error.
+ */
+export async function finishInteraction(
+  id: string,
+  status: "completed" | "error",
+  finalOutput?: string | null,
+): Promise<void> {
+  await sql(
+    `UPDATE llm_interactions
+        SET status = $2,
+            finished_at = NOW(),
+            final_output = $3
+      WHERE id = $1`,
+    [id, status, finalOutput ?? null],
+  );
 }
