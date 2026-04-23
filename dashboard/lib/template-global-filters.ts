@@ -183,8 +183,9 @@ ORDER BY 1`,
 
 /**
  * Retail-scope dashboards (ventas, general). Widgets that join ps_articulos
- * (alias `p` or `pa`) gain access to temporada / marca / sexo / departamento
- * filters. Widgets that stay on ps_ventas only use `__gf_tienda__`.
+ * as alias `p` gain access to temporada / marca / sexo / departamento
+ * filters (bind_expr above binds to `p."<col>"` exactly). Widgets that stay
+ * on ps_ventas only use `__gf_tienda__`.
  */
 export const templateGlobalFiltersRetail: GlobalFilter[] = [
   TIENDA,
