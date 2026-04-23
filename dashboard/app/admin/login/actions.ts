@@ -14,10 +14,11 @@ export async function loginAdmin(formData: FormData): Promise<void> {
   }
 
   const jar = await cookies();
+  const secureFlag = process.env.ADMIN_COOKIE_SECURE === "true";
   jar.set("ps_admin", expected, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: secureFlag,
     path: "/admin",
     maxAge: 60 * 60 * 8,
   });

@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { validateQueryCost, QueryTooExpensiveError } from "../query-validator";
+import {
+  validateQueryCost,
+  QueryTooExpensiveError,
+  neutralizeNamedBindPlaceholdersForExplain,
+} from "../query-validator";
 
 vi.mock("@/lib/db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/db")>();
@@ -53,6 +57,17 @@ function makeSeqScanPlan(totalCost: number, tableName: string): string {
     },
   ]);
 }
+
+describe("neutralizeNamedBindPlaceholdersForExplain", () => {
+  it("replaces Oracle-style :bind with NULL but keeps :: casts", () => {
+    const sql =
+      "SELECT * FROM ps_ventas WHERE fecha >= :from_date AND x::date = CURRENT_DATE";
+    const out = neutralizeNamedBindPlaceholdersForExplain(sql);
+    expect(out).toContain("NULL");
+    expect(out).toContain("::date");
+    expect(out).not.toMatch(/:from_date\b/);
+  });
+});
 
 describe("validateQueryCost", () => {
   beforeEach(() => {
@@ -110,6 +125,20 @@ describe("validateQueryCost", () => {
     expect(text).toContain("EXPLAIN (FORMAT JSON)");
     expect(text).toContain("SELECT * FROM ps_ventas WHERE id = $1");
     expect(values).toEqual([1]);
+  });
+
+  it("neutralizes :named binds in EXPLAIN so PostgreSQL accepts the plan query", async () => {
+    mockQuery.mockResolvedValueOnce({
+      columns: ["QUERY PLAN"],
+      rows: [[makePlan(50)]],
+    });
+    await validateQueryCost(
+      "SELECT 1 FROM ps_ventas WHERE reg_ventas > :min_id AND created::text IS NOT NULL",
+    );
+    const [text] = mockQuery.mock.calls[0] as [string];
+    expect(text).toContain("NULL");
+    expect(text).not.toContain(":min_id");
+    expect(text).toContain("::text");
   });
 
   it("does not throw when QUERY_COST_LIMIT is unset even for very high planner cost", async () => {

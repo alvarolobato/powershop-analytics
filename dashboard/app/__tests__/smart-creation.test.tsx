@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import NewDashboard from "../dashboard/new/page";
+import { mockNdjsonGenerateSuccess } from "./helpers/stream-generate-mock";
 
 // ---------------------------------------------------------------------------
 // Mock next/navigation
@@ -121,10 +122,7 @@ describe("NewDashboard page — smart creation sections", () => {
     };
 
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(generatedSpec),
-      })
+      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec))
       .mockResolvedValueOnce({
         ok: true,
         status: 201,
@@ -230,10 +228,7 @@ describe("NewDashboard page — smart creation sections", () => {
         json: () => Promise.resolve({ suggestions: mockSuggestions }),
       })
       // POST /api/dashboard/generate
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(generatedSpec),
-      })
+      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec))
       // POST /api/dashboards (save)
       .mockResolvedValueOnce({
         ok: true,
@@ -369,10 +364,7 @@ describe("NewDashboard page — smart creation sections", () => {
         json: () => Promise.resolve({ gaps: mockGaps }),
       })
       // POST /api/dashboard/generate
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(generatedSpec),
-      })
+      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec))
       // POST /api/dashboards (save)
       .mockResolvedValueOnce({
         ok: true,

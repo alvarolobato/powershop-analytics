@@ -32,23 +32,32 @@ function Sidebar() {
           >
             Revisión semanal
           </Link>
+          <div className="px-3 py-1 text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+            Administración
+          </div>
           <Link
             href="/etl"
-            className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+            className="flex items-center rounded-md py-2 pl-6 pr-3 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
             Monitor ETL
           </Link>
           <Link
             href="/admin/slow-queries"
-            className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+            className="flex items-center rounded-md py-2 pl-6 pr-3 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
-            Admin consultas
+            Consultas lentas
           </Link>
           <Link
             href="/admin/tool-calls"
-            className="flex items-center rounded-md px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+            className="flex items-center rounded-md py-2 pl-6 pr-3 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
-            Admin herramientas
+            Herramientas LLM
+          </Link>
+          <Link
+            href="/admin/usage"
+            className="flex items-center rounded-md py-2 pl-6 pr-3 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+          >
+            Uso LLM
           </Link>
           <Link
             href="/dashboard/new"
@@ -92,19 +101,25 @@ function Sidebar() {
             href="/etl"
             className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
-            ETL
+            Admin · ETL
           </Link>
           <Link
             href="/admin/slow-queries"
             className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
-            Admin
+            Admin · SQL
           </Link>
           <Link
             href="/admin/tool-calls"
             className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
           >
-            Tools
+            Admin · Tools
+          </Link>
+          <Link
+            href="/admin/usage"
+            className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:text-tremor-content-strong dark:hover:text-dark-tremor-content-strong"
+          >
+            Admin · Uso
           </Link>
           <Link
             href="/dashboard/new"

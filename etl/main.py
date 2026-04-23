@@ -477,6 +477,21 @@ def main() -> None:
             pass
         sys.exit(1)
 
+    from etl.db.postgres import fail_orphan_running_runs
+
+    try:
+        n_orphan = fail_orphan_running_runs(conn_pg)
+        if n_orphan:
+            logger.warning(
+                "Reconciled %d orphan etl_sync_runs row(s) stuck in running — "
+                "likely a previous ETL process exited before finish_run",
+                n_orphan,
+            )
+    except Exception:
+        logger.exception(
+            "Could not reconcile orphan etl_sync_runs rows; continuing anyway"
+        )
+
     logger.info("Testing 4D connection to %s:%d ...", config.p4d_host, config.p4d_port)
     try:
         conn_4d = fourd.get_connection(config)

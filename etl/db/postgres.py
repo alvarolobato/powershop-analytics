@@ -349,6 +349,40 @@ def get_watermark(conn, table_name: str) -> datetime | None:
 # ---------------------------------------------------------------------------
 
 
+def fail_orphan_running_runs(conn) -> int:
+    """Mark every ``running`` row as ``failed`` (previous worker died or was replaced).
+
+    Safe only when a single ETL worker is expected. Call once at process startup
+    before ``create_run`` so restarts do not leave multiple ``running`` rows.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE etl_sync_runs
+                   SET finished_at = NOW(),
+                       status = 'failed',
+                       duration_ms = COALESCE(
+                           duration_ms,
+                           (EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000)::INTEGER
+                       ),
+                       tables_ok = COALESCE(tables_ok, 0),
+                       tables_failed = GREATEST(COALESCE(tables_failed, 0), 1),
+                       total_tables = COALESCE(
+                           total_tables,
+                           COALESCE(tables_ok, 0) + GREATEST(COALESCE(tables_failed, 0), 1)
+                       )
+                 WHERE status = 'running'
+                """
+            )
+            n = cur.rowcount
+        conn.commit()
+        return int(n)
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def create_run(conn, trigger: str) -> int:
     """Insert an etl_sync_runs record with status='running' and return its id."""
     try:

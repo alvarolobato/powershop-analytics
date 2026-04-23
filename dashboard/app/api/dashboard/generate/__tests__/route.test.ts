@@ -78,6 +78,36 @@ describe("POST /api/dashboard/generate", () => {
     expect(json.widgets[0].type).toBe("kpi_row");
   });
 
+  it("returns NDJSON with meta, progress tail, and result when stream: true", async () => {
+    mockGenerate.mockImplementation(async (_prompt, ctx) => {
+      ctx?.onAgenticProgress?.({
+        type: "round",
+        round: 1,
+        maxRounds: 8,
+      });
+      return JSON.stringify(VALID_SPEC);
+    });
+
+    const res = await POST(makeRequest({ prompt: "Ventas del mes", stream: true }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type") ?? "").toContain("ndjson");
+
+    const text = await res.text();
+    const lines = text
+      .trim()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+
+    const parsed = lines.map((l) => JSON.parse(l) as Record<string, unknown>);
+    expect(parsed.some((o) => o.type === "meta")).toBe(true);
+    expect(parsed.some((o) => o.type === "progress")).toBe(true);
+    const resultLine = parsed.find((o) => o.type === "result");
+    expect(resultLine?.spec).toBeDefined();
+    expect((resultLine?.spec as { title?: string }).title).toBe("Ventas Marzo 2026");
+  });
+
   it("strips markdown code fences from LLM response", async () => {
     const wrapped = "```json\n" + JSON.stringify(VALID_SPEC) + "\n```";
     mockGenerate.mockResolvedValue(wrapped);

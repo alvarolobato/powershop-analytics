@@ -68,6 +68,49 @@ class TestCreateRun:
             _cleanup_run(pg_conn, run_id)
 
 
+class TestFailOrphanRunningRuns:
+    @_requires_monitoring
+    def test_marks_all_running_rows_failed(self, pg_conn):
+        """fail_orphan_running_runs closes stuck running rows (e.g. after a worker crash)."""
+        _apply_monitoring_schema(pg_conn)
+        run_id_a = postgres.create_run(pg_conn, "scheduled")
+        run_id_b = postgres.create_run(pg_conn, "manual")
+        try:
+            n = postgres.fail_orphan_running_runs(pg_conn)
+            assert n == 2
+            with pg_conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, status, finished_at FROM etl_sync_runs WHERE id IN (%s, %s) ORDER BY id",
+                    (run_id_a, run_id_b),
+                )
+                rows = cur.fetchall()
+            assert len(rows) == 2
+            for _rid, status, finished_at in rows:
+                assert status == "failed"
+                assert finished_at is not None
+        finally:
+            _cleanup_run(pg_conn, run_id_a)
+            _cleanup_run(pg_conn, run_id_b)
+
+    @_requires_monitoring
+    def test_no_rows_updated_when_nothing_running(self, pg_conn):
+        _apply_monitoring_schema(pg_conn)
+        run_id = postgres.create_run(pg_conn, "scheduled")
+        try:
+            postgres.finish_run(
+                pg_conn,
+                run_id,
+                "success",
+                tables_ok=1,
+                tables_failed=0,
+                total_rows_synced=0,
+            )
+            n = postgres.fail_orphan_running_runs(pg_conn)
+            assert n == 0
+        finally:
+            _cleanup_run(pg_conn, run_id)
+
+
 class TestFinishRun:
     @_requires_monitoring
     def test_finish_run_updates_status(self, pg_conn):
