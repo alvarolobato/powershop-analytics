@@ -65,21 +65,39 @@ WHERE v."entrada" = true
 ORDER BY 1`,
 };
 
-/** Temporada (clave code of the season, e.g. "75" for PV12). Text key stored on ps_articulos.clave_temporada. */
+/**
+ * Temporada (season code stored on ps_articulos.clave_temporada as text,
+ * e.g. "PV26" for Primavera-Verano 2026, "OI25" for Otoño-Invierno 2025).
+ *
+ * We source options from ps_articulos.clave_temporada directly (not
+ * ps_temporadas.clave) so that the option values are guaranteed to match
+ * the bind_expr domain — the two "clave" columns can and do diverge, and
+ * only the codes actually assigned to articulos produce filter matches.
+ */
 const TEMPORADA: GlobalFilter = {
   id: "temporada",
   type: "multi_select",
   label: "Temporada",
   bind_expr: `p."clave_temporada"`,
   value_type: "text",
-  options_sql: `SELECT DISTINCT t."clave" AS value,
-       COALESCE(NULLIF(t."temporada_tipo", ''), t."clave") AS label
-FROM "public"."ps_temporadas" t
-WHERE t."clave" IS NOT NULL AND t."clave" <> ''
+  options_sql: `SELECT DISTINCT p."clave_temporada" AS value,
+       COALESCE(NULLIF(t."temporada_tipo", ''), p."clave_temporada") AS label
+FROM "public"."ps_articulos" p
+LEFT JOIN "public"."ps_temporadas" t ON t."clave" = p."clave_temporada"
+WHERE p."clave_temporada" IS NOT NULL
+  AND p."clave_temporada" <> ''
 ORDER BY 1`,
 };
 
-/** Marca (brand). Joined via ps_articulos.num_marca → ps_marcas.reg_marca. */
+/**
+ * Marca (brand). Joined via ps_articulos.num_marca → ps_marcas.reg_marca.
+ *
+ * Label column: ps_marcas has only `clave` and `marca_tratamien` (no
+ * standalone `marca` text column — see etl/schema/init.sql). `clave` is
+ * the short brand code/name that the vendor uses as the primary display
+ * value; knowledge.ts references to `m."marca"` elsewhere in the codebase
+ * are incorrect and should be migrated separately.
+ */
 const MARCA: GlobalFilter = {
   id: "marca",
   type: "multi_select",
@@ -105,7 +123,12 @@ WHERE p."sexo" IS NOT NULL AND p."sexo" <> ''
 ORDER BY 1`,
 };
 
-/** Departamento — FK numeric on ps_articulos.num_departament → ps_departamentos.reg_departament. */
+/**
+ * Departamento — FK numeric on ps_articulos.num_departament →
+ * ps_departamentos.reg_departament. Display column is `depa_secc_fabr`
+ * (the canonical human-readable column used by knowledge.ts sales/margin
+ * SQL pairs); `clave` is an internal code and may be NULL.
+ */
 const DEPARTAMENTO: GlobalFilter = {
   id: "departamento",
   type: "multi_select",
@@ -113,9 +136,9 @@ const DEPARTAMENTO: GlobalFilter = {
   bind_expr: `p."num_departament"`,
   value_type: "numeric",
   options_sql: `SELECT d."reg_departament" AS value,
-       COALESCE(NULLIF(d."depa_secc_fabr", ''), d."clave") AS label
+       d."depa_secc_fabr" AS label
 FROM "public"."ps_departamentos" d
-WHERE d."clave" IS NOT NULL AND d."clave" <> ''
+WHERE d."depa_secc_fabr" IS NOT NULL AND d."depa_secc_fabr" <> ''
 ORDER BY 2`,
 };
 
