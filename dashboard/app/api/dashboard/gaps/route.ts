@@ -103,7 +103,7 @@ export async function POST(request: Request): Promise<NextResponse> {
   // --- Call LLM ---
   let rawResponse: string;
   try {
-    rawResponse = await analyzeGaps(existingDashboards);
+    rawResponse = await analyzeGaps(existingDashboards, { requestId });
   } catch (err: unknown) {
     if (err instanceof BudgetExceededError) {
       return NextResponse.json(

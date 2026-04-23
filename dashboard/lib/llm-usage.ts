@@ -27,6 +27,11 @@ export class BudgetExceededError extends Error {
   }
 }
 
+/** Optional row fields for correlating `llm_usage` with `llm_tool_calls` (same endpoint + request id). */
+export type LogUsageOptions = {
+  requestId?: string | null;
+};
+
 export function logUsage(
   endpoint: string,
   model: string,
@@ -36,9 +41,11 @@ export function logUsage(
     total_tokens: number;
   },
   meta?: LlmUsageProviderMeta,
+  options?: LogUsageOptions,
 ): void {
   const provider = meta?.provider ?? "openrouter";
   const driver = meta?.driver ?? null;
+  const requestId = options?.requestId ?? null;
 
   let estimatedCost = 0;
   if (provider === "openrouter") {
@@ -54,8 +61,8 @@ export function logUsage(
   void sql(
     `INSERT INTO llm_usage (
        endpoint, model, prompt_tokens, completion_tokens, total_tokens,
-       estimated_cost_usd, llm_provider, llm_driver
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       estimated_cost_usd, llm_provider, llm_driver, request_id
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       endpoint,
       model,
@@ -65,6 +72,7 @@ export function logUsage(
       estimatedCost.toFixed(6),
       provider,
       driver,
+      requestId,
     ],
   ).catch((err) => {
     console.error("[llm-usage] Failed to log usage:", err);

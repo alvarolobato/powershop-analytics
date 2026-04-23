@@ -357,6 +357,7 @@ describe("llm", () => {
         "anthropic/claude-sonnet-4",
         { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
         { provider: "openrouter", driver: null },
+        { requestId: "req_local" },
       );
     });
 
@@ -373,6 +374,7 @@ describe("llm", () => {
         "anthropic/claude-sonnet-4",
         { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
         { provider: "openrouter", driver: null },
+        { requestId: "req_local" },
       );
     });
 

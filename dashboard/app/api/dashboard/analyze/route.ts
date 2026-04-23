@@ -249,7 +249,7 @@ export async function POST(request: Request) {
 
   // --- Generate suggestions before returning the response ------------------
   const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
-  const suggestions = await generateSuggestions(serializedData, lastExchange);
+  const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
 
   return NextResponse.json({ response: analysisResponse, suggestions });
 }

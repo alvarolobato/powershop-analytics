@@ -64,10 +64,12 @@ async function chatText(
   temperature: number,
   maxTokens: number,
   endpoint: string,
+  requestId?: string | null,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
   const model = getEffectiveDashboardModel(cfg);
   const meta = usageMetaFromCfg(cfg);
+  const usageOpts = { requestId: requestId ?? null };
 
   if (cfg.provider === "cli") {
     const combined = messages
@@ -80,7 +82,7 @@ async function chatText(
     const text = await callWithCircuitBreaker(() =>
       claudeCliSingleShot({ cfg, prompt: combined }),
     );
-    void logUsage(endpoint, model, EMPTY_USAGE, meta);
+    void logUsage(endpoint, model, EMPTY_USAGE, meta, usageOpts);
     return text;
   }
 
@@ -104,6 +106,7 @@ async function chatText(
       total_tokens: u.total_tokens ?? 0,
     },
     meta,
+    usageOpts,
   );
   return content;
 }
@@ -139,7 +142,9 @@ export async function generateDashboard(
         maxTokens: 8192,
       }),
     );
-    void logUsage("generateDashboard", model, usage, usageMetaFromCfg(cfg));
+    void logUsage("generateDashboard", model, usage, usageMetaFromCfg(cfg), {
+      requestId: requestCtx.requestId,
+    });
     return content;
   }
 
@@ -152,6 +157,7 @@ export async function generateDashboard(
     0.2,
     8192,
     "generateDashboard",
+    requestCtx.requestId,
   );
 }
 
@@ -187,7 +193,9 @@ export async function modifyDashboard(
         maxTokens: 8192,
       }),
     );
-    void logUsage("modifyDashboard", model, usage, usageMetaFromCfg(cfg));
+    void logUsage("modifyDashboard", model, usage, usageMetaFromCfg(cfg), {
+      requestId: requestCtx.requestId,
+    });
     return content;
   }
 
@@ -200,6 +208,7 @@ export async function modifyDashboard(
     0.2,
     8192,
     "modifyDashboard",
+    requestCtx.requestId,
   );
 }
 
@@ -211,6 +220,7 @@ export async function modifyDashboard(
 export async function suggestDashboards(
   role: string,
   existingDashboards: { title: string; description: string }[],
+  opts?: { requestId?: string },
 ): Promise<string> {
   const systemPrompt = buildSuggestPrompt(role, existingDashboards);
 
@@ -227,6 +237,7 @@ export async function suggestDashboards(
     0.2,
     8192,
     "suggestDashboards",
+    opts?.requestId ?? null,
   );
 
   if (!content) {
@@ -246,6 +257,7 @@ export async function analyzeGaps(
     description: string;
     widgetTitles: string[];
   }[],
+  opts?: { requestId?: string },
 ): Promise<string> {
   const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
 
@@ -263,6 +275,7 @@ export async function analyzeGaps(
     0.2,
     8192,
     "analyzeGaps",
+    opts?.requestId ?? null,
   );
 
   if (!content) {
@@ -307,7 +320,9 @@ export async function analyzeDashboard(
         maxTokens: 4096,
       }),
     );
-    void logUsage("analyzeDashboard", model, usage, usageMetaFromCfg(cfg));
+    void logUsage("analyzeDashboard", model, usage, usageMetaFromCfg(cfg), {
+      requestId: requestCtx.requestId,
+    });
     return content;
   }
 
@@ -323,6 +338,7 @@ export async function analyzeDashboard(
     0.3,
     4096,
     "analyzeDashboard",
+    requestCtx.requestId,
   );
 }
 
@@ -332,9 +348,11 @@ export async function analyzeDashboard(
  * Returns the parsed LLM output (validated with Zod). Uses max_tokens: 4096
  * (reviews are shorter than full dashboard specs).
  */
-export async function generateReview(systemPrompt: string): Promise<ReviewLlmOutput> {
-  const cfg = loadDashboardLlmConfig();
-  const ctx = attachTelemetry({ requestId: "req_local", endpoint: "generateReview" }, cfg);
+export async function generateReview(
+  systemPrompt: string,
+  opts?: { requestId?: string },
+): Promise<ReviewLlmOutput> {
+  const requestId = opts?.requestId ?? "req_local";
 
   await checkDailyBudget();
 
@@ -343,6 +361,7 @@ export async function generateReview(systemPrompt: string): Promise<ReviewLlmOut
     0.2,
     4096,
     "generateReview",
+    requestId,
   );
 
   const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
@@ -374,12 +393,19 @@ export async function generateReview(systemPrompt: string): Promise<ReviewLlmOut
 export async function generateSuggestions(
   serializedData: string,
   lastExchange: string,
+  opts?: { requestId?: string },
 ): Promise<string[]> {
   try {
     await checkDailyBudget();
     const prompt = buildSuggestionPrompt(serializedData, lastExchange);
 
-    const content = await chatText([{ role: "user", content: prompt }], 0.5, 512, "generateSuggestions");
+    const content = await chatText(
+      [{ role: "user", content: prompt }],
+      0.5,
+      512,
+      "generateSuggestions",
+      opts?.requestId ?? null,
+    );
 
     const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
     const jsonStr = fenced ? fenced[1].trim() : content.trim();
