@@ -27,6 +27,11 @@ import {
   sanitizeErrorMessage,
 } from "@/lib/errors";
 import type { WidgetData } from "@/components/widgets/types";
+import {
+  createInteraction,
+  finishInteraction,
+} from "@/lib/db-write";
+import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -188,6 +193,25 @@ export async function POST(request: Request) {
   // --- Serialize widget data for LLM context --------------------------------
   const serializedData = serializeWidgetData(specParse.data, widgetDataMap);
 
+  // --- Persist interaction start -------------------------------------------
+  const cfg = loadDashboardLlmConfig();
+  const llmProvider = cfg.provider;
+  const llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
+
+  let interactionId: string | null = null;
+  try {
+    interactionId = await createInteraction({
+      requestId,
+      endpoint: "analyze",
+      dashboardId: dashboardIdNum ?? null,
+      prompt: prompt.trim(),
+      llmProvider,
+      llmDriver: llmDriver ?? null,
+    });
+  } catch (e) {
+    console.error(`[${requestId}] createInteraction(analyze) failed:`, e);
+  }
+
   // --- Call LLM to analyze dashboard ----------------------------------------
   let analysisResponse: string;
   try {
@@ -202,6 +226,12 @@ export async function POST(request: Request) {
       },
     );
   } catch (err) {
+    if (interactionId) {
+      const errText = err instanceof Error ? err.message : "Error al analizar";
+      void finishInteraction(interactionId, "error", errText).catch((e) =>
+        console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+      );
+    }
     if (err instanceof AgenticRunnerError) {
       return NextResponse.json(
         formatApiError(
@@ -250,6 +280,12 @@ export async function POST(request: Request) {
   // --- Generate suggestions before returning the response ------------------
   const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
   const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
+
+  if (interactionId) {
+    void finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
+      console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
+    );
+  }
 
   return NextResponse.json({ response: analysisResponse, suggestions });
 }

@@ -21,6 +21,11 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import {
+  createInteraction,
+  finishInteraction,
+} from "@/lib/db-write";
+import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 
 /**
  * Extract JSON from a string that may be wrapped in markdown code blocks.
@@ -101,6 +106,24 @@ export async function POST(request: Request) {
     );
   }
 
+  // --- Persist interaction start --------------------------------------------
+  const cfg = loadDashboardLlmConfig();
+  const llmProvider = cfg.provider;
+  const llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
+
+  let interactionId: string | null = null;
+  try {
+    interactionId = await createInteraction({
+      requestId,
+      endpoint: "modify",
+      prompt: prompt.trim(),
+      llmProvider,
+      llmDriver: llmDriver ?? null,
+    });
+  } catch (e) {
+    console.error(`[${requestId}] createInteraction(modify) failed:`, e);
+  }
+
   // --- Call LLM to modify the dashboard -------------------------------------
   let rawResponse: string;
   try {
@@ -110,6 +133,12 @@ export async function POST(request: Request) {
       { requestId, endpoint: "modifyDashboard" },
     );
   } catch (err: unknown) {
+    if (interactionId) {
+      const errText = err instanceof Error ? err.message : "Error al modificar";
+      void finishInteraction(interactionId, "error", errText).catch((e) =>
+        console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+      );
+    }
     if (err instanceof AgenticRunnerError) {
       return NextResponse.json(
         formatApiError(
@@ -164,6 +193,11 @@ export async function POST(request: Request) {
     console.error(
       `[${requestId}] El LLM devolvió JSON inválido al modificar (${jsonStr.length} chars)`,
     );
+    if (interactionId) {
+      void finishInteraction(interactionId, "error", "JSON inválido en respuesta del modelo").catch(
+        (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+      );
+    }
     return NextResponse.json(
       formatApiError(
         "El modelo de IA devolvió una respuesta con formato incorrecto.",
@@ -180,6 +214,11 @@ export async function POST(request: Request) {
     updatedSpec = validateSpec(parsed);
   } catch {
     console.error(`[${requestId}] El LLM devolvió un spec inválido al modificar.`);
+    if (interactionId) {
+      void finishInteraction(interactionId, "error", "Spec inválido").catch((e) =>
+        console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+      );
+    }
     return NextResponse.json(
       formatApiError(
         "El modelo de IA generó un dashboard con estructura incorrecta.",
@@ -197,6 +236,11 @@ export async function POST(request: Request) {
       `[${requestId}] SQL heurístico rechazó el spec modificado por el LLM:`,
       sqlLint.join(" | "),
     );
+    if (interactionId) {
+      void finishInteraction(interactionId, "error", `SQL lint: ${sqlLint.join(" | ")}`).catch(
+        (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+      );
+    }
     return NextResponse.json(
       {
         ...formatApiError(
@@ -207,6 +251,12 @@ export async function POST(request: Request) {
         ),
       },
       { status: 400 },
+    );
+  }
+
+  if (interactionId) {
+    void finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
+      console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
     );
   }
 
