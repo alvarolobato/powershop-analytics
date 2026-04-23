@@ -2,11 +2,7 @@
 
 ![Docker Image](https://img.shields.io/docker/v/alvarolobato264/powershop-etl?label=Docker%20Hub)
 
-PowerShop Analytics extracts data from a PowerShop ERP (4D database) into a PostgreSQL mirror and exposes it through WrenAI, a self-hosted text-to-SQL interface. Ask questions about sales, stock, customers, and orders in plain language — no SQL knowledge required.
-
-```
-4D ERP (source) → ETL → PostgreSQL (mirror) → WrenAI (text-to-SQL UI)
-```
+This is an experiment project to use AI to analyze data from an SQL source, in this case a 4D database, also to create a self developing AI factory with LLM driven development and little human interaction.
 
 ## Deploy
 
