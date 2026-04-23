@@ -4,7 +4,7 @@
  * VersionHistory — slide-out listing dashboard spec versions with restore.
  */
 
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import type { DashboardSpec } from "@/lib/schema";
 import { isApiErrorResponse } from "@/lib/errors";
 
@@ -54,12 +54,27 @@ export function VersionHistory({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [restoringId, setRestoringId] = useState<number | null>(null);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const restoreBusy = restoringId !== null;
+
+  const safeClose = useCallback(() => {
+    if (restoreBusy) return;
+    onClose();
+  }, [onClose, restoreBusy]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") safeClose();
     },
-    [onClose],
+    [safeClose],
   );
 
   useEffect(() => {
@@ -109,6 +124,7 @@ export function VersionHistory({
   }, [isOpen, dashboardId]);
 
   async function handleRestore(versionId: number) {
+    if (!isMountedRef.current) return;
     setRestoringId(versionId);
     setError(null);
     try {
@@ -123,7 +139,7 @@ export function VersionHistory({
           isApiErrorResponse(data) && typeof data.error === "string"
             ? data.error
             : "No se pudo restaurar la versión.";
-        setError(msg);
+        if (isMountedRef.current) setError(msg);
         return;
       }
       if (
@@ -133,14 +149,14 @@ export function VersionHistory({
         !data.spec ||
         typeof data.spec !== "object"
       ) {
-        setError("Respuesta del servidor no válida.");
+        if (isMountedRef.current) setError("Respuesta del servidor no válida.");
         return;
       }
-      onRestore(data.spec as DashboardSpec);
+      if (isMountedRef.current) onRestore(data.spec as DashboardSpec);
     } catch {
-      setError("Error de red al restaurar.");
+      if (isMountedRef.current) setError("Error de red al restaurar.");
     } finally {
-      setRestoringId(null);
+      if (isMountedRef.current) setRestoringId(null);
     }
   }
 
@@ -151,7 +167,7 @@ export function VersionHistory({
       <div
         className="fixed inset-0 z-40 bg-black/30"
         aria-hidden="true"
-        onClick={onClose}
+        onClick={safeClose}
         data-testid="version-history-backdrop"
       />
 
@@ -172,9 +188,10 @@ export function VersionHistory({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={safeClose}
+            disabled={restoreBusy}
             aria-label="Cerrar historial"
-            className="rounded p-1 text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+            className="rounded p-1 text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors disabled:opacity-40 disabled:pointer-events-none"
           >
             <svg
               className="h-4 w-4"

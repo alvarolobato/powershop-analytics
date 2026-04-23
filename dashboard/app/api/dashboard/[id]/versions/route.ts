@@ -18,6 +18,19 @@ function parseId(raw: string): number | null {
   return n;
 }
 
+/** `pg` may return int8 as string without custom parsers — normalize for JSON. */
+function toVersionNumber(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 1) return 1;
+  return n;
+}
+
+function toWidgetCount(value: unknown): number {
+  const n = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return 0;
+  return n;
+}
+
 export async function GET(
   _request: NextRequest,
   context: RouteContext,
@@ -56,12 +69,12 @@ export async function GET(
 
     const rows = await sql<{
       id: number;
-      version_number: number;
+      version_number: number | string;
       prompt: string | null;
-      widget_count: number;
+      widget_count: number | string;
       created_at: Date;
     }>(
-      `       WITH ranked AS (
+      `WITH ranked AS (
          SELECT id,
                 spec,
                 prompt,
@@ -73,7 +86,7 @@ export async function GET(
          WHERE dashboard_id = $1
        )
        SELECT id,
-              version_number,
+              version_number::int AS version_number,
               prompt,
               CASE
                 WHEN jsonb_typeof(spec -> 'widgets') = 'array'
@@ -88,9 +101,9 @@ export async function GET(
 
     const payload = rows.map((r) => ({
       id: r.id,
-      version_number: r.version_number,
+      version_number: toVersionNumber(r.version_number),
       prompt: r.prompt,
-      widget_count: r.widget_count,
+      widget_count: toWidgetCount(r.widget_count),
       created_at:
         r.created_at instanceof Date
           ? r.created_at.toISOString()
