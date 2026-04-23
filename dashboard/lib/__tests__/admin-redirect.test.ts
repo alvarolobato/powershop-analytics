@@ -56,9 +56,10 @@ describe("safeAdminRedirectTarget", () => {
       ["/etl-stats", "hyphen after etl"],
       // Missing leading slash.
       ["admin/slow-queries", "relative path"],
-      // Bare /admin has no route (no app/admin/page.tsx) — must not 404 post-login.
-      ["/admin", "bare /admin (no route)"],
-      ["/admin/", "bare /admin/ (no route)"],
+      // Bare /admin maps to DEFAULT_ADMIN_LANDING to skip the extra round-trip
+      // through app/admin/page.tsx (which itself redirects to DEFAULT_ADMIN_LANDING).
+      ["/admin", "bare /admin (maps to default landing)"],
+      ["/admin/", "bare /admin/ (maps to default landing)"],
       ["/admin?foo=1", "bare /admin with query"],
       ["/admin#top", "bare /admin with hash"],
     ])("rejects %s (%s)", (value, _label) => {

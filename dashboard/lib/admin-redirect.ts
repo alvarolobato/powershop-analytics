@@ -44,8 +44,9 @@ const ADMIN_AREA_PATH = /^\/(admin|etl)(\/|\?|#|$)/;
  * - are not the login page itself.
  *
  * The bare `/admin` (and `/admin/`, with or without query/hash) is also mapped
- * to `DEFAULT_ADMIN_LANDING` because there is no route at `app/admin/page.tsx`
- * — sending the user there post-login would 404.
+ * to `DEFAULT_ADMIN_LANDING`. Although `app/admin/page.tsx` now exists and
+ * server-redirects there, bypassing the extra round-trip is both faster for
+ * the user and avoids any redirect chaining in the login flow.
  */
 export function safeAdminRedirectTarget(input: string | null | undefined): string {
   if (typeof input !== "string") return DEFAULT_ADMIN_LANDING;
@@ -74,9 +75,11 @@ export function safeAdminRedirectTarget(input: string | null | undefined): strin
     return DEFAULT_ADMIN_LANDING;
   }
 
-  // Bare `/admin` has no route (no `app/admin/page.tsx`). Send the user to
-  // the default landing instead of a post-login 404. The query/hash variants
-  // are covered by stripping them before matching.
+  // Bare `/admin` redirects to the default landing page (app/admin/page.tsx
+  // exists but only server-redirects to DEFAULT_ADMIN_LANDING). Mapping it
+  // here avoids an extra round-trip and prevents redirect chaining in the
+  // login flow. The query/hash variants are covered by stripping them before
+  // matching.
   const pathOnly = value.split(/[?#]/, 1)[0];
   if (pathOnly === "/admin" || pathOnly === "/admin/") {
     return DEFAULT_ADMIN_LANDING;

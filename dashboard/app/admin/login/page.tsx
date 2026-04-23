@@ -5,9 +5,9 @@ import { safeAdminRedirectTarget } from "@/lib/admin-redirect";
 export default async function AdminLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; redirect?: string }>;
+  searchParams: { error?: string; redirect?: string };
 }) {
-  const sp = await searchParams;
+  const sp = searchParams;
   const err = sp.error === "1";
   const noConfig = sp.error === "2";
   // Sanitize early so the hidden input only ever carries a safe local path.
