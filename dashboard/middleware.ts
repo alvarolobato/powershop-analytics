@@ -1,6 +1,33 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+/**
+ * Paths that require the `ps_admin` session cookie (same auth as `/admin/*`).
+ * The ETL monitor lives outside `/admin` but is still an administration
+ * surface, so we gate it here instead of duplicating the flow.
+ */
+function isAdminUiPath(pathname: string): boolean {
+  if (pathname === "/admin/login") return false;
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return true;
+  if (pathname === "/etl" || pathname.startsWith("/etl/")) return true;
+  return false;
+}
+
+function buildLoginRedirect(request: NextRequest, errorCode?: "2"): URL {
+  const url = new URL("/admin/login", request.url);
+  if (errorCode) {
+    url.searchParams.set("error", errorCode);
+  }
+  // Preserve the original path (+ query string) so the login action can
+  // send the user back after authenticating. Only an internal path is
+  // forwarded — see `safeAdminRedirectTarget` for the final validation.
+  const originalPath = request.nextUrl.pathname + request.nextUrl.search;
+  if (originalPath && originalPath !== "/admin/login") {
+    url.searchParams.set("redirect", originalPath);
+  }
+  return url;
+}
+
 export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
 
@@ -12,8 +39,8 @@ export function middleware(request: NextRequest): NextResponse {
         { status: 503 },
       );
     }
-    if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
-      return NextResponse.redirect(new URL("/admin/login?error=2", request.url));
+    if (isAdminUiPath(pathname)) {
+      return NextResponse.redirect(buildLoginRedirect(request, "2"));
     }
     return NextResponse.next();
   }
@@ -28,10 +55,10 @@ export function middleware(request: NextRequest): NextResponse {
     }
   }
 
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
+  if (isAdminUiPath(pathname)) {
     const cookie = request.cookies.get("ps_admin")?.value;
     if (cookie !== adminKey) {
-      return NextResponse.redirect(new URL("/admin/login", request.url));
+      return NextResponse.redirect(buildLoginRedirect(request));
     }
   }
 
@@ -39,5 +66,5 @@ export function middleware(request: NextRequest): NextResponse {
 }
 
 export const config = {
-  matcher: ["/api/admin/:path*", "/admin/:path*"],
+  matcher: ["/api/admin/:path*", "/admin/:path*", "/etl", "/etl/:path*"],
 };
