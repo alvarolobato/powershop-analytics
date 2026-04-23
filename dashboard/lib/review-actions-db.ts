@@ -2,7 +2,7 @@
  * Persistence for weekly_review_actions (follow-up tracking).
  */
 
-import { sql } from "./db-write";
+import { getPool, sql } from "./db-write";
 import type { ReviewContent } from "./review-schema";
 
 export interface ReviewActionRow {
@@ -24,22 +24,33 @@ export async function replaceActionsFromReviewContent(
   reviewId: number,
   content: ReviewContent,
 ): Promise<void> {
-  await sql(`DELETE FROM weekly_review_actions WHERE review_id = $1`, [reviewId]);
-  for (const a of content.action_items) {
-    await sql(
-      `INSERT INTO weekly_review_actions (
-         review_id, action_key, priority, owner_role, owner_name, due_date, expected_impact, status
-       ) VALUES ($1, $2, $3, $4, $5, $6::date, $7, 'pendiente')`,
-      [
-        reviewId,
-        a.action_key,
-        a.priority,
-        a.owner_role,
-        a.owner_name ?? "",
-        a.due_date,
-        a.expected_impact,
-      ],
-    );
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query(`DELETE FROM weekly_review_actions WHERE review_id = $1`, [reviewId]);
+    for (const a of content.action_items) {
+      await client.query(
+        `INSERT INTO weekly_review_actions (
+           review_id, action_key, priority, owner_role, owner_name, due_date, expected_impact, status
+         ) VALUES ($1, $2, $3, $4, $5, $6::date, $7, 'pendiente')`,
+        [
+          reviewId,
+          a.action_key,
+          a.priority,
+          a.owner_role,
+          a.owner_name ?? "",
+          a.due_date,
+          a.expected_impact,
+        ],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
   }
 }
 

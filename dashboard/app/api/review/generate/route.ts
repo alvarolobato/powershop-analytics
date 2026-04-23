@@ -232,8 +232,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     } catch (err) {
       console.error(`[${requestId}] Error saving review to DB:`, err);
       return NextResponse.json(
-        { review: { ...content, id: null, week_start: weekStartStr, revision: nextRevision } },
-        { status: 200 },
+        formatApiError(
+          "La revisión se generó, pero no se pudo guardar. Inténtalo de nuevo más tarde.",
+          "REVIEW_PERSISTENCE",
+          sanitizeErrorMessage(err),
+          requestId,
+        ),
+        { status: 503 },
       );
     }
 

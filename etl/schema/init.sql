@@ -472,6 +472,18 @@ BEGIN
   END IF;
 END $$;
 
+-- Assign deterministic revision numbers per week before the unique index (existing rows may share revision=1).
+WITH ranked AS (
+  SELECT id,
+         ROW_NUMBER() OVER (PARTITION BY week_start ORDER BY created_at NULLS LAST, id) AS rn
+  FROM weekly_reviews
+)
+UPDATE weekly_reviews wr
+SET revision = ranked.rn
+FROM ranked
+WHERE wr.id = ranked.id
+  AND wr.revision IS DISTINCT FROM ranked.rn;
+
 CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_reviews_week_revision
   ON weekly_reviews (week_start, revision);
 

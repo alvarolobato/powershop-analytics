@@ -215,24 +215,24 @@ export default function ReviewPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({}),
       });
-      const errBody = await res.json().catch(() => null);
+      const payload = (await res.json().catch(() => null)) as unknown;
       if (!res.ok) {
         if (
           res.status === 409 &&
-          isApiErrorResponse(errBody) &&
-          errBody.code === "REVIEW_EXISTS" &&
-          typeof errBody.week_start === "string" &&
-          typeof errBody.existing_id === "number"
+          isApiErrorResponse(payload) &&
+          payload.code === "REVIEW_EXISTS" &&
+          typeof payload.week_start === "string" &&
+          typeof payload.existing_id === "number"
         ) {
-          await openWeek(errBody.week_start, errBody.existing_id);
+          await openWeek(payload.week_start, payload.existing_id);
           void fetchPastReviews();
           return;
         }
-        setReviewError(isApiErrorResponse(errBody) ? errBody : "Error al generar la revisión");
+        setReviewError(isApiErrorResponse(payload) ? payload : "Error al generar la revisión");
         setView("error");
         return;
       }
-      const data = (await res.json()) as {
+      const data = payload as {
         review: ReviewContent & {
           id: number | null;
           week_start: string;
