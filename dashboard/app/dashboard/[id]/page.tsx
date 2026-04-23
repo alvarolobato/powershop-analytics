@@ -17,6 +17,7 @@ import {
 } from "@/components/DateRangePicker";
 import type { DateRange, ComparisonRange } from "@/components/DateRangePicker";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
+import { VersionHistory } from "@/components/VersionHistory";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
@@ -109,6 +110,7 @@ export default function ViewDashboard() {
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [widgetData, setWidgetData] = useState<Map<number, WidgetState>>(new Map());
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState("");
@@ -715,13 +717,35 @@ export default function ViewDashboard() {
             )}
           </div>
 
+          <button
+            type="button"
+            onClick={() =>
+              setHistoryOpen((prev) => {
+                const nextOpen = !prev;
+                if (nextOpen) {
+                  setChatOpen(false);
+                  setGlossaryOpen(false);
+                }
+                return nextOpen;
+              })
+            }
+            className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
+            aria-label={historyOpen ? "Cerrar historial" : "Abrir historial"}
+            data-testid="history-button"
+          >
+            Historial
+          </button>
+
           {/* Glosario button — only shown when glossary has entries */}
           {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
             <button
               onClick={() =>
                 setGlossaryOpen((prev) => {
                   const nextOpen = !prev;
-                  if (nextOpen) setChatOpen(false);
+                  if (nextOpen) {
+                    setChatOpen(false);
+                    setHistoryOpen(false);
+                  }
                   return nextOpen;
                 })
               }
@@ -749,7 +773,17 @@ export default function ViewDashboard() {
             Guardar
           </button>
           <button
-            onClick={() => setChatOpen((prev) => !prev)}
+            type="button"
+            onClick={() =>
+              setChatOpen((prev) => {
+                const nextOpen = !prev;
+                if (nextOpen) {
+                  setGlossaryOpen(false);
+                  setHistoryOpen(false);
+                }
+                return nextOpen;
+              })
+            }
             className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
           >
             {chatOpen ? "Cerrar chat" : "Modificar"}
@@ -789,7 +823,10 @@ export default function ViewDashboard() {
         onToggle={() =>
           setChatOpen((prev) => {
             const nextOpen = !prev;
-            if (nextOpen) setGlossaryOpen(false);
+            if (nextOpen) {
+              setGlossaryOpen(false);
+              setHistoryOpen(false);
+            }
             return nextOpen;
           })
         }
@@ -806,6 +843,16 @@ export default function ViewDashboard() {
           onClose={() => setGlossaryOpen(false)}
         />
       )}
+
+      <VersionHistory
+        dashboardId={dashboard.id}
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        onRestore={(spec) => {
+          setDashboard((prev) => (prev ? { ...prev, spec } : prev));
+          setHistoryOpen(false);
+        }}
+      />
     </div>
   );
 }
