@@ -18,6 +18,7 @@ import {
   checkDailyBudget,
   BudgetExceededError,
 } from "../llm-usage";
+import { resetDashboardLlmConfigCache } from "../llm-model-config";
 
 describe("logUsage", () => {
   beforeEach(() => {
@@ -49,6 +50,9 @@ describe("logUsage", () => {
     expect(params[4]).toBe(1500);
     // cost = 1000 * 3/1e6 + 500 * 15/1e6 = 0.003 + 0.0075 = 0.0105
     expect(params[5]).toBe("0.010500");
+    expect(params[6]).toBe("openrouter");
+    expect(params[7]).toBe(null);
+    expect(params[8]).toBe(null);
   });
 
   it("falls back to DEFAULT_RATE for unknown model", async () => {
@@ -65,6 +69,41 @@ describe("logUsage", () => {
     // default rate = 3/1e6 prompt + 15/1e6 completion
     // 100 * 3/1e6 + 100 * 15/1e6 = 0.0003 + 0.0015 = 0.0018
     expect(params[5]).toBe("0.001800");
+    expect(params[6]).toBe("openrouter");
+    expect(params[7]).toBe(null);
+    expect(params[8]).toBe(null);
+  });
+
+  it("stores zero estimated cost for CLI provider rows", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "cli", driver: "claude_code" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.000000");
+    expect(params[6]).toBe("cli");
+    expect(params[7]).toBe("claude_code");
+    expect(params[8]).toBe(null);
+  });
+
+  it("persists request_id when provided in options", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      { provider: "openrouter", driver: null },
+      { requestId: "req_corr_1" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[8]).toBe("req_corr_1");
   });
 
   it("does not throw when sql rejects (fire-and-forget)", async () => {
@@ -86,10 +125,12 @@ describe("logUsage", () => {
 describe("checkDailyBudget", () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    resetDashboardLlmConfigCache();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    resetDashboardLlmConfigCache();
   });
 
   it("is a no-op when LLM_DAILY_BUDGET_USD is not set", async () => {
@@ -153,5 +194,14 @@ describe("checkDailyBudget", () => {
     mockQuery.mockResolvedValue({ columns: ["total"], rows: [] });
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
+  });
+
+  it("skips the PostgreSQL budget query when dashboard LLM provider is cli", async () => {
+    vi.stubEnv("LLM_DAILY_BUDGET_USD", "1");
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+    mockQuery.mockClear();
+
+    await expect(checkDailyBudget()).resolves.toBeUndefined();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });

@@ -31,26 +31,31 @@ vi.mock("../llm-usage", () => ({
 
 import { _resetCircuitBreaker } from "../llm-circuit-breaker";
 import { generateDashboard, modifyDashboard, resetClient } from "../llm";
+import { resetDashboardLlmConfigCache } from "../llm-model-config";
 
 describe("llm", () => {
   beforeEach(() => {
     _resetCircuitBreaker();
     vi.stubEnv("OPENROUTER_API_KEY", "test-key-123");
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
     vi.stubEnv("DASHBOARD_AGENTIC_TOOLS_ENABLED", "false");
     resetClient();
+    resetDashboardLlmConfigCache();
     mockCreate.mockReset();
   });
 
   afterEach(() => {
     vi.unstubAllEnvs();
     resetClient();
+    resetDashboardLlmConfigCache();
     _resetCircuitBreaker();
   });
 
   describe("generateDashboard", () => {
-    it("throws if OPENROUTER_API_KEY is not set", async () => {
+    it("throws if OPENROUTER_API_KEY is not set (openrouter provider)", async () => {
       delete process.env.OPENROUTER_API_KEY;
       resetClient();
+      resetDashboardLlmConfigCache();
       await expect(generateDashboard("test")).rejects.toThrow(
         "OPENROUTER_API_KEY is not set. Set it in your environment or .env file."
       );
@@ -109,6 +114,8 @@ describe("llm", () => {
 
     it("uses default model when DASHBOARD_LLM_MODEL is not set", async () => {
       delete process.env.DASHBOARD_LLM_MODEL;
+      delete process.env.DASHBOARD_LLM_MODEL_OPENROUTER;
+      resetDashboardLlmConfigCache();
       mockCreate.mockResolvedValue({
         choices: [{ message: { content: "{}" } }],
       });
@@ -122,9 +129,11 @@ describe("llm", () => {
       );
     });
 
-    it("uses custom model from DASHBOARD_LLM_MODEL", async () => {
-      vi.stubEnv("DASHBOARD_LLM_MODEL", "anthropic/claude-opus-4");
+    it("uses custom model from DASHBOARD_LLM_MODEL_OPENROUTER", async () => {
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER", "anthropic/claude-opus-4");
+      delete process.env.DASHBOARD_LLM_MODEL;
       resetClient();
+      resetDashboardLlmConfigCache();
       mockCreate.mockResolvedValue({
         choices: [{ message: { content: "{}" } }],
       });
@@ -317,6 +326,7 @@ describe("llm", () => {
     beforeEach(() => {
       mockCheckDailyBudget.mockResolvedValue(undefined);
       mockLogUsage.mockReturnValue(undefined);
+      mockLogUsage.mockClear();
     });
 
     it("awaits checkDailyBudget before calling the LLM", async () => {
@@ -342,10 +352,12 @@ describe("llm", () => {
 
       await generateDashboard("test");
 
-      expect(mockLogUsage).toHaveBeenCalledWith(
+      expect(mockLogUsage).toHaveBeenLastCalledWith(
         "generateDashboard",
-        expect.any(String),
+        "anthropic/claude-sonnet-4",
         { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        { provider: "openrouter", driver: null },
+        { requestId: "req_local" },
       );
     });
 
@@ -357,10 +369,12 @@ describe("llm", () => {
 
       await generateDashboard("test");
 
-      expect(mockLogUsage).toHaveBeenCalledWith(
+      expect(mockLogUsage).toHaveBeenLastCalledWith(
         "generateDashboard",
-        expect.any(String),
+        "anthropic/claude-sonnet-4",
         { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        { provider: "openrouter", driver: null },
+        { requestId: "req_local" },
       );
     });
 

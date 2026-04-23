@@ -26,11 +26,20 @@ export interface EndpointStats {
   estimated_cost_usd: string;
 }
 
+export interface ProviderStats {
+  llm_provider: string;
+  calls: number;
+  total_tokens: number;
+  estimated_cost_usd: string;
+}
+
 export interface LlmUsageAggregates {
   today: PeriodStats;
   week: PeriodStats;
   month: PeriodStats;
   by_endpoint: EndpointStats[];
+  /** Roll-up by transport (`openrouter` vs `cli`). */
+  by_provider: ProviderStats[];
 }
 
 const ZERO_PERIOD: PeriodStats = {
@@ -53,7 +62,7 @@ function rowToStats(row: Record<string, unknown> | undefined): PeriodStats {
 /** Load LLM usage aggregates from `llm_usage` (same logic as GET /api/usage). */
 export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
   try {
-    const [periodRows, endpointRows] = await Promise.all([
+    const [periodRows, endpointRows, providerRows] = await Promise.all([
       sql<Record<string, unknown>>(`
         SELECT
           SUM(CASE WHEN created_at >= CURRENT_DATE THEN prompt_tokens ELSE 0 END)         AS today_prompt,
@@ -81,6 +90,16 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
         FROM llm_usage
         GROUP BY endpoint
         ORDER BY SUM(total_tokens) DESC
+      `),
+      sql<Record<string, unknown>>(`
+        SELECT
+          COALESCE(llm_provider, 'openrouter') AS llm_provider,
+          COUNT(*)::integer             AS calls,
+          SUM(total_tokens)::float8    AS total_tokens,
+          SUM(estimated_cost_usd)      AS estimated_cost_usd
+        FROM llm_usage
+        GROUP BY COALESCE(llm_provider, 'openrouter')
+        ORDER BY calls DESC
       `),
     ]);
 
@@ -120,7 +139,14 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
       };
     });
 
-    return { today, week, month, by_endpoint };
+    const by_provider: ProviderStats[] = providerRows.map((row) => ({
+      llm_provider: String(row.llm_provider),
+      calls: Number(row.calls) || 0,
+      total_tokens: Number(row.total_tokens) || 0,
+      estimated_cost_usd: (Number(row.estimated_cost_usd) || 0).toFixed(6),
+    }));
+
+    return { today, week, month, by_endpoint, by_provider };
   } catch (err) {
     if (process.env.VITEST !== "true") {
       console.error("[llm-usage-stats] aggregate query failed:", err);
@@ -130,6 +156,7 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
       week: ZERO_PERIOD,
       month: ZERO_PERIOD,
       by_endpoint: [],
+      by_provider: [],
     };
   }
 }

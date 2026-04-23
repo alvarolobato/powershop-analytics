@@ -1,10 +1,24 @@
 /**
- * Dashboard LLM model id (OpenRouter). Kept in a tiny module so admin pages can
- * display the effective model without importing the full OpenAI client stack.
+ * Dashboard LLM configuration surface for routes and admin UI.
  */
 
-const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
+import {
+  loadDashboardLlmConfig,
+  getEffectiveDashboardModel,
+  resetDashboardLlmConfigCache,
+} from "./llm-provider/config";
+import type { DashboardLlmConfig } from "./llm-provider/types";
 
+export type { DashboardLlmConfig };
+
+export { resetDashboardLlmConfigCache };
+
+/** Effective model id for the active provider (OpenRouter id or CLI `--model` value). */
 export function getDashboardLlmModel(): string {
-  return process.env.DASHBOARD_LLM_MODEL || DEFAULT_MODEL;
+  return getEffectiveDashboardModel(loadDashboardLlmConfig());
+}
+
+/** Full config for admin / diagnostics (both backend models + provider). */
+export function getDashboardLlmDisplayConfig(): DashboardLlmConfig {
+  return loadDashboardLlmConfig();
 }

@@ -151,7 +151,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     let llmOut;
     try {
-      llmOut = await generateReview(systemPrompt);
+      llmOut = await generateReview(systemPrompt, { requestId });
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         return NextResponse.json(

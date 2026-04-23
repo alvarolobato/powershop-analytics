@@ -608,6 +608,17 @@ CREATE TABLE IF NOT EXISTS llm_tool_calls (
 CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_created_at ON llm_tool_calls(created_at);
 CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_endpoint_tool ON llm_tool_calls(endpoint, tool_name);
 
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS llm_provider TEXT NOT NULL DEFAULT 'openrouter';
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS llm_driver TEXT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS request_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_llm_usage_endpoint_request_id
+    ON llm_usage (endpoint, request_id)
+    WHERE request_id IS NOT NULL;
+
+ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_provider TEXT NOT NULL DEFAULT 'openrouter';
+ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_driver TEXT;
+
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
 -- (n_albaran and n_factura are not PKs but are used as FK targets)

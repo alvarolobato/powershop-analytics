@@ -133,7 +133,8 @@ describe("POST /api/dashboard/gaps", () => {
           title: "Panel X",
           widgetTitles: ["Widget A", "Widget B"],
         }),
-      ])
+      ]),
+      expect.objectContaining({ requestId: expect.stringMatching(/^req_/) }),
     );
   });
 
