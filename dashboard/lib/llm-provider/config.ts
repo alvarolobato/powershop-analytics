@@ -63,16 +63,24 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
     process.env.DASHBOARD_LLM_MODEL?.trim() ||
     DEFAULT_MODEL;
 
-  const cliDriver = normalizeDriver(process.env.DASHBOARD_LLM_CLI_DRIVER);
+  const cliDriver: DashboardCliDriverId =
+    provider === "cli"
+      ? normalizeDriver(process.env.DASHBOARD_LLM_CLI_DRIVER)
+      : "claude_code";
+
   const cliBinRaw = (process.env.DASHBOARD_LLM_CLI_BIN ?? "claude").trim() || "claude";
   if (/[\r\n]/.test(cliBinRaw)) {
     throw new Error("DASHBOARD_LLM_CLI_BIN must not contain newline characters.");
   }
   const cliBin = cliBinRaw;
-  const cliExtraArgs = parseExtraArgs(process.env.DASHBOARD_LLM_CLI_EXTRA_ARGS);
-  const cliTimeoutMs = parsePositiveInt(process.env.DASHBOARD_LLM_CLI_TIMEOUT_MS, 120_000);
+  const cliExtraArgs =
+    provider === "cli" ? parseExtraArgs(process.env.DASHBOARD_LLM_CLI_EXTRA_ARGS) : [];
+  const cliTimeoutMs = parsePositiveInt(
+    provider === "cli" ? process.env.DASHBOARD_LLM_CLI_TIMEOUT_MS : undefined,
+    120_000,
+  );
   const cliMaxCaptureBytes = parsePositiveInt(
-    process.env.DASHBOARD_LLM_CLI_MAX_CAPTURE_BYTES,
+    provider === "cli" ? process.env.DASHBOARD_LLM_CLI_MAX_CAPTURE_BYTES : undefined,
     8_000_000,
   );
 

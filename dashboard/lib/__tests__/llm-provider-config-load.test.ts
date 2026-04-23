@@ -35,4 +35,11 @@ describe("loadDashboardLlmConfig", () => {
     const c = loadDashboardLlmConfig();
     expect(getEffectiveDashboardModel(c)).toBe("m-cli");
   });
+
+  it("does not validate CLI driver when provider is openrouter", () => {
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
+    vi.stubEnv("DASHBOARD_LLM_CLI_DRIVER", "totally_invalid");
+    const c = loadDashboardLlmConfig();
+    expect(c.cliDriver).toBe("claude_code");
+  });
 });

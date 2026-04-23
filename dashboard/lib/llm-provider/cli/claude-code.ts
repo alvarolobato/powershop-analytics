@@ -1,5 +1,6 @@
 /**
  * Claude Code CLI driver: non-interactive `claude -p` with `--model` and JSON protocol rounds.
+ * Large prompts are passed on stdin to avoid OS argv limits (E2BIG).
  */
 
 import type { DashboardLlmConfig } from "../types";
@@ -7,6 +8,11 @@ import { runCliProcess, assertCliSuccess } from "./process";
 import { CliRunnerError } from "./errors";
 import { serializeChatMessagesForCli } from "./transcript";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { DASHBOARD_AGENTIC_TOOLS } from "@/lib/llm-tools/catalog";
+
+const SINGLE_SHOT_PRINT_ARG = `You are the dashboard assistant.
+The UTF-8 stdin contains the full multi-section prompt (## system, ## user, etc.).
+Execute the task and write the answer to stdout only.`;
 
 const AGENTIC_PROTOCOL_INSTRUCTION = `You are the dashboard agentic planner. Reply with ONE JSON object only, no markdown fences, no prose.
 
@@ -17,7 +23,27 @@ Schema:
 2) Request tool calls (server will execute them and send you tool results):
 {"kind":"tools","calls":[{"name":"<tool_name>","arguments":"<JSON string of args>"}]}
 
-Use exact tool names from the tool list in the system prompt. Arguments must be a JSON string (escaped JSON inside JSON), matching OpenAI function-calling style.`;
+UTF-8 stdin format:
+- After the line TOOL_CATALOG_JSON comes one line of minified JSON (OpenAI tools array).
+- After the line TRANSCRIPT comes the conversation text (markdown sections).
+
+Use exact tool names from the tool catalog JSON. Arguments must be a JSON string (escaped JSON inside JSON), matching OpenAI function-calling style.`;
+
+function buildCompactToolCatalogJson(): string {
+  const tools = DASHBOARD_AGENTIC_TOOLS.filter((t) => t.type === "function").map((t) => ({
+    type: "function" as const,
+    function: {
+      name: t.function.name,
+      description: t.function.description,
+      parameters: t.function.parameters,
+    },
+  }));
+  return JSON.stringify(tools);
+}
+
+function buildAgenticStdin(transcript: string): string {
+  return `TOOL_CATALOG_JSON\n${buildCompactToolCatalogJson()}\nTRANSCRIPT\n${transcript}\n`;
+}
 
 export interface ClaudeCliSingleShotInput {
   cfg: DashboardLlmConfig;
@@ -30,7 +56,7 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
   const args = [
     ...cfg.cliExtraArgs,
     "-p",
-    prompt,
+    SINGLE_SHOT_PRINT_ARG,
     "--model",
     cfg.cliModel,
     "--output-format",
@@ -39,6 +65,7 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
   const result = await runCliProcess({
     file: cfg.cliBin,
     args,
+    stdin: prompt,
     timeoutMs: cfg.cliTimeoutMs,
     maxStdoutBytes: cfg.cliMaxCaptureBytes,
     maxStderrBytes: Math.min(cfg.cliMaxCaptureBytes, 512_000),
@@ -147,12 +174,13 @@ export function parseClaudeAgenticStepJson(stdout: string): ClaudeAgenticStep {
 export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Promise<ClaudeAgenticStep> {
   const { cfg, messages } = input;
   const transcript = serializeChatMessagesForCli(messages);
-  const prompt = `${AGENTIC_PROTOCOL_INSTRUCTION}\n\n--- conversation ---\n${transcript}\n--- end ---\n`;
+  const printArg = AGENTIC_PROTOCOL_INSTRUCTION;
+  const stdinBody = buildAgenticStdin(transcript);
 
   const args = [
     ...cfg.cliExtraArgs,
     "-p",
-    prompt,
+    printArg,
     "--model",
     cfg.cliModel,
     "--output-format",
@@ -162,6 +190,7 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
   const result = await runCliProcess({
     file: cfg.cliBin,
     args,
+    stdin: stdinBody,
     timeoutMs: cfg.cliTimeoutMs,
     maxStdoutBytes: cfg.cliMaxCaptureBytes,
     maxStderrBytes: Math.min(cfg.cliMaxCaptureBytes, 512_000),

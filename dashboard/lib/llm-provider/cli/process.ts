@@ -15,21 +15,33 @@ export interface RunCliProcessParams {
   maxStderrBytes: number;
 }
 
-function appendCapped(
-  acc: { buf: Buffer; truncated: boolean },
-  chunk: Buffer,
-  maxBytes: number,
-): void {
-  const space = maxBytes - acc.buf.length;
-  if (space <= 0) {
-    acc.truncated = true;
-    return;
+class CappedBufferCollector {
+  readonly chunks: Buffer[] = [];
+  private total = 0;
+  truncated = false;
+
+  constructor(private readonly maxBytes: number) {}
+
+  push(chunk: Buffer): void {
+    const space = this.maxBytes - this.total;
+    if (space <= 0) {
+      this.truncated = true;
+      return;
+    }
+    if (chunk.length <= space) {
+      this.chunks.push(chunk);
+      this.total += chunk.length;
+    } else {
+      this.chunks.push(chunk.subarray(0, space));
+      this.total += space;
+      this.truncated = true;
+    }
   }
-  if (chunk.length <= space) {
-    acc.buf = Buffer.concat([acc.buf, chunk]);
-  } else {
-    acc.buf = Buffer.concat([acc.buf, chunk.subarray(0, space)]);
-    acc.truncated = true;
+
+  toStringUtf8(): string {
+    if (this.chunks.length === 0) return "";
+    if (this.chunks.length === 1) return this.chunks[0].toString("utf8");
+    return Buffer.concat(this.chunks).toString("utf8");
   }
 }
 
@@ -46,8 +58,8 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
       windowsHide: true,
     });
 
-    const stdoutAcc = { buf: Buffer.alloc(0), truncated: false };
-    const stderrAcc = { buf: Buffer.alloc(0), truncated: false };
+    const stdoutAcc = new CappedBufferCollector(maxStdoutBytes);
+    const stderrAcc = new CappedBufferCollector(maxStderrBytes);
     let timedOut = false;
 
     const timer = setTimeout(() => {
@@ -66,9 +78,10 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
       }, 2000);
       killTimer.unref();
     }, timeoutMs);
+    timer.unref();
 
-    child.stdout?.on("data", (chunk: Buffer) => appendCapped(stdoutAcc, chunk, maxStdoutBytes));
-    child.stderr?.on("data", (chunk: Buffer) => appendCapped(stderrAcc, chunk, maxStderrBytes));
+    child.stdout?.on("data", (chunk: Buffer) => stdoutAcc.push(chunk));
+    child.stderr?.on("data", (chunk: Buffer) => stderrAcc.push(chunk));
 
     if (stdin !== undefined && child.stdin) {
       child.stdin.write(stdin, "utf8");
@@ -86,8 +99,8 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
       clearTimeout(timer);
       resolve({
         exitCode,
-        stdout: stdoutAcc.buf.toString("utf8"),
-        stderr: stderrAcc.buf.toString("utf8"),
+        stdout: stdoutAcc.toStringUtf8(),
+        stderr: stderrAcc.toStringUtf8(),
         timedOut,
         truncatedStdout: stdoutAcc.truncated,
         truncatedStderr: stderrAcc.truncated,
