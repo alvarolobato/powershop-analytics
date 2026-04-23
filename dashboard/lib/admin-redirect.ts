@@ -11,7 +11,14 @@
  * the user off-site once they hold a valid session cookie.
  */
 
-/** Fallback landing page when no valid redirect target is supplied. */
+/**
+ * Fallback landing page when no valid redirect target is supplied.
+ *
+ * Invariant: this value must (a) pass all the validation rules in
+ * `safeAdminRedirectTarget`, (b) not be the login page, and (c) not be the
+ * bare `/admin` root (which only server-side redirects back here). It is a
+ * compile-time constant so there is no runtime loop risk.
+ */
 export const DEFAULT_ADMIN_LANDING = "/admin/slow-queries";
 
 // Matches ASCII control characters (0x00-0x1F, 0x7F) plus any whitespace.

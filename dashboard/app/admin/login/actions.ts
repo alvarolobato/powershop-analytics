@@ -19,14 +19,20 @@ export async function loginAdmin(formData: FormData): Promise<void> {
 
   const jar = await cookies();
   const secureFlag = process.env.ADMIN_COOKIE_SECURE === "true";
-  // Cookie path "/" so the session covers both `/admin/*` and `/etl*`.
-  jar.set("ps_admin", expected, {
+  const cookieBase = {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "lax" as const,
     secure: secureFlag,
-    path: "/",
     maxAge: 60 * 60 * 8,
-  });
+  };
+  // Set path-scoped cookies so the session credential is only sent to the
+  // paths that need it — not every request on the site.
+  //   /admin   — admin UI pages and the login page
+  //   /etl     — ETL monitor UI pages (same-origin browser navigation)
+  //   /api/etl — ETL data API endpoints called by same-origin fetch from /etl
+  for (const path of ["/admin", "/etl", "/api/etl"]) {
+    jar.set("ps_admin", expected, { ...cookieBase, path });
+  }
 
   redirect(target);
 }

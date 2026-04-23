@@ -1,22 +1,16 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterAll } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { middleware } from "@/middleware";
 
 const ADMIN_KEY = "test-admin-key";
 
-const ORIGINAL_ADMIN_KEY = process.env.ADMIN_API_KEY;
-
 beforeEach(() => {
-  process.env.ADMIN_API_KEY = ADMIN_KEY;
+  vi.stubEnv("ADMIN_API_KEY", ADMIN_KEY);
 });
 
-afterAll(() => {
-  if (ORIGINAL_ADMIN_KEY === undefined) {
-    delete process.env.ADMIN_API_KEY;
-  } else {
-    process.env.ADMIN_API_KEY = ORIGINAL_ADMIN_KEY;
-  }
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 function makeRequest(
@@ -148,7 +142,9 @@ describe("middleware — admin UI gating", () => {
 
   describe("when ADMIN_API_KEY is missing", () => {
     beforeEach(() => {
-      delete process.env.ADMIN_API_KEY;
+      // Override the ADMIN_KEY stub from the outer beforeEach with an empty
+      // value so the middleware treats it as unconfigured (falsy after trim).
+      vi.stubEnv("ADMIN_API_KEY", "");
     });
 
     it("returns 503 JSON for /api/admin/*", async () => {

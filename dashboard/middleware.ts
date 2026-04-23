@@ -38,6 +38,19 @@ function buildLoginRedirect(request: NextRequest, errorCode?: "2"): URL {
   return url;
 }
 
+/**
+ * Extracts the admin API key from `x-admin-key` or `Authorization: Bearer`
+ * headers. Returns `null` when neither header is present or the Bearer prefix
+ * is missing, so callers can compare the result directly against `ADMIN_API_KEY`.
+ */
+function parseAdminBearer(request: NextRequest): string | null {
+  const headerKey = request.headers.get("x-admin-key")?.trim();
+  if (headerKey) return headerKey;
+  const auth = request.headers.get("authorization");
+  if (auth?.startsWith("Bearer ")) return auth.slice(7).trim();
+  return null;
+}
+
 export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
 
@@ -62,10 +75,7 @@ export function middleware(request: NextRequest): NextResponse {
   }
 
   if (pathname.startsWith("/api/admin")) {
-    const headerKey = request.headers.get("x-admin-key")?.trim();
-    const auth = request.headers.get("authorization");
-    const bearer = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-    const provided = headerKey ?? bearer;
+    const provided = parseAdminBearer(request);
     if (provided !== adminKey) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
@@ -77,10 +87,7 @@ export function middleware(request: NextRequest): NextResponse {
     // already authenticate against /api/admin/*.
     const cookie = request.cookies.get("ps_admin")?.value;
     if (cookie !== adminKey) {
-      const headerKey = request.headers.get("x-admin-key")?.trim();
-      const auth = request.headers.get("authorization");
-      const bearer = auth?.startsWith("Bearer ") ? auth.slice(7).trim() : null;
-      const provided = headerKey ?? bearer;
+      const provided = parseAdminBearer(request);
       if (provided !== adminKey) {
         return NextResponse.json({ error: "unauthorized" }, { status: 401 });
       }
