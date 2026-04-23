@@ -6,6 +6,7 @@ import { z } from "zod";
 import {
   query,
   queryReadOnlyWithStatementTimeout,
+  QueryTimeoutError,
   SqlValidationError,
   validateReadOnly,
 } from "@/lib/db";
@@ -200,7 +201,14 @@ export async function handleExecuteQuery(
       rows: clipped.rows,
       truncated: clipped.truncated,
     });
-  } catch {
+  } catch (e) {
+    if (e instanceof QueryTimeoutError) {
+      return toolOk({
+        rows: [],
+        columns: [],
+        error: "Query timed out (statement_timeout on mirror).",
+      });
+    }
     return toolOk({
       rows: [],
       columns: [],
