@@ -2,7 +2,7 @@
  * Ensure explanatory dashboards exist for weekly review deep links.
  */
 
-import { sql } from "./db-write";
+import { getPool } from "./db-write";
 import { DashboardSpecSchema } from "./schema";
 import { REVIEW_QUERIES } from "./review-queries";
 import type { ReviewDashboardKey } from "./review-schema";
@@ -61,14 +61,36 @@ function buildSpec(key: ReviewDashboardKey) {
 
 export async function getOrCreateReviewDashboardId(key: ReviewDashboardKey): Promise<number> {
   const name = reviewDashboardDisplayName(key);
-  const rows = await sql<{ id: number }>(`SELECT id FROM dashboards WHERE name = $1 LIMIT 1`, [name]);
-  if (rows[0]?.id != null) return rows[0].id;
   const spec = buildSpec(key);
-  const inserted = await sql<{ id: number }>(
-    `INSERT INTO dashboards (name, description, spec) VALUES ($1, $2, $3::jsonb) RETURNING id`,
-    [name, spec.description ?? null, JSON.stringify(spec)],
-  );
-  const id = inserted[0]?.id;
-  if (id == null) throw new Error("INSERT dashboards did not return id");
-  return id;
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SELECT pg_advisory_xact_lock(hashtext($1::text))", [name]);
+    const existing = await client.query<{ id: number }>(
+      `SELECT id FROM dashboards WHERE name = $1 LIMIT 1`,
+      [name],
+    );
+    if (existing.rows[0]?.id != null) {
+      await client.query("COMMIT");
+      return existing.rows[0].id;
+    }
+    const inserted = await client.query<{ id: number }>(
+      `INSERT INTO dashboards (name, description, spec) VALUES ($1, $2, $3::jsonb) RETURNING id`,
+      [name, spec.description ?? null, JSON.stringify(spec)],
+    );
+    const id = inserted.rows[0]?.id;
+    if (id == null) throw new Error("INSERT dashboards did not return id");
+    await client.query("COMMIT");
+    return id;
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 }

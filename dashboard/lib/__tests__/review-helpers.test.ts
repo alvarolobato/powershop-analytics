@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { isCalendarIsoDate } from "@/lib/review-schema";
 import { defaultDueDateThursdayAfter } from "@/lib/review-dates";
 import {
   addDaysIso,
@@ -10,6 +11,14 @@ import { enrichReviewContent, computeQueryFailureRate } from "@/lib/review-evide
 import { normalizeReviewContent } from "@/lib/review-normalize";
 import type { ReviewContent } from "@/lib/review-schema";
 import type { ReviewQueryResult } from "@/lib/review-queries";
+
+describe("review-schema calendar dates", () => {
+  it("isCalendarIsoDate rejects impossible dates", () => {
+    expect(isCalendarIsoDate("2026-04-10")).toBe(true);
+    expect(isCalendarIsoDate("2026-02-30")).toBe(false);
+    expect(isCalendarIsoDate("2026-13-01")).toBe(false);
+  });
+});
 
 describe("review-dates", () => {
   it("defaultDueDateThursdayAfter returns ISO Thursday in week after closed week", () => {
@@ -46,6 +55,20 @@ describe("review-dashboard-links", () => {
 });
 
 describe("review-normalize", () => {
+  it("rebuilds corrupt v2 JSON via the v1 migration path", () => {
+    const corrupt = {
+      review_schema_version: 2,
+      executive_summary: "not-array",
+      sections: [],
+      action_items: [],
+      generated_at: "2026-01-01T00:00:00.000Z",
+    };
+    const out = normalizeReviewContent(corrupt, "2026-04-06");
+    expect(out.review_schema_version).toBe(2);
+    expect(out.executive_summary.length).toBeGreaterThanOrEqual(3);
+    expect(out.quality_status).toBe("degraded");
+  });
+
   it("passes through v2 content unchanged", () => {
     const v2: ReviewContent = {
       review_schema_version: 2,
@@ -123,7 +146,7 @@ describe("review-normalize", () => {
       generated_at: "2026-04-05T10:00:00.000Z",
       quality_status: "ok",
     };
-    expect(normalizeReviewContent(v2, "2026-04-06")).toBe(v2);
+    expect(normalizeReviewContent(v2, "2026-04-06")).toStrictEqual(v2);
   });
 
   it("normalizes legacy v1-shaped payload", () => {

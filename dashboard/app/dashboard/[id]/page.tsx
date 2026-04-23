@@ -205,6 +205,10 @@ export default function ViewDashboard() {
     fetchDashboard();
   }, [fetchDashboard]);
 
+  useEffect(() => {
+    appliedUrlRange.current = false;
+  }, [id]);
+
   // Deep-link from weekly review: /dashboard/{id}?curr_from&curr_to&comp_from&comp_to
   useEffect(() => {
     if (appliedUrlRange.current) return;
@@ -228,7 +232,7 @@ export default function ViewDashboard() {
     setDateRange(primary);
     setComparisonRange(comparison);
     setRefreshKey((k) => k + 1);
-  }, [searchParams]);
+  }, [searchParams, id]);
 
   useEffect(() => {
     setGlobalFilterValues({});

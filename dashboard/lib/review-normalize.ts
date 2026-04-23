@@ -2,7 +2,12 @@
  * Normalize legacy review JSON (v1) into review_schema_version 2 for UI/API.
  */
 
-import { REVIEW_DASHBOARD_KEYS, type ReviewContent, type ReviewDashboardKey } from "./review-schema";
+import {
+  REVIEW_DASHBOARD_KEYS,
+  ReviewContentV2Schema,
+  type ReviewContent,
+  type ReviewDashboardKey,
+} from "./review-schema";
 import { defaultDueDateThursdayAfter } from "./review-dates";
 
 function slugKey(text: string, index: number): string {
@@ -45,7 +50,13 @@ export function normalizeReviewContent(raw: unknown, weekStartIso: string): Revi
     raw !== null &&
     (raw as { review_schema_version?: unknown }).review_schema_version === 2
   ) {
-    return raw as ReviewContent;
+    const parsed = ReviewContentV2Schema.safeParse(raw);
+    if (parsed.success) {
+      return parsed.data;
+    }
+    const stripped: Record<string, unknown> = { ...(raw as Record<string, unknown>) };
+    delete stripped.review_schema_version;
+    return normalizeReviewContent(stripped, weekStartIso);
   }
 
   const obj = raw as Record<string, unknown>;

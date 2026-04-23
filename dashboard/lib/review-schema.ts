@@ -28,6 +28,14 @@ export const ReviewEvidenceDetailSchema = z.object({
 
 export type ReviewEvidenceDetail = z.infer<typeof ReviewEvidenceDetailSchema>;
 
+/** True if `YYYY-MM-DD` is a real calendar date in the local Gregorian interpretation. */
+export function isCalendarIsoDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const [y, m, d] = s.split("-").map((x) => parseInt(x, 10));
+  const t = new Date(y, m - 1, d);
+  return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d;
+}
+
 const ReviewSectionLlmSchema = z.object({
   key: SectionDomainKeySchema,
   title: z.string().min(1),
@@ -41,7 +49,10 @@ const ReviewActionLlmSchema = z.object({
   action_key: z.string().regex(/^[a-z0-9_]{1,64}$/),
   priority: z.enum(["alta", "media", "baja"]),
   owner_role: z.string().min(1).max(120),
-  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  due_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine(isCalendarIsoDate, { message: "due_date must be a valid calendar date" }),
   action: z.string().min(1),
   expected_impact: z.string().min(1).max(500),
   evidence_queries: z.array(ReviewQueryNameSchema).min(1).max(6),

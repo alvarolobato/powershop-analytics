@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ReviewActionRow } from "@/lib/review-actions-db";
 
 export interface ReviewActionsBoardProps {
@@ -9,11 +9,42 @@ export interface ReviewActionsBoardProps {
   onActionPatched: (row: ReviewActionRow) => void;
 }
 
+function ActionOwnerInput({
+  actionKey,
+  ownerName,
+  disabled,
+  patch,
+}: {
+  actionKey: string;
+  ownerName: string;
+  disabled: boolean;
+  patch: (key: string, body: { owner_name: string }) => Promise<boolean>;
+}) {
+  const [val, setVal] = useState(ownerName);
+  useEffect(() => {
+    setVal(ownerName);
+  }, [ownerName]);
+  return (
+    <input
+      className="w-40 text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-1"
+      value={val}
+      disabled={disabled}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={async () => {
+        if (val === ownerName) return;
+        const ok = await patch(actionKey, { owner_name: val });
+        if (!ok) setVal(ownerName);
+      }}
+      data-testid={`action-owner-${actionKey}`}
+    />
+  );
+}
+
 export function ReviewActionsBoard({ reviewId, actions, onActionPatched }: ReviewActionsBoardProps) {
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const patch = useCallback(
-    async (actionKey: string, body: { status?: string; owner_name?: string }) => {
+    async (actionKey: string, body: { status?: string; owner_name?: string }): Promise<boolean> => {
       setBusyKey(actionKey);
       try {
         const res = await fetch(`/api/review/${reviewId}/actions/${encodeURIComponent(actionKey)}`, {
@@ -21,9 +52,10 @@ export function ReviewActionsBoard({ reviewId, actions, onActionPatched }: Revie
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        if (!res.ok) return;
+        if (!res.ok) return false;
         const updated = (await res.json()) as ReviewActionRow;
         onActionPatched(updated);
+        return true;
       } finally {
         setBusyKey(null);
       }
@@ -73,16 +105,11 @@ export function ReviewActionsBoard({ reviewId, actions, onActionPatched }: Revie
                   </select>
                 </td>
                 <td className="py-2 pr-3">
-                  <input
-                    className="w-40 text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-1"
-                    defaultValue={a.owner_name}
+                  <ActionOwnerInput
+                    actionKey={a.action_key}
+                    ownerName={a.owner_name}
                     disabled={busyKey === a.action_key}
-                    onBlur={(e) => {
-                      if (e.target.value !== a.owner_name) {
-                        void patch(a.action_key, { owner_name: e.target.value });
-                      }
-                    }}
-                    data-testid={`action-owner-${a.action_key}`}
+                    patch={patch}
                   />
                 </td>
                 <td className="py-2 pr-3 text-xs">{a.due_date}</td>

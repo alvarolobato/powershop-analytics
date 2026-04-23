@@ -444,7 +444,7 @@ ALTER TABLE weekly_reviews ADD COLUMN IF NOT EXISTS window_end DATE;
 
 UPDATE weekly_reviews
 SET window_start = COALESCE(window_start, week_start),
-    window_end = COALESCE(window_end, week_start + INTERVAL '6 days')
+    window_end = COALESCE(window_end, (week_start + INTERVAL '6 days')::date)
 WHERE window_start IS NULL OR window_end IS NULL;
 
 ALTER TABLE weekly_reviews ALTER COLUMN window_start SET NOT NULL;

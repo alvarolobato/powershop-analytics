@@ -23,6 +23,7 @@ import {
   saveReview,
 } from "@/lib/review-db";
 import { replaceActionsFromReviewContent } from "@/lib/review-actions-db";
+import { sql } from "@/lib/db-write";
 import { addDaysIso } from "@/lib/review-dashboard-links";
 import { getOrCreateReviewDashboardId } from "@/lib/review-dashboard-seed";
 import { buildDashboardReviewHref } from "@/lib/review-dashboard-links";
@@ -217,7 +218,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       }),
     );
 
-    let reviewId: number;
+    let reviewId: number | null = null;
     try {
       reviewId = await saveReview({
         weekStart: weekStartStr,
@@ -230,6 +231,13 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
       await replaceActionsFromReviewContent(reviewId, content);
     } catch (err) {
+      if (reviewId != null) {
+        try {
+          await sql(`DELETE FROM weekly_reviews WHERE id = $1`, [reviewId]);
+        } catch (cleanupErr) {
+          console.error(`[${requestId}] Failed to delete orphan weekly_reviews row:`, cleanupErr);
+        }
+      }
       console.error(`[${requestId}] Error saving review to DB:`, err);
       return NextResponse.json(
         formatApiError(
@@ -246,7 +254,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       {
         review: {
           ...content,
-          id: reviewId,
+          id: reviewId!,
           week_start: weekStartStr,
           revision: nextRevision,
           generation_mode: generationMode,

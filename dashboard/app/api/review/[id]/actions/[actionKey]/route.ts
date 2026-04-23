@@ -64,10 +64,20 @@ export async function PATCH(
     );
   }
 
+  if (body.owner_name !== undefined && typeof body.owner_name !== "string") {
+    return NextResponse.json(
+      formatApiError("owner_name debe ser texto.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const ownerNameTrimmed =
+    typeof body.owner_name === "string" ? body.owner_name.trim().slice(0, 120) : undefined;
+
   try {
     const row = await patchReviewAction(id, actionKey, {
       status: body.status as "pendiente" | "en_curso" | "hecha" | "descartada" | undefined,
-      owner_name: body.owner_name,
+      owner_name: ownerNameTrimmed,
     });
     if (!row) {
       return NextResponse.json(
