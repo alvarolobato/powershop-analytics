@@ -89,6 +89,60 @@ describe("ChatSidebar", () => {
     expect(screen.getByTestId("tab-analizar")).toBeInTheDocument();
   });
 
+  it("pre-fills Modificar textarea when pendingModifyInput and pendingModifyTriggerId are set", async () => {
+    const onConsumed = vi.fn();
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        pendingModifyInput="Detalle de Tienda 05"
+        pendingModifyTriggerId={1}
+        onPendingModifyInputConsumed={onConsumed}
+      />,
+    );
+
+    const textarea = screen.getByLabelText(/Mensaje para modificar el dashboard/i);
+    await waitFor(() => {
+      expect(textarea).toHaveValue("Detalle de Tienda 05");
+    });
+    expect(screen.getByTestId("tab-modificar")).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(onConsumed).toHaveBeenCalled());
+  });
+
+  it("switches to Modificar tab when drill-down prefill arrives while Analizar is active", async () => {
+    const onConsumed = vi.fn();
+    const { rerender } = render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("tab-analizar"));
+    expect(screen.getByTestId("tab-analizar")).toHaveAttribute("aria-selected", "true");
+
+    rerender(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        pendingModifyInput="Detalle de Tienda 05"
+        pendingModifyTriggerId={42}
+        onPendingModifyInputConsumed={onConsumed}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId("tab-modificar")).toHaveAttribute("aria-selected", "true"),
+    );
+    const textarea = screen.getByLabelText(/Mensaje para modificar el dashboard/i);
+    await waitFor(() => expect(textarea).toHaveValue("Detalle de Tienda 05"));
+  });
+
   it("shows reopen button when closed", () => {
     render(
       <ChatSidebar

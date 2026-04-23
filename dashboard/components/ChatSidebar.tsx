@@ -36,6 +36,19 @@ export interface ChatSidebarProps {
   initialAnalyzeMessages?: ChatMessage[];
   /** Callback fired when analyze messages change (for persistence). */
   onAnalyzeMessagesChange?: (messages: ChatMessage[]) => void;
+  /**
+   * When `pendingModifyTriggerId` changes with a non-empty `pendingModifyInput`,
+   * the Modificar tab is selected, the textarea is filled, focused, and the sidebar opens if needed.
+   */
+  pendingModifyInput?: string;
+  pendingModifyTriggerId?: number;
+  /** Called once the pre-fill has been applied so the parent can clear state (enables repeated identical clicks). */
+  onPendingModifyInputConsumed?: () => void;
+  /**
+   * Idempotent open when drill-down fires while the sidebar is collapsed.
+   * Prefer this over `onToggle` here to avoid double-toggle if an effect runs twice.
+   */
+  onOpenSidebar?: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -290,12 +303,16 @@ function ModificarTab({
   messages,
   setMessages,
   isActive,
+  prefillRequest,
+  onPrefillApplied,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
   isActive: boolean;
+  prefillRequest?: { text: string; id: number } | null;
+  onPrefillApplied?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -315,6 +332,19 @@ function ModificarTab({
       textareaRef.current?.focus();
     }
   }, [isActive]);
+
+  const appliedPrefillIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!prefillRequest?.text.trim()) return;
+    if (appliedPrefillIdRef.current === prefillRequest.id) return;
+    appliedPrefillIdRef.current = prefillRequest.id;
+    setInput(prefillRequest.text);
+    onPrefillApplied?.();
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, [prefillRequest?.id, prefillRequest?.text, onPrefillApplied]);
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
@@ -765,6 +795,10 @@ export default function ChatSidebar({
   widgetData,
   initialAnalyzeMessages,
   onAnalyzeMessagesChange,
+  pendingModifyInput,
+  pendingModifyTriggerId,
+  onPendingModifyInputConsumed,
+  onOpenSidebar,
 }: ChatSidebarProps) {
   const [activeTab, setActiveTab] = useState<"modificar" | "analizar">("modificar");
   const [modifyMessages, setModifyMessages] = useState<ChatMessage[]>([]);
@@ -780,6 +814,15 @@ export default function ChatSidebar({
       initializedRef.current = true;
     }
   }, [initialAnalyzeMessages]);
+
+  useEffect(() => {
+    if (!pendingModifyInput?.trim() || pendingModifyTriggerId === undefined) return;
+    if (!isOpen) {
+      (onOpenSidebar ?? onToggle)();
+      return;
+    }
+    setActiveTab("modificar");
+  }, [pendingModifyInput, pendingModifyTriggerId, isOpen, onOpenSidebar, onToggle]);
 
   // -------------------------------------------------------------------------
   // Collapsed state: show a small tab to reopen
@@ -865,6 +908,12 @@ export default function ChatSidebar({
             messages={modifyMessages}
             setMessages={setModifyMessages}
             isActive={activeTab === "modificar"}
+            prefillRequest={
+              pendingModifyInput?.trim() && pendingModifyTriggerId !== undefined
+                ? { text: pendingModifyInput, id: pendingModifyTriggerId }
+                : null
+            }
+            onPrefillApplied={onPendingModifyInputConsumed}
           />
         ) : (
           <AnalizarTab

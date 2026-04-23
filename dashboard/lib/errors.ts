@@ -26,6 +26,7 @@ export type ErrorCode =
   | "TIMEOUT"
   | "COST_LIMIT"
   | "REVIEW_EXISTS"
+  | "REVIEW_PERSISTENCE"
   | "UNKNOWN"
   | "AGENTIC_RUNNER";
 

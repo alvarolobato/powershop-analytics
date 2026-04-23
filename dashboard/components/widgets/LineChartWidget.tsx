@@ -2,7 +2,7 @@
 
 import { Card, LineChart } from "@tremor/react";
 import type { LineChartWidget as LineChartWidgetSpec, GlossaryItem } from "@/lib/schema";
-import type { WidgetData } from "./types";
+import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
@@ -16,9 +16,16 @@ interface LineChartWidgetProps {
   comparisonData?: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
+  onDataPointClick?: OnDataPointClick;
 }
 
-export function LineChartWidget({ widget, data, comparisonData, glossary }: LineChartWidgetProps) {
+export function LineChartWidget({
+  widget,
+  data,
+  comparisonData,
+  glossary,
+  onDataPointClick,
+}: LineChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
   if (data === null) {
@@ -73,13 +80,42 @@ export function LineChartWidget({ widget, data, comparisonData, glossary }: Line
 
   const categories = hasComparison ? ["Actual", "Anterior"] : [yCol];
 
+  const handleValueChange = (v: Record<string, unknown> | null | undefined) => {
+    if (!onDataPointClick || !v) return;
+    const label = String(v[xCol] ?? "");
+    const seriesKey = v.categoryClicked;
+    let raw: unknown;
+    if (typeof seriesKey === "string" && seriesKey in v) {
+      raw = v[seriesKey];
+    } else {
+      for (const c of categories) {
+        if (c in v) {
+          raw = v[c];
+          break;
+        }
+      }
+    }
+    const value = raw !== undefined && raw !== null ? String(raw) : "";
+    onDataPointClick({
+      label,
+      value,
+      widgetTitle: widget.title,
+      widgetType: "line_chart",
+    });
+  };
+
   return (
     <Card className="p-4" aria-live="polite" aria-busy={false}>
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
         {titleNode}
       </h3>
 
-      <div role="img" aria-label={`Gráfico de líneas: ${widget.title}.`}>
+      <div
+        role="img"
+        aria-label={`Gráfico de líneas: ${widget.title}.`}
+        className={onDataPointClick ? "cursor-pointer" : undefined}
+        title={onDataPointClick ? "Clic para explorar" : undefined}
+      >
         <span className="sr-only">Gráfico de líneas.</span>
 
         <div className="sm:hidden">
@@ -90,6 +126,11 @@ export function LineChartWidget({ widget, data, comparisonData, glossary }: Line
             colors={CHART_COLORS}
             showYAxis={false}
             showLegend={hasComparison}
+            onValueChange={
+              onDataPointClick
+                ? (v) => handleValueChange(v as unknown as Record<string, unknown>)
+                : undefined
+            }
           />
         </div>
 
@@ -101,6 +142,11 @@ export function LineChartWidget({ widget, data, comparisonData, glossary }: Line
             colors={CHART_COLORS}
             yAxisWidth={60}
             showLegend={hasComparison}
+            onValueChange={
+              onDataPointClick
+                ? (v) => handleValueChange(v as unknown as Record<string, unknown>)
+                : undefined
+            }
           />
         </div>
       </div>

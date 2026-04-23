@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from "@headlessui/react";
 import type { DashboardSpec, Widget, GlossaryItem } from "@/lib/schema";
-import type { WidgetData } from "./widgets/types";
+import type { OnDataPointClick, WidgetData } from "./widgets/types";
 import type { DateRange, ComparisonRange } from "./DateRangePicker";
 import { substituteDateParams } from "@/lib/date-params";
 import { compileGlobalFilterSql } from "@/lib/sql-filters";
@@ -65,6 +65,8 @@ export interface DashboardRendererProps {
    * unnecessary calls during the initial empty state.
    */
   onWidgetDataChange?: (data: Map<number, WidgetState>) => void;
+  /** Drill-down: invoked when the user clicks a chart point or table row (widgets pass context up). */
+  onDataPointClick?: OnDataPointClick;
 }
 
 // ---------------------------------------------------------------------------
@@ -171,6 +173,7 @@ export function DashboardRenderer({
   comparisonRange,
   globalFilterValues,
   onWidgetDataChange,
+  onDataPointClick,
 }: DashboardRendererProps) {
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
@@ -619,6 +622,7 @@ export function DashboardRenderer({
                     specChanged={specChanged}
                     onRetry={retryWidget}
                     glossary={spec.glossary}
+                    onDataPointClick={onDataPointClick}
                   />
                 </TabPanel>
               );
@@ -634,6 +638,7 @@ export function DashboardRenderer({
           specChanged={specChanged}
           onRetry={retryWidget}
           glossary={spec.glossary}
+          onDataPointClick={onDataPointClick}
         />
       )}
     </div>
@@ -651,9 +656,18 @@ interface WidgetGridProps {
   specChanged: boolean;
   onRetry: (widget: Widget, idx: number) => void;
   glossary?: GlossaryItem[];
+  onDataPointClick?: OnDataPointClick;
 }
 
-function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry, glossary }: WidgetGridProps) {
+function WidgetGrid({
+  widgets,
+  widgetIndices,
+  widgetStates,
+  specChanged,
+  onRetry,
+  glossary,
+  onDataPointClick,
+}: WidgetGridProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {widgetIndices.map((idx) => {
@@ -692,7 +706,12 @@ function WidgetGrid({ widgets, widgetIndices, widgetStates, specChanged, onRetry
 
             {/* Success state */}
             {state && !state.loading && !state.error && (
-              <WidgetSwitch widget={widget} state={state} glossary={glossary} />
+              <WidgetSwitch
+                widget={widget}
+                state={state}
+                glossary={glossary}
+                onDataPointClick={onDataPointClick}
+              />
             )}
           </div>
         );
@@ -847,10 +866,12 @@ function WidgetSwitch({
   widget,
   state,
   glossary,
+  onDataPointClick,
 }: {
   widget: Widget;
   state: WidgetState;
   glossary?: GlossaryItem[];
+  onDataPointClick?: OnDataPointClick;
 }) {
   switch (widget.type) {
     case "kpi_row":
@@ -865,23 +886,52 @@ function WidgetSwitch({
       );
     case "bar_chart":
       return (
-        <BarChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
+        <BarChartWidget
+          widget={widget}
+          data={state.data as WidgetData | null}
+          comparisonData={state.comparisonData}
+          glossary={glossary}
+          onDataPointClick={onDataPointClick}
+        />
       );
     case "line_chart":
       return (
-        <LineChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
+        <LineChartWidget
+          widget={widget}
+          data={state.data as WidgetData | null}
+          comparisonData={state.comparisonData}
+          glossary={glossary}
+          onDataPointClick={onDataPointClick}
+        />
       );
     case "area_chart":
       return (
-        <AreaChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
+        <AreaChartWidget
+          widget={widget}
+          data={state.data as WidgetData | null}
+          comparisonData={state.comparisonData}
+          glossary={glossary}
+          onDataPointClick={onDataPointClick}
+        />
       );
     case "donut_chart":
       return (
-        <DonutChartWidget widget={widget} data={state.data as WidgetData | null} comparisonData={state.comparisonData} glossary={glossary} />
+        <DonutChartWidget
+          widget={widget}
+          data={state.data as WidgetData | null}
+          comparisonData={state.comparisonData}
+          glossary={glossary}
+          onDataPointClick={onDataPointClick}
+        />
       );
     case "table":
       return (
-        <TableWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
+        <TableWidget
+          widget={widget}
+          data={state.data as WidgetData | null}
+          glossary={glossary}
+          onDataPointClick={onDataPointClick}
+        />
       );
     case "number":
       return (

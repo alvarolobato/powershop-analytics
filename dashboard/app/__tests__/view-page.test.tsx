@@ -5,6 +5,11 @@ import "@testing-library/jest-dom/vitest";
 import ViewDashboard from "../dashboard/[id]/page";
 import type { DashboardSpec } from "@/lib/schema";
 
+const chatSidebarCapture = vi.hoisted(() => ({
+  pendingModifyInput: undefined as string | undefined,
+  pendingModifyTriggerId: undefined as number | undefined,
+}));
+
 // ---------------------------------------------------------------------------
 // Mock next/navigation
 // ---------------------------------------------------------------------------
@@ -30,14 +35,35 @@ vi.mock("@/components/DashboardRenderer", () => ({
   DashboardRenderer: ({
     spec,
     refreshKey,
+    onDataPointClick,
   }: {
     spec: DashboardSpec;
     refreshKey?: number;
+    onDataPointClick?: (ctx: {
+      label: string;
+      value: string;
+      widgetTitle: string;
+      widgetType: string;
+    }) => void;
   }) => {
     rendererProps.push({ refreshKey });
     return (
       <div data-testid="dashboard-renderer" data-refresh-key={refreshKey}>
         {spec.title}
+        <button
+          type="button"
+          data-testid="sim-chart-click"
+          onClick={() =>
+            onDataPointClick?.({
+              label: "Tienda 05",
+              value: "999",
+              widgetTitle: "Ventas por tienda",
+              widgetType: "bar_chart",
+            })
+          }
+        >
+          Sim click
+        </button>
       </div>
     );
   },
@@ -47,17 +73,30 @@ vi.mock("@/components/ChatSidebar", () => ({
   default: ({
     isOpen,
     onToggle,
+    pendingModifyInput,
+    pendingModifyTriggerId,
   }: {
     spec: DashboardSpec;
     onSpecUpdate: (s: DashboardSpec, prompt: string) => void;
     isOpen: boolean;
     onToggle: () => void;
-  }) =>
-    isOpen ? (
-      <div data-testid="chat-sidebar">
-        <button onClick={onToggle}>Cerrar</button>
+    pendingModifyInput?: string;
+    pendingModifyTriggerId?: number;
+  }) => {
+    chatSidebarCapture.pendingModifyInput = pendingModifyInput;
+    chatSidebarCapture.pendingModifyTriggerId = pendingModifyTriggerId;
+    return isOpen ? (
+      <div
+        data-testid="chat-sidebar"
+        data-pending={pendingModifyInput ?? ""}
+        data-trigger-id={pendingModifyTriggerId ?? ""}
+      >
+        <button type="button" onClick={onToggle}>
+          Cerrar
+        </button>
       </div>
-    ) : null,
+    ) : null;
+  },
 }));
 
 // ---------------------------------------------------------------------------
@@ -94,6 +133,8 @@ describe("ViewDashboard page", () => {
     mockPush.mockReset();
     rendererProps.length = 0;
     mockSearchParamsRef.current = new URLSearchParams();
+    chatSidebarCapture.pendingModifyInput = undefined;
+    chatSidebarCapture.pendingModifyTriggerId = undefined;
   });
 
   afterEach(() => {
@@ -138,6 +179,30 @@ describe("ViewDashboard page", () => {
 
     // Last refreshed timestamp
     expect(screen.getByTestId("last-refreshed")).toBeInTheDocument();
+  });
+
+  it("chart drill-down opens chat sidebar with Spanish Modificar prefill", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<ViewDashboard />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("sim-chart-click"));
+
+    const expected =
+      "Detalle de Tienda 05 en Ventas por tienda: desglose por categoría, top artículos y tendencia";
+
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-sidebar")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("chat-sidebar")).toHaveAttribute("data-pending", expected);
+    expect(screen.getByTestId("chat-sidebar")).toHaveAttribute("data-trigger-id", "1");
   });
 
   it("shows 404 when dashboard not found", async () => {
