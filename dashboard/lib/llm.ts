@@ -13,7 +13,7 @@ import {
 } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
-import type { ReviewContent } from "./review-prompts";
+import { ReviewLlmOutputSchema, type ReviewLlmOutput } from "./review-schema";
 import { logUsage, checkDailyBudget } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import { getDashboardLlmModel } from "./llm-model-config";
@@ -416,12 +416,12 @@ export async function analyzeDashboard(
 /**
  * Generate a weekly business review from query results (in Spanish).
  *
- * Returns the parsed ReviewContent object. Uses max_tokens: 4096
+ * Returns the parsed LLM output (validated with Zod). Uses max_tokens: 4096
  * (reviews are shorter than full dashboard specs).
  */
 export async function generateReview(
   systemPrompt: string
-): Promise<ReviewContent> {
+): Promise<ReviewLlmOutput> {
   const client = getClient();
 
   await checkDailyBudget();
@@ -457,46 +457,13 @@ export async function generateReview(
     );
   }
 
-  // Validate structure (thorough check to catch malformed LLM output early)
-  const obj = parsed as Record<string, unknown>;
-
-  if (
-    typeof parsed !== "object" ||
-    parsed === null ||
-    typeof obj.executive_summary !== "string" ||
-    typeof obj.generated_at !== "string" ||
-    !Array.isArray(obj.sections) ||
-    !Array.isArray(obj.action_items)
-  ) {
+  const z = ReviewLlmOutputSchema.safeParse(parsed);
+  if (!z.success) {
     throw new Error(
-      "LLM returned a JSON object that does not match the expected ReviewContent structure"
+      `LLM returned JSON that does not match ReviewLlmOutputSchema: ${z.error.message}`
     );
   }
-
-  // Validate each section has title and content as strings
-  for (const section of obj.sections as unknown[]) {
-    if (
-      typeof section !== "object" ||
-      section === null ||
-      typeof (section as Record<string, unknown>).title !== "string" ||
-      typeof (section as Record<string, unknown>).content !== "string"
-    ) {
-      throw new Error(
-        "LLM returned a section that does not have the expected { title: string, content: string } shape"
-      );
-    }
-  }
-
-  // Validate each action item is a string
-  for (const item of obj.action_items as unknown[]) {
-    if (typeof item !== "string") {
-      throw new Error(
-        "LLM returned an action_item that is not a string"
-      );
-    }
-  }
-
-  return parsed as ReviewContent;
+  return z.data;
 }
 
 /**

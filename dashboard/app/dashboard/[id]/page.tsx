@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
 import { DashboardFiltersBar } from "@/components/DashboardFiltersBar";
 import type { GlobalFilterValues } from "@/lib/sql-filters";
@@ -9,7 +9,12 @@ import type { WidgetState } from "@/components/DashboardRenderer";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
-import { DateRangePicker, computeComparisonRange } from "@/components/DateRangePicker";
+import {
+  DateRangePicker,
+  computeComparisonRange,
+  startOfDay,
+  endOfDay,
+} from "@/components/DateRangePicker";
 import type { DateRange, ComparisonRange } from "@/components/DateRangePicker";
 import { GlossaryPanel } from "@/components/GlossaryPanel";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -87,9 +92,15 @@ function formatWidgetDataAsText(spec: DashboardSpec): string {
 // Component
 // ---------------------------------------------------------------------------
 
+function parseIsoToLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map((x) => parseInt(x, 10));
+  return new Date(y, m - 1, d, 0, 0, 0, 0);
+}
+
 export default function ViewDashboard() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = params.id;
 
   const [dashboard, setDashboard] = useState<DashboardRecord | null>(null);
@@ -122,6 +133,7 @@ export default function ViewDashboard() {
     defaultComparisonRangeFor(getDefaultDashboardDateRange()),
   );
   const [globalFilterValues, setGlobalFilterValues] = useState<GlobalFilterValues>({});
+  const appliedUrlRange = useRef(false);
 
   // When date range changes, store the range and re-run all widget queries.
   // The date range is displayed in the picker for context; actual SQL filtering
@@ -192,6 +204,35 @@ export default function ViewDashboard() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useEffect(() => {
+    appliedUrlRange.current = false;
+  }, [id]);
+
+  // Deep-link from weekly review: /dashboard/{id}?curr_from&curr_to&comp_from&comp_to
+  useEffect(() => {
+    if (appliedUrlRange.current) return;
+    const cf = searchParams.get("curr_from");
+    const ct = searchParams.get("curr_to");
+    const pf = searchParams.get("comp_from");
+    const pt = searchParams.get("comp_to");
+    if (!cf || !ct || !pf || !pt) return;
+    const iso = /^\d{4}-\d{2}-\d{2}$/;
+    if (!iso.test(cf) || !iso.test(ct) || !iso.test(pf) || !iso.test(pt)) return;
+    appliedUrlRange.current = true;
+    const primary: DateRange = {
+      from: startOfDay(parseIsoToLocalDate(cf)),
+      to: endOfDay(parseIsoToLocalDate(ct)),
+    };
+    const comparison: ComparisonRange = {
+      type: "custom",
+      from: startOfDay(parseIsoToLocalDate(pf)),
+      to: endOfDay(parseIsoToLocalDate(pt)),
+    };
+    setDateRange(primary);
+    setComparisonRange(comparison);
+    setRefreshKey((k) => k + 1);
+  }, [searchParams, id]);
 
   useEffect(() => {
     setGlobalFilterValues({});

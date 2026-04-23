@@ -3,43 +3,95 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import ReviewDisplay from "@/components/ReviewDisplay";
-import type { ReviewContent } from "@/lib/review-prompts";
+import type { ReviewContent } from "@/lib/review-schema";
 
-// ─── Test data ────────────────────────────────────────────────────────────────
+// ─── Test data (weekly review v2) ─────────────────────────────────────────────
 
 const sampleReview: ReviewContent & { id: number; week_start: string } = {
   id: 1,
   week_start: "2026-04-01",
-  executive_summary:
-    "• Las ventas netas han aumentado un 12% respecto a la semana anterior\n• La tienda 03 lidera en ventas con 8.200€\n• El canal mayorista registra 15 nuevas facturas\n• Stock crítico en 8 referencias",
+  review_schema_version: 2,
+  executive_summary: [
+    "Las ventas netas han aumentado un 12% respecto a la semana anterior",
+    "La tienda 03 lidera en ventas con 8.200€",
+    "El canal mayorista registra 15 nuevas facturas",
+  ],
   sections: [
     {
+      key: "ventas_retail",
       title: "Ventas Retail",
-      content:
+      narrative:
         "Esta semana las ventas retail alcanzaron 45.230€, un incremento del 12% respecto a la semana anterior.\n\nLa tienda 03 continúa liderando con 8.200€, seguida por las tiendas 01 y 05.",
+      kpis: ["Ventas netas +12%"],
+      evidence_queries: ["ventas_semana_cerrada", "ventas_semana_previa"],
+      dashboard_key: "ventas_retail",
     },
     {
+      key: "canal_mayorista",
       title: "Canal Mayorista",
-      content:
+      narrative:
         "La facturación mayorista esta semana asciende a 23.500€ en 15 facturas.\n\nEl cliente MODAS SL sigue siendo el principal cliente con 8.000€.",
+      kpis: ["15 facturas"],
+      evidence_queries: ["facturacion_mayorista_semana_cerrada"],
+      dashboard_key: "canal_mayorista",
     },
     {
+      key: "stock",
       title: "Stock y Logística",
-      content:
+      narrative:
         "El stock total asciende a 12.450 unidades en 380 referencias.\n\nSe han identificado 8 artículos con stock crítico (menos de 5 unidades).",
+      kpis: ["12.450 uds"],
+      evidence_queries: ["stock_total_unidades", "articulos_stock_critico"],
+      dashboard_key: "stock",
     },
     {
+      key: "compras",
       title: "Compras",
-      content:
+      narrative:
         "Esta semana se han realizado 3 pedidos de compra por un importe total de 15.000€.\n\nEsto supone un incremento del 20% respecto a la semana anterior.",
+      kpis: ["3 pedidos"],
+      evidence_queries: ["compras_semana_cerrada", "compras_semana_previa"],
+      dashboard_key: "compras",
     },
   ],
   action_items: [
-    "Prioridad alta: Revisar stock crítico de 8 referencias con menos de 5 unidades",
-    "Prioridad media: Contactar con los 3 clientes mayoristas pendientes de factura",
-    "Prioridad baja: Planificar traspasos entre tiendas para optimizar el stock",
+    {
+      action_key: "revisar_stock_critico",
+      priority: "alta",
+      owner_role: "Dirección de tiendas",
+      owner_name: "",
+      due_date: "2026-04-10",
+      action: "Revisar stock crítico de 8 referencias con menos de 5 unidades",
+      expected_impact: "Reducir roturas en tienda",
+      evidence_queries: ["articulos_stock_critico"],
+      dashboard_key: "stock",
+    },
+    {
+      action_key: "contactar_clientes_mayorista",
+      priority: "media",
+      owner_role: "Ventas B2B",
+      owner_name: "",
+      due_date: "2026-04-12",
+      action: "Contactar con los 3 clientes mayoristas pendientes de factura",
+      expected_impact: "Mejor cobro",
+      evidence_queries: ["top3_clientes_mayorista_semana_cerrada"],
+      dashboard_key: "canal_mayorista",
+    },
+    {
+      action_key: "planificar_traspasos",
+      priority: "baja",
+      owner_role: "Logística",
+      owner_name: "",
+      due_date: "2026-04-15",
+      action: "Planificar traspasos entre tiendas para optimizar el stock",
+      expected_impact: "Mejor distribución entre tiendas",
+      evidence_queries: ["traspasos_semana_cerrada"],
+      dashboard_key: "stock",
+    },
   ],
+  data_quality_notes: [],
   generated_at: "2026-04-05T10:00:00.000Z",
+  quality_status: "ok",
 };
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -49,7 +101,6 @@ describe("ReviewDisplay", () => {
   let printSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    // Mock clipboard
     Object.defineProperty(globalThis.navigator, "clipboard", {
       value: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -57,7 +108,6 @@ describe("ReviewDisplay", () => {
       configurable: true,
       writable: true,
     });
-    // Spy on window.print — always safe to restore regardless of original value
     printSpy = vi.spyOn(window, "print").mockImplementation(() => {});
   });
 
@@ -78,12 +128,8 @@ describe("ReviewDisplay", () => {
 
   it("renders all executive summary bullet points", () => {
     render(<ReviewDisplay review={sampleReview} />);
-    expect(
-      screen.getByText(/Las ventas netas han aumentado/)
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/La tienda 03 lidera en ventas/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Las ventas netas han aumentado/)).toBeInTheDocument();
+    expect(screen.getByText(/La tienda 03 lidera en ventas/)).toBeInTheDocument();
   });
 
   it("renders all 4 domain sections", () => {
@@ -114,14 +160,12 @@ describe("ReviewDisplay", () => {
 
   it("renders priority badges for action items with priority markers", () => {
     render(<ReviewDisplay review={sampleReview} />);
-    // "Prioridad alta" should become a badge with text "alta"
     const altaBadges = screen.getAllByText("alta");
     expect(altaBadges.length).toBeGreaterThan(0);
   });
 
   it("renders the generated_at timestamp", () => {
     render(<ReviewDisplay review={sampleReview} />);
-    // Should show "Generado el" text
     const generatedTexts = screen.getAllByText(/Generado el/);
     expect(generatedTexts.length).toBeGreaterThan(0);
   });

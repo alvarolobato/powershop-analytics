@@ -17,6 +17,8 @@ import {
   sanitizeErrorMessage,
 } from "@/lib/errors";
 import { getReviewById } from "@/lib/review-db";
+import { listActionsForReview } from "@/lib/review-actions-db";
+import { normalizeReviewContent } from "@/lib/review-normalize";
 
 /** pg error codes that indicate a connection failure */
 const PG_CONNECTION_CODES = new Set([
@@ -78,7 +80,20 @@ export async function GET(
         { status: 404 }
       );
     }
-    return NextResponse.json(review);
+    const content = normalizeReviewContent(review.content as unknown, review.week_start);
+    const actions = await listActionsForReview(id);
+    return NextResponse.json({
+      id: review.id,
+      week_start: review.week_start,
+      revision: review.revision,
+      generation_mode: review.generation_mode,
+      supersedes_review_id: review.supersedes_review_id,
+      window_start: review.window_start,
+      window_end: review.window_end,
+      content,
+      actions,
+      created_at: review.created_at,
+    });
   } catch (err) {
     if (isConnectionError(err)) {
       console.error(`[${requestId}] DB connection error:`, err);

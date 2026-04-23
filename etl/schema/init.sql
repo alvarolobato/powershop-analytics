@@ -435,6 +435,77 @@ CREATE TABLE IF NOT EXISTS weekly_reviews (
 );
 CREATE INDEX IF NOT EXISTS idx_weekly_reviews_week ON weekly_reviews (week_start DESC);
 
+-- Weekly review v2: versioning + analysis window (additive for existing installs)
+ALTER TABLE weekly_reviews ADD COLUMN IF NOT EXISTS revision INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE weekly_reviews ADD COLUMN IF NOT EXISTS generation_mode TEXT NOT NULL DEFAULT 'initial';
+ALTER TABLE weekly_reviews ADD COLUMN IF NOT EXISTS supersedes_review_id INTEGER;
+ALTER TABLE weekly_reviews ADD COLUMN IF NOT EXISTS window_start DATE;
+ALTER TABLE weekly_reviews ADD COLUMN IF NOT EXISTS window_end DATE;
+
+UPDATE weekly_reviews
+SET window_start = COALESCE(window_start, week_start),
+    window_end = COALESCE(window_end, (week_start + INTERVAL '6 days')::date)
+WHERE window_start IS NULL OR window_end IS NULL;
+
+ALTER TABLE weekly_reviews ALTER COLUMN window_start SET NOT NULL;
+ALTER TABLE weekly_reviews ALTER COLUMN window_end SET NOT NULL;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'weekly_reviews_generation_mode_check'
+  ) THEN
+    ALTER TABLE weekly_reviews
+      ADD CONSTRAINT weekly_reviews_generation_mode_check
+      CHECK (generation_mode IN ('initial', 'refresh_data', 'alternate_angle'));
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'weekly_reviews_supersedes_fk'
+  ) THEN
+    ALTER TABLE weekly_reviews
+      ADD CONSTRAINT weekly_reviews_supersedes_fk
+      FOREIGN KEY (supersedes_review_id) REFERENCES weekly_reviews(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- Assign deterministic revision numbers per week before the unique index (existing rows may share revision=1).
+WITH ranked AS (
+  SELECT id,
+         ROW_NUMBER() OVER (PARTITION BY week_start ORDER BY created_at NULLS LAST, id) AS rn
+  FROM weekly_reviews
+)
+UPDATE weekly_reviews wr
+SET revision = ranked.rn
+FROM ranked
+WHERE wr.id = ranked.id
+  AND wr.revision IS DISTINCT FROM ranked.rn;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_weekly_reviews_week_revision
+  ON weekly_reviews (week_start, revision);
+
+-- Action tracking for weekly reviews (per revision)
+CREATE TABLE IF NOT EXISTS weekly_review_actions (
+    id            SERIAL       PRIMARY KEY,
+    review_id     INTEGER      NOT NULL REFERENCES weekly_reviews(id) ON DELETE CASCADE,
+    action_key    TEXT         NOT NULL,
+    priority      TEXT         NOT NULL CHECK (priority IN ('alta', 'media', 'baja')),
+    owner_role    TEXT         NOT NULL DEFAULT '',
+    owner_name    TEXT         NOT NULL DEFAULT '',
+    due_date      DATE         NOT NULL,
+    expected_impact TEXT       NOT NULL DEFAULT '',
+    status        TEXT         NOT NULL DEFAULT 'pendiente'
+      CHECK (status IN ('pendiente', 'en_curso', 'hecha', 'descartada')),
+    last_update   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    UNIQUE (review_id, action_key)
+);
+CREATE INDEX IF NOT EXISTS idx_weekly_review_actions_review ON weekly_review_actions (review_id);
+
 -- ============================================================
 -- ETL control
 -- ============================================================
