@@ -407,4 +407,37 @@ describe("ReviewPage", () => {
 
     expect(screen.getByTestId("generate-button")).toBeInTheDocument();
   });
+
+  // ─── Regenerate dropdown wording (issue #399) ─────────────────────────────
+  // The "Ángulo alternativo" label was ambiguous. Rename to
+  // "Reformular análisis (nuevo enfoque)" while preserving the legacy
+  // `alternate_angle` value so the API/DB schema stays stable.
+
+  it("regenerate dropdown shows the new label while keeping the legacy value", async () => {
+    installGenerateSuccessFetch();
+
+    render(<ReviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No hay revisiones anteriores")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("generate-button"));
+    });
+
+    const select = await screen.findByTestId("regen-mode-select");
+    const options = Array.from(select.querySelectorAll("option"));
+    const altOption = options.find((o) => o.value === "alternate_angle");
+    expect(altOption).toBeDefined();
+    expect(altOption?.textContent).toMatch(/Reformular análisis/);
+    // Make sure the old ambiguous label is gone.
+    expect(altOption?.textContent).not.toMatch(/Ángulo alternativo/);
+    // Tooltip explains what the mode does.
+    expect(altOption?.getAttribute("title")).toMatch(/mismos datos/i);
+
+    // The "Actualizar datos" option must survive the rename.
+    const refreshOption = options.find((o) => o.value === "refresh_data");
+    expect(refreshOption?.textContent).toMatch(/Actualizar datos/);
+  });
 });

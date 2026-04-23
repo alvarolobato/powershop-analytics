@@ -362,10 +362,21 @@ export default function ReviewPage() {
                   )
                 }
                 data-testid="regen-mode-select"
+                title="Elige cómo regenerar: reejecuta SQL o pide al modelo otro enfoque sobre los mismos datos."
               >
                 <option value="">Regenerar…</option>
-                <option value="refresh_data">Actualizar datos</option>
-                <option value="alternate_angle">Ángulo alternativo</option>
+                <option
+                  value="refresh_data"
+                  title="Vuelve a ejecutar las consultas SQL para traer datos actualizados."
+                >
+                  Actualizar datos
+                </option>
+                <option
+                  value="alternate_angle"
+                  title="Vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL."
+                >
+                  Reformular análisis (nuevo enfoque)
+                </option>
               </select>
               <button
                 type="button"
