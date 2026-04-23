@@ -59,6 +59,14 @@ function safeEquals(a: string, b: string): boolean {
   return timingSafeEqual(bufA, bufB);
 }
 
+/**
+ * Replace Oracle-style `:name` bind markers (invalid in PostgreSQL) with NULL so
+ * EXPLAIN can parse. Does not touch casts (`::type`).
+ */
+export function neutralizeNamedBindPlaceholdersForExplain(sql: string): string {
+  return sql.replace(/(?<!:):(?!:)([a-zA-Z_][\w]*)\b/g, "NULL");
+}
+
 export async function validateQueryCost(
   sql: string,
   options?: {
@@ -82,7 +90,7 @@ export async function validateQueryCost(
   }
 
   try {
-    const explainSql = `EXPLAIN (FORMAT JSON) ${sql}`; // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
+    const explainSql = `EXPLAIN (FORMAT JSON) ${neutralizeNamedBindPlaceholdersForExplain(sql)}`; // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
     const params = options?.params ?? [];
     const result =
       options?.statementTimeoutMs !== undefined

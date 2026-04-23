@@ -4,6 +4,11 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import "@testing-library/jest-dom/vitest";
 import NewDashboard from "../dashboard/new/page";
 import type { DashboardSpec } from "@/lib/schema";
+import {
+  mockJsonFetchOk,
+  mockNdjsonGenerateSuccess,
+  mockNdjsonGenerateHang,
+} from "./helpers/stream-generate-mock";
 
 // ---------------------------------------------------------------------------
 // Mock next/navigation
@@ -84,26 +89,11 @@ describe("NewDashboard page", () => {
 
   it("generates and saves dashboard, then redirects", async () => {
     const fetchMock = vi.fn()
-      // data-health call from DataFreshnessBanner (no specific order guaranteed)
-      .mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ tables: [], overallStale: false, stalestTable: null }),
-      });
-
-    // Override specific calls for generate and save
-    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonFetchOk({ tables: [], overallStale: false, stalestTable: null }),
+      )
+      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec as unknown as Record<string, unknown>))
       .mockResolvedValueOnce({
-        // data-health
-        ok: true,
-        json: () => Promise.resolve({ tables: [], overallStale: false, stalestTable: null }),
-      })
-      .mockResolvedValueOnce({
-        // generate
-        ok: true,
-        json: () => Promise.resolve(generatedSpec),
-      })
-      .mockResolvedValueOnce({
-        // save
         ok: true,
         status: 201,
         json: () => Promise.resolve({ id: 42, ...generatedSpec }),
@@ -141,13 +131,24 @@ describe("NewDashboard page", () => {
     expect(generateCall![1]).toEqual(
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ prompt: "Ventas del mes" }),
+        body: JSON.stringify({ prompt: "Ventas del mes", stream: true }),
       }),
     );
   });
 
   it("shows loading spinner while generating", async () => {
-    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    globalThis.fetch = vi.fn().mockImplementation((url: RequestInfo) => {
+      const u = typeof url === "string" ? url : String(url);
+      if (u.includes("data-health")) {
+        return Promise.resolve(
+          mockJsonFetchOk({ tables: [], overallStale: false, stalestTable: null }),
+        );
+      }
+      if (u.includes("/api/dashboard/generate")) {
+        return Promise.resolve(mockNdjsonGenerateHang());
+      }
+      return new Promise(() => {});
+    });
 
     render(<NewDashboard />);
     await act(async () => {
@@ -166,13 +167,32 @@ describe("NewDashboard page", () => {
     });
 
     expect(screen.getByText("Generando...")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Generando panel con IA" })).toBeInTheDocument();
   });
 
   it("shows error message on generation failure", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      json: () => Promise.resolve({ error: "LLM error: timeout" }),
+    globalThis.fetch = vi.fn().mockImplementation((url: RequestInfo) => {
+      const u = typeof url === "string" ? url : String(url);
+      if (u.includes("data-health")) {
+        return Promise.resolve(
+          mockJsonFetchOk({ tables: [], overallStale: false, stalestTable: null }),
+        );
+      }
+      if (u.includes("/api/dashboard/generate")) {
+        return Promise.resolve({
+          ok: false,
+          status: 500,
+          headers: new Headers({ "content-type": "application/json" }),
+          json: () =>
+            Promise.resolve({
+              error: "LLM error: timeout",
+              code: "LLM_ERROR",
+              timestamp: new Date().toISOString(),
+              requestId: "req_err_test",
+            }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
     });
 
     render(<NewDashboard />);
@@ -193,6 +213,10 @@ describe("NewDashboard page", () => {
 
     await waitFor(() => {
       expect(screen.getByText("LLM error: timeout")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
     });
 
     // Button should be re-enabled for retry

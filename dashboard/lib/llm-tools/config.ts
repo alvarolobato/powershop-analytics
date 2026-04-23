@@ -24,8 +24,9 @@ export function isAgenticToolsEnabled(): boolean {
 
 export function getAgenticConfig() {
   return {
-    maxToolRounds: readInt("DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS", 4),
-    maxToolCalls: readInt("DASHBOARD_AGENTIC_MAX_TOOL_CALLS", 12),
+    // Dashboard generation often needs several explore→SQL rounds; defaults are conservative caps.
+    maxToolRounds: readInt("DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS", 8),
+    maxToolCalls: readInt("DASHBOARD_AGENTIC_MAX_TOOL_CALLS", 24),
     toolTimeoutMs: readInt("DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS", 15_000),
     maxRows: readInt("DASHBOARD_AGENTIC_MAX_ROWS", 200),
     maxColumns: readInt("DASHBOARD_AGENTIC_MAX_COLUMNS", 30),

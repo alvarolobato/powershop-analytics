@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { TASK_PROMPTS } from "@/lib/task-prompts";
 import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
+import { DashboardGenerateProgressDialog } from "@/components/DashboardGenerateProgressDialog";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
+import { runDashboardGenerateStream } from "@/lib/run-dashboard-generate-stream";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -94,6 +96,20 @@ export default function NewDashboard() {
   const [gaps, setGaps] = useState<Gap[] | null>(null);
   const [gapsError, setGapsError] = useState<string | null>(null);
 
+  const [agenticOpen, setAgenticOpen] = useState(false);
+  const [agenticLines, setAgenticLines] = useState<string[]>([]);
+  const [agenticRequestId, setAgenticRequestId] = useState<string | null>(null);
+  const [agenticPhase, setAgenticPhase] = useState<"running" | "error" | "success">("running");
+  const [agenticErrorSummary, setAgenticErrorSummary] = useState<ReactNode>(null);
+
+  const dismissAgenticDialog = () => {
+    setAgenticOpen(false);
+    setAgenticLines([]);
+    setAgenticRequestId(null);
+    setAgenticPhase("running");
+    setAgenticErrorSummary(null);
+  };
+
   const getDashboardList = async (): Promise<DashboardListItem[]> => {
     if (cachedDashboardList !== null) {
       return cachedDashboardList;
@@ -143,32 +159,35 @@ export default function NewDashboard() {
     setLoading(true);
     setError(null);
     setLastErrorSource(null);
+    setAgenticOpen(true);
+    setAgenticLines([]);
+    setAgenticRequestId(null);
+    setAgenticPhase("running");
+    setAgenticErrorSummary(null);
 
     try {
-      const genRes = await fetch("/api/dashboard/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: trimmed }),
+      const spec = await runDashboardGenerateStream(trimmed, {
+        onMeta: (rid, lines) => {
+          setAgenticRequestId(rid);
+          setAgenticLines((prev) => [...prev, ...lines]);
+        },
+        onLine: (line) => {
+          setAgenticLines((prev) => [...prev, line]);
+        },
       });
 
-      if (!genRes.ok) {
-        const errBody = await genRes.json().catch(() => null);
-        if (isApiErrorResponse(errBody)) {
-          throw errBody;
-        }
-        throw new Error(
-          (errBody?.error as string) || "Error al generar el dashboard",
-        );
-      }
-
-      const spec: DashboardSpec = await genRes.json();
       const name = spec.title || "Dashboard sin título";
+      dismissAgenticDialog();
       await saveAndRedirect(name, spec.description || null, spec);
     } catch (err) {
+      setAgenticPhase("error");
       if (isApiErrorResponse(err)) {
         setError(err);
+        setAgenticErrorSummary(<ErrorDisplay error={err} />);
       } else {
-        setError(err instanceof Error ? err.message : "Error inesperado");
+        const msg = err instanceof Error ? err.message : "Error inesperado";
+        setError(msg);
+        setAgenticErrorSummary(<ErrorDisplay error={msg} />);
       }
       setLastErrorSource(source);
     } finally {
@@ -691,7 +710,7 @@ export default function NewDashboard() {
                 className="w-full resize-none rounded-lg border border-tremor-border bg-tremor-background px-4 py-3 text-sm text-tremor-content-emphasis placeholder:text-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 dark:border-dark-tremor-border dark:bg-dark-tremor-background dark:text-dark-tremor-content-emphasis dark:placeholder:text-dark-tremor-content-subtle"
               />
 
-              {error && lastErrorSource === "generate" && (
+              {error && lastErrorSource === "generate" && !agenticOpen && (
                 <ErrorDisplay error={error} onRetry={handleGenerate} />
               )}
 
@@ -713,6 +732,16 @@ export default function NewDashboard() {
             </div>
         </div>
       </div>
+
+      <DashboardGenerateProgressDialog
+        open={agenticOpen}
+        title="Generando panel con IA"
+        requestId={agenticRequestId}
+        lines={agenticLines}
+        phase={agenticPhase}
+        errorSummary={agenticErrorSummary}
+        onDismiss={dismissAgenticDialog}
+      />
     </div>
   );
 }

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { fetchToolCallAggregates } from "@/lib/llm-tools/logging";
 import { formatIntegerEs } from "@/lib/usage-number-format";
 
@@ -30,22 +29,9 @@ export default async function AdminToolCallsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-          Telemetría de herramientas (llm_tool_calls)
-        </h1>
-        <nav className="flex flex-wrap gap-3 text-sm">
-          <Link href="/admin/usage" className="text-blue-600 hover:underline dark:text-blue-400">
-            Uso LLM
-          </Link>
-          <Link href="/admin/slow-queries" className="text-blue-600 hover:underline dark:text-blue-400">
-            Consultas lentas
-          </Link>
-          <Link href="/" className="text-tremor-content dark:text-dark-tremor-content hover:underline">
-            Inicio
-          </Link>
-        </nav>
-      </div>
+      <h1 className="text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+        Telemetría de herramientas (llm_tool_calls)
+      </h1>
 
       <p className="text-sm text-tremor-content dark:text-dark-tremor-content">
         Ventana deslizante de <strong>30 días</strong>. Los totales de bytes son sumas aproximadas (PostgreSQL

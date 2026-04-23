@@ -28,6 +28,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
@@ -219,6 +220,9 @@ services:
       POSTGRES_PORT: 5432
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      # Set true only behind HTTPS; on plain HTTP (e.g. LAN) leave unset so the admin cookie is stored.
+      ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
     ports:
       - "${HOST_BIND:-0.0.0.0}:${DASHBOARD_PORT:-4000}:4000"
     networks:

@@ -1,11 +1,9 @@
 /**
  * POST /api/dashboard/generate
  *
- * Accepts a user prompt (Spanish) and returns an AI-generated dashboard spec.
- *
- * Request body: { prompt: string }
- * Success response (200): DashboardSpec JSON
- * Error responses: 400 (invalid input / invalid spec), 429 (rate limit), 500 (LLM error)
+ * Request body: { prompt: string, stream?: boolean }
+ * - stream false (default): success 200 = DashboardSpec JSON
+ * - stream true: `application/x-ndjson` — lines: meta, progress (×N), result | error
  */
 
 import { NextResponse } from "next/server";
@@ -15,7 +13,7 @@ import {
   CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
-import { validateSpec } from "@/lib/schema";
+import { validateSpec, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import {
@@ -23,168 +21,58 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 
-/**
- * Extract JSON from an LLM response that may be wrapped in markdown code blocks.
- *
- * LLMs sometimes return:
- *   ```json
- *   { ... }
- *   ```
- * This strips the fences and returns the inner content.
- */
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
-
-  // Match ```json ... ``` or ``` ... ```
   const fenceMatch = trimmed.match(/^```(?:json)?\s*\n?([\s\S]*?)\n?\s*```$/);
   if (fenceMatch) {
     return fenceMatch[1].trim();
   }
-
   return trimmed;
 }
 
-export async function POST(request: Request): Promise<NextResponse> {
-  const requestId = generateRequestId();
+type GenerateFinishOk = { ok: true; spec: DashboardSpec };
+type GenerateFinishErr = { ok: false; status: number; payload: Record<string, unknown> };
 
-  // --- Parse request body ---
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
-      { status: 400 },
-    );
-  }
-
-  // --- Validate prompt ---
-  if (
-    typeof body !== "object" ||
-    body === null ||
-    !("prompt" in body) ||
-    typeof (body as Record<string, unknown>).prompt !== "string"
-  ) {
-    return NextResponse.json(
-      formatApiError(
-        "El cuerpo debe incluir un campo 'prompt' de tipo texto.",
-        "VALIDATION",
-        undefined,
-        requestId,
-      ),
-      { status: 400 },
-    );
-  }
-
-  const prompt = ((body as Record<string, unknown>).prompt as string).trim();
-  if (prompt.length === 0) {
-    return NextResponse.json(
-      formatApiError(
-        "El prompt no puede estar vacío.",
-        "VALIDATION",
-        undefined,
-        requestId,
-      ),
-      { status: 400 },
-    );
-  }
-
-  // --- Call LLM ---
-  let rawResponse: string;
-  try {
-    rawResponse = await generateDashboard(prompt, {
-      requestId,
-      endpoint: "generateDashboard",
-    });
-  } catch (err: unknown) {
-    if (err instanceof AgenticRunnerError) {
-      return NextResponse.json(
-        formatApiError(
-          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el prompt o inténtalo de nuevo.",
-          "AGENTIC_RUNNER",
-          `${err.code}: ${err.message}`,
-          err.requestId,
-        ),
-        { status: 500 },
-      );
-    }
-    if (err instanceof BudgetExceededError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-        { status: 429 },
-      );
-    }
-    if (err instanceof CircuitBreakerOpenError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
-        { status: 503 },
-      );
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    const normalizedMessage = message.toLowerCase();
-    console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
-
-    const isRateLimit =
-      normalizedMessage.includes("rate limit") ||
-      normalizedMessage.includes("ratelimit") ||
-      normalizedMessage.includes("429");
-
-    return NextResponse.json(
-      formatApiError(
-        isRateLimit
-          ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-          : "Error al generar el dashboard. Inténtalo de nuevo.",
-        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
-        sanitizeErrorMessage(err),
-        requestId,
-      ),
-      { status: isRateLimit ? 429 : 500 },
-    );
-  }
-
-  // --- Parse JSON from LLM output ---
+function finishGenerateFromRawLlm(rawResponse: string, requestId: string): GenerateFinishOk | GenerateFinishErr {
   const jsonStr = extractJson(rawResponse);
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
-    console.error(
-      `[${requestId}] El LLM devolvió JSON inválido (${jsonStr.length} chars)`,
-    );
-    return NextResponse.json(
-      formatApiError(
+    console.error(`[${requestId}] El LLM devolvió JSON inválido (${jsonStr.length} chars)`);
+    return {
+      ok: false,
+      status: 400,
+      payload: formatApiError(
         "El modelo de IA devolvió una respuesta con formato incorrecto.",
         "LLM_INVALID_RESPONSE",
         undefined,
         requestId,
-      ),
-      { status: 400 },
-    );
+      ) as unknown as Record<string, unknown>,
+    };
   }
 
-  // --- Validate against DashboardSpec schema ---
   try {
     const spec = validateSpec(parsed);
     const sqlLint = lintDashboardSpec(spec);
     if (sqlLint.length > 0) {
-      console.error(
-        `[${requestId}] SQL heurístico rechazó el spec del LLM:`,
-        sqlLint.join(" | "),
-      );
-      return NextResponse.json(
-        {
+      console.error(`[${requestId}] SQL heurístico rechazó el spec del LLM:`, sqlLint.join(" | "));
+      return {
+        ok: false,
+        status: 400,
+        payload: {
           ...formatApiError(
             "El modelo generó SQL con patrones inválidos para PostgreSQL (fechas/EXTRACT/COALESCE). Vuelve a generar o reformula el prompt.",
             "SQL_LINT",
             sqlLint.join(" | "),
             requestId,
           ),
-        },
-        { status: 400 },
-      );
+        } as Record<string, unknown>,
+      };
     }
-    return NextResponse.json(spec, { status: 200 });
+    return { ok: true, spec };
   } catch (err: unknown) {
     const details =
       err instanceof ZodError
@@ -194,12 +82,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     console.error(`[${requestId}] El LLM devolvió un spec inválido:`, details);
 
     const allowedFields =
-      err instanceof ZodError
-        ? resolveWidgetAllowedFields(err, parsed)
-        : undefined;
+      err instanceof ZodError ? resolveWidgetAllowedFields(err, parsed) : undefined;
 
-    return NextResponse.json(
-      {
+    return {
+      ok: false,
+      status: 400,
+      payload: {
         ...formatApiError(
           "El modelo de IA generó un dashboard con estructura incorrecta.",
           "LLM_INVALID_RESPONSE",
@@ -207,15 +95,70 @@ export async function POST(request: Request): Promise<NextResponse> {
           requestId,
         ),
         ...(allowedFields !== undefined ? { allowedFields } : {}),
-      },
-      { status: 400 },
-    );
+      } as Record<string, unknown>,
+    };
   }
 }
 
-// ---------------------------------------------------------------------------
-// Helpers for allowedFields enrichment
-// ---------------------------------------------------------------------------
+function logAgenticProgress(requestId: string, event: AgenticProgressEvent): void {
+  console.info(`[agentic][generateDashboard][${requestId}]`, JSON.stringify(event));
+}
+
+function mapGenerateLlmError(err: unknown, requestId: string): GenerateFinishErr {
+  if (err instanceof AgenticRunnerError) {
+    return {
+      ok: false,
+      status: 500,
+      payload: formatApiError(
+        "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el prompt o inténtalo de nuevo.",
+        "AGENTIC_RUNNER",
+        `${err.code}: ${err.message}`,
+        err.requestId,
+      ) as unknown as Record<string, unknown>,
+    };
+  }
+  if (err instanceof BudgetExceededError) {
+    return {
+      ok: false,
+      status: 429,
+      payload: formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId) as unknown as Record<
+        string,
+        unknown
+      >,
+    };
+  }
+  if (err instanceof CircuitBreakerOpenError) {
+    return {
+      ok: false,
+      status: 503,
+      payload: formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId) as unknown as Record<
+        string,
+        unknown
+      >,
+    };
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  const normalizedMessage = message.toLowerCase();
+  console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
+
+  const isRateLimit =
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("ratelimit") ||
+    normalizedMessage.includes("429");
+
+  return {
+    ok: false,
+    status: isRateLimit ? 429 : 500,
+    payload: formatApiError(
+      isRateLimit
+        ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+        : "Error al generar el dashboard. Inténtalo de nuevo.",
+      isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+      sanitizeErrorMessage(err),
+      requestId,
+    ) as unknown as Record<string, unknown>,
+  };
+}
 
 const WIDGET_ALLOWED_FIELDS: Record<string, string[]> = {
   kpi_row: ["id", "type", "items"],
@@ -227,26 +170,10 @@ const WIDGET_ALLOWED_FIELDS: Record<string, string[]> = {
   number: ["id", "type", "title", "sql", "format", "prefix"],
 };
 
-/**
- * When a ZodError path targets a widget (widgets.N, path length 2) or one of
- * its direct fields (widgets.N.<key>, path length 3), extract the widget type
- * from the parsed object and return the known allowed fields for that type.
- * Deeply nested errors (e.g. widgets.N.items.0.label, path length > 3) are
- * excluded — those belong to a sub-schema and the top-level allowed-fields
- * list would be misleading.
- */
-function resolveWidgetAllowedFields(
-  zodError: ZodError,
-  parsed: unknown,
-): string[] | undefined {
+function resolveWidgetAllowedFields(zodError: ZodError, parsed: unknown): string[] | undefined {
   for (const issue of zodError.issues) {
     const [seg0, seg1] = issue.path;
-    if (
-      seg0 !== "widgets" ||
-      typeof seg1 !== "number" ||
-      issue.path.length > 3
-    )
-      continue;
+    if (seg0 !== "widgets" || typeof seg1 !== "number" || issue.path.length > 3) continue;
 
     const widgetIndex = seg1;
     const parsedObj = parsed as Record<string, unknown> | null | undefined;
@@ -264,4 +191,128 @@ function resolveWidgetAllowedFields(
     if (Array.isArray(fields)) return fields;
   }
   return undefined;
+}
+
+export async function POST(request: Request): Promise<NextResponse | Response> {
+  const requestId = generateRequestId();
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      formatApiError("Cuerpo JSON no válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  if (
+    typeof body !== "object" ||
+    body === null ||
+    !("prompt" in body) ||
+    typeof (body as Record<string, unknown>).prompt !== "string"
+  ) {
+    return NextResponse.json(
+      formatApiError(
+        "El cuerpo debe incluir un campo 'prompt' de tipo texto.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+
+  const record = body as Record<string, unknown>;
+  const prompt = (record.prompt as string).trim();
+  if (prompt.length === 0) {
+    return NextResponse.json(
+      formatApiError("El prompt no puede estar vacío.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const wantStream = record.stream === true;
+
+  if (wantStream) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (obj: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+        };
+
+        send({
+          type: "meta",
+          requestId,
+          message: "Generación con IA iniciada",
+          promptPreview: prompt.slice(0, 200),
+        });
+
+        let rawResponse: string;
+        try {
+          rawResponse = await generateDashboard(prompt, {
+            requestId,
+            endpoint: "generateDashboard",
+            onAgenticProgress: (ev) => {
+              logAgenticProgress(requestId, ev);
+              send({ type: "progress", requestId, event: ev });
+            },
+          });
+        } catch (err: unknown) {
+          const mapped = mapGenerateLlmError(err, requestId);
+          send({
+            type: "error",
+            requestId,
+            httpStatus: mapped.status,
+            ...mapped.payload,
+          });
+          controller.close();
+          return;
+        }
+
+        send({ type: "phase", requestId, message: "Validando JSON del panel…" });
+        const finish = finishGenerateFromRawLlm(rawResponse, requestId);
+        if (!finish.ok) {
+          send({
+            type: "error",
+            requestId,
+            httpStatus: finish.status,
+            ...finish.payload,
+          });
+          controller.close();
+          return;
+        }
+
+        send({ type: "result", requestId, spec: finish.spec });
+        controller.close();
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "application/x-ndjson; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Request-Id": requestId,
+      },
+    });
+  }
+
+  let rawResponse: string;
+  try {
+    rawResponse = await generateDashboard(prompt, {
+      requestId,
+      endpoint: "generateDashboard",
+      onAgenticProgress: (ev) => logAgenticProgress(requestId, ev),
+    });
+  } catch (err: unknown) {
+    const mapped = mapGenerateLlmError(err, requestId);
+    return NextResponse.json(mapped.payload, { status: mapped.status });
+  }
+
+  const finish = finishGenerateFromRawLlm(rawResponse, requestId);
+  if (!finish.ok) {
+    return NextResponse.json(finish.payload, { status: finish.status });
+  }
+  return NextResponse.json(finish.spec, { status: 200 });
 }

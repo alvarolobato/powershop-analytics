@@ -2,6 +2,22 @@
  * Shared types for the agentic LLM tool layer.
  */
 
+/** High-level events from the tool loop (UI streaming + server logs). */
+export type AgenticProgressEvent =
+  | { type: "round"; round: number; maxRounds: number }
+  | { type: "assistant_tools"; round: number; tools: string[] }
+  | { type: "tool_start"; round: number; name: string; toolCallId: string }
+  | {
+      type: "tool_done";
+      round: number;
+      name: string;
+      toolCallId: string;
+      ok: boolean;
+      ms: number;
+      errorCode?: string | null;
+    }
+  | { type: "finalizing"; messageChars: number };
+
 export interface LlmAgenticContext {
   /** API correlation id (also sent to the model in tool error payloads). */
   requestId: string;
@@ -9,6 +25,8 @@ export interface LlmAgenticContext {
   endpoint: string;
   /** Optional saved dashboard id (analyze flow) for dashboard-scoped tools. */
   dashboardId?: number;
+  /** Optional hook for NDJSON streaming UI and diagnostics. */
+  onAgenticProgress?: (event: AgenticProgressEvent) => void;
 }
 
 export interface AgenticUsageTotals {

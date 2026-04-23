@@ -15,6 +15,7 @@ import {
   addUsage,
   type AgenticUsageTotals,
   type LlmAgenticContext,
+  type AgenticProgressEvent,
 } from "./types";
 import { stringifyToolPayload, toolError, type ToolResponseBody } from "./tool-payload";
 import {
@@ -116,6 +117,15 @@ async function dispatchTool(
 /**
  * Run a tool-augmented chat loop until the assistant returns plain text or limits hit.
  */
+function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent): void {
+  try {
+    ctx.onAgenticProgress?.(event);
+  } catch (hookErr) {
+    console.warn("[agentic] onAgenticProgress hook failed:", hookErr);
+  }
+  console.info(`[agentic][${ctx.endpoint}][${ctx.requestId}]`, JSON.stringify(event));
+}
+
 export async function runAgenticChat(
   params: AgenticRunParams,
 ): Promise<AgenticRunResult> {
@@ -134,6 +144,12 @@ export async function runAgenticChat(
   let toolCallsTotal = 0;
 
   for (let round = 0; round < cfg.maxToolRounds; round++) {
+    emitAgenticProgress(ctx, {
+      type: "round",
+      round: round + 1,
+      maxRounds: cfg.maxToolRounds,
+    });
+
     const completion = await client.chat.completions.create({
       model,
       messages,
@@ -164,8 +180,19 @@ export async function runAgenticChat(
           ctx.requestId,
         );
       }
+      emitAgenticProgress(ctx, { type: "finalizing", messageChars: text.length });
       return { content: text, usage };
     }
+
+    const toolNames = toolCalls.map((tc) => {
+      const fn = tc.type === "function" ? tc.function : null;
+      return fn?.name ?? "(missing)";
+    });
+    emitAgenticProgress(ctx, {
+      type: "assistant_tools",
+      round: round + 1,
+      tools: toolNames,
+    });
 
     messages.push(choice as ChatCompletionMessageParam);
 
@@ -182,6 +209,12 @@ export async function runAgenticChat(
       const fn = tc.type === "function" ? tc.function : null;
       const name = fn?.name ?? "";
       const rawArgs = fn?.arguments ?? "{}";
+      emitAgenticProgress(ctx, {
+        type: "tool_start",
+        round: round + 1,
+        name: name || "(missing)",
+        toolCallId: tc.id,
+      });
       const t0 = Date.now();
       let body: ToolResponseBody;
       let telemetryStatus: "ok" | "error" = "ok";
@@ -218,6 +251,16 @@ export async function runAgenticChat(
         latencyMs: latency,
         payloadInBytes: Buffer.byteLength(rawArgs, "utf8"),
         payloadOutBytes: Buffer.byteLength(payload, "utf8"),
+        errorCode,
+      });
+
+      emitAgenticProgress(ctx, {
+        type: "tool_done",
+        round: round + 1,
+        name: name || "(missing)",
+        toolCallId: tc.id,
+        ok: body.ok,
+        ms: latency,
         errorCode,
       });
 

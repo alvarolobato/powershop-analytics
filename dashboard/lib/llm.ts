@@ -24,7 +24,7 @@ import type { LlmAgenticContext } from "./llm-tools/types";
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
 export { AgenticRunnerError };
-export type { LlmAgenticContext };
+export type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
 
 const EMPTY_USAGE = {
   prompt_tokens: 0,

@@ -59,6 +59,16 @@ export async function fetchSlowQueries(): Promise<SlowQueriesResponse> {
       };
     }
 
+    if (pgErr.code === "55000") {
+      return {
+        queries: [],
+        error:
+          "pg_stat_statements no está cargado en PostgreSQL (shared_preload_libraries). " +
+          "Reinicia Postgres con la opción de arranque del compose (p. ej. docker-compose.yml: " +
+          "shared_preload_libraries=pg_stat_statements) y crea la extensión si aplica.",
+      };
+    }
+
     console.error("[slow-queries] Unexpected error:", err);
     return { queries: [], error: "Internal server error" };
   }

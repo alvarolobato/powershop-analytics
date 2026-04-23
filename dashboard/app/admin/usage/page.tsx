@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { getLlmUsageAggregates } from "@/lib/llm-usage-stats";
 import { getDashboardLlmModel } from "@/lib/llm-model-config";
 import {
@@ -19,22 +18,9 @@ export default async function AdminUsagePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-          Uso del modelo (llm_usage)
-        </h1>
-        <nav className="flex gap-3 text-sm">
-          <Link href="/admin/tool-calls" className="text-blue-600 hover:underline dark:text-blue-400">
-            Herramientas LLM
-          </Link>
-          <Link href="/admin/slow-queries" className="text-blue-600 hover:underline dark:text-blue-400">
-            Consultas lentas
-          </Link>
-          <Link href="/" className="text-tremor-content dark:text-dark-tremor-content hover:underline">
-            Inicio
-          </Link>
-        </nav>
-      </div>
+      <h1 className="text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+        Uso del modelo (llm_usage)
+      </h1>
 
       <section className="grid gap-4 sm:grid-cols-3">
         {(["today", "week", "month"] as const).map((period) => {
