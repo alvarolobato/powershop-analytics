@@ -22,6 +22,7 @@ import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { DashboardSpec } from "@/lib/schema";
 import type { ApiErrorResponse } from "@/lib/errors";
+import type { DrillDownContext } from "@/components/widgets/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -109,6 +110,8 @@ export default function ViewDashboard() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
+  const drillDownIdRef = useRef(0);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [widgetData, setWidgetData] = useState<Map<number, WidgetState>>(new Map());
@@ -384,6 +387,41 @@ export default function ViewDashboard() {
     },
     [id],
   );
+
+  const handlePendingModifyInputConsumed = useCallback(() => {
+    setPendingModify(null);
+  }, []);
+
+  const handleDataPointClick = useCallback((ctx: DrillDownContext) => {
+    let prompt: string;
+    if (ctx.widgetType === "bar_chart" || ctx.widgetType === "donut_chart") {
+      prompt = `Detalle de ${ctx.label} en ${ctx.widgetTitle}: desglose por categoría, top artículos y tendencia`;
+    } else if (ctx.widgetType === "line_chart" || ctx.widgetType === "area_chart") {
+      prompt = `¿Qué ocurrió en ${ctx.label} en ${ctx.widgetTitle}? Detalle por tienda y categoría`;
+    } else {
+      prompt = `Más información sobre ${ctx.label}`;
+    }
+    drillDownIdRef.current += 1;
+    setPendingModify({ prompt, id: drillDownIdRef.current });
+    setChatOpen(true);
+  }, []);
+
+  const handleChatToggle = useCallback(() => {
+    setChatOpen((prev) => {
+      const nextOpen = !prev;
+      if (nextOpen) {
+        setGlossaryOpen(false);
+        setHistoryOpen(false);
+      }
+      return nextOpen;
+    });
+  }, []);
+
+  const handleOpenChatSidebar = useCallback(() => {
+    setGlossaryOpen(false);
+    setHistoryOpen(false);
+    setChatOpen(true);
+  }, []);
 
   // Handle chat modification
   const handleSpecUpdate = useCallback(
@@ -774,16 +812,7 @@ export default function ViewDashboard() {
           </button>
           <button
             type="button"
-            onClick={() =>
-              setChatOpen((prev) => {
-                const nextOpen = !prev;
-                if (nextOpen) {
-                  setGlossaryOpen(false);
-                  setHistoryOpen(false);
-                }
-                return nextOpen;
-              })
-            }
+            onClick={handleChatToggle}
             className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
           >
             {chatOpen ? "Cerrar chat" : "Modificar"}
@@ -812,6 +841,7 @@ export default function ViewDashboard() {
         comparisonRange={comparisonRange}
         globalFilterValues={globalFilterValues}
         onWidgetDataChange={setWidgetData}
+        onDataPointClick={handleDataPointClick}
       />
 
       {/* Chat sidebar — close glossary panel when opening chat to avoid overlap */}
@@ -820,19 +850,14 @@ export default function ViewDashboard() {
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
         dashboardId={dashboard.id}
-        onToggle={() =>
-          setChatOpen((prev) => {
-            const nextOpen = !prev;
-            if (nextOpen) {
-              setGlossaryOpen(false);
-              setHistoryOpen(false);
-            }
-            return nextOpen;
-          })
-        }
+        onToggle={handleChatToggle}
+        onOpenSidebar={handleOpenChatSidebar}
         widgetData={widgetData}
         initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
         onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
+        pendingModifyInput={pendingModify?.prompt}
+        pendingModifyTriggerId={pendingModify?.id}
+        onPendingModifyInputConsumed={handlePendingModifyInputConsumed}
       />
 
       {/* Glossary panel — close chat sidebar when opening glossary to avoid overlap */}

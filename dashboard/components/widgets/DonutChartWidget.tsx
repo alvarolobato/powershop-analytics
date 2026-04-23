@@ -2,7 +2,7 @@
 
 import { Card, DonutChart } from "@tremor/react";
 import type { DonutChartWidget as DonutChartWidgetSpec, GlossaryItem } from "@/lib/schema";
-import type { WidgetData } from "./types";
+import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
@@ -15,9 +15,16 @@ interface DonutChartWidgetProps {
   comparisonData?: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
+  onDataPointClick?: OnDataPointClick;
 }
 
-export function DonutChartWidget({ widget, data, comparisonData, glossary }: DonutChartWidgetProps) {
+export function DonutChartWidget({
+  widget,
+  data,
+  comparisonData,
+  glossary,
+  onDataPointClick,
+}: DonutChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
   if (data === null) {
@@ -77,6 +84,16 @@ export function DonutChartWidget({ widget, data, comparisonData, glossary }: Don
 
   const currentTotal = chartData.reduce((s, d) => s + d.value, 0);
 
+  const handleValueChange = (v: Record<string, unknown> | null | undefined) => {
+    if (!onDataPointClick || !v) return;
+    onDataPointClick({
+      label: String(v.name ?? ""),
+      value: v.value !== undefined && v.value !== null ? String(v.value) : "",
+      widgetTitle: widget.title,
+      widgetType: "donut_chart",
+    });
+  };
+
   return (
     <Card className="p-4" aria-live="polite" aria-busy={false}>
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content">{titleNode}</h3>
@@ -84,6 +101,8 @@ export function DonutChartWidget({ widget, data, comparisonData, glossary }: Don
       <div
         role="img"
         aria-label={`Gráfico de donut: ${widget.title}. ${chartData.length} categorías.`}
+        className={onDataPointClick ? "cursor-pointer" : undefined}
+        title={onDataPointClick ? "Clic para explorar" : undefined}
       >
         <span className="sr-only">Gráfico de donut con {chartData.length} categorías.</span>
         <DonutChart
@@ -93,6 +112,11 @@ export function DonutChartWidget({ widget, data, comparisonData, glossary }: Don
           colors={CHART_COLORS}
           showLabel
           showAnimation
+          onValueChange={
+            onDataPointClick
+              ? (v) => handleValueChange(v as unknown as Record<string, unknown>)
+              : undefined
+          }
         />
       </div>
 

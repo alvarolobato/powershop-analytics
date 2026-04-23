@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import { Card } from "@tremor/react";
 import type { TableWidget as TableWidgetSpec, GlossaryItem } from "@/lib/schema";
-import type { WidgetData } from "./types";
+import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE } from "./types";
 import { applyGlossary } from "@/lib/glossary";
 
@@ -12,6 +12,7 @@ interface TableWidgetProps {
   data: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
+  onDataPointClick?: OnDataPointClick;
 }
 
 type SortDir = "asc" | "desc";
@@ -23,7 +24,7 @@ function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === "";
 }
 
-export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
+export function TableWidget({ widget, data, glossary, onDataPointClick }: TableWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -80,7 +81,7 @@ export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
     <Card className="p-4">
       <h3 className="mb-4 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">{titleNode}</h3>
       <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-sm" title={onDataPointClick ? "Clic para explorar" : undefined}>
           <thead>
             <tr className="border-b border-tremor-border dark:border-dark-tremor-border">
               {data.columns.map((col, idx) => (
@@ -113,7 +114,25 @@ export function TableWidget({ widget, data, glossary }: TableWidgetProps) {
           </thead>
           <tbody>
             {sortedRows.map((row, rIdx) => (
-              <tr key={rIdx} className="border-b border-tremor-border dark:border-dark-tremor-border hover:bg-dark-tremor-background-subtle">
+              <tr
+                key={rIdx}
+                className={
+                  onDataPointClick
+                    ? "border-b border-tremor-border dark:border-dark-tremor-border cursor-pointer hover:bg-tremor-background-muted"
+                    : "border-b border-tremor-border dark:border-dark-tremor-border hover:bg-dark-tremor-background-subtle"
+                }
+                onClick={
+                  onDataPointClick
+                    ? () =>
+                        onDataPointClick({
+                          label: String(row[0] ?? ""),
+                          value: "",
+                          widgetTitle: widget.title,
+                          widgetType: "table",
+                        })
+                    : undefined
+                }
+              >
                 {row.map((cell, cIdx) => (
                   <td key={cIdx} className="px-3 py-2 text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
                     {formatCell(cell)}

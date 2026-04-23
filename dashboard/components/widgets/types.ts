@@ -2,6 +2,20 @@
  * Shared types for widget components.
  */
 
+/** Context passed when the user clicks a chart point or table row to explore further. */
+export interface DrillDownContext {
+  /** The clicked data point label (e.g. store name). */
+  label: string;
+  /** Display string for the clicked value (e.g. formatted number). */
+  value: string;
+  /** Parent widget title. */
+  widgetTitle: string;
+  /** Widget kind for prompt shaping upstream. */
+  widgetType: "bar_chart" | "line_chart" | "area_chart" | "donut_chart" | "table";
+}
+
+export type OnDataPointClick = (ctx: DrillDownContext) => void;
+
 /** Query result format returned by the /api/query endpoint. */
 export interface WidgetData {
   columns: string[];

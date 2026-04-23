@@ -2,7 +2,7 @@
 
 import { Card, AreaChart } from "@tremor/react";
 import type { AreaChartWidget as AreaChartWidgetSpec, GlossaryItem } from "@/lib/schema";
-import type { WidgetData } from "./types";
+import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
@@ -16,9 +16,16 @@ interface AreaChartWidgetProps {
   comparisonData?: WidgetData | null;
   /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
+  onDataPointClick?: OnDataPointClick;
 }
 
-export function AreaChartWidget({ widget, data, comparisonData, glossary }: AreaChartWidgetProps) {
+export function AreaChartWidget({
+  widget,
+  data,
+  comparisonData,
+  glossary,
+  onDataPointClick,
+}: AreaChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
 
   if (data === null) {
@@ -73,13 +80,42 @@ export function AreaChartWidget({ widget, data, comparisonData, glossary }: Area
 
   const categories = hasComparison ? ["Actual", "Anterior"] : [yCol];
 
+  const handleValueChange = (v: Record<string, unknown> | null | undefined) => {
+    if (!onDataPointClick || !v) return;
+    const label = String(v[xCol] ?? "");
+    const seriesKey = v.categoryClicked;
+    let raw: unknown;
+    if (typeof seriesKey === "string" && seriesKey in v) {
+      raw = v[seriesKey];
+    } else {
+      for (const c of categories) {
+        if (c in v) {
+          raw = v[c];
+          break;
+        }
+      }
+    }
+    const value = raw !== undefined && raw !== null ? String(raw) : "";
+    onDataPointClick({
+      label,
+      value,
+      widgetTitle: widget.title,
+      widgetType: "area_chart",
+    });
+  };
+
   return (
     <Card className="p-4" aria-live="polite" aria-busy={false}>
       <h3 className="mb-4 text-sm font-medium text-tremor-content dark:text-dark-tremor-content-emphasis">
         {titleNode}
       </h3>
 
-      <div role="img" aria-label={`Gráfico de área: ${widget.title}.`}>
+      <div
+        role="img"
+        aria-label={`Gráfico de área: ${widget.title}.`}
+        className={onDataPointClick ? "cursor-pointer" : undefined}
+        title={onDataPointClick ? "Clic para explorar" : undefined}
+      >
         <span className="sr-only">Gráfico de área.</span>
 
         <div className="sm:hidden">
@@ -90,6 +126,11 @@ export function AreaChartWidget({ widget, data, comparisonData, glossary }: Area
             colors={CHART_COLORS}
             showYAxis={false}
             showLegend={hasComparison}
+            onValueChange={
+              onDataPointClick
+                ? (v) => handleValueChange(v as unknown as Record<string, unknown>)
+                : undefined
+            }
           />
         </div>
 
@@ -101,6 +142,11 @@ export function AreaChartWidget({ widget, data, comparisonData, glossary }: Area
             colors={CHART_COLORS}
             yAxisWidth={60}
             showLegend={hasComparison}
+            onValueChange={
+              onDataPointClick
+                ? (v) => handleValueChange(v as unknown as Record<string, unknown>)
+                : undefined
+            }
           />
         </div>
       </div>
