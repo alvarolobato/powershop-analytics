@@ -7,9 +7,19 @@
  * If a pending trigger already exists, returns it with already_queued: true
  * without inserting again. Races (two concurrent first inserts) use ON CONFLICT.
  *
+ * Request body (optional JSON):
+ *   {
+ *     force_full?: boolean,  // reset ALL watermark-backed syncs before run
+ *     tables?: string[]      // reset watermarks for this subset only
+ *   }
+ * When force_full=true, `tables` is ignored. Names in `tables` are validated
+ * against SYNC_NAMES_WITH_WATERMARK (see etl/main.py) — any unknown name
+ * returns 400.
+ *
  * Response codes:
  *   202 { trigger_id: number }                                — trigger inserted
  *   202 { trigger_id: number, already_queued: true }          — pending trigger already existed
+ *   400 { error: "invalid_body", detail: string }             — body rejected (unknown table, bad type)
  *   409 { error: "already_running", run_id: number }          — sync already active
  *   503 { error: "db_error" }                                 — database unreachable
  */
@@ -20,7 +30,101 @@ import { sql } from "@/lib/db-write";
 
 const STALE_RUN_HOURS = 4;
 
-export async function POST(): Promise<NextResponse> {
+// Must mirror SYNC_NAMES_WITH_WATERMARK in etl/main.py. Kept inline because
+// the dashboard cannot import from Python; add a CI check if these ever
+// drift (see issue #398 for the registry).
+const ALLOWED_FORCE_TABLES: ReadonlySet<string> = new Set([
+  "ventas",
+  "lineas_ventas",
+  "pagos_ventas",
+  "gc_albaranes",
+  "gc_lin_albarane",
+  "gc_facturas",
+  "gc_lin_facturas",
+  "stock",
+  "traspasos",
+]);
+
+interface TriggerBody {
+  forceFull: boolean;
+  tables: string[];
+}
+
+interface BodyParseSuccess {
+  ok: true;
+  value: TriggerBody;
+}
+
+interface BodyParseFailure {
+  ok: false;
+  detail: string;
+}
+
+type BodyParseResult = BodyParseSuccess | BodyParseFailure;
+
+async function parseBody(request: Request): Promise<BodyParseResult> {
+  // No body at all (empty POST) is allowed and means "default incremental run".
+  const raw = await request.text().catch(() => "");
+  if (!raw) return { ok: true, value: { forceFull: false, tables: [] } };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, detail: "Body must be valid JSON" };
+  }
+
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, detail: "Body must be a JSON object" };
+  }
+
+  const obj = parsed as Record<string, unknown>;
+
+  let forceFull = false;
+  if (obj.force_full !== undefined) {
+    if (typeof obj.force_full !== "boolean") {
+      return { ok: false, detail: "force_full must be a boolean" };
+    }
+    forceFull = obj.force_full;
+  }
+
+  let tables: string[] = [];
+  if (obj.tables !== undefined) {
+    if (!Array.isArray(obj.tables)) {
+      return { ok: false, detail: "tables must be an array of strings" };
+    }
+    if (obj.tables.some((t) => typeof t !== "string")) {
+      return { ok: false, detail: "tables must be an array of strings" };
+    }
+    tables = (obj.tables as string[]).map((t) => t.trim()).filter(Boolean);
+    // Deduplicate — otherwise the same name could occupy multiple array slots.
+    tables = Array.from(new Set(tables));
+
+    const unknown = tables.filter((t) => !ALLOWED_FORCE_TABLES.has(t));
+    if (unknown.length > 0) {
+      return {
+        ok: false,
+        detail: `Unknown table name(s): ${unknown.join(", ")}`,
+      };
+    }
+  }
+
+  // force_full short-circuits the whitelist — irrelevant which subset was sent.
+  if (forceFull) tables = [];
+
+  return { ok: true, value: { forceFull, tables } };
+}
+
+export async function POST(request: Request): Promise<NextResponse> {
+  const parsed = await parseBody(request);
+  if (!parsed.ok) {
+    return NextResponse.json(
+      { error: "invalid_body", detail: parsed.detail },
+      { status: 400 },
+    );
+  }
+  const { forceFull, tables } = parsed.value;
+
   try {
     const activeResult = await query(
       `SELECT id, started_at
@@ -32,8 +136,11 @@ export async function POST(): Promise<NextResponse> {
 
     if (activeResult.rows.length > 0) {
       const [runId, startedAt] = activeResult.rows[0];
-      const startedAtDate = startedAt instanceof Date ? startedAt : new Date(String(startedAt));
-      const staleThreshold = new Date(Date.now() - STALE_RUN_HOURS * 60 * 60 * 1000);
+      const startedAtDate =
+        startedAt instanceof Date ? startedAt : new Date(String(startedAt));
+      const staleThreshold = new Date(
+        Date.now() - STALE_RUN_HOURS * 60 * 60 * 1000,
+      );
 
       if (startedAtDate >= staleThreshold) {
         return NextResponse.json(
@@ -58,9 +165,11 @@ export async function POST(): Promise<NextResponse> {
     // ON CONFLICT DO NOTHING + RETURNING may return no rows if one already exists;
     // fetch the existing row in that case so we always return a trigger_id.
     const rows = await sql<{ id: number }>(
-      `INSERT INTO etl_manual_trigger (status) VALUES ('pending')
+      `INSERT INTO etl_manual_trigger (status, force_full, force_tables)
+       VALUES ('pending', $1, $2)
        ON CONFLICT (status) WHERE status = 'pending' DO NOTHING
        RETURNING id`,
+      [forceFull, tables],
     );
 
     let triggerId: number;
