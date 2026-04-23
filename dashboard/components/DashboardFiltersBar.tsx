@@ -15,6 +15,32 @@ export interface DashboardFiltersBarProps {
 
 type OptionRow = { value: string; label: string };
 
+/** HTML `<select>` value is always string — coerce stored numbers for controlled value. */
+function singleSelectFormValue(
+  filter: GlobalFilter,
+  value: GlobalFilterValues,
+): string {
+  const raw = value[filter.id];
+  if (raw === undefined || raw === null) return "";
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
+  if (typeof raw === "string") return raw;
+  return "";
+}
+
+function multiSelectFormValue(
+  filter: GlobalFilter,
+  value: GlobalFilterValues,
+): string[] {
+  const raw = value[filter.id];
+  if (!Array.isArray(raw)) return [];
+  if (filter.value_type === "numeric") {
+    return (raw as unknown[])
+      .filter((x): x is number => typeof x === "number" && Number.isFinite(x))
+      .map(String);
+  }
+  return (raw as string[]).filter((x) => typeof x === "string");
+}
+
 async function postOptions(
   body: Record<string, unknown>,
 ): Promise<OptionRow[]> {
@@ -118,13 +144,18 @@ export function DashboardFiltersBar({
               aria-label={f.label}
               aria-busy={!!loading[f.id]}
               className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
-              value={typeof value[f.id] === "string" ? (value[f.id] as string) : ""}
+              value={singleSelectFormValue(f, value)}
               disabled={!!loading[f.id]}
               onChange={(ev) => {
                 const v = ev.target.value;
                 const next = { ...value };
                 if (!v) delete next[f.id];
-                else next[f.id] = v;
+                else if (f.value_type === "numeric") {
+                  const n = Number(v);
+                  next[f.id] = Number.isFinite(n) ? n : v;
+                } else {
+                  next[f.id] = v;
+                }
                 onChange(next);
               }}
             >
@@ -144,12 +175,18 @@ export function DashboardFiltersBar({
               size={Math.min(6, Math.max(3, (optionsById[f.id] ?? []).length || 3))}
               className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis min-h-[72px]"
               disabled={!!loading[f.id]}
-              value={Array.isArray(value[f.id]) ? (value[f.id] as string[]) : []}
+              value={multiSelectFormValue(f, value)}
               onChange={(ev) => {
                 const selected = Array.from(ev.target.selectedOptions).map((o) => o.value);
                 const next = { ...value };
                 if (selected.length === 0) delete next[f.id];
-                else next[f.id] = selected;
+                else if (f.value_type === "numeric") {
+                  next[f.id] = selected
+                    .map((s) => Number(s))
+                    .filter((n) => Number.isFinite(n));
+                } else {
+                  next[f.id] = selected;
+                }
                 onChange(next);
               }}
             >

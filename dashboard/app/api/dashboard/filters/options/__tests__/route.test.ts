@@ -112,4 +112,37 @@ describe("POST /api/dashboard/filters/options", () => {
     );
     expect(res.status).toBe(400);
   });
+
+  it("accepts activeFilters with numeric scalars and arrays", async () => {
+    const specWithTwo = {
+      title: "T",
+      widgets: [{ type: "table", title: "W", sql: "SELECT 1" }],
+      filters: [
+        STORED_SPEC.filters[0],
+        {
+          id: "familia",
+          type: "multi_select",
+          label: "Familia",
+          bind_expr: "fm.x",
+          value_type: "numeric",
+          options_sql: "SELECT 1 AS value, 1 AS label",
+        },
+      ],
+    };
+    mockSql.mockResolvedValueOnce([{ spec: specWithTwo }]);
+    mockQuery.mockResolvedValueOnce({
+      columns: ["value", "label"],
+      rows: [["1", "1"]],
+    });
+
+    const res = await POST(
+      req({
+        dashboardId: 1,
+        filterId: "familia",
+        activeFilters: { tienda: 7, other: [1, 2, 3] },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(mockQuery).toHaveBeenCalled();
+  });
 });

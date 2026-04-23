@@ -22,6 +22,14 @@ import {
 import { validateQueryCost, QueryTooExpensiveError } from "@/lib/query-validator";
 import { ZodError, z } from "zod";
 
+/** Values POSTed for cascading options — mirrors `GlobalFilterValues` JSON shape. */
+const ActiveFilterEntrySchema = z.union([
+  z.string(),
+  z.number(),
+  z.array(z.string()),
+  z.array(z.number()),
+]);
+
 const BodySchema = z.object({
   dashboardId: z.number().int().positive(),
   filterId: z.string().min(1),
@@ -31,9 +39,7 @@ const BodySchema = z.object({
       to: z.string().min(1),
     })
     .optional(),
-  activeFilters: z
-    .record(z.union([z.string(), z.array(z.string())]))
-    .optional(),
+  activeFilters: z.record(z.string(), ActiveFilterEntrySchema).optional(),
 });
 
 function parseDashboardId(raw: unknown): number | null {

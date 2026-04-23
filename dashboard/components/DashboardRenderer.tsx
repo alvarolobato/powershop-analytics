@@ -222,6 +222,8 @@ export function DashboardRenderer({
   const globalFilterValuesRef = useRef<GlobalFilterValues>(EMPTY_GLOBAL_FILTERS);
   globalFilterValuesRef.current = globalFilterValues ?? EMPTY_GLOBAL_FILTERS;
 
+  // Key off `specKey` (serialized spec) so a parent that recreates `spec.filters`
+  // with identical content does not recreate `bindGlobalFilters` / `fetchAll` / refetch.
   const bindGlobalFilters = useCallback(
     (sqlAfterDates: string): { sql: string; params: unknown[] } =>
       compileGlobalFilterSql(
@@ -229,7 +231,8 @@ export function DashboardRenderer({
         spec.filters,
         globalFilterValuesRef.current,
       ),
-    [spec.filters],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally `specKey` only; `spec` is read from the same render as this key
+    [specKey],
   );
 
   // Fetch all widgets for a given spec
