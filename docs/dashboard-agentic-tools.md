@@ -4,7 +4,9 @@ This document describes the **native tool-calling** path for the Dashboard App L
 
 ## Overview
 
-- **Runtime**: `dashboard/lib/llm-tools/runner.ts` — calls OpenRouter `chat.completions` with `tools` + `tool_choice: auto`, appends `tool` messages, repeats until the assistant returns plain text or a limit is hit.
+- **Runtime**: `dashboard/lib/llm-tools/runner.ts` — provider-agnostic loop: appends `tool` messages, repeats until the assistant returns plain text or a limit is hit.
+- **OpenRouter (`DASHBOARD_LLM_PROVIDER=openrouter`, default)**: native `chat.completions` with `tools` + `tool_choice: auto` via `dashboard/lib/llm-provider/openrouter.ts`.
+- **CLI (`DASHBOARD_LLM_PROVIDER=cli`)**: each round invokes the configured driver (today: **Claude Code** `claude -p`) with the full transcript; the model must answer with **one JSON object** only: `{"kind":"final","content":"..."}` or `{"kind":"tools","calls":[{"name":"...","arguments":"..."}]}`. The server maps that to the same tool dispatch path as OpenRouter.
 - **Feature flag**: `DASHBOARD_AGENTIC_TOOLS_ENABLED` — default **true**. Set to `false` to force the legacy **single-shot** completion (no tools).
 - **Failure policy**: If the runner throws (limits, empty final content), API routes return HTTP **500** with `code: AGENTIC_RUNNER` — **no silent fallback** to single-shot.
 
@@ -44,7 +46,7 @@ This document describes the **native tool-calling** path for the Dashboard App L
 ## Telemetry
 
 - Table: `llm_tool_calls` (see `etl/schema/init.sql`).
-- Fields include `tool_name`, `endpoint`, `request_id`, `status`, `latency_ms`, payload sizes, optional `error_code`.
+- Fields include `tool_name`, `endpoint`, `request_id`, `status`, `latency_ms`, payload sizes, optional `error_code`, plus **`llm_provider`** and **`llm_driver`** (e.g. `cli` / `claude_code`).
 - **Admin API**: `GET /api/admin/tool-calls` (same auth as other admin routes) returns rolling **30-day** aggregates by endpoint, tool, and status.
 
 ## Analyze flow and `dashboardId`

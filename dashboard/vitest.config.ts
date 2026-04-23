@@ -26,6 +26,8 @@ export default defineConfig({
         "lib/review-db.ts",
         "lib/review-actions-db.ts",
         "lib/review-dashboard-seed.ts",
+        // Child-process runner: correctness covered by assertCliSuccess unit tests; full spawn I/O is manual/integration.
+        "lib/llm-provider/cli/process.ts",
       ],
       // Floors: relaxed to 70% (2026-04) after agentic handlers enlarged the
       // covered surface; branches kept at prior floor.

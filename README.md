@@ -56,7 +56,8 @@ python3 -m venv .venv && .venv/bin/pip install p4d
 
 # Configure credentials (single file shared across worktrees)
 cp .env.example ~/.config/powershop-analytics/.env
-# Edit with your P4D_HOST, P4D_USER, P4D_PASSWORD, OPENROUTER_API_KEY
+# Edit with your P4D_HOST, P4D_USER, P4D_PASSWORD, OPENROUTER_API_KEY.
+# Dashboard App: optional `DASHBOARD_LLM_PROVIDER=cli` uses local Claude Code instead of OpenRouter — see `.env.example` and DECISIONS D-019.
 
 # Explore the 4D source (use cli/ps or add cli/ to PATH)
 ./cli/ps sql tables

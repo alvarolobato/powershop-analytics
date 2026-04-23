@@ -26,8 +26,14 @@ vi.mock("@/lib/llm-tools/handlers/dashboards", () => ({
 }));
 
 import { runAgenticChat, AgenticRunnerError } from "@/lib/llm-tools/runner";
+import { createOpenRouterAgenticAdapter } from "@/lib/llm-provider/openrouter";
 
-const ctx = { requestId: "req_runner_test", endpoint: "testEndpoint" };
+const ctx = {
+  requestId: "req_runner_test",
+  endpoint: "testEndpoint",
+  llmProvider: "openrouter" as const,
+  llmDriver: null as null,
+};
 
 describe("runAgenticChat", () => {
   beforeEach(() => {
@@ -46,9 +52,10 @@ describe("runAgenticChat", () => {
       usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
     });
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
 
     const out = await runAgenticChat({
-      client,
+      adapter,
       model: "anthropic/claude-sonnet-4",
       systemPrompt: "sys",
       userContent: "user",
@@ -86,9 +93,10 @@ describe("runAgenticChat", () => {
         usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
       });
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
 
     const out = await runAgenticChat({
-      client,
+      adapter,
       model: "m",
       systemPrompt: "sys",
       userContent: "hi",
@@ -125,10 +133,11 @@ describe("runAgenticChat", () => {
       usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
     });
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
 
     await expect(
       runAgenticChat({
-        client,
+        adapter,
         model: "m",
         systemPrompt: "s",
         userContent: "u",
@@ -164,10 +173,11 @@ describe("runAgenticChat", () => {
       usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
     });
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
 
     await expect(
       runAgenticChat({
-        client,
+        adapter,
         model: "m",
         systemPrompt: "s",
         userContent: "u",
@@ -187,10 +197,11 @@ describe("runAgenticChat", () => {
       usage: {},
     });
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
 
     await expect(
       runAgenticChat({
-        client,
+        adapter,
         model: "m",
         systemPrompt: "s",
         userContent: "u",

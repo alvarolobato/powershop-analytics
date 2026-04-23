@@ -23,7 +23,7 @@ describe("GET /api/usage", () => {
   });
 
   it("returns 200 with zero-shape when both queries return empty rows", async () => {
-    mockSql.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
     const res = await GET();
     expect(res.status).toBe(200);
@@ -33,10 +33,12 @@ describe("GET /api/usage", () => {
     expect(data).toHaveProperty("week");
     expect(data).toHaveProperty("month");
     expect(data).toHaveProperty("by_endpoint");
+    expect(data).toHaveProperty("by_provider");
     expect(data.today).toEqual(ZERO_STATS);
     expect(data.week).toEqual(ZERO_STATS);
     expect(data.month).toEqual(ZERO_STATS);
     expect(data.by_endpoint).toEqual([]);
+    expect(data.by_provider).toEqual([]);
   });
 
   it("returns 200 with zero-shape when period row has null values", async () => {
@@ -57,6 +59,7 @@ describe("GET /api/usage", () => {
           month_cost: null,
         },
       ])
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce([]);
 
     const res = await GET();
@@ -66,6 +69,7 @@ describe("GET /api/usage", () => {
     expect(data.today).toEqual(ZERO_STATS);
     expect(data.week).toEqual(ZERO_STATS);
     expect(data.month).toEqual(ZERO_STATS);
+    expect(data.by_provider).toEqual([]);
   });
 
   it("returns correct aggregates when data is present", async () => {
@@ -93,6 +97,14 @@ describe("GET /api/usage", () => {
           total_tokens: 1200,
           estimated_cost_usd: "0.018000",
         },
+      ])
+      .mockResolvedValueOnce([
+        {
+          llm_provider: "openrouter",
+          calls: 10,
+          total_tokens: 5000,
+          estimated_cost_usd: "0.050000",
+        },
       ]);
 
     const res = await GET();
@@ -116,6 +128,14 @@ describe("GET /api/usage", () => {
       total_tokens: 1200,
       estimated_cost_usd: "0.018000",
     });
+    expect(data.by_provider).toEqual([
+      {
+        llm_provider: "openrouter",
+        calls: 10,
+        total_tokens: 5000,
+        estimated_cost_usd: "0.050000",
+      },
+    ]);
   });
 
   it("returns 200 with zero-shape when DB throws an error", async () => {
@@ -129,6 +149,7 @@ describe("GET /api/usage", () => {
     expect(data.week).toEqual(ZERO_STATS);
     expect(data.month).toEqual(ZERO_STATS);
     expect(data.by_endpoint).toEqual([]);
+    expect(data.by_provider).toEqual([]);
   });
 
   it("by_endpoint list has all required keys per entry", async () => {
@@ -152,7 +173,8 @@ describe("GET /api/usage", () => {
       .mockResolvedValueOnce([
         { endpoint: "modifyDashboard", calls: 2, total_tokens: 800, estimated_cost_usd: "0.012000" },
         { endpoint: "generateDashboard", calls: 1, total_tokens: 400, estimated_cost_usd: "0.006000" },
-      ]);
+      ])
+      .mockResolvedValueOnce([]);
 
     const res = await GET();
     const data = await res.json();

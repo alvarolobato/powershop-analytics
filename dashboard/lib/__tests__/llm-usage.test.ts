@@ -49,6 +49,8 @@ describe("logUsage", () => {
     expect(params[4]).toBe(1500);
     // cost = 1000 * 3/1e6 + 500 * 15/1e6 = 0.003 + 0.0075 = 0.0105
     expect(params[5]).toBe("0.010500");
+    expect(params[6]).toBe("openrouter");
+    expect(params[7]).toBe(null);
   });
 
   it("falls back to DEFAULT_RATE for unknown model", async () => {
@@ -65,6 +67,24 @@ describe("logUsage", () => {
     // default rate = 3/1e6 prompt + 15/1e6 completion
     // 100 * 3/1e6 + 100 * 15/1e6 = 0.0003 + 0.0015 = 0.0018
     expect(params[5]).toBe("0.001800");
+    expect(params[6]).toBe("openrouter");
+    expect(params[7]).toBe(null);
+  });
+
+  it("stores zero estimated cost for CLI provider rows", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "cli", driver: "claude_code" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.000000");
+    expect(params[6]).toBe("cli");
+    expect(params[7]).toBe("claude_code");
   });
 
   it("does not throw when sql rejects (fire-and-forget)", async () => {

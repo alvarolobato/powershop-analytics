@@ -1,5 +1,6 @@
 import { sql } from "@/lib/db-write";
 import { query } from "@/lib/db";
+import type { LlmUsageProviderMeta } from "@/lib/llm-provider/types";
 
 /**
  * Rate table: **estimated** USD per token used only for `llm_usage.estimated_cost_usd`.
@@ -8,6 +9,7 @@ import { query } from "@/lib/db";
  * - OpenRouter may apply discounts, caching, or rounding; this app does **not** read
  *   OpenRouter’s billing API, so displayed costs are **indicative**, not invoice-accurate.
  * - Unknown models fall back to `DEFAULT_RATE` (same as Sonnet 4) with a console warning.
+ * - Rows with `llm_provider = 'cli'` store **zero** estimated cost (flat-rate / unknown).
  */
 const RATES: Record<string, { prompt: number; completion: number }> = {
   "anthropic/claude-sonnet-4": {
@@ -31,20 +33,28 @@ export function logUsage(
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
-  }
+  },
+  meta?: LlmUsageProviderMeta,
 ): void {
-  let rate = RATES[model];
-  if (!rate) {
-    console.warn(`[llm-usage] Unknown model "${model}", using default rate`);
-    rate = DEFAULT_RATE;
+  const provider = meta?.provider ?? "openrouter";
+  const driver = meta?.driver ?? null;
+
+  let estimatedCost = 0;
+  if (provider === "openrouter") {
+    let rate = RATES[model];
+    if (!rate) {
+      console.warn(`[llm-usage] Unknown model "${model}", using default rate`);
+      rate = DEFAULT_RATE;
+    }
+    estimatedCost =
+      usage.prompt_tokens * rate.prompt + usage.completion_tokens * rate.completion;
   }
-  const estimatedCost =
-    usage.prompt_tokens * rate.prompt +
-    usage.completion_tokens * rate.completion;
 
   void sql(
-    `INSERT INTO llm_usage (endpoint, model, prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+    `INSERT INTO llm_usage (
+       endpoint, model, prompt_tokens, completion_tokens, total_tokens,
+       estimated_cost_usd, llm_provider, llm_driver
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       endpoint,
       model,
@@ -52,7 +62,9 @@ export function logUsage(
       usage.completion_tokens,
       usage.total_tokens,
       estimatedCost.toFixed(6),
-    ]
+      provider,
+      driver,
+    ],
   ).catch((err) => {
     console.error("[llm-usage] Failed to log usage:", err);
   });
@@ -73,11 +85,13 @@ export async function checkDailyBudget(): Promise<void> {
   // allowing overshoot by up to N×(max call cost). Acceptable for a daily soft cap.
   // CURRENT_DATE uses the PostgreSQL session timezone (default UTC); the budget
   // window resets at midnight UTC regardless of the server's local timezone.
+  // Only `openrouter` rows contribute token-derived estimated spend; CLI rows use cost 0.
   try {
     const result = await query(
       `SELECT COALESCE(SUM(estimated_cost_usd), 0)::text AS total
        FROM llm_usage
-       WHERE created_at >= CURRENT_DATE`
+       WHERE created_at >= CURRENT_DATE
+         AND llm_provider = 'openrouter'`,
     );
     const total = parseFloat((result.rows[0]?.[0] as string | undefined) ?? "0");
     if (total >= limit) {

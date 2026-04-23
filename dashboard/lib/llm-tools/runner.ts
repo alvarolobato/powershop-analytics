@@ -1,8 +1,8 @@
 /**
- * Agentic chat.completions loop: tools, tool results, hard limits, telemetry.
+ * Agentic chat loop: tools, tool results, hard limits, telemetry.
+ * Model execution is delegated to an AgenticModelAdapter (OpenRouter or CLI).
  */
 
-import type OpenAI from "openai";
 import type {
   ChatCompletionMessageParam,
   ChatCompletionTool,
@@ -32,6 +32,8 @@ import {
   handleGetDashboardWidgetRawValues,
   handleGetDashboardAllWidgetStatus,
 } from "./handlers/dashboards";
+import type { AgenticModelAdapter } from "./runner-types";
+import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
 
 export class AgenticRunnerError extends Error {
   readonly code: string;
@@ -46,7 +48,7 @@ export class AgenticRunnerError extends Error {
 }
 
 export interface AgenticRunParams {
-  client: OpenAI;
+  adapter: AgenticModelAdapter;
   model: string;
   systemPrompt: string;
   userContent: string;
@@ -114,9 +116,6 @@ async function dispatchTool(
   }
 }
 
-/**
- * Run a tool-augmented chat loop until the assistant returns plain text or limits hit.
- */
 function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent): void {
   try {
     ctx.onAgenticProgress?.(event);
@@ -126,11 +125,8 @@ function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent
   console.info(`[agentic][${ctx.endpoint}][${ctx.requestId}]`, JSON.stringify(event));
 }
 
-export async function runAgenticChat(
-  params: AgenticRunParams,
-): Promise<AgenticRunResult> {
-  const { client, model, systemPrompt, userContent, ctx, temperature, maxTokens } =
-    params;
+export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticRunResult> {
+  const { adapter, model, systemPrompt, userContent, ctx, temperature, maxTokens } = params;
 
   const cfg = getAgenticConfig();
   const tools: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS;
@@ -150,51 +146,59 @@ export async function runAgenticChat(
       maxRounds: cfg.maxToolRounds,
     });
 
-    const completion = await client.chat.completions.create({
-      model,
-      messages,
-      tools,
-      tool_choice: "auto",
-      temperature,
-      max_tokens: maxTokens,
-    });
-
-    addUsage(usage, completion.usage);
-
-    const choice = completion.choices[0]?.message;
-    if (!choice) {
+    let step;
+    try {
+      step = await adapter.runStep({
+        messages,
+        tools,
+        model,
+        temperature,
+        maxTokens,
+      });
+    } catch (e) {
+      if (e instanceof AgenticRunnerError) throw e;
+      if (e instanceof CliRunnerError) {
+        throw new AgenticRunnerError(e.code, e.message, ctx.requestId);
+      }
       throw new AgenticRunnerError(
-        "LLM_EMPTY",
-        "The model returned no message.",
+        "AGENTIC_ADAPTER",
+        e instanceof Error ? e.message : "Model step failed.",
         ctx.requestId,
       );
     }
 
-    const toolCalls = choice.tool_calls;
-    if (!toolCalls?.length) {
-      const text = choice.content?.trim();
-      if (!text) {
-        throw new AgenticRunnerError(
-          "LLM_EMPTY",
-          "The model returned empty content.",
-          ctx.requestId,
-        );
-      }
-      emitAgenticProgress(ctx, { type: "finalizing", messageChars: text.length });
-      return { content: text, usage };
+    addUsage(usage, step.usage);
+
+    if (step.kind === "error") {
+      throw new AgenticRunnerError(step.code, step.message, ctx.requestId);
     }
 
-    const toolNames = toolCalls.map((tc) => {
-      const fn = tc.type === "function" ? tc.function : null;
-      return fn?.name ?? "(missing)";
-    });
+    if (step.kind === "final") {
+      emitAgenticProgress(ctx, { type: "finalizing", messageChars: step.content.length });
+      return { content: step.content, usage };
+    }
+
+    const toolCalls = step.tool_calls;
+    if (!toolCalls?.length) {
+      throw new AgenticRunnerError(
+        "LLM_EMPTY",
+        "The model returned no tools or final text.",
+        ctx.requestId,
+      );
+    }
+
+    const toolNames = toolCalls.map((tc) => tc.function?.name ?? "(missing)");
     emitAgenticProgress(ctx, {
       type: "assistant_tools",
       round: round + 1,
       tools: toolNames,
     });
 
-    messages.push(choice as ChatCompletionMessageParam);
+    messages.push({
+      role: "assistant",
+      content: null,
+      tool_calls: toolCalls,
+    });
 
     for (const tc of toolCalls) {
       toolCallsTotal += 1;
@@ -206,9 +210,8 @@ export async function runAgenticChat(
         );
       }
 
-      const fn = tc.type === "function" ? tc.function : null;
-      const name = fn?.name ?? "";
-      const rawArgs = fn?.arguments ?? "{}";
+      const name = tc.function?.name ?? "";
+      const rawArgs = tc.function?.arguments ?? "{}";
       emitAgenticProgress(ctx, {
         type: "tool_start",
         round: round + 1,
@@ -221,10 +224,7 @@ export async function runAgenticChat(
       let errorCode: string | null = null;
 
       try {
-        body = await withTimeout(
-          dispatchTool(name, rawArgs, ctx),
-          cfg.toolTimeoutMs,
-        );
+        body = await withTimeout(dispatchTool(name, rawArgs, ctx), cfg.toolTimeoutMs);
         telemetryStatus = body.ok ? "ok" : "error";
         if (!body.ok) {
           errorCode = body.code;
@@ -252,6 +252,8 @@ export async function runAgenticChat(
         payloadInBytes: Buffer.byteLength(rawArgs, "utf8"),
         payloadOutBytes: Buffer.byteLength(payload, "utf8"),
         errorCode,
+        llmProvider: ctx.llmProvider,
+        llmDriver: ctx.llmDriver ?? null,
       });
 
       emitAgenticProgress(ctx, {

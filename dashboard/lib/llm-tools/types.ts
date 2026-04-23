@@ -2,6 +2,8 @@
  * Shared types for the agentic LLM tool layer.
  */
 
+import type { DashboardCliDriverId, DashboardLlmProviderId } from "@/lib/llm-provider/types";
+
 /** High-level events from the tool loop (UI streaming + server logs). */
 export type AgenticProgressEvent =
   | { type: "round"; round: number; maxRounds: number }
@@ -27,6 +29,10 @@ export interface LlmAgenticContext {
   dashboardId?: number;
   /** Optional hook for NDJSON streaming UI and diagnostics. */
   onAgenticProgress?: (event: AgenticProgressEvent) => void;
+  /** Telemetry: active LLM transport (OpenRouter HTTP vs local CLI). */
+  llmProvider?: DashboardLlmProviderId;
+  /** When `llmProvider` is `cli`, which driver binary/protocol is used. */
+  llmDriver?: DashboardCliDriverId | null;
 }
 
 export interface AgenticUsageTotals {

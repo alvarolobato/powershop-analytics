@@ -13,6 +13,8 @@ export interface LogToolCallInput {
   payloadInBytes: number;
   payloadOutBytes: number;
   errorCode?: string | null;
+  llmProvider?: string;
+  llmDriver?: string | null;
 }
 
 export async function logLlmToolCall(row: LogToolCallInput): Promise<void> {
@@ -20,8 +22,9 @@ export async function logLlmToolCall(row: LogToolCallInput): Promise<void> {
     await sql(
       `INSERT INTO llm_tool_calls (
          tool_name, endpoint, request_id, status, latency_ms,
-         payload_in_bytes, payload_out_bytes, error_code
-       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         payload_in_bytes, payload_out_bytes, error_code,
+         llm_provider, llm_driver
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         row.toolName,
         row.endpoint,
@@ -31,6 +34,8 @@ export async function logLlmToolCall(row: LogToolCallInput): Promise<void> {
         row.payloadInBytes,
         row.payloadOutBytes,
         row.errorCode ?? null,
+        row.llmProvider ?? "openrouter",
+        row.llmDriver ?? null,
       ],
     );
   } catch (err) {

@@ -25,7 +25,8 @@ dashboard/
 │   ├── ChatSidebar.tsx      # Chat interface for dashboard modification
 │   └── DashboardList.tsx    # Dashboard listing page
 ├── lib/
-│   ├── llm.ts              # OpenRouter API client (single-shot + agentic)
+│   ├── llm.ts              # Dashboard LLM orchestration (single-shot + agentic)
+│   ├── llm-provider/       # OpenRouter vs CLI adapters, safe CLI spawn, registry
 │   ├── llm-tools/          # Agentic runner, tool catalog, SQL/dashboard handlers
 │   ├── db.ts               # PostgreSQL client (pg)
 │   ├── prompts.ts          # System prompts with knowledge context
@@ -44,7 +45,7 @@ It returns: a JSON spec with `title`, `description`, `widgets[]`.
 Each widget has: `type`, `title`, `sql`, and type-specific config (x/y for charts, format for KPIs).
 
 ### Agentic tools (generate / modify / analyze)
-When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `lib/llm.ts` routes those three flows through `lib/llm-tools/runner.ts` with OpenRouter function calling. The model can list/describe `ps_*` tables, validate or run read-only SQL, and inspect saved dashboards before the final JSON or markdown answer. Hard limits and telemetry are documented in [docs/dashboard-agentic-tools.md](../dashboard-agentic-tools.md).
+When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `lib/llm.ts` routes those three flows through `lib/llm-tools/runner.ts`. With **`DASHBOARD_LLM_PROVIDER=openrouter`** (default), rounds use native OpenRouter function calling. With **`DASHBOARD_LLM_PROVIDER=cli`**, rounds use the Claude Code JSON step protocol (see D-019). The model can list/describe `ps_*` tables, validate or run read-only SQL, and inspect saved dashboards before the final JSON or markdown answer. Hard limits and telemetry are documented in [docs/dashboard-agentic-tools.md](../dashboard-agentic-tools.md).
 
 ### Dashboard Modification
 User sends: current spec JSON + modification prompt.
