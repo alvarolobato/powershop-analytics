@@ -55,6 +55,12 @@ describe("prompts", () => {
       expect(prompt).toContain('"glossary"');
     });
 
+    it("documents global dashboard filters and __gf tokens", () => {
+      expect(prompt).toContain("Global dashboard filters");
+      expect(prompt).toContain("__gf_tienda__");
+      expect(prompt).toContain('"filters"');
+    });
+
     it("includes rule requiring glossary to always be present", () => {
       expect(prompt).toContain('glossary" field MUST always be included');
     });
@@ -219,6 +225,11 @@ describe("prompts", () => {
 
     it("instructs to preserve existing glossary entries", () => {
       expect(prompt).toContain("Preserve all existing glossary entries");
+    });
+
+    it("instructs to preserve global filters and __gf tokens", () => {
+      expect(prompt).toContain("Global filters preservation");
+      expect(prompt).toContain("__gf_<id>__");
     });
 
     it("instructs to add new glossary terms for new widgets", () => {

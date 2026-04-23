@@ -127,10 +127,6 @@ function getClient(): OpenAI {
     _client = new OpenAI({
       baseURL: "https://openrouter.ai/api/v1",
       apiKey: getApiKey(),
-      defaultHeaders: {
-        "HTTP-Referer": "https://github.com/alvarolobato/powershop-analytics",
-        "X-Title": "PowerShop Dashboard",
-      },
     });
   }
   return _client;

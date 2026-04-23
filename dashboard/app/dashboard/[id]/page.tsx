@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { DashboardRenderer } from "@/components/DashboardRenderer";
+import { DashboardFiltersBar } from "@/components/DashboardFiltersBar";
+import type { GlobalFilterValues } from "@/lib/sql-filters";
 import type { WidgetState } from "@/components/DashboardRenderer";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
@@ -119,6 +121,7 @@ export default function ViewDashboard() {
   const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(() =>
     defaultComparisonRangeFor(getDefaultDashboardDateRange()),
   );
+  const [globalFilterValues, setGlobalFilterValues] = useState<GlobalFilterValues>({});
 
   // When date range changes, store the range and re-run all widget queries.
   // The date range is displayed in the picker for context; actual SQL filtering
@@ -133,6 +136,11 @@ export default function ViewDashboard() {
     },
     [],
   );
+
+  const handleGlobalFilterChange = useCallback((next: GlobalFilterValues) => {
+    setGlobalFilterValues(next);
+    setRefreshKey((k) => k + 1);
+  }, []);
 
   // Export dropdown state
   const [exportOpen, setExportOpen] = useState(false);
@@ -184,6 +192,10 @@ export default function ViewDashboard() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  useEffect(() => {
+    setGlobalFilterValues({});
+  }, [id]);
 
   // Keep latestSpecRef in sync
   useEffect(() => {
@@ -707,12 +719,23 @@ export default function ViewDashboard() {
       {/* Data freshness banner — loads independently, does not block dashboard */}
       <DataFreshnessBanner />
 
+      {dashboard.spec.filters && dashboard.spec.filters.length > 0 && (
+        <DashboardFiltersBar
+          dashboardId={dashboard.id}
+          spec={dashboard.spec}
+          dateRange={dateRange}
+          value={globalFilterValues}
+          onChange={handleGlobalFilterChange}
+        />
+      )}
+
       {/* Dashboard renderer */}
       <DashboardRenderer
         spec={dashboard.spec}
         refreshKey={refreshKey}
         dateRange={dateRange}
         comparisonRange={comparisonRange}
+        globalFilterValues={globalFilterValues}
         onWidgetDataChange={setWidgetData}
       />
 

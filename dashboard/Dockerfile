@@ -7,6 +7,8 @@ RUN npm ci
 # Stage 2: Build the application
 FROM node:20-alpine AS builder
 WORKDIR /app
+ARG APP_GIT_DESCRIBE=
+ENV APP_GIT_DESCRIBE=${APP_GIT_DESCRIBE}
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build

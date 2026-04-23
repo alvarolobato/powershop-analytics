@@ -56,6 +56,20 @@ SQL strings can embed placeholder tokens replaced at render time with the active
 
 Use :curr_from/:curr_to for dynamic date filtering instead of hardcoded dates. Use :comp_from/:comp_to in comparison_sql and trend_sql to reference the comparison period.
 
+### Global dashboard filters (v1)
+
+Dashboard JSON includes a top-level **filters** array (alongside **widgets**) so users can slice every widget consistently from the UI.
+
+Each filter object:
+- **id**: snake_case identifier (e.g. \`tienda\`, \`familia\`).
+- **type**: \`single_select\` or \`multi_select\`.
+- **label**: Spanish label shown in the filter bar.
+- **bind_expr**: SQL expression compared to the selection, e.g. \`v."tienda"\` or \`fm."fami_grup_marc"\`. **Alias \`ps_ventas\` as \`v\`** wherever \`__gf_tienda__\` is used.
+- **value_type**: \`text\` or \`numeric\` (controls PostgreSQL casts for bound parameters).
+- **options_sql**: Read-only \`SELECT\` that returns columns **value** and **label**. It may use date tokens (\`:curr_from\` / \`:curr_to\`) and may reference other filters with \`__gf_<other_id>__\` tokens for cascading lists.
+
+Widget SQL (including \`trend_sql\`, \`anomaly_sql\`, \`comparison_sql\`) must embed \`__gf_<id>__\` boolean slots inside \`WHERE\` clauses, e.g. \`AND __gf_tienda__\`. When a filter has no selection, the slot becomes SQL \`TRUE\` (no-op). **Never** interpolate user-selected filter values into SQL — only these tokens plus parameterized binding executed by the server.
+
 ### Chart widget comparison series
 
 Chart widgets (bar_chart, line_chart, area_chart, donut_chart) support an optional comparison_sql field:
@@ -174,6 +188,12 @@ The JSON must conform to this structure:
     // Each widget has an "id" field: "w1", "w2", ... (auto-incrementing)
     // KPI rows should come first, then charts, then tables
   ],
+  "filters": [
+    // Global business filters — ALWAYS include at least tienda (single_select) for retail dashboards
+    // Example:
+    // { "id": "tienda", "type": "single_select", "label": "Tienda", "bind_expr": "v.\\"tienda\\"", "value_type": "text",
+    //   "options_sql": "SELECT DISTINCT v.\\"tienda\\" AS value, v.\\"tienda\\" AS label FROM \\"public\\".\\"ps_ventas\\" v WHERE v.\\"entrada\\" = true AND v.\\"tienda\\" <> '99' AND v.\\"fecha_creacion\\" BETWEEN :curr_from AND :curr_to ORDER BY 1" }
+  ],
   "glossary": [
     // Array of 5-10 key business terms used in the dashboard
     // Each entry: { "term": "Ventas Netas", "definition": "Importe de ventas sin IVA. No incluye devoluciones (entrada = false)." }
@@ -184,6 +204,7 @@ The JSON must conform to this structure:
 
 Rules:
 - Every widget MUST have a unique "id" field (e.g. "w1", "w2", "w3")
+- The **filters** field MUST be present for new dashboards (use an empty array only if the domain truly has no sliceable dimensions)
 - A dashboard should have 4-8 widgets unless the user requests otherwise
 - Start with a kpi_row for the most important metrics
 - Follow with charts that provide visual context
@@ -217,6 +238,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 16. **Days between dates (PostgreSQL):** If columns are \`date\` (or \`timestamp::date\)), subtracting yields an **integer** number of days: \`(CURRENT_DATE - MAX(v.fecha_creacion::date))\` or \`(fecha_fin - fecha_ini)\`. **Do NOT** wrap that subtraction in \`EXTRACT(days FROM ...)\` — there is no \`days\` field; \`date - date\` is already days, and \`EXTRACT(day FROM integer)\` errors. For a true \`interval\` (e.g. two timestamps), use \`EXTRACT(day FROM intervalo)\` (singular \`day\`).
 17. **Never mix date and text in COALESCE:** \`COALESCE(MAX(fecha), 'Sin ventas')\` fails because PostgreSQL coerces the literal to \`date\`. Use \`COALESCE(MAX(fecha)::text, 'Sin ventas')\` or \`TO_CHAR(MAX(fecha), 'YYYY-MM-DD')\`.
 18. **"Días sin venta" pattern:** Prefer \`COALESCE((CURRENT_DATE - MAX(ultima_venta.fecha)), 999)\` when the join yields a single last-sale date per SKU (guard NULL with COALESCE), instead of EXTRACT on a date difference.
+19. **Global filters:** Include a **filters** array and \`AND __gf_tienda__\` (and other \`__gf_*\` slots) in retail widget SQL as required by the Global dashboard filters section. Never inline filter values — tokens only.
 `;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -307,6 +329,12 @@ export function buildModifyPrompt(currentSpec: string): string {
     "You must return the COMPLETE updated dashboard JSON — not just the changed parts.",
     "Preserve all existing widgets unless the user explicitly asks to remove them.",
     "When adding new widgets, continue the id sequence (e.g. if the last widget is w6, the new one is w7).",
+    "",
+    "## Global filters preservation rule",
+    "",
+    "The existing dashboard may contain a **filters** array and __gf_<id>__ tokens in widget SQL. You MUST:",
+    "1. Preserve all existing filter definitions unless the user explicitly asks to change them.",
+    "2. When adding retail widgets that use **ps_ventas**, keep **alias v** and include AND __gf_tienda__ (and other relevant __gf_<id>__ slots) in WHERE clauses.",
     "",
     "## Glossary preservation rule",
     "",

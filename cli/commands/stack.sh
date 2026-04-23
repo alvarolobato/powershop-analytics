@@ -4,6 +4,11 @@ set -e
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
+# Dashboard image: bake git describe into Next.js so the UI shows non-release builds (Docker build has no .git).
+if [ -z "${APP_GIT_DESCRIBE:-}" ] && [ -d "${REPO_ROOT}/.git" ]; then
+  export APP_GIT_DESCRIBE="$(cd "${REPO_ROOT}" && git describe --tags --always --dirty 2>/dev/null || true)"
+fi
+
 RED='\033[0;31m'
 CYAN='\033[0;36m'
 GREEN='\033[0;32m'

@@ -61,7 +61,11 @@ function safeEquals(a: string, b: string): boolean {
 
 export async function validateQueryCost(
   sql: string,
-  options?: { forceHeader?: string; statementTimeoutMs?: number }
+  options?: {
+    forceHeader?: string;
+    statementTimeoutMs?: number;
+    params?: unknown[];
+  },
 ): Promise<number> {
   const secret = process.env.QUERY_COST_OVERRIDE_SECRET;
   if (secret && options?.forceHeader && safeEquals(options.forceHeader, secret)) {
@@ -79,14 +83,15 @@ export async function validateQueryCost(
 
   try {
     const explainSql = `EXPLAIN (FORMAT JSON) ${sql}`; // safe: sql validated to start with SELECT/WITH above; validateReadOnly() also rejects semicolons and write keywords
+    const params = options?.params ?? [];
     const result =
       options?.statementTimeoutMs !== undefined
         ? await queryReadOnlyWithStatementTimeout(
             explainSql,
-            undefined,
+            params,
             options.statementTimeoutMs,
           )
-        : await query(explainSql);
+        : await query(explainSql, params);
     const raw = result.rows[0][0] as unknown;
     // node-postgres returns json columns as parsed JS values; handle both string (test mocks) and object
     const plan = (typeof raw === "string"

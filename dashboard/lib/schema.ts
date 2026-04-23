@@ -143,7 +143,47 @@ export const DefaultTimeRangeSchema = z.object({
   preset: TimeRangePresetSchema,
 }).strict();
 
-export const DashboardSpecSchema = z.object({
+const GlobalFilterIdSchema = z
+  .string()
+  .min(1)
+  .regex(/^[a-z][a-z0-9_]*$/, "filter id must be a snake_case slug (a-z, digits, underscore)");
+
+const GlobalFilterBaseSchema = z
+  .object({
+    id: GlobalFilterIdSchema,
+    label: z.string().min(1),
+    /**
+     * SQL expression compared to the selected value(s), e.g. `v."tienda"` or
+     * `fm."fami_grup_marc"`. Widget SQL must include the token `__gf_<id>__`
+     * (this filter's id) where the predicate should apply.
+     */
+    bind_expr: z.string().min(1),
+    /** How bound parameters are cast in PostgreSQL. */
+    value_type: z.enum(["text", "numeric"]).default("text"),
+    /**
+     * Read-only SELECT that returns exactly two columns aliased as `value`
+     * and `label` (order does not matter). May include date tokens and other
+     * `__gf_*__` tokens for cascading option lists.
+     */
+    options_sql: z.string().min(1),
+  })
+  .strict();
+
+export const SingleSelectGlobalFilterSchema = GlobalFilterBaseSchema.extend({
+  type: z.literal("single_select"),
+}).strict();
+
+export const MultiSelectGlobalFilterSchema = GlobalFilterBaseSchema.extend({
+  type: z.literal("multi_select"),
+}).strict();
+
+export const GlobalFilterSchema = z.discriminatedUnion("type", [
+  SingleSelectGlobalFilterSchema,
+  MultiSelectGlobalFilterSchema,
+]);
+
+export const DashboardSpecSchema = z
+  .object({
   title: z.string().min(1),
   description: z.string().min(1).optional(),
   widgets: z.array(WidgetSchema).min(1),
@@ -164,7 +204,29 @@ export const DashboardSpecSchema = z.object({
    * for absent optional fields, so we treat null the same as undefined here.
    */
   default_time_range: DefaultTimeRangeSchema.nullish(),
-}).strict();
+  /**
+   * Global business filters (tienda, familia, proveedor, etc.) shown in the
+   * dashboard chrome. Widget SQL should reference them with `__gf_<id>__`
+   * tokens; values are bound as PostgreSQL parameters at query time.
+   */
+  filters: z.array(GlobalFilterSchema).optional(),
+})
+  .strict()
+  .superRefine((spec, ctx) => {
+    const ids = spec.filters?.map((f) => f.id) ?? [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (seen.has(id)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `duplicate global filter id: ${id}`,
+          path: ["filters"],
+        });
+        return;
+      }
+      seen.add(id);
+    }
+  });
 
 // ---------------------------------------------------------------------------
 // TypeScript types (inferred from Zod — single source of truth)
@@ -185,6 +247,9 @@ export type GlossaryItem = z.infer<typeof GlossaryItemSchema>;
 export type DashboardSpec = z.infer<typeof DashboardSpecSchema>;
 export type TimeRangePreset = z.infer<typeof TimeRangePresetSchema>;
 export type DefaultTimeRange = z.infer<typeof DefaultTimeRangeSchema>;
+export type GlobalFilter = z.infer<typeof GlobalFilterSchema>;
+export type SingleSelectGlobalFilter = z.infer<typeof SingleSelectGlobalFilterSchema>;
+export type MultiSelectGlobalFilter = z.infer<typeof MultiSelectGlobalFilterSchema>;
 
 // ---------------------------------------------------------------------------
 // Validation helper

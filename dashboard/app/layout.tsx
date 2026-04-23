@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import ThemeProvider from "@/components/ThemeProvider";
 import ThemeSwitcher from "@/components/ThemeSwitcher";
+import { getAppFooterLines } from "@/lib/app-version-label";
 import "./globals.css";
 export const metadata: Metadata = {
   title: "PowerShop Dashboard",
@@ -10,6 +11,7 @@ export const metadata: Metadata = {
 };
 
 function Sidebar() {
+  const footer = getAppFooterLines();
   return (
     <>
       {/* Desktop sidebar — always visible on lg+ */}
@@ -58,7 +60,13 @@ function Sidebar() {
         <div className="border-t border-tremor-border dark:border-dark-tremor-border px-2 py-3">
           <ThemeSwitcher />
           <p className="mt-2 px-3 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-            PowerShop Analytics
+            {footer.primary}
+            {footer.secondary ? (
+              <>
+                <br />
+                <span className="font-mono text-[10px] opacity-90">{footer.secondary}</span>
+              </>
+            ) : null}
           </p>
         </div>
       </aside>
