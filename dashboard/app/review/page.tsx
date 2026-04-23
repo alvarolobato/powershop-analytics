@@ -350,43 +350,69 @@ export default function ReviewPage() {
                 })();
               }}
             />
-            <div className="flex items-center gap-2">
-              <select
-                className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
-                value={regenMode ?? ""}
-                onChange={(e) =>
-                  setRegenMode(
-                    e.target.value === ""
-                      ? null
-                      : (e.target.value as "refresh_data" | "alternate_angle"),
-                  )
-                }
-                data-testid="regen-mode-select"
-                title="Elige cómo regenerar: reejecuta SQL o pide al modelo otro enfoque sobre los mismos datos."
-              >
-                <option value="">Regenerar…</option>
-                <option
-                  value="refresh_data"
-                  title="Vuelve a ejecutar las consultas SQL para traer datos actualizados."
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <label htmlFor="regen-mode-select" className="sr-only">
+                  Modo de regeneración
+                </label>
+                <select
+                  id="regen-mode-select"
+                  className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
+                  value={regenMode ?? ""}
+                  onChange={(e) =>
+                    setRegenMode(
+                      e.target.value === ""
+                        ? null
+                        : (e.target.value as "refresh_data" | "alternate_angle"),
+                    )
+                  }
+                  data-testid="regen-mode-select"
+                  aria-label="Modo de regeneración de la revisión semanal"
+                  aria-describedby="regen-mode-hint"
+                  title="Elige cómo regenerar: reejecuta SQL o pide al modelo otro enfoque sobre los mismos datos."
                 >
-                  Actualizar datos
-                </option>
-                <option
-                  value="alternate_angle"
-                  title="Vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL."
+                  <option value="">Regenerar…</option>
+                  <option
+                    value="refresh_data"
+                    title="Vuelve a ejecutar las consultas SQL para traer datos actualizados."
+                  >
+                    Actualizar datos
+                  </option>
+                  <option
+                    value="alternate_angle"
+                    title="Vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL."
+                  >
+                    Reformular análisis (nuevo enfoque)
+                  </option>
+                </select>
+                <button
+                  type="button"
+                  disabled={!regenMode}
+                  onClick={() => void handleRegenerate()}
+                  className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium disabled:opacity-40"
+                  data-testid="regenerate-button"
                 >
-                  Reformular análisis (nuevo enfoque)
-                </option>
-              </select>
-              <button
-                type="button"
-                disabled={!regenMode}
-                onClick={() => void handleRegenerate()}
-                className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium disabled:opacity-40"
-                data-testid="regenerate-button"
+                  Regenerar
+                </button>
+              </div>
+              {/*
+                Accessible hint — visible to all users (not just hover). Native
+                `<option title>` tooltips are unreliable across browsers/touch
+                devices and not announced by screen readers, so we expose the
+                current mode's meaning here and wire it via `aria-describedby`.
+                See PR #402 Copilot feedback.
+              */}
+              <p
+                id="regen-mode-hint"
+                data-testid="regen-mode-hint"
+                className="text-[11px] leading-tight text-tremor-content dark:text-dark-tremor-content"
               >
-                Regenerar
-              </button>
+                {regenMode === "refresh_data"
+                  ? "Actualizar datos: vuelve a ejecutar las consultas SQL para traer datos actualizados."
+                  : regenMode === "alternate_angle"
+                    ? "Reformular análisis: vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL."
+                    : "Elige cómo regenerar: actualizar datos reejecuta SQL; reformular análisis pide al modelo otro enfoque sobre los mismos datos."}
+              </p>
             </div>
           </div>
 
