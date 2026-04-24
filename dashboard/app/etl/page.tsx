@@ -4,12 +4,21 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Card } from "@tremor/react";
 import { RunList } from "@/components/etl/RunList";
 import { EvolutionCharts } from "@/components/etl/EvolutionCharts";
+import {
+  ForceResyncDialog,
+  type ForceResyncOptions,
+} from "@/components/etl/ForceResyncDialog";
 import type { EtlSyncRun } from "@/components/etl/RunList";
 import type { EtlStatsData } from "@/components/etl/EvolutionCharts";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
-import { formatDuration, formatNumber } from "@/lib/etl-format";
+import {
+  formatAgeSeconds,
+  formatDuration,
+  formatNumber,
+  formatThroughput,
+} from "@/lib/etl-format";
 
 const PER_PAGE = 20;
 
@@ -38,7 +47,10 @@ function formatSuccessRate(rate: EtlStatsData["success_rate"]): string {
 
 function KpiSkeleton() {
   return (
-    <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 animate-pulse" aria-busy="true">
+    <div
+      className="grid grid-cols-2 gap-4 sm:grid-cols-4 animate-pulse"
+      aria-busy="true"
+    >
       {Array.from({ length: 4 }).map((_, i) => (
         <Card key={i} className="p-4">
           <div className="h-3 w-24 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
@@ -51,8 +63,11 @@ function KpiSkeleton() {
 
 function ChartSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 animate-pulse" aria-busy="true">
-      {Array.from({ length: 4 }).map((_, i) => (
+    <div
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 animate-pulse"
+      aria-busy="true"
+    >
+      {Array.from({ length: 5 }).map((_, i) => (
         <Card key={i} className="p-4">
           <div className="h-4 w-40 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle mb-4" />
           <div className="h-40 rounded bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle" />
@@ -69,14 +84,19 @@ export default function EtlMonitorPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [runsLoading, setRunsLoading] = useState(true);
-  const [runsError, setRunsError] = useState<ApiErrorResponse | string | null>(null);
+  const [runsError, setRunsError] = useState<ApiErrorResponse | string | null>(
+    null,
+  );
 
   const [stats, setStats] = useState<EtlStatsData | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [statsError, setStatsError] = useState<ApiErrorResponse | string | null>(null);
+  const [statsError, setStatsError] = useState<ApiErrorResponse | string | null>(
+    null,
+  );
 
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
+  const [forceDialogOpen, setForceDialogOpen] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchRuns = useCallback(async (p: number, silent = false) => {
@@ -87,7 +107,7 @@ export default function EtlMonitorPage() {
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setRunsError(
-          isApiErrorResponse(body) ? body : "Error al cargar las ejecuciones"
+          isApiErrorResponse(body) ? body : "Error al cargar las ejecuciones",
         );
         return;
       }
@@ -96,7 +116,7 @@ export default function EtlMonitorPage() {
       setTotal(data.total as number);
     } catch (err) {
       setRunsError(
-        err instanceof Error ? err.message : "Error al cargar las ejecuciones"
+        err instanceof Error ? err.message : "Error al cargar las ejecuciones",
       );
     } finally {
       setRunsLoading(false);
@@ -111,7 +131,7 @@ export default function EtlMonitorPage() {
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setStatsError(
-          isApiErrorResponse(body) ? body : "Error al cargar estadísticas"
+          isApiErrorResponse(body) ? body : "Error al cargar estadísticas",
         );
         return;
       }
@@ -119,7 +139,7 @@ export default function EtlMonitorPage() {
       setStats(data);
     } catch (err) {
       setStatsError(
-        err instanceof Error ? err.message : "Error al cargar estadísticas"
+        err instanceof Error ? err.message : "Error al cargar estadísticas",
       );
     } finally {
       setStatsLoading(false);
@@ -140,34 +160,74 @@ export default function EtlMonitorPage() {
 
   // Poll every 5 s while a run is active; stop when none are running
   useEffect(() => {
-    if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null; }
-    if (isRunning) {
-      pollingRef.current = setInterval(() => { void fetchRuns(page, true); }, 5_000);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
     }
-    return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
+    if (isRunning) {
+      pollingRef.current = setInterval(() => {
+        void fetchRuns(page, true);
+      }, 5_000);
+    }
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
   }, [isRunning, fetchRuns, page]);
 
-  const handleTrigger = useCallback(async () => {
-    setTriggering(true);
-    setTriggerError(null);
-    try {
-      const res = await fetch("/api/etl/run", { method: "POST" });
-      if (res.status === 409) {
-        // already running — let polling pick it up
-      } else if (!res.ok) {
+  const triggerSync = useCallback(
+    async (opts?: ForceResyncOptions) => {
+      setTriggering(true);
+      setTriggerError(null);
+      try {
+        const init: RequestInit = { method: "POST" };
+        if (opts && (opts.forceFull || opts.tables.length > 0)) {
+          init.headers = { "Content-Type": "application/json" };
+          init.body = JSON.stringify({
+            force_full: opts.forceFull,
+            tables: opts.tables,
+          });
+        }
+        const res = await fetch("/api/etl/run", init);
+        if (res.status === 409) {
+          // already running — let polling pick it up
+        } else if (res.status === 400) {
+          const body = await res.json().catch(() => null);
+          setTriggerError(
+            typeof body?.detail === "string"
+              ? body.detail
+              : "Cuerpo de petición inválido",
+          );
+        } else if (!res.ok) {
+          setTriggerError("Error al iniciar la sincronización");
+        }
+        await fetchRuns(page, true);
+      } catch {
         setTriggerError("Error al iniciar la sincronización");
+      } finally {
+        setTriggering(false);
       }
-      await fetchRuns(page, true);
-    } catch {
-      setTriggerError("Error al iniciar la sincronización");
-    } finally {
-      setTriggering(false);
-    }
-  }, [fetchRuns, page]);
+    },
+    [fetchRuns, page],
+  );
+
+  const handleIncrementalTrigger = useCallback(() => {
+    void triggerSync();
+  }, [triggerSync]);
+
+  const handleForceConfirm = useCallback(
+    (opts: ForceResyncOptions) => {
+      setForceDialogOpen(false);
+      void triggerSync(opts);
+    },
+    [triggerSync],
+  );
 
   // Last non-running run for KPI row
   const lastRun = runs.find((r) => r.status !== "running") ?? null;
   const successRateStr = stats ? formatSuccessRate(stats.success_rate) : null;
+  const throughput = stats?.last_run?.throughput_rows_per_sec ?? null;
+  const maxWmAge = stats?.watermarks?.max_age_seconds ?? null;
+  const errors24h = stats?.errors_24h;
 
   return (
     <div className="space-y-6" data-testid="etl-monitor-page">
@@ -182,31 +242,51 @@ export default function EtlMonitorPage() {
           </p>
         </div>
         <div className="flex flex-col items-end gap-1">
-          <button
-            onClick={() => { void handleTrigger(); }}
-            disabled={triggering || isRunning}
-            data-testid="sync-now-button"
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
-          >
-            {(triggering || isRunning) && (
-              <span
-                className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
-                aria-hidden="true"
-              />
-            )}
-            {triggering ? "Iniciando…" : isRunning ? "Sincronizando…" : "Sincronizar ahora"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleIncrementalTrigger}
+              disabled={triggering || isRunning}
+              data-testid="sync-now-button"
+              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {(triggering || isRunning) && (
+                <span
+                  className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
+                  aria-hidden="true"
+                />
+              )}
+              {triggering
+                ? "Iniciando…"
+                : isRunning
+                  ? "Sincronizando…"
+                  : "Sincronizar ahora"}
+            </button>
+            <button
+              onClick={() => setForceDialogOpen(true)}
+              disabled={triggering || isRunning}
+              data-testid="force-resync-button"
+              className="inline-flex items-center rounded-md border border-amber-600 bg-white px-3 py-2 text-sm font-medium text-amber-700 hover:bg-amber-50 disabled:opacity-60 disabled:cursor-not-allowed transition-colors dark:bg-slate-900 dark:hover:bg-slate-800"
+              title="Borrar watermarks y re-sincronizar"
+            >
+              Forzar re-sync
+            </button>
+          </div>
           {triggerError && (
-            <p className="text-xs text-red-600 dark:text-red-400">{triggerError}</p>
+            <p className="text-xs text-red-600 dark:text-red-400">
+              {triggerError}
+            </p>
           )}
         </div>
       </div>
 
-      {/* KPI summary row — last completed run */}
+      {/* Primary KPI row — last completed run */}
       {runsLoading && !runs.length ? (
         <KpiSkeleton />
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4" data-testid="kpi-row">
+        <div
+          className="grid grid-cols-2 gap-4 sm:grid-cols-4"
+          data-testid="kpi-row"
+        >
           <Card className="p-4">
             <p className="text-xs text-tremor-content dark:text-dark-tremor-content">
               Última sincronización
@@ -225,7 +305,9 @@ export default function EtlMonitorPage() {
             )}
           </Card>
           <Card className="p-4">
-            <p className="text-xs text-tremor-content dark:text-dark-tremor-content">Duración</p>
+            <p className="text-xs text-tremor-content dark:text-dark-tremor-content">
+              Duración
+            </p>
             <p className="mt-1 text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
               {lastRun ? formatDuration(lastRun.duration_ms) : "—"}
             </p>
@@ -249,13 +331,64 @@ export default function EtlMonitorPage() {
         </div>
       )}
 
+      {/* Secondary KPI row — throughput / watermark / errors (issue #398) */}
+      {!statsLoading && stats && (
+        <div
+          className="grid grid-cols-2 gap-4 sm:grid-cols-3"
+          data-testid="secondary-kpi-row"
+        >
+          <Card className="p-4">
+            <p className="text-xs text-tremor-content dark:text-dark-tremor-content">
+              Throughput última sync
+            </p>
+            <p
+              className="mt-1 text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong"
+              data-testid="kpi-throughput"
+            >
+              {formatThroughput(throughput)}
+            </p>
+            <p className="mt-0.5 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+              Filas por segundo
+            </p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-tremor-content dark:text-dark-tremor-content">
+              Watermark más antiguo
+            </p>
+            <p
+              className="mt-1 text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong"
+              data-testid="kpi-watermark-age"
+            >
+              {formatAgeSeconds(maxWmAge)}
+            </p>
+            <p className="mt-0.5 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle truncate">
+              {stats.watermarks.table_name ?? "—"}
+            </p>
+          </Card>
+          <Card className="p-4">
+            <p className="text-xs text-tremor-content dark:text-dark-tremor-content">
+              Errores últimas 24h
+            </p>
+            <p
+              className="mt-1 text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong"
+              data-testid="kpi-errors-24h"
+            >
+              {errors24h
+                ? formatNumber(errors24h.runs_failed) +
+                  " / " +
+                  formatNumber(errors24h.tables_failed)
+                : "—"}
+            </p>
+            <p className="mt-0.5 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+              Runs / tablas con error
+            </p>
+          </Card>
+        </div>
+      )}
+
       {/* Errors */}
-      {runsError && (
-        <ErrorDisplay error={runsError} onRetry={() => fetchRuns(page)} />
-      )}
-      {statsError && (
-        <ErrorDisplay error={statsError} onRetry={fetchStats} />
-      )}
+      {runsError && <ErrorDisplay error={runsError} onRetry={() => fetchRuns(page)} />}
+      {statsError && <ErrorDisplay error={statsError} onRetry={fetchStats} />}
 
       {/* Evolution charts */}
       {statsLoading ? (
@@ -278,6 +411,13 @@ export default function EtlMonitorPage() {
           onPageChange={handlePageChange}
         />
       </div>
+
+      <ForceResyncDialog
+        open={forceDialogOpen}
+        onClose={() => setForceDialogOpen(false)}
+        onConfirm={handleForceConfirm}
+        disabled={triggering || isRunning}
+      />
     </div>
   );
 }

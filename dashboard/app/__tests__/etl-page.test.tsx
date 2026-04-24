@@ -72,7 +72,18 @@ const MOCK_STATS_RESPONSE = {
   table_durations: [
     { table_name: "ps_ventas", avg_duration_ms: 900000, last_duration_ms: 850000 },
   ],
+  top_tables_by_rows: [
+    { table_name: "ps_ventas", rows_synced: 45000 },
+  ],
   success_rate: { total: 10, success: 9, partial: 1, failed: 0 },
+  last_run: {
+    run_id: 1,
+    duration_ms: 3600000,
+    total_rows_synced: 45000,
+    throughput_rows_per_sec: 12.5,
+  },
+  watermarks: { max_age_seconds: 3600, table_name: "ps_ventas" },
+  errors_24h: { runs_failed: 0, tables_failed: 0 },
 };
 
 // ---------------------------------------------------------------------------
