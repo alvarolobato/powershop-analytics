@@ -239,20 +239,22 @@ services:
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
       DASHBOARD_LLM_PROVIDER: ${DASHBOARD_LLM_PROVIDER:-openrouter}
       DASHBOARD_LLM_CLI_DRIVER: ${DASHBOARD_LLM_CLI_DRIVER:-claude_code}
-      DASHBOARD_LLM_CLI_BIN: ${DASHBOARD_LLM_CLI_BIN:-/usr/local/bin/claude}
-      # Tell the claude binary where its config/credentials live inside the container.
-      # ~/.claude/.credentials.json holds the OAuth token; without HOME claude can't auth.
-      HOME: /home/claude-user
+      DASHBOARD_LLM_CLI_BIN: ${DASHBOARD_LLM_CLI_BIN:-claude}
+      # Claude Code CLI credentials (OAuth token). The CLI is installed inside the
+      # image via npm; only the credentials need to be mounted from the host.
+      # The nextjs user (uid 1001) inside the container reads from /home/nextjs/.claude/
+      HOME: /home/nextjs
     volumes:
       # Mount centralized config directory (read-write; dashboard writes config.yaml)
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
       # Mount schema so the container can validate/read key definitions
       - ./config/schema.yaml:/app/config/schema.yaml:ro
-      # Mount Claude Code CLI binary + config for DASHBOARD_LLM_PROVIDER=cli.
-      # The resolved binary path (not a symlink) is required.
-      # ~/.claude contains .credentials.json (OAuth token) and settings.json.
-      - ${CLAUDE_BIN:-${HOME}/.local/share/claude/versions/2.1.119}:/usr/local/bin/claude:ro
-      - ${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:/home/claude-user/.claude:ro
+      # Mount Claude Code CLI credentials for DASHBOARD_LLM_PROVIDER=cli.
+      # The binary is installed in the image via npm install -g @anthropic-ai/claude-code.
+      # ~/.claude/ contains .credentials.json (OAuth token) and session state.
+      # ~/.claude.json is the main per-user config file claude reads at startup.
+      - ${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:/home/nextjs/.claude:rw
+      - ${CLAUDE_JSON:-${HOME}/.claude.json}:/home/nextjs/.claude.json:rw
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
     networks:

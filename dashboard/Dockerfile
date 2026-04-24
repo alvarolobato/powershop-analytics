@@ -20,12 +20,19 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Install Claude Code CLI (linux/amd64 + arm64 via npm — the macOS binary cannot
+# be bind-mounted into a Linux container).
+# Credentials are bind-mounted at runtime: ~/.claude/.credentials.json → /home/nextjs/.claude/
+RUN npm install -g @anthropic-ai/claude-code --prefer-offline 2>/dev/null || \
+    npm install -g @anthropic-ai/claude-code
+
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
 
 USER nextjs
 
@@ -34,4 +41,5 @@ EXPOSE 4000
 ENV PORT=4000
 ENV HOSTNAME="0.0.0.0"
 
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 CMD ["node", "server.js"]
