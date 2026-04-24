@@ -14,8 +14,19 @@ vi.mock("@/lib/llm", async () => {
   };
 });
 
+// --- Mock the persistence module ---
+vi.mock("@/lib/db-write", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/db-write")>("@/lib/db-write");
+  return {
+    ...actual,
+    createInteraction: vi.fn().mockResolvedValue("mock-interaction-id"),
+    finishInteraction: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 import { POST } from "../route";
 import { BudgetExceededError, CircuitBreakerOpenError } from "@/lib/llm";
+import * as dbWrite from "@/lib/db-write";
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -76,11 +87,18 @@ function makeRawRequest(rawBody: string): Request {
   });
 }
 
+const mockCreateInteraction = vi.mocked(dbWrite.createInteraction);
+const mockFinishInteraction = vi.mocked(dbWrite.finishInteraction);
+
 // --- Tests ------------------------------------------------------------------
 
 describe("POST /api/dashboard/modify", () => {
   beforeEach(() => {
     mockModifyDashboard.mockReset();
+    mockCreateInteraction.mockReset();
+    mockCreateInteraction.mockResolvedValue("mock-interaction-id");
+    mockFinishInteraction.mockReset();
+    mockFinishInteraction.mockResolvedValue(undefined);
   });
 
   it("returns updated spec on valid modification", async () => {
@@ -269,5 +287,56 @@ describe("POST /api/dashboard/modify", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.raw).toBeUndefined();
+  });
+
+  // --- Persistence (createInteraction / finishInteraction) ---
+
+  describe("interaction persistence", () => {
+    it("creates an interaction and finishes it as completed on success", async () => {
+      mockModifyDashboard.mockResolvedValue(JSON.stringify(updatedSpec));
+
+      const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade el margen" }));
+      expect(res.status).toBe(200);
+
+      expect(mockCreateInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "modify", prompt: "Añade el margen" }),
+      );
+      expect(mockFinishInteraction).toHaveBeenCalledWith(
+        "mock-interaction-id",
+        "completed",
+        expect.any(String),
+      );
+    });
+
+    it("creates an interaction and finishes it as error when LLM throws", async () => {
+      mockModifyDashboard.mockRejectedValue(new Error("LLM down"));
+
+      const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
+      expect(res.status).toBe(500);
+
+      expect(mockCreateInteraction).toHaveBeenCalled();
+      expect(mockFinishInteraction).toHaveBeenCalledWith(
+        "mock-interaction-id",
+        "error",
+        expect.any(String),
+      );
+    });
+
+    it("passes dashboardId to createInteraction when provided in request body", async () => {
+      mockModifyDashboard.mockResolvedValue(JSON.stringify(updatedSpec));
+
+      await POST(makeRequest({ spec: validSpec, prompt: "Añade el margen", dashboardId: 42 }));
+
+      expect(mockCreateInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "modify", dashboardId: 42 }),
+      );
+    });
+
+    it("returns 400 when dashboardId is invalid", async () => {
+      const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo", dashboardId: -1 }));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.code).toBe("VALIDATION");
+    });
   });
 });

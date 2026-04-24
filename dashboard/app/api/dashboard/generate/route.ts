@@ -260,7 +260,8 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           promptPreview: prompt.slice(0, 200),
         });
 
-        // Start persisting the interaction concurrently (non-blocking).
+        // Start persisting the interaction concurrently — the first meta NDJSON line
+        // was already sent above so the DB insert does not block the stream start.
         const interactionLines: InteractionLine[] = [];
         let interactionId: string | null = null;
         const interactionIdPromise = createInteraction({

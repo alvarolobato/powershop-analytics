@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const { spec, prompt } = body as Record<string, unknown>;
+  const { spec, prompt, dashboardId } = body as Record<string, unknown>;
 
   // --- Validate required fields ---------------------------------------------
   if (spec === undefined) {
@@ -106,6 +106,28 @@ export async function POST(request: Request) {
     );
   }
 
+  // --- Resolve optional dashboardId -----------------------------------------
+  let dashboardIdNum: number | null = null;
+  if (dashboardId !== undefined && dashboardId !== null) {
+    if (typeof dashboardId === "number" && Number.isInteger(dashboardId) && dashboardId > 0) {
+      dashboardIdNum = dashboardId;
+    } else if (typeof dashboardId === "string" && /^\d+$/.test(dashboardId)) {
+      const n = parseInt(dashboardId, 10);
+      if (n > 0) dashboardIdNum = n;
+    }
+    if (dashboardIdNum === null) {
+      return NextResponse.json(
+        formatApiError(
+          "El campo 'dashboardId' debe ser un entero positivo cuando se envía.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+  }
+
   // --- Persist interaction start --------------------------------------------
   const cfg = loadDashboardLlmConfig();
   const llmProvider = cfg.provider;
@@ -116,6 +138,7 @@ export async function POST(request: Request) {
     interactionId = await createInteraction({
       requestId,
       endpoint: "modify",
+      dashboardId: dashboardIdNum,
       prompt: prompt.trim(),
       llmProvider,
       llmDriver: llmDriver ?? null,

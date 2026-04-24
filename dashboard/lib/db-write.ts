@@ -121,8 +121,8 @@ export async function createInteraction(opts: {
 
 /**
  * Append a batch of lines to `llm_interactions.lines` (JSONB concatenation).
- * Throws on DB errors — callers should catch and log if they want best-effort
- * behavior (the generate route wraps this in try/catch).
+ * Throws on DB errors — callers should wrap in try/catch if they want
+ * best-effort behavior (the generate route does this already).
  */
 export async function appendInteractionLines(
   id: string,
