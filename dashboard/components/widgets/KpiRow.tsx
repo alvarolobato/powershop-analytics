@@ -178,6 +178,7 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
                   gap: 4,
                 }}
                 data-testid="anomaly-badge"
+                title={computedAnomaly?.explanation}
               >
                 <span
                   style={{

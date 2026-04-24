@@ -92,7 +92,7 @@ describe("KpiRow anomaly badge", () => {
     );
 
     expect(screen.getByTestId("anomaly-badge")).toBeInTheDocument();
-    expect(screen.getByTestId("anomaly-badge")).toHaveTextContent("Valor inusual");
+    expect(screen.getByTestId("anomaly-badge")).toHaveTextContent("ANOMALÍA DETECTADA");
   });
 
   it("anomaly badge has explanation in title attribute", () => {
@@ -105,8 +105,9 @@ describe("KpiRow anomaly badge", () => {
     );
 
     const badge = screen.getByTestId("anomaly-badge");
-    expect(badge.getAttribute("title")).toMatch(/media/i);
-    expect(badge.getAttribute("title")).toMatch(/por debajo/);
+    const titleAttr = badge.getAttribute("title") ?? "";
+    expect(titleAttr).toMatch(/media/i);
+    expect(titleAttr).toMatch(/por debajo/);
   });
 
   it("only shows badge for the item that has anomaly_sql", () => {

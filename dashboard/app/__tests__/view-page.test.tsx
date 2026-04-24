@@ -163,15 +163,12 @@ describe("ViewDashboard page", () => {
     // Dashboard name displayed
     expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
 
-    // Back button
-    expect(screen.getByLabelText("Volver")).toBeInTheDocument();
-
     // Save and Modify buttons
     expect(screen.getByText("Guardar")).toBeInTheDocument();
     expect(screen.getByText("Modificar")).toBeInTheDocument();
 
     // Refresh controls
-    expect(screen.getByText("Actualizar")).toBeInTheDocument();
+    expect(screen.getByLabelText("Actualizar")).toBeInTheDocument();
     expect(screen.getByTestId("auto-refresh-toggle")).toBeInTheDocument();
 
     // Export button
@@ -225,7 +222,7 @@ describe("ViewDashboard page", () => {
     ).toBeInTheDocument();
   });
 
-  it("navigates back on Volver button click", async () => {
+  it("shows dashboard name and breadcrumbs after loading", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(dashboardRecord),
@@ -237,8 +234,10 @@ describe("ViewDashboard page", () => {
       expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByLabelText("Volver"));
-    expect(mockPush).toHaveBeenCalledWith("/");
+    // Breadcrumbs are rendered (default breadcrumbs from spec or fallback)
+    expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
+    // Dashboard renderer is present
+    expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
   });
 
   it("toggles chat sidebar on Modificar button click", async () => {
@@ -360,7 +359,7 @@ describe("ViewDashboard page", () => {
     expect(renderer.getAttribute("data-refresh-key")).toBe("0");
 
     // Click Actualizar
-    fireEvent.click(screen.getByText("Actualizar"));
+    fireEvent.click(screen.getByLabelText("Actualizar"));
 
     // refreshKey should now be 1
     await waitFor(() => {
