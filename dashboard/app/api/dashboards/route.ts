@@ -166,7 +166,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     // If a generate request_id was provided, link the interaction to this dashboard.
     if (newDashboard && genReqId && typeof genReqId === "string" && genReqId.trim()) {
-      void sql(
+      await sql(
         `UPDATE llm_interactions
             SET dashboard_id = $1
           WHERE request_id = $2

@@ -319,7 +319,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           pushLine({ kind: "error", text: errText, ts: ts() });
           await flushLines();
           if (interactionId) {
-            void finishInteraction(interactionId, "error", errText).catch((e) =>
+            await finishInteraction(interactionId, "error", errText).catch((e) =>
               console.error(`[${requestId}] finishInteraction(error) failed:`, e),
             );
           }
@@ -345,7 +345,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           pushLine({ kind: "error", text: errText, ts: ts() });
           await flushLines();
           if (interactionId) {
-            void finishInteraction(interactionId, "error", errText).catch((e) =>
+            await finishInteraction(interactionId, "error", errText).catch((e) =>
               console.error(`[${requestId}] finishInteraction(error) failed:`, e),
             );
           }
@@ -362,7 +362,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
         pushLine({ kind: "meta", text: "Panel generado correctamente.", ts: ts() });
         await flushLines();
         if (interactionId) {
-          void finishInteraction(
+          await finishInteraction(
             interactionId,
             "completed",
             JSON.stringify(finish.spec),
@@ -413,7 +413,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
     if (interactionId) {
       const errText =
         typeof mapped.payload["error"] === "string" ? mapped.payload["error"] : "Error al generar";
-      void finishInteraction(interactionId, "error", errText).catch((e) =>
+      await finishInteraction(interactionId, "error", errText).catch((e) =>
         console.error(`[${requestId}] finishInteraction(error) failed:`, e),
       );
     }
@@ -427,14 +427,14 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
         typeof finish.payload["error"] === "string"
           ? finish.payload["error"]
           : "Validación fallida";
-      void finishInteraction(interactionId, "error", errText).catch((e) =>
+      await finishInteraction(interactionId, "error", errText).catch((e) =>
         console.error(`[${requestId}] finishInteraction(error) failed:`, e),
       );
     }
     return NextResponse.json(finish.payload, { status: finish.status });
   }
   if (interactionId) {
-    void finishInteraction(interactionId, "completed", JSON.stringify(finish.spec)).catch((e) =>
+    await finishInteraction(interactionId, "completed", JSON.stringify(finish.spec)).catch((e) =>
       console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
     );
   }

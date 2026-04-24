@@ -135,7 +135,7 @@ export async function POST(request: Request) {
   } catch (err: unknown) {
     if (interactionId) {
       const errText = err instanceof Error ? err.message : "Error al modificar";
-      void finishInteraction(interactionId, "error", errText).catch((e) =>
+      await finishInteraction(interactionId, "error", errText).catch((e) =>
         console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
       );
     }
@@ -194,7 +194,7 @@ export async function POST(request: Request) {
       `[${requestId}] El LLM devolvió JSON inválido al modificar (${jsonStr.length} chars)`,
     );
     if (interactionId) {
-      void finishInteraction(interactionId, "error", "JSON inválido en respuesta del modelo").catch(
+      await finishInteraction(interactionId, "error", "JSON inválido en respuesta del modelo").catch(
         (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
       );
     }
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
   } catch {
     console.error(`[${requestId}] El LLM devolvió un spec inválido al modificar.`);
     if (interactionId) {
-      void finishInteraction(interactionId, "error", "Spec inválido").catch((e) =>
+      await finishInteraction(interactionId, "error", "Spec inválido").catch((e) =>
         console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
       );
     }
@@ -237,7 +237,7 @@ export async function POST(request: Request) {
       sqlLint.join(" | "),
     );
     if (interactionId) {
-      void finishInteraction(interactionId, "error", `SQL lint: ${sqlLint.join(" | ")}`).catch(
+      await finishInteraction(interactionId, "error", `SQL lint: ${sqlLint.join(" | ")}`).catch(
         (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
       );
     }

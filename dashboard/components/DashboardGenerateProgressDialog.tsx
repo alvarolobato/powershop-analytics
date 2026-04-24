@@ -3,6 +3,7 @@
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
 import { useEffect, useRef, type ReactNode } from "react";
 import type { InteractionLine } from "@/lib/db-write";
+import { interactionLineClass } from "@/lib/interaction-line-class";
 
 // ─── Line rendering ─────────────────────────────────────────────────────────
 
@@ -22,23 +23,6 @@ function inferKind(text: string): InteractionLine["kind"] {
     return "error";
   }
   return "meta";
-}
-
-function kindClassName(kind: InteractionLine["kind"]): string {
-  switch (kind) {
-    case "tool_call":
-      return "font-mono text-blue-400 dark:text-blue-300";
-    case "tool_result":
-      return "font-mono text-emerald-500 dark:text-emerald-400";
-    case "error":
-      return "font-mono text-red-400 dark:text-red-300";
-    case "assistant_text":
-      return "text-tremor-content dark:text-dark-tremor-content";
-    case "phase":
-    case "meta":
-    default:
-      return "italic text-tremor-content-subtle dark:text-dark-tremor-content-subtle";
-  }
 }
 
 // ─── Component types ─────────────────────────────────────────────────────────
@@ -148,7 +132,7 @@ export function DashboardGenerateProgressDialog({
               normalised.map((line, i) => (
                 <div
                   key={`${i}-${line.text.slice(0, 24)}`}
-                  className={`whitespace-pre-wrap break-words ${kindClassName(line.kind ?? "meta")}`}
+                  className={`whitespace-pre-wrap break-words ${interactionLineClass(line.kind)}`}
                 >
                   {line.text}
                 </div>

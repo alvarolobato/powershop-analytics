@@ -17,11 +17,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminApiKeyValid, adminUnauthorized } from "@/lib/admin-api-auth";
 import { sql } from "@/lib/db-write";
 import type { InteractionRow } from "@/app/api/dashboard/[id]/interactions/route";
+import { formatApiError, generateRequestId } from "@/lib/errors";
 
 const VALID_ENDPOINTS = ["generate", "modify", "analyze"] as const;
 const VALID_STATUSES = ["running", "completed", "error"] as const;
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const requestId = generateRequestId();
+
   if (!adminApiKeyValid(request)) {
     return adminUnauthorized();
   }
@@ -31,25 +34,49 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const status = searchParams.get("status");
   const dashboardIdParam = searchParams.get("dashboard_id");
 
-  // Validate filters
+  // Validate filters using the standard error shape
   if (
     endpoint !== null &&
     !(VALID_ENDPOINTS as readonly string[]).includes(endpoint)
   ) {
-    return NextResponse.json({ error: "invalid endpoint filter" }, { status: 400 });
+    return NextResponse.json(
+      formatApiError(
+        `El filtro 'endpoint' no es válido. Valores permitidos: ${VALID_ENDPOINTS.join(", ")}.`,
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
   }
   if (
     status !== null &&
     !(VALID_STATUSES as readonly string[]).includes(status)
   ) {
-    return NextResponse.json({ error: "invalid status filter" }, { status: 400 });
+    return NextResponse.json(
+      formatApiError(
+        `El filtro 'status' no es válido. Valores permitidos: ${VALID_STATUSES.join(", ")}.`,
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
   }
 
   let dashboardId: number | null = null;
   if (dashboardIdParam !== null) {
     const n = Number(dashboardIdParam);
     if (!Number.isInteger(n) || n <= 0) {
-      return NextResponse.json({ error: "invalid dashboard_id filter" }, { status: 400 });
+      return NextResponse.json(
+        formatApiError(
+          "El filtro 'dashboard_id' debe ser un entero positivo.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
     }
     dashboardId = n;
   }

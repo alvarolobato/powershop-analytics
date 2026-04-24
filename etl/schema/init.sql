@@ -7,9 +7,16 @@ END
 $$;
 
 -- pgcrypto provides gen_random_uuid() used by llm_interactions.id.
--- PostgreSQL 13+ ships this in core (pgcrypto is a no-op), but older
--- installations need it explicitly.
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
+-- Wrapped in a DO/EXCEPTION block so that installations where the role
+-- lacks CREATE EXTENSION privilege (or the extension is unavailable)
+-- fall back gracefully with a notice rather than aborting init.sql.
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pgcrypto not available — gen_random_uuid() may require PostgreSQL 13+ core support';
+END
+$$;
 
 -- PostgreSQL DDL for the PowerShop Analytics mirror schema.
 -- All tables use the ps_ prefix.

@@ -228,7 +228,7 @@ export async function POST(request: Request) {
   } catch (err) {
     if (interactionId) {
       const errText = err instanceof Error ? err.message : "Error al analizar";
-      void finishInteraction(interactionId, "error", errText).catch((e) =>
+      await finishInteraction(interactionId, "error", errText).catch((e) =>
         console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
       );
     }

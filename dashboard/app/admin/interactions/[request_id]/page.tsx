@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { sql } from "@/lib/db-write";
 import type { InteractionRow } from "@/app/api/dashboard/[id]/interactions/route";
 import type { InteractionLine } from "@/lib/db-write";
+import { interactionLineClass } from "@/lib/interaction-line-class";
 
 export const dynamic = "force-dynamic";
 
@@ -26,22 +27,6 @@ function statusBadge(status: string): string {
   }
 }
 
-function lineClassName(kind: InteractionLine["kind"]): string {
-  switch (kind) {
-    case "tool_call":
-      return "font-mono text-blue-600 dark:text-blue-300";
-    case "tool_result":
-      return "font-mono text-emerald-600 dark:text-emerald-400";
-    case "error":
-      return "font-mono text-red-500 dark:text-red-400";
-    case "assistant_text":
-      return "text-tremor-content dark:text-dark-tremor-content";
-    case "phase":
-    case "meta":
-    default:
-      return "italic text-tremor-content-subtle dark:text-dark-tremor-content-subtle";
-  }
-}
 
 function formatDateEs(iso: string | null): string {
   if (!iso) return "—";
@@ -157,7 +142,7 @@ export default async function InteractionDetailPage({ params }: PageProps) {
             </span>
           ) : (
             lines.map((l, i) => (
-              <div key={i} className={`whitespace-pre-wrap break-words ${lineClassName(l.kind ?? "meta")}`}>
+              <div key={i} className={`whitespace-pre-wrap break-words ${interactionLineClass(l.kind)}`}>
                 {l.ts ? (
                   <span className="mr-2 text-tremor-content-subtle dark:text-dark-tremor-content-subtle select-none">
                     {new Date(l.ts).toLocaleTimeString("es-ES")}

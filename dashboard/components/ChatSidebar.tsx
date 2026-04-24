@@ -9,6 +9,7 @@ import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { WidgetState } from "@/components/DashboardRenderer";
 import type { InteractionLine } from "@/lib/db-write";
+import { interactionLineClass } from "@/lib/interaction-line-class";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -295,27 +296,6 @@ function MessageBubble({ msg, isMarkdown = false }: { msg: ChatMessage; isMarkdo
 }
 
 // ---------------------------------------------------------------------------
-// Line kind → CSS class (mirrors DashboardGenerateProgressDialog)
-// ---------------------------------------------------------------------------
-
-function logLineClass(kind: InteractionLine["kind"]): string {
-  switch (kind) {
-    case "tool_call":
-      return "font-mono text-blue-400 dark:text-blue-300";
-    case "tool_result":
-      return "font-mono text-emerald-500 dark:text-emerald-400";
-    case "error":
-      return "font-mono text-red-400 dark:text-red-300";
-    case "assistant_text":
-      return "text-tremor-content dark:text-dark-tremor-content";
-    case "phase":
-    case "meta":
-    default:
-      return "italic text-tremor-content-subtle dark:text-dark-tremor-content-subtle";
-  }
-}
-
-// ---------------------------------------------------------------------------
 // CreationLogPanel — collapsible "Log inicial" for the Modificar tab
 // ---------------------------------------------------------------------------
 
@@ -350,7 +330,7 @@ function CreationLogPanel({ lines }: { lines: InteractionLine[] }) {
           {lines.map((l, i) => (
             <div
               key={i}
-              className={`whitespace-pre-wrap break-words ${logLineClass(l.kind ?? "meta")}`}
+              className={`whitespace-pre-wrap break-words ${interactionLineClass(l.kind)}`}
             >
               {l.text}
             </div>
