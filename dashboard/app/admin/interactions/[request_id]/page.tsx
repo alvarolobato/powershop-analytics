@@ -75,6 +75,7 @@ export default async function InteractionDetailPage({ params }: PageProps) {
          started_at, finished_at, status
        FROM llm_interactions
        WHERE request_id = $1
+       ORDER BY started_at DESC
        LIMIT 1`,
       [request_id],
     );

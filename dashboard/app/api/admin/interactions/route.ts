@@ -74,18 +74,27 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
-  const rows = await sql<InteractionRow>(
-    `SELECT
-       id, request_id, endpoint, dashboard_id,
-       prompt, final_output, lines,
-       llm_provider, llm_driver,
-       started_at, finished_at, status
-     FROM llm_interactions
-     ${where}
-     ORDER BY started_at DESC
-     LIMIT 50`,
-    params,
-  );
+  let rows: InteractionRow[];
+  try {
+    rows = await sql<InteractionRow>(
+      `SELECT
+         id, request_id, endpoint, dashboard_id,
+         prompt, final_output, lines,
+         llm_provider, llm_driver,
+         started_at, finished_at, status
+       FROM llm_interactions
+       ${where}
+       ORDER BY started_at DESC
+       LIMIT 50`,
+      params,
+    );
+  } catch (err) {
+    console.error("[admin/interactions GET]", err);
+    return NextResponse.json(
+      { error: "db_error", message: "No se pudieron cargar las interacciones." },
+      { status: 500 },
+    );
+  }
 
   return NextResponse.json({ interactions: rows, total: rows.length });
 }

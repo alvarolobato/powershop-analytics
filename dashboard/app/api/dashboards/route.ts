@@ -49,6 +49,12 @@ interface CreateBody {
   name?: string;
   description?: string;
   spec?: unknown;
+  /**
+   * Optional: request_id from the generate interaction.
+   * When provided, the backend will link the interaction to this dashboard by
+   * setting `llm_interactions.dashboard_id = <new dashboard id>`.
+   */
+  generateRequestId?: string;
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
@@ -76,7 +82,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const { name, description, spec } = body;
+  const { name, description, spec, generateRequestId: genReqId } = body;
 
   // Validate name
   if (!name || typeof name !== "string" || !name.trim()) {
@@ -156,7 +162,23 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
        RETURNING id, name, description, spec, created_at, updated_at`,
       [name.trim(), description?.trim() || null, JSON.stringify(validatedSpec)],
     );
-    return NextResponse.json(rows[0], { status: 201 });
+    const newDashboard = rows[0];
+
+    // If a generate request_id was provided, link the interaction to this dashboard.
+    if (newDashboard && genReqId && typeof genReqId === "string" && genReqId.trim()) {
+      void sql(
+        `UPDATE llm_interactions
+            SET dashboard_id = $1
+          WHERE request_id = $2
+            AND endpoint = 'generate'
+            AND dashboard_id IS NULL`,
+        [newDashboard.id, genReqId.trim()],
+      ).catch((e) => {
+        console.error(`[${requestId}] Failed to link interaction to dashboard:`, e);
+      });
+    }
+
+    return NextResponse.json(newDashboard, { status: 201 });
   } catch (err) {
     console.error(`[${requestId}] Error al crear dashboard:`, err);
     return NextResponse.json(

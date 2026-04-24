@@ -14,10 +14,11 @@ function inferKind(text: string): InteractionLine["kind"] {
   if (t.startsWith("  →") || t.startsWith("→") || t.includes("Herramientas solicitadas")) {
     return "tool_call";
   }
-  if (t.startsWith("  ✓") || t.startsWith("  ✗") || t.startsWith("✓") || t.startsWith("✗")) {
+  // ✓ = success tool result; ✗ = failed tool result → render as error
+  if (t.startsWith("  ✓") || t.startsWith("✓")) {
     return "tool_result";
   }
-  if (t.toLowerCase().startsWith("error")) {
+  if (t.startsWith("  ✗") || t.startsWith("✗") || t.toLowerCase().startsWith("error")) {
     return "error";
   }
   return "meta";

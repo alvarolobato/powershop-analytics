@@ -250,26 +250,38 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
         };
 
-        // Start persisting the interaction (fire-and-forget; never blocks stream)
+        const ts = () => new Date().toISOString();
+
+        // Send the first meta line immediately — do NOT await DB before this.
+        send({
+          type: "meta",
+          requestId,
+          message: "Generación con IA iniciada",
+          promptPreview: prompt.slice(0, 200),
+        });
+
+        // Start persisting the interaction concurrently (non-blocking).
         const interactionLines: InteractionLine[] = [];
         let interactionId: string | null = null;
-        try {
-          interactionId = await createInteraction({
-            requestId,
-            endpoint: "generate",
-            prompt,
-            llmProvider,
-            llmDriver: llmDriver ?? null,
-          });
-        } catch (e) {
+        const interactionIdPromise = createInteraction({
+          requestId,
+          endpoint: "generate",
+          prompt,
+          llmProvider,
+          llmDriver: llmDriver ?? null,
+        }).then((id) => {
+          interactionId = id;
+        }).catch((e) => {
           console.error(`[${requestId}] createInteraction failed:`, e);
-        }
+        });
 
         const pushLine = (line: InteractionLine) => {
           interactionLines.push(line);
         };
 
         const flushLines = async () => {
+          // Ensure the insert has resolved before flushing lines
+          await interactionIdPromise;
           if (!interactionId || interactionLines.length === 0) return;
           const toFlush = interactionLines.splice(0);
           try {
@@ -279,14 +291,6 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           }
         };
 
-        const ts = () => new Date().toISOString();
-
-        send({
-          type: "meta",
-          requestId,
-          message: "Generación con IA iniciada",
-          promptPreview: prompt.slice(0, 200),
-        });
         pushLine({ kind: "meta", text: "Generación con IA iniciada", ts: ts() });
 
         let rawResponse: string;
@@ -301,7 +305,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
                 ev.type === "tool_start" || ev.type === "assistant_tools"
                   ? "tool_call"
                   : ev.type === "tool_done"
-                    ? "tool_result"
+                    ? (ev.ok ? "tool_result" : "error")
                     : "meta";
               pushLine({ kind, text, ts: ts() });
             },

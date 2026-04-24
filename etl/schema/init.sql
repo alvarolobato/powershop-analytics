@@ -6,6 +6,11 @@ EXCEPTION WHEN OTHERS THEN
 END
 $$;
 
+-- pgcrypto provides gen_random_uuid() used by llm_interactions.id.
+-- PostgreSQL 13+ ships this in core (pgcrypto is a no-op), but older
+-- installations need it explicitly.
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
 -- PostgreSQL DDL for the PowerShop Analytics mirror schema.
 -- All tables use the ps_ prefix.
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
@@ -645,6 +650,21 @@ CREATE TABLE IF NOT EXISTS llm_interactions (
 CREATE INDEX IF NOT EXISTS idx_llm_interactions_dashboard ON llm_interactions(dashboard_id);
 CREATE INDEX IF NOT EXISTS idx_llm_interactions_request   ON llm_interactions(request_id);
 CREATE INDEX IF NOT EXISTS idx_llm_interactions_started   ON llm_interactions(started_at DESC);
+-- Support common admin filter patterns without sequential scans
+CREATE INDEX IF NOT EXISTS idx_llm_interactions_endpoint_started
+    ON llm_interactions(endpoint, started_at DESC);
+-- request_id must be unique: the admin detail page and client fetch use it as a stable key
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'llm_interactions'::regclass AND contype = 'u'
+      AND conname = 'llm_interactions_request_id_key'
+  ) THEN
+    ALTER TABLE llm_interactions ADD CONSTRAINT llm_interactions_request_id_key UNIQUE (request_id);
+  END IF;
+END
+$$;
 
 -- ============================================================
 -- Unique constraints required by wholesale FK targets
