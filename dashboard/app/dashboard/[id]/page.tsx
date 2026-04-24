@@ -1047,6 +1047,7 @@ export default function ViewDashboard() {
         spec={dashboard.spec}
         onSpecUpdate={handleSpecUpdate}
         isOpen={chatOpen}
+        hideWhenClosed
         dashboardId={dashboard.id}
         onToggle={handleChatToggle}
         onOpenSidebar={handleOpenChatSidebar}

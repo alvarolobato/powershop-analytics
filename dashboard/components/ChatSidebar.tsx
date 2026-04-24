@@ -58,6 +58,12 @@ export interface ChatSidebarProps {
   onOpenSidebar?: () => void;
   /** When set, the sidebar opens directly in analizar mode. */
   initialMode?: "modificar" | "analizar";
+  /**
+   * When true, the sidebar renders nothing when closed instead of its own
+   * floating "Chat" toggle button. Use when an external launcher (AnalyzeLauncher)
+   * already handles opening the sidebar.
+   */
+  hideWhenClosed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -1045,6 +1051,7 @@ export default function ChatSidebar({
   onPendingModifyInputConsumed,
   onOpenSidebar,
   initialMode,
+  hideWhenClosed = false,
 }: ChatSidebarProps) {
   const [activeTab, setActiveTab] = useState<"modificar" | "analizar">(
     initialMode ?? "modificar"
@@ -1096,6 +1103,7 @@ export default function ChatSidebar({
   // -------------------------------------------------------------------------
 
   if (!isOpen) {
+    if (hideWhenClosed) return null;
     return (
       <button
         onClick={onToggle}
