@@ -9,6 +9,7 @@ import type { WidgetState } from "@/components/DashboardRenderer";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
+import AnalyzeLauncher from "@/components/AnalyzeLauncher";
 import {
   DateRangePicker,
   computeComparisonRange,
@@ -34,6 +35,7 @@ interface DashboardRecord {
   description: string | null;
   spec: DashboardSpec;
   chat_messages_analyze?: ChatMessage[];
+  chat_messages_modify?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -114,6 +116,7 @@ export default function ViewDashboard() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(undefined);
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -408,6 +411,8 @@ export default function ViewDashboard() {
       if (nextOpen) {
         setGlossaryOpen(false);
         setHistoryOpen(false);
+      } else {
+        setChatInitialMode(undefined);
       }
       return nextOpen;
     });
@@ -416,6 +421,14 @@ export default function ViewDashboard() {
   const handleOpenChatSidebar = useCallback(() => {
     setGlossaryOpen(false);
     setHistoryOpen(false);
+    setChatOpen(true);
+  }, []);
+
+  /** Opens the sidebar in analizar mode — called by AnalyzeLauncher */
+  const handleOpenAnalyze = useCallback(() => {
+    setGlossaryOpen(false);
+    setHistoryOpen(false);
+    setChatInitialMode("analizar");
     setChatOpen(true);
   }, []);
 
@@ -429,6 +442,8 @@ export default function ViewDashboard() {
     [saveSpec],
   );
 
+  const modifyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modifyCounterRef = useRef(0);
   const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analyzeCounterRef = useRef(0);
 
@@ -468,6 +483,46 @@ export default function ViewDashboard() {
     return () => {
       if (analyzeDebounceRef.current) {
         clearTimeout(analyzeDebounceRef.current);
+      }
+    };
+  }, [id]);
+
+  const handleModifyMessagesChange = useCallback(
+    (messages: ChatMessage[]) => {
+      if (!dashboard) return;
+      if (modifyDebounceRef.current) {
+        clearTimeout(modifyDebounceRef.current);
+      }
+      modifyDebounceRef.current = setTimeout(() => {
+        const thisCount = ++modifyCounterRef.current;
+        fetch(`/api/dashboard/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spec: latestSpecRef.current ?? dashboard.spec,
+            chat_messages_modify: messages,
+            skipVersion: true,
+          }),
+        })
+          .then((res) => {
+            if (thisCount !== modifyCounterRef.current) return;
+            if (!res.ok) {
+              console.error("Error guardando mensajes de modificar:", res.status);
+            }
+          })
+          .catch((err) => {
+            if (thisCount !== modifyCounterRef.current) return;
+            console.error("Error guardando mensajes de modificar:", err);
+          });
+      }, 800);
+    },
+    [dashboard, id],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (modifyDebounceRef.current) {
+        clearTimeout(modifyDebounceRef.current);
       }
     };
   }, [id]);
@@ -631,7 +686,12 @@ export default function ViewDashboard() {
   const titleSub = titleParts.length > 1 ? titleParts.slice(1).join(" — ") : null;
 
   return (
-    <div className={`transition-all ${chatOpen ? "mr-[350px]" : ""}`}>
+    <div
+      style={{
+        marginRight: chatOpen ? 380 : 0,
+        transition: "margin 0.2s ease",
+      }}
+    >
       {/* Toast notification */}
       {toast && (
         <div
@@ -991,6 +1051,12 @@ export default function ViewDashboard() {
         onDataPointClick={handleDataPointClick}
       />
 
+      {/* Floating rail launcher — hidden when sidebar is open */}
+      <AnalyzeLauncher
+        onOpen={handleOpenAnalyze}
+        hidden={chatOpen}
+      />
+
       {/* Chat sidebar */}
       <ChatSidebar
         spec={dashboard.spec}
@@ -1002,9 +1068,12 @@ export default function ViewDashboard() {
         widgetData={widgetData}
         initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
         onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
+        initialModifyMessages={dashboard.chat_messages_modify ?? []}
+        onModifyMessagesChange={handleModifyMessagesChange}
         pendingModifyInput={pendingModify?.prompt}
         pendingModifyTriggerId={pendingModify?.id}
         onPendingModifyInputConsumed={handlePendingModifyInputConsumed}
+        initialMode={chatInitialMode}
       />
 
       {/* Glossary panel */}

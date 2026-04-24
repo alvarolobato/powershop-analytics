@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import ThemeProvider from "@/components/ThemeProvider";
-import { TopBar } from "@/components/TopBar";
+import { TweaksPanelProvider } from "@/components/TweaksPanel";
+import { TopBarWithTweaks } from "@/components/TopBarWithTweaks";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -85,8 +86,10 @@ export default function RootLayout({
         }}
       >
         <ThemeProvider>
-          <TopBar />
-          <main style={{ flex: 1, overflow: "auto", padding: "0" }}>{children}</main>
+          <TweaksPanelProvider>
+            <TopBarWithTweaks />
+            <main style={{ flex: 1, overflow: "auto", padding: "0" }}>{children}</main>
+          </TweaksPanelProvider>
         </ThemeProvider>
       </body>
     </html>

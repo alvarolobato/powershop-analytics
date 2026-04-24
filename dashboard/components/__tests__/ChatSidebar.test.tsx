@@ -533,4 +533,123 @@ describe("ChatSidebar", () => {
     fireEvent.click(screen.getByTestId("tab-modificar"));
     expect(screen.getByPlaceholderText(/ticket medio/i)).toBeInTheDocument();
   });
+
+  // -----------------------------------------------------------------------
+  // Tab switch preserves separate message histories
+  // -----------------------------------------------------------------------
+
+  it("tab switch preserves separate message histories", async () => {
+    const updatedSpec: DashboardSpec = { ...baseSpec, title: "Modified" };
+    globalThis.fetch = mockFetchSuccess(updatedSpec);
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    // Send a message in Modificar tab
+    const modInput = screen.getByPlaceholderText(/ticket medio/i);
+    await act(async () => {
+      fireEvent.change(modInput, { target: { value: "Mensaje en modificar" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Enviar"));
+    });
+
+    // User message appears in modificar
+    expect(screen.getByText("Mensaje en modificar")).toBeInTheDocument();
+
+    // Switch to Analizar — modificar message should NOT be visible
+    fireEvent.click(screen.getByTestId("tab-analizar"));
+    expect(screen.queryByText("Mensaje en modificar")).not.toBeInTheDocument();
+
+    // Switch back to Modificar — message should still be there
+    fireEvent.click(screen.getByTestId("tab-modificar"));
+    expect(screen.getByText("Mensaje en modificar")).toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------
+  // Suggestion chip sends (Modificar mode)
+  // -----------------------------------------------------------------------
+
+  it("clicking a Modificar suggestion chip sends the suggestion as a message", async () => {
+    const updatedSpec: DashboardSpec = { ...baseSpec, title: "Modified" };
+    globalThis.fetch = mockFetchSuccess(updatedSpec);
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    // Find a suggestion chip (Modificar mode is default)
+    const chip = screen.getByText("Añade widget de margen por familia");
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+
+    // Fetch should have been called with the suggestion text as prompt
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/dashboard/modify",
+        expect.objectContaining({
+          body: expect.stringContaining("Añade widget de margen por familia"),
+        }),
+      );
+    });
+
+    // Multiple elements with that text is fine — at least one is the user message bubble
+    const matches = screen.getAllByText("Añade widget de margen por familia");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // -----------------------------------------------------------------------
+  // Suggestion chip sends (Analizar mode)
+  // -----------------------------------------------------------------------
+
+  it("clicking an Analizar suggestion chip sends to analyze API", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ response: "Análisis completado.", suggestions: [] }),
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    // Switch to Analizar tab
+    fireEvent.click(screen.getByTestId("tab-analizar"));
+
+    // Click a suggestion chip using data-testid
+    const chip = screen.getByTestId("suggestion-chip-¿Por qué cayeron las ventas?");
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+
+    // Fetch should have been called with the analyze endpoint
+    await waitFor(() => {
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        "/api/dashboard/analyze",
+        expect.objectContaining({
+          body: expect.stringContaining("¿Por qué cayeron las ventas?"),
+        }),
+      );
+    });
+
+    // The text appears at least once (could be in chip + message)
+    const matches = screen.getAllByText("¿Por qué cayeron las ventas?");
+    expect(matches.length).toBeGreaterThanOrEqual(1);
+  });
 });
