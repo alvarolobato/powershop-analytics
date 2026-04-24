@@ -54,6 +54,11 @@ services:
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
       ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
+      # CONFIG_FILE overrides the default config.yaml path (/config/config.yaml inside the container)
+      CONFIG_FILE: /config/config.yaml
+    volumes:
+      # Mount centralized config directory (read-only; ETL only reads config)
+      - ${HOME}/.config/powershop-analytics:/config:ro
     networks:
       - wren
     depends_on:
@@ -222,6 +227,11 @@ services:
       DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
+      # CONFIG_FILE overrides the default config.yaml path (/config/config.yaml inside the container)
+      CONFIG_FILE: /config/config.yaml
+    volumes:
+      # Mount centralized config directory (read-write; dashboard writes config.yaml)
+      - ${HOME}/.config/powershop-analytics:/config:rw
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
     networks:

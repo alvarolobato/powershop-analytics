@@ -62,6 +62,9 @@ services:
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
       ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
+      CONFIG_FILE: /config/config.yaml
+    volumes:
+      - ${HOME}/.config/powershop-analytics:/config:ro
     networks:
       - wren
     depends_on:
@@ -223,6 +226,9 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       # Set true only behind HTTPS; on plain HTTP (e.g. LAN) leave unset so the admin cookie is stored.
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
+      CONFIG_FILE: /config/config.yaml
+    volumes:
+      - ${HOME}/.config/powershop-analytics:/config:rw
     ports:
       - "${HOST_BIND:-0.0.0.0}:${DASHBOARD_PORT:-4000}:4000"
     networks:
