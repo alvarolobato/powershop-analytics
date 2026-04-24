@@ -3,33 +3,24 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, cpSync, existsSync, rmSync, copyFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { RunProcessResult } from "./types";
 import { CliRunnerError } from "./errors";
 
 /**
- * Create an isolated HOME directory for a single claude invocation.
- * This prevents concurrent processes from corrupting the shared ~/.claude.json
- * file through simultaneous read-modify-write cycles.
- * Returns the temp dir path; caller is responsible for cleanup.
+ * Create a fresh isolated HOME directory for a single claude invocation.
+ * Auth comes from CLAUDE_CODE_OAUTH_TOKEN env var (inherited from process.env),
+ * so no credentials need to be copied. Isolation prevents concurrent writes to
+ * a shared ~/.claude.json from corrupting the config file.
  */
-function isolatedClaudeHome(realHome: string): string {
+function isolatedClaudeHome(): string {
   const tmp = mkdtempSync(join(tmpdir(), "claude-home-"));
   try {
-    const claudeDir = join(realHome, ".claude");
-    if (existsSync(claudeDir)) {
-      cpSync(claudeDir, join(tmp, ".claude"), { recursive: true });
-    } else {
-      mkdirSync(join(tmp, ".claude"), { recursive: true });
-    }
-    const claudeJson = join(realHome, ".claude.json");
-    if (existsSync(claudeJson)) {
-      copyFileSync(claudeJson, join(tmp, ".claude.json"));
-    }
+    mkdirSync(join(tmp, ".claude"), { recursive: true });
   } catch {
-    // If copy fails, return the temp dir anyway — claude will create fresh config
+    // ignore — claude will create it
   }
   return tmp;
 }
@@ -81,10 +72,10 @@ class CappedBufferCollector {
 export async function runCliProcess(params: RunCliProcessParams): Promise<RunProcessResult> {
   const { file, args, stdin, timeoutMs, maxStdoutBytes, maxStderrBytes } = params;
 
-  // Each invocation gets its own HOME copy so concurrent processes don't
-  // corrupt the shared ~/.claude.json file via simultaneous writes.
-  const realHome = process.env.HOME ?? "/home/nextjs";
-  const tmpHome = isolatedClaudeHome(realHome);
+  // Each invocation gets its own fresh HOME so concurrent processes don't
+  // corrupt a shared ~/.claude.json via simultaneous writes.
+  // Auth is provided by CLAUDE_CODE_OAUTH_TOKEN (inherited from process.env).
+  const tmpHome = isolatedClaudeHome();
 
   return await new Promise((resolve, reject) => {
     const child = spawn(file, args, {
