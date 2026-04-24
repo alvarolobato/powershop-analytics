@@ -130,11 +130,17 @@ export default function NewDashboard() {
     name: string,
     description: string | null,
     spec: DashboardSpec,
+    genReqId?: string | null,
   ) => {
     const saveRes = await fetch("/api/dashboards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, description, spec }),
+      body: JSON.stringify({
+        name,
+        description,
+        spec,
+        ...(genReqId ? { generateRequestId: genReqId } : {}),
+      }),
     });
 
     if (!saveRes.ok) {
@@ -165,9 +171,11 @@ export default function NewDashboard() {
     setAgenticPhase("running");
     setAgenticErrorSummary(null);
 
+    let capturedRequestId: string | null = null;
     try {
       const spec = await runDashboardGenerateStream(trimmed, {
         onMeta: (rid, lines) => {
+          capturedRequestId = rid;
           setAgenticRequestId(rid);
           setAgenticLines((prev) => [...prev, ...lines]);
         },
@@ -178,7 +186,7 @@ export default function NewDashboard() {
 
       const name = spec.title || "Dashboard sin título";
       dismissAgenticDialog();
-      await saveAndRedirect(name, spec.description || null, spec);
+      await saveAndRedirect(name, spec.description || null, spec, capturedRequestId);
     } catch (err) {
       setAgenticPhase("error");
       if (isApiErrorResponse(err)) {

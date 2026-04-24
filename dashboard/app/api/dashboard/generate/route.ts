@@ -21,6 +21,15 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import {
+  createInteraction,
+  appendInteractionLines,
+  finishInteraction,
+  type InteractionLine,
+} from "@/lib/db-write";
+import { formatAgenticProgressLineEs } from "@/lib/format-agentic-progress";
+import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
+import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
@@ -231,12 +240,19 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
 
   if (wantStream) {
     const encoder = new TextEncoder();
+    const cfg = loadDashboardLlmConfig();
+    const llmProvider = cfg.provider;
+    const llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
+
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         const send = (obj: Record<string, unknown>) => {
           controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
         };
 
+        const ts = () => new Date().toISOString();
+
+        // Send the first meta line immediately — do NOT await DB before this.
         send({
           type: "meta",
           requestId,
@@ -244,17 +260,70 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           promptPreview: prompt.slice(0, 200),
         });
 
+        // Start persisting the interaction concurrently — the first meta NDJSON line
+        // was already sent above so the DB insert does not block the stream start.
+        const interactionLines: InteractionLine[] = [];
+        let interactionId: string | null = null;
+        const interactionIdPromise = createInteraction({
+          requestId,
+          endpoint: "generate",
+          prompt,
+          llmProvider,
+          llmDriver: llmDriver ?? null,
+        }).then((id) => {
+          interactionId = id;
+        }).catch((e) => {
+          console.error(`[${requestId}] createInteraction failed:`, e);
+        });
+
+        const pushLine = (line: InteractionLine) => {
+          interactionLines.push(line);
+        };
+
+        const flushLines = async () => {
+          // Ensure the insert has resolved before flushing lines
+          await interactionIdPromise;
+          if (!interactionId || interactionLines.length === 0) return;
+          const toFlush = interactionLines.splice(0);
+          try {
+            await appendInteractionLines(interactionId, toFlush);
+          } catch (e) {
+            console.error(`[${requestId}] appendInteractionLines failed:`, e);
+          }
+        };
+
+        pushLine({ kind: "meta", text: "Generación con IA iniciada", ts: ts() });
+
         let rawResponse: string;
         try {
           rawResponse = await generateDashboard(prompt, {
             requestId,
             endpoint: "generateDashboard",
-            onAgenticProgress: (ev) => {
+            onAgenticProgress: (ev: AgenticProgressEvent) => {
               send({ type: "progress", requestId, event: ev });
+              const text = formatAgenticProgressLineEs(ev);
+              const kind: InteractionLine["kind"] =
+                ev.type === "tool_start" || ev.type === "assistant_tools"
+                  ? "tool_call"
+                  : ev.type === "tool_done"
+                    ? (ev.ok ? "tool_result" : "error")
+                    : "meta";
+              pushLine({ kind, text, ts: ts() });
             },
           });
         } catch (err: unknown) {
           const mapped = mapGenerateLlmError(err, requestId);
+          const errText =
+            typeof mapped.payload["error"] === "string"
+              ? mapped.payload["error"]
+              : "Error al generar";
+          pushLine({ kind: "error", text: errText, ts: ts() });
+          await flushLines();
+          if (interactionId) {
+            await finishInteraction(interactionId, "error", errText).catch((e) =>
+              console.error(`[${requestId}] finishInteraction(error) failed:`, e),
+            );
+          }
           send({
             type: "error",
             requestId,
@@ -266,8 +335,21 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
         }
 
         send({ type: "phase", requestId, message: "Validando JSON del panel…" });
+        pushLine({ kind: "phase", text: "Validando JSON del panel…", ts: ts() });
+
         const finish = finishGenerateFromRawLlm(rawResponse, requestId);
         if (!finish.ok) {
+          const errText =
+            typeof finish.payload["error"] === "string"
+              ? finish.payload["error"]
+              : "Validación fallida";
+          pushLine({ kind: "error", text: errText, ts: ts() });
+          await flushLines();
+          if (interactionId) {
+            await finishInteraction(interactionId, "error", errText).catch((e) =>
+              console.error(`[${requestId}] finishInteraction(error) failed:`, e),
+            );
+          }
           send({
             type: "error",
             requestId,
@@ -276,6 +358,18 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           });
           controller.close();
           return;
+        }
+
+        pushLine({ kind: "meta", text: "Panel generado correctamente.", ts: ts() });
+        await flushLines();
+        if (interactionId) {
+          await finishInteraction(
+            interactionId,
+            "completed",
+            JSON.stringify(finish.spec),
+          ).catch((e) =>
+            console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
+          );
         }
 
         send({ type: "result", requestId, spec: finish.spec });
@@ -292,6 +386,23 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
     });
   }
 
+  const cfg = loadDashboardLlmConfig();
+  const llmProvider = cfg.provider;
+  const llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
+
+  let interactionId: string | null = null;
+  try {
+    interactionId = await createInteraction({
+      requestId,
+      endpoint: "generate",
+      prompt,
+      llmProvider,
+      llmDriver: llmDriver ?? null,
+    });
+  } catch (e) {
+    console.error(`[${requestId}] createInteraction (non-stream) failed:`, e);
+  }
+
   let rawResponse: string;
   try {
     rawResponse = await generateDashboard(prompt, {
@@ -300,12 +411,33 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
     });
   } catch (err: unknown) {
     const mapped = mapGenerateLlmError(err, requestId);
+    if (interactionId) {
+      const errText =
+        typeof mapped.payload["error"] === "string" ? mapped.payload["error"] : "Error al generar";
+      await finishInteraction(interactionId, "error", errText).catch((e) =>
+        console.error(`[${requestId}] finishInteraction(error) failed:`, e),
+      );
+    }
     return NextResponse.json(mapped.payload, { status: mapped.status });
   }
 
   const finish = finishGenerateFromRawLlm(rawResponse, requestId);
   if (!finish.ok) {
+    if (interactionId) {
+      const errText =
+        typeof finish.payload["error"] === "string"
+          ? finish.payload["error"]
+          : "Validación fallida";
+      await finishInteraction(interactionId, "error", errText).catch((e) =>
+        console.error(`[${requestId}] finishInteraction(error) failed:`, e),
+      );
+    }
     return NextResponse.json(finish.payload, { status: finish.status });
+  }
+  if (interactionId) {
+    await finishInteraction(interactionId, "completed", JSON.stringify(finish.spec)).catch((e) =>
+      console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
+    );
   }
   return NextResponse.json(finish.spec, { status: 200 });
 }

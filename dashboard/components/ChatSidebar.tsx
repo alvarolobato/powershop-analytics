@@ -8,6 +8,8 @@ import type { DashboardSpec } from "@/lib/schema";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { WidgetState } from "@/components/DashboardRenderer";
+import type { InteractionLine } from "@/lib/db-write";
+import { interactionLineClass } from "@/lib/interaction-line-class";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -294,6 +296,94 @@ function MessageBubble({ msg, isMarkdown = false }: { msg: ChatMessage; isMarkdo
 }
 
 // ---------------------------------------------------------------------------
+// CreationLogPanel — collapsible "Log inicial" for the Modificar tab
+// ---------------------------------------------------------------------------
+
+function CreationLogPanel({ lines }: { lines: InteractionLine[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (lines.length === 0) return null;
+
+  return (
+    <div className="mx-4 mt-3 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-muted/60 dark:bg-dark-tremor-background-muted/40">
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle rounded-lg"
+        aria-expanded={expanded}
+        data-testid="creation-log-toggle"
+      >
+        <span>Log inicial ({lines.length} líneas)</span>
+        <span
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+          className="inline-block transition-transform text-xs"
+          aria-hidden="true"
+        >
+          &#9656;
+        </span>
+      </button>
+      {expanded && (
+        <div
+          className="max-h-48 overflow-y-auto px-3 pb-3 text-xs leading-relaxed space-y-0.5"
+          data-testid="creation-log-content"
+        >
+          {lines.map((l, i) => (
+            <div
+              key={i}
+              className={`whitespace-pre-wrap break-words ${interactionLineClass(l.kind)}`}
+            >
+              {l.text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hook: fetch creation interaction lines for a saved dashboard
+// ---------------------------------------------------------------------------
+
+interface InteractionRowSummary {
+  id: string;
+  request_id: string;
+  endpoint: "generate" | "modify" | "analyze";
+  lines: InteractionLine[];
+  status: "running" | "completed" | "error";
+}
+
+function useCreationLogs(dashboardId?: number): InteractionLine[] {
+  const [lines, setLines] = useState<InteractionLine[]>([]);
+
+  useEffect(() => {
+    if (!dashboardId) return;
+    let cancelled = false;
+    fetch(`/api/dashboard/${dashboardId}/interactions`)
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { interactions: InteractionRowSummary[] };
+        if (cancelled) return;
+        // Find the most recent completed generate interaction
+        const createInteraction = data.interactions.find(
+          (r) => r.endpoint === "generate" && r.status === "completed",
+        );
+        if (createInteraction) {
+          setLines(Array.isArray(createInteraction.lines) ? createInteraction.lines : []);
+        }
+      })
+      .catch(() => {
+        // Non-critical — silently ignore if the table doesn't exist yet
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dashboardId]);
+
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
 // ModificarTab — exact current behavior, zero changes
 // ---------------------------------------------------------------------------
 
@@ -305,6 +395,8 @@ function ModificarTab({
   isActive,
   prefillRequest,
   onPrefillApplied,
+  creationLogs,
+  dashboardId,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
@@ -313,6 +405,8 @@ function ModificarTab({
   isActive: boolean;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
+  creationLogs?: InteractionLine[];
+  dashboardId?: number;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -364,7 +458,11 @@ function ModificarTab({
       const res = await fetch("/api/dashboard/modify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, prompt: trimmed }),
+        body: JSON.stringify({
+          spec,
+          prompt: trimmed,
+          ...(dashboardId !== undefined ? { dashboardId } : {}),
+        }),
       });
 
       if (!res.ok) {
@@ -447,7 +545,7 @@ function ModificarTab({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages]);
+  }, [input, loading, spec, onSpecUpdate, setMessages, dashboardId]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -458,6 +556,11 @@ function ModificarTab({
 
   return (
     <>
+      {/* Creation log (collapsible, shown when available) */}
+      {creationLogs && creationLogs.length > 0 && (
+        <CreationLogPanel lines={creationLogs} />
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
         {messages.length === 0 && (
@@ -806,6 +909,9 @@ export default function ChatSidebar({
     initialAnalyzeMessages ?? []
   );
 
+  // Fetch the creation interaction log to show as "Log inicial" in the Modificar tab
+  const creationLogs = useCreationLogs(dashboardId);
+
   // Sync initialAnalyzeMessages on first mount only
   const initializedRef = useRef(false);
   useEffect(() => {
@@ -914,6 +1020,8 @@ export default function ChatSidebar({
                 : null
             }
             onPrefillApplied={onPendingModifyInputConsumed}
+            creationLogs={creationLogs}
+            dashboardId={dashboardId}
           />
         ) : (
           <AnalizarTab
