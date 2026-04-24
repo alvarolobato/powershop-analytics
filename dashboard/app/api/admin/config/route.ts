@@ -129,8 +129,9 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     const cv = config[key];
     if (!cv || value === null) continue;
     if (cv.type === "int") {
-      const n = parseInt(String(value), 10);
-      if (isNaN(n)) {
+      // Use Number() + isInteger: same strictness as coerce() and Python int().
+      const asNum = Number(String(value).trim());
+      if (!Number.isInteger(asNum)) {
         validationErrors.push(`Key '${key}': expected int, got ${JSON.stringify(value)}`);
       }
     } else if (cv.type === "enum" && cv.enum_values && cv.enum_values.length > 0) {

@@ -137,13 +137,16 @@ function coerce(
 ): string | number | boolean | null {
   if (value === null || value === undefined) return null;
   if (type === "int") {
-    const n = parseInt(String(value), 10);
-    if (isNaN(n)) {
+    // Use Number() + isInteger for strict parity with Python's int():
+    // parseInt("10abc") = 10 (wrong); Number("10abc") = NaN (correct).
+    // "1.5" is rejected as non-integer by Number.isInteger().
+    const asNum = Number(String(value).trim());
+    if (!Number.isInteger(asNum)) {
       throw new Error(
         `Config key${key ? ` '${key}'` : ""}: expected int, got ${JSON.stringify(value)}`,
       );
     }
-    return n;
+    return asNum;
   }
   if (type === "bool") {
     if (typeof value === "boolean") return value;

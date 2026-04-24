@@ -7,8 +7,11 @@
  */
 
 export async function register() {
-  // Only run in Node.js runtime (not edge)
-  if (process.env.NEXT_RUNTIME === "nodejs") {
+  // Skip in edge runtime (middleware). In all other runtimes (Node.js standalone,
+  // dev server) bootstrap the config file. Using `!== "edge"` rather than
+  // `=== "nodejs"` is more robust because NEXT_RUNTIME may be undefined outside
+  // the edge runtime context.
+  if (process.env.NEXT_RUNTIME !== "edge") {
     try {
       const { bootstrapConfigIfMissing } = await import(
         "./lib/system-config/loader"

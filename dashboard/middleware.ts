@@ -76,7 +76,10 @@ export function middleware(request: NextRequest): NextResponse {
   }
 
   if (pathname.startsWith("/api/admin")) {
-    if (!adminBearerValid(request, adminKey)) {
+    // Accept x-admin-key / Bearer header (server-to-server) OR the ps_admin
+    // session cookie (same-origin UI calls from /admin/* pages).
+    const cookie = request.cookies.get("ps_admin")?.value;
+    if (cookie !== adminKey && !adminBearerValid(request, adminKey)) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
   }

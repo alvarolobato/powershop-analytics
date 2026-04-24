@@ -215,7 +215,6 @@ def write_config(
     values: dict[str, Any],
     *,
     comment: str | None = None,
-    schema_path: Path | None = None,
 ) -> None:
     """Write *values* to *path* atomically with chmod 0600.
 
@@ -279,7 +278,6 @@ def import_env(
             path,
             to_import,
             comment="imported from environment variables",
-            schema_path=schema_path,
         )
     return list(to_import.keys())
 
@@ -312,7 +310,6 @@ def bootstrap_config_if_missing(
         cfg_path,
         values,
         comment="auto-generated on first start",
-        schema_path=schema_path,
     )
     return True
 
