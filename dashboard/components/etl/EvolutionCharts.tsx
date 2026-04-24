@@ -21,6 +21,11 @@ export interface TableDuration {
   last_duration_ms: number | null;
 }
 
+export interface TableRows {
+  table_name: string;
+  rows_synced: number;
+}
+
 export interface SuccessRate {
   total: number;
   success: number;
@@ -28,11 +33,32 @@ export interface SuccessRate {
   failed: number;
 }
 
+export interface LastRunSummary {
+  run_id: number | null;
+  duration_ms: number | null;
+  total_rows_synced: number | null;
+  throughput_rows_per_sec: number | null;
+}
+
+export interface WatermarkInfo {
+  max_age_seconds: number | null;
+  table_name: string | null;
+}
+
+export interface Errors24h {
+  runs_failed: number;
+  tables_failed: number;
+}
+
 export interface EtlStatsData {
   duration_trend: DurationTrendPoint[];
   rows_trend: RowsTrendPoint[];
   table_durations: TableDuration[];
+  top_tables_by_rows: TableRows[];
   success_rate: SuccessRate;
+  last_run: LastRunSummary;
+  watermarks: WatermarkInfo;
+  errors_24h: Errors24h;
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────────────
@@ -70,7 +96,7 @@ interface EvolutionChartsProps {
 }
 
 export function EvolutionCharts({ stats }: EvolutionChartsProps) {
-  // 1. Duration trend — X=date, Y=duration in minutes
+  // 1. Duration trend
   const durationData = stats.duration_trend
     .filter((p) => p.duration_ms !== null)
     .map((p) => ({
@@ -78,7 +104,7 @@ export function EvolutionCharts({ stats }: EvolutionChartsProps) {
       "Duración (min)": Math.round((p.duration_ms ?? 0) / 60000),
     }));
 
-  // 2. Rows synced per run — exclude runs where total_rows_synced is null
+  // 2. Rows synced per run
   const rowsData = stats.rows_trend
     .filter((p) => p.total_rows_synced !== null)
     .map((p) => ({
@@ -86,7 +112,7 @@ export function EvolutionCharts({ stats }: EvolutionChartsProps) {
       Filas: p.total_rows_synced as number,
     }));
 
-  // 3. Top 10 slowest tables by average duration (explicit sort guards against unsorted API responses)
+  // 3. Top 10 slowest tables by avg duration
   const topTables = [...stats.table_durations]
     .sort((a, b) => b.avg_duration_ms - a.avg_duration_ms)
     .slice(0, 10)
@@ -95,7 +121,15 @@ export function EvolutionCharts({ stats }: EvolutionChartsProps) {
       "Duración media (seg)": Math.round(t.avg_duration_ms / 1000),
     }));
 
-  // 4. Run outcomes donut
+  // 4. Top tables by rows (latest run) — strips ps_ prefix for readability.
+  const topByRows = [...stats.top_tables_by_rows]
+    .sort((a, b) => b.rows_synced - a.rows_synced)
+    .map((t) => ({
+      Tabla: t.table_name.replace(/^ps_/, ""),
+      Filas: t.rows_synced,
+    }));
+
+  // 5. Run outcomes donut
   const outcomeData = [
     { name: "Exitoso", value: stats.success_rate.success },
     { name: "Parcial", value: stats.success_rate.partial },
@@ -167,7 +201,27 @@ export function EvolutionCharts({ stats }: EvolutionChartsProps) {
         </Card>
       )}
 
-      {/* Chart 4: Run outcomes donut */}
+      {/* Chart 4: Top tables by rows synced */}
+      {topByRows.length === 0 ? (
+        <EmptyChart title="Top tablas por filas (última sincronización)" />
+      ) : (
+        <Card className="p-4" data-testid="top-tables-by-rows">
+          <h3 className="mb-4 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
+            Top tablas por filas (última sincronización)
+          </h3>
+          <BarChart
+            data={topByRows}
+            index="Tabla"
+            categories={["Filas"]}
+            colors={["cyan"]}
+            valueFormatter={(v: number) => v.toLocaleString("es-ES")}
+            yAxisWidth={70}
+            showLegend={false}
+          />
+        </Card>
+      )}
+
+      {/* Chart 5: Run outcomes donut */}
       {outcomeData.length === 0 || stats.success_rate.total === 0 ? (
         <EmptyChart title="Resultados de ejecuciones (últimas 30)" />
       ) : (

@@ -130,8 +130,8 @@ ORDER BY value DESC`,
          / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
-JOIN "public"."ps_articulos" pa ON lv."codigo" = pa."codigo"
-JOIN "public"."ps_familias" fm ON pa."num_familia" = fm."reg_familia"
+JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
@@ -139,6 +139,10 @@ WHERE v."entrada" = true
   AND lv."fecha_creacion" <= :curr_to
   AND __gf_tienda__
   AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+  AND __gf_sexo__
+  AND __gf_departamento__
 GROUP BY lv."tienda"
 ORDER BY value DESC`,
       x: "label",
@@ -165,6 +169,10 @@ WHERE v."entrada" = true
   AND lv."fecha_creacion" <= :curr_to
   AND __gf_tienda__
   AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+  AND __gf_sexo__
+  AND __gf_departamento__
 GROUP BY p."ccrefejofacm", p."descripcion"
 ORDER BY "Ventas Netas" DESC
 LIMIT 10`,

@@ -92,6 +92,38 @@ You generate JSON dashboard specifications.
 - Store 99 = almacén central, exclude from retail analytics
 ```
 
+## Global filters (template dashboards)
+
+Pre-built dashboards declare their `spec.filters: GlobalFilter[]` from
+shared sets in `dashboard/lib/template-global-filters.ts`:
+
+| Set | Covers | Filters |
+|-----|--------|---------|
+| `templateGlobalFiltersRetail` | ventas, general | tienda, familia, temporada, marca, sexo, departamento |
+| `templateGlobalFiltersMayorista` | mayorista | cliente_mayorista, familia, temporada, marca |
+| `templateGlobalFiltersStock` | stock | tienda (stock-scoped), familia, temporada, marca |
+| `templateGlobalFiltersCompras` | compras | proveedor_compras |
+
+Rules when writing widget SQL for these templates:
+
+1. **Stick to the documented alias**: the `bind_expr` of each filter is
+   anchored to an alias (`v`, `lv`, `p`, `fm`, `f`, `lf`, `co`, `s`, …).
+   Widget SQL that wants to apply the filter must use the same alias.
+2. **Only reference filter tokens (`__gf_<id>__`) that the template declares**
+   — the `template-global-filters.test.ts` suite enforces this. Tokens with
+   no active selection compile to `TRUE`; there's no cost to including them
+   in a widget that already joins the right table.
+3. **Inactive filters must produce valid SQL** — our compile step guarantees
+   `TRUE` substitution for unset/empty selections. All tests assert that
+   every template compiles with an empty `GlobalFilterValues`.
+4. **Add new filters via the catalog, not ad-hoc**: edit
+   `template-global-filters.ts`, add/expand a set, wire widgets to use the
+   new token. Re-run `npm run test` — the compilation + orphan-token tests
+   will tell you if a widget references a filter that isn't in the set.
+
+Users interact with these filters through `FilterCombobox` (Headless UI
+Combobox multi/single select with client-side search, chips, and "Limpiar").
+
 ## Testing
 
 - Unit tests: widget components render correct Tremor elements

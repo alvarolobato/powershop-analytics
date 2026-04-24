@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DashboardSpec, GlobalFilter } from "@/lib/schema";
 import type { GlobalFilterValues } from "@/lib/sql-filters";
 import type { DateRange } from "./DateRangePicker";
+import { FilterCombobox } from "./FilterCombobox";
 
 export interface DashboardFiltersBarProps {
   dashboardId: number;
@@ -15,7 +16,7 @@ export interface DashboardFiltersBarProps {
 
 type OptionRow = { value: string; label: string };
 
-/** HTML `<select>` value is always string — coerce stored numbers for controlled value. */
+/** HTML form value is always string — coerce stored numbers for controlled value. */
 function singleSelectFormValue(
   filter: GlobalFilter,
   value: GlobalFilterValues,
@@ -61,125 +62,6 @@ async function postOptions(
   return Array.isArray(data.options) ? data.options : [];
 }
 
-// ---------------------------------------------------------------------------
-// Pill select component (B3)
-// ---------------------------------------------------------------------------
-
-interface PillSelectProps {
-  filter: GlobalFilter;
-  options: OptionRow[];
-  value: GlobalFilterValues;
-  loading?: boolean;
-  error?: string;
-  onChange: (next: GlobalFilterValues) => void;
-}
-
-function PillSelect({ filter, options, value, loading, error, onChange }: PillSelectProps) {
-  const pillStyle: React.CSSProperties = {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 6,
-    background: "var(--bg-2)",
-    border: "1px solid var(--border)",
-    borderRadius: 20,
-    padding: "4px 10px 4px 12px",
-    fontSize: 12,
-  };
-  const selectStyle: React.CSSProperties = {
-    background: "transparent",
-    border: "none",
-    color: "var(--fg)",
-    fontSize: 12,
-    cursor: "pointer",
-    outline: "none",
-    fontFamily: "inherit",
-    paddingRight: 14,
-  };
-
-  if (filter.type === "single_select") {
-    return (
-      <label style={pillStyle}>
-        <span style={{ color: "var(--fg-muted)", fontSize: 11 }}>{filter.label}</span>
-        <select
-          id={`gf-${filter.id}`}
-          aria-label={filter.label}
-          aria-busy={!!loading}
-          style={selectStyle}
-          value={singleSelectFormValue(filter, value)}
-          disabled={!!loading}
-          onChange={(ev) => {
-            const v = ev.target.value;
-            const next = { ...value };
-            if (!v) delete next[filter.id];
-            else if (filter.value_type === "numeric") {
-              const n = Number(v);
-              next[filter.id] = Number.isFinite(n) ? n : v;
-            } else {
-              next[filter.id] = v;
-            }
-            onChange(next);
-          }}
-        >
-          <option value="" style={{ background: "var(--bg-1)" }}>Todos</option>
-          {options.map((o) => (
-            <option key={o.value} value={o.value} style={{ background: "var(--bg-1)" }}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        {error && (
-          <span style={{ fontSize: 10, color: "var(--down)" }}>{error}</span>
-        )}
-      </label>
-    );
-  }
-
-  // multi_select — keep as a compact multi-select with pill wrapper
-  return (
-    <label style={{ ...pillStyle, alignItems: "flex-start", padding: "4px 10px 4px 12px" }}>
-      <span style={{ color: "var(--fg-muted)", fontSize: 11, paddingTop: 4 }}>{filter.label}</span>
-      <select
-        id={`gf-${filter.id}`}
-        multiple
-        aria-label={filter.label}
-        aria-busy={!!loading}
-        size={Math.min(5, Math.max(2, options.length || 2))}
-        style={{
-          ...selectStyle,
-          minHeight: 60,
-          background: "var(--bg-1)",
-          border: "1px solid var(--border)",
-          borderRadius: 4,
-          padding: "2px 6px",
-        }}
-        disabled={!!loading}
-        value={multiSelectFormValue(filter, value)}
-        onChange={(ev) => {
-          const selected = Array.from(ev.target.selectedOptions).map((o) => o.value);
-          const next = { ...value };
-          if (selected.length === 0) delete next[filter.id];
-          else if (filter.value_type === "numeric") {
-            next[filter.id] = selected
-              .map((s) => Number(s))
-              .filter((n) => Number.isFinite(n));
-          } else {
-            next[filter.id] = selected;
-          }
-          onChange(next);
-        }}
-      >
-        {options.map((o) => (
-          <option key={o.value} value={o.value} style={{ background: "var(--bg-1)" }}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      {error && (
-        <span style={{ fontSize: 10, color: "var(--down)" }}>{error}</span>
-      )}
-    </label>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // DashboardFiltersBar
@@ -281,17 +163,64 @@ export function DashboardFiltersBar({
         FILTROS
       </span>
 
-      {filters.map((f) => (
-        <PillSelect
-          key={f.id}
-          filter={f}
-          options={optionsById[f.id] ?? []}
-          value={value}
-          loading={loading[f.id]}
-          error={errors[f.id]}
-          onChange={onChange}
-        />
-      ))}
+      {filters.map((f) => {
+        const fOptions = optionsById[f.id] ?? [];
+        const fError = errors[f.id];
+        const fLoading = !!loading[f.id];
+        return (
+          <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 200 }}>
+            <label
+              htmlFor={`gf-${f.id}`}
+              style={{ fontSize: 11, color: "var(--fg-muted)", fontFamily: "var(--font-jetbrains, monospace)" }}
+            >
+              {f.label}
+            </label>
+            {f.type === "single_select" ? (
+              <FilterCombobox
+                id={f.id}
+                label={f.label}
+                options={fOptions}
+                loading={fLoading}
+                error={fError ?? null}
+                value={singleSelectFormValue(f, value)}
+                onChange={(v) => {
+                  const next = { ...value };
+                  if (!v) delete next[f.id];
+                  else if (f.value_type === "numeric") {
+                    const n = Number(v);
+                    next[f.id] = Number.isFinite(n) ? n : v;
+                  } else {
+                    next[f.id] = v;
+                  }
+                  onChange(next);
+                }}
+              />
+            ) : (
+              <FilterCombobox
+                id={f.id}
+                label={f.label}
+                multiple
+                options={fOptions}
+                loading={fLoading}
+                error={fError ?? null}
+                value={multiSelectFormValue(f, value)}
+                onChange={(selected) => {
+                  const next = { ...value };
+                  if (selected.length === 0) delete next[f.id];
+                  else if (f.value_type === "numeric") {
+                    next[f.id] = selected
+                      .map((s) => Number(s))
+                      .filter((n) => Number.isFinite(n));
+                  } else {
+                    next[f.id] = selected;
+                  }
+                  onChange(next);
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />

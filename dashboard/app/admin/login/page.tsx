@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { loginAdmin } from "./actions";
+import { safeAdminRedirectTarget } from "@/lib/admin-redirect";
 
 export default async function AdminLoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: { error?: string; redirect?: string };
 }) {
-  const sp = await searchParams;
+  const sp = searchParams;
   const err = sp.error === "1";
   const noConfig = sp.error === "2";
+  // Sanitize early so the hidden input only ever carries a safe local path.
+  const redirectTarget = safeAdminRedirectTarget(sp.redirect);
 
   return (
     <div className="mx-auto max-w-md space-y-6 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-muted dark:bg-dark-tremor-background-muted p-6">
@@ -31,6 +34,7 @@ export default async function AdminLoginPage({
         </p>
       )}
       <form action={loginAdmin}>
+        <input type="hidden" name="redirect" value={redirectTarget} />
         <label className="block text-sm font-medium text-tremor-content dark:text-dark-tremor-content">
           Clave
           <input

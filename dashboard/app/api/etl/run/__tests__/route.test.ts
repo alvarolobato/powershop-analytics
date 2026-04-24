@@ -16,6 +16,14 @@ import { sql } from "@/lib/db-write";
 const mockQuery = vi.mocked(query);
 const mockSql = vi.mocked(sql);
 
+function makeRequest(body?: unknown): Request {
+  const init: RequestInit = { method: "POST" };
+  if (body !== undefined) {
+    init.body = typeof body === "string" ? body : JSON.stringify(body);
+  }
+  return new Request("http://localhost/api/etl/run", init);
+}
+
 describe("POST /api/etl/run", () => {
   beforeEach(() => {
     mockQuery.mockReset();
@@ -27,13 +35,14 @@ describe("POST /api/etl/run", () => {
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockResolvedValueOnce([{ id: 42 }]);
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(202);
     expect(body).toEqual({ trigger_id: 42 });
     expect(mockSql).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO etl_manual_trigger"),
+      [false, [], "dashboard"],
     );
   });
 
@@ -41,7 +50,7 @@ describe("POST /api/etl/run", () => {
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // active run check
     mockQuery.mockResolvedValueOnce({ rows: [[55]], columns: ["id"] }); // pending trigger exists
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(202);
@@ -56,7 +65,7 @@ describe("POST /api/etl/run", () => {
       columns: ["id", "started_at"],
     });
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(409);
@@ -73,7 +82,7 @@ describe("POST /api/etl/run", () => {
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockResolvedValueOnce([{ id: 99 }]);
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(202);
@@ -85,7 +94,7 @@ describe("POST /api/etl/run", () => {
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockResolvedValueOnce([{ id: "42" }]);
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(202);
@@ -96,7 +105,7 @@ describe("POST /api/etl/run", () => {
   it("returns 503 when the database query throws", async () => {
     mockQuery.mockRejectedValueOnce(new Error("Connection refused"));
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(503);
@@ -108,7 +117,7 @@ describe("POST /api/etl/run", () => {
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
     mockSql.mockRejectedValueOnce(new Error("DB write error"));
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(503);
@@ -116,19 +125,103 @@ describe("POST /api/etl/run", () => {
   });
 
   it("returns 202 with existing trigger_id when a pending trigger already exists (idempotent)", async () => {
-    // No active run
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
-    // No pending before INSERT (race: another client inserted between SELECT and INSERT)
     mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
-    // ON CONFLICT DO NOTHING — INSERT returns no rows
     mockSql.mockResolvedValueOnce([]);
-    // Fetch existing pending trigger
     mockQuery.mockResolvedValueOnce({ rows: [[77]], columns: ["id"] });
 
-    const res = await POST();
+    const res = await POST(makeRequest());
     const body = await res.json();
 
     expect(res.status).toBe(202);
     expect(body).toEqual({ trigger_id: 77 });
+  });
+
+  // ─── Force-resync body parsing (issue #398) ────────────────────────────────
+
+  it("accepts { force_full: true } and passes true to the INSERT", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockSql.mockResolvedValueOnce([{ id: 101 }]);
+
+    const res = await POST(makeRequest({ force_full: true }));
+    expect(res.status).toBe(202);
+    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [true, [], "dashboard"]);
+  });
+
+  it("accepts { tables: [...] } and passes the array to the INSERT", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockSql.mockResolvedValueOnce([{ id: 102 }]);
+
+    const res = await POST(makeRequest({ tables: ["stock", "ventas"] }));
+    expect(res.status).toBe(202);
+    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [
+      false,
+      ["stock", "ventas"],
+      "dashboard",
+    ]);
+  });
+
+  it("ignores tables when force_full is true", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockSql.mockResolvedValueOnce([{ id: 103 }]);
+
+    const res = await POST(
+      makeRequest({ force_full: true, tables: ["stock"] }),
+    );
+    expect(res.status).toBe(202);
+    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [true, [], "dashboard"]);
+  });
+
+  it("rejects unknown table names with 400 invalid_body", async () => {
+    const res = await POST(makeRequest({ tables: ["ps_ventas; DROP"] }));
+    const body = await res.json();
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("invalid_body");
+    expect(body.detail).toContain("Unknown table name");
+    expect(mockSql).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-boolean force_full with 400", async () => {
+    const res = await POST(makeRequest({ force_full: "yes" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects non-array tables with 400", async () => {
+    const res = await POST(makeRequest({ tables: "stock" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects tables containing non-string entries with 400", async () => {
+    const res = await POST(makeRequest({ tables: ["stock", 42] }));
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects malformed JSON body with 400", async () => {
+    const res = await POST(makeRequest("{not json"));
+    expect(res.status).toBe(400);
+  });
+
+  it("treats JSON array as invalid body (must be object)", async () => {
+    const res = await POST(makeRequest(["stock"]));
+    expect(res.status).toBe(400);
+  });
+
+  it("deduplicates repeated table names before validation", async () => {
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] });
+    mockSql.mockResolvedValueOnce([{ id: 104 }]);
+
+    const res = await POST(
+      makeRequest({ tables: ["stock", "stock", "ventas"] }),
+    );
+    expect(res.status).toBe(202);
+    expect(mockSql).toHaveBeenCalledWith(expect.any(String), [
+      false,
+      ["stock", "ventas"],
+      "dashboard",
+    ]);
   });
 });
