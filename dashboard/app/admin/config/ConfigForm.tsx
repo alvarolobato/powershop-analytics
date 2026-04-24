@@ -15,7 +15,7 @@
  * - Inline editing with save
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import SecretField from "@/components/SecretField";
 
 // ---------------------------------------------------------------------------
@@ -120,7 +120,14 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
   }
 
   function startEdit() {
-    setEditValue(revealedValue ?? item.value_display);
+    // For sensitive fields: only pre-fill with the revealed real value; otherwise
+    // start with empty string so the user must deliberately type a new value,
+    // preventing accidental overwrites with the masked "••••1234" placeholder.
+    if (item.sensitive) {
+      setEditValue(revealedValue ?? "");
+    } else {
+      setEditValue(item.value_display);
+    }
     setIsEditing(true);
     setError(null);
   }
@@ -156,6 +163,13 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
   }
 
   async function saveToFile() {
+    // For sensitive keys: require the real value to be revealed first to
+    // avoid persisting the masked "••••1234" placeholder into config.yaml.
+    if (item.sensitive && revealedValue === null) {
+      setError("Revela el valor primero (icono ojo) antes de guardar en fichero.");
+      return;
+    }
+    const valueToSave = item.sensitive ? revealedValue! : item.value_display;
     setSaving(true);
     setError(null);
     try {
@@ -165,7 +179,7 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
           "content-type": "application/json",
           "x-admin-key": adminKey,
         },
-        body: JSON.stringify({ updates: { [item.key]: revealedValue ?? item.value_display } }),
+        body: JSON.stringify({ updates: { [item.key]: valueToSave } }),
       });
       if (!res.ok) {
         const body = await res.json();
@@ -350,20 +364,25 @@ function SectionCard({
 // Main page component
 // ---------------------------------------------------------------------------
 
-export default function ConfigPageClient() {
+/**
+ * `adminKeyFromCookie` is injected by the server component (page.tsx) from the
+ * `ps_admin` httpOnly cookie that middleware has already validated.  This avoids
+ * storing the raw admin key in localStorage or any browser-accessible storage.
+ *
+ * If the cookie is absent (shouldn't happen — middleware redirects to login) we
+ * show an inline prompt as a fallback.
+ */
+export default function ConfigPageClient({
+  adminKeyFromCookie = "",
+}: {
+  adminKeyFromCookie?: string;
+}) {
   const [data, setData] = useState<ConfigData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adminKey, setAdminKey] = useState("");
+  const [adminKey, setAdminKey] = useState(adminKeyFromCookie);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
-
-  // Try to read admin key from cookie or localStorage
-  useEffect(() => {
-    const stored =
-      typeof window !== "undefined" ? (localStorage.getItem("admin_key") ?? "") : "";
-    setAdminKey(stored);
-  }, []);
 
   const loadConfig = useCallback(async (key?: string) => {
     const k = key ?? adminKey;
@@ -375,7 +394,7 @@ export default function ConfigPageClient() {
         headers: { "x-admin-key": k },
       });
       if (res.status === 401) {
-        setError("No autorizado. Verifica tu clave de administrador.");
+        setError("No autorizado. La sesión de administrador puede haber caducado.");
         setLoading(false);
         return;
       }
@@ -415,7 +434,7 @@ export default function ConfigPageClient() {
     }
   }
 
-  // Admin key login form
+  // Fallback: cookie was empty (shouldn't happen — middleware redirects first)
   if (!adminKey) {
     return (
       <div className="space-y-4">
@@ -424,14 +443,8 @@ export default function ConfigPageClient() {
         </h1>
         <div className="max-w-sm space-y-3 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4">
           <p className="text-sm text-tremor-content dark:text-dark-tremor-content">
-            Introduce la clave de administrador para acceder.
+            Sesión caducada. <a href="/admin/login" className="text-blue-600 hover:underline">Vuelve a iniciar sesión.</a>
           </p>
-          <AdminKeyForm
-            onSubmit={(k) => {
-              localStorage.setItem("admin_key", k);
-              setAdminKey(k);
-            }}
-          />
         </div>
       </div>
     );
@@ -501,34 +514,3 @@ export default function ConfigPageClient() {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Inline admin key form (shown when not authenticated)
-// ---------------------------------------------------------------------------
-
-function AdminKeyForm({ onSubmit }: { onSubmit: (key: string) => void }) {
-  const [value, setValue] = useState("");
-  return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        if (value.trim()) onSubmit(value.trim());
-      }}
-      className="flex gap-2"
-    >
-      <input
-        type="password"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        placeholder="ADMIN_API_KEY"
-        autoComplete="current-password"
-        className="flex-1 rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
-      />
-      <button
-        type="submit"
-        className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-      >
-        Acceder
-      </button>
-    </form>
-  );
-}

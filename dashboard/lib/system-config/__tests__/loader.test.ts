@@ -14,6 +14,7 @@ import {
   getSystemConfig,
   importEnvToConfig,
   resetConfigCache,
+  resetSchemaCache,
   writeConfig,
 } from "@/lib/system-config/loader";
 
@@ -98,6 +99,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetConfigCache();
+  resetSchemaCache();
   vi.unstubAllEnvs();
   fs.rmSync(_dir, { recursive: true, force: true });
 });
@@ -210,6 +212,15 @@ describe("getSystemConfig precedence", () => {
     fs.writeFileSync(configFile, "- item1\n- item2\n", { encoding: "utf-8" });
 
     expect(() => load(schemaFile, configFile)).toThrow(/mapping/);
+  });
+
+  it("throws on invalid int value (parity with Python loader)", () => {
+    const schemaFile = path.join(_dir, "schema.yaml");
+    const configFile = path.join(_dir, "config.yaml");
+    writeMinimalSchema(schemaFile);
+    vi.stubEnv("TEST_INT_KEY", "not-a-number");
+
+    expect(() => load(schemaFile, configFile)).toThrow(/expected int/i);
   });
 });
 

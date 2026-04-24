@@ -92,20 +92,36 @@ function resolveConfigPath(): string {
 // ---------------------------------------------------------------------------
 
 let _schema: SchemaEntry[] | null = null;
+let _schemaPath: string | null = null;
 
-function loadSchema(): SchemaEntry[] {
-  if (_schema) return _schema;
-  const schemaPath = resolveSchemaPath();
-  if (!fs.existsSync(schemaPath)) {
-    throw new Error(`Config schema not found: ${schemaPath}`);
+/**
+ * Load schema from the given path (or the auto-resolved path if omitted).
+ * The schema is cached; if a different path is requested the cache is reset.
+ */
+function loadSchema(schemaPath?: string): SchemaEntry[] {
+  const resolvedPath = schemaPath ?? resolveSchemaPath();
+  // Invalidate schema cache when a different path is requested (e.g., in tests)
+  if (_schemaPath !== null && _schemaPath !== resolvedPath) {
+    _schema = null;
   }
-  const raw = fs.readFileSync(schemaPath, "utf-8");
+  if (_schema) return _schema;
+  if (!fs.existsSync(resolvedPath)) {
+    throw new Error(`Config schema not found: ${resolvedPath}`);
+  }
+  const raw = fs.readFileSync(resolvedPath, "utf-8");
   const parsed = parseYaml(raw);
   if (!Array.isArray(parsed)) {
     throw new Error("Config schema must be a YAML list");
   }
   _schema = parsed as SchemaEntry[];
+  _schemaPath = resolvedPath;
   return _schema;
+}
+
+/** Reset schema cache as well as config cache (used in tests that provide a custom schema). */
+export function resetSchemaCache(): void {
+  _schema = null;
+  _schemaPath = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,11 +131,17 @@ function loadSchema(): SchemaEntry[] {
 function coerce(
   value: string | number | boolean | null | undefined,
   type: SchemaEntry["type"],
+  key?: string,
 ): string | number | boolean | null {
   if (value === null || value === undefined) return null;
   if (type === "int") {
     const n = parseInt(String(value), 10);
-    return isNaN(n) ? null : n;
+    if (isNaN(n)) {
+      throw new Error(
+        `Config key${key ? ` '${key}'` : ""}: expected int, got ${JSON.stringify(value)}`,
+      );
+    }
+    return n;
   }
   if (type === "bool") {
     if (typeof value === "boolean") return value;
@@ -157,6 +179,10 @@ export function resetConfigCache(): void {
 /**
  * Load and return the merged system configuration.
  * Result is memoized; call resetConfigCache() to force a reload.
+ *
+ * @param opts.schemaPath Override the schema file path (useful in tests).
+ * @param opts.configPath Override the config.yaml file path.
+ * @param opts.noCache    Bypass and do not populate the in-process cache.
  */
 export function getSystemConfig(opts?: {
   schemaPath?: string;
@@ -165,7 +191,7 @@ export function getSystemConfig(opts?: {
 }): SystemConfig {
   if (_cache && !opts?.noCache) return _cache;
 
-  const schema = loadSchema();
+  const schema = loadSchema(opts?.schemaPath);
   const configPath = opts?.configPath ?? resolveConfigPath();
   const fileData = loadFileData(configPath);
 
@@ -193,7 +219,7 @@ export function getSystemConfig(opts?: {
     }
 
     result[entry.key] = {
-      value: coerce(raw, entry.type),
+      value: coerce(raw, entry.type, entry.key),
       source,
       sensitive: entry.sensitive,
       key: entry.key,

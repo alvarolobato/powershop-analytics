@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import stat
-import textwrap
 from pathlib import Path
 
 import pytest
@@ -421,3 +419,22 @@ class TestRealSchema:
         for cv in config.values():
             assert isinstance(cv, ConfigValue)
             assert cv.source in ("env", "file", "default")
+
+
+# ---------------------------------------------------------------------------
+# get_effective_config convenience function
+# ---------------------------------------------------------------------------
+
+
+class TestGetEffectiveConfig:
+    def test_returns_config_dict(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """get_effective_config with explicit config_path returns a non-empty dict."""
+        monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "missing.yaml"))
+        cfg = get_effective_config(
+            schema_path=_schema_path(),
+            config_path=tmp_path / "missing.yaml",
+        )
+        assert isinstance(cfg, dict)
+        assert len(cfg) >= 40
+        for cv in cfg.values():
+            assert isinstance(cv, ConfigValue)
