@@ -139,6 +139,10 @@ export async function appendInteractionLines(
 
 /**
  * Mark an interaction as completed or error.
+ *
+ * Throws on DB errors — callers should `.catch()` and log if they want
+ * best-effort behavior (success-path callers should `await` this before
+ * returning the HTTP response so status never stays 'running').
  */
 export async function finishInteraction(
   id: string,

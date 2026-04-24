@@ -282,7 +282,7 @@ export async function POST(request: Request) {
   const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
 
   if (interactionId) {
-    void finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
+    await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
       console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
     );
   }

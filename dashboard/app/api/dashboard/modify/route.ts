@@ -255,7 +255,7 @@ export async function POST(request: Request) {
   }
 
   if (interactionId) {
-    void finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
+    await finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
       console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
     );
   }
