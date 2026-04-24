@@ -214,7 +214,7 @@ export function ReviewDisplay({ review }: ReviewDisplayProps) {
           )}
           {review.quality_status === "degraded" && (
             <span
-              className="rounded px-2 py-0.5 bg-amber-500/20 text-amber-200 border border-amber-500/30"
+              className="rounded px-2 py-0.5 bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-900/30 dark:text-amber-100 dark:border-amber-500/30"
               data-testid="quality-degraded"
             >
               Calidad de datos degradada
@@ -245,7 +245,7 @@ export function ReviewDisplay({ review }: ReviewDisplayProps) {
 
       {review.data_quality_notes.length > 0 && (
         <div
-          className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100"
+          className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/50 dark:text-amber-100"
           data-testid="data-quality-notes"
         >
           <p className="font-semibold mb-1">Notas de calidad de datos</p>
