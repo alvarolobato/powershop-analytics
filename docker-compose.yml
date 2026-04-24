@@ -54,6 +54,16 @@ services:
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
       ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
+      # CONFIG_FILE pins the config path to the host-mounted /config directory.
+      # Without it the loader would fall back to ~/.config/powershop-analytics/config.yaml
+      # (inside the container) which does not exist.
+      CONFIG_FILE: /config/config.yaml
+      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
+    volumes:
+      # Mount centralized config directory (read-only; ETL only reads config)
+      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:ro
+      # Mount schema so the container can validate/read key definitions
+      - ./config/schema.yaml:/app/config/schema.yaml:ro
     networks:
       - wren
     depends_on:
@@ -222,6 +232,16 @@ services:
       DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
+      # CONFIG_FILE pins the config path to the host-mounted /config directory.
+      # Without it the loader would fall back to ~/.config/powershop-analytics/config.yaml
+      # (inside the container) which does not exist.
+      CONFIG_FILE: /config/config.yaml
+      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
+    volumes:
+      # Mount centralized config directory (read-write; dashboard writes config.yaml)
+      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
+      # Mount schema so the container can validate/read key definitions
+      - ./config/schema.yaml:/app/config/schema.yaml:ro
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
     networks:

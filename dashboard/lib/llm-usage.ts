@@ -2,6 +2,7 @@ import { sql } from "@/lib/db-write";
 import { query } from "@/lib/db";
 import type { LlmUsageProviderMeta } from "@/lib/llm-provider/types";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { getSystemConfig } from "@/lib/system-config/loader";
 
 /**
  * Rate table: **estimated** USD per token used only for `llm_usage.estimated_cost_usd`.
@@ -80,7 +81,20 @@ export function logUsage(
 }
 
 export async function checkDailyBudget(): Promise<void> {
-  const budgetStr = process.env.LLM_DAILY_BUDGET_USD;
+  // Read the budget from the central config loader (env > config.yaml > default).
+  // Uses the cached getSystemConfig() for production performance; tests that stub env
+  // vars should call resetDashboardLlmConfigCache() (which also clears the system-config
+  // cache) in their afterEach to ensure fresh reads.
+  let budgetStr: string | null = null;
+  try {
+    const cfg = getSystemConfig();
+    const raw = cfg["dashboard.llm_daily_budget_usd"]?.value;
+    budgetStr = raw !== null && raw !== undefined ? String(raw).trim() : null;
+  } catch {
+    // Loader unavailable (e.g., schema file missing) — fall back to process.env
+    budgetStr = process.env.LLM_DAILY_BUDGET_USD ?? null;
+  }
+
   if (!budgetStr || budgetStr === "0" || budgetStr === "") {
     return;
   }

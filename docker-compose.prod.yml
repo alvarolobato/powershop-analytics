@@ -62,6 +62,12 @@ services:
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
       ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
+      # CONFIG_FILE pins the config path to the host-mounted /config directory.
+      CONFIG_FILE: /config/config.yaml
+      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
+    volumes:
+      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:ro
+      - ./config/schema.yaml:/app/config/schema.yaml:ro
     networks:
       - wren
     depends_on:
@@ -223,6 +229,12 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       # Set true only behind HTTPS; on plain HTTP (e.g. LAN) leave unset so the admin cookie is stored.
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
+      # CONFIG_FILE pins the config path to the host-mounted /config directory.
+      CONFIG_FILE: /config/config.yaml
+      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
+    volumes:
+      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
+      - ./config/schema.yaml:/app/config/schema.yaml:ro
     ports:
       - "${HOST_BIND:-0.0.0.0}:${DASHBOARD_PORT:-4000}:4000"
     networks:
