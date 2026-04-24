@@ -44,11 +44,24 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark");
   const [mounted, setMounted] = useState(false);
 
-  // Read persisted preference on mount
+  // Read persisted preference on mount (supports both ps.tweaks.v1 and legacy "theme" key)
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-      const initial: Theme = stored === "light" ? "light" : "dark";
+      let initial: Theme = "dark";
+      const tweaksRaw = localStorage.getItem("ps.tweaks.v1");
+      if (tweaksRaw) {
+        try {
+          const tweaks = JSON.parse(tweaksRaw) as { theme?: string };
+          if (tweaks.theme === "light" || tweaks.theme === "dark") {
+            initial = tweaks.theme;
+          }
+        } catch {
+          // ignore parse error
+        }
+      } else {
+        const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+        initial = stored === "light" ? "light" : "dark";
+      }
       setTheme(initial);
       applyTheme(initial);
     } catch {
@@ -63,7 +76,15 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
       const next: Theme = prev === "dark" ? "light" : "dark";
       applyTheme(next);
       try {
+        // Persist to both keys for compatibility
         localStorage.setItem(STORAGE_KEY, next);
+        const tweaksRaw = localStorage.getItem("ps.tweaks.v1");
+        let tweaks: Record<string, string> = {};
+        if (tweaksRaw) {
+          try { tweaks = JSON.parse(tweaksRaw) as Record<string, string>; } catch { /* ignore */ }
+        }
+        tweaks.theme = next;
+        localStorage.setItem("ps.tweaks.v1", JSON.stringify(tweaks));
       } catch {
         // ignore
       }
@@ -92,7 +113,9 @@ function applyTheme(theme: Theme) {
   const root = document.documentElement;
   if (theme === "dark") {
     root.classList.add("dark");
+    root.setAttribute("data-theme", "dark");
   } else {
     root.classList.remove("dark");
+    root.setAttribute("data-theme", "light");
   }
 }

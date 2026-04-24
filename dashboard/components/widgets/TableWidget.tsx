@@ -1,30 +1,107 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Card } from "@tremor/react";
 import type { TableWidget as TableWidgetSpec, GlossaryItem } from "@/lib/schema";
 import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE } from "./types";
 import { applyGlossary } from "@/lib/glossary";
+import { toTitleCase } from "./format";
 
 interface TableWidgetProps {
   widget: TableWidgetSpec;
   data: WidgetData | null;
-  /** Optional glossary entries for contextual tooltips on the title. */
   glossary?: GlossaryItem[];
   onDataPointClick?: OnDataPointClick;
+  /** When false, removes internal padding so the table is edge-to-edge. Default true. */
+  padded?: boolean;
 }
 
 type SortDir = "asc" | "desc";
-
-/** Shared formatter to avoid per-cell allocations. */
-const cellFormatter = new Intl.NumberFormat("es-ES", { useGrouping: true });
 
 function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === "";
 }
 
-export function TableWidget({ widget, data, glossary, onDataPointClick }: TableWidgetProps) {
+/** Detect format hints from column name suffixes. */
+function detectFormat(colName: string): string {
+  const lower = colName.toLowerCase();
+  if (lower.includes("ref") || lower.startsWith("ref")) return "ref";
+  if (lower.includes("familia") || lower.includes("family") || lower.includes("tag")) return "tag";
+  if (lower.includes("margen") || lower.includes("margin") || lower.includes("pct") || lower.includes("%")) return "margin_pct";
+  return "default";
+}
+
+function formatCellValue(value: unknown): string {
+  if (isNullish(value)) return "—";
+  if (typeof value === "number") {
+    return value.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+  }
+  if (typeof value === "string") {
+    const num = Number(value);
+    if (Number.isFinite(num)) {
+      return num.toLocaleString("es-ES", { maximumFractionDigits: 2 });
+    }
+  }
+  return String(value);
+}
+
+function HeatCell({
+  value,
+  max,
+  color = "var(--accent)",
+}: {
+  value: number;
+  max: number;
+  color?: string;
+}) {
+  const barWidthPx = max > 0 ? Math.min(80, (Math.abs(value) / max) * 80) : 0;
+  const display = value.toLocaleString("es-ES", { maximumFractionDigits: 0 });
+  return (
+    <div
+      style={{
+        position: "relative",
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        justifyContent: "flex-end",
+        minWidth: 120,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          right: 0,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: barWidthPx,
+          height: 14,
+          background: color,
+          opacity: 0.15,
+          borderRadius: 2,
+          zIndex: 0,
+        }}
+      />
+      <span
+        style={{
+          position: "relative",
+          zIndex: 1,
+          fontFamily: "var(--font-jetbrains, monospace)",
+          fontSize: 11,
+        }}
+      >
+        {display}
+      </span>
+    </div>
+  );
+}
+
+export function TableWidget({
+  widget,
+  data,
+  glossary,
+  onDataPointClick,
+  padded = true,
+}: TableWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -35,19 +112,14 @@ export function TableWidget({ widget, data, glossary, onDataPointClick }: TableW
     rows.sort((a, b) => {
       const va = a[sortCol];
       const vb = b[sortCol];
-
-      // Nullish values always sort last regardless of direction
       if (isNullish(va) && isNullish(vb)) return 0;
       if (isNullish(va)) return 1;
       if (isNullish(vb)) return -1;
-
       const na = Number(va);
       const nb = Number(vb);
-      // Numeric comparison when both are finite numbers
       if (Number.isFinite(na) && Number.isFinite(nb)) {
         return sortDir === "asc" ? na - nb : nb - na;
       }
-      // String comparison
       const sa = String(va);
       const sb = String(vb);
       return sortDir === "asc"
@@ -66,28 +138,82 @@ export function TableWidget({ widget, data, glossary, onDataPointClick }: TableW
     }
   }
 
+  // Compute column max values for heat cells
+  const colMaxValues = useMemo(() => {
+    if (!data) return [];
+    return data.columns.map((_, cIdx) => {
+      let max = 0;
+      for (const row of data.rows) {
+        const v = Number(row[cIdx]);
+        if (Number.isFinite(v) && v > max) max = v;
+      }
+      return max;
+    });
+  }, [data]);
+
   if (!data || data.rows.length === 0) {
     return (
-      <Card className="p-4">
-        <h3 className="text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">{titleNode}</h3>
-        <p className="mt-4 text-center text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+      <div
+        style={{
+          background: "var(--bg-1)",
+          border: "1px solid var(--border)",
+          borderRadius: 10,
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+          <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>
+            {titleNode}
+          </h3>
+        </div>
+        <p style={{ padding: "16px 12px", textAlign: "center", fontSize: 13, color: "var(--fg-muted)" }}>
           {EMPTY_MESSAGE}
         </p>
-      </Card>
+      </div>
     );
   }
 
+  const colFormats = data.columns.map(detectFormat);
+
   return (
-    <Card className="p-4">
-      <h3 className="mb-4 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">{titleNode}</h3>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm" title={onDataPointClick ? "Clic para explorar" : undefined}>
+    <div
+      style={{
+        background: "var(--bg-1)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        overflow: "hidden",
+      }}
+    >
+      {/* Header */}
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+        <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--fg)", letterSpacing: "-0.005em" }}>
+          {titleNode}
+        </h3>
+      </div>
+
+      {/* Table */}
+      <div style={{ overflowX: "auto", padding: padded ? "var(--pad, 0)" : 0 }}>
+        <table
+          style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}
+          title={onDataPointClick ? "Clic para explorar" : undefined}
+        >
           <thead>
-            <tr className="border-b border-tremor-border dark:border-dark-tremor-border">
+            <tr>
               {data.columns.map((col, idx) => (
                 <th
                   key={`${idx}-${col}`}
-                  className="px-3 py-2 text-left font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
+                  style={{
+                    textAlign: "left",
+                    padding: "10px 12px",
+                    fontWeight: 500,
+                    borderBottom: "1px solid var(--border)",
+                    fontFamily: "var(--font-jetbrains, monospace)",
+                    fontSize: 10,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    color: "var(--fg-subtle)",
+                    whiteSpace: "nowrap",
+                  }}
                   aria-sort={
                     sortCol === idx
                       ? sortDir === "asc"
@@ -99,13 +225,24 @@ export function TableWidget({ widget, data, glossary, onDataPointClick }: TableW
                   <button
                     type="button"
                     onClick={() => handleSort(idx)}
-                    className="inline-flex items-center hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: "pointer",
+                      color: "inherit",
+                      fontFamily: "inherit",
+                      fontSize: "inherit",
+                      textTransform: "inherit" as React.CSSProperties["textTransform"],
+                      letterSpacing: "inherit",
+                      padding: 0,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
                   >
                     {col}
                     {sortCol === idx && (
-                      <span className="ml-1">
-                        {sortDir === "asc" ? "\u2191" : "\u2193"}
-                      </span>
+                      <span>{sortDir === "asc" ? "↑" : "↓"}</span>
                     )}
                   </button>
                 </th>
@@ -116,11 +253,11 @@ export function TableWidget({ widget, data, glossary, onDataPointClick }: TableW
             {sortedRows.map((row, rIdx) => (
               <tr
                 key={rIdx}
-                className={
-                  onDataPointClick
-                    ? "border-b border-tremor-border dark:border-dark-tremor-border cursor-pointer hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle"
-                    : "border-b border-tremor-border dark:border-dark-tremor-border hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle"
-                }
+                style={{
+                  borderTop: "1px solid var(--border)",
+                  cursor: onDataPointClick ? "pointer" : "default",
+                  transition: "background 0.1s",
+                }}
                 onClick={
                   onDataPointClick
                     ? () =>
@@ -132,32 +269,119 @@ export function TableWidget({ widget, data, glossary, onDataPointClick }: TableW
                         })
                     : undefined
                 }
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLTableRowElement).style.background = "var(--bg-2)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLTableRowElement).style.background = "";
+                }}
               >
-                {row.map((cell, cIdx) => (
-                  <td key={cIdx} className="px-3 py-2 text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
-                    {formatCell(cell)}
-                  </td>
-                ))}
+                {row.map((cell, cIdx) => {
+                  const fmt = colFormats[cIdx];
+                  const colMax = colMaxValues[cIdx];
+                  const numVal = Number(cell);
+                  const isNumeric = !isNullish(cell) && Number.isFinite(numVal);
+
+                  // Rank column (first column, integer-looking)
+                  if (cIdx === 0 && isNumeric && numVal >= 0 && numVal < 1000) {
+                    return (
+                      <td
+                        key={cIdx}
+                        style={{ padding: "10px 12px", color: "var(--fg)" }}
+                      >
+                        <span
+                          style={{
+                            fontFamily: "var(--font-jetbrains, monospace)",
+                            color: "var(--fg-subtle)",
+                            fontSize: 11,
+                          }}
+                        >
+                          {String(Math.round(numVal)).padStart(2, "0")}
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  if (fmt === "ref") {
+                    return (
+                      <td key={cIdx} style={{ padding: "10px 12px" }}>
+                        <span
+                          style={{
+                            fontFamily: "var(--font-jetbrains, monospace)",
+                            color: "var(--accent)",
+                            fontSize: 11,
+                          }}
+                        >
+                          {String(cell ?? "")}
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  if (fmt === "tag") {
+                    return (
+                      <td key={cIdx} style={{ padding: "10px 12px" }}>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            padding: "2px 6px",
+                            borderRadius: 3,
+                            background: "var(--bg-2)",
+                            color: "var(--fg-muted)",
+                            fontFamily: "var(--font-jetbrains, monospace)",
+                          }}
+                        >
+                          {toTitleCase(String(cell ?? ""))}
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  if (fmt === "margin_pct" && isNumeric) {
+                    const color =
+                      numVal > 60
+                        ? "var(--up)"
+                        : numVal > 50
+                        ? "var(--fg)"
+                        : "var(--warn)";
+                    return (
+                      <td key={cIdx} style={{ padding: "10px 12px", textAlign: "right" }}>
+                        <span
+                          style={{
+                            color,
+                            fontFamily: "var(--font-jetbrains, monospace)",
+                            fontSize: 11,
+                          }}
+                        >
+                          {numVal.toFixed(1)}%
+                        </span>
+                      </td>
+                    );
+                  }
+
+                  // Numeric columns get heat cells
+                  if (isNumeric && colMax > 0) {
+                    return (
+                      <td key={cIdx} style={{ padding: "10px 12px", textAlign: "right" }}>
+                        <HeatCell value={numVal} max={colMax} />
+                      </td>
+                    );
+                  }
+
+                  // Description column: apply toTitleCase
+                  const str = String(cell ?? "");
+                  const isDescription = cIdx === 2 && str.length > 3 && !/^\d+/.test(str);
+                  return (
+                    <td key={cIdx} style={{ padding: "10px 12px", color: "var(--fg)" }}>
+                      {isDescription ? toTitleCase(str) : formatCellValue(cell)}
+                    </td>
+                  );
+                })}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-    </Card>
+    </div>
   );
-}
-
-function formatCell(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "\u2014";
-  if (typeof value === "number") {
-    return cellFormatter.format(value);
-  }
-  // Handle numeric strings from PostgreSQL NUMERIC columns
-  if (typeof value === "string") {
-    const num = Number(value);
-    if (Number.isFinite(num)) {
-      return cellFormatter.format(num);
-    }
-  }
-  return String(value);
 }

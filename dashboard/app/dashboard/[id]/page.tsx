@@ -9,6 +9,7 @@ import type { WidgetState } from "@/components/DashboardRenderer";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
+import AnalyzeLauncher from "@/components/AnalyzeLauncher";
 import {
   DateRangePicker,
   computeComparisonRange,
@@ -34,6 +35,7 @@ interface DashboardRecord {
   description: string | null;
   spec: DashboardSpec;
   chat_messages_analyze?: ChatMessage[];
+  chat_messages_modify?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -83,6 +85,10 @@ function formatWidgetDataAsText(spec: DashboardSpec): string {
       for (const item of widget.items) {
         lines.push(`${item.label}: [SQL: ${item.sql}]`);
       }
+    } else if (widget.type === "insights_strip") {
+      lines.push(`[insights_strip]: [static widget]`);
+    } else if (widget.type === "ranked_bars") {
+      lines.push(`${widget.title}: [static widget]`);
     } else {
       lines.push(`${widget.title}: [SQL: ${widget.sql}]`);
     }
@@ -110,6 +116,7 @@ export default function ViewDashboard() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(undefined);
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
@@ -132,7 +139,7 @@ export default function ViewDashboard() {
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Date range filter — default current month; comparison — default same-length period immediately before
+  // Date range filter
   const [dateRange, setDateRange] = useState<DateRange>(() => getDefaultDashboardDateRange());
   const [comparisonRange, setComparisonRange] = useState<ComparisonRange | undefined>(() =>
     defaultComparisonRangeFor(getDefaultDashboardDateRange()),
@@ -140,11 +147,6 @@ export default function ViewDashboard() {
   const [globalFilterValues, setGlobalFilterValues] = useState<GlobalFilterValues>({});
   const appliedUrlRange = useRef(false);
 
-  // When date range changes, store the range and re-run all widget queries.
-  // The date range is displayed in the picker for context; actual SQL filtering
-  // depends on the widget SQL containing appropriate date expressions.
-  // In a future iteration, widgets with a dateColumn hint could use
-  // injectDateRange() to automatically apply the range client-side.
   const handleDateRangeChange = useCallback(
     ({ primary, comparison }: { primary: DateRange; comparison?: ComparisonRange }) => {
       setDateRange(primary);
@@ -164,7 +166,7 @@ export default function ViewDashboard() {
   const [copySuccess, setCopySuccess] = useState(false);
   const exportRef = useRef<HTMLDivElement>(null);
 
-  // Toast for silent failures (name save)
+  // Toast
   const [toast, setToast] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -214,7 +216,7 @@ export default function ViewDashboard() {
     appliedUrlRange.current = false;
   }, [id]);
 
-  // Deep-link from weekly review: /dashboard/{id}?curr_from&curr_to&comp_from&comp_to
+  // Deep-link from weekly review
   useEffect(() => {
     if (appliedUrlRange.current) return;
     const cf = searchParams.get("curr_from");
@@ -243,12 +245,10 @@ export default function ViewDashboard() {
     setGlobalFilterValues({});
   }, [id]);
 
-  // Keep latestSpecRef in sync
   useEffect(() => {
     if (dashboard) latestSpecRef.current = dashboard.spec;
   }, [dashboard]);
 
-  // Focus input when editing name
   useEffect(() => {
     if (editingName) {
       nameInputRef.current?.focus();
@@ -256,7 +256,6 @@ export default function ViewDashboard() {
     }
   }, [editingName]);
 
-  // Cleanup toast timer on unmount
   useEffect(() => {
     return () => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -272,9 +271,7 @@ export default function ViewDashboard() {
     setLastRefreshed(new Date());
   }, []);
 
-  // Manage auto-refresh interval
   useEffect(() => {
-    // Clear existing intervals
     if (autoRefreshRef.current) {
       clearInterval(autoRefreshRef.current);
       autoRefreshRef.current = null;
@@ -305,10 +302,7 @@ export default function ViewDashboard() {
     };
   }, [autoRefresh, refreshInterval]);
 
-  // -------------------------------------------------------------------------
   // Export: close dropdown on outside click
-  // -------------------------------------------------------------------------
-
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (exportRef.current && !exportRef.current.contains(e.target as Node)) {
@@ -335,7 +329,7 @@ export default function ViewDashboard() {
       setCopySuccess(true);
       setTimeout(() => setCopySuccess(false), 2000);
     } catch {
-      // Fallback: select-all-copy not supported in all contexts
+      // Fallback not available
     }
     setExportOpen(false);
   }, [dashboard]);
@@ -365,7 +359,6 @@ export default function ViewDashboard() {
           throw new Error("Error al guardar");
         }
         const updated: DashboardRecord = await res.json();
-        // Only apply if this is still the latest save
         if (thisCount === saveCounter.current) {
           setDashboard(updated);
         }
@@ -414,6 +407,8 @@ export default function ViewDashboard() {
       if (nextOpen) {
         setGlossaryOpen(false);
         setHistoryOpen(false);
+      } else {
+        setChatInitialMode(undefined);
       }
       return nextOpen;
     });
@@ -425,28 +420,32 @@ export default function ViewDashboard() {
     setChatOpen(true);
   }, []);
 
-  // Handle chat modification
+  /** Opens the sidebar in analizar mode — called by AnalyzeLauncher */
+  const handleOpenAnalyze = useCallback(() => {
+    setGlossaryOpen(false);
+    setHistoryOpen(false);
+    setChatInitialMode("analizar");
+    setChatOpen(true);
+  }, []);
+
   const handleSpecUpdate = useCallback(
     (newSpec: DashboardSpec, prompt: string) => {
       setDashboard((prev) =>
         prev ? { ...prev, spec: newSpec } : prev,
       );
-      // Auto-save after chat modification with the actual user prompt
       saveSpec(newSpec, prompt);
     },
     [saveSpec],
   );
 
-  // Handle analyze messages change — auto-save without version entry.
-  // Uses a debounce ref to coalesce rapid saves and a counter to discard
-  // responses from stale in-flight requests (avoids out-of-order overwrites).
+  const modifyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const modifyCounterRef = useRef(0);
   const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const analyzeCounterRef = useRef(0);
 
   const handleAnalyzeMessagesChange = useCallback(
     (messages: ChatMessage[]) => {
       if (!dashboard) return;
-      // Debounce: cancel pending save if another comes in within 800ms
       if (analyzeDebounceRef.current) {
         clearTimeout(analyzeDebounceRef.current);
       }
@@ -462,7 +461,6 @@ export default function ViewDashboard() {
           }),
         })
           .then((res) => {
-            // Only process if this is still the latest save
             if (thisCount !== analyzeCounterRef.current) return;
             if (!res.ok) {
               console.error("Error guardando mensajes de análisis:", res.status);
@@ -477,7 +475,6 @@ export default function ViewDashboard() {
     [dashboard, id],
   );
 
-  // Cleanup analyze debounce timer when dashboard id changes or on unmount
   useEffect(() => {
     return () => {
       if (analyzeDebounceRef.current) {
@@ -486,7 +483,46 @@ export default function ViewDashboard() {
     };
   }, [id]);
 
-  // Handle name edit — persist via PUT endpoint
+  const handleModifyMessagesChange = useCallback(
+    (messages: ChatMessage[]) => {
+      if (!dashboard) return;
+      if (modifyDebounceRef.current) {
+        clearTimeout(modifyDebounceRef.current);
+      }
+      modifyDebounceRef.current = setTimeout(() => {
+        const thisCount = ++modifyCounterRef.current;
+        fetch(`/api/dashboard/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            spec: latestSpecRef.current ?? dashboard.spec,
+            chat_messages_modify: messages,
+            skipVersion: true,
+          }),
+        })
+          .then((res) => {
+            if (thisCount !== modifyCounterRef.current) return;
+            if (!res.ok) {
+              console.error("Error guardando mensajes de modificar:", res.status);
+            }
+          })
+          .catch((err) => {
+            if (thisCount !== modifyCounterRef.current) return;
+            console.error("Error guardando mensajes de modificar:", err);
+          });
+      }, 800);
+    },
+    [dashboard, id],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (modifyDebounceRef.current) {
+        clearTimeout(modifyDebounceRef.current);
+      }
+    };
+  }, [id]);
+
   const handleNameSave = useCallback(async () => {
     const trimmed = nameValue.trim();
     if (!trimmed || !dashboard) {
@@ -499,8 +535,6 @@ export default function ViewDashboard() {
     if (trimmed === dashboard.name) return;
 
     setDashboard((prev) => (prev ? { ...prev, name: trimmed } : prev));
-    // Persist name change via the PUT endpoint, coordinated with saveCounter
-    // Use latestSpecRef to avoid stale spec closure capture
     const currentSpec = latestSpecRef.current ?? dashboard.spec;
     const thisCount = ++saveCounter.current;
     try {
@@ -524,7 +558,6 @@ export default function ViewDashboard() {
       }
     } catch (err) {
       if (thisCount === saveCounter.current) {
-        // Revert on failure and notify via toast
         setDashboard((prev) =>
           prev ? { ...prev, name: dashboard.name } : prev,
         );
@@ -542,7 +575,6 @@ export default function ViewDashboard() {
     }
   }, [nameValue, dashboard, id, showToast]);
 
-  // Handle manual save button
   const handleSave = useCallback(() => {
     if (dashboard) {
       saveSpec(dashboard.spec);
@@ -624,8 +656,38 @@ export default function ViewDashboard() {
   // Dashboard view
   // -------------------------------------------------------------------------
 
+  // Outline button style (B1)
+  const outlineBtn: React.CSSProperties = {
+    height: 32,
+    background: "transparent",
+    border: "1px solid var(--border-strong)",
+    borderRadius: 6,
+    padding: "0 12px",
+    fontSize: 12,
+    fontWeight: 500,
+    cursor: "pointer",
+    color: "var(--fg)",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontFamily: "inherit",
+  };
+
+  // Breadcrumbs from spec (B1)
+  const breadcrumbs = dashboard.spec.breadcrumbs ?? ["Retail", "Ventas"];
+
+  // Title split at em-dash
+  const titleParts = dashboard.name.split(/\s*—\s*/);
+  const titleMain = titleParts[0] ?? dashboard.name;
+  const titleSub = titleParts.length > 1 ? titleParts.slice(1).join(" — ") : null;
+
   return (
-    <div className={`transition-all ${chatOpen ? "mr-[350px]" : ""}`}>
+    <div
+      style={{
+        marginRight: chatOpen ? 380 : 0,
+        transition: "margin 0.2s ease",
+      }}
+    >
       {/* Toast notification */}
       {toast && (
         <div
@@ -637,188 +699,327 @@ export default function ViewDashboard() {
         </div>
       )}
 
-      {/* Top bar */}
-      <div className="no-print mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => router.push("/")}
-            aria-label="Volver"
-            className="text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis text-sm"
-          >
-            &larr; Volver
-          </button>
-
-          {editingName ? (
-            <input
-              ref={nameInputRef}
-              value={nameValue}
-              onChange={(e) => setNameValue(e.target.value)}
-              onBlur={handleNameSave}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleNameSave();
-                if (e.key === "Escape") {
-                  setEditingName(false);
-                  setNameValue(dashboard.name);
-                }
+      {/* ------------------------------------------------------------------ */}
+      {/* Page header — B1 design                                             */}
+      {/* ------------------------------------------------------------------ */}
+      <div
+        className="no-print"
+        style={{ padding: "24px 20px 14px" }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            gap: 20,
+            flexWrap: "wrap",
+          }}
+        >
+          {/* Left: breadcrumb + title + description */}
+          <div>
+            {/* Breadcrumb row */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 11,
+                color: "var(--fg-muted)",
+                fontFamily: "var(--font-jetbrains, monospace)",
+                textTransform: "uppercase",
+                letterSpacing: "0.08em",
+                marginBottom: 8,
               }}
-              className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong border-b-2 border-blue-500 bg-transparent outline-none"
-            />
-          ) : (
-            <h1
-              className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong cursor-pointer hover:text-blue-400"
-              onClick={() => setEditingName(true)}
-              title="Haz clic para editar el nombre"
             >
-              {dashboard.name}
-            </h1>
-          )}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Date range picker */}
-          <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
-
-          {/* Last refreshed timestamp */}
-          <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle" data-testid="last-refreshed">
-            {`\u00DAltima actualizaci\u00F3n: ${formatTime(lastRefreshed)}`}
-          </span>
-
-          {/* Auto-refresh countdown */}
-          {autoRefresh && (
-            <span className="text-xs text-blue-500" data-testid="countdown">
-              {formatCountdown(secondsUntilRefresh)}
-            </span>
-          )}
-
-          {/* Manual refresh button */}
-          <button
-            onClick={triggerRefresh}
-            className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-            title="Actualizar datos"
-            aria-label="Actualizar"
-          >
-            Actualizar
-          </button>
-
-          {/* Auto-refresh toggle + interval selector */}
-          <div className="flex items-center gap-1">
-            <label className="flex items-center gap-1 text-xs text-tremor-content dark:text-dark-tremor-content cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoRefresh}
-                onChange={(e) => setAutoRefresh(e.target.checked)}
-                className="h-3.5 w-3.5 rounded border-tremor-border dark:border-dark-tremor-border"
-                data-testid="auto-refresh-toggle"
-              />
-              Auto
-            </label>
-            {autoRefresh && (
-              <select
-                value={refreshInterval}
-                onChange={(e) =>
-                  setRefreshInterval(Number(e.target.value) as RefreshInterval)
-                }
-                className="text-xs border border-tremor-border dark:border-dark-tremor-border rounded px-1 py-0.5 text-tremor-content dark:text-dark-tremor-content bg-tremor-background dark:bg-dark-tremor-background"
-                data-testid="refresh-interval-select"
+              {breadcrumbs.map((crumb, i) => (
+                <span key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  {i > 0 && <span style={{ color: "var(--fg-subtle)" }}>/</span>}
+                  {crumb}
+                </span>
+              ))}
+              <span
+                style={{
+                  background: "var(--accent-soft)",
+                  color: "var(--accent)",
+                  borderRadius: 3,
+                  padding: "2px 6px",
+                  fontSize: 10,
+                  marginLeft: 2,
+                }}
               >
-                {REFRESH_INTERVALS.map((m) => (
-                  <option key={m} value={m}>
-                    {m} min
-                  </option>
-                ))}
-              </select>
+                EN VIVO
+              </span>
+            </div>
+
+            {/* H1 — editable name */}
+            {editingName ? (
+              <input
+                ref={nameInputRef}
+                value={nameValue}
+                onChange={(e) => setNameValue(e.target.value)}
+                onBlur={handleNameSave}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleNameSave();
+                  if (e.key === "Escape") {
+                    setEditingName(false);
+                    setNameValue(dashboard.name);
+                  }
+                }}
+                style={{
+                  fontSize: 30,
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1.1,
+                  background: "transparent",
+                  border: "none",
+                  borderBottom: "2px solid var(--accent)",
+                  outline: "none",
+                  color: "var(--fg)",
+                  fontFamily: "inherit",
+                  width: "100%",
+                  maxWidth: 600,
+                }}
+              />
+            ) : (
+              <h1
+                style={{
+                  fontSize: 30,
+                  fontWeight: 700,
+                  letterSpacing: "-0.02em",
+                  lineHeight: 1.1,
+                  margin: 0,
+                  cursor: "pointer",
+                  fontFamily: "var(--font-inter, sans-serif)",
+                }}
+                onClick={() => setEditingName(true)}
+                title="Haz clic para editar el nombre"
+              >
+                {titleMain}
+                {titleSub && (
+                  <span style={{ color: "var(--fg-muted)", fontWeight: 500 }}>
+                    {" — "}{titleSub}
+                  </span>
+                )}
+              </h1>
+            )}
+
+            {/* Description */}
+            {dashboard.spec.description && (
+              <p
+                style={{
+                  color: "var(--fg-muted)",
+                  margin: "8px 0 0",
+                  fontSize: 13,
+                  maxWidth: 680,
+                  lineHeight: 1.5,
+                }}
+              >
+                {dashboard.spec.description}
+              </p>
             )}
           </div>
 
-          {/* Export dropdown */}
-          <div className="relative" ref={exportRef}>
+          {/* Right: date picker + action buttons */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            {/* Date range picker */}
+            <DateRangePicker value={dateRange} onChange={handleDateRangeChange} />
+
+            {/* Auto-refresh controls */}
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 11,
+                  color: "var(--fg-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={autoRefresh}
+                  onChange={(e) => setAutoRefresh(e.target.checked)}
+                  style={{ width: 12, height: 12 }}
+                  data-testid="auto-refresh-toggle"
+                />
+                Auto
+              </label>
+              {autoRefresh && (
+                <select
+                  value={refreshInterval}
+                  onChange={(e) =>
+                    setRefreshInterval(Number(e.target.value) as RefreshInterval)
+                  }
+                  style={{
+                    fontSize: 11,
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    padding: "2px 4px",
+                    background: "var(--bg-1)",
+                    color: "var(--fg-muted)",
+                  }}
+                  data-testid="refresh-interval-select"
+                >
+                  {REFRESH_INTERVALS.map((m) => (
+                    <option key={m} value={m}>
+                      {m} min
+                    </option>
+                  ))}
+                </select>
+              )}
+              {autoRefresh && (
+                <span
+                  style={{ fontSize: 11, color: "var(--accent)" }}
+                  data-testid="countdown"
+                >
+                  {formatCountdown(secondsUntilRefresh)}
+                </span>
+              )}
+            </div>
+
+            {/* Manual refresh */}
             <button
-              onClick={() => setExportOpen((prev) => !prev)}
-              className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-              aria-label="Exportar"
+              onClick={triggerRefresh}
+              style={outlineBtn}
+              title={`Última actualización: ${formatTime(lastRefreshed)}`}
+              aria-label="Actualizar"
+              data-testid="last-refreshed"
             >
-              {copySuccess ? "Copiado!" : "Exportar"}
+              ⟳ Actualizar
             </button>
-            {exportOpen && (
-              <div className="absolute right-0 mt-1 w-48 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle shadow-lg z-50">
-                <button
-                  onClick={handleCopyData}
-                  className="w-full text-left px-4 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background dark:hover:bg-dark-tremor-background rounded-t-lg"
-                >
-                  Copiar datos
-                </button>
-                <button
-                  onClick={handlePrint}
-                  className="w-full text-left px-4 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background dark:hover:bg-dark-tremor-background rounded-b-lg"
-                >
-                  Imprimir / PDF
-                </button>
-              </div>
-            )}
-          </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              setHistoryOpen((prev) => {
-                const nextOpen = !prev;
-                if (nextOpen) {
-                  setChatOpen(false);
-                  setGlossaryOpen(false);
-                }
-                return nextOpen;
-              })
-            }
-            className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-            aria-label={historyOpen ? "Cerrar historial" : "Abrir historial"}
-            data-testid="history-button"
-          >
-            Historial
-          </button>
+            {/* Export dropdown */}
+            <div className="relative" ref={exportRef}>
+              <button
+                onClick={() => setExportOpen((prev) => !prev)}
+                style={outlineBtn}
+                aria-label="Exportar"
+              >
+                {copySuccess ? "Copiado!" : "Exportar"}
+              </button>
+              {exportOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    right: 0,
+                    marginTop: 4,
+                    width: 180,
+                    background: "var(--bg-1)",
+                    border: "1px solid var(--border-strong)",
+                    borderRadius: 8,
+                    boxShadow: "0 8px 24px -6px rgba(0,0,0,0.4)",
+                    zIndex: 50,
+                    overflow: "hidden",
+                  }}
+                >
+                  <button
+                    onClick={handleCopyData}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 14px",
+                      fontSize: 12,
+                      background: "none",
+                      border: "none",
+                      color: "var(--fg)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    Copiar datos
+                  </button>
+                  <button
+                    onClick={handlePrint}
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 14px",
+                      fontSize: 12,
+                      background: "none",
+                      border: "none",
+                      color: "var(--fg)",
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      borderTop: "1px solid var(--border)",
+                    }}
+                  >
+                    Imprimir / PDF
+                  </button>
+                </div>
+              )}
+            </div>
 
-          {/* Glosario button — only shown when glossary has entries */}
-          {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
             <button
+              type="button"
               onClick={() =>
-                setGlossaryOpen((prev) => {
+                setHistoryOpen((prev) => {
                   const nextOpen = !prev;
                   if (nextOpen) {
                     setChatOpen(false);
-                    setHistoryOpen(false);
+                    setGlossaryOpen(false);
                   }
                   return nextOpen;
                 })
               }
-              className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle transition-colors"
-              aria-label={glossaryOpen ? "Cerrar glosario" : "Abrir glosario"}
-              data-testid="glossary-button"
+              style={outlineBtn}
+              aria-label={historyOpen ? "Cerrar historial" : "Abrir historial"}
+              data-testid="history-button"
             >
-              Glosario
+              Historial
             </button>
-          )}
 
-          {saving && (
-            <span className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">Guardando...</span>
-          )}
-          {saveError && (
-            <span className="text-xs text-red-400">
-              {typeof saveError === "string" ? saveError : saveError.error}
-            </span>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-4 py-2 text-sm font-medium text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle disabled:opacity-50 transition-colors"
-          >
-            Guardar
-          </button>
-          <button
-            type="button"
-            onClick={handleChatToggle}
-            className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
-          >
-            {chatOpen ? "Cerrar chat" : "Modificar"}
-          </button>
+            {/* Glosario button */}
+            {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
+              <button
+                onClick={() =>
+                  setGlossaryOpen((prev) => {
+                    const nextOpen = !prev;
+                    if (nextOpen) {
+                      setChatOpen(false);
+                      setHistoryOpen(false);
+                    }
+                    return nextOpen;
+                  })
+                }
+                style={outlineBtn}
+                aria-label={glossaryOpen ? "Cerrar glosario" : "Abrir glosario"}
+                data-testid="glossary-button"
+              >
+                Glosario
+              </button>
+            )}
+
+            {saving && (
+              <span style={{ fontSize: 11, color: "var(--fg-subtle)" }}>Guardando...</span>
+            )}
+            {saveError && (
+              <span style={{ fontSize: 11, color: "var(--down)" }}>
+                {typeof saveError === "string" ? saveError : saveError.error}
+              </span>
+            )}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{ ...outlineBtn, opacity: saving ? 0.5 : 1 }}
+            >
+              Guardar
+            </button>
+            <button
+              type="button"
+              onClick={handleChatToggle}
+              style={{
+                ...outlineBtn,
+                background: "var(--accent)",
+                borderColor: "var(--accent)",
+                color: "#fff",
+              }}
+            >
+              {chatOpen ? "Cerrar chat" : "Modificar"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -846,7 +1047,13 @@ export default function ViewDashboard() {
         onDataPointClick={handleDataPointClick}
       />
 
-      {/* Chat sidebar — close glossary panel when opening chat to avoid overlap */}
+      {/* Floating rail launcher — hidden when sidebar is open */}
+      <AnalyzeLauncher
+        onOpen={handleOpenAnalyze}
+        hidden={chatOpen}
+      />
+
+      {/* Chat sidebar */}
       <ChatSidebar
         spec={dashboard.spec}
         onSpecUpdate={handleSpecUpdate}
@@ -857,12 +1064,15 @@ export default function ViewDashboard() {
         widgetData={widgetData}
         initialAnalyzeMessages={dashboard.chat_messages_analyze ?? []}
         onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
+        initialModifyMessages={dashboard.chat_messages_modify ?? []}
+        onModifyMessagesChange={handleModifyMessagesChange}
         pendingModifyInput={pendingModify?.prompt}
         pendingModifyTriggerId={pendingModify?.id}
         onPendingModifyInputConsumed={handlePendingModifyInputConsumed}
+        initialMode={chatInitialMode}
       />
 
-      {/* Glossary panel — close chat sidebar when opening glossary to avoid overlap */}
+      {/* Glossary panel */}
       {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
         <GlossaryPanel
           glossary={dashboard.spec.glossary}

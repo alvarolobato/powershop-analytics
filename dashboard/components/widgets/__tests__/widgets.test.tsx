@@ -70,8 +70,8 @@ describe("KpiRow", () => {
       { columns: ["value"], rows: [[800]] }, // 25% increase
     ];
     render(<KpiRow widget={widgetWithTrend} data={data} trendData={trendData} />);
-    // Should show positive percentage
-    expect(screen.getByText("+25.0%")).toBeInTheDocument();
+    // fmtDelta renders "\u25b2 25,0%" (arrow + stripped sign + es-ES decimal)
+    expect(screen.getByText("\u25b2 25,0%")).toBeInTheDocument();
   });
 
   it("shows negative trend badge when value is lower than comparison", () => {
@@ -88,7 +88,8 @@ describe("KpiRow", () => {
       { columns: ["value"], rows: [[1000]] }, // 10% decrease
     ];
     render(<KpiRow widget={widgetWithTrend} data={data} trendData={trendData} />);
-    expect(screen.getByText("-10.0%")).toBeInTheDocument();
+    // fmtDelta renders "\u25bc 10,0%" (arrow + stripped sign + es-ES decimal)
+    expect(screen.getByText("\u25bc 10,0%")).toBeInTheDocument();
   });
 
   it("does not show trend badge when trend_sql is not set", () => {
@@ -336,7 +337,8 @@ describe("TableWidget", () => {
       rows: [["12500.5"]],
     };
     render(<TableWidget widget={widget} data={data} />);
-    expect(screen.getByText("12.500,5")).toBeInTheDocument();
+    // Numeric column is rendered as a heat cell with 0 decimal places (es-ES locale)
+    expect(screen.getByText("12.501")).toBeInTheDocument();
   });
 
   it("shows dash for null cells", () => {

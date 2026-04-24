@@ -1,6 +1,8 @@
 "use client";
 
 import { useTheme } from "./ThemeProvider";
+// Note: ThemeProvider.applyTheme already sets both data-theme attribute and dark class.
+// TweaksPanel also writes theme — both sync through ps.tweaks.v1 localStorage key.
 
 // ---------------------------------------------------------------------------
 // Sun / Moon SVG icons (inline, no external library)

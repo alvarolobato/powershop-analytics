@@ -62,6 +62,11 @@ async function postOptions(
   return Array.isArray(data.options) ? data.options : [];
 }
 
+
+// ---------------------------------------------------------------------------
+// DashboardFiltersBar
+// ---------------------------------------------------------------------------
+
 export function DashboardFiltersBar({
   dashboardId,
   spec,
@@ -123,23 +128,50 @@ export function DashboardFiltersBar({
 
   if (filters.length === 0) return null;
 
+  const hasActiveFilters = filters.some((f) => {
+    const v = value[f.id];
+    return v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0);
+  });
+
   return (
     <div
-      className="no-print mb-4 flex flex-wrap items-end gap-4 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle p-4"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 20px",
+        borderTop: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--bg-1)",
+        flexWrap: "wrap",
+      }}
       data-testid="global-filters-bar"
+      className="no-print"
     >
-      <span className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle w-full sm:w-auto">
-        Filtros
+      {/* Lead label */}
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--fg-subtle)",
+          fontFamily: "var(--font-jetbrains, monospace)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginRight: 4,
+          flexShrink: 0,
+        }}
+      >
+        FILTROS
       </span>
+
       {filters.map((f) => {
         const fOptions = optionsById[f.id] ?? [];
         const fError = errors[f.id];
         const fLoading = !!loading[f.id];
         return (
-          <div key={f.id} className="flex min-w-[200px] flex-col gap-1">
+          <div key={f.id} style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 200 }}>
             <label
               htmlFor={`gf-${f.id}`}
-              className="text-xs text-tremor-content dark:text-dark-tremor-content"
+              style={{ fontSize: 11, color: "var(--fg-muted)", fontFamily: "var(--font-jetbrains, monospace)" }}
             >
               {f.label}
             </label>
@@ -189,6 +221,28 @@ export function DashboardFiltersBar({
           </div>
         );
       })}
+
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
+
+      {/* Clear filters */}
+      {hasActiveFilters && (
+        <button
+          type="button"
+          onClick={() => onChange({})}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 11,
+            color: "var(--fg-muted)",
+            fontFamily: "inherit",
+            padding: "4px 8px",
+          }}
+        >
+          Limpiar filtros
+        </button>
+      )}
     </div>
   );
 }

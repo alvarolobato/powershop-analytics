@@ -222,9 +222,16 @@ export async function handleGetDashboardWidgetRawValues(
     }
     sqlText = item.sql;
     label = item.label;
+  } else if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+    return toolOk({
+      error: `Widget type "${widget.type}" has no SQL to execute.`,
+      rows: [],
+      columns: [],
+    });
   } else {
-    sqlText = widget.sql;
-    label = widget.title;
+    const w = widget as { sql: string; title: string };
+    sqlText = w.sql;
+    label = w.title;
   }
 
   const ranges = rangesFromTool(args.date_range);

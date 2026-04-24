@@ -19,6 +19,8 @@ import {
   TableWidget,
   NumberWidget,
 } from "./widgets";
+import { InsightsStrip } from "./widgets/InsightsStrip";
+import { RankedBarsWidget } from "./widgets/RankedBarsWidget";
 import type { GlobalFilterValues } from "@/lib/sql-filters";
 
 const EMPTY_GLOBAL_FILTERS: GlobalFilterValues = Object.freeze({});
@@ -109,6 +111,10 @@ function collectWidgetSqls(widget: Widget): string[] {
     return widget.items
       .map((item) => item.sql)
       .filter((s): s is string => typeof s === "string" && s.length > 0);
+  }
+  // insights_strip and ranked_bars have no SQL
+  if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+    return [];
   }
   return [widget.sql];
 }
@@ -256,6 +262,17 @@ export function DashboardRenderer({
     // Fetch data for each widget in parallel
     const promises = widgets.map(async (widget, idx) => {
       try {
+        // Static widgets with no SQL — immediately mark as done
+        if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data: null, loading: false, error: null });
+              return next;
+            });
+          }
+          return;
+        }
         if (widget.type === "kpi_row") {
           // Pre-flight: guard kpi_row items that use comp tokens without a comparison range.
           if (collectWidgetSqls(widget).some(hasCompTokens) && !comparisonRange) {
@@ -399,6 +416,17 @@ export function DashboardRenderer({
       });
 
       try {
+        // Static widgets with no SQL — immediately mark as done
+        if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+          if (!signal.aborted) {
+            setWidgetStates((prev) => {
+              const next = new Map(prev);
+              next.set(idx, { data: null, loading: false, error: null });
+              return next;
+            });
+          }
+          return;
+        }
         if (widget.type === "kpi_row") {
           // Pre-flight: same guard as fetchAll — kpi_row items can reference comp tokens.
           if (collectWidgetSqls(widget).some(hasCompTokens) && !comparisonRange) {
@@ -678,7 +706,10 @@ function WidgetGrid({
         // treat all widgets as loading to avoid stale data flash.
         const state = specChanged ? undefined : widgetStates.get(idx);
         const isFullWidth =
-          widget.type === "kpi_row" || widget.type === "table";
+          widget.type === "kpi_row" ||
+          widget.type === "table" ||
+          widget.type === "insights_strip" ||
+          widget.type === "ranked_bars";
 
         return (
           <div
@@ -725,6 +756,8 @@ function WidgetGrid({
 // ---------------------------------------------------------------------------
 
 type WidgetType = Widget["type"];
+
+// Extend the WidgetType used in RendererSkeleton — new static types won't show a skeleton
 
 function RendererSkeleton({ type }: { type: WidgetType }) {
   switch (type) {
@@ -859,6 +892,60 @@ function RendererSkeleton({ type }: { type: WidgetType }) {
 }
 
 // ---------------------------------------------------------------------------
+// Panel chrome (Phase D7)
+// ---------------------------------------------------------------------------
+
+export interface PanelProps {
+  title?: string;
+  subtitle?: string;
+  rightSlot?: React.ReactNode;
+  padded?: boolean;
+  tall?: boolean;
+  children: React.ReactNode;
+}
+
+export function Panel({ title, subtitle, rightSlot, padded = true, tall, children }: PanelProps) {
+  return (
+    <section
+      style={{
+        background: "var(--bg-1)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        minHeight: tall ? 380 : undefined,
+      }}
+    >
+      {title && (
+        <header
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 16px",
+            borderBottom: "1px solid var(--border)",
+          }}
+        >
+          <div>
+            <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, letterSpacing: "-0.005em" }}>
+              {title}
+            </h3>
+            {subtitle && (
+              <p style={{ margin: "2px 0 0", fontSize: 11, color: "var(--fg-muted)" }}>
+                {subtitle}
+              </p>
+            )}
+          </div>
+          {rightSlot}
+        </header>
+      )}
+      <div style={{ padding: padded ? "var(--pad, 12px)" : 0, flex: 1 }}>{children}</div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Widget type switch
 // ---------------------------------------------------------------------------
 
@@ -931,12 +1018,17 @@ function WidgetSwitch({
           data={state.data as WidgetData | null}
           glossary={glossary}
           onDataPointClick={onDataPointClick}
+          padded={false}
         />
       );
     case "number":
       return (
         <NumberWidget widget={widget} data={state.data as WidgetData | null} glossary={glossary} />
       );
+    case "insights_strip":
+      return <InsightsStrip widget={widget} />;
+    case "ranked_bars":
+      return <RankedBarsWidget widget={widget} />;
     default:
       return null;
   }
