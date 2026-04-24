@@ -163,9 +163,9 @@ describe("ViewDashboard page", () => {
     // Dashboard name displayed
     expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
 
-    // Save and Modify buttons
+    // Save button and AnalyzeLauncher (replaces old Modificar button)
     expect(screen.getByText("Guardar")).toBeInTheDocument();
-    expect(screen.getByText("Modificar")).toBeInTheDocument();
+    expect(screen.getByLabelText("Analizar con IA")).toBeInTheDocument();
 
     // Refresh controls
     expect(screen.getByLabelText("Actualizar")).toBeInTheDocument();
@@ -240,7 +240,7 @@ describe("ViewDashboard page", () => {
     expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
   });
 
-  it("toggles chat sidebar on Modificar button click", async () => {
+  it("toggles chat sidebar via AnalyzeLauncher", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(dashboardRecord),
@@ -252,15 +252,16 @@ describe("ViewDashboard page", () => {
       expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
     });
 
-    // Chat should not be visible initially
+    // Chat should not be visible initially (hideWhenClosed=true)
     expect(screen.queryByTestId("chat-sidebar")).not.toBeInTheDocument();
 
-    // Click Modificar to open
-    fireEvent.click(screen.getByText("Modificar"));
-    expect(screen.getByTestId("chat-sidebar")).toBeInTheDocument();
+    // AnalyzeLauncher is visible when sidebar is closed
+    const launcher = screen.getByLabelText("Analizar con IA");
+    expect(launcher).toBeInTheDocument();
 
-    // Button text changes
-    expect(screen.getByText("Cerrar chat")).toBeInTheDocument();
+    // Click launcher to open
+    fireEvent.click(launcher);
+    expect(screen.getByTestId("chat-sidebar")).toBeInTheDocument();
   });
 
   it("shows error state on fetch failure", async () => {
