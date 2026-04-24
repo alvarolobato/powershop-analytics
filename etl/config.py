@@ -44,8 +44,10 @@ for _candidate in [
 def _loader_get(key: str, default: str | int | None = None) -> str | int | None:
     """Retrieve *key* from the central config loader.
 
-    Falls back to *default* if the loader is unavailable (e.g., schema file
-    missing in a stripped test environment).
+    Falls back to *default* only when the loader is structurally unavailable
+    (import error or missing schema/config files).  Validation errors — corrupt
+    config.yaml, invalid enum/int values — are re-raised so misconfiguration
+    fails loudly rather than silently using unexpected defaults.
     """
     try:
         from etl.config_loader import get_effective_config
@@ -54,7 +56,9 @@ def _loader_get(key: str, default: str | int | None = None) -> str | int | None:
         cv = cfg.get(key)
         if cv is not None and cv.value is not None:
             return cv.value  # type: ignore[return-value]
-    except Exception:
+    except (ImportError, FileNotFoundError):
+        # Loader module not importable or schema file absent — fall through to
+        # os.environ / hardcoded default (e.g. stripped test/CI environment).
         pass
     return default
 

@@ -408,13 +408,16 @@ class TestBootstrapConfigIfMissing:
 
 
 class TestRealSchema:
-    def test_real_schema_loads_all_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_real_schema_loads_all_keys(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """Smoke test with real schema.yaml against a missing config file."""
         monkeypatch.delenv("CONFIG_FILE", raising=False)
-        # Use a non-existent path to force defaults
+        # Use a non-existent path under tmp_path to guarantee the file is absent
+        missing = tmp_path / "does_not_exist.yaml"
         config = load_config(
             schema_path=_schema_path(),
-            config_path=Path("/tmp/does_not_exist_powershop_test.yaml"),
+            config_path=missing,
         )
         assert len(config) >= 40
         # Every value is a ConfigValue

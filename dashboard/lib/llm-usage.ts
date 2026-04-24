@@ -82,10 +82,12 @@ export function logUsage(
 
 export async function checkDailyBudget(): Promise<void> {
   // Read the budget from the central config loader (env > config.yaml > default).
-  // Use noCache:true so vi.stubEnv changes in tests are reflected immediately.
+  // Uses the cached getSystemConfig() for production performance; tests that stub env
+  // vars should call resetDashboardLlmConfigCache() (which also clears the system-config
+  // cache) in their afterEach to ensure fresh reads.
   let budgetStr: string | null = null;
   try {
-    const cfg = getSystemConfig({ noCache: true });
+    const cfg = getSystemConfig();
     const raw = cfg["dashboard.llm_daily_budget_usd"]?.value;
     budgetStr = raw !== null && raw !== undefined ? String(raw).trim() : null;
   } catch {
