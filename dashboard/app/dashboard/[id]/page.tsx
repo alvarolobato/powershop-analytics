@@ -147,10 +147,6 @@ export default function ViewDashboard() {
   const [globalFilterValues, setGlobalFilterValues] = useState<GlobalFilterValues>({});
   const appliedUrlRange = useRef(false);
 
-  // Freshness state (B4) — propagated to TopBar
-  const [_freshnessText, _setFreshnessText] = useState<string | undefined>(undefined);
-  const [_freshnessStale, _setFreshnessStale] = useState<boolean>(false);
-
   const handleDateRangeChange = useCallback(
     ({ primary, comparison }: { primary: DateRange; comparison?: ComparisonRange }) => {
       setDateRange(primary);

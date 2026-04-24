@@ -15,7 +15,7 @@ import {
 // ---------------------------------------------------------------------------
 
 export type TweaksTheme = "dark" | "light";
-export type TweaksAccent = "electric" | "citric" | "magenta" | "mono";
+export type TweaksAccent = "electric" | "citrus" | "magenta" | "mono";
 export type TweaksDensity = "compact" | "comfort" | "spacious";
 export type TweaksKpiStyle = "editorial" | "bold" | "minimal";
 
@@ -76,7 +76,7 @@ export function TweaksPanelProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(raw) as Partial<Tweaks>;
         const merged: Tweaks = {
           theme: (["dark", "light"].includes(parsed.theme ?? "") ? parsed.theme : TWEAKS_DEFAULTS.theme) as TweaksTheme,
-          accent: (["electric", "citric", "magenta", "mono"].includes(parsed.accent ?? "") ? parsed.accent : TWEAKS_DEFAULTS.accent) as TweaksAccent,
+          accent: (["electric", "citrus", "magenta", "mono"].includes(parsed.accent ?? "") ? parsed.accent : TWEAKS_DEFAULTS.accent) as TweaksAccent,
           density: (["compact", "comfort", "spacious"].includes(parsed.density ?? "") ? parsed.density : TWEAKS_DEFAULTS.density) as TweaksDensity,
           kpiStyle: (["editorial", "bold", "minimal"].includes(parsed.kpiStyle ?? "") ? parsed.kpiStyle : TWEAKS_DEFAULTS.kpiStyle) as TweaksKpiStyle,
         };
@@ -297,7 +297,7 @@ export default function TweaksPanel({ open, onClose }: TweaksPanelProps) {
         value={tweaks.accent}
         options={[
           { value: "electric", label: "Eléctrico" },
-          { value: "citric", label: "Cítrico" },
+          { value: "citrus", label: "Cítrico" },
           { value: "magenta", label: "Magenta" },
           { value: "mono", label: "Mono" },
         ]}

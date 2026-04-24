@@ -54,7 +54,7 @@ function HeatCell({
   max: number;
   color?: string;
 }) {
-  const pct = max > 0 ? Math.min(100, (Math.abs(value) / max) * 100) : 0;
+  const barWidthPx = max > 0 ? Math.min(80, (Math.abs(value) / max) * 80) : 0;
   const display = value.toLocaleString("es-ES", { maximumFractionDigits: 0 });
   return (
     <div
@@ -73,8 +73,7 @@ function HeatCell({
           right: 0,
           top: "50%",
           transform: "translateY(-50%)",
-          width: `${pct}%`,
-          maxWidth: 80,
+          width: barWidthPx,
           height: 14,
           background: color,
           opacity: 0.15,

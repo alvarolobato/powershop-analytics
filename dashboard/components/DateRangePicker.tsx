@@ -775,19 +775,14 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
 
   const activeCurrentPresetLabel = CURRENT_PRESETS.find((p) => {
     const r = p.range();
+    const tolerance = 1000;
     return (
-      value.from.getTime() >= r.from.getTime() - 1000 &&
-      value.from.getTime() <= r.from.getTime() + 1000
+      value.from.getTime() >= r.from.getTime() - tolerance &&
+      value.from.getTime() <= r.from.getTime() + tolerance &&
+      value.to.getTime() >= r.to.getTime() - tolerance &&
+      value.to.getTime() <= r.to.getTime() + tolerance
     );
   })?.label;
-
-  const activePreviousPresetLabel = PREVIOUS_PRESETS.find((p) => {
-    // We detect the currently-selected comparison type preset
-    const cType = comparisonType;
-    if (p.navPeriod === "day" && cType === "previous_period" && p.label === "Ayer") return false;
-    return false; // We use comparisonType for the right column, not value
-  })?.label;
-  void activePreviousPresetLabel; // suppress unused
 
   return (
     <div style={{ position: "relative" }} ref={containerRef} data-testid="date-range-picker">

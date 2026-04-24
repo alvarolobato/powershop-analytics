@@ -4,6 +4,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import ThemeProvider from "@/components/ThemeProvider";
 import { TweaksPanelProvider } from "@/components/TweaksPanel";
 import { TopBarWithTweaks } from "@/components/TopBarWithTweaks";
+import { FreshnessProvider } from "@/components/FreshnessContext";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -86,10 +87,12 @@ export default function RootLayout({
         }}
       >
         <ThemeProvider>
-          <TweaksPanelProvider>
-            <TopBarWithTweaks />
-            <main style={{ flex: 1, overflow: "auto", padding: "0" }}>{children}</main>
-          </TweaksPanelProvider>
+          <FreshnessProvider>
+            <TweaksPanelProvider>
+              <TopBarWithTweaks />
+              <main style={{ flex: 1, overflow: "auto", padding: "0" }}>{children}</main>
+            </TweaksPanelProvider>
+          </FreshnessProvider>
         </ThemeProvider>
       </body>
     </html>

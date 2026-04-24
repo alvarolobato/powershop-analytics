@@ -2,7 +2,7 @@
 
 import type { KpiRowWidget, GlossaryItem } from "@/lib/schema";
 import type { WidgetData } from "./types";
-import { formatValue, fmtEUR, fmtInt, fmtDelta } from "./format";
+import { formatValue, fmtDelta } from "./format";
 import { applyGlossary } from "@/lib/glossary";
 import { Sparkline } from "./Sparkline";
 
@@ -84,9 +84,10 @@ interface KpiCardProps {
   comparisonValue: number | null;
   anomaly: AnomalyInfo | null;
   kpiStyle: KpiStyle;
+  glossary?: GlossaryItem[];
 }
 
-function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly, kpiStyle }: KpiCardProps) {
+function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly, kpiStyle, glossary }: KpiCardProps) {
   // Spec-level anomaly overrides computed when explicitly set
   const isAnomaly = item.anomaly !== undefined ? item.anomaly : (computedAnomaly?.isAnomaly ?? false);
 
@@ -101,10 +102,10 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
     deltaRatio = (currentValue - comparisonValue) / Math.abs(comparisonValue);
   }
 
-  // Comparison display value
+  // Comparison display value — use formatValue to respect prefix and format consistently
   const compDisplay =
     item.comparison !== undefined
-      ? (item.format === "currency" ? fmtEUR(item.comparison) : fmtInt(item.comparison))
+      ? formatValue(item.comparison, item.format, item.prefix)
       : comparisonValue !== null
         ? formatValue(comparisonValue, item.format, item.prefix)
         : null;
@@ -166,7 +167,7 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
       <div style={cardStyle} data-testid="kpi-card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
-            <div style={labelStyle}>{applyGlossary(item.label, undefined)}</div>
+            <div style={labelStyle}>{applyGlossary(item.label, glossary)}</div>
             {isAnomaly && (
               <div
                 style={{
@@ -239,7 +240,7 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
   if (kpiStyle === "bold") {
     return (
       <div style={cardStyle} data-testid="kpi-card">
-        <div style={labelStyle}>{applyGlossary(item.label, undefined)}</div>
+        <div style={labelStyle}>{applyGlossary(item.label, glossary)}</div>
         <div
           style={{
             fontSize: 42,
@@ -267,7 +268,7 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
   // minimal
   return (
     <div style={cardStyle} data-testid="kpi-card">
-      <div style={{ ...labelStyle, fontSize: 11 }}>{applyGlossary(item.label, undefined)}</div>
+      <div style={{ ...labelStyle, fontSize: 11 }}>{applyGlossary(item.label, glossary)}</div>
       <div
         style={{
           fontSize: 28,
@@ -296,7 +297,7 @@ export function KpiRow({
   widget,
   data,
   trendData,
-  glossary: _glossary,
+  glossary,
   anomalyData,
   kpiStyle = "editorial",
 }: KpiRowProps) {
@@ -330,6 +331,7 @@ export function KpiRow({
             comparisonValue={comparisonNum !== null && !isNaN(comparisonNum) ? comparisonNum : null}
             anomaly={computedAnomaly}
             kpiStyle={kpiStyle}
+            glossary={glossary}
           />
         );
       })}

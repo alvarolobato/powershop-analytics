@@ -2,18 +2,24 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useFreshness } from "@/components/FreshnessContext";
 
 interface TopBarProps {
   onCogClick?: () => void;
+  /** Override freshness text — falls back to context value */
   freshnessText?: string;
+  /** Override freshness stale flag — falls back to context value */
   freshnessStale?: boolean;
 }
 
-export function TopBar({ onCogClick, freshnessText, freshnessStale }: TopBarProps) {
+export function TopBar({ onCogClick, freshnessText: propFreshnessText, freshnessStale: propFreshnessStale }: TopBarProps) {
   const pathname = usePathname();
+  const ctx = useFreshness();
+  const freshnessText = propFreshnessText ?? ctx.freshnessText;
+  const freshnessStale = propFreshnessStale ?? ctx.freshnessStale;
 
   const navLinks = [
-    { href: "/", label: "Dashboards" },
+    { href: "/", label: "Paneles" },
     { href: "/review", label: "Revisión" },
     { href: "/glossary", label: "Glosario" },
   ];

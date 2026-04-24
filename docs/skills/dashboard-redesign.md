@@ -52,7 +52,7 @@ All tokens are declared on the `html` element in `dashboard/app/globals.css`. Th
 | Value | Description |
 |-------|-------------|
 | `electric` (default) | Blue-indigo accent |
-| `citric` | Yellow-green accent |
+| `citrus` | Yellow-green accent |
 | `magenta` | Pink-fuchsia accent |
 | `mono` | Neutral gray accent |
 
