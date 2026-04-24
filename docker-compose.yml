@@ -237,9 +237,9 @@ services:
       # (inside the container) which does not exist.
       CONFIG_FILE: /config/config.yaml
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
-      DASHBOARD_LLM_PROVIDER: ${DASHBOARD_LLM_PROVIDER:-openrouter}
-      DASHBOARD_LLM_CLI_DRIVER: ${DASHBOARD_LLM_CLI_DRIVER:-claude_code}
-      DASHBOARD_LLM_CLI_BIN: ${DASHBOARD_LLM_CLI_BIN:-claude}
+      DASHBOARD_LLM_PROVIDER: ${DASHBOARD_LLM_PROVIDER:-}
+      DASHBOARD_LLM_CLI_DRIVER: ${DASHBOARD_LLM_CLI_DRIVER:-}
+      DASHBOARD_LLM_CLI_BIN: ${DASHBOARD_LLM_CLI_BIN:-}
       # Claude Code CLI credentials (OAuth token). The CLI is installed inside the
       # image via npm; only the credentials need to be mounted from the host.
       # The nextjs user (uid 1001) inside the container reads from /home/nextjs/.claude/

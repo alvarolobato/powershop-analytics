@@ -7,7 +7,7 @@
  * Request body:
  *   { spec: DashboardSpec, widgetData: Record<string, unknown>, prompt: string, action?: string }
  * Response:
- *   { response: string, suggestions: string[] }
+ *   { response: string, suggestions: string[], logs: LogLine[] }
  */
 import { NextResponse } from "next/server";
 import {
@@ -32,6 +32,7 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { createLogCollector } from "@/lib/format-agentic-progress";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -213,6 +214,7 @@ export async function POST(request: Request) {
   }
 
   // --- Call LLM to analyze dashboard ----------------------------------------
+  const logCollector = createLogCollector();
   let analysisResponse: string;
   try {
     analysisResponse = await analyzeDashboard(
@@ -223,6 +225,7 @@ export async function POST(request: Request) {
         requestId,
         endpoint: "analyzeDashboard",
         dashboardId: dashboardIdNum,
+        onAgenticProgress: logCollector.onAgenticProgress,
       },
     );
   } catch (err) {
@@ -287,5 +290,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json({ response: analysisResponse, suggestions });
+  return NextResponse.json({ response: analysisResponse, suggestions, logs: logCollector.toLogLines() });
 }

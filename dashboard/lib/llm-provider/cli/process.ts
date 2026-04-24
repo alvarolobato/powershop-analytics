@@ -3,8 +3,36 @@
  */
 
 import { spawn } from "node:child_process";
+import { mkdtempSync, cpSync, existsSync, rmSync, copyFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import type { RunProcessResult } from "./types";
 import { CliRunnerError } from "./errors";
+
+/**
+ * Create an isolated HOME directory for a single claude invocation.
+ * This prevents concurrent processes from corrupting the shared ~/.claude.json
+ * file through simultaneous read-modify-write cycles.
+ * Returns the temp dir path; caller is responsible for cleanup.
+ */
+function isolatedClaudeHome(realHome: string): string {
+  const tmp = mkdtempSync(join(tmpdir(), "claude-home-"));
+  try {
+    const claudeDir = join(realHome, ".claude");
+    if (existsSync(claudeDir)) {
+      cpSync(claudeDir, join(tmp, ".claude"), { recursive: true });
+    } else {
+      mkdirSync(join(tmp, ".claude"), { recursive: true });
+    }
+    const claudeJson = join(realHome, ".claude.json");
+    if (existsSync(claudeJson)) {
+      copyFileSync(claudeJson, join(tmp, ".claude.json"));
+    }
+  } catch {
+    // If copy fails, return the temp dir anyway — claude will create fresh config
+  }
+  return tmp;
+}
 
 export interface RunCliProcessParams {
   file: string;
@@ -53,10 +81,15 @@ class CappedBufferCollector {
 export async function runCliProcess(params: RunCliProcessParams): Promise<RunProcessResult> {
   const { file, args, stdin, timeoutMs, maxStdoutBytes, maxStderrBytes } = params;
 
+  // Each invocation gets its own HOME copy so concurrent processes don't
+  // corrupt the shared ~/.claude.json file via simultaneous writes.
+  const realHome = process.env.HOME ?? "/home/nextjs";
+  const tmpHome = isolatedClaudeHome(realHome);
+
   return await new Promise((resolve, reject) => {
     const child = spawn(file, args, {
       stdio: ["pipe", "pipe", "pipe"],
-      env: { ...process.env },
+      env: { ...process.env, HOME: tmpHome },
       windowsHide: true,
     });
 
@@ -94,11 +127,13 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
 
     child.on("error", (err) => {
       clearTimeout(timer);
+      try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
       reject(err);
     });
 
     child.on("close", (exitCode) => {
       clearTimeout(timer);
+      try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
       resolve({
         exitCode,
         stdout: stdoutAcc.toStringUtf8(),

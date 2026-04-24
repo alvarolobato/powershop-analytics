@@ -52,8 +52,16 @@ export interface ChatSidebarProps {
    */
   pendingModifyInput?: string;
   pendingModifyTriggerId?: number;
-  /** Called once the pre-fill has been applied so the parent can clear state. */
+  /** Called once the modify pre-fill has been applied so the parent can clear state. */
   onPendingModifyInputConsumed?: () => void;
+  /**
+   * When `pendingAnalyzeTriggerId` changes with a non-empty `pendingAnalyzeInput`,
+   * the Analizar tab is selected, the textarea is filled, focused, and the sidebar opens if needed.
+   */
+  pendingAnalyzeInput?: string;
+  pendingAnalyzeTriggerId?: number;
+  /** Called once the analyze pre-fill has been applied so the parent can clear state. */
+  onPendingAnalyzeInputConsumed?: () => void;
   /**
    * Idempotent open when drill-down fires while the sidebar is collapsed.
    */
@@ -67,27 +75,6 @@ export interface ChatSidebarProps {
    */
   hideWhenClosed?: boolean;
 }
-
-// ---------------------------------------------------------------------------
-// Simulated log sequences
-// ---------------------------------------------------------------------------
-
-const ANALYZE_LOG_SEQUENCE: LogLine[] = [
-  { timestamp: "+0.0s", kind: "tool",   label: "parse_intent",      detail: "intent=analysis · scope=dashboard" },
-  { timestamp: "+0.3s", kind: "tool",   label: "fetch_widget_data", detail: "6 widgets" },
-  { timestamp: "+0.9s", kind: "tool",   label: "run_sql",           detail: "SELECT store, SUM(net) FROM sales …" },
-  { timestamp: "+1.4s", kind: "reason", label: "Razonando",         detail: "comparando con período anterior" },
-  { timestamp: "+2.1s", kind: "tool",   label: "detect_anomalies",  detail: "z > 2.5 · 0 hits" },
-  { timestamp: "+2.7s", kind: "done",   label: "Respuesta lista",   detail: "1.984 tokens · claude-sonnet" },
-];
-
-const MODIFY_LOG_SEQUENCE: LogLine[] = [
-  { timestamp: "+0.0s", kind: "tool",   label: "parse_request",     detail: "op=modify · target=dashboard" },
-  { timestamp: "+0.4s", kind: "tool",   label: "lookup_schema",     detail: "table=sales · cols=net,margin" },
-  { timestamp: "+1.0s", kind: "reason", label: "Generando spec",    detail: "planning widget changes" },
-  { timestamp: "+1.6s", kind: "tool",   label: "validate_sql",      detail: "OK · 0 errors" },
-  { timestamp: "+2.0s", kind: "done",   label: "Dashboard listo",   detail: "spec generado · persistido" },
-];
 
 // ---------------------------------------------------------------------------
 // Suggestion chips per mode
@@ -526,13 +513,7 @@ function ModificarTab({
     setInput("");
     setLoading(true);
 
-    // Simulate streaming log
     setStreamingLog([]);
-    MODIFY_LOG_SEQUENCE.forEach((line, i) => {
-      setTimeout(() => {
-        setStreamingLog((cur) => cur ? [...cur, line] : cur);
-      }, (i + 1) * 400);
-    });
 
     try {
       const res = await fetch("/api/dashboard/modify", {
@@ -586,8 +567,9 @@ function ModificarTab({
         return;
       }
 
-      const newSpec: DashboardSpec = await res.json();
-      onSpecUpdate(newSpec, trimmed);
+      const modifyData = await res.json() as DashboardSpec & { _logs?: LogLine[] };
+      const { _logs: modifyLogs, ...newSpec } = modifyData;
+      onSpecUpdate(newSpec as DashboardSpec, trimmed);
 
       const widgetDelta = newSpec.widgets.length - spec.widgets.length;
       let summary = "Dashboard actualizado.";
@@ -597,7 +579,6 @@ function ModificarTab({
         summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
       }
 
-      const capturedLogs = [...MODIFY_LOG_SEQUENCE];
       const newMessages: ChatMessage[] = [
         ...messages,
         userMessage,
@@ -605,7 +586,7 @@ function ModificarTab({
           role: "assistant",
           content: summary,
           timestamp: new Date(),
-          logs: capturedLogs,
+          logs: modifyLogs ?? [],
         },
       ];
       setMessages(newMessages);
@@ -783,6 +764,8 @@ function AnalizarTab({
   onMessagesChange,
   isActive,
   dashboardId,
+  prefillRequest,
+  onPrefillApplied,
 }: {
   spec: DashboardSpec;
   widgetData?: Map<number, WidgetState>;
@@ -791,6 +774,8 @@ function AnalizarTab({
   onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   dashboardId?: number;
+  prefillRequest?: { text: string; id: number } | null;
+  onPrefillApplied?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -799,6 +784,17 @@ function AnalizarTab({
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const appliedPrefillIdRef = useRef<number | undefined>(undefined);
+
+  // Prefill from drilldown
+  useEffect(() => {
+    if (!prefillRequest?.text.trim()) return;
+    if (appliedPrefillIdRef.current === prefillRequest.id) return;
+    appliedPrefillIdRef.current = prefillRequest.id;
+    setInput(prefillRequest.text);
+    setTimeout(() => inputRef.current?.focus(), 50);
+    onPrefillApplied?.();
+  }, [prefillRequest?.id, prefillRequest?.text, onPrefillApplied]);
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
@@ -829,13 +825,7 @@ function AnalizarTab({
       setSuggestions([]);
       setLoading(true);
 
-      // Simulate streaming log
       setStreamingLog([]);
-      ANALYZE_LOG_SEQUENCE.forEach((line, i) => {
-        setTimeout(() => {
-          setStreamingLog((cur) => cur ? [...cur, line] : cur);
-        }, (i + 1) * 400);
-      });
 
       try {
         const res = await fetch("/api/dashboard/analyze", {
@@ -886,7 +876,7 @@ function AnalizarTab({
               timestamp: new Date(),
               isError: true,
               errorDetail,
-              logs: [...ANALYZE_LOG_SEQUENCE],
+              logs: [],
             },
           ];
           setMessages(errorMessages);
@@ -894,8 +884,8 @@ function AnalizarTab({
           return;
         }
 
-        const data = await res.json() as { response: string; suggestions: string[] };
-        const capturedLogs = [...ANALYZE_LOG_SEQUENCE];
+        const data = await res.json() as { response: string; suggestions: string[]; logs?: LogLine[] };
+        const capturedLogs: LogLine[] = data.logs ?? [];
 
         const finalMessages: ChatMessage[] = [
           ...updatedMessages,
@@ -1145,6 +1135,9 @@ export default function ChatSidebar({
   pendingModifyInput,
   pendingModifyTriggerId,
   onPendingModifyInputConsumed,
+  pendingAnalyzeInput,
+  pendingAnalyzeTriggerId,
+  onPendingAnalyzeInputConsumed,
   onOpenSidebar,
   initialMode,
   hideWhenClosed = false,
@@ -1193,6 +1186,16 @@ export default function ChatSidebar({
     }
     setActiveTab("modificar");
   }, [pendingModifyInput, pendingModifyTriggerId, isOpen, onOpenSidebar, onToggle]);
+
+  // Handle pending analyze prefill (opens sidebar in analizar tab)
+  useEffect(() => {
+    if (!pendingAnalyzeInput?.trim() || pendingAnalyzeTriggerId === undefined) return;
+    if (!isOpen) {
+      (onOpenSidebar ?? onToggle)();
+      return;
+    }
+    setActiveTab("analizar");
+  }, [pendingAnalyzeInput, pendingAnalyzeTriggerId, isOpen, onOpenSidebar, onToggle]);
 
   // -------------------------------------------------------------------------
   // Collapsed state
@@ -1318,7 +1321,7 @@ export default function ChatSidebar({
           role="tablist"
           aria-label="Pestañas del chat"
         >
-          {(["modificar", "analizar"] as const).map((tab) => (
+          {(["analizar", "modificar"] as const).map((tab) => (
             <button
               key={tab}
               role="tab"
@@ -1372,6 +1375,12 @@ export default function ChatSidebar({
             onMessagesChange={onAnalyzeMessagesChange}
             isActive={activeTab === "analizar"}
             dashboardId={dashboardId}
+            prefillRequest={
+              pendingAnalyzeInput?.trim() && pendingAnalyzeTriggerId !== undefined
+                ? { text: pendingAnalyzeInput, id: pendingAnalyzeTriggerId }
+                : null
+            }
+            onPrefillApplied={onPendingAnalyzeInputConsumed}
           />
         )}
       </div>

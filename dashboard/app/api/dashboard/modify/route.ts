@@ -26,6 +26,7 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { createLogCollector } from "@/lib/format-agentic-progress";
 
 /**
  * Extract JSON from a string that may be wrapped in markdown code blocks.
@@ -148,12 +149,13 @@ export async function POST(request: Request) {
   }
 
   // --- Call LLM to modify the dashboard -------------------------------------
+  const logCollector = createLogCollector();
   let rawResponse: string;
   try {
     rawResponse = await modifyDashboard(
       JSON.stringify(specParse.data),
       prompt.trim(),
-      { requestId, endpoint: "modifyDashboard" },
+      { requestId, endpoint: "modifyDashboard", onAgenticProgress: logCollector.onAgenticProgress },
     );
   } catch (err: unknown) {
     if (interactionId) {
@@ -283,5 +285,5 @@ export async function POST(request: Request) {
     );
   }
 
-  return NextResponse.json(updatedSpec);
+  return NextResponse.json({ ...updatedSpec, _logs: logCollector.toLogLines() });
 }

@@ -118,6 +118,7 @@ export default function ViewDashboard() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(undefined);
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
+  const [pendingAnalyze, setPendingAnalyze] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -388,16 +389,19 @@ export default function ViewDashboard() {
   const handleDataPointClick = useCallback((ctx: DrillDownContext) => {
     let prompt: string;
     if (ctx.widgetType === "bar_chart" || ctx.widgetType === "donut_chart") {
-      prompt = `Detalle de ${ctx.label} en ${ctx.widgetTitle}: desglose por categoría, top artículos y tendencia`;
+      prompt = `En el widget "${ctx.widgetTitle}", el segmento "${ctx.label}" muestra ${ctx.value}. ¿Por qué tiene ese valor? Compara con los demás segmentos visibles en el dashboard, identifica si es una anomalía y sugiere qué acción tomar.`;
     } else if (ctx.widgetType === "line_chart" || ctx.widgetType === "area_chart") {
-      prompt = `¿Qué ocurrió en ${ctx.label} en ${ctx.widgetTitle}? Detalle por tienda y categoría`;
+      prompt = `En el widget "${ctx.widgetTitle}", el punto "${ctx.label}" tiene un valor de ${ctx.value}. ¿Qué factores explican ese nivel? Compara con el período anterior y con otras tiendas o categorías del dashboard.`;
+    } else if (ctx.widgetType === "table" || ctx.widgetType === "ranked_bars") {
+      prompt = `En el widget "${ctx.widgetTitle}", la fila "${ctx.label}" tiene ${ctx.value}. ¿Es un valor atípico respecto al resto? ¿Qué lo explica y qué se puede hacer?`;
     } else {
-      prompt = `Más información sobre ${ctx.label}`;
+      prompt = `En el widget "${ctx.widgetTitle}", el elemento "${ctx.label}" muestra ${ctx.value}. Dame más detalle y contexto sobre este dato.`;
     }
     setGlossaryOpen(false);
     setHistoryOpen(false);
     drillDownIdRef.current += 1;
-    setPendingModify({ prompt, id: drillDownIdRef.current });
+    setPendingAnalyze({ prompt, id: drillDownIdRef.current });
+    setChatInitialMode("analizar");
     setChatOpen(true);
   }, []);
 
@@ -1060,6 +1064,9 @@ export default function ViewDashboard() {
         pendingModifyInput={pendingModify?.prompt}
         pendingModifyTriggerId={pendingModify?.id}
         onPendingModifyInputConsumed={handlePendingModifyInputConsumed}
+        pendingAnalyzeInput={pendingAnalyze?.prompt}
+        pendingAnalyzeTriggerId={pendingAnalyze?.id}
+        onPendingAnalyzeInputConsumed={() => setPendingAnalyze(null)}
         initialMode={chatInitialMode}
       />
 

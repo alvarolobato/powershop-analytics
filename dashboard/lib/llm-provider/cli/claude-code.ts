@@ -226,7 +226,10 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
   try {
     assertCliSuccess(result, "claude agentic step");
   } catch (e) {
-    if (e instanceof CliRunnerError) throw e;
+    if (e instanceof CliRunnerError) {
+      console.error("[claude-cli] step failed exitCode=%d stderr=%s", result.exitCode, result.stderr.slice(0, 1000));
+      throw e;
+    }
     throw e;
   }
   // --output-format json wraps the model output in an envelope: { result: "<text>" }.
