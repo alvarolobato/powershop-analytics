@@ -19,21 +19,16 @@ export async function loginAdmin(formData: FormData): Promise<void> {
 
   const jar = cookies();
   const secureFlag = process.env.ADMIN_COOKIE_SECURE === "true";
-  const cookieBase = {
+  // Single root-path cookie so the browser reliably sends it regardless of
+  // which admin/etl path triggered the auth check. Path-scoped cookies caused
+  // session loss in some Next.js edge-runtime scenarios.
+  jar.set("ps_admin", expected, {
     httpOnly: true,
     sameSite: "lax" as const,
     secure: secureFlag,
-    maxAge: 60 * 60 * 8,
-  };
-  // Set path-scoped cookies so the session credential is only sent to the
-  // paths that need it — not every request on the site.
-  //   /admin       — admin UI pages and the login page
-  //   /etl         — ETL monitor UI pages (same-origin browser navigation)
-  //   /api/etl     — ETL data API endpoints called by same-origin fetch from /etl
-  //   /api/admin   — admin data API endpoints called by same-origin fetch from /admin/*
-  for (const path of ["/admin", "/etl", "/api/etl", "/api/admin"]) {
-    jar.set("ps_admin", expected, { ...cookieBase, path });
-  }
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    path: "/",
+  });
 
   redirect(target);
 }

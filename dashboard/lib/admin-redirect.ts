@@ -81,13 +81,5 @@ export function safeAdminRedirectTarget(input: string | null | undefined): strin
     return DEFAULT_ADMIN_LANDING;
   }
 
-  // Bare `/admin` redirects to the default landing page (app/admin/page.tsx
-  // exists but only server-redirects to DEFAULT_ADMIN_LANDING). Mapping it
-  // here avoids an extra round-trip and prevents redirect chaining in the
-  // login flow.
-  if (pathOnly === "/admin" || pathOnly === "/admin/") {
-    return DEFAULT_ADMIN_LANDING;
-  }
-
   return `${pathOnly}${parsed.search}${parsed.hash}`;
 }

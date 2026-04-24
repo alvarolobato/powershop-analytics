@@ -4,6 +4,10 @@ import { safeAdminRedirectTarget, DEFAULT_ADMIN_LANDING } from "@/lib/admin-redi
 describe("safeAdminRedirectTarget", () => {
   describe("returns the value for safe admin-area paths", () => {
     it.each([
+      "/admin",
+      "/admin/",
+      "/admin?foo=1",
+      "/admin#top",
       "/admin/slow-queries",
       "/admin/tool-calls",
       "/admin/usage",
@@ -56,12 +60,7 @@ describe("safeAdminRedirectTarget", () => {
       ["/etl-stats", "hyphen after etl"],
       // Missing leading slash.
       ["admin/slow-queries", "relative path"],
-      // Bare /admin maps to DEFAULT_ADMIN_LANDING to skip the extra round-trip
-      // through app/admin/page.tsx (which itself redirects to DEFAULT_ADMIN_LANDING).
-      ["/admin", "bare /admin (maps to default landing)"],
-      ["/admin/", "bare /admin/ (maps to default landing)"],
-      ["/admin?foo=1", "bare /admin with query"],
-      ["/admin#top", "bare /admin with hash"],
+      // (Bare /admin is now a valid target — it shows the admin index page.)
       // Dot-segment bypass attempts — normalize to a non-admin path.
       ["/admin/../", "dot-segment escaping admin root"],
       ["/admin/../dashboard", "dot-segment escaping to dashboard"],
