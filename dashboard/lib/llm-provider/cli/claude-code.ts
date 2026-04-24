@@ -109,15 +109,36 @@ function extractJsonObject(text: string): string {
   const fence = t.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   const body = fence ? fence[1].trim() : t;
   const start = body.indexOf("{");
-  const end = body.lastIndexOf("}");
-  if (start === -1 || end === -1 || end <= start) {
+  if (start === -1) {
     throw new CliRunnerError(
       "LLM_CLI_PARSE",
       "claude agentic: no JSON object found in output",
       { stderr: body.slice(0, 500) },
     );
   }
-  return body.slice(start, end + 1);
+  // Walk forward counting balanced braces, respecting strings and escapes,
+  // so trailing content (explanation prose, extra `}` chars) is ignored.
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < body.length; i++) {
+    const ch = body[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\" && inString) { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (!inString) {
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) return body.slice(start, i + 1);
+      }
+    }
+  }
+  throw new CliRunnerError(
+    "LLM_CLI_PARSE",
+    "claude agentic: unterminated JSON object in output",
+    { stderr: body.slice(start, start + 500) },
+  );
 }
 
 export function parseClaudeAgenticStepJson(stdout: string): ClaudeAgenticStep {
@@ -165,6 +186,13 @@ export function parseClaudeAgenticStepJson(stdout: string): ClaudeAgenticStep {
     }
     return { kind: "tools", calls };
   }
+  // Model skipped the wrapper and returned a bare dashboard spec or other JSON directly.
+  // If it looks like a final answer (has title+widgets or is otherwise not a tool request),
+  // treat the whole extracted JSON as the content string.
+  if (kind === undefined || (typeof kind === "string" && kind !== "tools")) {
+    const content = extractJsonObject(stdout);
+    if (content) return { kind: "final", content };
+  }
   throw new CliRunnerError(
     "LLM_CLI_PARSE",
     `claude agentic: unknown kind ${String(kind)}`,
@@ -184,7 +212,7 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     "--model",
     cfg.cliModel,
     "--output-format",
-    "text",
+    "json",
   ];
 
   const result = await runCliProcess({
@@ -201,5 +229,14 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     if (e instanceof CliRunnerError) throw e;
     throw e;
   }
-  return parseClaudeAgenticStepJson(result.stdout);
+  // --output-format json wraps the model output in an envelope: { result: "<text>" }.
+  // Extract the inner text to avoid spurious trailing content that breaks JSON.parse.
+  let textOutput = result.stdout;
+  try {
+    const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
+    if (typeof envelope.result === "string") textOutput = envelope.result;
+  } catch {
+    // Envelope parse failed — fall back to raw stdout
+  }
+  return parseClaudeAgenticStepJson(textOutput);
 }

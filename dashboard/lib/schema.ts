@@ -10,7 +10,20 @@ import { z } from "zod";
 // Zod schemas
 // ---------------------------------------------------------------------------
 
-const KpiFormatSchema = z.enum(["currency", "number", "percent"]);
+const KPI_FORMAT_ALIASES: Record<string, "currency" | "number" | "percent"> = {
+  euro: "currency", euros: "currency", money: "currency", importe: "currency",
+  cantidad: "number", integer: "number", float: "number", count: "number", entero: "number",
+  percentage: "percent", pct: "percent", porcentaje: "percent", ratio: "percent",
+};
+
+const KpiFormatSchema = z.preprocess(
+  (v) => {
+    if (typeof v !== "string") return v;
+    const lv = v.toLowerCase().trim();
+    return KPI_FORMAT_ALIASES[lv] ?? lv;
+  },
+  z.enum(["currency", "number", "percent"]),
+);
 
 /** Optional string that must be non-empty when provided. */
 const optStr = z.string().min(1).optional();

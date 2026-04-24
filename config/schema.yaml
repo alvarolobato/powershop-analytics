@@ -182,9 +182,9 @@
   env: DASHBOARD_LLM_MODEL_CLI
   type: string
   sensitive: false
-  default: null
+  default: "claude-sonnet-4-6"
   section: "Dashboard LLM"
-  description: "Modelo CLI específico para el dashboard (anula dashboard.llm_model)."
+  description: "Modelo CLI específico para el dashboard (anula dashboard.llm_model). Usa IDs nativos de Claude (p.ej. claude-sonnet-4-6), no formato OpenRouter."
   requires_restart: []
   components: [dashboard]
 
