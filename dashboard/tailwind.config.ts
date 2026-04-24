@@ -13,6 +13,37 @@ const config: Config = {
     current: "currentColor",
     extend: {
       colors: {
+        bg: "var(--bg)",
+        surface: {
+          DEFAULT: "var(--bg-1)",
+          "1": "var(--bg-1)",
+          "2": "var(--bg-2)",
+          "3": "var(--bg-3)",
+        },
+        fg: {
+          DEFAULT: "var(--fg)",
+          muted: "var(--fg-muted)",
+          subtle: "var(--fg-subtle)",
+        },
+        accent: {
+          DEFAULT: "var(--accent)",
+          "2": "var(--accent-2)",
+          soft: "var(--accent-soft)",
+        },
+        up: {
+          DEFAULT: "var(--up)",
+          bg: "var(--up-bg)",
+        },
+        down: {
+          DEFAULT: "var(--down)",
+          bg: "var(--down-bg)",
+        },
+        warn: {
+          DEFAULT: "var(--warn)",
+          bg: "var(--warn-bg)",
+        },
+        hairline: "var(--border)",
+        "border-strong": "var(--border-strong)",
         tremor: {
           brand: { faint: colors.blue[50], muted: colors.blue[200], subtle: colors.blue[400], DEFAULT: colors.blue[500], emphasis: colors.blue[700], inverted: colors.white },
           background: { muted: colors.gray[50], subtle: colors.gray[100], DEFAULT: colors.white, emphasis: colors.gray[700] },
@@ -46,6 +77,10 @@ const config: Config = {
         "tremor-default": ["0.875rem", { lineHeight: "1.25rem" }],
         "tremor-title": ["1.125rem", { lineHeight: "1.75rem" }],
         "tremor-metric": ["1.875rem", { lineHeight: "2.25rem" }],
+      },
+      borderColor: {
+        hairline: "var(--border)",
+        strong: "var(--border-strong)",
       },
     },
   },
