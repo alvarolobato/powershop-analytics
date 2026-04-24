@@ -58,9 +58,12 @@ services:
       # Without it the loader would fall back to ~/.config/powershop-analytics/config.yaml
       # (inside the container) which does not exist.
       CONFIG_FILE: /config/config.yaml
+      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
     volumes:
       # Mount centralized config directory (read-only; ETL only reads config)
-      - ${HOME}/.config/powershop-analytics:/config:ro
+      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:ro
+      # Mount schema so the container can validate/read key definitions
+      - ./config/schema.yaml:/app/config/schema.yaml:ro
     networks:
       - wren
     depends_on:
@@ -233,9 +236,12 @@ services:
       # Without it the loader would fall back to ~/.config/powershop-analytics/config.yaml
       # (inside the container) which does not exist.
       CONFIG_FILE: /config/config.yaml
+      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
     volumes:
       # Mount centralized config directory (read-write; dashboard writes config.yaml)
-      - ${HOME}/.config/powershop-analytics:/config:rw
+      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
+      # Mount schema so the container can validate/read key definitions
+      - ./config/schema.yaml:/app/config/schema.yaml:ro
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
     networks:

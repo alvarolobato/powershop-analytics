@@ -16,7 +16,7 @@
 - **UI**: `/admin/config` — all sections, source badges (`env` / `file` / `default`), `SecretField` with eye-toggle + copy, per-key "Save to file" for env-sourced keys, global "Import all", restart-required banners.
 - **`ADMIN_API_KEY`** is explicitly excluded from UI editing (read-only guard in PUT handler).
 - **Docker**: `${HOME}/.config/powershop-analytics` mounted at `/config` — read-only for ETL, read-write for Dashboard. `CONFIG_FILE=/config/config.yaml` env var in both services.
-- **Scope note**: In this PR the new loaders are consumed by the admin API and bootstrap path. Core runtime config (ETL `etl/config.py`, Dashboard LLM helpers) still reads directly from env vars for backward compatibility. File-precedence for those paths is a follow-on task; the schema and file infrastructure are ready.
+- **Scope**: The new loaders are consumed by the admin API, bootstrap path, and Dashboard LLM runtime (`dashboard/lib/llm-provider/config.ts`, `openrouter.ts`, `llm-usage.ts` now call `getSystemConfig()` so config.yaml values take effect at runtime). ETL `etl/config.py` still reads env vars directly for backward compatibility; file-precedence for the ETL scheduler is a follow-on task.
 **Alternatives rejected**: Splitting config into separate files per component (defeated the "single source" goal); database-stored config (adds bootstrap coupling).
 **Rationale**: Gives operators a GUI to inspect and change settings without SSH; env vars remain authoritative for Docker/CI; secrets stay in the same directory, never committed.
 **See**: `config/schema.yaml`, `etl/config_loader.py`, `dashboard/lib/system-config/loader.ts`, `dashboard/app/admin/config/`, `dashboard/app/api/admin/config/`, `docker-compose.yml`.

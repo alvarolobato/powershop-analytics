@@ -78,10 +78,15 @@ let _client: OpenAI | null = null;
 
 export function getOpenRouterApiKey(): string {
   // Prefer the value from the central config loader (env > config.yaml > default).
-  // Fall back to process.env directly for backward compatibility (e.g. tests that
-  // stub env but don't set up the full config loader).
-  const cfg = getSystemConfig();
-  const cfgKey = cfg["openrouter.api_key"]?.value;
+  // Fall back to process.env directly when the loader throws (e.g. schema.yaml is
+  // missing or tests that stub env but don't set up the full config loader).
+  let cfgKey: string | null | undefined;
+  try {
+    const cfg = getSystemConfig();
+    cfgKey = cfg["openrouter.api_key"]?.value as string | null | undefined;
+  } catch {
+    cfgKey = undefined;
+  }
   const key =
     (cfgKey !== null && cfgKey !== undefined ? String(cfgKey).trim() : "") ||
     process.env.OPENROUTER_API_KEY?.trim() ||

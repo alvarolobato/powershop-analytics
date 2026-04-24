@@ -330,7 +330,7 @@
   sensitive: true
   default: null
   section: "Dashboard App"
-  description: "Clave secreta para /api/admin/* y la sesión de admin. Solo editable a mano en el fichero o variable de entorno."
+  description: "Clave secreta para /api/admin/* y la sesión de admin. Solo env var; config.yaml se ignora intencionalmente para esta clave para evitar escalada de privilegios a través de la UI."
   requires_restart: []
   components: [dashboard]
 
@@ -373,7 +373,7 @@
   sensitive: false
   default: 2
   section: "ETL"
-  description: "Hora UTC a la que se ejecuta la sincronización ETL nocturna."
+  description: "Hora UTC a la que se ejecuta la sincronización ETL nocturna. Solo env var; los cambios en config.yaml se ignoran (etl/main.py lee únicamente ETL_CRON_HOUR del entorno). Requiere reiniciar el contenedor ETL."
   requires_restart: [etl]
   components: [etl, docker]
 

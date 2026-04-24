@@ -160,8 +160,33 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     );
   }
 
+  // Coerce values to the correct native type before persisting.
+  // YAML serializes "true" (string) and true (boolean) differently; writing
+  // the wrong type would cause downstream readers to get surprising values.
+  const coerced: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null) {
+      coerced[key] = null;
+      continue;
+    }
+    const cv = config[key];
+    if (!cv) {
+      coerced[key] = value;
+      continue;
+    }
+    if (cv.type === "int") {
+      coerced[key] = Number(String(value).trim());
+    } else if (cv.type === "bool") {
+      const norm = typeof value === "boolean" ? value : String(value).trim().toLowerCase();
+      coerced[key] = norm === true || norm === "true" || norm === "1" || norm === "yes" || norm === "on";
+    } else {
+      // string / enum — keep as string
+      coerced[key] = String(value);
+    }
+  }
+
   try {
-    writeConfig(updates);
+    writeConfig(coerced);
   } catch (err) {
     console.error("[config PUT] Failed to write config:", err);
     return NextResponse.json({ error: "Failed to write config file" }, { status: 500 });
@@ -172,5 +197,5 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   // cache (resetConfigCache); this clears the second-layer memo in llm-provider/config.ts.
   resetDashboardLlmConfigCache();
 
-  return NextResponse.json({ ok: true, updated: Object.keys(updates) });
+  return NextResponse.json({ ok: true, updated: Object.keys(coerced) });
 }

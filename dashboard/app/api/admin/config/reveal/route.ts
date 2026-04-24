@@ -53,9 +53,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     `[config reveal] admin revealed sensitive key: ${key} source=${cv.source} at ${new Date().toISOString()}`,
   );
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     key,
     value: cv.value !== null && cv.value !== undefined ? String(cv.value) : "",
     source: cv.source,
   });
+  // Prevent proxies and browsers from caching secret values.
+  response.headers.set("Cache-Control", "no-store, Pragma: no-cache");
+  return response;
 }
