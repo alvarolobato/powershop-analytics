@@ -14,6 +14,10 @@ function pushSqlFromWidget(widget: Widget, out: string[]): void {
     }
     return;
   }
+  // Static widgets with no SQL
+  if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+    return;
+  }
   out.push(widget.sql);
   if ("comparison_sql" in widget && widget.comparison_sql) {
     out.push(widget.comparison_sql);
@@ -90,13 +94,16 @@ export function lintDashboardSpec(spec: DashboardSpec): string[] {
           }
         }
       });
+    } else if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+      // No SQL to lint
     } else {
-      const title = "title" in widget ? widget.title : wid;
-      for (const msg of lintWidgetSql(widget.sql)) {
+      const title = "title" in widget ? (widget as { title: string }).title : wid;
+      const widgetWithSql = widget as { sql: string; comparison_sql?: string };
+      for (const msg of lintWidgetSql(widgetWithSql.sql)) {
         pushUniqueMessage(`Widget ${wid} («${title}»): ${msg}`);
       }
-      if ("comparison_sql" in widget && widget.comparison_sql) {
-        for (const msg of lintWidgetSql(widget.comparison_sql)) {
+      if (widgetWithSql.comparison_sql) {
+        for (const msg of lintWidgetSql(widgetWithSql.comparison_sql)) {
           pushUniqueMessage(`Widget ${wid} («${title}», comparison_sql): ${msg}`);
         }
       }

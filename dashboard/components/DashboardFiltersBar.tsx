@@ -61,6 +61,130 @@ async function postOptions(
   return Array.isArray(data.options) ? data.options : [];
 }
 
+// ---------------------------------------------------------------------------
+// Pill select component (B3)
+// ---------------------------------------------------------------------------
+
+interface PillSelectProps {
+  filter: GlobalFilter;
+  options: OptionRow[];
+  value: GlobalFilterValues;
+  loading?: boolean;
+  error?: string;
+  onChange: (next: GlobalFilterValues) => void;
+}
+
+function PillSelect({ filter, options, value, loading, error, onChange }: PillSelectProps) {
+  const pillStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    background: "var(--bg-2)",
+    border: "1px solid var(--border)",
+    borderRadius: 20,
+    padding: "4px 10px 4px 12px",
+    fontSize: 12,
+  };
+  const selectStyle: React.CSSProperties = {
+    background: "transparent",
+    border: "none",
+    color: "var(--fg)",
+    fontSize: 12,
+    cursor: "pointer",
+    outline: "none",
+    fontFamily: "inherit",
+    paddingRight: 14,
+  };
+
+  if (filter.type === "single_select") {
+    return (
+      <label style={pillStyle}>
+        <span style={{ color: "var(--fg-muted)", fontSize: 11 }}>{filter.label}</span>
+        <select
+          id={`gf-${filter.id}`}
+          aria-label={filter.label}
+          aria-busy={!!loading}
+          style={selectStyle}
+          value={singleSelectFormValue(filter, value)}
+          disabled={!!loading}
+          onChange={(ev) => {
+            const v = ev.target.value;
+            const next = { ...value };
+            if (!v) delete next[filter.id];
+            else if (filter.value_type === "numeric") {
+              const n = Number(v);
+              next[filter.id] = Number.isFinite(n) ? n : v;
+            } else {
+              next[filter.id] = v;
+            }
+            onChange(next);
+          }}
+        >
+          <option value="" style={{ background: "var(--bg-1)" }}>Todos</option>
+          {options.map((o) => (
+            <option key={o.value} value={o.value} style={{ background: "var(--bg-1)" }}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+        {error && (
+          <span style={{ fontSize: 10, color: "var(--down)" }}>{error}</span>
+        )}
+      </label>
+    );
+  }
+
+  // multi_select — keep as a compact multi-select with pill wrapper
+  return (
+    <label style={{ ...pillStyle, alignItems: "flex-start", padding: "4px 10px 4px 12px" }}>
+      <span style={{ color: "var(--fg-muted)", fontSize: 11, paddingTop: 4 }}>{filter.label}</span>
+      <select
+        id={`gf-${filter.id}`}
+        multiple
+        aria-label={filter.label}
+        aria-busy={!!loading}
+        size={Math.min(5, Math.max(2, options.length || 2))}
+        style={{
+          ...selectStyle,
+          minHeight: 60,
+          background: "var(--bg-1)",
+          border: "1px solid var(--border)",
+          borderRadius: 4,
+          padding: "2px 6px",
+        }}
+        disabled={!!loading}
+        value={multiSelectFormValue(filter, value)}
+        onChange={(ev) => {
+          const selected = Array.from(ev.target.selectedOptions).map((o) => o.value);
+          const next = { ...value };
+          if (selected.length === 0) delete next[filter.id];
+          else if (filter.value_type === "numeric") {
+            next[filter.id] = selected
+              .map((s) => Number(s))
+              .filter((n) => Number.isFinite(n));
+          } else {
+            next[filter.id] = selected;
+          }
+          onChange(next);
+        }}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} style={{ background: "var(--bg-1)" }}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+      {error && (
+        <span style={{ fontSize: 10, color: "var(--down)" }}>{error}</span>
+      )}
+    </label>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DashboardFiltersBar
+// ---------------------------------------------------------------------------
+
 export function DashboardFiltersBar({
   dashboardId,
   spec,
@@ -122,86 +246,74 @@ export function DashboardFiltersBar({
 
   if (filters.length === 0) return null;
 
+  const hasActiveFilters = filters.some((f) => {
+    const v = value[f.id];
+    return v !== undefined && v !== null && v !== "" && !(Array.isArray(v) && v.length === 0);
+  });
+
   return (
     <div
-      className="no-print mb-4 flex flex-wrap items-end gap-4 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle p-4"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 20px",
+        borderTop: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+        background: "var(--bg-1)",
+        flexWrap: "wrap",
+      }}
       data-testid="global-filters-bar"
+      className="no-print"
     >
-      <span className="text-xs font-semibold uppercase tracking-wide text-tremor-content-subtle dark:text-dark-tremor-content-subtle w-full sm:w-auto">
-        Filtros
+      {/* Lead label */}
+      <span
+        style={{
+          fontSize: 11,
+          color: "var(--fg-subtle)",
+          fontFamily: "var(--font-jetbrains, monospace)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginRight: 4,
+          flexShrink: 0,
+        }}
+      >
+        FILTROS
       </span>
+
       {filters.map((f) => (
-        <div key={f.id} className="flex min-w-[160px] flex-col gap-1">
-          <label
-            htmlFor={`gf-${f.id}`}
-            className="text-xs text-tremor-content dark:text-dark-tremor-content"
-          >
-            {f.label}
-          </label>
-          {f.type === "single_select" ? (
-            <select
-              id={`gf-${f.id}`}
-              aria-label={f.label}
-              aria-busy={!!loading[f.id]}
-              className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis"
-              value={singleSelectFormValue(f, value)}
-              disabled={!!loading[f.id]}
-              onChange={(ev) => {
-                const v = ev.target.value;
-                const next = { ...value };
-                if (!v) delete next[f.id];
-                else if (f.value_type === "numeric") {
-                  const n = Number(v);
-                  next[f.id] = Number.isFinite(n) ? n : v;
-                } else {
-                  next[f.id] = v;
-                }
-                onChange(next);
-              }}
-            >
-              <option value="">Todos</option>
-              {(optionsById[f.id] ?? []).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <select
-              id={`gf-${f.id}`}
-              multiple
-              aria-label={f.label}
-              aria-busy={!!loading[f.id]}
-              size={Math.min(6, Math.max(3, (optionsById[f.id] ?? []).length || 3))}
-              className="rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis min-h-[72px]"
-              disabled={!!loading[f.id]}
-              value={multiSelectFormValue(f, value)}
-              onChange={(ev) => {
-                const selected = Array.from(ev.target.selectedOptions).map((o) => o.value);
-                const next = { ...value };
-                if (selected.length === 0) delete next[f.id];
-                else if (f.value_type === "numeric") {
-                  next[f.id] = selected
-                    .map((s) => Number(s))
-                    .filter((n) => Number.isFinite(n));
-                } else {
-                  next[f.id] = selected;
-                }
-                onChange(next);
-              }}
-            >
-              {(optionsById[f.id] ?? []).map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          )}
-          {errors[f.id] && (
-            <span className="text-xs text-red-500">{errors[f.id]}</span>
-          )}
-        </div>
+        <PillSelect
+          key={f.id}
+          filter={f}
+          options={optionsById[f.id] ?? []}
+          value={value}
+          loading={loading[f.id]}
+          error={errors[f.id]}
+          onChange={onChange}
+        />
       ))}
+
+      {/* Spacer */}
+      <div style={{ flex: 1 }} />
+
+      {/* Clear filters */}
+      {hasActiveFilters && (
+        <button
+          type="button"
+          onClick={() => onChange({})}
+          style={{
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            fontSize: 11,
+            color: "var(--fg-muted)",
+            fontFamily: "inherit",
+            padding: "4px 8px",
+          }}
+        >
+          Limpiar filtros
+        </button>
+      )}
     </div>
   );
 }

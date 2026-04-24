@@ -32,9 +32,9 @@ export function formatValue(
   format: KpiFormat,
   prefix?: string,
 ): string {
-  if (value === null || value === undefined || value === "") return "\u2014";
+  if (value === null || value === undefined || value === "") return "—";
   const num = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(num)) return "\u2014";
+  if (Number.isNaN(num)) return "—";
 
   switch (format) {
     case "currency": {
@@ -48,4 +48,71 @@ export function formatValue(
     default:
       return String(num);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Phase C1 formatters
+// ---------------------------------------------------------------------------
+
+/** Format a number as EUR currency (es-ES locale, adaptive decimals). */
+export function fmtEUR(value: number): string {
+  const digits = Math.abs(value) < 100 ? 2 : 0;
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: digits,
+  }).format(value);
+}
+
+/** Format integer (es-ES locale, no decimals). */
+export function fmtInt(value: number): string {
+  return new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(value);
+}
+
+/** Format percentage (1 decimal, es-ES). */
+export function fmtPct(value: number): string {
+  return new Intl.NumberFormat("es-ES", {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+/**
+ * Format delta ratio (e.g. 0.083 = +8.3%, -0.189 = -18.9%).
+ * Returns an object with text, arrow symbol, and polarity flag.
+ */
+export function fmtDelta(delta: number): { text: string; arrow: "▲" | "▼"; positive: boolean } {
+  const positive = delta >= 0;
+  const pct = Math.abs(delta * 100);
+  const text = `${positive ? "+" : "−"}${pct.toLocaleString("es-ES", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  })}%`;
+  return { text, arrow: positive ? "▲" : "▼", positive };
+}
+
+// ---------------------------------------------------------------------------
+// Phase D6 — toTitleCase
+// ---------------------------------------------------------------------------
+
+const LOWER_CONNECTORS = new Set([
+  "de", "la", "el", "y", "en", "con", "del", "los", "las",
+]);
+
+/**
+ * Apply Spanish title-case: lower common connectors/articles (except as the
+ * first word), capitalise the rest.
+ */
+export function toTitleCase(s: string): string {
+  if (!s) return s;
+  return s
+    .toLowerCase()
+    .split(/(\s+|\/)/)
+    .map((token, i) => {
+      if (!token.trim() || token === "/") return token;
+      if (i > 0 && LOWER_CONNECTORS.has(token)) return token;
+      return token.charAt(0).toUpperCase() + token.slice(1);
+    })
+    .join("");
 }
