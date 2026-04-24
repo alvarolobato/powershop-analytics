@@ -193,6 +193,7 @@ export async function GET(): Promise<NextResponse> {
         `SELECT table_name,
                 EXTRACT(EPOCH FROM (NOW() - last_sync_at))::bigint AS age_seconds
          FROM etl_watermarks
+         WHERE status IN ('ok', 'error')
          ORDER BY last_sync_at ASC
          LIMIT 1`,
       ),
