@@ -261,8 +261,8 @@ class TestResetWatermarksBeforeCreateRun:
             mock_reset = stack.enter_context(
                 patch("etl.db.postgres.reset_watermarks", return_value=9)
             )
-            mock_reset.side_effect = (
-                lambda *a, **kw: call_order.append("reset_watermarks") or 9
+            mock_reset.side_effect = lambda *a, **kw: (
+                call_order.append("reset_watermarks") or 9
             )
             stack.enter_context(
                 patch(
