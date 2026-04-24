@@ -68,24 +68,20 @@ export function DataFreshnessBanner() {
   // Propagate freshness state to TopBar via context
   useEffect(() => {
     if (!health) return;
-    if (health.overallStale && health.stalestTable) {
+    if (health.stalestTable) {
       const d = new Date(health.stalestTable.lastSync);
       const minutesAgo = Math.round((Date.now() - d.getTime()) / 60000);
-      const label =
+      const age =
         minutesAgo < 60
-          ? `Datos al día · hace ${minutesAgo}m`
-          : `Datos al día · hace ${Math.round(minutesAgo / 60)}h`;
-      setFreshnessText(label);
-      setFreshnessStale(true);
-    } else if (health.stalestTable) {
-      const d = new Date(health.stalestTable.lastSync);
-      const minutesAgo = Math.round((Date.now() - d.getTime()) / 60000);
-      const label =
-        minutesAgo < 60
-          ? `Datos al día · hace ${minutesAgo}m`
-          : `Datos al día · hace ${Math.round(minutesAgo / 60)}h`;
-      setFreshnessText(label);
-      setFreshnessStale(false);
+          ? `hace ${minutesAgo}m`
+          : `hace ${Math.round(minutesAgo / 60)}h`;
+      if (health.overallStale) {
+        setFreshnessText(`Datos desactualizados · ${age}`);
+        setFreshnessStale(true);
+      } else {
+        setFreshnessText(`Datos al día · ${age}`);
+        setFreshnessStale(false);
+      }
     }
   }, [health, setFreshnessText, setFreshnessStale]);
 

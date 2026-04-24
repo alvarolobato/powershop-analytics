@@ -77,7 +77,7 @@ All tokens are declared on the `html` element in `dashboard/app/globals.css`. Th
 | `ChatSidebar` | `dashboard/components/ChatSidebar.tsx` | AI assistant panel — Modificar + Analizar tabs, LogBlock, suggestion chips |
 | `Panel` | inside `DashboardRenderer` | Shared widget chrome with header, subtitle, actions |
 | `Sparkline` | inside KpiRow widget | 90×24 SVG sparkline for KPI cards |
-| `InsightsStrip` | `dashboard/components/widgets/InsightsStripWidget.tsx` | 3-card narrative strip widget |
+| `InsightsStrip` | `dashboard/components/widgets/InsightsStrip.tsx` | 3-card narrative strip widget |
 | `RankedBarsWidget` | `dashboard/components/widgets/RankedBarsWidget.tsx` | Horizontal threshold bars with heat cells |
 
 ## KPI style guide
