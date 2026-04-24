@@ -57,7 +57,7 @@ describe("llm", () => {
       resetClient();
       resetDashboardLlmConfigCache();
       await expect(generateDashboard("test")).rejects.toThrow(
-        "OPENROUTER_API_KEY is not set. Set it in your environment or .env file."
+        "OPENROUTER_API_KEY is not set. Set it in your environment, config.yaml, or .env file."
       );
     });
 

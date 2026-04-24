@@ -16,6 +16,9 @@ export function adminUnauthorized(): NextResponse {
  * When `ADMIN_API_KEY` is unset, no request is authorized (fail closed).
  */
 export function adminApiKeyValid(request: NextRequest): boolean {
+  // Intentionally reads env only — never from config.yaml — to prevent privilege
+  // escalation via the UI: if the admin key were readable/writable from config.yaml,
+  // an attacker who gained file-write access could replace it and lock out the real admin.
   const expected = process.env.ADMIN_API_KEY?.trim();
   if (!expected) return false;
 

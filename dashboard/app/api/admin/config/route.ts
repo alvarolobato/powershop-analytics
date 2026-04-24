@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { adminApiKeyValid, adminUnauthorized } from "@/lib/admin-api-auth";
+import { resetDashboardLlmConfigCache } from "@/lib/llm-provider/config";
 import { getSystemConfig, writeConfig } from "@/lib/system-config/loader";
 
 // Keys that must NEVER be updated via the API (controlled by env/file only)
@@ -165,6 +166,11 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     console.error("[config PUT] Failed to write config:", err);
     return NextResponse.json({ error: "Failed to write config file" }, { status: 500 });
   }
+
+  // Invalidate the LLM config memo so the next request picks up the new values
+  // without requiring a server restart. writeConfig() already clears the system-config
+  // cache (resetConfigCache); this clears the second-layer memo in llm-provider/config.ts.
+  resetDashboardLlmConfigCache();
 
   return NextResponse.json({ ok: true, updated: Object.keys(updates) });
 }

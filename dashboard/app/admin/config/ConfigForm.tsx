@@ -308,6 +308,13 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
         </p>
       )}
 
+      {/* Admin key env-only notice */}
+      {item.key === "dashboard.admin_api_key" && (
+        <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
+          Solo configurable mediante variable de entorno (<code>ADMIN_API_KEY</code>). Los cambios en config.yaml son ignorados para esta clave por motivos de seguridad.
+        </p>
+      )}
+
       {/* Restart warning (shown after edit) */}
       {item.requires_restart?.length > 0 && isEditing && (
         <RestartBanner services={item.requires_restart} />
