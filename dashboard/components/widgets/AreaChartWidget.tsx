@@ -4,7 +4,7 @@ import { Card, AreaChart } from "@tremor/react";
 import type { AreaChartWidget as AreaChartWidgetSpec, GlossaryItem } from "@/lib/schema";
 import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
-import { CHART_COLORS } from "./chart-colors";
+import { CHART_COLORS_ARRAY as CHART_COLORS } from "./chart-colors";
 import { applyGlossary } from "@/lib/glossary";
 import { mergeComparisonSeries } from "./BarChartWidget";
 import { WidgetSkeleton } from "./WidgetSkeleton";

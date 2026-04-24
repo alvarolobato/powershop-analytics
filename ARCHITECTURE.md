@@ -159,6 +159,21 @@ The LLM generates a JSON specification that the frontend renders:
 | `donut_chart` | DonutChart | Proportions (mix por familia) |
 | `table` | Table | Detailed data (top artículos) |
 | `number` | Metric | Single big number |
+| `insights_strip` | Custom panels | 3-card narrative strip with up/down/warn icons |
+| `ranked_bars` | Custom bars | Horizontal bar chart with heat-cell values |
+
+#### UI Shell Components (redesign, Phase A+)
+
+| Component | Purpose |
+|-----------|---------|
+| `TopBar` | Sticky 56px header — logo, nav, live-data status, cog button, admin link, avatar |
+| `TweaksPanel` | Floating panel for theme/accent/density/kpiStyle — opened by TopBar cog |
+| `AnalyzeLauncher` | Fixed right-rail button "✦ Analizar con IA" — hidden when chat sidebar open |
+| `LogBlock` | Streaming + post-delivery collapsed LLM process log in ChatSidebar |
+| `Panel` | Shared widget chrome (title, subtitle, right actions, padded content) |
+| `InsightsStrip` | Narrative insight cards — up/down/warn |
+| `RankedBarsWidget` | Horizontal bars with heat cells |
+| `Sparkline` | 90×24 SVG inline sparkline in KPI editorial cards |
 
 ## Data Flow
 

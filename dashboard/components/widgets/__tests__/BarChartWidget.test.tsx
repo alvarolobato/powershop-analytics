@@ -2,52 +2,12 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import type { ReactNode } from "react";
 import { BarChartWidget } from "../BarChartWidget";
 import type { BarChartWidget as BarChartSpec } from "@/lib/schema";
 import type { WidgetData } from "../types";
 
-vi.mock("@tremor/react", () => ({
-  Card: ({
-    children,
-    className,
-    title,
-    ...rest
-  }: {
-    children: ReactNode;
-    className?: string;
-    title?: string;
-  }) => (
-    <div className={className} title={title} {...rest}>
-      {children}
-    </div>
-  ),
-  BarChart: ({
-    onValueChange,
-    index,
-  }: {
-    onValueChange?: (v: Record<string, unknown>) => void;
-    index: string;
-  }) => (
-    <button
-      type="button"
-      data-testid="mock-bar"
-      onClick={() =>
-        onValueChange?.({
-          eventType: "bar",
-          categoryClicked: "Ventas",
-          [index]: "Tienda 05",
-          Ventas: 1234,
-        })
-      }
-    >
-      bar
-    </button>
-  ),
-}));
-
 describe("BarChartWidget drill-down", () => {
-  it("invokes onDataPointClick when Tremor onValueChange fires", () => {
+  it("invokes onDataPointClick when a bar group is clicked", () => {
     const onDataPointClick = vi.fn();
     const widget: BarChartSpec = {
       type: "bar_chart",
@@ -64,7 +24,17 @@ describe("BarChartWidget drill-down", () => {
       ],
     };
     render(<BarChartWidget widget={widget} data={data} onDataPointClick={onDataPointClick} />);
-    fireEvent.click(screen.getAllByTestId("mock-bar")[0]);
+
+    // The custom SVG renders <g> groups with onClick for each bar
+    // Click the first <g> element that has the onClick handler (cursor: pointer)
+    const svg = document.querySelector("svg");
+    expect(svg).toBeInTheDocument();
+
+    // Find all <g> groups (one per data point) and click the first one
+    const barGroups = document.querySelectorAll("svg g");
+    expect(barGroups.length).toBeGreaterThan(0);
+    fireEvent.click(barGroups[0]);
+
     expect(onDataPointClick).toHaveBeenCalledTimes(1);
     expect(onDataPointClick).toHaveBeenCalledWith({
       label: "Tienda 05",

@@ -407,4 +407,83 @@ describe("ReviewPage", () => {
 
     expect(screen.getByTestId("generate-button")).toBeInTheDocument();
   });
+
+  // ─── Regenerate dropdown wording (issue #399) ─────────────────────────────
+  // The "Ángulo alternativo" label was ambiguous. Rename to
+  // "Reformular análisis (nuevo enfoque)" while preserving the legacy
+  // `alternate_angle` value so the API/DB schema stays stable.
+
+  it("regenerate dropdown shows the new label while keeping the legacy value", async () => {
+    installGenerateSuccessFetch();
+
+    render(<ReviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No hay revisiones anteriores")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("generate-button"));
+    });
+
+    const select = await screen.findByTestId("regen-mode-select");
+    const options = Array.from(select.querySelectorAll("option"));
+    const altOption = options.find((o) => o.value === "alternate_angle");
+    expect(altOption).toBeDefined();
+    expect(altOption?.textContent).toMatch(/Reformular análisis/);
+    // Make sure the old ambiguous label is gone.
+    expect(altOption?.textContent).not.toMatch(/Ángulo alternativo/);
+    // Tooltip explains what the mode does.
+    expect(altOption?.getAttribute("title")).toMatch(/mismos datos/i);
+
+    // The "Actualizar datos" option must survive the rename.
+    const refreshOption = options.find((o) => o.value === "refresh_data");
+    expect(refreshOption?.textContent).toMatch(/Actualizar datos/);
+  });
+
+  // ─── Accessible regenerate hint ───────────────────────────────────────────
+  // Native `<option title>` tooltips are not reliably announced by screen
+  // readers and not available on touch. Expose the meaning of the options via
+  // a visible hint that is wired to the <select> with aria-describedby, plus
+  // an accessible name on the select itself.
+
+  it("regenerate select exposes an accessible name + describedby hint", async () => {
+    installGenerateSuccessFetch();
+
+    render(<ReviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("No hay revisiones anteriores")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("generate-button"));
+    });
+
+    const select = await screen.findByTestId("regen-mode-select");
+    // Accessible name must not rely solely on the native title attribute.
+    expect(select.getAttribute("aria-label")).toBeTruthy();
+    // aria-describedby must point at an existing element with a useful hint.
+    const describedById = select.getAttribute("aria-describedby");
+    expect(describedById).toBeTruthy();
+    const hint = document.getElementById(describedById!);
+    expect(hint).not.toBeNull();
+    expect(hint?.textContent ?? "").toMatch(/Elige cómo regenerar/);
+
+    // Hint updates with the selected mode so screen readers + touch users
+    // understand what each mode does without relying on option tooltips.
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "alternate_angle" } });
+    });
+    expect(screen.getByTestId("regen-mode-hint").textContent ?? "").toMatch(
+      /Reformular análisis/,
+    );
+
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "refresh_data" } });
+    });
+    expect(screen.getByTestId("regen-mode-hint").textContent ?? "").toMatch(
+      /Actualizar datos/,
+    );
+  });
 });

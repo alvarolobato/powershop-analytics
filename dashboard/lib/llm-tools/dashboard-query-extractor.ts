@@ -60,21 +60,26 @@ function pushSqlFromWidget(
     });
     return;
   }
-  const title = "title" in widget ? widget.title : "?";
+  // Static widgets with no SQL
+  if (widget.type === "insights_strip" || widget.type === "ranked_bars") {
+    return;
+  }
+  const title = "title" in widget ? (widget as { title: string }).title : "?";
+  const widgetWithSql = widget as { sql: string; comparison_sql?: string };
   out.push({
     widgetIndex,
     widgetId: wid,
     label: title,
     kind: "chart_sql",
-    sql: widget.sql,
+    sql: widgetWithSql.sql,
   });
-  if ("comparison_sql" in widget && widget.comparison_sql) {
+  if (widgetWithSql.comparison_sql) {
     out.push({
       widgetIndex,
       widgetId: wid,
       label: `${title} (comparison_sql)`,
       kind: "comparison_sql",
-      sql: widget.comparison_sql,
+      sql: widgetWithSql.comparison_sql,
     });
   }
 }

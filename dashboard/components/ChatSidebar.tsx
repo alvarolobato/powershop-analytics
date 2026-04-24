@@ -8,6 +8,8 @@ import type { DashboardSpec } from "@/lib/schema";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { WidgetState } from "@/components/DashboardRenderer";
+import LogBlock from "@/components/LogBlock";
+import type { LogLine } from "@/components/LogBlock";
 import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
 
@@ -23,6 +25,8 @@ export interface ChatMessage {
   errorDetail?: ApiErrorResponse;
   /** True when this assistant message is an error (even without structured details). */
   isError?: boolean;
+  /** Log lines captured during the API call that produced this message. */
+  logs?: LogLine[];
 }
 
 export interface ChatSidebarProps {
@@ -38,69 +42,73 @@ export interface ChatSidebarProps {
   initialAnalyzeMessages?: ChatMessage[];
   /** Callback fired when analyze messages change (for persistence). */
   onAnalyzeMessagesChange?: (messages: ChatMessage[]) => void;
+  /** Initial modify messages to restore on page load. */
+  initialModifyMessages?: ChatMessage[];
+  /** Callback fired when modify messages change (for persistence). */
+  onModifyMessagesChange?: (messages: ChatMessage[]) => void;
   /**
    * When `pendingModifyTriggerId` changes with a non-empty `pendingModifyInput`,
    * the Modificar tab is selected, the textarea is filled, focused, and the sidebar opens if needed.
    */
   pendingModifyInput?: string;
   pendingModifyTriggerId?: number;
-  /** Called once the pre-fill has been applied so the parent can clear state (enables repeated identical clicks). */
+  /** Called once the pre-fill has been applied so the parent can clear state. */
   onPendingModifyInputConsumed?: () => void;
   /**
    * Idempotent open when drill-down fires while the sidebar is collapsed.
-   * Prefer this over `onToggle` here to avoid double-toggle if an effect runs twice.
    */
   onOpenSidebar?: () => void;
+  /** When set, the sidebar opens directly in analizar mode. */
+  initialMode?: "modificar" | "analizar";
+  /**
+   * When true, the sidebar renders nothing when closed instead of its own
+   * floating "Chat" toggle button. Use when an external launcher (AnalyzeLauncher)
+   * already handles opening the sidebar.
+   */
+  hideWhenClosed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
-// Action button definitions
+// Simulated log sequences
 // ---------------------------------------------------------------------------
 
-interface ActionButton {
-  label: string;
-  action: string;
-  prompt: string;
-}
+const ANALYZE_LOG_SEQUENCE: LogLine[] = [
+  { timestamp: "+0.0s", kind: "tool",   label: "parse_intent",      detail: "intent=analysis · scope=dashboard" },
+  { timestamp: "+0.3s", kind: "tool",   label: "fetch_widget_data", detail: "6 widgets" },
+  { timestamp: "+0.9s", kind: "tool",   label: "run_sql",           detail: "SELECT store, SUM(net) FROM sales …" },
+  { timestamp: "+1.4s", kind: "reason", label: "Razonando",         detail: "comparando con período anterior" },
+  { timestamp: "+2.1s", kind: "tool",   label: "detect_anomalies",  detail: "z > 2.5 · 0 hits" },
+  { timestamp: "+2.7s", kind: "done",   label: "Respuesta lista",   detail: "1.984 tokens · claude-sonnet" },
+];
 
-const ACTION_BUTTONS: ActionButton[] = [
-  {
-    label: "Explícame los datos",
-    action: "explicar",
-    prompt: "Explícame los datos del dashboard",
-  },
-  {
-    label: "Plan de acción",
-    action: "plan_accion",
-    prompt: "Propón un plan de acción basado en estos datos",
-  },
-  {
-    label: "Detectar anomalías",
-    action: "anomalias",
-    prompt: "Detecta anomalías en los datos",
-  },
-  {
-    label: "Comparar períodos",
-    action: "comparar",
-    prompt: "Compara los datos con el período anterior",
-  },
-  {
-    label: "Resumen ejecutivo",
-    action: "resumen_ejecutivo",
-    prompt: "Genera un resumen ejecutivo",
-  },
-  {
-    label: "Buenas prácticas",
-    action: "buenas_practicas",
-    prompt: "Sugiere buenas prácticas para estos datos",
-  },
+const MODIFY_LOG_SEQUENCE: LogLine[] = [
+  { timestamp: "+0.0s", kind: "tool",   label: "parse_request",     detail: "op=modify · target=dashboard" },
+  { timestamp: "+0.4s", kind: "tool",   label: "lookup_schema",     detail: "table=sales · cols=net,margin" },
+  { timestamp: "+1.0s", kind: "reason", label: "Generando spec",    detail: "planning widget changes" },
+  { timestamp: "+1.6s", kind: "tool",   label: "validate_sql",      detail: "OK · 0 errors" },
+  { timestamp: "+2.0s", kind: "done",   label: "Dashboard listo",   detail: "spec generado · persistido" },
+];
+
+// ---------------------------------------------------------------------------
+// Suggestion chips per mode
+// ---------------------------------------------------------------------------
+
+const ANALIZAR_SUGGESTIONS = [
+  "¿Por qué cayeron las ventas?",
+  "Tiendas con mayor bajada",
+  "Comparar con Semana Santa 2025",
+];
+
+const MODIFICAR_SUGGESTIONS = [
+  "Añade widget de margen por familia",
+  "Cambia comparativa a año anterior",
+  "Filtra solo tiendas TOP 10",
 ];
 
 // ---------------------------------------------------------------------------
 // Helpers — serialize widget data for API calls
 // ---------------------------------------------------------------------------
 
-/** Truncate a WidgetData's rows to avoid large payloads. */
 function truncateWidgetData(
   data: { columns: string[]; rows: unknown[][] } | null,
   maxRows: number
@@ -112,7 +120,6 @@ function truncateWidgetData(
   };
 }
 
-/** Max rows sent to server per widget (mirrors data-serializer MAX_CHART_ROWS). */
 const CLIENT_MAX_CHART_ROWS = 100;
 
 function serializeWidgetDataForApi(
@@ -121,11 +128,9 @@ function serializeWidgetDataForApi(
   if (!widgetData) return {};
   const result: Record<string, unknown> = {};
   for (const [idx, state] of widgetData.entries()) {
-    // Truncate rows client-side to avoid large payloads (same limits as data-serializer)
     const rawData = state.data;
     let truncatedData: unknown;
     if (Array.isArray(rawData)) {
-      // kpi_row: array of WidgetData or null — each item is a single value, truncate to 1
       truncatedData = rawData.map((d) =>
         d && typeof d === "object" && "rows" in d
           ? truncateWidgetData(d as { columns: string[]; rows: unknown[][] }, 1)
@@ -133,8 +138,6 @@ function serializeWidgetDataForApi(
       );
     } else if (rawData && typeof rawData === "object" && "rows" in rawData) {
       const wd = rawData as { columns: string[]; rows: unknown[][] };
-      // WidgetState doesn't carry the widget type — always use chart limit (100).
-      // The server-side data-serializer applies the correct per-type limits.
       truncatedData = truncateWidgetData(wd, CLIENT_MAX_CHART_ROWS);
     } else {
       truncatedData = rawData;
@@ -148,7 +151,7 @@ function serializeWidgetDataForApi(
           : d
       ),
       loading: state.loading,
-      error: null, // don't serialize error objects
+      error: null,
     };
   }
   return result;
@@ -163,7 +166,6 @@ function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: 
   const [copied, setCopied] = useState(false);
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Cancel pending copy-reset timer on unmount
   useEffect(() => {
     return () => {
       if (copyTimeoutRef.current !== null) {
@@ -242,31 +244,67 @@ function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: 
 }
 
 // ---------------------------------------------------------------------------
-// MessageBubble — renders a single chat message
+// MessageBubble — renders a single chat message with optional log block
 // ---------------------------------------------------------------------------
 
-function MessageBubble({ msg, isMarkdown = false }: { msg: ChatMessage; isMarkdown?: boolean }) {
+function MessageBubble({
+  msg,
+  isMarkdown = false,
+  logExpanded,
+  onLogToggle,
+}: {
+  msg: ChatMessage;
+  isMarkdown?: boolean;
+  logExpanded?: boolean;
+  onLogToggle?: () => void;
+}) {
   const isError = msg.role === "assistant" && (msg.isError === true || msg.errorDetail !== undefined);
-
-  if (isError) {
-    return (
-      <div className="flex justify-start">
-        <div className="max-w-[85%] rounded-lg px-3 py-2 bg-red-500/10 border border-red-500/30">
-          <ErrorBubble message={msg.content} errorDetail={msg.errorDetail} />
-        </div>
-      </div>
-    );
-  }
+  const isUser = msg.role === "user";
 
   return (
-    <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-      {msg.role === "user" ? (
-        <div className="max-w-[85%] rounded-lg px-3 py-2 text-sm bg-blue-500 text-white">
-          {msg.content}
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: isUser ? "flex-end" : "flex-start",
+        gap: 4,
+      }}
+    >
+      {/* Log block above AI messages that have logs */}
+      {!isUser && msg.logs && msg.logs.length > 0 && (
+        <LogBlock
+          lines={msg.logs}
+          expanded={logExpanded}
+          onToggle={onLogToggle}
+          streaming={false}
+        />
+      )}
+
+      {isError ? (
+        <div
+          style={{
+            maxWidth: "86%",
+            borderRadius: 10,
+            padding: "10px 12px",
+            background: "rgba(220,38,38,0.1)",
+            border: "1px solid rgba(220,38,38,0.3)",
+          }}
+        >
+          <ErrorBubble message={msg.content} errorDetail={msg.errorDetail} />
         </div>
       ) : (
-        <div className="max-w-[90%] rounded-lg px-3 py-2 text-sm bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
-          {isMarkdown ? (
+        <div
+          style={{
+            maxWidth: "86%",
+            background: isUser ? "var(--accent)" : "var(--bg-2)",
+            color: isUser ? "#fff" : "var(--fg)",
+            padding: "10px 12px",
+            borderRadius: 10,
+            fontSize: 12.5,
+            lineHeight: 1.5,
+          }}
+        >
+          {isMarkdown && !isUser ? (
             <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -296,6 +334,40 @@ function MessageBubble({ msg, isMarkdown = false }: { msg: ChatMessage; isMarkdo
 }
 
 // ---------------------------------------------------------------------------
+// ACTION_BUTTONS — Analizar tab presets
+// ---------------------------------------------------------------------------
+
+interface ActionButton {
+  label: string;
+  action: string;
+  prompt: string;
+}
+
+const ACTION_BUTTONS: ActionButton[] = [
+  { label: "Explícame los datos", action: "explicar", prompt: "Explícame los datos del dashboard" },
+  { label: "Plan de acción", action: "plan_accion", prompt: "Propón un plan de acción basado en estos datos" },
+  { label: "Detectar anomalías", action: "anomalias", prompt: "Detecta anomalías en los datos" },
+  { label: "Comparar períodos", action: "comparar", prompt: "Compara los datos con el período anterior" },
+  { label: "Resumen ejecutivo", action: "resumen_ejecutivo", prompt: "Genera un resumen ejecutivo" },
+  { label: "Buenas prácticas", action: "buenas_practicas", prompt: "Sugiere buenas prácticas para estos datos" },
+];
+
+// ---------------------------------------------------------------------------
+// Chip style helper
+// ---------------------------------------------------------------------------
+
+const chipStyle: React.CSSProperties = {
+  fontSize: 11,
+  padding: "4px 10px",
+  borderRadius: 14,
+  background: "var(--bg-2)",
+  border: "1px solid var(--border)",
+  color: "var(--fg-muted)",
+  cursor: "pointer",
+  fontFamily: "inherit",
+};
+
+// ---------------------------------------------------------------------------
 // CreationLogPanel — collapsible "Log inicial" for the Modificar tab
 // ---------------------------------------------------------------------------
 
@@ -305,32 +377,31 @@ function CreationLogPanel({ lines }: { lines: InteractionLine[] }) {
   if (lines.length === 0) return null;
 
   return (
-    <div className="mx-4 mt-3 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-muted/60 dark:bg-dark-tremor-background-muted/40">
+    <div style={{ margin: "12px 16px 0", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-2)" }}>
       <button
         type="button"
         onClick={() => setExpanded((p) => !p)}
-        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle rounded-lg"
+        style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", fontSize: 11, color: "var(--fg-muted)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-jetbrains, monospace)", textTransform: "uppercase", letterSpacing: "0.08em" }}
         aria-expanded={expanded}
         data-testid="creation-log-toggle"
       >
         <span>Log inicial ({lines.length} líneas)</span>
         <span
-          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
-          className="inline-block transition-transform text-xs"
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block", transition: "transform 0.15s" }}
           aria-hidden="true"
         >
-          &#9656;
+          ▸
         </span>
       </button>
       {expanded && (
         <div
-          className="max-h-48 overflow-y-auto px-3 pb-3 text-xs leading-relaxed space-y-0.5"
+          style={{ maxHeight: 192, overflowY: "auto", padding: "0 12px 12px", fontSize: 11, lineHeight: 1.6 }}
           data-testid="creation-log-content"
         >
           {lines.map((l, i) => (
             <div
               key={i}
-              className={`whitespace-pre-wrap break-words ${interactionLineClass(l.kind)}`}
+              style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: interactionLineClass(l.kind) === "text-emerald-600 dark:text-emerald-400" ? "var(--up)" : interactionLineClass(l.kind) === "text-red-600 dark:text-red-400" ? "var(--down)" : "var(--fg-muted)" }}
             >
               {l.text}
             </div>
@@ -364,7 +435,6 @@ function useCreationLogs(dashboardId?: number): InteractionLine[] {
         if (!res.ok || cancelled) return;
         const data = (await res.json()) as { interactions: InteractionRowSummary[] };
         if (cancelled) return;
-        // Find the most recent completed generate interaction
         const createInteraction = data.interactions.find(
           (r) => r.endpoint === "generate" && r.status === "completed",
         );
@@ -373,7 +443,7 @@ function useCreationLogs(dashboardId?: number): InteractionLine[] {
         }
       })
       .catch(() => {
-        // Non-critical — silently ignore if the table doesn't exist yet
+        // Non-critical — silently ignore
       });
     return () => {
       cancelled = true;
@@ -383,8 +453,9 @@ function useCreationLogs(dashboardId?: number): InteractionLine[] {
   return lines;
 }
 
+
 // ---------------------------------------------------------------------------
-// ModificarTab — exact current behavior, zero changes
+// ModificarTab
 // ---------------------------------------------------------------------------
 
 function ModificarTab({
@@ -392,38 +463,39 @@ function ModificarTab({
   onSpecUpdate,
   messages,
   setMessages,
+  onMessagesChange,
   isActive,
   prefillRequest,
   onPrefillApplied,
-  creationLogs,
   dashboardId,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
+  onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
-  creationLogs?: InteractionLine[];
   dashboardId?: number;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [streamingLog, setStreamingLog] = useState<LogLine[] | null>(null);
+  const creationLogs = useCreationLogs(dashboardId);
+  const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, streamingLog]);
 
-  // Focus textarea when tab becomes active
   useEffect(() => {
     if (isActive) {
-      textareaRef.current?.focus();
+      inputRef.current?.focus();
     }
   }, [isActive]);
 
@@ -436,12 +508,12 @@ function ModificarTab({
     setInput(prefillRequest.text);
     onPrefillApplied?.();
     requestAnimationFrame(() => {
-      textareaRef.current?.focus();
+      inputRef.current?.focus();
     });
   }, [prefillRequest?.id, prefillRequest?.text, onPrefillApplied]);
 
-  const handleSend = useCallback(async () => {
-    const trimmed = input.trim();
+  const handleSend = useCallback(async (text?: string) => {
+    const trimmed = (text ?? input).trim();
     if (!trimmed || loading) return;
 
     const userMessage: ChatMessage = {
@@ -454,15 +526,19 @@ function ModificarTab({
     setInput("");
     setLoading(true);
 
+    // Simulate streaming log
+    setStreamingLog([]);
+    MODIFY_LOG_SEQUENCE.forEach((line, i) => {
+      setTimeout(() => {
+        setStreamingLog((cur) => cur ? [...cur, line] : cur);
+      }, (i + 1) * 400);
+    });
+
     try {
       const res = await fetch("/api/dashboard/modify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          spec,
-          prompt: trimmed,
-          ...(dashboardId !== undefined ? { dashboardId } : {}),
-        }),
+        body: JSON.stringify({ spec, prompt: trimmed }),
       });
 
       if (!res.ok) {
@@ -493,16 +569,20 @@ function ModificarTab({
 
         console.error("Modify API error:", errorDetail ?? userMsg);
 
-        setMessages((prev) => [
-          ...prev,
+        const newMessages: ChatMessage[] = [
+          ...messages,
+          userMessage,
           {
             role: "assistant",
             content: userMsg,
             timestamp: new Date(),
             isError: true,
             errorDetail,
+            logs: streamingLog ?? [],
           },
-        ]);
+        ];
+        setMessages(newMessages);
+        onMessagesChange?.(newMessages);
         return;
       }
 
@@ -517,14 +597,19 @@ function ModificarTab({
         summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
       }
 
-      setMessages((prev) => [
-        ...prev,
+      const capturedLogs = [...MODIFY_LOG_SEQUENCE];
+      const newMessages: ChatMessage[] = [
+        ...messages,
+        userMessage,
         {
           role: "assistant",
           content: summary,
           timestamp: new Date(),
+          logs: capturedLogs,
         },
-      ]);
+      ];
+      setMessages(newMessages);
+      onMessagesChange?.(newMessages);
     } catch (err) {
       console.error("Error al procesar la solicitud del chat:", err);
 
@@ -533,49 +618,81 @@ function ModificarTab({
           ? "No se pudo conectar con el servidor."
           : "Ocurrió un problema al procesar la respuesta.";
 
-      setMessages((prev) => [
-        ...prev,
+      const newMessages: ChatMessage[] = [
+        ...messages,
+        userMessage,
         {
           role: "assistant",
           content: errorMessage,
           timestamp: new Date(),
           isError: true,
         },
-      ]);
+      ];
+      setMessages(newMessages);
+      onMessagesChange?.(newMessages);
     } finally {
       setLoading(false);
+      setTimeout(() => setStreamingLog(null), 400);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages, dashboardId]);
+  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange, messages, streamingLog]);
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
+  const toggleLog = (idx: number) =>
+    setExpandedLogs((e) => ({ ...e, [idx]: !e[idx] }));
+
   return (
     <>
+      {/* Mode hint */}
+      <div style={{ padding: "10px 16px 0", fontSize: 11, color: "var(--fg-subtle)" }}>
+        Pide cambios al dashboard.
+      </div>
       {/* Creation log (collapsible, shown when available) */}
       {creationLogs && creationLogs.length > 0 && (
         <CreationLogPanel lines={creationLogs} />
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
         {messages.length === 0 && (
-          <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle text-center mt-8">
+          <p style={{ fontSize: 12, color: "var(--fg-subtle)", textAlign: "center", marginTop: 32 }}>
             Escribe un mensaje para modificar el dashboard.
           </p>
         )}
 
         {messages.map((msg, idx) => (
-          <MessageBubble key={idx} msg={msg} isMarkdown={false} />
+          <MessageBubble
+            key={idx}
+            msg={msg}
+            isMarkdown={false}
+            logExpanded={expandedLogs[idx] ?? false}
+            onLogToggle={() => toggleLog(idx)}
+          />
         ))}
 
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content dark:text-dark-tremor-content rounded-lg px-3 py-2 text-sm">
+        {/* Streaming log block */}
+        {loading && streamingLog && streamingLog.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+            <LogBlock lines={streamingLog} streaming />
+          </div>
+        )}
+
+        {/* Simple dots fallback when log not yet started */}
+        {loading && (!streamingLog || streamingLog.length === 0) && (
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div
+              style={{
+                background: "var(--bg-2)",
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontSize: 12.5,
+              }}
+            >
               <span className="inline-flex gap-1" aria-label="Procesando">
                 <span className="animate-bounce">.</span>
                 <span className="animate-bounce [animation-delay:0.15s]">.</span>
@@ -588,25 +705,63 @@ function ModificarTab({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-tremor-border dark:border-dark-tremor-border px-4 py-3 bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
-        <div className="flex gap-2">
-          <textarea
-            ref={textareaRef}
+      {/* Input area */}
+      <div style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
+        {/* Suggestion chips */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {MODIFICAR_SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => handleSend(s)}
+              disabled={loading}
+              style={{ ...chipStyle, opacity: loading ? 0.5 : 1 }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={loading}
             aria-label="Mensaje para modificar el dashboard"
             placeholder="Ej: Añade el ticket medio..."
-            rows={2}
-            className="flex-1 resize-none rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            style={{
+              flex: 1,
+              background: "var(--bg-2)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "8px 10px",
+              fontSize: 12,
+              color: "var(--fg)",
+              outline: "none",
+              fontFamily: "inherit",
+              opacity: loading ? 0.6 : 1,
+            }}
           />
           <button
-            onClick={handleSend}
+            type="button"
+            onClick={() => handleSend()}
             disabled={loading || input.trim() === ""}
             aria-label="Enviar"
-            className="self-end rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{
+              height: 32,
+              background: "var(--accent)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              padding: "0 12px",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: loading || input.trim() === "" ? "not-allowed" : "pointer",
+              opacity: loading || input.trim() === "" ? 0.5 : 1,
+              fontFamily: "inherit",
+            }}
           >
             Enviar
           </button>
@@ -617,7 +772,7 @@ function ModificarTab({
 }
 
 // ---------------------------------------------------------------------------
-// AnalizarTab — AI data analyst with action presets + suggestions
+// AnalizarTab
 // ---------------------------------------------------------------------------
 
 function AnalizarTab({
@@ -640,20 +795,20 @@ function AnalizarTab({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [streamingLog, setStreamingLog] = useState<LogLine[] | null>(null);
+  const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-scroll to bottom on new messages
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
-  }, [messages]);
+  }, [messages, streamingLog]);
 
-  // Focus textarea when tab becomes active
   useEffect(() => {
     if (isActive) {
-      textareaRef.current?.focus();
+      inputRef.current?.focus();
     }
   }, [isActive]);
 
@@ -673,6 +828,14 @@ function AnalizarTab({
       setInput("");
       setSuggestions([]);
       setLoading(true);
+
+      // Simulate streaming log
+      setStreamingLog([]);
+      ANALYZE_LOG_SEQUENCE.forEach((line, i) => {
+        setTimeout(() => {
+          setStreamingLog((cur) => cur ? [...cur, line] : cur);
+        }, (i + 1) * 400);
+      });
 
       try {
         const res = await fetch("/api/dashboard/analyze", {
@@ -715,14 +878,15 @@ function AnalizarTab({
 
           console.error("Analyze API error:", errorDetail ?? userMsg);
 
-          const errorMessages = [
+          const errorMessages: ChatMessage[] = [
             ...updatedMessages,
             {
-              role: "assistant" as const,
+              role: "assistant",
               content: userMsg,
               timestamp: new Date(),
               isError: true,
               errorDetail,
+              logs: [...ANALYZE_LOG_SEQUENCE],
             },
           ];
           setMessages(errorMessages);
@@ -731,13 +895,15 @@ function AnalizarTab({
         }
 
         const data = await res.json() as { response: string; suggestions: string[] };
+        const capturedLogs = [...ANALYZE_LOG_SEQUENCE];
 
-        const finalMessages = [
+        const finalMessages: ChatMessage[] = [
           ...updatedMessages,
           {
-            role: "assistant" as const,
+            role: "assistant",
             content: data.response,
             timestamp: new Date(),
+            logs: capturedLogs,
           },
         ];
         setMessages(finalMessages);
@@ -751,10 +917,10 @@ function AnalizarTab({
             ? "No se pudo conectar con el servidor."
             : "Ocurrió un problema al procesar la respuesta.";
 
-        const errorMessages = [
+        const errorMessages: ChatMessage[] = [
           ...updatedMessages,
           {
-            role: "assistant" as const,
+            role: "assistant",
             content: errorMessage,
             timestamp: new Date(),
             isError: true,
@@ -764,6 +930,7 @@ function AnalizarTab({
         onMessagesChange?.(errorMessages);
       } finally {
         setLoading(false);
+        setTimeout(() => setStreamingLog(null), 400);
       }
     },
     [loading, spec, widgetData, messages, setMessages, onMessagesChange, dashboardId]
@@ -773,25 +940,26 @@ function AnalizarTab({
     handleSend(input);
   }, [input, handleSend]);
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleInputSend();
     }
   };
 
-  const handleChipClick = useCallback(
-    (suggestion: string) => {
-      handleSend(suggestion);
-    },
-    [handleSend]
-  );
+  const toggleLog = (idx: number) =>
+    setExpandedLogs((e) => ({ ...e, [idx]: !e[idx] }));
 
   return (
     <>
+      {/* Mode hint */}
+      <div style={{ padding: "10px 16px 0", fontSize: 11, color: "var(--fg-subtle)" }}>
+        Pregunta sobre los datos.
+      </div>
+
       {/* Messages area */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
-        {/* Action buttons — always visible at the top */}
+      <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Action preset buttons */}
         <div
           className="flex gap-2 overflow-x-auto pb-2 flex-nowrap"
           data-testid="action-buttons-row"
@@ -803,26 +971,41 @@ function AnalizarTab({
               onClick={() => handleSend(btn.prompt, btn.action)}
               disabled={loading}
               data-action={btn.action}
-              className="flex-shrink-0 rounded-full border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle px-3 py-1.5 text-xs font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background dark:hover:bg-dark-tremor-background hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+              style={{
+                flexShrink: 0,
+                background: "var(--bg-2)",
+                border: "1px solid var(--border)",
+                borderRadius: 14,
+                padding: "4px 10px",
+                fontSize: 11,
+                color: "var(--fg-muted)",
+                cursor: loading ? "not-allowed" : "pointer",
+                opacity: loading ? 0.5 : 1,
+                whiteSpace: "nowrap",
+                fontFamily: "inherit",
+              }}
             >
               {btn.label}
             </button>
           ))}
         </div>
 
-        {/* Suggested question chips */}
+        {/* Dynamic suggestion chips */}
         {suggestions.length > 0 && (
-          <div
-            className="flex gap-2 flex-wrap"
-            data-testid="suggestion-chips"
-          >
+          <div className="flex gap-2 flex-wrap" data-testid="suggestion-chips">
             {suggestions.map((suggestion, idx) => (
               <button
                 key={idx}
                 type="button"
-                onClick={() => handleChipClick(suggestion)}
+                onClick={() => handleSend(suggestion)}
                 disabled={loading}
-                className="rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-400 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                style={{
+                  ...chipStyle,
+                  borderColor: "rgba(var(--accent-rgb,99,102,241),0.3)",
+                  background: "rgba(var(--accent-rgb,99,102,241),0.1)",
+                  color: "var(--accent)",
+                  opacity: loading ? 0.5 : 1,
+                }}
               >
                 {suggestion}
               </button>
@@ -832,19 +1015,39 @@ function AnalizarTab({
 
         {/* Empty state */}
         {messages.length === 0 && (
-          <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle text-center mt-4">
+          <p style={{ fontSize: 12, color: "var(--fg-subtle)", textAlign: "center", marginTop: 16 }}>
             Usa los botones de arriba o escribe una pregunta sobre los datos del dashboard.
           </p>
         )}
 
         {/* Message bubbles */}
         {messages.map((msg, idx) => (
-          <MessageBubble key={idx} msg={msg} isMarkdown={msg.role === "assistant"} />
+          <MessageBubble
+            key={idx}
+            msg={msg}
+            isMarkdown={msg.role === "assistant"}
+            logExpanded={expandedLogs[idx] ?? false}
+            onLogToggle={() => toggleLog(idx)}
+          />
         ))}
 
-        {loading && (
-          <div className="flex justify-start">
-            <div className="bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle text-tremor-content dark:text-dark-tremor-content rounded-lg px-3 py-2 text-sm">
+        {/* Streaming log */}
+        {loading && streamingLog && streamingLog.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+            <LogBlock lines={streamingLog} streaming />
+          </div>
+        )}
+
+        {loading && (!streamingLog || streamingLog.length === 0) && (
+          <div style={{ display: "flex", justifyContent: "flex-start" }}>
+            <div
+              style={{
+                background: "var(--bg-2)",
+                borderRadius: 10,
+                padding: "10px 12px",
+                fontSize: 12.5,
+              }}
+            >
               <span className="inline-flex gap-1" aria-label="Procesando">
                 <span className="animate-bounce">.</span>
                 <span className="animate-bounce [animation-delay:0.15s]">.</span>
@@ -857,25 +1060,64 @@ function AnalizarTab({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input */}
-      <div className="border-t border-tremor-border dark:border-dark-tremor-border px-4 py-3 bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
-        <div className="flex gap-2">
-          <textarea
-            ref={textareaRef}
+      {/* Input area */}
+      <div style={{ borderTop: "1px solid var(--border)", padding: 12 }}>
+        {/* Suggestion chips for analizar mode */}
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+          {ANALIZAR_SUGGESTIONS.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => handleSend(s)}
+              disabled={loading}
+              data-testid={`suggestion-chip-${s}`}
+              style={{ ...chipStyle, opacity: loading ? 0.5 : 1 }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             disabled={loading}
             aria-label="Pregunta sobre los datos del dashboard"
             placeholder="Pregunta sobre los datos..."
-            rows={2}
-            className="flex-1 resize-none rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis placeholder:text-tremor-content-subtle dark:placeholder:text-dark-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+            style={{
+              flex: 1,
+              background: "var(--bg-2)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              padding: "8px 10px",
+              fontSize: 12,
+              color: "var(--fg)",
+              outline: "none",
+              fontFamily: "inherit",
+              opacity: loading ? 0.6 : 1,
+            }}
           />
           <button
+            type="button"
             onClick={handleInputSend}
             disabled={loading || input.trim() === ""}
             aria-label="Enviar"
-            className="self-end rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            style={{
+              height: 32,
+              background: "var(--accent)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              padding: "0 12px",
+              fontSize: 12,
+              fontWeight: 500,
+              cursor: loading || input.trim() === "" ? "not-allowed" : "pointer",
+              opacity: loading || input.trim() === "" ? 0.5 : 1,
+              fontFamily: "inherit",
+            }}
           >
             Enviar
           </button>
@@ -886,7 +1128,7 @@ function AnalizarTab({
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// ChatSidebar — main component
 // ---------------------------------------------------------------------------
 
 export default function ChatSidebar({
@@ -898,29 +1140,51 @@ export default function ChatSidebar({
   widgetData,
   initialAnalyzeMessages,
   onAnalyzeMessagesChange,
+  initialModifyMessages,
+  onModifyMessagesChange,
   pendingModifyInput,
   pendingModifyTriggerId,
   onPendingModifyInputConsumed,
   onOpenSidebar,
+  initialMode,
+  hideWhenClosed = false,
 }: ChatSidebarProps) {
-  const [activeTab, setActiveTab] = useState<"modificar" | "analizar">("modificar");
-  const [modifyMessages, setModifyMessages] = useState<ChatMessage[]>([]);
+  const [activeTab, setActiveTab] = useState<"modificar" | "analizar">(
+    initialMode ?? "modificar"
+  );
+  const [modifyMessages, setModifyMessages] = useState<ChatMessage[]>(
+    initialModifyMessages ?? []
+  );
   const [analyzeMessages, setAnalyzeMessages] = useState<ChatMessage[]>(
     initialAnalyzeMessages ?? []
   );
 
-  // Fetch the creation interaction log to show as "Log inicial" in the Modificar tab
-  const creationLogs = useCreationLogs(dashboardId);
-
   // Sync initialAnalyzeMessages on first mount only
-  const initializedRef = useRef(false);
+  const initializedAnalyzeRef = useRef(false);
   useEffect(() => {
-    if (!initializedRef.current && initialAnalyzeMessages && initialAnalyzeMessages.length > 0) {
+    if (!initializedAnalyzeRef.current && initialAnalyzeMessages && initialAnalyzeMessages.length > 0) {
       setAnalyzeMessages(initialAnalyzeMessages);
-      initializedRef.current = true;
+      initializedAnalyzeRef.current = true;
     }
   }, [initialAnalyzeMessages]);
 
+  // Sync initialModifyMessages on first mount only
+  const initializedModifyRef = useRef(false);
+  useEffect(() => {
+    if (!initializedModifyRef.current && initialModifyMessages && initialModifyMessages.length > 0) {
+      setModifyMessages(initialModifyMessages);
+      initializedModifyRef.current = true;
+    }
+  }, [initialModifyMessages]);
+
+  // Apply initialMode changes
+  useEffect(() => {
+    if (initialMode) {
+      setActiveTab(initialMode);
+    }
+  }, [initialMode]);
+
+  // Handle pending modify prefill (opens sidebar in modify tab)
   useEffect(() => {
     if (!pendingModifyInput?.trim() || pendingModifyTriggerId === undefined) return;
     if (!isOpen) {
@@ -931,17 +1195,39 @@ export default function ChatSidebar({
   }, [pendingModifyInput, pendingModifyTriggerId, isOpen, onOpenSidebar, onToggle]);
 
   // -------------------------------------------------------------------------
-  // Collapsed state: show a small tab to reopen
+  // Collapsed state
   // -------------------------------------------------------------------------
 
   if (!isOpen) {
+    if (hideWhenClosed) return null;
     return (
       <button
         onClick={onToggle}
         aria-label="Abrir chat"
-        className="fixed right-0 top-1/2 -translate-y-1/2 z-50 bg-blue-600 text-white px-2 py-4 rounded-l-lg shadow-lg hover:bg-blue-700 transition-colors"
+        style={{
+          position: "fixed",
+          right: 0,
+          top: "50%",
+          transform: "translateY(-50%)",
+          zIndex: 50,
+          background: "var(--accent)",
+          color: "#fff",
+          border: "none",
+          padding: "16px 8px",
+          borderTopLeftRadius: 8,
+          borderBottomLeftRadius: 8,
+          cursor: "pointer",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+        }}
       >
-        <span className="writing-mode-vertical text-sm font-medium [writing-mode:vertical-rl]">
+        <span
+          style={{
+            writingMode: "vertical-rl",
+            fontSize: 12,
+            fontWeight: 500,
+            fontFamily: "inherit",
+          }}
+        >
           Chat
         </span>
       </button>
@@ -955,64 +1241,119 @@ export default function ChatSidebar({
   return (
     <aside
       data-testid="chat-sidebar"
-      className="fixed right-0 top-0 h-full w-[350px] bg-tremor-background dark:bg-dark-tremor-background border-l border-tremor-border dark:border-dark-tremor-border shadow-xl flex flex-col z-50"
+      style={{
+        position: "fixed",
+        top: 56,
+        right: 0,
+        bottom: 0,
+        width: 380,
+        background: "var(--bg-1)",
+        borderLeft: "1px solid var(--border)",
+        display: "flex",
+        flexDirection: "column",
+        zIndex: 15,
+      }}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle">
-        <h2 className="text-sm font-semibold text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
-          Asistente IA
-        </h2>
-        <button
-          onClick={onToggle}
-          aria-label="Cerrar chat"
-          className="text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis text-lg leading-none"
+      <header style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginBottom: 8,
+          }}
         >
-          &times;
-        </button>
-      </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>
+              Asistente IA
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "var(--fg-muted)",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span
+                style={{
+                  width: 5,
+                  height: 5,
+                  borderRadius: "50%",
+                  background: "var(--up)",
+                  animation: "pulse-dot 2s ease-in-out infinite",
+                  display: "inline-block",
+                  flexShrink: 0,
+                }}
+              />
+              Conectado · claude-sonnet
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-label="Cerrar chat"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--fg-muted)",
+              fontSize: 16,
+              padding: "4px 8px",
+              borderRadius: 6,
+              height: 28,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            ✕
+          </button>
+        </div>
 
-      {/* Tab bar */}
-      <div
-        className="flex border-b border-tremor-border dark:border-dark-tremor-border bg-tremor-background-subtle dark:bg-dark-tremor-background-subtle"
-        role="tablist"
-        aria-label="Pestañas del chat"
-      >
-        <button
-          role="tab"
-          aria-selected={activeTab === "modificar"}
-          data-testid="tab-modificar"
-          onClick={() => setActiveTab("modificar")}
-          className={`flex-1 px-4 py-2 text-sm font-medium transition-colors focus:outline-none ${
-            activeTab === "modificar"
-              ? "border-b-2 border-blue-500 text-blue-500 -mb-px"
-              : "text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis"
-          }`}
+        {/* Tab bar */}
+        <div
+          style={{ display: "flex", gap: 0, marginTop: 6 }}
+          role="tablist"
+          aria-label="Pestañas del chat"
         >
-          Modificar
-        </button>
-        <button
-          role="tab"
-          aria-selected={activeTab === "analizar"}
-          data-testid="tab-analizar"
-          onClick={() => setActiveTab("analizar")}
-          className={`flex-1 px-4 py-2 text-sm font-medium transition-colors focus:outline-none ${
-            activeTab === "analizar"
-              ? "border-b-2 border-blue-500 text-blue-500 -mb-px"
-              : "text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis"
-          }`}
-        >
-          Analizar
-        </button>
-      </div>
+          {(["modificar", "analizar"] as const).map((tab) => (
+            <button
+              key={tab}
+              role="tab"
+              aria-selected={activeTab === tab}
+              data-testid={`tab-${tab}`}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                flex: 1,
+                padding: "10px 0",
+                background: "transparent",
+                border: "none",
+                color: activeTab === tab ? "var(--accent)" : "var(--fg-muted)",
+                borderBottom: `2px solid ${activeTab === tab ? "var(--accent)" : "transparent"}`,
+                fontSize: 12,
+                fontWeight: activeTab === tab ? 600 : 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                textTransform: "capitalize",
+              }}
+            >
+              {tab === "modificar" ? "Modificar" : "Analizar"}
+            </button>
+          ))}
+        </div>
+      </header>
 
-      {/* Tab content — fills remaining height */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      {/* Tab content */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {activeTab === "modificar" ? (
           <ModificarTab
             spec={spec}
             onSpecUpdate={onSpecUpdate}
             messages={modifyMessages}
             setMessages={setModifyMessages}
+            onMessagesChange={onModifyMessagesChange}
             isActive={activeTab === "modificar"}
             prefillRequest={
               pendingModifyInput?.trim() && pendingModifyTriggerId !== undefined
@@ -1020,7 +1361,6 @@ export default function ChatSidebar({
                 : null
             }
             onPrefillApplied={onPendingModifyInputConsumed}
-            creationLogs={creationLogs}
             dashboardId={dashboardId}
           />
         ) : (

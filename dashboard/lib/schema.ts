@@ -28,6 +28,18 @@ const KpiItemSchema = z.object({
    *  are historical values in descending chronological order.
    *  The frontend computes a z-score client-side to detect unusual values. */
   anomaly_sql: optStr,
+  /** Optional delta ratio (e.g. 0.083 = +8.3%). Overrides computed trend if provided. */
+  delta: z.number().optional(),
+  /** Optional absolute comparison value for display. */
+  comparison: z.number().optional(),
+  /** Optional 12–14 point sparkline data series. */
+  spark: z.array(z.number()).optional(),
+  /** Explicit anomaly flag (overrides computed anomaly when present). */
+  anomaly: z.boolean().optional(),
+  /** Warning flag — shows warn color instead of up/down. */
+  warn: z.boolean().optional(),
+  /** Inverted polarity: rising is bad (e.g. Devoluciones). */
+  inverted: z.boolean().optional(),
 }).strict();
 
 const KpiRowWidgetSchema = z.object({
@@ -92,6 +104,33 @@ const NumberWidgetSchema = z.object({
   prefix: optStr,
 }).strict();
 
+const InsightsItemSchema = z.object({
+  kind: z.enum(["up", "down", "warn"]),
+  title: z.string().min(1),
+  body: z.string().min(1),
+}).strict();
+
+const InsightsStripWidgetSchema = z.object({
+  id: optStr,
+  type: z.literal("insights_strip"),
+  items: z.array(InsightsItemSchema).min(1),
+}).strict();
+
+const RankedBarsItemSchema = z.object({
+  label: z.string().min(1),
+  value: z.number(),
+  maxValue: z.number().optional(),
+  flag: z.enum(["top", "low"]).optional(),
+  unit: optStr,
+}).strict();
+
+const RankedBarsWidgetSchema = z.object({
+  id: optStr,
+  type: z.literal("ranked_bars"),
+  title: z.string().min(1),
+  items: z.array(RankedBarsItemSchema).min(1),
+}).strict();
+
 export const WidgetSchema = z.discriminatedUnion("type", [
   KpiRowWidgetSchema,
   BarChartWidgetSchema,
@@ -100,6 +139,8 @@ export const WidgetSchema = z.discriminatedUnion("type", [
   DonutChartWidgetSchema,
   TableWidgetSchema,
   NumberWidgetSchema,
+  InsightsStripWidgetSchema,
+  RankedBarsWidgetSchema,
 ]);
 
 /**
@@ -186,6 +227,11 @@ export const DashboardSpecSchema = z
   .object({
   title: z.string().min(1),
   description: z.string().min(1).optional(),
+  /**
+   * Optional breadcrumb path shown in the page header (e.g. ["Retail", "Ventas"]).
+   * Falls back to ["Retail", "Ventas"] when not provided.
+   */
+  breadcrumbs: z.array(z.string().min(1)).optional(),
   widgets: z.array(WidgetSchema).min(1),
   /** Optional: group widgets into named tabs. Backwards compatible. */
   sections: z.array(DashboardSectionSchema).min(1).optional(),
@@ -234,6 +280,10 @@ export const DashboardSpecSchema = z
 
 export type KpiFormat = z.infer<typeof KpiFormatSchema>;
 export type KpiItem = z.infer<typeof KpiItemSchema>;
+export type InsightsItem = z.infer<typeof InsightsItemSchema>;
+export type InsightsStripWidget = z.infer<typeof InsightsStripWidgetSchema>;
+export type RankedBarsItem = z.infer<typeof RankedBarsItemSchema>;
+export type RankedBarsWidget = z.infer<typeof RankedBarsWidgetSchema>;
 export type KpiRowWidget = z.infer<typeof KpiRowWidgetSchema>;
 export type BarChartWidget = z.infer<typeof BarChartWidgetSchema>;
 export type LineChartWidget = z.infer<typeof LineChartWidgetSchema>;

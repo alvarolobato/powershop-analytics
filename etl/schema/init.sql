@@ -419,6 +419,9 @@ CREATE TABLE IF NOT EXISTS dashboards (
 -- Add analyze chat messages column if it doesn't exist (migration-safe)
 ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS chat_messages_analyze JSONB DEFAULT '[]'::jsonb;
 
+-- Add modify chat messages column if it doesn't exist (migration-safe)
+ALTER TABLE dashboards ADD COLUMN IF NOT EXISTS chat_messages_modify JSONB DEFAULT '[]'::jsonb;
+
 CREATE TABLE IF NOT EXISTS dashboard_versions (
     id            SERIAL       PRIMARY KEY,
     dashboard_id  INTEGER      NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -575,8 +578,22 @@ CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     requested_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     status       TEXT         NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'picked_up')),
     picked_up_at TIMESTAMPTZ,
-    run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL
+    run_id       INTEGER      REFERENCES etl_sync_runs(id) ON DELETE SET NULL,
+    -- Issue #398: allow the dashboard/CLI to request a force re-sync for a
+    -- subset of tables (or the full pipeline) by clearing watermarks before
+    -- the next run picks them up. Defaults keep the historical "incremental"
+    -- semantics when these columns are absent from the INSERT.
+    force_full   BOOLEAN      NOT NULL DEFAULT FALSE,
+    force_tables TEXT[]       NOT NULL DEFAULT '{}',
+    -- Audit column: identifies who requested the sync (e.g. client IP, 'dashboard', 'cli').
+    triggered_by TEXT
 );
+
+-- Forward-compat: if an older DB already has the table without the new
+-- columns, add them in place. IF NOT EXISTS makes this idempotent.
+ALTER TABLE etl_manual_trigger ADD COLUMN IF NOT EXISTS force_full   BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE etl_manual_trigger ADD COLUMN IF NOT EXISTS force_tables TEXT[]  NOT NULL DEFAULT '{}';
+ALTER TABLE etl_manual_trigger ADD COLUMN IF NOT EXISTS triggered_by TEXT;
 
 -- Unique: at most one pending trigger row at a time (supports ON CONFLICT idempotency).
 CREATE UNIQUE INDEX IF NOT EXISTS idx_etl_manual_trigger_single_pending

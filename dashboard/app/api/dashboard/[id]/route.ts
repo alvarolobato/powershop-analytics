@@ -55,7 +55,7 @@ export async function GET(
 
   try {
     const rows = await sql(
-      `SELECT id, name, description, spec, chat_messages_analyze, created_at, updated_at
+      `SELECT id, name, description, spec, chat_messages_analyze, chat_messages_modify, created_at, updated_at
        FROM dashboards WHERE id = $1`,
       [id],
     );
@@ -95,6 +95,7 @@ interface UpdateBody {
   name?: string;
   skipVersion?: boolean;
   chat_messages_analyze?: unknown;
+  chat_messages_modify?: unknown;
 }
 
 export async function PUT(
@@ -138,7 +139,7 @@ export async function PUT(
     );
   }
 
-  const { spec, prompt, name, skipVersion, chat_messages_analyze } = body;
+  const { spec, prompt, name, skipVersion, chat_messages_analyze, chat_messages_modify } = body;
 
   // Validate name type if provided
   if (name !== undefined && name !== null) {
@@ -208,6 +209,68 @@ export async function PUT(
         return NextResponse.json(
           formatApiError(
             `El contenido de un mensaje supera el límite de ${MAX_MESSAGE_LENGTH} caracteres.`,
+            "VALIDATION",
+            undefined,
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
+    }
+  }
+
+  // Validate chat_messages_modify if provided (same rules as chat_messages_analyze)
+  if (chat_messages_modify !== undefined && chat_messages_modify !== null) {
+    if (!Array.isArray(chat_messages_modify)) {
+      return NextResponse.json(
+        formatApiError(
+          "El campo 'chat_messages_modify' debe ser un array.",
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    const MAX_MODIFY_MESSAGES = 200;
+    const MAX_MESSAGE_LENGTH_MOD = 10_000;
+    if (chat_messages_modify.length > MAX_MODIFY_MESSAGES) {
+      return NextResponse.json(
+        formatApiError(
+          `El historial de modificar no puede superar ${MAX_MODIFY_MESSAGES} mensajes.`,
+          "VALIDATION",
+          undefined,
+          requestId,
+        ),
+        { status: 400 },
+      );
+    }
+    for (const msg of chat_messages_modify) {
+      const m = msg as Record<string, unknown>;
+      if (
+        typeof msg !== "object" ||
+        msg === null ||
+        typeof m.role !== "string" ||
+        !["user", "assistant"].includes(m.role) ||
+        typeof m.content !== "string"
+      ) {
+        return NextResponse.json(
+          formatApiError(
+            "Formato de mensaje de modificar no válido.",
+            "VALIDATION",
+            undefined,
+            requestId,
+          ),
+          { status: 400 },
+        );
+      }
+      if (
+        ((msg as Record<string, unknown>).content as string).length >
+        MAX_MESSAGE_LENGTH_MOD
+      ) {
+        return NextResponse.json(
+          formatApiError(
+            `El contenido de un mensaje supera el límite de ${MAX_MESSAGE_LENGTH_MOD} caracteres.`,
             "VALIDATION",
             undefined,
             requestId,
@@ -328,6 +391,7 @@ export async function PUT(
     // Update the dashboard (include name and/or chat_messages_analyze if provided)
     const trimmedName = typeof name === "string" ? name.trim() : null;
     const hasChatAnalyze = chat_messages_analyze !== undefined && chat_messages_analyze !== null;
+    const hasChatModify = chat_messages_modify !== undefined && chat_messages_modify !== null;
 
     // Build dynamic SET clause and parameters
     const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
@@ -344,12 +408,17 @@ export async function PUT(
       params.push(JSON.stringify(chat_messages_analyze));
       paramIdx++;
     }
+    if (hasChatModify) {
+      setClauses.push(`chat_messages_modify = $${paramIdx}`);
+      params.push(JSON.stringify(chat_messages_modify));
+      paramIdx++;
+    }
 
     const updateResult = await client.query(
       `UPDATE dashboards
        SET ${setClauses.join(", ")}
        WHERE id = $2
-       RETURNING id, name, description, spec, chat_messages_analyze, created_at, updated_at`,
+       RETURNING id, name, description, spec, chat_messages_analyze, chat_messages_modify, created_at, updated_at`,
       params,
     );
 

@@ -68,6 +68,49 @@ function formatRelativeTime(isoStr: string): string {
   }
 }
 
+// ─── Regenerate-mode copy (single source of truth) ───────────────────────────
+// Describes each regenerate mode for the select `title`, the option `title`s,
+// and the accessible visible hint below the <select>. Keeping one map prevents
+// these strings from drifting out of sync.
+
+type RegenMode = "refresh_data" | "alternate_angle";
+
+interface RegenModeCopy {
+  label: string;
+  /** Short description used in option/select tooltips and the hint text. */
+  description: string;
+}
+
+const REGEN_MODE_COPY: Record<RegenMode, RegenModeCopy> = {
+  refresh_data: {
+    label: "Actualizar datos",
+    description: "Vuelve a ejecutar las consultas SQL para traer datos actualizados.",
+  },
+  alternate_angle: {
+    label: "Reformular análisis (nuevo enfoque)",
+    description:
+      "Vuelve a analizar los mismos datos con un enfoque distinto; no vuelve a ejecutar SQL.",
+  },
+};
+
+/** Fallback hint shown when no mode is selected or an unknown value slips in. */
+const REGEN_MODE_DEFAULT_HINT =
+  "Elige cómo regenerar: actualizar datos reejecuta SQL; reformular análisis pide al modelo otro enfoque sobre los mismos datos.";
+
+/** Type guard — true iff `value` is a recognised regenerate mode. */
+function isRegenMode(value: string): value is RegenMode {
+  return Object.prototype.hasOwnProperty.call(REGEN_MODE_COPY, value);
+}
+
+function regenModeHint(mode: RegenMode | null): string {
+  // Defensive: if an unexpected DOM value ever reaches state (e.g. a stale
+  // option from a previous build), fall back to the default hint rather than
+  // crashing on `REGEN_MODE_COPY[mode]` returning `undefined`.
+  if (mode === null || !isRegenMode(mode)) return REGEN_MODE_DEFAULT_HINT;
+  const copy = REGEN_MODE_COPY[mode];
+  return `${copy.label}: ${copy.description}`;
+}
+
 function ReviewSkeleton() {
   return (
     <div className="space-y-4 animate-pulse" aria-busy="true" role="status">
@@ -95,7 +138,7 @@ export default function ReviewPage() {
   const [revisions, setRevisions] = useState<RevisionMeta[]>([]);
   const [priorContent, setPriorContent] = useState<ReviewContent | null>(null);
   const [reviewError, setReviewError] = useState<ApiErrorResponse | string | null>(null);
-  const [regenMode, setRegenMode] = useState<"refresh_data" | "alternate_angle" | null>(null);
+  const [regenMode, setRegenMode] = useState<RegenMode | null>(null);
 
   const fetchPastReviews = useCallback(async () => {
     setListLoading(true);
@@ -350,32 +393,60 @@ export default function ReviewPage() {
                 })();
               }}
             />
-            <div className="flex items-center gap-2">
-              <select
-                className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
-                value={regenMode ?? ""}
-                onChange={(e) =>
-                  setRegenMode(
-                    e.target.value === ""
-                      ? null
-                      : (e.target.value as "refresh_data" | "alternate_angle"),
-                  )
-                }
-                data-testid="regen-mode-select"
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <label htmlFor="regen-mode-select" className="sr-only">
+                  Modo de regeneración
+                </label>
+                <select
+                  id="regen-mode-select"
+                  className="text-xs rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1"
+                  value={regenMode ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    // Only accept recognised modes; anything else resets to null
+                    // so downstream consumers (hint, regenerate) stay consistent.
+                    setRegenMode(v === "" || !isRegenMode(v) ? null : v);
+                  }}
+                  data-testid="regen-mode-select"
+                  aria-label="Modo de regeneración de la revisión semanal"
+                  aria-describedby="regen-mode-hint"
+                  title={regenModeHint(regenMode)}
+                >
+                  <option value="">Regenerar…</option>
+                  {(Object.keys(REGEN_MODE_COPY) as RegenMode[]).map((mode) => (
+                    <option
+                      key={mode}
+                      value={mode}
+                      title={REGEN_MODE_COPY[mode].description}
+                    >
+                      {REGEN_MODE_COPY[mode].label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!regenMode}
+                  onClick={() => void handleRegenerate()}
+                  className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium disabled:opacity-40"
+                  data-testid="regenerate-button"
+                >
+                  Regenerar
+                </button>
+              </div>
+              {/*
+                Accessible hint — visible to all users (not just hover). Native
+                `<option title>` tooltips are unreliable across browsers/touch
+                devices and not announced by screen readers, so we expose the
+                current mode's meaning here and wire it via `aria-describedby`.
+              */}
+              <p
+                id="regen-mode-hint"
+                data-testid="regen-mode-hint"
+                className="text-[11px] leading-tight text-tremor-content dark:text-dark-tremor-content"
               >
-                <option value="">Regenerar…</option>
-                <option value="refresh_data">Actualizar datos</option>
-                <option value="alternate_angle">Ángulo alternativo</option>
-              </select>
-              <button
-                type="button"
-                disabled={!regenMode}
-                onClick={() => void handleRegenerate()}
-                className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium disabled:opacity-40"
-                data-testid="regenerate-button"
-              >
-                Regenerar
-              </button>
+                {regenModeHint(regenMode)}
+              </p>
             </div>
           </div>
 

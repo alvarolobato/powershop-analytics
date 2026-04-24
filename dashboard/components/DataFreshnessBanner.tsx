@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { DataHealthResponse } from "@/app/api/data-health/route";
+import { useFreshness } from "@/components/FreshnessContext";
 
 const DISMISSED_KEY = "data-health-dismissed";
 
@@ -25,6 +26,7 @@ export function DataFreshnessBanner() {
   const [dismissed, setDismissed] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const { setFreshnessText, setFreshnessStale } = useFreshness();
 
   useEffect(() => {
     // Check session-scoped dismiss — short-circuit fetch if already dismissed
@@ -62,6 +64,26 @@ export function DataFreshnessBanner() {
 
     return () => controller.abort();
   }, []);
+
+  // Propagate freshness state to TopBar via context
+  useEffect(() => {
+    if (!health) return;
+    if (health.stalestTable) {
+      const d = new Date(health.stalestTable.lastSync);
+      const minutesAgo = Math.round((Date.now() - d.getTime()) / 60000);
+      const age =
+        minutesAgo < 60
+          ? `hace ${minutesAgo}m`
+          : `hace ${Math.round(minutesAgo / 60)}h`;
+      if (health.overallStale) {
+        setFreshnessText(`Datos desactualizados · ${age}`);
+        setFreshnessStale(true);
+      } else {
+        setFreshnessText(`Datos al día · ${age}`);
+        setFreshnessStale(false);
+      }
+    }
+  }, [health, setFreshnessText, setFreshnessStale]);
 
   const handleDismiss = () => {
     setDismissed(true);

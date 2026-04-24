@@ -11,7 +11,7 @@ export interface DrillDownContext {
   /** Parent widget title. */
   widgetTitle: string;
   /** Widget kind for prompt shaping upstream. */
-  widgetType: "bar_chart" | "line_chart" | "area_chart" | "donut_chart" | "table";
+  widgetType: "bar_chart" | "line_chart" | "area_chart" | "donut_chart" | "table" | "ranked_bars";
 }
 
 export type OnDataPointClick = (ctx: DrillDownContext) => void;

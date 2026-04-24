@@ -4,7 +4,34 @@
 
 ## Decision Log
 
-### D-020: Central config.yaml + admin UI for all system settings — 2026-04-24
+### D-021: PR review policy capped at two fixed rounds (Copilot → Opus clean-context) — 2026-04-24
+**Context**: The prior policy (AGENTS.md) required re-requesting Copilot "until no new feedback". In practice this produced long loops where late nit-pick rounds blocked merges without meaningfully improving the code. The human owner called it "too much".
+**Decision**: Every PR gets **exactly two review rounds, each run once**:
+1. **Copilot** (bot) — request via the REST API pattern already documented. Address each comment with a code change or inline reply, then stop. No re-request.
+2. **Opus** — run the PR review flow **from a clean Claude Code context** (fresh session, no prior conversation about the PR or branch) so Opus reviews the diff without being anchored to the implementation history. Address each comment with a change or reply, then stop. No re-request.
+Merge after both rounds; if a comment is genuinely blocking and disputed, escalate to the human owner instead of opening a third round.
+**Alternatives rejected**: Keeping the "until no feedback" loop (current pain point). Opus-only or Copilot-only (loses the cross-check). Running Opus in the implementation session (context bias defeats the purpose of a second opinion).
+**Rationale**: Two independent reviewers, each exactly once, bounds the review cost while preserving a cross-check from a different vantage point. The clean-context requirement for Opus is the core of why round 2 is useful — without it, the review is correlated with the implementation.
+**See**: `AGENTS.md` "PR and review policy" and issue-template tasks `N-1b` (Copilot) + `N-1c` (Opus).
+
+### D-020: Force-resync trigger channel for ETL Monitor — 2026-04-23
+**Context**: Issue #398. After D-017's signed-int16 fix the nightly ETL only rewrites rows with a fresh `Exportaciones.FechaModifica`, so historical negative-stock rows already stored as 65535 persist until origin changes. Also, `etl_sync_runs.total_rows_synced` was hard-coded to zero because `finish_run` was never called with the accumulator.
+**Decision**:
+- Add two NOT-NULL-DEFAULT columns to `etl_manual_trigger`: `force_full BOOLEAN DEFAULT FALSE` and `force_tables TEXT[] DEFAULT '{}'`. The dashboard writes them via `/api/etl/run` (new JSON body `{force_full?, tables?}`); the scheduler reads them with `get_trigger_force_flags` and calls `reset_watermarks(names)` **before** `create_run` so the next sync degrades to a full refresh for the selected watermark-backed tables.
+- Maintain a single sync-name registry in `etl/main.py` (`SYNC_NAMES`, `SYNC_NAMES_WITH_WATERMARK`) used both as the whitelist inside `run_full_sync` and mirrored as `ALLOWED_FORCE_TABLES` in the dashboard route. Unknown names from the body cause a 400; unknown names from the DB are filtered with a warning (defense-in-depth).
+- `finish_run` now receives the accumulated `total_rows_synced`; failed syncs contribute 0 and never skew the total. The Monitor ETL "Filas sincronizadas" KPI and `rows_trend` chart now reflect real work.
+- Extend `/api/etl/stats` with throughput (rows/sec computed server-side to avoid divide-by-zero), oldest watermark age, 24h error counts, and top tables by rows — all returned in parallel with the existing queries.
+**Alternatives rejected**: Adding an ETL HTTP endpoint (scope creep; see D-016). Silently wiping *all* watermarks when `tables=[]` (accidental-rebuild risk). Deriving totals client-side (masks data-layer bugs).
+**Rationale**: Keeps the read-only SQL policy (no destructive DDL on source). The write path to `etl_watermarks` is the only change, and it is idempotent. Operators can request a targeted rebuild of `stock` without waiting for every historical Exportaciones row to change on the server.
+**See**: `etl/schema/init.sql`, `etl/db/postgres.py`, `etl/main.py`, `dashboard/app/api/etl/run/route.ts`, `dashboard/app/api/etl/stats/route.ts`, `dashboard/components/etl/ForceResyncDialog.tsx`, `dashboard/app/etl/page.tsx`.
+### D-022: Dashboard redesign — token-driven "data newsroom" visual system — 2026-04-24
+**Context**: Issue #404 — visual redesign to a dark-first, hierarchy-driven "data newsroom" layout.
+**Decision**: Implement a CSS variable token layer (`--bg`, `--fg`, `--accent`, `--up`/`--down`/`--warn`) on the `html` element with `data-theme`/`data-accent`/`data-density`/`kpiStyle` attributes. Replace the Tremor-centric sidebar layout with a sticky 56px TopBar. Re-skin all widgets (KPI editorial cards with sparklines and anomaly rings, custom SVG charts, ranked bar chart, table heat cells). Add LogBlock streaming transparency to chat sidebar. Add TweaksPanel for theme/accent/density control.
+- **Phases A-D**: Tokens, TopBar, widget re-skin (KpiRow, BarChart, LineChart, AreaChart, DonutChart, Table, InsightsStrip, RankedBars, Sparkline), Panel chrome.
+- **Phases E-H**: ChatSidebar rebuilt with two independent message histories + suggestion chips; LogBlock component (streaming + collapsed); AnalyzeLauncher floating rail; TweaksPanel with 4 radio groups; `chat_messages_modify` DB column + API wiring; `docs/skills/dashboard-redesign.md` skill.
+**Rationale**: Token-driven theming avoids hardcoded Tailwind class switches; CSS variable swaps are instant. The "data newsroom" hierarchy matches the retail sales manager's morning scan pattern (KPIs → anomalies → drivers → trends). TweaksPanel gives power users control without cluttering the main UI.
+**See**: `dashboard/app/globals.css` (tokens), `dashboard/components/TopBar.tsx`, `dashboard/components/TweaksPanel.tsx`, `dashboard/components/LogBlock.tsx`, `dashboard/components/ChatSidebar.tsx`, `dashboard/components/AnalyzeLauncher.tsx`, `docs/skills/dashboard-redesign.md`.
+### D-023: Central config.yaml + admin UI for all system settings — 2026-04-24
 **Context**: Issue #397 — all configuration lived in `.env` / environment variables with no UI to view or change it. Secrets and non-secrets were mixed. Adding D-019's LLM provider field made clear a unified config layer was needed.
 **Decision**:
 - Introduce `~/.config/powershop-analytics/config.yaml` as a single source of non-secret + secret configuration, managed by the admin UI.
@@ -20,7 +47,6 @@
 **Alternatives rejected**: Splitting config into separate files per component (defeated the "single source" goal); database-stored config (adds bootstrap coupling).
 **Rationale**: Gives operators a GUI to inspect and change settings without SSH; env vars remain authoritative for Docker/CI; secrets stay in the same directory, never committed.
 **See**: `config/schema.yaml`, `etl/config_loader.py`, `dashboard/lib/system-config/loader.ts`, `dashboard/app/admin/config/`, `dashboard/app/api/admin/config/`, `docker-compose.yml`.
-
 ### D-019: Pluggable Dashboard LLM providers (OpenRouter API vs CLI) — 2026-04-23
 **Context**: Issue #394 — the Dashboard App hard-coded OpenRouter; teams with a flat-rate Claude Code subscription wanted the same flows without forcing per-token API spend.
 **Decision**:
@@ -163,10 +189,12 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 ## Changelog
 
 ### 2026-04-24
-- Central config.yaml + admin UI (issue #397, D-020): `config/schema.yaml` (40 keys); `etl/config_loader.py` + `etl/tests/test_config_loader.py`; `dashboard/lib/system-config/loader.ts` + tests; `GET/PUT /api/admin/config`, `GET /api/admin/config/reveal`, `POST /api/admin/config/import-env`; `/admin/config` page with `SecretField`, source badges, restart banners, per-key "Save to file"; bootstrap on first start (`instrumentation.ts`); Docker `/config` volume in ETL (ro) and Dashboard (rw).
-
+- PR review policy capped at two fixed rounds — D-021: one Copilot round, then one Opus round from a clean Claude Code context. Old "re-request until no feedback" loop removed. `AGENTS.md` updated (policy section + issue-template tasks `N-1b` Copilot / `N-1c` Opus).
+- Dashboard redesign — "data newsroom" visual system (issue #404, D-022): token-driven CSS variable layer, TopBar shell, KPI editorial cards with sparklines and anomaly rings, custom SVG charts, LogBlock, ChatSidebar with separate Modificar/Analizar histories, TweaksPanel, `chat_messages_modify` DB column, `docs/skills/dashboard-redesign.md` skill.
+- Central config.yaml + admin UI (issue #397, D-023): `config/schema.yaml` (40 keys); `etl/config_loader.py` + `etl/tests/test_config_loader.py`; `dashboard/lib/system-config/loader.ts` + tests; `GET/PUT /api/admin/config`, `GET /api/admin/config/reveal`, `POST /api/admin/config/import-env`; `/admin/config` page with `SecretField`, source badges, restart banners, per-key "Save to file"; bootstrap on first start (`instrumentation.ts`); Docker `/config` volume in ETL (ro) and Dashboard (rw).
 ### 2026-04-23
 - Dashboard LLM: OpenRouter vs Claude Code CLI provider abstraction (issue #394, D-019); `llm_usage` / `llm_tool_calls` provider columns; admin usage aggregates by provider.
+- ETL Monitor force-resync + accurate KPIs (issue #398, D-020): `etl_manual_trigger` gains `force_full` / `force_tables`; scheduler resets watermarks before run; `finish_run` now receives `total_rows_synced`. Dashboard Monitor ETL adds throughput, watermark-age, 24h errors, top-tables-by-rows, and a force-resync dialog.
 
 ### 2026-04-22
 - Dashboard App (issue #384): agentic OpenRouter tool-calling for `POST /api/dashboard/generate|modify|analyze` with SQL + dashboard context tools, hard limits, `llm_tool_calls` telemetry, admin aggregates — D-018; see [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md)

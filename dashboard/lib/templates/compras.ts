@@ -11,6 +11,7 @@
  * - ps_albaranes has fecha_recibido (NOT fecha_creacion)
  */
 import type { DashboardSpec } from "@/lib/schema";
+import { templateGlobalFiltersCompras } from "@/lib/template-global-filters";
 
 export const name = "Responsable de Compras";
 
@@ -20,6 +21,7 @@ export const description =
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Compras",
   description,
+  filters: templateGlobalFiltersCompras,
   widgets: [
     {
       id: "compras-kpis",
@@ -27,35 +29,39 @@ export const spec: DashboardSpec = {
       items: [
         {
           label: "Pedidos de Compra (período seleccionado)",
-          sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
-FROM "public"."ps_compras"
-WHERE "fecha_pedido" >= :curr_from
-  AND "fecha_pedido" <= :curr_to`,
+          sql: `SELECT COUNT(DISTINCT co."reg_pedido") AS value
+FROM "public"."ps_compras" co
+WHERE co."fecha_pedido" >= :curr_from
+  AND co."fecha_pedido" <= :curr_to
+  AND __gf_proveedor_compras__`,
           format: "number",
         },
         {
           label: "Proveedores Activos (período seleccionado)",
-          sql: `SELECT COUNT(DISTINCT "num_proveedor") AS value
-FROM "public"."ps_compras"
-WHERE "fecha_pedido" >= :curr_from
-  AND "fecha_pedido" <= :curr_to`,
+          sql: `SELECT COUNT(DISTINCT co."num_proveedor") AS value
+FROM "public"."ps_compras" co
+WHERE co."fecha_pedido" >= :curr_from
+  AND co."fecha_pedido" <= :curr_to
+  AND __gf_proveedor_compras__`,
           format: "number",
         },
         {
           label: "Pedidos Recibidos (período seleccionado)",
-          sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
-FROM "public"."ps_compras"
-WHERE "fecha_recibido" >= :curr_from
-  AND "fecha_recibido" <= :curr_to`,
+          sql: `SELECT COUNT(DISTINCT co."reg_pedido") AS value
+FROM "public"."ps_compras" co
+WHERE co."fecha_recibido" >= :curr_from
+  AND co."fecha_recibido" <= :curr_to
+  AND __gf_proveedor_compras__`,
           format: "number",
         },
         {
           label: "Lineas de Compra (período seleccionado)",
           sql: `SELECT COUNT(*) AS value
 FROM "public"."ps_lineas_compras" lc
-JOIN "public"."ps_compras" c ON lc."num_pedido" = c."reg_pedido"
-WHERE c."fecha_pedido" >= :curr_from
-  AND c."fecha_pedido" <= :curr_to`,
+JOIN "public"."ps_compras" co ON lc."num_pedido" = co."reg_pedido"
+WHERE co."fecha_pedido" >= :curr_from
+  AND co."fecha_pedido" <= :curr_to
+  AND __gf_proveedor_compras__`,
           format: "number",
         },
       ],
@@ -65,11 +71,12 @@ WHERE c."fecha_pedido" >= :curr_from
       type: "bar_chart",
       title: "Pedidos por Proveedor (top 10, período seleccionado)",
       sql: `SELECT pr."nombre" AS label,
-       COUNT(DISTINCT c."reg_pedido") AS value
-FROM "public"."ps_compras" c
-JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
-WHERE c."fecha_pedido" >= :curr_from
-  AND c."fecha_pedido" <= :curr_to
+       COUNT(DISTINCT co."reg_pedido") AS value
+FROM "public"."ps_compras" co
+JOIN "public"."ps_proveedores" pr ON co."num_proveedor" = pr."reg_proveedor"
+WHERE co."fecha_pedido" >= :curr_from
+  AND co."fecha_pedido" <= :curr_to
+  AND __gf_proveedor_compras__
 GROUP BY pr."nombre"
 ORDER BY value DESC
 LIMIT 10`,
@@ -80,16 +87,17 @@ LIMIT 10`,
       id: "compras-ultimos-pedidos",
       type: "table",
       title: "Ultimos Pedidos de Compra",
-      sql: `SELECT c."reg_pedido" AS "Pedido",
+      sql: `SELECT co."reg_pedido" AS "Pedido",
        pr."nombre" AS "Proveedor",
        COUNT(lc."reg_linea_compra") AS "Lineas",
-       c."fecha_pedido" AS "Fecha Pedido",
-       c."fecha_recibido" AS "Fecha Recibido"
-FROM "public"."ps_compras" c
-JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
-LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = c."reg_pedido"
-GROUP BY c."reg_pedido", pr."nombre", c."fecha_pedido", c."fecha_recibido"
-ORDER BY c."fecha_pedido" DESC
+       co."fecha_pedido" AS "Fecha Pedido",
+       co."fecha_recibido" AS "Fecha Recibido"
+FROM "public"."ps_compras" co
+JOIN "public"."ps_proveedores" pr ON co."num_proveedor" = pr."reg_proveedor"
+LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = co."reg_pedido"
+WHERE __gf_proveedor_compras__
+GROUP BY co."reg_pedido", pr."nombre", co."fecha_pedido", co."fecha_recibido"
+ORDER BY co."fecha_pedido" DESC
 LIMIT 20`,
     },
     {
@@ -108,30 +116,32 @@ LIMIT 20`,
       id: "compras-pendientes-recibir",
       type: "table",
       title: "Pedidos Pendientes de Recibir",
-      sql: `SELECT c."reg_pedido" AS "Pedido",
+      sql: `SELECT co."reg_pedido" AS "Pedido",
        pr."nombre" AS "Proveedor",
-       c."fecha_pedido" AS "Fecha Pedido",
+       co."fecha_pedido" AS "Fecha Pedido",
        COUNT(lc."reg_linea_compra") AS "Lineas"
-FROM "public"."ps_compras" c
-JOIN "public"."ps_proveedores" pr ON c."num_proveedor" = pr."reg_proveedor"
-LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = c."reg_pedido"
-WHERE c."fecha_recibido" IS NULL
-  AND c."fecha_pedido" >= :curr_from
-  AND c."fecha_pedido" <= :curr_to
-GROUP BY c."reg_pedido", pr."nombre", c."fecha_pedido"
-ORDER BY c."fecha_pedido" DESC
+FROM "public"."ps_compras" co
+JOIN "public"."ps_proveedores" pr ON co."num_proveedor" = pr."reg_proveedor"
+LEFT JOIN "public"."ps_lineas_compras" lc ON lc."num_pedido" = co."reg_pedido"
+WHERE co."fecha_recibido" IS NULL
+  AND co."fecha_pedido" >= :curr_from
+  AND co."fecha_pedido" <= :curr_to
+  AND __gf_proveedor_compras__
+GROUP BY co."reg_pedido", pr."nombre", co."fecha_pedido"
+ORDER BY co."fecha_pedido" DESC
 LIMIT 20`,
     },
     {
       id: "compras-tendencia-mensual",
       type: "line_chart",
       title: "Pedidos de Compra Mensuales (período seleccionado)",
-      sql: `SELECT DATE_TRUNC('month', c."fecha_pedido") AS x,
-       COUNT(DISTINCT c."reg_pedido") AS y
-FROM "public"."ps_compras" c
-WHERE c."fecha_pedido" >= :curr_from
-  AND c."fecha_pedido" <= :curr_to
-GROUP BY DATE_TRUNC('month', c."fecha_pedido")
+      sql: `SELECT DATE_TRUNC('month', co."fecha_pedido") AS x,
+       COUNT(DISTINCT co."reg_pedido") AS y
+FROM "public"."ps_compras" co
+WHERE co."fecha_pedido" >= :curr_from
+  AND co."fecha_pedido" <= :curr_to
+  AND __gf_proveedor_compras__
+GROUP BY DATE_TRUNC('month', co."fecha_pedido")
 ORDER BY x`,
       x: "x",
       y: "y",

@@ -18,6 +18,7 @@ This script is idempotent — safe to re-run. Steps:
 
 Requires: the wren-ui container to be running (for GraphQL API + SQLite copy).
 """
+
 import argparse
 import json
 import os
@@ -48,15 +49,33 @@ MODEL_METADATA = {
         "alias": "Producto",
         "desc": "Catálogo de productos y artículos. Referencia comercial = ccrefejofacm (mostrar como 'Referencia'). Prefijo M = mayorista, MA = material sin inventario.",
     },
-    "ps_familias": {"alias": "Familia", "desc": "Familias/grupos de productos (jerarquía de clasificación)"},
-    "ps_departamentos": {"alias": "Departamento", "desc": "Departamentos/secciones (nivel superior)"},
+    "ps_familias": {
+        "alias": "Familia",
+        "desc": "Familias/grupos de productos (jerarquía de clasificación)",
+    },
+    "ps_departamentos": {
+        "alias": "Departamento",
+        "desc": "Departamentos/secciones (nivel superior)",
+    },
     "ps_colores": {"alias": "Color", "desc": "Catálogo de colores de producto"},
-    "ps_temporadas": {"alias": "Temporada", "desc": "Temporadas y tipos (clasificación temporal)"},
+    "ps_temporadas": {
+        "alias": "Temporada",
+        "desc": "Temporadas y tipos (clasificación temporal)",
+    },
     "ps_marcas": {"alias": "Marca", "desc": "Marcas de producto"},
-    "ps_clientes": {"alias": "Cliente", "desc": "Clientes. num_cliente=0 son ventas anónimas de caja."},
-    "ps_tiendas": {"alias": "Tienda", "desc": "Tiendas y puntos de venta. Código 99=almacén central, 97=tienda online."},
+    "ps_clientes": {
+        "alias": "Cliente",
+        "desc": "Clientes. num_cliente=0 son ventas anónimas de caja.",
+    },
+    "ps_tiendas": {
+        "alias": "Tienda",
+        "desc": "Tiendas y puntos de venta. Código 99=almacén central, 97=tienda online.",
+    },
     "ps_proveedores": {"alias": "Proveedor", "desc": "Proveedores de mercancía"},
-    "ps_gc_comerciales": {"alias": "Comercial", "desc": "Comerciales/agentes de ventas mayorista"},
+    "ps_gc_comerciales": {
+        "alias": "Comercial",
+        "desc": "Comerciales/agentes de ventas mayorista",
+    },
     "ps_ventas": {
         "alias": "Venta",
         "desc": "Tickets de venta retail/TPV. USAR SIEMPRE total_si (sin IVA) para análisis. NUNCA total (con IVA). fecha_creacion = fecha de la venta.",
@@ -65,23 +84,47 @@ MODEL_METADATA = {
         "alias": "LineaVenta",
         "desc": "Líneas de venta (detalle por artículo). total_si=importe sin IVA. unidades=cantidad. codigo=artículo (join con Producto).",
     },
-    "ps_pagos_ventas": {"alias": "PagoVenta", "desc": "Pagos por ticket. importe_cob=importe cobrado."},
+    "ps_pagos_ventas": {
+        "alias": "PagoVenta",
+        "desc": "Pagos por ticket. importe_cob=importe cobrado.",
+    },
     "ps_stock_tienda": {
         "alias": "StockTienda",
         "desc": "Stock por tienda y talla (normalizado). tienda=código (99=almacén, 97=online). stock=unidades.",
     },
     "ps_traspasos": {"alias": "Traspaso", "desc": "Traspasos de stock entre tiendas"},
-    "ps_gc_albaranes": {"alias": "AlbaranMayorista", "desc": "Albaranes mayorista (entregas B2B). Importe neto=base1+base2+base3."},
-    "ps_gc_lin_albarane": {"alias": "LineaAlbaranMayorista", "desc": "Líneas de albarán mayorista"},
-    "ps_gc_facturas": {"alias": "FacturaMayorista", "desc": "Facturas mayorista. Importe neto=base1+base2+base3."},
-    "ps_gc_lin_facturas": {"alias": "LineaFacturaMayorista", "desc": "Líneas de factura mayorista"},
+    "ps_gc_albaranes": {
+        "alias": "AlbaranMayorista",
+        "desc": "Albaranes mayorista (entregas B2B). Importe neto=base1+base2+base3.",
+    },
+    "ps_gc_lin_albarane": {
+        "alias": "LineaAlbaranMayorista",
+        "desc": "Líneas de albarán mayorista",
+    },
+    "ps_gc_facturas": {
+        "alias": "FacturaMayorista",
+        "desc": "Facturas mayorista. Importe neto=base1+base2+base3.",
+    },
+    "ps_gc_lin_facturas": {
+        "alias": "LineaFacturaMayorista",
+        "desc": "Líneas de factura mayorista",
+    },
     "ps_gc_pedidos": {"alias": "PedidoMayorista", "desc": "Pedidos mayorista"},
-    "ps_gc_lin_pedidos": {"alias": "LineaPedidoMayorista", "desc": "Líneas de pedido mayorista"},
+    "ps_gc_lin_pedidos": {
+        "alias": "LineaPedidoMayorista",
+        "desc": "Líneas de pedido mayorista",
+    },
     "ps_compras": {"alias": "PedidoCompra", "desc": "Pedidos de compra a proveedores"},
-    "ps_lineas_compras": {"alias": "LineaPedidoCompra", "desc": "Líneas de pedido de compra"},
+    "ps_lineas_compras": {
+        "alias": "LineaPedidoCompra",
+        "desc": "Líneas de pedido de compra",
+    },
     "ps_facturas": {"alias": "Factura", "desc": "Facturas de compra"},
     "ps_albaranes": {"alias": "AlbaranRecepcion", "desc": "Albaranes de recepción"},
-    "ps_facturas_compra": {"alias": "FacturaCompra", "desc": "Facturas de compra a proveedores"},
+    "ps_facturas_compra": {
+        "alias": "FacturaCompra",
+        "desc": "Facturas de compra a proveedores",
+    },
 }
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -95,7 +138,13 @@ RELATIONSHIPS = [
     ("ps_ventas", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
     ("ps_lineas_ventas", "codigo", "ps_articulos", "codigo", "MANY_TO_ONE"),
     ("ps_articulos", "num_familia", "ps_familias", "reg_familia", "MANY_TO_ONE"),
-    ("ps_articulos", "num_departament", "ps_departamentos", "reg_departament", "MANY_TO_ONE"),
+    (
+        "ps_articulos",
+        "num_departament",
+        "ps_departamentos",
+        "reg_departament",
+        "MANY_TO_ONE",
+    ),
     ("ps_articulos", "num_color", "ps_colores", "reg_color", "MANY_TO_ONE"),
     ("ps_articulos", "num_temporada", "ps_temporadas", "reg_temporada", "MANY_TO_ONE"),
     ("ps_articulos", "num_marca", "ps_marcas", "reg_marca", "MANY_TO_ONE"),
@@ -105,8 +154,20 @@ RELATIONSHIPS = [
     ("ps_gc_lin_facturas", "num_factura", "ps_gc_facturas", "n_factura", "MANY_TO_ONE"),
     ("ps_gc_albaranes", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
     ("ps_gc_facturas", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
-    ("ps_gc_albaranes", "num_comercial", "ps_gc_comerciales", "reg_comercial", "MANY_TO_ONE"),
-    ("ps_gc_facturas", "num_comercial", "ps_gc_comerciales", "reg_comercial", "MANY_TO_ONE"),
+    (
+        "ps_gc_albaranes",
+        "num_comercial",
+        "ps_gc_comerciales",
+        "reg_comercial",
+        "MANY_TO_ONE",
+    ),
+    (
+        "ps_gc_facturas",
+        "num_comercial",
+        "ps_gc_comerciales",
+        "reg_comercial",
+        "MANY_TO_ONE",
+    ),
     ("ps_lineas_compras", "num_pedido", "ps_compras", "reg_pedido", "MANY_TO_ONE"),
 ]
 
@@ -119,7 +180,10 @@ COLUMN_META = {
     "Producto": {
         "reg_articulo": ("ID Artículo", "ID interno del artículo (PK)"),
         "codigo": ("Código", "Código interno de artículo"),
-        "ccrefejofacm": ("Referencia", "Referencia comercial — identificador principal de negocio. M=mayorista, MA=material"),
+        "ccrefejofacm": (
+            "Referencia",
+            "Referencia comercial — identificador principal de negocio. M=mayorista, MA=material",
+        ),
         "descripcion": ("Descripción", "Descripción del artículo"),
         "codigo_barra": ("EAN", "Código de barras EAN"),
         "num_familia": ("Familia", "FK → Familia"),
@@ -239,7 +303,10 @@ COLUMN_META = {
         "num_cliente": ("Cliente", "FK → Cliente"),
         "num_comercial": ("Comercial", "FK → Comercial"),
         "abono": ("Es Abono", "Nota de crédito"),
-        "total_factura": ("Total (IVA inc.)", "Total CON IVA — usar base1+2+3 para neto"),
+        "total_factura": (
+            "Total (IVA inc.)",
+            "Total CON IVA — usar base1+2+3 para neto",
+        ),
     },
 }
 
@@ -320,7 +387,6 @@ INSTRUCTIONS = [
             "¿Evolución semanal de ventas?",
         ],
     },
-
     # ── Wholesale rules ────────────────────────────────────────────────
     {
         "instruction": "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true.",
@@ -355,7 +421,6 @@ INSTRUCTIONS = [
             "¿Rendimiento de representantes de ventas?",
         ],
     },
-
     # ── Stock rules ────────────────────────────────────────────────────
     {
         "instruction": "Stock total de un artículo = stock en almacén central (ps_stock_tienda WHERE tienda='99') + stock en tiendas físicas (ps_stock_tienda WHERE tienda<>'99'). Tienda código 99 = almacén central, código 97 = tienda online, el resto son tiendas físicas. La tabla ps_stock_tienda contiene AMBOS: central y tiendas.",
@@ -399,7 +464,6 @@ INSTRUCTIONS = [
             "¿Stock de temporadas pasadas?",
         ],
     },
-
     # ── Customer rules ─────────────────────────────────────────────────
     {
         "instruction": "En la tabla Venta, num_cliente=0 indica venta anónima (cliente no identificado). Para análisis de clientes identificados, siempre filtrar num_cliente > 0. Para calcular % de ventas anónimas: COUNT(CASE WHEN num_cliente=0 THEN 1 END) / COUNT(*) * 100.",
@@ -426,7 +490,6 @@ INSTRUCTIONS = [
             "¿Frecuencia de compra?",
         ],
     },
-
     # ── Payment rules ──────────────────────────────────────────────────
     {
         "instruction": "En pagos retail (ps_pagos_ventas), usar siempre importe_cob (importe cobrado) para análisis de revenue. NUNCA usar importe_ent (importe entregado/tendido) que representa el efectivo físico entregado por el cliente (puede incluir cambio). Para análisis de método de pago: campo forma o codigo_forma.",
@@ -444,7 +507,6 @@ INSTRUCTIONS = [
             "¿Cuánto se pagó con tarjeta?",
         ],
     },
-
     # ── Margin rules ───────────────────────────────────────────────────
     {
         "instruction": "Margen bruto retail = (total_si - total_coste_si) / total_si * 100. Campos en ps_lineas_ventas: total_si = ingreso sin IVA, total_coste_si = coste sin IVA. Para margen por artículo: GROUP BY codigo. Para margen por familia: JOIN con ps_articulos y ps_familias.",
@@ -471,7 +533,6 @@ INSTRUCTIONS = [
             "¿Qué artículos vender menos?",
         ],
     },
-
     # ── Product rules ──────────────────────────────────────────────────
     {
         "instruction": "El identificador de artículo visible para el usuario es la Referencia (campo ccrefejofacm en ps_articulos, mostrar como 'Referencia'). El campo 'codigo' es un código interno. Siempre incluir la Referencia y Descripción del artículo en los resultados. En ps_lineas_ventas el campo codigo es el código interno — hacer JOIN con ps_articulos para obtener la Referencia.",
@@ -514,7 +575,6 @@ INSTRUCTIONS = [
             "¿Artículos discontinuados?",
         ],
     },
-
     # ── Date rules ────────────────────────────────────────────────────
     {
         "instruction": "PKs (claves primarias) en todas las tablas son NUMERIC(20,3) en PostgreSQL, no INTEGER ni FLOAT. Esto incluye reg_ventas, reg_lineas, reg_articulo, reg_cliente, etc. Son números con decimales heredados del sistema 4D (ej: 10028816.641). NO hacer aritmética con ellos — son identificadores opacos.",
@@ -531,7 +591,6 @@ INSTRUCTIONS = [
             "¿Tiendas físicas vs online?",
         ],
     },
-
     # ── Data quality rules ─────────────────────────────────────────────
     {
         "instruction": "El campo fecha_documento en ps_ventas es NULL para todos los registros. NUNCA usarlo. Usar fecha_creacion para filtrar por fecha de venta. El campo fecha_modifica refleja la última modificación (incluye devoluciones y correcciones fiscales).",
@@ -555,7 +614,6 @@ INSTRUCTIONS = [
             "¿Artículos de la colección?",
         ],
     },
-
     # ── Transfers / Stock movement rules ─────────────────────────────
     {
         "instruction": "Cada traspaso físico crea DOS filas en ps_traspasos: una de salida (entrada=false, tienda_salida rellena, unidades_s) y una de entrada (entrada=true, tienda_entrada rellena, unidades_e). Para analizar envíos usar entrada=false con unidades_s. Para analizar recepciones usar entrada=true con unidades_e. Ambas filas comparten el mismo número de documento.",
@@ -573,7 +631,6 @@ INSTRUCTIONS = [
             "¿Movimiento neto de stock?",
         ],
     },
-
     # ── Pricing rules ─────────────────────────────────────────────────
     {
         "instruction": "En ps_articulos, precio_coste es el coste base sin IVA. El PVP con IVA es precio1 (o precio2, precio3 para tarifas alternativas). Para calcular margen estimado al catálogo: (precio1/(1+p_iva/100) - precio_coste) / (precio1/(1+p_iva/100)) * 100. El margen realizado en ventas es más preciso: usar total_si y total_coste_si de ps_lineas_ventas.",
@@ -591,7 +648,6 @@ INSTRUCTIONS = [
             "¿Nivel de descuentos?",
         ],
     },
-
     # ── Purchasing rules ──────────────────────────────────────────────
     {
         "instruction": "Las compras a proveedores están en ps_compras (pedidos) y ps_lineas_compras (líneas). Las recepciones de mercancía están en ps_albaranes. Las facturas de proveedor en ps_facturas_compra. Para análisis de compras por proveedor: JOIN ps_compras con ps_proveedores usando num_proveedor = reg_proveedor.",
@@ -601,7 +657,6 @@ INSTRUCTIONS = [
             "¿Cuánto compramos al proveedor X?",
         ],
     },
-
     # ── Field location rules (prevent wrong-table references) ────────
     {
         "instruction": "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
@@ -612,7 +667,7 @@ INSTRUCTIONS = [
         ],
     },
     {
-        "instruction": "Cuando el usuario pide datos desglosados por tienda en columnas (tabla pivot/crosstab), NO generar CROSSTAB ni múltiples CASE WHEN por tienda. Generar una tabla plana con columnas (artículo, tienda, valor) agrupada por artículo y tienda. El usuario pivotará después. Ejemplo: SELECT p.ccrefejofacm AS \"Referencia\", p.descripcion AS \"Descripción\", lv.tienda AS \"Tienda\", SUM(lv.unidades) AS \"Unidades\" FROM ps_lineas_ventas lv JOIN ps_articulos p ON lv.codigo = p.codigo GROUP BY p.ccrefejofacm, p.descripcion, lv.tienda ORDER BY SUM(lv.unidades) DESC.",
+        "instruction": 'Cuando el usuario pide datos desglosados por tienda en columnas (tabla pivot/crosstab), NO generar CROSSTAB ni múltiples CASE WHEN por tienda. Generar una tabla plana con columnas (artículo, tienda, valor) agrupada por artículo y tienda. El usuario pivotará después. Ejemplo: SELECT p.ccrefejofacm AS "Referencia", p.descripcion AS "Descripción", lv.tienda AS "Tienda", SUM(lv.unidades) AS "Unidades" FROM ps_lineas_ventas lv JOIN ps_articulos p ON lv.codigo = p.codigo GROUP BY p.ccrefejofacm, p.descripcion, lv.tienda ORDER BY SUM(lv.unidades) DESC.',
         "questions": [
             "¿Ventas por tienda en columnas?",
             "¿Unidades por artículo y tienda?",
@@ -629,7 +684,6 @@ INSTRUCTIONS = [
             "¿KPIs del mes?",
         ],
     },
-
     # ── Query safety rules (J: SQL review checklist) ──────────────────
     {
         "instruction": "NUNCA generar consultas sin filtro de fecha sobre tablas grandes: ps_ventas (900K filas), ps_lineas_ventas (1.7M filas), ps_stock_tienda (12M filas). Siempre incluir un rango de fechas explícito. Si el usuario no especifica período, usar 'este mes' (fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)). Para análisis histórico máximo, limitar a los últimos 2 años.",
@@ -648,7 +702,6 @@ INSTRUCTIONS = [
             "¿Número de transacciones únicas?",
         ],
     },
-
     # ── Magnitude guardrails (H: order-of-magnitude checks) ───────────
     {
         "instruction": (
@@ -723,7 +776,6 @@ SQL_PAIRS = [
         "¿Ventas por día de la semana?",
         'SELECT TO_CHAR(v."fecha_creacion", \'Day\') AS "Día", EXTRACT(DOW FROM v."fecha_creacion") AS "Num Día", SUM(v."total_si") AS "Ventas Netas", COUNT(DISTINCT v."reg_ventas") AS "Tickets" FROM "public"."ps_ventas" v WHERE v."fecha_creacion" >= CURRENT_DATE - INTERVAL \'90 days\' AND v."entrada" = true AND v."tienda" <> \'99\' GROUP BY TO_CHAR(v."fecha_creacion", \'Day\'), EXTRACT(DOW FROM v."fecha_creacion") ORDER BY EXTRACT(DOW FROM v."fecha_creacion")',
     ),
-
     # ── Products ───────────────────────────────────────────────────────
     (
         "¿Cuáles son los 10 artículos más vendidos por importe?",
@@ -749,7 +801,6 @@ SQL_PAIRS = [
         "¿Cuántos artículos activos hay en el catálogo?",
         'SELECT COUNT(*) AS "Total Artículos", SUM(CASE WHEN "ccrefejofacm" IS NULL OR "ccrefejofacm" NOT LIKE \'M%\' THEN 1 ELSE 0 END) AS "Retail", SUM(CASE WHEN "ccrefejofacm" LIKE \'M%\' THEN 1 ELSE 0 END) AS "Mayorista" FROM "public"."ps_articulos" WHERE "anulado" = false',
     ),
-
     # ── Stock ──────────────────────────────────────────────────────────
     (
         "¿Cuál es el stock total por tienda?",
@@ -783,7 +834,6 @@ SQL_PAIRS = [
         "¿Top artículos vendidos con su stock actual?",
         'SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" >= CURRENT_DATE - INTERVAL \'30 days\' AND lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20',
     ),
-
     # ── Wholesale ──────────────────────────────────────────────────────
     (
         "¿Cuál es la facturación mayorista por comercial?",
@@ -809,7 +859,6 @@ SQL_PAIRS = [
         "¿Productos más vendidos en canal mayorista?",
         'SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lf."unidades") AS "Unidades", SUM(lf."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE lf."unidades" > 0 GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20',
     ),
-
     # ── Customers ─────────────────────────────────────────────────────
     (
         "¿Cuáles son los mejores clientes retail por compras?",
@@ -827,7 +876,6 @@ SQL_PAIRS = [
         "¿Frecuencia de compra de clientes?",
         'SELECT CASE WHEN compras = 1 THEN \'1 compra\' WHEN compras BETWEEN 2 AND 3 THEN \'2-3 compras\' WHEN compras BETWEEN 4 AND 10 THEN \'4-10 compras\' ELSE \'Más de 10\' END AS "Segmento", COUNT(*) AS "Clientes" FROM (SELECT "num_cliente", COUNT(DISTINCT "reg_ventas") AS compras FROM "public"."ps_ventas" WHERE "num_cliente" > 0 AND "entrada" = true AND "fecha_creacion" >= DATE_TRUNC(\'year\', CURRENT_DATE) GROUP BY "num_cliente") t GROUP BY 1 ORDER BY 2 DESC',
     ),
-
     # ── Payments ───────────────────────────────────────────────────────
     (
         "¿Ingresos por método de pago este mes?",
@@ -845,7 +893,6 @@ SQL_PAIRS = [
         "¿Evolución diaria de ingresos por forma de pago?",
         'SELECT p."fecha_creacion" AS "Fecha", p."forma" AS "Forma de Pago", SUM(p."importe_cob") AS "Importe" FROM "public"."ps_pagos_ventas" p WHERE p."fecha_creacion" >= CURRENT_DATE - INTERVAL \'30 days\' AND p."entrada" = true GROUP BY p."fecha_creacion", p."forma" ORDER BY p."fecha_creacion", p."forma"',
     ),
-
     # ── Margins ────────────────────────────────────────────────────────
     (
         "¿Margen bruto por familia de producto?",
@@ -867,7 +914,6 @@ SQL_PAIRS = [
         "¿Margen mayorista por comercial?",
         'SELECT c."comercial" AS "Comercial", SUM(lf."total") AS "Ingreso", SUM(lf."total_coste") AS "Coste", ROUND((SUM(lf."total") - SUM(lf."total_coste")) / NULLIF(SUM(lf."total"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."n_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE lf."total" > 0 GROUP BY c."comercial" ORDER BY "Margen %" DESC',
     ),
-
     # ── Transfers ──────────────────────────────────────────────────────
     (
         "¿Volumen de traspasos por ruta?",
@@ -881,7 +927,6 @@ SQL_PAIRS = [
         "¿Movimientos de stock de un artículo?",
         'SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = \'REFERENCIA_AQUI\' AND t."entrada" = false ORDER BY t."fecha_s" DESC LIMIT 50',
     ),
-
     # ── Seasonal / Collections ─────────────────────────────────────────
     (
         "¿Cuántos artículos hay por temporada?",
@@ -895,7 +940,6 @@ SQL_PAIRS = [
         "¿Ventas por temporada de origen del artículo?",
         'SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."fecha_creacion" >= DATE_TRUNC(\'year\', CURRENT_DATE) GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC',
     ),
-
     # ── Store performance ──────────────────────────────────────────────
     (
         "¿Rendimiento YTD por tienda con comparativa año anterior?",
@@ -944,18 +988,22 @@ def validate_sql_pairs(dsn: str) -> None:
 
             if not rows:
                 print(f"  WARN {question[:68]}")
-                print(f"       (0 rows — no data for current period?)")
+                print("       (0 rows — no data for current period?)")
                 warned += 1
             else:
                 first_val = rows[0][0]
                 if first_val is None:
                     print(f"  WARN {question[:68]}")
-                    print(f"       (first value is NULL)")
+                    print("       (first value is NULL)")
                     warned += 1
                 else:
                     n_cols = len(col_names)
                     n_rows = len(rows)
-                    suffix = f" → {first_val}" if n_rows == 1 and n_cols <= 3 else f" ({n_rows}+ rows × {n_cols} cols)"
+                    suffix = (
+                        f" → {first_val}"
+                        if n_rows == 1 and n_cols <= 3
+                        else f" ({n_rows}+ rows × {n_cols} cols)"
+                    )
                     print(f"  OK  {question[:68]}{suffix}")
                     passed += 1
         except Exception as e:
@@ -1078,7 +1126,7 @@ def cross_validate(dsn: str) -> None:
                 col_names = [d[0] for d in cur.description]
 
             if not rows:
-                print(f"     WARN: no rows returned")
+                print("     WARN: no rows returned")
                 issues += 1
             else:
                 row = rows[0]
@@ -1086,18 +1134,23 @@ def cross_validate(dsn: str) -> None:
                     print(f"     {col}: {val}")
 
                 # Auto-detect discrepancies: if two numeric cols, compare them
-                numeric_vals = [(c, v) for c, v in zip(col_names, row)
-                                if isinstance(v, (int, float)) and v is not None]
+                numeric_vals = [
+                    (c, v)
+                    for c, v in zip(col_names, row)
+                    if isinstance(v, (int, float)) and v is not None
+                ]
                 if len(numeric_vals) == 2:
                     (c1, v1), (c2, v2) = numeric_vals
                     if v1 and v2:
                         ratio = abs(v1 - v2) / max(abs(v1), abs(v2))
                         if ratio > 0.05:
-                            print(f"     ⚠ MISMATCH: {c1}={v1:,.2f} vs {c2}={v2:,.2f} "
-                                  f"({ratio*100:.1f}% difference)")
+                            print(
+                                f"     ⚠ MISMATCH: {c1}={v1:,.2f} vs {c2}={v2:,.2f} "
+                                f"({ratio * 100:.1f}% difference)"
+                            )
                             issues += 1
                         else:
-                            print(f"     ✓ within {ratio*100:.2f}% tolerance")
+                            print(f"     ✓ within {ratio * 100:.2f}% tolerance")
             print(f"     note: {note}\n")
         except Exception as e:
             print(f"     ERR: {e}\n")
@@ -1110,7 +1163,9 @@ def cross_validate(dsn: str) -> None:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Push full semantic metadata to WrenAI")
+    parser = argparse.ArgumentParser(
+        description="Push full semantic metadata to WrenAI"
+    )
     parser.add_argument("--url", default="http://localhost:3000", help="WrenAI UI URL")
     parser.add_argument(
         "--validate",
@@ -1126,22 +1181,31 @@ def main():
     url = args.url
 
     if args.validate:
-        dsn = os.environ.get("POSTGRES_DSN", "postgresql://postgres:change_me@localhost:5432/powershop")
+        dsn = os.environ.get(
+            "POSTGRES_DSN", "postgresql://postgres:change_me@localhost:5432/powershop"
+        )
         validate_sql_pairs(dsn)
         return
 
     if args.crosscheck:
-        dsn = os.environ.get("POSTGRES_DSN", "postgresql://postgres:change_me@localhost:5432/powershop")
+        dsn = os.environ.get(
+            "POSTGRES_DSN", "postgresql://postgres:change_me@localhost:5432/powershop"
+        )
         cross_validate(dsn)
         return
 
     # ── 1. GraphQL: Model metadata ──────────────────────────────────
     print("═══ Step 1: Model descriptions + aliases (GraphQL) ═══")
-    data = gql(url, "{ listModels { id displayName fields { id displayName referenceName } } }")
+    data = gql(
+        url, "{ listModels { id displayName fields { id displayName referenceName } } }"
+    )
     models = {}
     for m in data["data"]["listModels"]:
         name = m["displayName"].replace("public.", "")
-        models[name] = {"id": m["id"], "fields": {f["referenceName"]: f["id"] for f in m["fields"]}}
+        models[name] = {
+            "id": m["id"],
+            "fields": {f["referenceName"]: f["id"] for f in m["fields"]},
+        }
 
     for name, meta in MODEL_METADATA.items():
         if name not in models:
@@ -1149,13 +1213,18 @@ def main():
         mid = models[name]["id"]
         desc = meta["desc"].replace('"', '\\"')
         alias = meta["alias"]
-        gql(url, f'mutation {{ updateModelMetadata(where: {{id: {mid}}}, data: {{displayName: "{alias}", description: "{desc}"}}) }}')
+        gql(
+            url,
+            f'mutation {{ updateModelMetadata(where: {{id: {mid}}}, data: {{displayName: "{alias}", description: "{desc}"}}) }}',
+        )
         print(f"  OK {name} -> {alias}")
 
     # ── 2. GraphQL: Relationships ───────────────────────────────────
     print("\n═══ Step 2: Relationships (GraphQL) ═══")
     # Re-fetch models with new aliases
-    data = gql(url, "{ listModels { id displayName fields { id displayName referenceName } } }")
+    data = gql(
+        url, "{ listModels { id displayName fields { id displayName referenceName } } }"
+    )
     models_by_alias = {}
     for m in data["data"]["listModels"]:
         alias = m["displayName"]
@@ -1166,7 +1235,10 @@ def main():
                 break
         if not table:
             table = alias.replace("public.", "")
-        models_by_alias[table] = {"id": m["id"], "fields": {f["referenceName"]: f["id"] for f in m["fields"]}}
+        models_by_alias[table] = {
+            "id": m["id"],
+            "fields": {f["referenceName"]: f["id"] for f in m["fields"]},
+        }
 
     created = skipped = 0
     for from_m, from_f, to_m, to_f, rtype in RELATIONSHIPS:
@@ -1197,7 +1269,8 @@ def main():
 
     subprocess.run(
         ["docker", "compose", "cp", "wren-ui:/app/data/db.sqlite3", db_path],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     print("  Copied SQLite DB from container")
 
@@ -1214,7 +1287,10 @@ def main():
         mid = alias_to_id.get(alias)
         if not mid:
             continue
-        for row in db.execute("SELECT id, source_column_name, properties FROM model_column WHERE model_id = ?", (mid,)):
+        for row in db.execute(
+            "SELECT id, source_column_name, properties FROM model_column WHERE model_id = ?",
+            (mid,),
+        ):
             col_name = row["source_column_name"]
             if col_name in columns:
                 display, desc = columns[col_name]
@@ -1284,17 +1360,21 @@ def main():
     # Copy DB back
     subprocess.run(
         ["docker", "compose", "cp", db_path, "wren-ui:/app/data/db.sqlite3"],
-        check=True, capture_output=True,
+        check=True,
+        capture_output=True,
     )
     print("  Copied SQLite DB back to container")
     shutil.rmtree(tmpdir)
 
     # ── 6. Restart wren-ui + Deploy ─────────────────────────────────
     print("\n═══ Step 6: Restart + Deploy ═══")
-    subprocess.run(["docker", "compose", "restart", "wren-ui"], check=True, capture_output=True)
+    subprocess.run(
+        ["docker", "compose", "restart", "wren-ui"], check=True, capture_output=True
+    )
     print("  Restarted wren-ui")
 
     import time
+
     time.sleep(15)
 
     result = gql(url, "mutation { deploy(force: true) }")
@@ -1302,7 +1382,10 @@ def main():
     print(f"  Deploy: {status}")
 
     if status != "SUCCESS":
-        print(f"  Error: {result['data']['deploy'].get('error', 'unknown')}", file=sys.stderr)
+        print(
+            f"  Error: {result['data']['deploy'].get('error', 'unknown')}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # ── 7. Index instructions + SQL pairs into qdrant via AI service ─
@@ -1316,17 +1399,29 @@ def main():
     ai_url = url.replace(":3000", ":5555")  # AI service on port 5555
 
     ai_instructions = [
-        {"id": str(i + 1), "instruction": inst["instruction"], "questions": inst["questions"]}
+        {
+            "id": str(i + 1),
+            "instruction": inst["instruction"],
+            "questions": inst["questions"],
+        }
         for i, inst in enumerate(INSTRUCTIONS)
     ]
     try:
         req = urllib.request.Request(
             f"{ai_url}/v1/instructions",
-            data=json.dumps({"id": "push_instructions", "instructions": ai_instructions, "mdl_hash": "current"}).encode(),
+            data=json.dumps(
+                {
+                    "id": "push_instructions",
+                    "instructions": ai_instructions,
+                    "mdl_hash": "current",
+                }
+            ).encode(),
             headers={"Content-Type": "application/json"},
         )
         resp = urllib.request.urlopen(req, timeout=60)
-        print(f"  Indexed {len(ai_instructions)} source instructions in qdrant (user instructions preserved)")
+        print(
+            f"  Indexed {len(ai_instructions)} source instructions in qdrant (user instructions preserved)"
+        )
     except Exception as e:
         print(f"  Instructions indexing failed: {e}")
 
@@ -1339,11 +1434,15 @@ def main():
     try:
         req = urllib.request.Request(
             f"{ai_url}/v1/sql-pairs",
-            data=json.dumps({"id": "push_sql_pairs", "sql_pairs": ai_pairs, "mdl_hash": "current"}).encode(),
+            data=json.dumps(
+                {"id": "push_sql_pairs", "sql_pairs": ai_pairs, "mdl_hash": "current"}
+            ).encode(),
             headers={"Content-Type": "application/json"},
         )
         resp = urllib.request.urlopen(req, timeout=60)
-        print(f"  Indexed {len(ai_pairs)} source SQL pairs in qdrant (user SQL pairs preserved)")
+        print(
+            f"  Indexed {len(ai_pairs)} source SQL pairs in qdrant (user SQL pairs preserved)"
+        )
     except Exception as e:
         print(f"  SQL pairs indexing failed: {e}")
 
