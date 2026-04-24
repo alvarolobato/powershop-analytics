@@ -115,6 +115,19 @@ body {
 }
 
 /* ============================================================
+   Main content area — default padding; dashboard pages opt out
+   ============================================================ */
+
+.main-content {
+  padding: var(--pad, 20px);
+}
+
+/* Dashboard view pages manage their own internal padding */
+.main-content:has([data-no-main-padding]) {
+  padding: 0;
+}
+
+/* ============================================================
    Animations
    ============================================================ */
 

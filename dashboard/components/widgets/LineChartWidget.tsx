@@ -301,7 +301,17 @@ export function LineChartWidget({
                 fill="var(--fg-subtle)"
                 fontFamily="var(--font-jetbrains, monospace)"
               >
-                {r.label}
+                {(() => {
+                  try {
+                    const d = new Date(r.label);
+                    if (!isNaN(d.getTime()) && r.label.includes("T")) {
+                      return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
+                    }
+                  } catch {
+                    // fallthrough
+                  }
+                  return r.label;
+                })()}
               </text>
             ) : null
           )}
@@ -357,7 +367,17 @@ export function LineChartWidget({
             }}
           >
             <div style={{ color: "var(--fg-muted)", fontSize: 10, marginBottom: 4 }}>
-              {hover.label}
+              {(() => {
+                try {
+                  const d = new Date(hover.label);
+                  if (!isNaN(d.getTime())) {
+                    return d.toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+                  }
+                } catch {
+                  // fallthrough
+                }
+                return hover.label;
+              })()}
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
               <span style={{ color: "var(--accent)" }}>● Actual</span>

@@ -129,8 +129,8 @@ export function BarChartWidget({
   const hasComparison = chartData.some((d) => d.previous !== null);
   const maxVal = Math.max(...chartData.flatMap((d) => [d.actual, d.previous ?? 0])) * 1.1 || 1;
 
-  // SVG viewBox: 100 wide units, variable height
-  const VW = 100;
+  // SVG viewBox: 800 wide units for crisp text rendering
+  const VW = 800;
   const VH = CHART_HEIGHT;
   const plotH = VH - PAD_T - PAD_B;
 
@@ -164,7 +164,6 @@ export function BarChartWidget({
 
         <svg
           viewBox={`0 0 ${VW} ${VH}`}
-          preserveAspectRatio="none"
           style={{ width: "100%", height: CHART_HEIGHT, display: "block" }}
         >
           {/* Gridlines at 0%, 25%, 50%, 75%, 100% */}
@@ -176,8 +175,7 @@ export function BarChartWidget({
               x2={VW}
               y2={PAD_T + plotH * t}
               stroke="var(--grid, rgba(255,255,255,0.06))"
-              strokeWidth="0.5"
-              vectorEffect="non-scaling-stroke"
+              strokeWidth="1"
             />
           ))}
 

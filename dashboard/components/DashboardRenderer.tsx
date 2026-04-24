@@ -22,6 +22,8 @@ import {
 import { InsightsStrip } from "./widgets/InsightsStrip";
 import { RankedBarsWidget } from "./widgets/RankedBarsWidget";
 import type { GlobalFilterValues } from "@/lib/sql-filters";
+import { useKpiStyle } from "@/components/TweaksPanel";
+import type { KpiStyle } from "@/components/widgets/KpiRow";
 
 const EMPTY_GLOBAL_FILTERS: GlobalFilterValues = Object.freeze({});
 
@@ -181,6 +183,7 @@ export function DashboardRenderer({
   onWidgetDataChange,
   onDataPointClick,
 }: DashboardRendererProps) {
+  const kpiStyle = useKpiStyle();
   const [widgetStates, setWidgetStates] = useState<Map<number, WidgetState>>(
     new Map()
   );
@@ -651,6 +654,7 @@ export function DashboardRenderer({
                     onRetry={retryWidget}
                     glossary={spec.glossary}
                     onDataPointClick={onDataPointClick}
+                    kpiStyle={kpiStyle}
                   />
                 </TabPanel>
               );
@@ -667,6 +671,7 @@ export function DashboardRenderer({
           onRetry={retryWidget}
           glossary={spec.glossary}
           onDataPointClick={onDataPointClick}
+          kpiStyle={kpiStyle}
         />
       )}
     </div>
@@ -685,6 +690,7 @@ interface WidgetGridProps {
   onRetry: (widget: Widget, idx: number) => void;
   glossary?: GlossaryItem[];
   onDataPointClick?: OnDataPointClick;
+  kpiStyle?: KpiStyle;
 }
 
 function WidgetGrid({
@@ -695,6 +701,7 @@ function WidgetGrid({
   onRetry,
   glossary,
   onDataPointClick,
+  kpiStyle,
 }: WidgetGridProps) {
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -742,6 +749,7 @@ function WidgetGrid({
                 state={state}
                 glossary={glossary}
                 onDataPointClick={onDataPointClick}
+                kpiStyle={kpiStyle}
               />
             )}
           </div>
@@ -954,11 +962,13 @@ function WidgetSwitch({
   state,
   glossary,
   onDataPointClick,
+  kpiStyle,
 }: {
   widget: Widget;
   state: WidgetState;
   glossary?: GlossaryItem[];
   onDataPointClick?: OnDataPointClick;
+  kpiStyle?: KpiStyle;
 }) {
   switch (widget.type) {
     case "kpi_row":
@@ -969,6 +979,7 @@ function WidgetSwitch({
           trendData={state.trendData}
           glossary={glossary}
           anomalyData={state.anomalyData}
+          kpiStyle={kpiStyle}
         />
       );
     case "bar_chart":

@@ -683,6 +683,7 @@ export default function ViewDashboard() {
 
   return (
     <div
+      data-no-main-padding
       style={{
         marginRight: chatOpen ? 380 : 0,
         transition: "margin 0.2s ease",
@@ -1006,18 +1007,6 @@ export default function ViewDashboard() {
               style={{ ...outlineBtn, opacity: saving ? 0.5 : 1 }}
             >
               Guardar
-            </button>
-            <button
-              type="button"
-              onClick={handleChatToggle}
-              style={{
-                ...outlineBtn,
-                background: "var(--accent)",
-                borderColor: "var(--accent)",
-                color: "#fff",
-              }}
-            >
-              {chatOpen ? "Cerrar chat" : "Modificar"}
             </button>
           </div>
         </div>

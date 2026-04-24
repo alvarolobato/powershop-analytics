@@ -90,7 +90,7 @@ export default function RootLayout({
           <FreshnessProvider>
             <TweaksPanelProvider>
               <TopBarWithTweaks />
-              <main style={{ flex: 1, overflow: "auto", padding: "0" }}>{children}</main>
+              <main style={{ flex: 1, overflow: "auto" }} className="main-content">{children}</main>
             </TweaksPanelProvider>
           </FreshnessProvider>
         </ThemeProvider>

@@ -21,7 +21,6 @@ export function TopBar({ onCogClick, freshnessText: propFreshnessText, freshness
   const navLinks = [
     { href: "/", label: "Paneles" },
     { href: "/review", label: "Revisión" },
-    { href: "/glossary", label: "Glosario" },
   ];
 
   return (
