@@ -1,12 +1,17 @@
-"""ETL configuration — loaded from environment variables via python-dotenv.
+"""ETL configuration — loaded via the central config loader (config_loader.py).
 
-File resolution order (first loaded wins; later files only fill gaps):
-  1. .env in current directory (worktree-local, standard for docker-compose; highest priority)
+Precedence (env > config.yaml > schema defaults):
+  1. Real environment variables (set before Python starts)
+  2. config.yaml at CONFIG_FILE env var or ~/.config/powershop-analytics/config.yaml
+  3. Hardcoded defaults from config/schema.yaml
+
+For backward-compatibility the module also loads .env files in the legacy order
+so existing deployments that rely on python-dotenv keep working:
+  1. .env in current directory (worktree symlink → centralized, or docker-compose)
   2. local/.env (repo-local override)
-  3. ~/.config/powershop-analytics/.env (centralized, survives worktrees; lowest priority)
+  3. ~/.config/powershop-analytics/.env (centralized)
 
-Real environment variables (set before Python starts) always win because
-override=False never clobbers existing os.environ entries.
+Real environment variables always win (override=False).
 """
 
 import os
@@ -16,8 +21,10 @@ from urllib.parse import quote
 
 from dotenv import load_dotenv
 
-# Load highest-priority file first; override=False means each subsequent file
-# only fills in keys not yet present in os.environ.
+# ---------------------------------------------------------------------------
+# Legacy .env loading (backward-compat; real env vars always win)
+# ---------------------------------------------------------------------------
+
 _CONFIG_DIR = Path.home() / ".config" / "powershop-analytics"
 for _candidate in [
     Path(
@@ -29,13 +36,51 @@ for _candidate in [
     if _candidate.is_file():
         load_dotenv(_candidate, override=False)
 
+# ---------------------------------------------------------------------------
+# Central loader helpers
+# ---------------------------------------------------------------------------
+
+
+def _loader_get(key: str, default: str | int | None = None) -> str | int | None:
+    """Retrieve *key* from the central config loader.
+
+    Falls back to *default* if the loader is unavailable (e.g., schema file
+    missing in a stripped test environment).
+    """
+    try:
+        from etl.config_loader import get_effective_config
+
+        cfg = get_effective_config()
+        cv = cfg.get(key)
+        if cv is not None and cv.value is not None:
+            return cv.value  # type: ignore[return-value]
+    except Exception:
+        pass
+    return default
+
+
+# ---------------------------------------------------------------------------
+# Config value helpers
+# ---------------------------------------------------------------------------
+
 
 def _get_p4d_port() -> int:
-    """Return the P4D_PORT env var as an integer.
+    """Return the P4D port from the central loader (schema key: fourd.port).
 
-    Falls back to 19812 if unset or empty.
-    Raises a clear ValueError if the value is set but not a valid integer.
+    Falls back to the P4D_PORT env var and finally 19812.
+    Raises a clear ValueError if the resolved value is not a valid integer.
     """
+    value = _loader_get("fourd.port", default=None)
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Invalid value for fourd.port / P4D_PORT: {value!r}. "
+                "It must be a valid integer TCP port number."
+            ) from exc
+
+    # Explicit env var fallback (e.g., in tests that bypass the loader)
     raw = os.environ.get("P4D_PORT")
     if not raw:
         return 19812
@@ -49,27 +94,37 @@ def _get_p4d_port() -> int:
 
 
 def _get_postgres_dsn() -> str:
-    """Return the PostgreSQL DSN.
+    """Return the PostgreSQL DSN from the central loader or assembled from parts.
 
     Precedence:
-    1. POSTGRES_DSN — explicit full DSN (recommended for Docker deployments).
-    2. Assembled from POSTGRES_USER + POSTGRES_DB (required) + optionally
-       POSTGRES_PASSWORD (empty means passwordless/local auth), POSTGRES_HOST
-       (default "localhost"), and POSTGRES_PORT (default "5432").
-       This matches the split variables documented in .env.example so new users
-       do not need to manually construct a DSN string.
+    1. postgres.dsn (schema key) / POSTGRES_DSN — explicit full DSN.
+    2. Assembled from postgres.user + postgres.db + optional postgres.password,
+       postgres.host, postgres.port — matches variables in .env.example.
 
     Returns an empty string if neither form is set (validated in __post_init__).
     """
+    # 1. Try full DSN from loader first
+    dsn_value = _loader_get("postgres.dsn", default=None)
+    if dsn_value:
+        return str(dsn_value).strip()
+
+    # 2. Try full DSN directly from env (in case loader isn't available)
     dsn = (os.environ.get("POSTGRES_DSN") or "").strip()
     if dsn:
         return dsn
 
-    user = os.environ.get("POSTGRES_USER", "")
-    password = os.environ.get("POSTGRES_PASSWORD", "")
-    db = os.environ.get("POSTGRES_DB", "")
-    host = os.environ.get("POSTGRES_HOST", "localhost")
-    port = os.environ.get("POSTGRES_PORT", "5432")
+    # 3. Assemble from parts via loader (falling back to env)
+    def _get(loader_key: str, env_key: str, default: str = "") -> str:
+        v = _loader_get(loader_key, default=None)
+        if v is not None:
+            return str(v)
+        return os.environ.get(env_key, default)
+
+    user = _get("postgres.user", "POSTGRES_USER")
+    password = _get("postgres.password", "POSTGRES_PASSWORD")
+    db = _get("postgres.db", "POSTGRES_DB")
+    host = _get("postgres.host", "POSTGRES_HOST", "localhost")
+    port = _get("postgres.port", "POSTGRES_PORT", "5432")
 
     if user and db:
         # Use quote(safe="") for URL userinfo component encoding.
@@ -86,11 +141,22 @@ def _get_postgres_dsn() -> str:
 
 @dataclass
 class Config:
-    p4d_host: str = field(default_factory=lambda: os.environ.get("P4D_HOST", ""))
+    p4d_host: str = field(
+        default_factory=lambda: str(
+            _loader_get("fourd.host", default=None) or os.environ.get("P4D_HOST", "")
+        )
+    )
     p4d_port: int = field(default_factory=_get_p4d_port)
-    p4d_user: str = field(default_factory=lambda: os.environ.get("P4D_USER", ""))
+    p4d_user: str = field(
+        default_factory=lambda: str(
+            _loader_get("fourd.user", default=None) or os.environ.get("P4D_USER", "")
+        )
+    )
     p4d_password: str = field(
-        default_factory=lambda: os.environ.get("P4D_PASSWORD", "")
+        default_factory=lambda: str(
+            _loader_get("fourd.password", default=None)
+            or os.environ.get("P4D_PASSWORD", "")
+        )
     )
     postgres_dsn: str = field(default_factory=_get_postgres_dsn)
 

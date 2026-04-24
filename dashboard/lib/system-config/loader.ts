@@ -184,15 +184,40 @@ function loadFileData(configPath: string): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 let _cache: SystemConfig | null = null;
+/** mtime (ms) of config.yaml when the cache was last populated. 0 = no file at cache time. */
+let _cacheMtime: number = 0;
+/** The config path that was used to populate the current cache entry. */
+let _cacheConfigPath: string | null = null;
 
 /** Reset the in-process cache (used after PUT /api/admin/config or in tests). */
 export function resetConfigCache(): void {
   _cache = null;
+  _cacheMtime = 0;
+  _cacheConfigPath = null;
+}
+
+/**
+ * Return true if the on-disk config.yaml has been modified since the cache was
+ * populated (cross-worker file-mtime invalidation).
+ */
+function _isCacheStale(configPath: string): boolean {
+  if (_cacheConfigPath !== configPath) return true;
+  try {
+    const mtime = fs.statSync(configPath).mtimeMs;
+    return mtime !== _cacheMtime;
+  } catch {
+    // File disappeared or is unreadable — treat cache as stale only if there
+    // was previously a file (mtime > 0); if there was never a file the cache
+    // is still valid.
+    return _cacheMtime !== 0;
+  }
 }
 
 /**
  * Load and return the merged system configuration.
  * Result is memoized; call resetConfigCache() to force a reload.
+ * The cache is also automatically invalidated when the config.yaml file's
+ * mtime changes (so writes in another worker process are picked up).
  *
  * @param opts.schemaPath Override the schema file path (useful in tests).
  * @param opts.configPath Override the config.yaml file path.
@@ -203,11 +228,11 @@ export function getSystemConfig(opts?: {
   configPath?: string;
   noCache?: boolean;
 }): SystemConfig {
-  if (_cache && !opts?.noCache) return _cache;
+  const resolvedConfigPath = opts?.configPath ?? resolveConfigPath();
+  if (_cache && !opts?.noCache && !_isCacheStale(resolvedConfigPath)) return _cache;
 
   const schema = loadSchema(opts?.schemaPath);
-  const configPath = opts?.configPath ?? resolveConfigPath();
-  const fileData = loadFileData(configPath);
+  const fileData = loadFileData(resolvedConfigPath);
 
   const result: SystemConfig = {};
 
@@ -249,6 +274,14 @@ export function getSystemConfig(opts?: {
 
   if (!opts?.noCache) {
     _cache = result;
+    // Record the mtime of the config file at cache-population time so that a
+    // subsequent write by another worker process invalidates this cache entry.
+    try {
+      _cacheMtime = fs.statSync(resolvedConfigPath).mtimeMs;
+    } catch {
+      _cacheMtime = 0; // file does not exist
+    }
+    _cacheConfigPath = resolvedConfigPath;
   }
   return result;
 }

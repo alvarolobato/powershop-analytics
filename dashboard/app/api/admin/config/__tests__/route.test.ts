@@ -39,6 +39,7 @@ function makeConfig(overrides: Record<string, Partial<{
   description: string;
   requires_restart: string[];
   type: "string" | "int" | "bool" | "enum";
+  enum_values?: string[];
   default: string | number | boolean | null;
 }>> = {}) {
   const base = {
@@ -77,6 +78,18 @@ function makeConfig(overrides: Record<string, Partial<{
       value: "admin-secret",
       requires_restart: [],
       default: null,
+    },
+    "dashboard.agentic_tools_enabled": {
+      key: "dashboard.agentic_tools_enabled",
+      env: "DASHBOARD_AGENTIC_TOOLS_ENABLED",
+      section: "Dashboard App",
+      description: "Enable agentic tools",
+      type: "bool" as const,
+      sensitive: false,
+      source: "default" as const,
+      value: true,
+      requires_restart: [],
+      default: true,
     },
   };
   return { ...base, ...overrides };
@@ -226,5 +239,23 @@ describe("PUT /api/admin/config", () => {
       adminRequest("PUT", { updates: { "fourd.host": "host" } }),
     );
     expect(res.status).toBe(500);
+  });
+
+  it("accepts valid bool values for bool keys", async () => {
+    for (const v of [true, false, "true", "false", "1", "0", "yes", "no", "on", "off"]) {
+      const res = await PUT(
+        adminRequest("PUT", { updates: { "dashboard.agentic_tools_enabled": v } }),
+      );
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("returns 400 for invalid bool value", async () => {
+    const res = await PUT(
+      adminRequest("PUT", { updates: { "dashboard.agentic_tools_enabled": "maybe" } }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/Type validation failed/);
   });
 });

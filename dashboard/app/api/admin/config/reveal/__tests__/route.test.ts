@@ -49,6 +49,18 @@ beforeEach(() => {
       type: "string",
       default: null,
     },
+    "dashboard.admin_api_key": {
+      key: "dashboard.admin_api_key",
+      value: "super-secret-admin-key",
+      source: "env",
+      sensitive: true,
+      env: "ADMIN_API_KEY",
+      section: "Dashboard App",
+      description: "Admin key",
+      requires_restart: [],
+      type: "string",
+      default: null,
+    },
   });
 });
 
@@ -85,5 +97,12 @@ describe("GET /api/admin/config/reveal", () => {
     expect(body.value).toBe("sk-real-secret");
     expect(body.key).toBe("openrouter.api_key");
     expect(body.source).toBe("env");
+  });
+
+  it("returns 403 when trying to reveal dashboard.admin_api_key", async () => {
+    const res = await GET(adminRequest("dashboard.admin_api_key"));
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toMatch(/cannot be revealed/);
   });
 });

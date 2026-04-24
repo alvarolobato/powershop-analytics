@@ -137,7 +137,9 @@ class TestLoadConfigPrecedence:
         assert cv.value is None
         assert cv.source == "default"
 
-    def test_int_coercion(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_int_coercion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         schema_data = [
             {
                 "key": "int.key",
@@ -427,7 +429,9 @@ class TestRealSchema:
 
 
 class TestGetEffectiveConfig:
-    def test_returns_config_dict(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_returns_config_dict(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """get_effective_config with explicit config_path returns a non-empty dict."""
         monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "missing.yaml"))
         cfg = get_effective_config(

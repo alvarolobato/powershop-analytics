@@ -124,6 +124,7 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
   }
 
   // Type validation: coerce each value according to schema entry
+  const VALID_BOOL_VALUES = new Set([true, false, "true", "false", "1", "0", "yes", "no", "on", "off"]);
   const validationErrors: string[] = [];
   for (const [key, value] of Object.entries(updates)) {
     const cv = config[key];
@@ -133,6 +134,14 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
       const asNum = Number(String(value).trim());
       if (!Number.isInteger(asNum)) {
         validationErrors.push(`Key '${key}': expected int, got ${JSON.stringify(value)}`);
+      }
+    } else if (cv.type === "bool") {
+      // Accept only known bool representations; reject strings like "maybe" or "yes-please".
+      const normalized = typeof value === "string" ? value.trim().toLowerCase() : value;
+      if (!VALID_BOOL_VALUES.has(normalized as boolean | string)) {
+        validationErrors.push(
+          `Key '${key}': expected boolean (true/false/1/0/yes/no/on/off), got ${JSON.stringify(value)}`,
+        );
       }
     } else if (cv.type === "enum" && cv.enum_values && cv.enum_values.length > 0) {
       const v = String(value).trim();

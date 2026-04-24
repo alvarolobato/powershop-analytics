@@ -12,6 +12,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminApiKeyValid, adminUnauthorized } from "@/lib/admin-api-auth";
 import { getSystemConfig } from "@/lib/system-config/loader";
 
+/**
+ * Keys that must NEVER be returned by /reveal even with a valid admin key.
+ * Revealing the admin API key via the API would allow any holder to bootstrap
+ * themselves as a permanent admin by learning the secret from a single request.
+ */
+const REVEAL_BLOCKED_KEYS = new Set(["dashboard.admin_api_key"]);
+
 export async function GET(request: NextRequest): Promise<NextResponse> {
   if (!adminApiKeyValid(request)) {
     return adminUnauthorized();
@@ -20,6 +27,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const key = request.nextUrl.searchParams.get("key")?.trim();
   if (!key) {
     return NextResponse.json({ error: "Missing 'key' query parameter" }, { status: 400 });
+  }
+
+  // Block keys that must never be revealed via the API (e.g. the admin key itself).
+  if (REVEAL_BLOCKED_KEYS.has(key)) {
+    return NextResponse.json(
+      { error: `Key '${key}' cannot be revealed via the API` },
+      { status: 403 },
+    );
   }
 
   const config = getSystemConfig();

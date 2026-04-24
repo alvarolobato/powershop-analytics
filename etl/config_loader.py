@@ -241,7 +241,9 @@ def write_config(
     header += "# Precedence: env vars > this file > hardcoded defaults.\n"
     header += "# Secrets in this file — keep permissions 0600; never commit.\n\n"
 
-    body = yaml.dump(merged, default_flow_style=False, allow_unicode=True, sort_keys=True)
+    body = yaml.dump(
+        merged, default_flow_style=False, allow_unicode=True, sort_keys=True
+    )
     content = header + body
 
     # Atomic write: write to temp file next to target, then rename
@@ -301,11 +303,7 @@ def bootstrap_config_if_missing(
 
     config = load_config(schema_path=schema_path, config_path=cfg_path)
     # Write all keys that have a value (env or default)
-    values = {
-        key: cv.value
-        for key, cv in config.items()
-        if cv.value is not None
-    }
+    values = {key: cv.value for key, cv in config.items() if cv.value is not None}
     write_config(
         cfg_path,
         values,

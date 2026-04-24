@@ -19,7 +19,11 @@ describe("loadDashboardLlmConfig", () => {
 
   it("throws on invalid DASHBOARD_LLM_PROVIDER value", () => {
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "lambda");
-    expect(() => loadDashboardLlmConfig()).toThrow(/Invalid DASHBOARD_LLM_PROVIDER/);
+    // The central config loader (getSystemConfig) validates enum values at the schema
+    // level and throws before normalizeProvider is called. Accept either error message.
+    expect(() => loadDashboardLlmConfig()).toThrow(
+      /Invalid DASHBOARD_LLM_PROVIDER|is not one of.*openrouter.*cli/,
+    );
   });
 
   it("rejects newline in DASHBOARD_LLM_CLI_BIN", () => {
