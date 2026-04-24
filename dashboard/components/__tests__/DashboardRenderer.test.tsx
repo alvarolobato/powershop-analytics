@@ -128,7 +128,7 @@ afterEach(() => {
 });
 
 describe("DashboardRenderer", () => {
-  it("renders title and description", async () => {
+  it("renders widgets without duplicating spec title in body", async () => {
     vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["tienda", "total"],
       rows: [["Madrid", 100]],
@@ -136,13 +136,16 @@ describe("DashboardRenderer", () => {
 
     render(<DashboardRenderer spec={barSpec} />);
 
-    expect(screen.getByText("Panel de Ventas")).toBeInTheDocument();
-    expect(
-      screen.getByText("Resumen mensual de ventas")
-    ).toBeInTheDocument();
+    // spec.title is rendered by the page shell (not DashboardRenderer) — should not appear here
+    expect(screen.queryByText("Panel de Ventas")).not.toBeInTheDocument();
+    expect(screen.queryByText("Resumen mensual de ventas")).not.toBeInTheDocument();
+    // Widget title should still appear
+    await waitFor(() => {
+      expect(screen.getByText("Ventas por Tienda")).toBeInTheDocument();
+    });
   });
 
-  it("renders title without description when omitted", async () => {
+  it("renders widgets without spec header when description is omitted", async () => {
     vi.stubGlobal("fetch", mockFetchSuccess({
       columns: ["value"],
       rows: [[42]],
@@ -150,7 +153,8 @@ describe("DashboardRenderer", () => {
 
     render(<DashboardRenderer spec={kpiSpec} />);
 
-    expect(screen.getByText("KPIs")).toBeInTheDocument();
+    // spec.title not in DashboardRenderer body
+    expect(screen.queryByText("KPIs")).not.toBeInTheDocument();
   });
 
   it("shows loading skeleton initially", () => {
@@ -271,7 +275,6 @@ describe("DashboardRenderer", () => {
 
     render(<DashboardRenderer spec={hackedSpec} />);
 
-    expect(screen.getByText("Vacio")).toBeInTheDocument();
     expect(fetch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("widget-skeleton")).not.toBeInTheDocument();
   });
@@ -412,7 +415,6 @@ describe("DashboardRenderer", () => {
     rerender(<DashboardRenderer spec={newSpec} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Nuevo Panel")).toBeInTheDocument();
       expect(screen.getByText("Nuevo Numero")).toBeInTheDocument();
     });
 
@@ -518,7 +520,9 @@ describe("DashboardRenderer", () => {
     render(<DashboardRenderer spec={specWithBadIds} />);
 
     // Should still render without crashing; valid widget eventually loads
-    expect(screen.getByText("Panel con IDs Inválidos")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Widget Válido")).toBeInTheDocument();
+    });
   });
 
   describe("date token substitution (buildMainSql)", () => {

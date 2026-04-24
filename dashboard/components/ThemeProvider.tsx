@@ -44,7 +44,8 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>("dark");
   const [mounted, setMounted] = useState(false);
 
-  // Read persisted preference on mount (supports both ps.tweaks.v1 and legacy "theme" key)
+  // Read persisted preference on mount — only reads ps.tweaks.v1 (new key).
+  // Legacy "theme" key is intentionally NOT used as fallback: defaults to dark.
   useEffect(() => {
     try {
       let initial: Theme = "dark";
@@ -58,9 +59,6 @@ export default function ThemeProvider({ children }: { children: ReactNode }) {
         } catch {
           // ignore parse error
         }
-      } else {
-        const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
-        initial = stored === "light" ? "light" : "dark";
       }
       setTheme(initial);
       applyTheme(initial);

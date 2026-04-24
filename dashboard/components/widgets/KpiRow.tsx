@@ -130,13 +130,12 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
   }
 
   const cardStyle: React.CSSProperties = {
-    background: kpiStyle === "bold" && isAnomaly ? "var(--down-bg)" : "var(--bg-1)",
-    border: `1px solid ${isAnomaly ? "var(--down)" : "var(--border)"}`,
+    background: "var(--bg-1)",
+    border: "1px solid var(--border)",
     borderRadius: 10,
     padding: "var(--kpi-pad, 16px)",
     position: "relative",
     overflow: "hidden",
-    boxShadow: isAnomaly ? "0 0 0 3px var(--down-bg)" : "none",
     transition: "all 0.2s",
   };
 
@@ -247,7 +246,7 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
             fontWeight: 700,
             marginTop: 8,
             letterSpacing: "-0.03em",
-            color: isAnomaly ? "var(--down)" : "var(--fg)",
+            color: "var(--fg)",
             fontVariantNumeric: "tabular-nums",
           }}
         >

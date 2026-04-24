@@ -5,6 +5,7 @@ import type { BarChartWidget as BarChartWidgetSpec, GlossaryItem } from "@/lib/s
 import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { applyGlossary } from "@/lib/glossary";
+import { resolveChartColor } from "./chart-colors";
 import { WidgetSkeleton } from "./WidgetSkeleton";
 
 interface BarChartWidgetProps {
@@ -184,9 +185,7 @@ export function BarChartWidget({
             const hActual = (d.actual / maxVal) * plotH;
             const hPrev = d.previous !== null ? (d.previous / maxVal) * plotH : 0;
 
-            // Flag-based color for actual bar
-            // (flag not in current data model, using standard colors)
-            const actualColor = "var(--accent)";
+            const actualColor = resolveChartColor(i);
 
             return (
               <g

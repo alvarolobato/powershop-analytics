@@ -14,47 +14,115 @@ export default async function AdminLoginPage({
   const redirectTarget = safeAdminRedirectTarget(sp.redirect);
 
   return (
-    <div className="mx-auto max-w-md space-y-6 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-muted dark:bg-dark-tremor-background-muted p-6">
-      <h1 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+    <div
+      style={{
+        maxWidth: 400,
+        margin: "0 auto",
+        padding: "24px",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--bg-1)",
+        display: "flex",
+        flexDirection: "column",
+        gap: 16,
+      }}
+    >
+      <h1 style={{ fontSize: 17, fontWeight: 600, color: "var(--fg)", margin: 0 }}>
         Acceso administración
       </h1>
-      <p className="text-sm text-tremor-content dark:text-dark-tremor-content">
+      <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0 }}>
         Introduce la clave configurada en{" "}
-        <code className="rounded bg-tremor-background-subtle px-1">ADMIN_API_KEY</code>.
+        <code
+          style={{
+            borderRadius: 3,
+            background: "var(--bg-2)",
+            padding: "1px 5px",
+            fontFamily: "var(--font-jetbrains, monospace)",
+            fontSize: 12,
+          }}
+        >
+          ADMIN_API_KEY
+        </code>
+        .
       </p>
       {err && (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p style={{ fontSize: 13, color: "var(--down)", margin: 0 }} role="alert">
           Clave incorrecta.
         </p>
       )}
       {noConfig && (
-        <p className="text-sm text-amber-700 dark:text-amber-300" role="alert">
-          Falta <code className="rounded bg-tremor-background-subtle px-1">ADMIN_API_KEY</code> en el entorno del
-          servidor.
+        <p style={{ fontSize: 13, color: "var(--warn)", margin: 0 }} role="alert">
+          Falta{" "}
+          <code
+            style={{
+              borderRadius: 3,
+              background: "var(--bg-2)",
+              padding: "1px 5px",
+              fontFamily: "var(--font-jetbrains, monospace)",
+              fontSize: 12,
+            }}
+          >
+            ADMIN_API_KEY
+          </code>{" "}
+          en el entorno del servidor.
         </p>
       )}
-      <form action={loginAdmin}>
+      <form action={loginAdmin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         <input type="hidden" name="redirect" value={redirectTarget} />
-        <label className="block text-sm font-medium text-tremor-content dark:text-dark-tremor-content">
+        <label
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+            fontSize: 13,
+            fontWeight: 500,
+            color: "var(--fg)",
+          }}
+        >
           Clave
           <input
             type="password"
             name="password"
             required
             autoComplete="current-password"
-            className="mt-1 w-full rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-2 text-sm"
+            style={{
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--bg-2)",
+              color: "var(--fg)",
+              padding: "8px 12px",
+              fontSize: 13,
+              outline: "none",
+              fontFamily: "inherit",
+            }}
           />
         </label>
         <button
           type="submit"
-          className="mt-4 w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          style={{
+            borderRadius: 6,
+            background: "var(--accent)",
+            color: "#fff",
+            padding: "9px 16px",
+            fontSize: 13,
+            fontWeight: 500,
+            border: "none",
+            cursor: "pointer",
+            fontFamily: "inherit",
+          }}
         >
           Entrar
         </button>
       </form>
       <Link
         href="/"
-        className="block text-center text-sm text-blue-600 hover:underline dark:text-blue-400"
+        style={{
+          display: "block",
+          textAlign: "center",
+          fontSize: 13,
+          color: "var(--accent)",
+          textDecoration: "none",
+        }}
       >
         Volver al inicio
       </Link>

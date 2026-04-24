@@ -234,19 +234,18 @@ describe("ReviewDisplay", () => {
     expect(className).not.toMatch(/(^|\s)text-amber-(100|200)(\s|$)/);
   });
 
-  it("renders the data-quality-notes panel with accessible amber classes", () => {
+  it("renders the data-quality-notes panel with warn token styling", () => {
     const withNotes: ReviewContent & { id: number; week_start: string } = {
       ...sampleReview,
       data_quality_notes: ["Faltan ventas de la tienda 07 para el lunes"],
     };
     render(<ReviewDisplay review={withNotes} />);
     const panel = screen.getByTestId("data-quality-notes");
-    const className = panel.className;
-    // Dark ink for light mode.
-    expect(className).toMatch(/\btext-amber-(800|900)\b/);
-    // Light ink for dark mode.
-    expect(className).toMatch(/\bdark:text-amber-(50|100)\b/);
-    // Must NOT keep the broken light amber text on light mode.
-    expect(className).not.toMatch(/(^|\s)text-amber-(100|200)(\s|$)/);
+    // Panel is present and renders the note content
+    expect(panel).toBeInTheDocument();
+    expect(screen.getByText("Faltan ventas de la tienda 07 para el lunes")).toBeInTheDocument();
+    // Uses CSS-variable-based warn styling (not hardcoded amber classes)
+    const style = panel.getAttribute("style") ?? "";
+    expect(style).toContain("var(--warn)");
   });
 });

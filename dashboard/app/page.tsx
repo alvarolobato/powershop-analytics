@@ -1,8 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import { Card, Title, Text } from "@tremor/react";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -15,6 +14,7 @@ interface DashboardSummary {
   id: number;
   name: string;
   description: string | null;
+  widget_count?: number;
   updated_at: string;
 }
 
@@ -28,6 +28,7 @@ export default function Home() {
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [deleteError, setDeleteError] = useState<ApiErrorResponse | string | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
 
   const fetchDashboards = useCallback(async () => {
     setLoading(true);
@@ -106,17 +107,33 @@ export default function Home() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div style={{ display: "flex", flexDirection: "column", gap: 24, padding: "24px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
-          <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Dashboards</h1>
-          <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
+          <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--fg)", margin: 0, letterSpacing: "-0.02em" }}>
+            Dashboards
+          </h1>
+          <p style={{ marginTop: 4, fontSize: 13, color: "var(--fg-muted)" }}>
             Crea y gestiona cuadros de mando con inteligencia artificial
           </p>
         </div>
         <Link
           href="/dashboard/new"
-          className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
+          style={{
+            borderRadius: 6,
+            background: "var(--accent)",
+            padding: "8px 16px",
+            fontSize: 13,
+            fontWeight: 500,
+            color: "#fff",
+            textDecoration: "none",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            transition: "filter 120ms",
+          }}
+          onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.filter = "brightness(1.1)")}
+          onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.filter = "")}
         >
           + Crear nuevo
         </Link>
@@ -124,9 +141,16 @@ export default function Home() {
 
       {/* Loading */}
       {loading && (
-        <div className="flex justify-center py-12">
+        <div style={{ display: "flex", justifyContent: "center", padding: "48px 0" }}>
           <div
-            className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              border: "3px solid var(--border)",
+              borderTopColor: "var(--accent)",
+              animation: "spin 0.8s linear infinite",
+            }}
             role="status"
             aria-label="Cargando"
           />
@@ -148,50 +172,125 @@ export default function Home() {
 
       {/* Empty state */}
       {!loading && !error && dashboards.length === 0 && (
-        <Card className="max-w-lg">
-          <Title>No hay dashboards</Title>
-          <Text className="mt-2">
+        <div
+          style={{
+            maxWidth: 480,
+            background: "var(--bg-1)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: 24,
+          }}
+        >
+          <h2 style={{ fontSize: 15, fontWeight: 600, color: "var(--fg)", margin: "0 0 8px" }}>
+            No hay dashboards
+          </h2>
+          <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: "0 0 16px" }}>
             No hay dashboards. Crea el primero.
-          </Text>
+          </p>
           <Link
             href="/dashboard/new"
-            className="mt-4 inline-block rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
+            style={{
+              display: "inline-block",
+              borderRadius: 6,
+              background: "var(--accent)",
+              padding: "8px 16px",
+              fontSize: 13,
+              fontWeight: 500,
+              color: "#fff",
+              textDecoration: "none",
+            }}
           >
             Crear dashboard
           </Link>
-        </Card>
+        </div>
       )}
 
       {/* Dashboard cards */}
       {!loading && !error && dashboards.length > 0 && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: 16,
+          }}
+        >
           {dashboards.map((dashboard) => (
-            <Card
+            <div
               key={dashboard.id}
-              className="hover:shadow-md transition-shadow relative group"
+              style={{
+                background: "var(--bg-1)",
+                border: "1px solid var(--border)",
+                borderTop: `3px solid ${hovered === dashboard.id ? "var(--accent)" : "var(--accent-soft)"}`,
+                borderRadius: 8,
+                padding: 20,
+                position: "relative",
+                transition: "transform 120ms, border-top-color 120ms, box-shadow 120ms",
+                transform: hovered === dashboard.id ? "translateY(-2px)" : undefined,
+                boxShadow: hovered === dashboard.id ? "0 8px 24px rgba(0,0,0,0.12)" : undefined,
+              }}
+              onMouseEnter={() => setHovered(dashboard.id)}
+              onMouseLeave={() => setHovered(null)}
             >
               <Link
                 href={`/dashboard/${dashboard.id}`}
-                className="block space-y-2"
+                style={{ textDecoration: "none", display: "block" }}
                 data-testid={`dashboard-card-${dashboard.id}`}
               >
-                <Title>{dashboard.name}</Title>
+                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--fg)", marginBottom: 6 }}>
+                  {dashboard.name}
+                </div>
                 {dashboard.description && (
-                  <Text className="line-clamp-2">{dashboard.description}</Text>
+                  <p
+                    style={{
+                      fontSize: 12,
+                      color: "var(--fg-muted)",
+                      margin: "0 0 10px",
+                      display: "-webkit-box",
+                      WebkitBoxOrient: "vertical" as React.CSSProperties["WebkitBoxOrient"],
+                      WebkitLineClamp: 2,
+                      overflow: "hidden",
+                    }}
+                  >
+                    {dashboard.description}
+                  </p>
                 )}
-                <p className="text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-                  {formatDate(dashboard.updated_at)}
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: "var(--fg-subtle)",
+                    margin: 0,
+                    fontFamily: "var(--font-jetbrains, monospace)",
+                  }}
+                >
+                  {dashboard.widget_count != null
+                    ? `${dashboard.widget_count} widgets · `
+                    : ""}
+                  actualizado {formatDate(dashboard.updated_at)}
                 </p>
               </Link>
               <button
                 onClick={() => handleDelete(dashboard.id)}
                 disabled={deletingId === dashboard.id}
                 aria-label={`Eliminar ${dashboard.name}`}
-                className="absolute top-3 right-3 text-tremor-content-subtle dark:text-dark-tremor-content-subtle hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                style={{
+                  position: "absolute",
+                  top: 12,
+                  right: 12,
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontSize: 13,
+                  color: "var(--fg-subtle)",
+                  opacity: hovered === dashboard.id ? 1 : 0,
+                  transition: "opacity 120ms, color 120ms",
+                  padding: 4,
+                }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--down)")}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--fg-subtle)")}
               >
-                {deletingId === dashboard.id ? "..." : "\u2715"}
+                {deletingId === dashboard.id ? "..." : "✕"}
               </button>
-            </Card>
+            </div>
           ))}
         </div>
       )}

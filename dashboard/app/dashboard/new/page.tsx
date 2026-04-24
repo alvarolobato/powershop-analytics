@@ -726,7 +726,7 @@ export default function NewDashboard() {
                 type="button"
                 onClick={handleGenerate}
                 disabled={isDisabled || prompt.trim() === ""}
-                className="flex items-center gap-2 rounded-lg bg-violet-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-violet-600 dark:hover:bg-violet-500"
+                style={{ borderRadius: 6, background: "var(--accent)", padding: "10px 24px", fontSize: 13, fontWeight: 500, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, opacity: (isDisabled || prompt.trim() === "") ? 0.5 : 1 }}
               >
                 {loading && (
                   <span

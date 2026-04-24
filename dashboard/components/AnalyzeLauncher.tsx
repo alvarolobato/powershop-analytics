@@ -42,7 +42,7 @@ export default function AnalyzeLauncher({
         fontSize: 12,
         fontWeight: 600,
         letterSpacing: "0.04em",
-        boxShadow: "0 8px 24px -6px rgba(0,0,0,0.4)",
+        boxShadow: "0 8px 24px var(--accent-soft)",
         display: "flex",
         alignItems: "center",
         gap: 8,

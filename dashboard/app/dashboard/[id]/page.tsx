@@ -606,7 +606,8 @@ export default function ViewDashboard() {
     return (
       <div className="flex justify-center py-12">
         <div
-          className="h-8 w-8 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+          className="h-8 w-8 animate-spin rounded-full border-4 border-t-transparent"
+          style={{ borderColor: "var(--border)", borderTopColor: "var(--accent)" }}
           role="status"
           aria-label="Cargando"
         />
@@ -629,7 +630,7 @@ export default function ViewDashboard() {
         </p>
         <button
           onClick={() => router.push("/")}
-          className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
+          style={{ borderRadius: 6, background: "var(--accent)", padding: "8px 16px", fontSize: 13, fontWeight: 500, color: "#fff", border: "none", cursor: "pointer" }}
         >
           Volver a la lista
         </button>

@@ -153,7 +153,7 @@ export function DashboardGenerateProgressDialog({
                 <button
                   type="button"
                   onClick={onDismiss}
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+                  style={{ borderRadius: 6, background: "var(--accent)", padding: "8px 16px", fontSize: 13, fontWeight: 500, color: "#fff", border: "none", cursor: "pointer", fontFamily: "inherit" }}
                 >
                   Cerrar
                 </button>

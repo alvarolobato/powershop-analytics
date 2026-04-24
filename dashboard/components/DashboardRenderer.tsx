@@ -604,18 +604,6 @@ export function DashboardRenderer({
 
   return (
     <div>
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-          {spec.title}
-        </h1>
-        {spec.description && (
-          <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
-            {spec.description}
-          </p>
-        )}
-      </div>
-
       {/* Tabbed layout (when sections are defined) */}
       {spec.sections && spec.sections.length > 0 ? (
         <TabGroup>

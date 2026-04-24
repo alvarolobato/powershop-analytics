@@ -207,10 +207,9 @@ export function TableWidget({
                     padding: "10px 12px",
                     fontWeight: 500,
                     borderBottom: "1px solid var(--border)",
-                    fontFamily: "var(--font-jetbrains, monospace)",
-                    fontSize: 10,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
+                    fontFamily: "var(--font-inter, sans-serif)",
+                    fontSize: 11,
+                    letterSpacing: "0.04em",
                     color: "var(--fg-subtle)",
                     whiteSpace: "nowrap",
                   }}
@@ -368,12 +367,12 @@ export function TableWidget({
                     );
                   }
 
-                  // Description column: apply toTitleCase
+                  // String columns: apply toTitleCase when value looks like words
                   const str = String(cell ?? "");
-                  const isDescription = cIdx === 2 && str.length > 3 && !/^\d+/.test(str);
+                  const looksLikeWords = str.length > 3 && !/^\d+/.test(str) && /[A-Za-z]/.test(str);
                   return (
                     <td key={cIdx} style={{ padding: "10px 12px", color: "var(--fg)" }}>
-                      {isDescription ? toTitleCase(str) : formatCellValue(cell)}
+                      {looksLikeWords ? toTitleCase(str) : formatCellValue(cell)}
                     </td>
                   );
                 })}
