@@ -741,17 +741,18 @@ CREATE INDEX IF NOT EXISTS idx_glf_codigo     ON ps_gc_lin_facturas(codigo);
 
 DO $$
 BEGIN
-  -- Retail sales
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_lv_ventas') THEN
-    ALTER TABLE ps_lineas_ventas ADD CONSTRAINT fk_lv_ventas
-      FOREIGN KEY (num_ventas) REFERENCES ps_ventas(reg_ventas)
-      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  -- Retail sales FK constraints intentionally omitted.
+  -- lineas_ventas/pagos_ventas → ps_ventas FKs cause sync failures on timing
+  -- races: a new Venta created between the ventas sync and the lineas_ventas sync
+  -- is not yet in ps_ventas when lineas_ventas commits, triggering a violation.
+  -- This is an analytics read-only mirror; FK integrity is enforced by the source
+  -- (4D). The next ventas delta sync will pick up any temporarily-orphaned rows.
+  -- Drop existing constraints if present (migration).
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_lv_ventas') THEN
+    ALTER TABLE ps_lineas_ventas DROP CONSTRAINT fk_lv_ventas;
   END IF;
-
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pv_ventas') THEN
-    ALTER TABLE ps_pagos_ventas ADD CONSTRAINT fk_pv_ventas
-      FOREIGN KEY (num_ventas) REFERENCES ps_ventas(reg_ventas)
-      NOT VALID DEFERRABLE INITIALLY DEFERRED;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_pv_ventas') THEN
+    ALTER TABLE ps_pagos_ventas DROP CONSTRAINT fk_pv_ventas;
   END IF;
 
   -- Product hierarchy
