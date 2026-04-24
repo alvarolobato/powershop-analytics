@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useId } from "react";
 import type { LineChartWidget as LineChartWidgetSpec, GlossaryItem } from "@/lib/schema";
 import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
@@ -47,6 +47,7 @@ export function LineChartWidget({
   onDataPointClick,
 }: LineChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
+  const gradientId = useId().replace(/:/g, "");
   const [hover, setHover] = useState<HoverState | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -144,8 +145,10 @@ export function LineChartWidget({
   const plotH = VH - PAD.t - PAD.b;
 
   const xStep = n > 1 ? plotW / (n - 1) : plotW;
+  // Guard against all-zero data: use 1 as minimum range to avoid Infinity/NaN
+  const yRange = (dataMax - dataMin) || 1;
   const yScale = (v: number) =>
-    PAD.t + (1 - (v - dataMin) / (dataMax - dataMin)) * plotH;
+    PAD.t + (1 - (v - dataMin) / yRange) * plotH;
 
   const xFor = (i: number) => PAD.l + i * xStep;
 
@@ -231,7 +234,7 @@ export function LineChartWidget({
           }
         >
           <defs>
-            <linearGradient id={`lineGrad-${widget.id ?? "lc"}`} x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id={`lineGrad-${gradientId}`} x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
               <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
             </linearGradient>
@@ -262,7 +265,7 @@ export function LineChartWidget({
           ))}
 
           {/* Area fill */}
-          <path d={actualArea} fill={`url(#lineGrad-${widget.id ?? "lc"})`} />
+          <path d={actualArea} fill={`url(#lineGrad-${gradientId})`} />
 
           {/* Comparison/previous line */}
           {prevPath && (

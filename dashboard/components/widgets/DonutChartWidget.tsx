@@ -117,8 +117,8 @@ export function DonutChartWidget({
   // Center readout
   const display = hoverIdx !== null ? chartData[hoverIdx] : null;
   const centerPct = display
-    ? `${((display.value / total) * 100).toFixed(1)}%`
-    : `${total > 0 ? total.toLocaleString("es-ES", { maximumFractionDigits: 0 }) : "0"}`;
+    ? total > 0 ? `${((display.value / total) * 100).toFixed(1)}%` : "0,0%"
+    : total > 0 ? total.toLocaleString("es-ES", { maximumFractionDigits: 0 }) : "—";
   const centerLabel = display ? display.label : "Total";
 
   return (

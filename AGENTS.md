@@ -365,10 +365,16 @@ All GitHub issues in this project follow a single standard format. When creating
   - **Acceptance**: `docker compose run --rm etl python -m pytest && python -m ruff check etl/ && python -m mypy etl/`
   - **Spec update**: mark done
 
-- [ ] N-1b) Review cycle (owner: agent)
-  - **Change**: Request Copilot review, address all feedback, re-request until no new feedback
-  - **How**: `gh pr create` then request Copilot review via REST API: `gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`. Poll for review: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`. Address all comments with inline replies. Re-request after each round.
-  - **Acceptance**: Copilot review shows no unresolved comments
+- [ ] N-1b) Copilot review (owner: agent, **one round only**)
+  - **Change**: Request a Copilot review, address all feedback, then stop. Do **not** re-request Copilot.
+  - **How**: `gh pr create`, then request Copilot review via REST API: `gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`. Poll for review: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`. Address all comments with inline replies.
+  - **Acceptance**: Copilot review arrived, every comment has either a code change or a reply explaining why it does not apply. No second Copilot round.
+  - **Spec update**: mark done
+
+- [ ] N-1c) Opus review (owner: agent, **one round only, clean context**)
+  - **Change**: Run a single Opus review of the PR **from a fresh context** (new session, no implementation history), address all feedback, then stop.
+  - **How**: Start a new Claude Code session with no prior conversation about this PR and invoke the PR review flow on this PR number. Reply inline to every comment; apply the fixes that are correct.
+  - **Acceptance**: Opus review completed; every comment has either a code change or a reply. No second Opus round.
   - **Spec update**: mark done
 
 - [ ] N) Create commit (owner: agent)
@@ -395,22 +401,31 @@ git worktree remove ../<repo>-<worktree-name>
 
 ### PR and review policy
 
+Every PR gets **exactly two review rounds, in order, each run only once**:
+
+1. **One Copilot review** (bot).
+2. **One Opus review**, started from a **clean context** (fresh Claude Code session with no prior history about this PR or its implementation).
+
+After each round: address every comment with either a code change or an inline reply, then move on. **Do not re-request the same reviewer.** Iterating "until there are no comments" is no longer the policy — it was too much. If a later round surfaces a genuinely blocking issue, use judgement and escalate to the human owner rather than looping.
+
+Rules:
 - Every piece of work goes through a PR, even solo work.
-- **Always request a Copilot review** on every PR using the REST API:
+- **Round 1 — Copilot.** Request via the REST API:
   ```bash
   gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers \
     --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
   ```
   Do NOT use `gh pr review --request copilot` (doesn't work) or `gh pr edit --add-reviewer copilot` (can't resolve bot users). The REST API with `copilot-pull-request-reviewer[bot]` is the only working CLI method.
-- **From GitHub Actions**, the default `GITHUB_TOKEN` **cannot** assign `copilot-pull-request-reviewer[bot]` — the API returns 200 but with an empty `requested_reviewers` array. Workflows must use a PAT stored in the repo secret `COPILOT_PAT` (fine-grained PAT, scope `Pull requests: Read and write`). Pattern:
-  ```bash
-  GH_TOKEN="$COPILOT_PAT" gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers \
-    --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
-  ```
-  Always verify the response contains `Copilot` in `requested_reviewers` before claiming the review was requested.
-- Poll for the review result: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`
-- Address all feedback, reply to each comment, then re-request review.
-- Only merge after Copilot has reviewed and there is no unresolved feedback.
+  - **From GitHub Actions**, the default `GITHUB_TOKEN` **cannot** assign `copilot-pull-request-reviewer[bot]` — the API returns 200 but with an empty `requested_reviewers` array. Workflows must use a PAT stored in the repo secret `COPILOT_PAT` (fine-grained PAT, scope `Pull requests: Read and write`). Pattern:
+    ```bash
+    GH_TOKEN="$COPILOT_PAT" gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers \
+      --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
+    ```
+    Always verify the response contains `Copilot` in `requested_reviewers` before claiming the review was requested.
+  - Poll for the review: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`.
+  - Address every comment with a code change or inline reply. **One round only — do not re-request Copilot.**
+- **Round 2 — Opus, clean context.** Start a new Claude Code session (no prior conversation about this PR or the branch) and run the PR review flow on this PR number. Reply inline to every comment; apply the correct fixes. **One round only — do not re-request Opus.**
+- **Merge** after both rounds are done and every comment has a change or a reply. Unresolved disagreement → flag to the human owner; don't start a third round to paper over it.
 
 ### Phase labels and execution order
 

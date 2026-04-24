@@ -4,6 +4,16 @@
 
 ## Decision Log
 
+### D-021: PR review policy capped at two fixed rounds (Copilot → Opus clean-context) — 2026-04-24
+**Context**: The prior policy (AGENTS.md) required re-requesting Copilot "until no new feedback". In practice this produced long loops where late nit-pick rounds blocked merges without meaningfully improving the code. The human owner called it "too much".
+**Decision**: Every PR gets **exactly two review rounds, each run once**:
+1. **Copilot** (bot) — request via the REST API pattern already documented. Address each comment with a code change or inline reply, then stop. No re-request.
+2. **Opus** — run the PR review flow **from a clean Claude Code context** (fresh session, no prior conversation about the PR or branch) so Opus reviews the diff without being anchored to the implementation history. Address each comment with a change or reply, then stop. No re-request.
+Merge after both rounds; if a comment is genuinely blocking and disputed, escalate to the human owner instead of opening a third round.
+**Alternatives rejected**: Keeping the "until no feedback" loop (current pain point). Opus-only or Copilot-only (loses the cross-check). Running Opus in the implementation session (context bias defeats the purpose of a second opinion).
+**Rationale**: Two independent reviewers, each exactly once, bounds the review cost while preserving a cross-check from a different vantage point. The clean-context requirement for Opus is the core of why round 2 is useful — without it, the review is correlated with the implementation.
+**See**: `AGENTS.md` "PR and review policy" and issue-template tasks `N-1b` (Copilot) + `N-1c` (Opus).
+
 ### D-020: Force-resync trigger channel for ETL Monitor — 2026-04-23
 **Context**: Issue #398. After D-017's signed-int16 fix the nightly ETL only rewrites rows with a fresh `Exportaciones.FechaModifica`, so historical negative-stock rows already stored as 65535 persist until origin changes. Also, `etl_sync_runs.total_rows_synced` was hard-coded to zero because `finish_run` was never called with the accumulator.
 **Decision**:
@@ -14,7 +24,7 @@
 **Alternatives rejected**: Adding an ETL HTTP endpoint (scope creep; see D-016). Silently wiping *all* watermarks when `tables=[]` (accidental-rebuild risk). Deriving totals client-side (masks data-layer bugs).
 **Rationale**: Keeps the read-only SQL policy (no destructive DDL on source). The write path to `etl_watermarks` is the only change, and it is idempotent. Operators can request a targeted rebuild of `stock` without waiting for every historical Exportaciones row to change on the server.
 **See**: `etl/schema/init.sql`, `etl/db/postgres.py`, `etl/main.py`, `dashboard/app/api/etl/run/route.ts`, `dashboard/app/api/etl/stats/route.ts`, `dashboard/components/etl/ForceResyncDialog.tsx`, `dashboard/app/etl/page.tsx`.
-### D-021: Dashboard redesign — token-driven "data newsroom" visual system — 2026-04-24
+### D-022: Dashboard redesign — token-driven "data newsroom" visual system — 2026-04-24
 **Context**: Issue #404 — visual redesign to a dark-first, hierarchy-driven "data newsroom" layout.
 **Decision**: Implement a CSS variable token layer (`--bg`, `--fg`, `--accent`, `--up`/`--down`/`--warn`) on the `html` element with `data-theme`/`data-accent`/`data-density`/`kpiStyle` attributes. Replace the Tremor-centric sidebar layout with a sticky 56px TopBar. Re-skin all widgets (KPI editorial cards with sparklines and anomaly rings, custom SVG charts, ranked bar chart, table heat cells). Add LogBlock streaming transparency to chat sidebar. Add TweaksPanel for theme/accent/density control.
 - **Phases A-D**: Tokens, TopBar, widget re-skin (KpiRow, BarChart, LineChart, AreaChart, DonutChart, Table, InsightsStrip, RankedBars, Sparkline), Panel chrome.
@@ -163,7 +173,8 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 ## Changelog
 
 ### 2026-04-24
-- Dashboard redesign — "data newsroom" visual system (issue #404, D-021): token-driven CSS variable layer, TopBar shell, KPI editorial cards with sparklines and anomaly rings, custom SVG charts, LogBlock, ChatSidebar with separate Modificar/Analizar histories, TweaksPanel, `chat_messages_modify` DB column, `docs/skills/dashboard-redesign.md` skill.
+- PR review policy capped at two fixed rounds — D-021: one Copilot round, then one Opus round from a clean Claude Code context. Old "re-request until no feedback" loop removed. `AGENTS.md` updated (policy section + issue-template tasks `N-1b` Copilot / `N-1c` Opus).
+- Dashboard redesign — "data newsroom" visual system (issue #404, D-022): token-driven CSS variable layer, TopBar shell, KPI editorial cards with sparklines and anomaly rings, custom SVG charts, LogBlock, ChatSidebar with separate Modificar/Analizar histories, TweaksPanel, `chat_messages_modify` DB column, `docs/skills/dashboard-redesign.md` skill.
 
 ### 2026-04-23
 - Dashboard LLM: OpenRouter vs Claude Code CLI provider abstraction (issue #394, D-019); `llm_usage` / `llm_tool_calls` provider columns; admin usage aggregates by provider.

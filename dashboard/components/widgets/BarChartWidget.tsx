@@ -242,10 +242,9 @@ export function BarChartWidget({
                     x={i * bw + bw / 2}
                     y={VH - 4}
                     textAnchor="middle"
-                    fontSize="3"
+                    fontSize="10"
                     fill="var(--fg-subtle)"
                     fontFamily="var(--font-jetbrains, monospace)"
-                    vectorEffect="non-scaling-stroke"
                   >
                     {d.label}
                   </text>

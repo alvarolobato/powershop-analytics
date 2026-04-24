@@ -101,6 +101,7 @@ export function RankedBarsWidget({ widget }: RankedBarsWidgetProps) {
                 }}
               >
                 <div
+                  data-testid="ranked-bar"
                   style={{
                     width: `${pct}%`,
                     height: "100%",
