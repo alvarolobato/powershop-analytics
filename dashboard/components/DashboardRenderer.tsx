@@ -603,7 +603,7 @@ export function DashboardRenderer({
   }, [spec.widgets]);
 
   return (
-    <div>
+    <div style={{ padding: "0 20px 24px" }}>
       {/* Tabbed layout (when sections are defined) */}
       {spec.sections && spec.sections.length > 0 ? (
         <TabGroup>
