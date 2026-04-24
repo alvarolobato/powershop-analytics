@@ -1,13 +1,14 @@
 /**
  * GET /api/dashboard/[id]/interactions
  *
- * Returns all LLM interactions for a given dashboard, ordered by started_at DESC.
+ * Returns the 20 most recent LLM interactions for a given dashboard,
+ * ordered by started_at DESC.
  * Each row includes request_id, endpoint, prompt, final_output, lines, status,
  * llm_provider, llm_driver, started_at, finished_at.
  *
  * The `lines` field is a JSONB array of InteractionLine objects.
  *
- * 200 — { interactions: InteractionRow[] }
+ * 200 — { interactions: InteractionRow[], has_more: boolean }
  * 400 — invalid id
  * 500 — unexpected error
  */
@@ -59,6 +60,7 @@ export async function GET(
     );
   }
 
+  const LIMIT = 20;
   try {
     const rows = await sql<InteractionRow>(
       `SELECT
@@ -68,10 +70,12 @@ export async function GET(
          started_at, finished_at, status
        FROM llm_interactions
        WHERE dashboard_id = $1
-       ORDER BY started_at DESC`,
-      [id],
+       ORDER BY started_at DESC
+       LIMIT $2`,
+      [id, LIMIT + 1],
     );
-    return NextResponse.json({ interactions: rows });
+    const has_more = rows.length > LIMIT;
+    return NextResponse.json({ interactions: rows.slice(0, LIMIT), has_more });
   } catch (err) {
     console.error(`[${requestId}] GET /api/dashboard/${id}/interactions failed:`, err);
     return NextResponse.json(

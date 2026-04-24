@@ -396,6 +396,7 @@ function ModificarTab({
   prefillRequest,
   onPrefillApplied,
   creationLogs,
+  dashboardId,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
@@ -405,6 +406,7 @@ function ModificarTab({
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   creationLogs?: InteractionLine[];
+  dashboardId?: number;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -456,7 +458,11 @@ function ModificarTab({
       const res = await fetch("/api/dashboard/modify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, prompt: trimmed }),
+        body: JSON.stringify({
+          spec,
+          prompt: trimmed,
+          ...(dashboardId !== undefined ? { dashboardId } : {}),
+        }),
       });
 
       if (!res.ok) {
@@ -539,7 +545,7 @@ function ModificarTab({
     } finally {
       setLoading(false);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages]);
+  }, [input, loading, spec, onSpecUpdate, setMessages, dashboardId]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -1015,6 +1021,7 @@ export default function ChatSidebar({
             }
             onPrefillApplied={onPendingModifyInputConsumed}
             creationLogs={creationLogs}
+            dashboardId={dashboardId}
           />
         ) : (
           <AnalizarTab

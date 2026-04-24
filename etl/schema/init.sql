@@ -635,9 +635,9 @@ ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_driver TEXT;
 -- LLM interaction history (Dashboard App — full run audit trail)
 -- ============================================================
 
--- One row per generate/modify/analyze call.  Lines are the NDJSON progress
--- events exactly as streamed to the client (stored as JSONB array so they can
--- be replayed in the admin UI without string parsing).
+-- One row per generate/modify/analyze call.  The `lines` column stores
+-- InteractionLine objects (kind, text, optional ts) as a JSONB array so they
+-- can be replayed in the admin UI without string parsing.
 CREATE TABLE IF NOT EXISTS llm_interactions (
     id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     request_id   TEXT         NOT NULL,
@@ -655,7 +655,8 @@ CREATE TABLE IF NOT EXISTS llm_interactions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_interactions_dashboard ON llm_interactions(dashboard_id);
-CREATE INDEX IF NOT EXISTS idx_llm_interactions_request   ON llm_interactions(request_id);
+-- idx_llm_interactions_request intentionally omitted: the UNIQUE (request_id)
+-- constraint added below creates an equivalent unique index automatically.
 CREATE INDEX IF NOT EXISTS idx_llm_interactions_started   ON llm_interactions(started_at DESC);
 -- Support common admin filter patterns without sequential scans
 CREATE INDEX IF NOT EXISTS idx_llm_interactions_endpoint_started

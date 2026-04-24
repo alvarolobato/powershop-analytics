@@ -9,7 +9,7 @@
  *
  * Protected by x-admin-key / Bearer token.
  *
- * 200 — { interactions: InteractionRow[], total: number }
+ * 200 — { interactions: InteractionRow[], returned: number }
  * 401 — unauthorized
  */
 
@@ -123,5 +123,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  return NextResponse.json({ interactions: rows, total: rows.length });
+  return NextResponse.json({ interactions: rows, returned: rows.length });
 }
