@@ -53,6 +53,7 @@ export interface ConfigValue {
   description: string;
   requires_restart: string[];
   type: SchemaEntry["type"];
+  enum_values?: string[];
   default: SchemaEntry["default"];
 }
 
@@ -132,6 +133,7 @@ function coerce(
   value: string | number | boolean | null | undefined,
   type: SchemaEntry["type"],
   key?: string,
+  enumValues?: string[],
 ): string | number | boolean | null {
   if (value === null || value === undefined) return null;
   if (type === "int") {
@@ -146,6 +148,15 @@ function coerce(
   if (type === "bool") {
     if (typeof value === "boolean") return value;
     return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+  }
+  if (type === "enum") {
+    const coerced = String(value).trim();
+    if (enumValues && enumValues.length > 0 && !enumValues.includes(coerced)) {
+      throw new Error(
+        `Config key${key ? ` '${key}'` : ""}: value ${JSON.stringify(coerced)} is not one of ${JSON.stringify(enumValues)}`,
+      );
+    }
+    return coerced;
   }
   return String(value);
 }
@@ -219,7 +230,7 @@ export function getSystemConfig(opts?: {
     }
 
     result[entry.key] = {
-      value: coerce(raw, entry.type, entry.key),
+      value: coerce(raw, entry.type, entry.key, entry.enum_values),
       source,
       sensitive: entry.sensitive,
       key: entry.key,
@@ -228,6 +239,7 @@ export function getSystemConfig(opts?: {
       description: entry.description,
       requires_restart: entry.requires_restart ?? [],
       type: entry.type,
+      enum_values: entry.enum_values,
       default: entry.default,
     };
   }
@@ -284,8 +296,10 @@ export function writeConfig(
   const body = stringifyYaml(merged, { sortMapEntries: true });
   const content = header + "\n" + body;
 
-  // Atomic write: write to temp file then rename
-  const tmpPath = configPath + ".tmp." + process.pid;
+  // Atomic write: write to temp file then rename.
+  // Use a random suffix (not just pid) to avoid collisions with concurrent requests.
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  const tmpPath = configPath + ".tmp." + process.pid + "." + randomSuffix;
   try {
     fs.writeFileSync(tmpPath, content, { encoding: "utf-8", mode: 0o600 });
     fs.renameSync(tmpPath, configPath);

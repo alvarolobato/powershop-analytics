@@ -113,12 +113,38 @@ export async function PUT(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // Validate that all keys exist in schema
+  // Validate that all keys exist in schema and coerce/validate types
   const config = getSystemConfig();
   const unknown = Object.keys(updates).filter((k) => !config[k]);
   if (unknown.length > 0) {
     return NextResponse.json(
       { error: `Unknown config keys: ${unknown.join(", ")}` },
+      { status: 400 },
+    );
+  }
+
+  // Type validation: coerce each value according to schema entry
+  const validationErrors: string[] = [];
+  for (const [key, value] of Object.entries(updates)) {
+    const cv = config[key];
+    if (!cv || value === null) continue;
+    if (cv.type === "int") {
+      const n = parseInt(String(value), 10);
+      if (isNaN(n)) {
+        validationErrors.push(`Key '${key}': expected int, got ${JSON.stringify(value)}`);
+      }
+    } else if (cv.type === "enum" && cv.enum_values && cv.enum_values.length > 0) {
+      const v = String(value).trim();
+      if (!cv.enum_values.includes(v)) {
+        validationErrors.push(
+          `Key '${key}': value ${JSON.stringify(v)} is not one of ${JSON.stringify(cv.enum_values)}`,
+        );
+      }
+    }
+  }
+  if (validationErrors.length > 0) {
+    return NextResponse.json(
+      { error: "Type validation failed", details: validationErrors },
       { status: 400 },
     );
   }

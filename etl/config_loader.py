@@ -107,20 +107,39 @@ def _load_file(config_path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _coerce(value: Any, schema_type: str) -> Any:
-    """Coerce *value* to the type declared in the schema entry."""
+def _coerce(
+    value: Any,
+    schema_type: str,
+    *,
+    key: str = "",
+    enum_values: list[str] | None = None,
+) -> Any:
+    """Coerce *value* to the type declared in the schema entry.
+
+    For ``type: enum``, raises ValueError if the coerced value is not in
+    *enum_values* (when provided).
+    """
     if value is None:
         return None
     if schema_type == "int":
         try:
             return int(value)
         except (TypeError, ValueError) as exc:
-            raise ValueError(f"Expected int, got {value!r}") from exc
+            raise ValueError(
+                f"Config key {key!r}: expected int, got {value!r}"
+            ) from exc
     if schema_type == "bool":
         if isinstance(value, bool):
             return value
         return str(value).strip().lower() in ("1", "true", "yes", "on")
-    # string, enum, and anything else: keep as str
+    if schema_type == "enum":
+        coerced = str(value).strip()
+        if enum_values and coerced not in enum_values:
+            raise ValueError(
+                f"Config key {key!r}: value {coerced!r} is not one of {enum_values}"
+            )
+        return coerced
+    # string and anything else: keep as str
     return str(value) if value is not None else None
 
 
@@ -169,8 +188,9 @@ def load_config(
             source = "default"
             raw = None
 
+        enum_values: list[str] | None = entry.get("enum_values")
         result[key] = ConfigValue(
-            value=_coerce(raw, schema_type),
+            value=_coerce(raw, schema_type, key=key, enum_values=enum_values),
             source=source,
             sensitive=sensitive,
             key=key,

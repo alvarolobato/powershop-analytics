@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
 import ConfigPageClient from "./ConfigForm";
 
 export const metadata: Metadata = {
@@ -9,15 +8,11 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 /**
- * Server component — reads the `ps_admin` cookie that middleware already
- * validated. Passes the admin key to the client component so it can attach
- * it to API requests without ever touching localStorage.
+ * Server component — the page is protected by middleware (ps_admin cookie check).
+ * The client component makes fetch() calls to /api/admin/config*; the browser
+ * automatically attaches the ps_admin httpOnly cookie on same-origin requests,
+ * and adminApiKeyValid() now accepts it. No secret is passed to the browser.
  */
 export default function AdminConfigPage() {
-  // The `ps_admin` cookie value equals ADMIN_API_KEY (set by /admin/login action).
-  // Middleware already verified it's correct before we reach this component.
-  const cookieStore = cookies();
-  const adminKey = cookieStore.get("ps_admin")?.value ?? "";
-
-  return <ConfigPageClient adminKeyFromCookie={adminKey} />;
+  return <ConfigPageClient />;
 }

@@ -6,6 +6,11 @@
  * Shows all system configuration keys grouped by section.
  * Requires admin authentication (cookie session — same as all /admin/* pages).
  *
+ * The page is protected by middleware (ps_admin cookie check). All API calls
+ * use same-origin fetch() without explicit auth headers; the browser sends
+ * the ps_admin httpOnly cookie automatically, which adminApiKeyValid() accepts.
+ * This keeps the raw admin key out of JavaScript/HTML entirely.
+ *
  * Features:
  * - Source badges (env / file / default)
  * - Sensitive fields use SecretField with eye-toggle + server reveal
@@ -92,11 +97,14 @@ function RestartBanner({ services }: { services: string[] }) {
 
 interface ConfigRowProps {
   item: ConfigKey;
-  adminKey: string;
   onSaved: () => void;
 }
 
-function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
+/**
+ * ConfigRow uses same-origin fetch() without explicit auth headers.
+ * The browser sends the ps_admin httpOnly cookie automatically.
+ */
+function ConfigRow({ item, onSaved }: ConfigRowProps) {
   const [editValue, setEditValue] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -108,10 +116,11 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
 
   async function handleReveal() {
     try {
-      const res = await fetch(`/api/admin/config/reveal?key=${encodeURIComponent(item.key)}`, {
-        headers: { "x-admin-key": adminKey },
-      });
-      if (!res.ok) throw new Error("No autorizado");
+      const res = await fetch(`/api/admin/config/reveal?key=${encodeURIComponent(item.key)}`);
+      if (!res.ok) {
+        if (res.status === 401) throw new Error("Sesión caducada. Recarga e inicia sesión de nuevo.");
+        throw new Error(`Error ${res.status}`);
+      }
       const data = await res.json();
       setRevealedValue(data.value as string);
     } catch (e) {
@@ -143,10 +152,7 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
     try {
       const res = await fetch("/api/admin/config", {
         method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ updates: { [item.key]: editValue } }),
       });
       if (!res.ok) {
@@ -175,10 +181,7 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
     try {
       const res = await fetch("/api/admin/config", {
         method: "PUT",
-        headers: {
-          "content-type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: { "content-type": "application/json" },
         body: JSON.stringify({ updates: { [item.key]: valueToSave } }),
       });
       if (!res.ok) {
@@ -323,11 +326,9 @@ function ConfigRow({ item, adminKey, onSaved }: ConfigRowProps) {
 
 function SectionCard({
   section,
-  adminKey,
   onRefresh,
 }: {
   section: ConfigSection;
-  adminKey: string;
   onRefresh: () => void;
 }) {
   const restartServices = Array.from(
@@ -351,7 +352,6 @@ function SectionCard({
           <ConfigRow
             key={item.key}
             item={item}
-            adminKey={adminKey}
             onSaved={onRefresh}
           />
         ))}
@@ -365,36 +365,25 @@ function SectionCard({
 // ---------------------------------------------------------------------------
 
 /**
- * `adminKeyFromCookie` is injected by the server component (page.tsx) from the
- * `ps_admin` httpOnly cookie that middleware has already validated.  This avoids
- * storing the raw admin key in localStorage or any browser-accessible storage.
- *
- * If the cookie is absent (shouldn't happen — middleware redirects to login) we
- * show an inline prompt as a fallback.
+ * Uses same-origin fetch() without explicit auth headers.
+ * The browser sends the ps_admin httpOnly cookie automatically for same-origin
+ * requests; adminApiKeyValid() now accepts it. The raw key never appears in JS.
  */
-export default function ConfigPageClient({
-  adminKeyFromCookie = "",
-}: {
-  adminKeyFromCookie?: string;
-}) {
+export default function ConfigPageClient() {
   const [data, setData] = useState<ConfigData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [adminKey, setAdminKey] = useState(adminKeyFromCookie);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<string | null>(null);
 
-  const loadConfig = useCallback(async (key?: string) => {
-    const k = key ?? adminKey;
-    if (!k) return;
+  const loadConfig = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/config", {
-        headers: { "x-admin-key": k },
-      });
+      // No explicit auth header — browser sends ps_admin cookie automatically
+      const res = await fetch("/api/admin/config");
       if (res.status === 401) {
-        setError("No autorizado. La sesión de administrador puede haber caducado.");
+        setError("Sesión caducada. Recarga e inicia sesión de nuevo.");
         setLoading(false);
         return;
       }
@@ -406,24 +395,17 @@ export default function ConfigPageClient({
     } finally {
       setLoading(false);
     }
-  }, [adminKey]);
+  }, []);
 
   useEffect(() => {
-    if (adminKey) {
-      void loadConfig(adminKey);
-    } else {
-      setLoading(false);
-    }
-  }, [adminKey, loadConfig]);
+    void loadConfig();
+  }, [loadConfig]);
 
   async function handleImportAll() {
     setImporting(true);
     setImportResult(null);
     try {
-      const res = await fetch("/api/admin/config/import-env", {
-        method: "POST",
-        headers: { "x-admin-key": adminKey },
-      });
+      const res = await fetch("/api/admin/config/import-env", { method: "POST" });
       const body = await res.json() as { message?: string; error?: string };
       setImportResult(body.message ?? body.error ?? "Hecho");
       await loadConfig();
@@ -432,22 +414,6 @@ export default function ConfigPageClient({
     } finally {
       setImporting(false);
     }
-  }
-
-  // Fallback: cookie was empty (shouldn't happen — middleware redirects first)
-  if (!adminKey) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-          Configuración del sistema
-        </h1>
-        <div className="max-w-sm space-y-3 rounded-lg border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background p-4">
-          <p className="text-sm text-tremor-content dark:text-dark-tremor-content">
-            Sesión caducada. <a href="/admin/login" className="text-blue-600 hover:underline">Vuelve a iniciar sesión.</a>
-          </p>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -504,7 +470,6 @@ export default function ConfigPageClient({
             <SectionCard
               key={section.name}
               section={section}
-              adminKey={adminKey}
               onRefresh={() => void loadConfig()}
             />
           ))}
@@ -513,4 +478,3 @@ export default function ConfigPageClient({
     </div>
   );
 }
-

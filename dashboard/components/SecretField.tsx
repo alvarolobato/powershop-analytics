@@ -59,7 +59,9 @@ export default function SecretField({
       setIsRevealed(false);
       return;
     }
-    if (onReveal && !revealed) {
+    // Use null check (not falsy) so an empty-string revealed value is treated
+    // as "already revealed" and does not trigger another fetch.
+    if (onReveal && revealed == null) {
       setIsLoading(true);
       try {
         await onReveal();

@@ -9,7 +9,7 @@
 **Decision**:
 - Introduce `~/.config/powershop-analytics/config.yaml` as a single source of non-secret + secret configuration, managed by the admin UI.
 - **Precedence**: `env var > config.yaml > hardcoded default`. Fully backward-compatible: systems with only env vars keep working unchanged.
-- **Schema**: `config/schema.yaml` is the single source of truth for all 41 keys (name, env mapping, type, sensitivity, defaults, restart requirements, components).
+- **Schema**: `config/schema.yaml` is the single source of truth for all 40 keys (name, env mapping, type, sensitivity, defaults, restart requirements, components).
 - **Loaders**: `etl/config_loader.py` (Python/PyYAML) and `dashboard/lib/system-config/loader.ts` (TypeScript/yaml) implement identical precedence logic. In-process cache with explicit invalidation (`resetConfigCache()`) on PUT.
 - **Bootstrap**: On first start, if `config.yaml` is absent, it is auto-created from current env + schema defaults (`bootstrapConfigIfMissing()`). Atomic write (temp + rename) + `chmod 0600`.
 - **Admin API**: `GET /api/admin/config` (sections + source/sensitivity metadata, secrets masked); `PUT /api/admin/config` (partial update, writes to file); `POST /api/admin/config/import-env` (bulk copy from env to file); `GET /api/admin/config/reveal?key=…` (admin-auth real value reveal + audit log).
@@ -163,7 +163,7 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 ## Changelog
 
 ### 2026-04-24
-- Central config.yaml + admin UI (issue #397, D-020): `config/schema.yaml` (41 keys); `etl/config_loader.py` + `etl/tests/test_config_loader.py`; `dashboard/lib/system-config/loader.ts` + tests; `GET/PUT /api/admin/config`, `GET /api/admin/config/reveal`, `POST /api/admin/config/import-env`; `/admin/config` page with `SecretField`, source badges, restart banners, per-key "Save to file"; bootstrap on first start (`instrumentation.ts`); Docker `/config` volume in ETL (ro) and Dashboard (rw).
+- Central config.yaml + admin UI (issue #397, D-020): `config/schema.yaml` (40 keys); `etl/config_loader.py` + `etl/tests/test_config_loader.py`; `dashboard/lib/system-config/loader.ts` + tests; `GET/PUT /api/admin/config`, `GET /api/admin/config/reveal`, `POST /api/admin/config/import-env`; `/admin/config` page with `SecretField`, source badges, restart banners, per-key "Save to file"; bootstrap on first start (`instrumentation.ts`); Docker `/config` volume in ETL (ro) and Dashboard (rw).
 
 ### 2026-04-23
 - Dashboard LLM: OpenRouter vs Claude Code CLI provider abstraction (issue #394, D-019); `llm_usage` / `llm_tool_calls` provider columns; admin usage aggregates by provider.
