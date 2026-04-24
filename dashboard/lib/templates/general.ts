@@ -61,7 +61,11 @@ WHERE v."entrada" = true
   AND lv."fecha_creacion" >= :curr_from
   AND lv."fecha_creacion" <= :curr_to
   AND __gf_tienda__
-  AND __gf_familia__`,
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+  AND __gf_sexo__
+  AND __gf_departamento__`,
           format: "percent",
         },
         {
@@ -175,6 +179,10 @@ WHERE v."entrada" = true
   AND lv."fecha_creacion" <= :curr_to
   AND __gf_tienda__
   AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+  AND __gf_sexo__
+  AND __gf_departamento__
 GROUP BY fm."fami_grup_marc"
 ORDER BY "Ventas Netas" DESC
 LIMIT 10`,
