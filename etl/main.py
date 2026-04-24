@@ -600,6 +600,7 @@ def main() -> None:
         logger.error("Configuration error: %s", exc)
         sys.exit(1)
 
+    # ETL_CRON_HOUR is env-only; cron schedule changes require container restart.
     cron_hour = int(os.environ.get("ETL_CRON_HOUR", "2"))
 
     from etl.db import fourd, postgres

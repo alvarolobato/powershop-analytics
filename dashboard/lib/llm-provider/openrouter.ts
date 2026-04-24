@@ -5,6 +5,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/resources/chat/completions";
 import type { AgenticModelAdapter, AgenticStepResult } from "@/lib/llm-tools/runner-types";
+import { getSystemConfig } from "@/lib/system-config/loader";
 
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 1000;
@@ -76,10 +77,23 @@ export async function withOpenRouterRetry<T>(fn: () => Promise<T>): Promise<T> {
 let _client: OpenAI | null = null;
 
 export function getOpenRouterApiKey(): string {
-  const key = process.env.OPENROUTER_API_KEY;
+  // Prefer the value from the central config loader (env > config.yaml > default).
+  // Fall back to process.env directly when the loader throws (e.g. schema.yaml is
+  // missing or tests that stub env but don't set up the full config loader).
+  let cfgKey: string | null | undefined;
+  try {
+    const cfg = getSystemConfig();
+    cfgKey = cfg["openrouter.api_key"]?.value as string | null | undefined;
+  } catch {
+    cfgKey = undefined;
+  }
+  const key =
+    (cfgKey !== null && cfgKey !== undefined ? String(cfgKey).trim() : "") ||
+    process.env.OPENROUTER_API_KEY?.trim() ||
+    "";
   if (!key) {
     throw new Error(
-      "OPENROUTER_API_KEY is not set. Set it in your environment or .env file.",
+      "OPENROUTER_API_KEY is not set. Set it in your environment, config.yaml, or .env file.",
     );
   }
   return key;

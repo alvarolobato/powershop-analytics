@@ -25,6 +25,16 @@ const ADMIN_LINKS = [
     label: "Uso LLM",
     description: "Tokens consumidos y coste estimado por proveedor y función.",
   },
+  {
+    href: "/admin/interactions",
+    label: "Interacciones LLM",
+    description: "Historial de interacciones generate/modify/analyze con logs de herramientas.",
+  },
+  {
+    href: "/admin/config",
+    label: "Configuración",
+    description: "Ver y editar la configuración del sistema (config.yaml) desde el navegador.",
+  },
 ] as const;
 
 export default function AdminIndexPage() {

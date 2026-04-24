@@ -56,7 +56,6 @@ const preloadScript = `(function(){
     }
   } catch(e) {}
 })();`;
-
 export default function RootLayout({
   children,
 }: {

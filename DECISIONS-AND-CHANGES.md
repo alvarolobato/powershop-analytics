@@ -31,6 +31,22 @@ Merge after both rounds; if a comment is genuinely blocking and disputed, escala
 - **Phases E-H**: ChatSidebar rebuilt with two independent message histories + suggestion chips; LogBlock component (streaming + collapsed); AnalyzeLauncher floating rail; TweaksPanel with 4 radio groups; `chat_messages_modify` DB column + API wiring; `docs/skills/dashboard-redesign.md` skill.
 **Rationale**: Token-driven theming avoids hardcoded Tailwind class switches; CSS variable swaps are instant. The "data newsroom" hierarchy matches the retail sales manager's morning scan pattern (KPIs → anomalies → drivers → trends). TweaksPanel gives power users control without cluttering the main UI.
 **See**: `dashboard/app/globals.css` (tokens), `dashboard/components/TopBar.tsx`, `dashboard/components/TweaksPanel.tsx`, `dashboard/components/LogBlock.tsx`, `dashboard/components/ChatSidebar.tsx`, `dashboard/components/AnalyzeLauncher.tsx`, `docs/skills/dashboard-redesign.md`.
+### D-023: Central config.yaml + admin UI for all system settings — 2026-04-24
+**Context**: Issue #397 — all configuration lived in `.env` / environment variables with no UI to view or change it. Secrets and non-secrets were mixed. Adding D-019's LLM provider field made clear a unified config layer was needed.
+**Decision**:
+- Introduce `~/.config/powershop-analytics/config.yaml` as a single source of non-secret + secret configuration, managed by the admin UI.
+- **Precedence**: `env var > config.yaml > hardcoded default`. Fully backward-compatible: systems with only env vars keep working unchanged.
+- **Schema**: `config/schema.yaml` is the single source of truth for all 40 keys (name, env mapping, type, sensitivity, defaults, restart requirements, components).
+- **Loaders**: `etl/config_loader.py` (Python/PyYAML) and `dashboard/lib/system-config/loader.ts` (TypeScript/yaml) implement identical precedence logic. In-process cache with explicit invalidation (`resetConfigCache()`) on PUT.
+- **Bootstrap**: On first start, if `config.yaml` is absent, it is auto-created from current env + schema defaults (`bootstrapConfigIfMissing()`). Atomic write (temp + rename) + `chmod 0600`.
+- **Admin API**: `GET /api/admin/config` (sections + source/sensitivity metadata, secrets masked); `PUT /api/admin/config` (partial update, writes to file); `POST /api/admin/config/import-env` (bulk copy from env to file); `GET /api/admin/config/reveal?key=…` (admin-auth real value reveal + audit log).
+- **UI**: `/admin/config` — all sections, source badges (`env` / `file` / `default`), `SecretField` with eye-toggle + copy, per-key "Save to file" for env-sourced keys, global "Import all", restart-required banners.
+- **`ADMIN_API_KEY`** is explicitly excluded from UI editing (read-only guard in PUT handler).
+- **Docker**: `${HOME}/.config/powershop-analytics` mounted at `/config` — read-only for ETL, read-write for Dashboard. `CONFIG_FILE=/config/config.yaml` env var in both services.
+- **Scope**: The new loaders are consumed by the admin API, bootstrap path, and Dashboard LLM runtime (`dashboard/lib/llm-provider/config.ts`, `openrouter.ts`, `llm-usage.ts` now call `getSystemConfig()` so config.yaml values take effect at runtime). ETL `etl/config.py` still reads env vars directly for backward compatibility; file-precedence for the ETL scheduler is a follow-on task.
+**Alternatives rejected**: Splitting config into separate files per component (defeated the "single source" goal); database-stored config (adds bootstrap coupling).
+**Rationale**: Gives operators a GUI to inspect and change settings without SSH; env vars remain authoritative for Docker/CI; secrets stay in the same directory, never committed.
+**See**: `config/schema.yaml`, `etl/config_loader.py`, `dashboard/lib/system-config/loader.ts`, `dashboard/app/admin/config/`, `dashboard/app/api/admin/config/`, `docker-compose.yml`.
 ### D-019: Pluggable Dashboard LLM providers (OpenRouter API vs CLI) — 2026-04-23
 **Context**: Issue #394 — the Dashboard App hard-coded OpenRouter; teams with a flat-rate Claude Code subscription wanted the same flows without forcing per-token API spend.
 **Decision**:
@@ -175,7 +191,7 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 ### 2026-04-24
 - PR review policy capped at two fixed rounds — D-021: one Copilot round, then one Opus round from a clean Claude Code context. Old "re-request until no feedback" loop removed. `AGENTS.md` updated (policy section + issue-template tasks `N-1b` Copilot / `N-1c` Opus).
 - Dashboard redesign — "data newsroom" visual system (issue #404, D-022): token-driven CSS variable layer, TopBar shell, KPI editorial cards with sparklines and anomaly rings, custom SVG charts, LogBlock, ChatSidebar with separate Modificar/Analizar histories, TweaksPanel, `chat_messages_modify` DB column, `docs/skills/dashboard-redesign.md` skill.
-
+- Central config.yaml + admin UI (issue #397, D-023): `config/schema.yaml` (40 keys); `etl/config_loader.py` + `etl/tests/test_config_loader.py`; `dashboard/lib/system-config/loader.ts` + tests; `GET/PUT /api/admin/config`, `GET /api/admin/config/reveal`, `POST /api/admin/config/import-env`; `/admin/config` page with `SecretField`, source badges, restart banners, per-key "Save to file"; bootstrap on first start (`instrumentation.ts`); Docker `/config` volume in ETL (ro) and Dashboard (rw).
 ### 2026-04-23
 - Dashboard LLM: OpenRouter vs Claude Code CLI provider abstraction (issue #394, D-019); `llm_usage` / `llm_tool_calls` provider columns; admin usage aggregates by provider.
 - ETL Monitor force-resync + accurate KPIs (issue #398, D-020): `etl_manual_trigger` gains `force_full` / `force_tables`; scheduler resets watermarks before run; `finish_run` now receives `total_rows_synced`. Dashboard Monitor ETL adds throughput, watermark-age, 24h errors, top-tables-by-rows, and a force-resync dialog.

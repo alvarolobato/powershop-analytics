@@ -10,6 +10,8 @@ import type { ApiErrorResponse } from "@/lib/errors";
 import type { WidgetState } from "@/components/DashboardRenderer";
 import LogBlock from "@/components/LogBlock";
 import type { LogLine } from "@/components/LogBlock";
+import type { InteractionLine } from "@/lib/db-write";
+import { interactionLineClass } from "@/lib/interaction-line-class";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -366,6 +368,93 @@ const chipStyle: React.CSSProperties = {
 };
 
 // ---------------------------------------------------------------------------
+// CreationLogPanel — collapsible "Log inicial" for the Modificar tab
+// ---------------------------------------------------------------------------
+
+function CreationLogPanel({ lines }: { lines: InteractionLine[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (lines.length === 0) return null;
+
+  return (
+    <div style={{ margin: "12px 16px 0", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-2)" }}>
+      <button
+        type="button"
+        onClick={() => setExpanded((p) => !p)}
+        style={{ display: "flex", width: "100%", alignItems: "center", justifyContent: "space-between", padding: "8px 12px", fontSize: 11, color: "var(--fg-muted)", background: "none", border: "none", cursor: "pointer", fontFamily: "var(--font-jetbrains, monospace)", textTransform: "uppercase", letterSpacing: "0.08em" }}
+        aria-expanded={expanded}
+        data-testid="creation-log-toggle"
+      >
+        <span>Log inicial ({lines.length} líneas)</span>
+        <span
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block", transition: "transform 0.15s" }}
+          aria-hidden="true"
+        >
+          ▸
+        </span>
+      </button>
+      {expanded && (
+        <div
+          style={{ maxHeight: 192, overflowY: "auto", padding: "0 12px 12px", fontSize: 11, lineHeight: 1.6 }}
+          data-testid="creation-log-content"
+        >
+          {lines.map((l, i) => (
+            <div
+              key={i}
+              style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", color: interactionLineClass(l.kind) === "text-emerald-600 dark:text-emerald-400" ? "var(--up)" : interactionLineClass(l.kind) === "text-red-600 dark:text-red-400" ? "var(--down)" : "var(--fg-muted)" }}
+            >
+              {l.text}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Hook: fetch creation interaction lines for a saved dashboard
+// ---------------------------------------------------------------------------
+
+interface InteractionRowSummary {
+  id: string;
+  request_id: string;
+  endpoint: "generate" | "modify" | "analyze";
+  lines: InteractionLine[];
+  status: "running" | "completed" | "error";
+}
+
+function useCreationLogs(dashboardId?: number): InteractionLine[] {
+  const [lines, setLines] = useState<InteractionLine[]>([]);
+
+  useEffect(() => {
+    if (!dashboardId) return;
+    let cancelled = false;
+    fetch(`/api/dashboard/${dashboardId}/interactions`)
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { interactions: InteractionRowSummary[] };
+        if (cancelled) return;
+        const createInteraction = data.interactions.find(
+          (r) => r.endpoint === "generate" && r.status === "completed",
+        );
+        if (createInteraction) {
+          setLines(Array.isArray(createInteraction.lines) ? createInteraction.lines : []);
+        }
+      })
+      .catch(() => {
+        // Non-critical — silently ignore
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [dashboardId]);
+
+  return lines;
+}
+
+
+// ---------------------------------------------------------------------------
 // ModificarTab
 // ---------------------------------------------------------------------------
 
@@ -378,6 +467,7 @@ function ModificarTab({
   isActive,
   prefillRequest,
   onPrefillApplied,
+  dashboardId,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
@@ -387,10 +477,12 @@ function ModificarTab({
   isActive: boolean;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
+  dashboardId?: number;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [streamingLog, setStreamingLog] = useState<LogLine[] | null>(null);
+  const creationLogs = useCreationLogs(dashboardId);
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -560,6 +652,10 @@ function ModificarTab({
       <div style={{ padding: "10px 16px 0", fontSize: 11, color: "var(--fg-subtle)" }}>
         Pide cambios al dashboard.
       </div>
+      {/* Creation log (collapsible, shown when available) */}
+      {creationLogs && creationLogs.length > 0 && (
+        <CreationLogPanel lines={creationLogs} />
+      )}
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1265,6 +1361,7 @@ export default function ChatSidebar({
                 : null
             }
             onPrefillApplied={onPendingModifyInputConsumed}
+            dashboardId={dashboardId}
           />
         ) : (
           <AnalizarTab

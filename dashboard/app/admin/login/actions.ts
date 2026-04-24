@@ -27,10 +27,11 @@ export async function loginAdmin(formData: FormData): Promise<void> {
   };
   // Set path-scoped cookies so the session credential is only sent to the
   // paths that need it — not every request on the site.
-  //   /admin   — admin UI pages and the login page
-  //   /etl     — ETL monitor UI pages (same-origin browser navigation)
-  //   /api/etl — ETL data API endpoints called by same-origin fetch from /etl
-  for (const path of ["/admin", "/etl", "/api/etl"]) {
+  //   /admin       — admin UI pages and the login page
+  //   /etl         — ETL monitor UI pages (same-origin browser navigation)
+  //   /api/etl     — ETL data API endpoints called by same-origin fetch from /etl
+  //   /api/admin   — admin data API endpoints called by same-origin fetch from /admin/*
+  for (const path of ["/admin", "/etl", "/api/etl", "/api/admin"]) {
     jar.set("ps_admin", expected, { ...cookieBase, path });
   }
 

@@ -17,14 +17,28 @@ vi.mock("@/lib/schema", async () => {
   return { ...actual };
 });
 
+// --- Mock the persistence module ---
+vi.mock("@/lib/db-write", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/db-write")>("@/lib/db-write");
+  return {
+    ...actual,
+    createInteraction: vi.fn().mockResolvedValue("mock-interaction-id"),
+    appendInteractionLines: vi.fn().mockResolvedValue(undefined),
+    finishInteraction: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
 import { POST } from "../route";
 import {
   generateDashboard,
   BudgetExceededError,
   CircuitBreakerOpenError,
 } from "@/lib/llm";
+import * as dbWrite from "@/lib/db-write";
 
 const mockGenerate = vi.mocked(generateDashboard);
+const mockCreateInteraction = vi.mocked(dbWrite.createInteraction);
+const mockFinishInteraction = vi.mocked(dbWrite.finishInteraction);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +76,12 @@ const VALID_SPEC = {
 describe("POST /api/dashboard/generate", () => {
   beforeEach(() => {
     mockGenerate.mockReset();
+    mockCreateInteraction.mockReset();
+    mockCreateInteraction.mockResolvedValue("mock-interaction-id");
+    mockFinishInteraction.mockReset();
+    mockFinishInteraction.mockResolvedValue(undefined);
+    vi.mocked(dbWrite.appendInteractionLines).mockReset();
+    vi.mocked(dbWrite.appendInteractionLines).mockResolvedValue(undefined);
   });
 
   // --- Happy path ---
@@ -354,6 +374,54 @@ describe("POST /api/dashboard/generate", () => {
 
       expect(res.status).toBe(400);
       expect(json.code).toBe("LLM_INVALID_RESPONSE");
+    });
+  });
+
+  // --- Persistence (createInteraction / finishInteraction) ---
+
+  describe("interaction persistence (non-stream)", () => {
+    it("creates an interaction and finishes it as completed on success", async () => {
+      mockGenerate.mockResolvedValue(JSON.stringify(VALID_SPEC));
+
+      const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
+      expect(res.status).toBe(200);
+
+      expect(mockCreateInteraction).toHaveBeenCalledWith(
+        expect.objectContaining({ endpoint: "generate", prompt: "Ventas del mes" }),
+      );
+      expect(mockFinishInteraction).toHaveBeenCalledWith(
+        "mock-interaction-id",
+        "completed",
+        expect.any(String),
+      );
+    });
+
+    it("creates an interaction and finishes it as error when LLM throws", async () => {
+      mockGenerate.mockRejectedValue(new Error("LLM down"));
+
+      const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
+      expect(res.status).toBe(500);
+
+      expect(mockCreateInteraction).toHaveBeenCalled();
+      expect(mockFinishInteraction).toHaveBeenCalledWith(
+        "mock-interaction-id",
+        "error",
+        expect.any(String),
+      );
+    });
+
+    it("creates an interaction and finishes it as error when LLM returns invalid spec", async () => {
+      mockGenerate.mockResolvedValue(JSON.stringify({ title: "no widgets" }));
+
+      const res = await POST(makeRequest({ prompt: "Ventas del mes" }));
+      expect(res.status).toBe(400);
+
+      expect(mockCreateInteraction).toHaveBeenCalled();
+      expect(mockFinishInteraction).toHaveBeenCalledWith(
+        "mock-interaction-id",
+        "error",
+        expect.any(String),
+      );
     });
   });
 });

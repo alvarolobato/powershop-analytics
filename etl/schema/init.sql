@@ -6,6 +6,18 @@ EXCEPTION WHEN OTHERS THEN
 END
 $$;
 
+-- pgcrypto provides gen_random_uuid() used by llm_interactions.id.
+-- Wrapped in a DO/EXCEPTION block so that installations where the role
+-- lacks CREATE EXTENSION privilege (or the extension is unavailable)
+-- fall back gracefully with a notice rather than aborting init.sql.
+DO $$
+BEGIN
+  CREATE EXTENSION IF NOT EXISTS pgcrypto;
+EXCEPTION WHEN OTHERS THEN
+  RAISE NOTICE 'pgcrypto not available — gen_random_uuid() may require PostgreSQL 13+ core support';
+END
+$$;
+
 -- PostgreSQL DDL for the PowerShop Analytics mirror schema.
 -- All tables use the ps_ prefix.
 -- Run once to create tables; safe to re-run (IF NOT EXISTS).
@@ -635,6 +647,49 @@ CREATE INDEX IF NOT EXISTS idx_llm_usage_endpoint_request_id
 
 ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_provider TEXT NOT NULL DEFAULT 'openrouter';
 ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_driver TEXT;
+
+-- ============================================================
+-- LLM interaction history (Dashboard App — full run audit trail)
+-- ============================================================
+
+-- One row per generate/modify/analyze call.  The `lines` column stores
+-- InteractionLine objects (kind, text, optional ts) as a JSONB array so they
+-- can be replayed in the admin UI without string parsing.
+CREATE TABLE IF NOT EXISTS llm_interactions (
+    id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    request_id   TEXT         NOT NULL,
+    endpoint     TEXT         NOT NULL CHECK (endpoint IN ('generate','modify','analyze')),
+    dashboard_id INTEGER      REFERENCES dashboards(id) ON DELETE SET NULL,
+    prompt       TEXT         NOT NULL,
+    final_output TEXT,
+    lines        JSONB        NOT NULL DEFAULT '[]'::jsonb,
+    llm_provider TEXT,
+    llm_driver   TEXT,
+    started_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    finished_at  TIMESTAMPTZ,
+    status       TEXT         NOT NULL DEFAULT 'running'
+                              CHECK (status IN ('running','completed','error'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_interactions_dashboard ON llm_interactions(dashboard_id);
+-- idx_llm_interactions_request intentionally omitted: the UNIQUE (request_id)
+-- constraint added below creates an equivalent unique index automatically.
+CREATE INDEX IF NOT EXISTS idx_llm_interactions_started   ON llm_interactions(started_at DESC);
+-- Support common admin filter patterns without sequential scans
+CREATE INDEX IF NOT EXISTS idx_llm_interactions_endpoint_started
+    ON llm_interactions(endpoint, started_at DESC);
+-- request_id must be unique: the admin detail page and client fetch use it as a stable key
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'llm_interactions'::regclass AND contype = 'u'
+      AND conname = 'llm_interactions_request_id_key'
+  ) THEN
+    ALTER TABLE llm_interactions ADD CONSTRAINT llm_interactions_request_id_key UNIQUE (request_id);
+  END IF;
+END
+$$;
 
 -- ============================================================
 -- Unique constraints required by wholesale FK targets

@@ -4,4 +4,5 @@ p4d
 # psycopg2 and install libpq-dev before building.
 psycopg2-binary
 python-dotenv
+PyYAML>=6.0
 schedule
