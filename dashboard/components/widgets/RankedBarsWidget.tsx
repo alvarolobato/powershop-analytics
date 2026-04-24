@@ -52,7 +52,8 @@ export function RankedBarsWidget({ widget }: RankedBarsWidgetProps) {
         }}
       >
         {items.map((item, i) => {
-          const pct = (item.value / (item.maxValue ?? maxValue)) * 100;
+          const effectiveMax = (item.maxValue != null && item.maxValue > 0) ? item.maxValue : (maxValue > 0 ? maxValue : 1);
+          const pct = Math.min(100, Math.max(0, (item.value / effectiveMax) * 100));
           const barColor =
             item.flag === "low"
               ? "var(--down)"

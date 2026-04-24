@@ -758,12 +758,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     fontWeight: active ? 600 : 400,
   });
 
-  // Derive color-scheme from the active data-theme so native date pickers match the theme.
-  const activeTheme =
-    typeof document !== "undefined"
-      ? (document.documentElement.dataset.theme ?? "dark")
-      : "dark";
-
+  // color-scheme is inherited from :root[data-theme] in globals.css — no inline override needed.
   const dateInputStyle: React.CSSProperties = {
     display: "block",
     width: "100%",
@@ -775,7 +770,6 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     color: "var(--fg)",
     fontSize: 12,
     fontFamily: "inherit",
-    colorScheme: (activeTheme === "light" ? "light" : "dark") as React.CSSProperties["colorScheme"],
     boxSizing: "border-box",
   };
 

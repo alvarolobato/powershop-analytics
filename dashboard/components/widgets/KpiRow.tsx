@@ -281,7 +281,7 @@ function KpiCard({ item, currentValue, comparisonValue, anomaly: computedAnomaly
       </div>
       {deltaRatio !== null && (
         <div style={{ fontSize: 11, color: chipColor, marginTop: 2 }}>
-          {fmtDelta(deltaRatio).arrow} {fmtDelta(deltaRatio).text}
+          {fmtDelta(deltaRatio).arrow} {fmtDelta(deltaRatio).text.replace(/^[+−]/, "")}
           {compDisplay && ` (${compDisplay})`}
         </div>
       )}
