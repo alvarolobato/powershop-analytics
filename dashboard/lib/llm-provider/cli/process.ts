@@ -3,26 +3,48 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, copyFileSync, existsSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { RunProcessResult } from "./types";
 import { CliRunnerError } from "./errors";
 
 /**
- * Create a fresh isolated HOME directory for a single claude invocation.
- * Auth comes from CLAUDE_CODE_OAUTH_TOKEN env var (inherited from process.env),
- * so no credentials need to be copied. Isolation prevents concurrent writes to
- * a shared ~/.claude.json from corrupting the config file.
+ * Create an isolated HOME directory for a single claude invocation.
+ * Copies ~/.claude/.credentials.json (full OAuth credentials including refresh
+ * token) so the CLI can authenticate and auto-refresh without needing the macOS
+ * Keychain. After the subprocess completes the caller writes updated credentials
+ * back so refreshed tokens are not lost.
  */
-function isolatedClaudeHome(): string {
+function isolatedClaudeHome(realHome: string): { path: string; credSrc: string } {
   const tmp = mkdtempSync(join(tmpdir(), "claude-home-"));
+  const claudeDir = join(tmp, ".claude");
+  mkdirSync(claudeDir, { recursive: true });
+  const credSrc = join(realHome, ".claude", ".credentials.json");
   try {
-    mkdirSync(join(tmp, ".claude"), { recursive: true });
+    if (existsSync(credSrc)) {
+      copyFileSync(credSrc, join(claudeDir, ".credentials.json"));
+    }
   } catch {
-    // ignore — claude will create it
+    // ignore — CLI will fail auth but won't crash; caller can log
   }
-  return tmp;
+  return { path: tmp, credSrc };
+}
+
+/** Copy updated credentials back to the real HOME if they changed size/mtime. */
+function syncCredentialsBack(tmpHome: string, credSrc: string): void {
+  const tmpCred = join(tmpHome, ".claude", ".credentials.json");
+  try {
+    if (!existsSync(tmpCred)) return;
+    const tmpStat = statSync(tmpCred);
+    let srcStat: ReturnType<typeof statSync> | null = null;
+    try { srcStat = statSync(credSrc); } catch { /* ok if missing */ }
+    if (!srcStat || tmpStat.size !== srcStat.size || tmpStat.mtimeMs > srcStat.mtimeMs) {
+      copyFileSync(tmpCred, credSrc);
+    }
+  } catch {
+    // non-fatal
+  }
 }
 
 export interface RunCliProcessParams {
@@ -72,10 +94,8 @@ class CappedBufferCollector {
 export async function runCliProcess(params: RunCliProcessParams): Promise<RunProcessResult> {
   const { file, args, stdin, timeoutMs, maxStdoutBytes, maxStderrBytes } = params;
 
-  // Each invocation gets its own fresh HOME so concurrent processes don't
-  // corrupt a shared ~/.claude.json via simultaneous writes.
-  // Auth is provided by CLAUDE_CODE_OAUTH_TOKEN (inherited from process.env).
-  const tmpHome = isolatedClaudeHome();
+  const realHome = process.env.HOME ?? "/home/nextjs";
+  const { path: tmpHome, credSrc } = isolatedClaudeHome(realHome);
 
   return await new Promise((resolve, reject) => {
     const child = spawn(file, args, {
@@ -118,12 +138,14 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
 
     child.on("error", (err) => {
       clearTimeout(timer);
+      try { syncCredentialsBack(tmpHome, credSrc); } catch { /* ignore */ }
       try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
       reject(err);
     });
 
     child.on("close", (exitCode) => {
       clearTimeout(timer);
+      try { syncCredentialsBack(tmpHome, credSrc); } catch { /* ignore */ }
       try { rmSync(tmpHome, { recursive: true, force: true }); } catch { /* ignore */ }
       resolve({
         exitCode,
