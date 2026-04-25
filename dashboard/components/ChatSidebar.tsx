@@ -93,6 +93,43 @@ const MODIFICAR_SUGGESTIONS = [
 ];
 
 // ---------------------------------------------------------------------------
+// NDJSON stream reader
+// ---------------------------------------------------------------------------
+
+async function* readNdjsonStream<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          yield JSON.parse(t) as T;
+        } catch {
+          /* skip malformed lines */
+        }
+      }
+    }
+    if (buffer.trim()) {
+      try {
+        yield JSON.parse(buffer.trim()) as T;
+      } catch {
+        /* skip */
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers — serialize widget data for API calls
 // ---------------------------------------------------------------------------
 
@@ -514,6 +551,7 @@ function ModificarTab({
     setLoading(true);
 
     setStreamingLog([]);
+    const capturedLogs: LogLine[] = [];
 
     try {
       const res = await fetch("/api/dashboard/modify", {
@@ -522,7 +560,8 @@ function ModificarTab({
         body: JSON.stringify({ spec, prompt: trimmed }),
       });
 
-      if (!res.ok) {
+      // Non-streaming error (400 validation before stream opens)
+      if (!res.ok || !res.body) {
         let errorDetail: ApiErrorResponse | undefined;
         let userMsg: string;
 
@@ -559,7 +598,7 @@ function ModificarTab({
             timestamp: new Date(),
             isError: true,
             errorDetail,
-            logs: streamingLog ?? [],
+            logs: capturedLogs,
           },
         ];
         setMessages(newMessages);
@@ -567,30 +606,59 @@ function ModificarTab({
         return;
       }
 
-      const modifyData = await res.json() as DashboardSpec & { _logs?: LogLine[] };
-      const { _logs: modifyLogs, ...newSpec } = modifyData;
-      onSpecUpdate(newSpec as DashboardSpec, trimmed);
+      // Stream NDJSON lines
+      type ModifyMsg =
+        | { type: "progress"; requestId: string; logLine: LogLine }
+        | { type: "result"; requestId: string; spec: DashboardSpec }
+        | { type: "error"; requestId: string; error: string; code: string; details?: string };
 
-      const widgetDelta = newSpec.widgets.length - spec.widgets.length;
-      let summary = "Dashboard actualizado.";
-      if (widgetDelta > 0) {
-        summary += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
-      } else if (widgetDelta < 0) {
-        summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+      for await (const msg of readNdjsonStream<ModifyMsg>(res.body)) {
+        if (msg.type === "progress") {
+          capturedLogs.push(msg.logLine);
+          setStreamingLog([...capturedLogs]);
+        } else if (msg.type === "result") {
+          onSpecUpdate(msg.spec, trimmed);
+
+          const widgetDelta = msg.spec.widgets.length - spec.widgets.length;
+          let summary = "Dashboard actualizado.";
+          if (widgetDelta > 0) {
+            summary += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
+          } else if (widgetDelta < 0) {
+            summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+          }
+
+          const newMessages: ChatMessage[] = [
+            ...messages,
+            userMessage,
+            {
+              role: "assistant",
+              content: summary,
+              timestamp: new Date(),
+              logs: capturedLogs,
+            },
+          ];
+          setMessages(newMessages);
+          onMessagesChange?.(newMessages);
+        } else if (msg.type === "error") {
+          const errorDetail: ApiErrorResponse | undefined = isApiErrorResponse(msg)
+            ? (msg as unknown as ApiErrorResponse)
+            : undefined;
+          const newMessages: ChatMessage[] = [
+            ...messages,
+            userMessage,
+            {
+              role: "assistant",
+              content: msg.error,
+              timestamp: new Date(),
+              isError: true,
+              errorDetail,
+              logs: capturedLogs,
+            },
+          ];
+          setMessages(newMessages);
+          onMessagesChange?.(newMessages);
+        }
       }
-
-      const newMessages: ChatMessage[] = [
-        ...messages,
-        userMessage,
-        {
-          role: "assistant",
-          content: summary,
-          timestamp: new Date(),
-          logs: modifyLogs ?? [],
-        },
-      ];
-      setMessages(newMessages);
-      onMessagesChange?.(newMessages);
     } catch (err) {
       console.error("Error al procesar la solicitud del chat:", err);
 
@@ -615,7 +683,7 @@ function ModificarTab({
       setLoading(false);
       setTimeout(() => setStreamingLog(null), 400);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange, messages, streamingLog]);
+  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange, messages]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -826,6 +894,7 @@ function AnalizarTab({
       setLoading(true);
 
       setStreamingLog([]);
+      const capturedLogs: LogLine[] = [];
 
       try {
         const res = await fetch("/api/dashboard/analyze", {
@@ -840,7 +909,8 @@ function AnalizarTab({
           }),
         });
 
-        if (!res.ok) {
+        // Non-streaming error (400 validation before stream opens)
+        if (!res.ok || !res.body) {
           let errorDetail: ApiErrorResponse | undefined;
           let userMsg: string;
 
@@ -876,7 +946,7 @@ function AnalizarTab({
               timestamp: new Date(),
               isError: true,
               errorDetail,
-              logs: [],
+              logs: capturedLogs,
             },
           ];
           setMessages(errorMessages);
@@ -884,21 +954,48 @@ function AnalizarTab({
           return;
         }
 
-        const data = await res.json() as { response: string; suggestions: string[]; logs?: LogLine[] };
-        const capturedLogs: LogLine[] = data.logs ?? [];
+        // Stream NDJSON lines
+        type AnalyzeMsg =
+          | { type: "progress"; requestId: string; logLine: LogLine }
+          | { type: "result"; requestId: string; response: string; suggestions: string[] }
+          | { type: "error"; requestId: string; error: string; code: string; details?: string };
 
-        const finalMessages: ChatMessage[] = [
-          ...updatedMessages,
-          {
-            role: "assistant",
-            content: data.response,
-            timestamp: new Date(),
-            logs: capturedLogs,
-          },
-        ];
-        setMessages(finalMessages);
-        onMessagesChange?.(finalMessages);
-        setSuggestions(data.suggestions ?? []);
+        for await (const msg of readNdjsonStream<AnalyzeMsg>(res.body)) {
+          if (msg.type === "progress") {
+            capturedLogs.push(msg.logLine);
+            setStreamingLog([...capturedLogs]);
+          } else if (msg.type === "result") {
+            const finalMessages: ChatMessage[] = [
+              ...updatedMessages,
+              {
+                role: "assistant",
+                content: msg.response,
+                timestamp: new Date(),
+                logs: capturedLogs,
+              },
+            ];
+            setMessages(finalMessages);
+            onMessagesChange?.(finalMessages);
+            setSuggestions(msg.suggestions ?? []);
+          } else if (msg.type === "error") {
+            const errorDetail: ApiErrorResponse | undefined = isApiErrorResponse(msg)
+              ? (msg as unknown as ApiErrorResponse)
+              : undefined;
+            const errorMessages: ChatMessage[] = [
+              ...updatedMessages,
+              {
+                role: "assistant",
+                content: msg.error,
+                timestamp: new Date(),
+                isError: true,
+                errorDetail,
+                logs: capturedLogs,
+              },
+            ];
+            setMessages(errorMessages);
+            onMessagesChange?.(errorMessages);
+          }
+        }
       } catch (err) {
         console.error("Error al analizar datos:", err);
 

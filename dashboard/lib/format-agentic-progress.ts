@@ -6,6 +6,36 @@ export interface TimedEvent {
   ms: number;
 }
 
+/**
+ * Convert a single AgenticProgressEvent to a LogLine immediately.
+ * Returns null for event types that don't produce visible log lines
+ * (e.g. `round` with round=1, `assistant_tools`, `tool_start`).
+ */
+export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): LogLine | null {
+  const ts = `+${(ms / 1000).toFixed(1)}s`;
+  switch (event.type) {
+    case "tool_done":
+      return {
+        timestamp: ts,
+        kind: "tool",
+        label: event.name,
+        detail: event.ok ? `${event.ms}ms` : `error · ${event.errorCode ?? "err"}`,
+      };
+    case "round":
+      if (event.round > 1) {
+        return { timestamp: ts, kind: "reason", label: "Razonando", detail: `ronda ${event.round}` };
+      }
+      return null;
+    case "finalizing":
+      return { timestamp: ts, kind: "done", label: "Respuesta lista", detail: `${event.messageChars} chars` };
+    case "assistant_tools":
+    case "tool_start":
+      return null;
+    default:
+      return null;
+  }
+}
+
 /** Build a LogLine collector for use as onAgenticProgress, then call toLogLines() after the run. */
 export function createLogCollector(): {
   onAgenticProgress: (event: AgenticProgressEvent) => void;
@@ -22,25 +52,8 @@ export function createLogCollector(): {
 function eventsToLogLines(events: TimedEvent[]): LogLine[] {
   const lines: LogLine[] = [];
   for (const { event, ms } of events) {
-    const ts = `+${(ms / 1000).toFixed(1)}s`;
-    switch (event.type) {
-      case "tool_done":
-        lines.push({
-          timestamp: ts,
-          kind: "tool",
-          label: event.name,
-          detail: event.ok ? `${event.ms}ms` : `error · ${event.errorCode ?? "err"}`,
-        });
-        break;
-      case "round":
-        if (event.round > 1) {
-          lines.push({ timestamp: ts, kind: "reason", label: "Razonando", detail: `ronda ${event.round}` });
-        }
-        break;
-      case "finalizing":
-        lines.push({ timestamp: ts, kind: "done", label: "Respuesta lista", detail: `${event.messageChars} chars` });
-        break;
-    }
+    const line = agenticEventToLogLine(event, ms);
+    if (line) lines.push(line);
   }
   return lines;
 }

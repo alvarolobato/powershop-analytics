@@ -2,12 +2,14 @@
  * POST /api/dashboard/analyze
  *
  * Accepts a dashboard spec + widget data + user prompt, calls the LLM to
- * produce a data analysis, and returns the response plus suggestion chips.
+ * produce a data analysis, and streams progress events in real-time.
  *
  * Request body:
  *   { spec: DashboardSpec, widgetData: Record<string, unknown>, prompt: string, action?: string }
- * Response:
- *   { response: string, suggestions: string[], logs: LogLine[] }
+ * Response: application/x-ndjson stream
+ *   { type: "progress", requestId, logLine: LogLine }  — per agentic step
+ *   { type: "result",   requestId, response: string, suggestions: string[] }
+ *   { type: "error",    requestId, error: string, code: string, details?: string }
  */
 import { NextResponse } from "next/server";
 import {
@@ -32,7 +34,8 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { createLogCollector } from "@/lib/format-agentic-progress";
+import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
+import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -194,101 +197,125 @@ export async function POST(request: Request) {
   // --- Serialize widget data for LLM context --------------------------------
   const serializedData = serializeWidgetData(specParse.data, widgetDataMap);
 
-  // --- Persist interaction start -------------------------------------------
+  // --- Open streaming response ----------------------------------------------
   const cfg = loadDashboardLlmConfig();
   const llmProvider = cfg.provider;
   const llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
 
-  let interactionId: string | null = null;
-  try {
-    interactionId = await createInteraction({
-      requestId,
-      endpoint: "analyze",
-      dashboardId: dashboardIdNum ?? null,
-      prompt: prompt.trim(),
-      llmProvider,
-      llmDriver: llmDriver ?? null,
-    });
-  } catch (e) {
-    console.error(`[${requestId}] createInteraction(analyze) failed:`, e);
-  }
+  const encoder = new TextEncoder();
+  const t0 = Date.now();
 
-  // --- Call LLM to analyze dashboard ----------------------------------------
-  const logCollector = createLogCollector();
-  let analysisResponse: string;
-  try {
-    analysisResponse = await analyzeDashboard(
-      serializedData,
-      prompt.trim(),
-      typeof action === "string" ? action : undefined,
-      {
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+      };
+
+      // --- Persist interaction start (fire-and-forget alongside stream) -----
+      let interactionId: string | null = null;
+      const interactionIdPromise = createInteraction({
         requestId,
-        endpoint: "analyzeDashboard",
-        dashboardId: dashboardIdNum,
-        onAgenticProgress: logCollector.onAgenticProgress,
-      },
-    );
-  } catch (err) {
-    if (interactionId) {
-      const errText = err instanceof Error ? err.message : "Error al analizar";
-      await finishInteraction(interactionId, "error", errText).catch((e) =>
-        console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
-      );
-    }
-    if (err instanceof AgenticRunnerError) {
-      return NextResponse.json(
-        formatApiError(
-          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
-          "AGENTIC_RUNNER",
-          `${err.code}: ${err.message}`,
-          err.requestId,
-        ),
-        { status: 500 },
-      );
-    }
-    if (err instanceof BudgetExceededError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-        { status: 429 },
-      );
-    }
-    if (err instanceof CircuitBreakerOpenError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
-        { status: 503 },
-      );
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    const normalizedMessage = message.toLowerCase();
-    console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
+        endpoint: "analyze",
+        dashboardId: dashboardIdNum ?? null,
+        prompt: prompt.trim(),
+        llmProvider,
+        llmDriver: llmDriver ?? null,
+      }).then((id) => {
+        interactionId = id;
+      }).catch((e) => {
+        console.error(`[${requestId}] createInteraction(analyze) failed:`, e);
+      });
 
-    const isRateLimit =
-      normalizedMessage.includes("rate limit") ||
-      normalizedMessage.includes("ratelimit") ||
-      normalizedMessage.includes("429");
+      const capturedLogLines: import("@/components/LogBlock").LogLine[] = [];
 
-    return NextResponse.json(
-      formatApiError(
-        isRateLimit
-          ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-          : "No se pudo analizar el dashboard. Inténtalo de nuevo.",
-        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
-        sanitizeErrorMessage(err),
-        requestId,
-      ),
-      { status: isRateLimit ? 429 : 500 },
-    );
-  }
+      const onAgenticProgress = (ev: AgenticProgressEvent) => {
+        const logLine = agenticEventToLogLine(ev, Date.now() - t0);
+        if (logLine) {
+          capturedLogLines.push(logLine);
+          send({ type: "progress", requestId, logLine });
+        }
+      };
 
-  // --- Generate suggestions before returning the response ------------------
-  const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
-  const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
+      // --- Call LLM to analyze dashboard ------------------------------------
+      let analysisResponse: string;
+      try {
+        analysisResponse = await analyzeDashboard(
+          serializedData,
+          prompt.trim(),
+          typeof action === "string" ? action : undefined,
+          {
+            requestId,
+            endpoint: "analyzeDashboard",
+            dashboardId: dashboardIdNum,
+            onAgenticProgress,
+          },
+        );
+      } catch (err) {
+        await interactionIdPromise;
+        if (interactionId) {
+          const errText = err instanceof Error ? err.message : "Error al analizar";
+          await finishInteraction(interactionId, "error", errText).catch((e) =>
+            console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+          );
+        }
 
-  if (interactionId) {
-    await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
-      console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
-    );
-  }
+        let errorPayload: Record<string, unknown>;
+        if (err instanceof AgenticRunnerError) {
+          errorPayload = formatApiError(
+            "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
+            "AGENTIC_RUNNER",
+            `${err.code}: ${err.message}`,
+            err.requestId,
+          ) as unknown as Record<string, unknown>;
+        } else if (err instanceof BudgetExceededError) {
+          errorPayload = formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId) as unknown as Record<string, unknown>;
+        } else if (err instanceof CircuitBreakerOpenError) {
+          errorPayload = formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId) as unknown as Record<string, unknown>;
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          const normalizedMessage = message.toLowerCase();
+          console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
+          const isRateLimit =
+            normalizedMessage.includes("rate limit") ||
+            normalizedMessage.includes("ratelimit") ||
+            normalizedMessage.includes("429");
+          errorPayload = formatApiError(
+            isRateLimit
+              ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+              : "No se pudo analizar el dashboard. Inténtalo de nuevo.",
+            isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+            sanitizeErrorMessage(err),
+            requestId,
+          ) as unknown as Record<string, unknown>;
+        }
 
-  return NextResponse.json({ response: analysisResponse, suggestions, logs: logCollector.toLogLines() });
+        send({ type: "error", requestId, ...errorPayload });
+        controller.close();
+        return;
+      }
+
+      // --- Generate suggestions --------------------------------------------
+      const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
+      const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
+
+      // --- Persist completion ----------------------------------------------
+      await interactionIdPromise;
+      if (interactionId) {
+        await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
+          console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
+        );
+      }
+
+      send({ type: "result", requestId, response: analysisResponse, suggestions });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Request-Id": requestId,
+    },
+  });
 }

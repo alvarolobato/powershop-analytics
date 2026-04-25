@@ -2,10 +2,13 @@
  * POST /api/dashboard/modify
  *
  * Accepts a current DashboardSpec and a user prompt, calls the LLM to produce
- * an updated spec, validates it, and returns the result.
+ * an updated spec, validates it, and streams progress events in real-time.
  *
  * Request body: { spec: DashboardSpec, prompt: string }
- * Response: 200 with updated DashboardSpec, or 400/429/500 on error.
+ * Response: application/x-ndjson stream
+ *   { type: "progress", requestId, logLine: LogLine }  — per agentic step
+ *   { type: "result",   requestId, spec: DashboardSpec }
+ *   { type: "error",    requestId, error: string, code: string, details?: string }
  */
 import { NextResponse } from "next/server";
 import {
@@ -26,7 +29,8 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { createLogCollector } from "@/lib/format-agentic-progress";
+import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
+import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 
 /**
  * Extract JSON from a string that may be wrapped in markdown code blocks.
@@ -129,161 +133,192 @@ export async function POST(request: Request) {
     }
   }
 
-  // --- Persist interaction start --------------------------------------------
+  // --- Open streaming response ----------------------------------------------
   const cfg = loadDashboardLlmConfig();
   const llmProvider = cfg.provider;
   const llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
 
-  let interactionId: string | null = null;
-  try {
-    interactionId = await createInteraction({
-      requestId,
-      endpoint: "modify",
-      dashboardId: dashboardIdNum,
-      prompt: prompt.trim(),
-      llmProvider,
-      llmDriver: llmDriver ?? null,
-    });
-  } catch (e) {
-    console.error(`[${requestId}] createInteraction(modify) failed:`, e);
-  }
+  const encoder = new TextEncoder();
+  const t0 = Date.now();
 
-  // --- Call LLM to modify the dashboard -------------------------------------
-  const logCollector = createLogCollector();
-  let rawResponse: string;
-  try {
-    rawResponse = await modifyDashboard(
-      JSON.stringify(specParse.data),
-      prompt.trim(),
-      { requestId, endpoint: "modifyDashboard", onAgenticProgress: logCollector.onAgenticProgress },
-    );
-  } catch (err: unknown) {
-    if (interactionId) {
-      const errText = err instanceof Error ? err.message : "Error al modificar";
-      await finishInteraction(interactionId, "error", errText).catch((e) =>
-        console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
-      );
-    }
-    if (err instanceof AgenticRunnerError) {
-      return NextResponse.json(
-        formatApiError(
-          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el cambio o inténtalo de nuevo.",
-          "AGENTIC_RUNNER",
-          `${err.code}: ${err.message}`,
-          err.requestId,
-        ),
-        { status: 500 },
-      );
-    }
-    if (err instanceof BudgetExceededError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-        { status: 429 },
-      );
-    }
-    if (err instanceof CircuitBreakerOpenError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
-        { status: 503 },
-      );
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    const normalizedMessage = message.toLowerCase();
-    console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+      };
 
-    const isRateLimit =
-      normalizedMessage.includes("rate limit") ||
-      normalizedMessage.includes("ratelimit") ||
-      normalizedMessage.includes("429");
-
-    return NextResponse.json(
-      formatApiError(
-        isRateLimit
-          ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-          : "No se pudo modificar el dashboard. Inténtalo de nuevo.",
-        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
-        sanitizeErrorMessage(err),
+      // --- Persist interaction start (fire-and-forget alongside stream) -----
+      let interactionId: string | null = null;
+      const interactionIdPromise = createInteraction({
         requestId,
-      ),
-      { status: isRateLimit ? 429 : 500 },
-    );
-  }
+        endpoint: "modify",
+        dashboardId: dashboardIdNum,
+        prompt: prompt.trim(),
+        llmProvider,
+        llmDriver: llmDriver ?? null,
+      }).then((id) => {
+        interactionId = id;
+      }).catch((e) => {
+        console.error(`[${requestId}] createInteraction(modify) failed:`, e);
+      });
 
-  // --- Parse and validate LLM response --------------------------------------
-  const jsonStr = extractJson(rawResponse);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    console.error(
-      `[${requestId}] El LLM devolvió JSON inválido al modificar (${jsonStr.length} chars)`,
-    );
-    if (interactionId) {
-      await finishInteraction(interactionId, "error", "JSON inválido en respuesta del modelo").catch(
-        (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
-      );
-    }
-    return NextResponse.json(
-      formatApiError(
-        "El modelo de IA devolvió una respuesta con formato incorrecto.",
-        "LLM_INVALID_RESPONSE",
-        undefined,
-        requestId,
-      ),
-      { status: 400 },
-    );
-  }
+      const onAgenticProgress = (ev: AgenticProgressEvent) => {
+        const logLine = agenticEventToLogLine(ev, Date.now() - t0);
+        if (logLine) {
+          send({ type: "progress", requestId, logLine });
+        }
+      };
 
-  let updatedSpec: DashboardSpec;
-  try {
-    updatedSpec = validateSpec(parsed);
-  } catch {
-    console.error(`[${requestId}] El LLM devolvió un spec inválido al modificar.`);
-    if (interactionId) {
-      await finishInteraction(interactionId, "error", "Spec inválido").catch((e) =>
-        console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
-      );
-    }
-    return NextResponse.json(
-      formatApiError(
-        "El modelo de IA generó un dashboard con estructura incorrecta.",
-        "LLM_INVALID_RESPONSE",
-        undefined,
-        requestId,
-      ),
-      { status: 400 },
-    );
-  }
+      // --- Call LLM to modify the dashboard ---------------------------------
+      let rawResponse: string;
+      try {
+        rawResponse = await modifyDashboard(
+          JSON.stringify(specParse.data),
+          prompt.trim(),
+          { requestId, endpoint: "modifyDashboard", onAgenticProgress },
+        );
+      } catch (err: unknown) {
+        await interactionIdPromise;
+        if (interactionId) {
+          const errText = err instanceof Error ? err.message : "Error al modificar";
+          await finishInteraction(interactionId, "error", errText).catch((e) =>
+            console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+          );
+        }
 
-  const sqlLint = lintDashboardSpec(updatedSpec);
-  if (sqlLint.length > 0) {
-    console.error(
-      `[${requestId}] SQL heurístico rechazó el spec modificado por el LLM:`,
-      sqlLint.join(" | "),
-    );
-    if (interactionId) {
-      await finishInteraction(interactionId, "error", `SQL lint: ${sqlLint.join(" | ")}`).catch(
-        (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
-      );
-    }
-    return NextResponse.json(
-      {
-        ...formatApiError(
-          "El modelo devolvió SQL con patrones inválidos para PostgreSQL. Reformula el cambio o inténtalo de nuevo.",
-          "SQL_LINT",
-          sqlLint.join(" | "),
+        let errorPayload: Record<string, unknown>;
+        if (err instanceof AgenticRunnerError) {
+          errorPayload = formatApiError(
+            "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el cambio o inténtalo de nuevo.",
+            "AGENTIC_RUNNER",
+            `${err.code}: ${err.message}`,
+            err.requestId,
+          ) as unknown as Record<string, unknown>;
+        } else if (err instanceof BudgetExceededError) {
+          errorPayload = formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId) as unknown as Record<string, unknown>;
+        } else if (err instanceof CircuitBreakerOpenError) {
+          errorPayload = formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId) as unknown as Record<string, unknown>;
+        } else {
+          const message = err instanceof Error ? err.message : String(err);
+          const normalizedMessage = message.toLowerCase();
+          console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
+          const isRateLimit =
+            normalizedMessage.includes("rate limit") ||
+            normalizedMessage.includes("ratelimit") ||
+            normalizedMessage.includes("429");
+          errorPayload = formatApiError(
+            isRateLimit
+              ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+              : "No se pudo modificar el dashboard. Inténtalo de nuevo.",
+            isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+            sanitizeErrorMessage(err),
+            requestId,
+          ) as unknown as Record<string, unknown>;
+        }
+
+        send({ type: "error", requestId, ...errorPayload });
+        controller.close();
+        return;
+      }
+
+      // --- Parse and validate LLM response ----------------------------------
+      const jsonStr = extractJson(rawResponse);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        console.error(
+          `[${requestId}] El LLM devolvió JSON inválido al modificar (${jsonStr.length} chars)`,
+        );
+        await interactionIdPromise;
+        if (interactionId) {
+          await finishInteraction(interactionId, "error", "JSON inválido en respuesta del modelo").catch(
+            (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+          );
+        }
+        send({
+          type: "error",
           requestId,
-        ),
-      },
-      { status: 400 },
-    );
-  }
+          ...formatApiError(
+            "El modelo de IA devolvió una respuesta con formato incorrecto.",
+            "LLM_INVALID_RESPONSE",
+            undefined,
+            requestId,
+          ) as unknown as Record<string, unknown>,
+        });
+        controller.close();
+        return;
+      }
 
-  if (interactionId) {
-    await finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
-      console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
-    );
-  }
+      let updatedSpec: DashboardSpec;
+      try {
+        updatedSpec = validateSpec(parsed);
+      } catch {
+        console.error(`[${requestId}] El LLM devolvió un spec inválido al modificar.`);
+        await interactionIdPromise;
+        if (interactionId) {
+          await finishInteraction(interactionId, "error", "Spec inválido").catch((e) =>
+            console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+          );
+        }
+        send({
+          type: "error",
+          requestId,
+          ...formatApiError(
+            "El modelo de IA generó un dashboard con estructura incorrecta.",
+            "LLM_INVALID_RESPONSE",
+            undefined,
+            requestId,
+          ) as unknown as Record<string, unknown>,
+        });
+        controller.close();
+        return;
+      }
 
-  return NextResponse.json({ ...updatedSpec, _logs: logCollector.toLogLines() });
+      const sqlLint = lintDashboardSpec(updatedSpec);
+      if (sqlLint.length > 0) {
+        console.error(
+          `[${requestId}] SQL heurístico rechazó el spec modificado por el LLM:`,
+          sqlLint.join(" | "),
+        );
+        await interactionIdPromise;
+        if (interactionId) {
+          await finishInteraction(interactionId, "error", `SQL lint: ${sqlLint.join(" | ")}`).catch(
+            (e) => console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
+          );
+        }
+        send({
+          type: "error",
+          requestId,
+          ...formatApiError(
+            "El modelo devolvió SQL con patrones inválidos para PostgreSQL. Reformula el cambio o inténtalo de nuevo.",
+            "SQL_LINT",
+            sqlLint.join(" | "),
+            requestId,
+          ) as unknown as Record<string, unknown>,
+        });
+        controller.close();
+        return;
+      }
+
+      // --- Persist completion -----------------------------------------------
+      await interactionIdPromise;
+      if (interactionId) {
+        await finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
+          console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
+        );
+      }
+
+      send({ type: "result", requestId, spec: updatedSpec });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Request-Id": requestId,
+    },
+  });
 }
