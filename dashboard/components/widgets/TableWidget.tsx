@@ -175,6 +175,13 @@ export function TableWidget({
 
   const colFormats = data.columns.map(detectFormat);
 
+  // Columns whose cells are right-aligned (numeric heat cells and margin %)
+  const colIsNumericRight = data.columns.map((col, idx) => {
+    const fmt = colFormats[idx];
+    if (fmt === "ref" || fmt === "tag") return false;
+    return colMaxValues[idx] > 0 || fmt === "margin_pct";
+  });
+
   return (
     <div
       style={{
@@ -203,7 +210,7 @@ export function TableWidget({
                 <th
                   key={`${idx}-${col}`}
                   style={{
-                    textAlign: "left",
+                    textAlign: colIsNumericRight[idx] ? "right" : "left",
                     padding: "10px 12px",
                     fontWeight: 500,
                     borderBottom: "1px solid var(--border)",
@@ -234,8 +241,10 @@ export function TableWidget({
                       textTransform: "inherit" as React.CSSProperties["textTransform"],
                       letterSpacing: "inherit",
                       padding: 0,
-                      display: "inline-flex",
+                      width: "100%",
+                      display: "flex",
                       alignItems: "center",
+                      justifyContent: colIsNumericRight[idx] ? "flex-end" : "flex-start",
                       gap: 4,
                     }}
                   >
