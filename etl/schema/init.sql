@@ -759,11 +759,11 @@ CREATE INDEX IF NOT EXISTS idx_lv_tienda     ON ps_lineas_ventas(tienda);
 CREATE INDEX IF NOT EXISTS idx_stock_codigo ON ps_stock_tienda(codigo);
 CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 
--- Wholesale FK indexes
 -- Dashboard indexes
 CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
 CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
 
+-- Wholesale line-table indexes
 -- idx_gla_nalbaran indexes the visible albarán number on the line table for
 -- lookups by document number.  Line→header joins use num_albaran → reg_albaran.
 CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
