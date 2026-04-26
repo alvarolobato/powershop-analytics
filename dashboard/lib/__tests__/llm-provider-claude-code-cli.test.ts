@@ -125,8 +125,9 @@ describe("claudeCliAgenticStep", () => {
     }
   });
 
-  it("falls back to raw stdout when the envelope is not a JSON object", async () => {
-    // The CLI dropped its envelope (older binary version): stdout is the bare model output.
+  it("falls back to raw stdout when stdout is the bare model JSON (no CLI envelope wrapper)", async () => {
+    // The CLI dropped its envelope wrapper (older binary version): stdout is
+    // the bare step JSON instead of `{"result": "..."}`. We still parse it.
     mockRunCliProcess.mockResolvedValueOnce(
       okResult('{"kind":"final","content":"raw"}'),
     );

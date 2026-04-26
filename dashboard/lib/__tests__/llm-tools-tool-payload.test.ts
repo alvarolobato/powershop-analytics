@@ -67,14 +67,22 @@ describe("stringifyToolPayload", () => {
   it("returns a minimal fallback envelope when even the truncated form does not fit", () => {
     const big = "x".repeat(50_000);
     const body = toolOk({ blob: big });
-    // Tiny budget that even the minimal envelope ({"ok":true,"data":{"_truncated":true,
-    // "original_length":N,"preview":""}}) cannot satisfy because N is large enough that
-    // the integer alone exceeds the budget.
+    // Tiny budget that the truncated envelope (which includes _truncated/
+    // original_length/preview) cannot satisfy. stringifyToolPayload then
+    // falls back to a minimal envelope without `original_length` whose
+    // preview is the fixed string "[tool result exceeded size limit]".
+    // This minimal form *can* exceed the budget too — it is intentionally
+    // emitted as-is rather than truncating further, so the receiver always
+    // sees a valid JSON envelope.
     const out = stringifyToolPayload(body, 30, ctx);
     const parsed = JSON.parse(out);
     expect(parsed.ok).toBe(true);
     expect(parsed.data._truncated).toBe(true);
     expect(parsed.data.preview).toMatch(/exceeded size limit/);
+    // The minimal-fallback envelope intentionally drops `original_length`
+    // (only `_truncated` + `preview` survive), in contrast to the regular
+    // truncated envelope above which carries `original_length`.
+    expect(parsed.data.original_length).toBeUndefined();
   });
 
   it("returns a SERIALIZATION_ERROR for non-serializable data", () => {
