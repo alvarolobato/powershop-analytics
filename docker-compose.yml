@@ -237,7 +237,10 @@ services:
       # (inside the container) which does not exist.
       CONFIG_FILE: /config/config.yaml
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
-      DASHBOARD_LLM_PROVIDER: ${DASHBOARD_LLM_PROVIDER:-openrouter}
+      # DASHBOARD_LLM_PROVIDER intentionally NOT set here — the value comes from
+      # config.yaml (D-023 precedence: env > config.yaml > default). Setting a
+      # default here would silently override the user's config.yaml choice.
+      # Set it on the host shell only if you want to override config.yaml.
       DASHBOARD_LLM_CLI_DRIVER: ${DASHBOARD_LLM_CLI_DRIVER:-claude_code}
       DASHBOARD_LLM_CLI_BIN: ${DASHBOARD_LLM_CLI_BIN:-claude}
       # Claude Code CLI credentials (OAuth token). The CLI is installed inside the

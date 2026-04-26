@@ -209,7 +209,7 @@ describe("NewDashboard page — smart creation sections", () => {
     expect(screen.getByText("Analizando tu perfil...")).toBeInTheDocument();
   });
 
-  it("clicking Crear on a suggestion triggers generation", async () => {
+  it("clicking Crear on a suggestion triggers generation (default tab is templates; assistant must be activated)", async () => {
     const generatedSpec = {
       title: "Panel de Márgenes",
       description: "Márgenes por familia",
@@ -238,6 +238,7 @@ describe("NewDashboard page — smart creation sections", () => {
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-assistant"));
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("role-pill-Comprador"));
@@ -345,7 +346,7 @@ describe("NewDashboard page — smart creation sections", () => {
     expect(screen.getByText("Analizando...")).toBeInTheDocument();
   });
 
-  it("clicking Crear panel on a gap triggers generation", async () => {
+  it("clicking Crear panel on a gap triggers generation (default tab is templates; assistant must be activated)", async () => {
     const generatedSpec = {
       title: "Panel de Compras",
       description: "Gestión de compras",
@@ -374,6 +375,7 @@ describe("NewDashboard page — smart creation sections", () => {
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-assistant"));
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("analyze-gaps-button"));

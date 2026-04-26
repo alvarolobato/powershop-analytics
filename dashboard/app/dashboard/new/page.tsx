@@ -74,7 +74,7 @@ function BadgeNoAi() {
 
 export default function NewDashboard() {
   const router = useRouter();
-  const [tab, setTab] = useState<CreationTab>("assistant");
+  const [tab, setTab] = useState<CreationTab>("templates");
 
   // Free-form generation state
   const [prompt, setPrompt] = useState("");
