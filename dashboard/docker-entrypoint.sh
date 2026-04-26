@@ -15,6 +15,16 @@
 
 CREDS="$HOME/.claude/.credentials.json"
 
+# Seed ~/.claude.json from the read-only host copy if present. We deliberately
+# do not bind-mount the file rw because both host and container CLIs write to
+# it on startup, atomically replacing the inode and corrupting the host view
+# (Apr 2026 incident: dozens of .claude.json.corrupted.* backups).
+if [ -f /host-claude.json ] && [ ! -f "$HOME/.claude.json" ]; then
+  cp /host-claude.json "$HOME/.claude.json"
+  chmod 600 "$HOME/.claude.json"
+  echo "[claude-auth] Seeded ~/.claude.json from host copy."
+fi
+
 if [ -f "$CREDS" ] && command -v node >/dev/null 2>&1; then
   node - <<'JSEOF'
 const fs = require('fs');

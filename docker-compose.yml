@@ -255,9 +255,12 @@ services:
       # Mount Claude Code CLI credentials for DASHBOARD_LLM_PROVIDER=cli.
       # The binary is installed in the image via npm install -g @anthropic-ai/claude-code.
       # ~/.claude/ contains .credentials.json (OAuth token) and session state.
-      # ~/.claude.json is the main per-user config file claude reads at startup.
       - ${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:/home/nextjs/.claude:rw
-      - ${CLAUDE_JSON:-${HOME}/.claude.json}:/home/nextjs/.claude.json:rw
+      # ~/.claude.json is mounted read-only at a side path; the entrypoint
+      # copies it to /home/nextjs/.claude.json at startup. A direct rw bind
+      # mount caused concurrent-write corruption when the host CLI (this Mac)
+      # and the container CLI both wrote to the same inode (Apr 2026 incident).
+      - ${CLAUDE_JSON:-${HOME}/.claude.json}:/host-claude.json:ro
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
     networks:
