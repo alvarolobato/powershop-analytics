@@ -164,3 +164,47 @@ describe("SQL rule compliance across all templates", () => {
     expect(sql).toMatch(/:curr_to::date\s*-\s*INTERVAL\s+'1 year'/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Mayorista-specific invariants (issue #416)
+// ---------------------------------------------------------------------------
+
+describe("template 'mayorista' wholesale-channel invariants", () => {
+  const mayorista = TEMPLATES.find((t) => t.slug === "mayorista");
+  if (!mayorista) {
+    throw new Error("mayorista template not registered in TEMPLATES");
+  }
+  const allSql = collectWidgetSqlStrings(mayorista.spec);
+
+  it("never joins ps_gc_lin_facturas to ps_gc_facturas on n_factura (must use reg_factura)", () => {
+    // Regression guard: the line.num_<parent> column matches the header's
+    // record id (reg_*), not the human number n_*. Joining on n_factura is
+    // a silent zero-row bug — see mayorista.ts header comment.
+    for (const sql of allSql) {
+      expect(
+        sql,
+        "join key for ps_gc_lin_facturas must be num_factura = reg_factura, never n_factura",
+      ).not.toMatch(/lf\."?num_factura"?\s*=\s*f\."?n_factura"?/);
+    }
+  });
+
+  it("does not filter GC widgets by ccrefejofacm M-prefix (channel is table-defined)", () => {
+    // Wholesale data lives in ps_gc_* by definition; adding `ccrefejofacm
+    // LIKE 'M%'` here would drop ~96% of legitimate wholesale invoice
+    // lines, since most reference retail-coded articles. See header
+    // comment in mayorista.ts.
+    for (const sql of allSql) {
+      expect(sql).not.toMatch(/ccrefejofacm.+LIKE\s+'M%'/i);
+      expect(sql).not.toMatch(/codigo\s+LIKE\s+'M%'/i);
+    }
+  });
+
+  it("never invokes the int16 stock decoder on GC quantity columns (D-017)", () => {
+    // The signed-int16 word decode applies only to Exportaciones.Stock1..34;
+    // GC line quantities (unidades / total / total_coste) are 4D Reals and
+    // can exceed 32767 legitimately.
+    for (const sql of allSql) {
+      expect(sql).not.toMatch(/decode_signed_int16_word/i);
+    }
+  });
+});

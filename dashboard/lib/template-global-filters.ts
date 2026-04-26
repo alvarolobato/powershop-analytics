@@ -162,21 +162,35 @@ const PROVEEDOR_COMPRAS: GlobalFilter = {
   bind_expr: `co."num_proveedor"`,
 };
 
-/** Cliente mayorista — binds to ps_gc_facturas.num_cliente via alias `f`. */
+/**
+ * Cliente mayorista — binds to ps_gc_facturas.num_cliente via alias `f`.
+ *
+ * NOTE: ps_clientes.nombre is sourced from 4D's NombreComercial (commercial
+ * name) which is empty for ~98% of customers in the wholesale book. We
+ * therefore COALESCE down to nif (tax ID) and then to a synthetic
+ * "Cliente <num>" label so the filter dropdown actually contains every
+ * customer that has invoices in the picker range, not just the ~1-2 that
+ * happen to have NombreComercial populated.
+ *
+ * Widgets that want to use this filter MUST alias ps_gc_facturas (or any
+ * GC table that exposes `num_cliente`) as `f` so that `bind_expr` matches.
+ */
 const CLIENTE_MAYORISTA: GlobalFilter = {
   id: "cliente_mayorista",
   type: "multi_select",
   label: "Cliente Mayorista",
   bind_expr: `f."num_cliente"`,
   value_type: "numeric",
-  options_sql: `SELECT c."reg_cliente" AS value, c."nombre" AS label
+  options_sql: `SELECT c."reg_cliente" AS value,
+       COALESCE(NULLIF(TRIM(c."nombre"), ''),
+                NULLIF(TRIM(c."nif"), ''),
+                'Cliente ' || (c."num_cliente")::text) AS label
 FROM "public"."ps_clientes" c
 JOIN "public"."ps_gc_facturas" gf ON gf."num_cliente" = c."reg_cliente"
-WHERE c."nombre" IS NOT NULL AND c."nombre" <> ''
-  AND gf."abono" = false
+WHERE gf."abono" = false
   AND gf."fecha_factura" >= :curr_from
   AND gf."fecha_factura" <= :curr_to
-GROUP BY c."reg_cliente", c."nombre"
+GROUP BY c."reg_cliente", c."nombre", c."nif", c."num_cliente"
 ORDER BY 2`,
 };
 
