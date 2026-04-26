@@ -176,15 +176,61 @@ describe("template 'mayorista' wholesale-channel invariants", () => {
   }
   const allSql = collectWidgetSqlStrings(mayorista.spec);
 
-  it("never joins ps_gc_lin_facturas to ps_gc_facturas on n_factura (must use reg_factura)", () => {
+  it("never joins line.num_<parent> against header.n_<parent> for any GC alias/order", () => {
     // Regression guard: the line.num_<parent> column matches the header's
-    // record id (reg_*), not the human number n_*. Joining on n_factura is
-    // a silent zero-row bug — see mayorista.ts header comment.
+    // record id (reg_*), not the human number n_*. Joining on n_<parent>
+    // is a silent zero-row bug — see mayorista.ts header comment.
+    //
+    // We test BOTH orderings (line.num=header.n AND header.n=line.num)
+    // and accept ANY alias (one or more letters), so a future widget
+    // that aliases ps_gc_facturas as `g`, `gf`, `hdr`, etc. is still
+    // covered. We also accept arbitrary whitespace and the optional
+    // double-quoted variant for each identifier.
+    const FORBIDDEN_PARENTS = ["factura", "albaran", "pedido"];
     for (const sql of allSql) {
-      expect(
-        sql,
-        "join key for ps_gc_lin_facturas must be num_factura = reg_factura, never n_factura",
-      ).not.toMatch(/lf\."?num_factura"?\s*=\s*f\."?n_factura"?/);
+      for (const parent of FORBIDDEN_PARENTS) {
+        // Order A: <alias>.num_<parent> = <alias>.n_<parent>
+        const re1 = new RegExp(
+          String.raw`\b[A-Za-z_][A-Za-z0-9_]*\."?num_${parent}"?\s*=\s*[A-Za-z_][A-Za-z0-9_]*\."?n_${parent}"?\b`,
+          "i",
+        );
+        // Order B: <alias>.n_<parent> = <alias>.num_<parent>
+        const re2 = new RegExp(
+          String.raw`\b[A-Za-z_][A-Za-z0-9_]*\."?n_${parent}"?\s*=\s*[A-Za-z_][A-Za-z0-9_]*\."?num_${parent}"?\b`,
+          "i",
+        );
+        expect(
+          sql,
+          `join key for ps_gc_lin_${parent}s must be num_${parent} = reg_${parent}, never n_${parent} (any alias/order)`,
+        ).not.toMatch(re1);
+        expect(
+          sql,
+          `join key for ps_gc_lin_${parent}s must be num_${parent} = reg_${parent}, never n_${parent} (any alias/order)`,
+        ).not.toMatch(re2);
+      }
+    }
+  });
+
+  it("aggregates base1+base2+base3 NULL-safely (COALESCE-wrapped inside SUM)", () => {
+    // Regression guard: ps_gc_facturas.base1/2/3 are nullable in the
+    // schema (numeric(15,2), no NOT NULL). A bare `SUM(base1+base2+base3)`
+    // drops the entire row from the aggregate when ANY of the three is
+    // NULL (PG's + propagates NULL → SUM ignores NULL row contributions).
+    // Every base-arithmetic SUM in the mayorista template must wrap each
+    // base in COALESCE(..., 0). See Opus review #425.
+    for (const sql of allSql) {
+      const sumMatches = sql.match(
+        /SUM\s*\([^()]*(?:\([^()]*\)[^()]*)*base1[^()]*(?:\([^()]*\)[^()]*)*base2[^()]*(?:\([^()]*\)[^()]*)*base3[^()]*\)/gi,
+      );
+      if (!sumMatches) continue;
+      for (const m of sumMatches) {
+        for (const col of ["base1", "base2", "base3"]) {
+          expect(
+            m,
+            `SUM expression must COALESCE ${col} to 0 (NULL-safe): "${m.trim()}"`,
+          ).toMatch(new RegExp(String.raw`COALESCE\s*\([^)]*${col}[^)]*\)`, "i"));
+        }
+      }
     }
   });
 

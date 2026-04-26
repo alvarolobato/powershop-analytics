@@ -53,12 +53,17 @@ export const description =
 
 /**
  * Reusable SQL fragment: customer label with NombreComercial → NIF →
- * synthetic fallback. Inline as a SELECT expression where `c` is aliased
- * to ps_clientes.
+ * synthetic-num → static fallback. Inline as a SELECT expression where
+ * `c` is aliased to ps_clientes.
+ *
+ * The final 'Cliente desconocido' fallback guarantees the expression is
+ * NEVER NULL even if num_cliente is itself NULL (which would make the
+ * `'Cliente ' || num_cliente::text` arm collapse to NULL).
  */
 const CLIENTE_LABEL = `COALESCE(NULLIF(TRIM(c."nombre"), ''),
                 NULLIF(TRIM(c."nif"), ''),
-                'Cliente ' || (c."num_cliente")::text)`;
+                NULLIF('Cliente ' || COALESCE(c."num_cliente"::text, ''), 'Cliente '),
+                'Cliente desconocido')`;
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
@@ -71,7 +76,14 @@ export const spec: DashboardSpec = {
       items: [
         {
           label: "Facturacion Neta",
-          sql: `SELECT COALESCE(SUM(f."base1" + f."base2" + f."base3"), 0) AS value
+          // NULL-safe per-base COALESCE inside SUM so that if a single
+          // base column is NULL (schema allows it; current data has none)
+          // the row still contributes its non-null bases instead of being
+          // silently dropped from the aggregate. Outer COALESCE handles
+          // the empty-result case.
+          sql: `SELECT COALESCE(SUM(COALESCE(f."base1", 0)
+                  + COALESCE(f."base2", 0)
+                  + COALESCE(f."base3", 0)), 0) AS value
 FROM "public"."ps_gc_facturas" f
 WHERE f."abono" = false
   AND f."fecha_factura" >= :curr_from
@@ -142,7 +154,9 @@ WHERE f."abono" = false
       title: "Facturacion por Comercial",
       sql: `SELECT COALESCE(NULLIF(TRIM(c."comercial"), ''),
                 '(Sin comercial asignado)') AS label,
-       SUM(f."base1" + f."base2" + f."base3") AS value
+       SUM(COALESCE(f."base1", 0)
+           + COALESCE(f."base2", 0)
+           + COALESCE(f."base3", 0)) AS value
 FROM "public"."ps_gc_facturas" f
 LEFT JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial"
 WHERE f."abono" = false
@@ -163,7 +177,9 @@ ORDER BY value DESC`,
       sql: `WITH facturas_periodo AS (
   SELECT f."reg_factura",
          f."num_cliente",
-         (f."base1" + f."base2" + f."base3") AS neto
+         (COALESCE(f."base1", 0)
+          + COALESCE(f."base2", 0)
+          + COALESCE(f."base3", 0)) AS neto
   FROM "public"."ps_gc_facturas" f
   WHERE f."abono" = false
     AND f."fecha_factura" >= :curr_from
@@ -293,7 +309,9 @@ LIMIT 10`,
       type: "line_chart",
       title: "Facturación Mensual (últimos 12 meses o más)",
       sql: `SELECT DATE_TRUNC('month', f."fecha_factura")::date AS x,
-       SUM(f."base1" + f."base2" + f."base3") AS y
+       SUM(COALESCE(f."base1", 0)
+           + COALESCE(f."base2", 0)
+           + COALESCE(f."base3", 0)) AS y
 FROM "public"."ps_gc_facturas" f
 WHERE f."abono" = false
   AND f."fecha_factura" >= LEAST(
