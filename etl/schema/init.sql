@@ -276,8 +276,8 @@ CREATE TABLE IF NOT EXISTS ps_gc_albaranes (
 
 CREATE TABLE IF NOT EXISTS ps_gc_lin_albarane (
     reg_linea        NUMERIC(20,3) PRIMARY KEY,
-    n_albaran        NUMERIC(20,3),   -- FK → ps_gc_albaranes.n_albaran (not reg_albaran)
-    num_albaran      NUMERIC(20,3),
+    n_albaran        NUMERIC(20,3),   -- visible albarán number (NOT unique; do not use for line→header joins)
+    num_albaran      NUMERIC(20,3),   -- FK → ps_gc_albaranes.reg_albaran (4D record ID, despite the "num_" name)
     codigo           TEXT,
     articulo         TEXT,
     descripcion      TEXT,
@@ -312,7 +312,7 @@ CREATE TABLE IF NOT EXISTS ps_gc_facturas (
 
 CREATE TABLE IF NOT EXISTS ps_gc_lin_facturas (
     reg_linea        NUMERIC(20,3) PRIMARY KEY,
-    num_factura      NUMERIC(20,3),   -- FK → ps_gc_facturas.n_factura (asymmetric naming)
+    num_factura      NUMERIC(20,3),   -- FK → ps_gc_facturas.reg_factura (4D record ID, despite the "num_" name)
     codigo           TEXT,
     descripcion      TEXT,
     unidades         NUMERIC(10,2),
@@ -724,12 +724,16 @@ END
 $$;
 
 -- ============================================================
--- Unique constraints required by wholesale FK targets
--- (n_albaran and n_factura are not PKs but are used as FK targets)
+-- Indexes on visible document numbers (n_albaran / n_factura)
+-- These accelerate lookups by the human-visible document number.
+-- They are NOT used for line→header joins: line-level FKs target the
+-- 4D record ID (reg_albaran / reg_factura), see ps_gc_lin_albarane and
+-- ps_gc_lin_facturas above.
 -- ============================================================
 
 -- n_albaran and n_factura are NOT unique (multiple albaranes/facturas can share
--- the same document number across different series or corrections).
+-- the same document number across different series or corrections), so they
+-- cannot serve as FK targets.
 CREATE INDEX IF NOT EXISTS idx_alb_nalbaran ON ps_gc_albaranes(n_albaran);
 CREATE INDEX IF NOT EXISTS idx_fac_nfactura  ON ps_gc_facturas(n_factura);
 
@@ -760,8 +764,12 @@ CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
 CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
 
+-- idx_gla_nalbaran indexes the visible albarán number on the line table for
+-- lookups by document number.  Line→header joins use num_albaran → reg_albaran.
 CREATE INDEX IF NOT EXISTS idx_gla_nalbaran   ON ps_gc_lin_albarane(n_albaran);
 CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);
+-- idx_glf_numfactura accelerates the line→header join: num_factura points to
+-- ps_gc_facturas.reg_factura (4D record ID), not n_factura.
 CREATE INDEX IF NOT EXISTS idx_glf_numfactura ON ps_gc_lin_facturas(num_factura);
 CREATE INDEX IF NOT EXISTS idx_glf_codigo     ON ps_gc_lin_facturas(codigo);
 
@@ -818,9 +826,12 @@ BEGIN
       NOT VALID DEFERRABLE INITIALLY DEFERRED;
   END IF;
 
-  -- Wholesale: n_albaran and n_factura are NOT unique in the parent tables
-  -- (multiple docs can share a number across series), so FK constraints are
-  -- not possible.  The indexes on these columns (above) still accelerate JOINs.
+  -- Wholesale: line→header relations exist (lin_albarane.num_albaran →
+  -- albaranes.reg_albaran, lin_facturas.num_factura → facturas.reg_factura),
+  -- but explicit FK constraints are intentionally omitted — same timing-race
+  -- rationale as retail sales above (header may sync after first line batch).
+  -- The visible-number indexes (idx_alb_nalbaran, idx_fac_nfactura) accelerate
+  -- queries by document number; n_albaran / n_factura are NOT join targets.
 
   -- Purchasing
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_lc_compras') THEN
