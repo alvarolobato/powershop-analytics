@@ -10,9 +10,13 @@ import { z } from "zod";
 // Zod schemas
 // ---------------------------------------------------------------------------
 
-const KPI_FORMAT_ALIASES: Record<string, "currency" | "number" | "percent"> = {
+const KPI_FORMAT_ALIASES: Record<string, "currency" | "number" | "percent" | "decimal"> = {
   euro: "currency", euros: "currency", money: "currency", importe: "currency",
-  cantidad: "number", integer: "number", float: "number", count: "number", entero: "number",
+  cantidad: "number", integer: "number", count: "number", entero: "number",
+  // "decimal" / "float" are routed to the new decimal format (up to 2 decimals).
+  // This preserves precision for ratios such as Unidades por Ticket (1,69),
+  // which "number" would round to 2.
+  decimales: "decimal", float: "decimal",
   percentage: "percent", pct: "percent", porcentaje: "percent", ratio: "percent",
 };
 
@@ -22,7 +26,7 @@ const KpiFormatSchema = z.preprocess(
     const lv = v.toLowerCase().trim();
     return KPI_FORMAT_ALIASES[lv] ?? lv;
   },
-  z.enum(["currency", "number", "percent"]),
+  z.enum(["currency", "number", "percent", "decimal"]),
 );
 
 /** Optional string that must be non-empty when provided. */
