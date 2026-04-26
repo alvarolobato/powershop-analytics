@@ -31,7 +31,7 @@ import { templateGlobalFiltersCompras } from "@/lib/template-global-filters";
 export const name = "Responsable de Compras";
 
 export const description =
-  "Panel para el responsable de compras: pedidos del mes, lead time, proveedores activos, top proveedores, ultimas recepciones y tendencia mensual de pedidos.";
+  "Panel para el responsable de compras: pedidos del mes, lead time, proveedores activos, top proveedores, últimas recepciones y tendencia mensual de pedidos.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Compras",
@@ -69,9 +69,11 @@ WHERE co."fecha_pedido" >= :curr_from
           // for the orders RECEIVED in the selected period.  We anchor the
           // window on fecha_recibido here so the KPI describes deliveries
           // closed in the period; both dates must be non-NULL or the row
-          // is excluded from the average.
+          // is excluded from the average.  COALESCE wraps the AVG so an
+          // empty period (no rows) renders as 0 instead of NULL/"—",
+          // matching the other KPIs in this row.
           label: "Lead Time Medio (días, recibidos en período)",
-          sql: `SELECT ROUND(AVG(co."fecha_recibido" - co."fecha_pedido")::numeric, 1) AS value
+          sql: `SELECT COALESCE(ROUND(AVG(co."fecha_recibido" - co."fecha_pedido")::numeric, 1), 0) AS value
 FROM "public"."ps_compras" co
 WHERE co."fecha_recibido" IS NOT NULL
   AND co."fecha_pedido" IS NOT NULL
