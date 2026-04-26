@@ -1,10 +1,66 @@
 /**
  * Template: Responsable de Stock
  *
- * Stock overview: totals (incl. central warehouse), distribution by store,
- * low-stock alerts, out-of-stock items, stock in central warehouse, recent transfers.
- * Stock KPI totals have no date filter (point-in-time data).
- * Time-filtered queries (transfers, dead-stock lookback) use :curr_from / :curr_to tokens.
+ * Stock overview for the warehouse / inventory manager: point-in-time stock
+ * totals, valuation at cost, distribution by store and family, low-stock and
+ * out-of-stock alerts, dead-stock detection, and recent transfers.
+ *
+ * Business decisions documented in this header (see issue #415):
+ *
+ * 1. **Point-in-time vs windowed.** All stock KPIs and the by-store / by-family
+ *    bar charts are *point-in-time* — they reflect the current state of
+ *    `ps_stock_tienda` and intentionally do **not** apply `:curr_from` /
+ *    `:curr_to`. Only the dead-stock lookback ("sin ventas en período") and
+ *    "Traspasos recientes" widgets react to the date picker.
+ *
+ * 2. **No central-warehouse mirror.** Tienda code `'99'` is the central
+ *    warehouse in PowerShop, but its stock lives in the separate `CCStock`
+ *    4D table which is **not** synced to PostgreSQL. `Exportaciones.CCStock`
+ *    (mirrored as `ps_stock_tienda.cc_stock`) is the **per-row net stock**
+ *    for `(Codigo, TiendaCodigo)` — *not* the central warehouse balance —
+ *    so attempting to pull "Almacén Central" from this table would be
+ *    misleading. We surface a Stock Negativo incidencias KPI instead, and
+ *    document the gap. (See `docs/architecture/stock-logistics.md` and
+ *    `DECISIONS-AND-CHANGES.md` D-017.)
+ *
+ * 3. **Signed-int16 stock (D-017).** `ps_stock_tienda.stock` already passes
+ *    through the ETL `decode_signed_int16_word()` decoder, so negatives from
+ *    POS (e.g. `-1`) appear as negatives, not as `65535`. Verified at review
+ *    time: 9 222 rows with `stock < 0`, range `-122..-1`, 0 rows with
+ *    `stock > 32767`. The "Incidencias Stock Negativo" KPI gives a daily
+ *    sanity check that the decoder is still applied end-to-end.
+ *
+ * 4. **MA-prefix articles.** `ccrefejofacm LIKE 'MA%'` (materials: bags,
+ *    hangers, packaging) are **excluded at ETL load time** — they never
+ *    reach `ps_articulos` or `ps_stock_tienda`, so widgets do not need an
+ *    explicit `NOT LIKE 'MA%'` filter. (See `lib/knowledge.ts`.)
+ *
+ * 5. **Wholesale (M-prefix) articles.** `ccrefejofacm LIKE 'M%'` (without
+ *    'MA') are wholesale references that DO live in `ps_articulos` and may
+ *    carry stock. They are *kept* in this stock dashboard because the
+ *    inventory manager owns physical units regardless of channel; if a
+ *    retail-only view is ever required, add `AND p."ccrefejofacm" NOT LIKE 'M%'`
+ *    or expose it via a dedicated filter.
+ *
+ * 6. **Anulados.** `p."anulado" = false` is required on every widget that
+ *    joins `ps_articulos`; without it ~20% of catalog rows (cancelled SKUs)
+ *    bleed into the totals. The dead-stock subquery does *not* filter
+ *    `anulado` on `ps_lineas_ventas` because that field lives on
+ *    `ps_articulos` and the subquery only needs the `codigo` set.
+ *
+ * 7. **Familia join.** Always `LEFT JOIN ps_familias` (alias `fm`) so SKUs
+ *    whose `num_familia` does not resolve to a `ps_familias` row are still
+ *    counted (~1 254 units / ~4 000 SKUs in the live mirror would be silently
+ *    dropped by an `INNER JOIN`). Familia label is `TRIM`-normalised to
+ *    collapse the duplicate `'PANTALON'` / `'PANTALON '` entries that exist
+ *    in `ps_familias`.
+ *
+ * 8. **Tienda filter on traspasos.** `__gf_tienda__` binds to `s."tienda"`
+ *    via `templateGlobalFiltersStock.TIENDA_STOCK` and therefore cannot be
+ *    applied to `ps_traspasos` rows (which have `tienda_salida` / `tienda_entrada`,
+ *    not `tienda`). The traspasos table is intentionally not filtered by
+ *    the global Tienda combobox; users can still filter it by date via the
+ *    time picker.
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersStock } from "@/lib/template-global-filters";
@@ -12,7 +68,7 @@ import { templateGlobalFiltersStock } from "@/lib/template-global-filters";
 export const name = "Responsable de Stock";
 
 export const description =
-  "Panel para el responsable de stock: unidades totales, valoracion al coste, distribucion por tienda y familia, stock bajo, dead stock, sin stock y traspasos recientes.";
+  "Panel para el responsable de stock: unidades totales, valoración al coste, distribución por tienda y familia, stock bajo, dead stock, sin stock y traspasos recientes.";
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Stock",
@@ -24,32 +80,40 @@ export const spec: DashboardSpec = {
       type: "kpi_row",
       items: [
         {
+          // Point-in-time KPI — no :curr_from/:curr_to filter by design.
+          // Alias ps_stock_tienda as `s` so __gf_tienda__ (bind: s."tienda") resolves.
           label: "Unidades en Tiendas",
-          // Alias ps_stock_tienda as `s` so the __gf_tienda__ token (bound
-          // to `s."tienda"` in templateGlobalFiltersStock) resolves cleanly.
           sql: `SELECT COALESCE(SUM(s."stock"), 0) AS value
 FROM "public"."ps_stock_tienda" s
-WHERE s."stock" > 0 AND s."tienda" <> '99'
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
   AND __gf_tienda__`,
           format: "number",
         },
         {
-          label: "Unidades en Almacén Central",
-          // Central warehouse (tienda '99') — intentionally ignores the
-          // __gf_tienda__ selection because this KPI measures the almacén
-          // total regardless of which retail tienda the user is focused on.
-          sql: `SELECT COALESCE(SUM("stock"), 0) AS value
-FROM "public"."ps_stock_tienda"
-WHERE "stock" > 0 AND "tienda" = '99'`,
+          // Replaces the previous (broken) "Unidades en Almacén Central" KPI:
+          // tienda='99' rows do not exist in ps_stock_tienda (the central
+          // warehouse stock lives in the un-mirrored CCStock 4D table). This
+          // KPI surfaces the count of rows with negative stock — a direct
+          // health check on the D-017 signed-int16 decoder and on inventory
+          // regularisation pending in POS.
+          label: "Incidencias Stock Negativo",
+          sql: `SELECT COUNT(*) AS value
+FROM "public"."ps_stock_tienda" s
+WHERE s."stock" < 0
+  AND s."tienda" <> '99'
+  AND __gf_tienda__`,
           format: "number",
+          inverted: true,
         },
         {
           label: "Valor Stock al Coste",
-          sql: `SELECT COALESCE(ROUND(SUM(s."stock" * p."precio_coste"), 2), 0) AS value
+          sql: `SELECT COALESCE(ROUND(SUM(s."stock" * COALESCE(p."precio_coste", 0)), 2), 0) AS value
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE s."stock" > 0 AND p."anulado" = false
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
+  AND p."anulado" = false
   AND __gf_tienda__
   AND __gf_familia__
   AND __gf_temporada__
@@ -62,8 +126,9 @@ WHERE s."stock" > 0 AND p."anulado" = false
           sql: `SELECT COUNT(DISTINCT s."codigo") AS value
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE s."stock" > 0 AND p."anulado" = false
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
+  AND p."anulado" = false
   AND __gf_tienda__
   AND __gf_familia__
   AND __gf_temporada__
@@ -76,11 +141,15 @@ WHERE s."stock" > 0 AND p."anulado" = false
       id: "stock-por-tienda",
       type: "bar_chart",
       title: "Stock por Tienda (excluye almacén central)",
+      // LEFT JOIN ps_familias so SKUs without a matching family row still count
+      // (~1 254 units would be silently dropped by an INNER JOIN against the
+      // current mirror).
       sql: `SELECT s."tienda" AS label, SUM(s."stock") AS value
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE s."stock" > 0 AND s."tienda" <> '99'
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
   AND p."anulado" = false
   AND __gf_tienda__
   AND __gf_familia__
@@ -95,17 +164,23 @@ ORDER BY value DESC`,
       id: "stock-por-familia",
       type: "bar_chart",
       title: "Stock por Familia (unidades, top 10)",
-      sql: `SELECT fm."fami_grup_marc" AS label,
+      // TRIM collapses the duplicate "PANTALON" / "PANTALON " family rows that
+      // exist in ps_familias. LEFT JOIN keeps articles whose num_familia does
+      // not resolve and labels them "Sin clasificar".
+      sql: `SELECT
+       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS label,
        SUM(s."stock") AS value
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE s."stock" > 0 AND p."anulado" = false
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
+  AND p."anulado" = false
   AND __gf_tienda__
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
-GROUP BY fm."fami_grup_marc"
+GROUP BY 1
 ORDER BY value DESC
 LIMIT 10`,
       x: "label",
@@ -115,13 +190,18 @@ LIMIT 10`,
       id: "stock-bajo",
       type: "table",
       title: "Artículos con Stock Bajo (< 5 unidades en alguna tienda)",
-      sql: `SELECT s."tienda" AS "Tienda",
-       p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripción",
+      // Identifier → ubicación → descripción → cantidad. Familia added so the
+      // manager can scan low-stock items by category. NULL/empty references
+      // surface as "—" instead of leaking through as raw NULL.
+      sql: `SELECT
+       s."tienda" AS "Tienda",
+       COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia",
+       COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción",
+       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), '—') AS "Familia",
        SUM(s."stock") AS "Stock"
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE s."stock" > 0 AND s."stock" < 5
   AND s."tienda" <> '99'
   AND p."anulado" = false
@@ -129,38 +209,66 @@ WHERE s."stock" > 0 AND s."stock" < 5
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
-GROUP BY s."tienda", p."ccrefejofacm", p."descripcion"
-ORDER BY "Stock" ASC
+GROUP BY s."tienda", p."ccrefejofacm", p."descripcion", fm."fami_grup_marc"
+ORDER BY "Stock" ASC, "Tienda" ASC
 LIMIT 50`,
     },
     {
       id: "stock-sin-stock",
       type: "table",
-      title: "Artículos Sin Stock en Tiendas (con stock en almacén)",
-      sql: `SELECT p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripción",
-       SUM(CASE WHEN s."tienda" = '99' THEN s."stock" ELSE 0 END) AS "Stock Almacén"
-FROM "public"."ps_stock_tienda" s
-JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+      title: "Roturas: Artículos activos sin stock en tiendas",
+      // Replaces the broken "Sin Stock en Tiendas (con stock en almacén)"
+      // widget — that widget required tienda='99' rows in ps_stock_tienda
+      // (the central warehouse) which do NOT exist in the mirror, so it
+      // always returned zero. The list is intentionally large; combine with
+      // the global Temporada / Familia / Marca filters to narrow it down.
+      // LEFT JOIN ps_stock_tienda so SKUs that have no row at all (never
+      // distributed to stores) are still surfaced.
+      sql: `SELECT
+       COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia",
+       COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción",
+       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), '—') AS "Familia",
+       COALESCE(NULLIF(p."clave_temporada", ''), '—') AS "Temporada"
+FROM "public"."ps_articulos" p
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+LEFT JOIN "public"."ps_stock_tienda" s
+       ON s."codigo" = p."codigo"
+      AND s."stock" > 0
+      AND s."tienda" <> '99'
 WHERE p."anulado" = false
-GROUP BY p."ccrefejofacm", p."descripcion"
-HAVING SUM(CASE WHEN s."tienda" <> '99' THEN s."stock" ELSE 0 END) = 0
-   AND SUM(CASE WHEN s."tienda" = '99' THEN s."stock" ELSE 0 END) > 0
-ORDER BY "Stock Almacén" DESC
-LIMIT 30`,
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+GROUP BY p."codigo", p."ccrefejofacm", p."descripcion", fm."fami_grup_marc", p."clave_temporada"
+HAVING COALESCE(SUM(s."stock"), 0) <= 0
+ORDER BY p."clave_temporada" DESC NULLS LAST, p."descripcion" ASC
+LIMIT 50`,
     },
     {
       id: "stock-dead-stock",
       type: "table",
       title: "Dead Stock (stock total > 10, sin ventas en período seleccionado)",
-      sql: `SELECT p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripción",
-       SUM(s."stock") AS "Stock",
-       p."clave_temporada" AS "Temporada"
+      // Identifier → familia → temporada → cantidad. Global filters apply on
+      // the catalog side; the lookback window (curr_from/curr_to) defines the
+      // "sin ventas" criterion. tienda <> '99' is a no-op on the live mirror
+      // (no rows exist with tienda='99' in either ps_stock_tienda or
+      // ps_lineas_ventas) but is kept for defence-in-depth.
+      sql: `SELECT
+       COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia",
+       COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción",
+       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), '—') AS "Familia",
+       COALESCE(NULLIF(p."clave_temporada", ''), '—') AS "Temporada",
+       SUM(s."stock") AS "Stock"
 FROM "public"."ps_stock_tienda" s
 JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE s."stock" > 0
+  AND s."tienda" <> '99'
   AND p."anulado" = false
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
   AND p."codigo" NOT IN (
     SELECT DISTINCT lv."codigo"
     FROM "public"."ps_lineas_ventas" lv
@@ -170,27 +278,32 @@ WHERE s."stock" > 0
       AND lv."fecha_creacion" >= :curr_from
       AND lv."fecha_creacion" <= :curr_to
   )
-GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
+GROUP BY p."ccrefejofacm", p."descripcion", fm."fami_grup_marc", p."clave_temporada"
 HAVING SUM(s."stock") > 10
 ORDER BY "Stock" DESC
-LIMIT 30`,
+LIMIT 50`,
     },
     {
       id: "stock-traspasos-recientes",
       type: "table",
       title: "Traspasos Recientes (período seleccionado)",
-      sql: `SELECT t."fecha_s" AS "Fecha",
-       t."tienda_salida" AS "Origen",
-       t."tienda_entrada" AS "Destino",
-       COUNT(*) AS "Lineas",
-       SUM(t."unidades_s") AS "Unidades"
+      // Traspasos has tienda_salida / tienda_entrada (no plain "tienda"
+      // column), so __gf_tienda__ — which binds to s."tienda" — is
+      // intentionally NOT applied here. Filter via the time picker.
+      // Header order: Fecha → Origen → Destino → Líneas → Unidades.
+      sql: `SELECT
+       t."fecha_s" AS "Fecha",
+       COALESCE(NULLIF(t."tienda_salida", ''), '—') AS "Origen",
+       COALESCE(NULLIF(t."tienda_entrada", ''), '—') AS "Destino",
+       COUNT(*) AS "Líneas",
+       COALESCE(SUM(t."unidades_s"), 0) AS "Unidades"
 FROM "public"."ps_traspasos" t
 WHERE t."entrada" = false
   AND t."fecha_s" >= :curr_from
   AND t."fecha_s" <= :curr_to
 GROUP BY t."fecha_s", t."tienda_salida", t."tienda_entrada"
-ORDER BY t."fecha_s" DESC
-LIMIT 30`,
+ORDER BY t."fecha_s" DESC, "Unidades" DESC
+LIMIT 50`,
     },
   ],
 };
