@@ -30,20 +30,24 @@
  *
  * ## YoY definition
  *
- * Comparativa YoY uses the **same exact day-count window shifted one year**:
+ * Comparativa YoY uses the **same dates shifted one year back**:
  *   prev_from = curr_from - INTERVAL '1 year'
  *   prev_to   = curr_to   - INTERVAL '1 year'
  *
- * Side effect: when the current period spans a leap day (Feb 29), the prior period
- * may include / exclude one extra day. We accept this trade-off because it preserves
- * the exact day-count and makes the % comparable for any custom range.
+ * Side effect: for ranges that cross a leap year / Feb 29, the prior period's
+ * day-count may differ by ±1 day. We accept this trade-off because it preserves
+ * date alignment year over year and keeps the % comparable for any custom range.
  *
  * ## Tendencia 12 meses
  *
- * The trend chart is **rolling 12 calendar months anchored to `:curr_to`**, not the
- * selected period. This is intentional: an executive scanning the dashboard wants
- * the long arc regardless of the picker. The selected period is reflected by the
- * other widgets (KPIs, mix, top families). Title makes the rolling behavior explicit.
+ * The trend chart is anchored to `:curr_to` and covers **at least 12 calendar
+ * months**. If the selected period starts earlier than `:curr_to - INTERVAL '11
+ * months'`, the chart expands to respect that longer picker range; otherwise it
+ * shows the standard rolling 12-month window. This is intentional: an executive
+ * scanning the dashboard wants the long arc while still preserving longer
+ * user-selected ranges. The selected period remains directly reflected by the
+ * other widgets (KPIs, mix, top families). Title makes the minimum rolling window
+ * explicit.
  *
  * ## Filters
  *
