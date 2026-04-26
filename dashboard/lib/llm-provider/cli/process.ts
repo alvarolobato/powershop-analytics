@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import type { RunProcessResult } from "./types";
 import { CliRunnerError } from "./errors";
+import { sanitize, sanitizeArgv, sanitizeTail } from "../sanitize";
 
 export interface RunCliProcessParams {
   file: string;
@@ -14,6 +15,9 @@ export interface RunCliProcessParams {
   maxStdoutBytes: number;
   maxStderrBytes: number;
 }
+
+/** Max bytes of stdout/stderr we keep on a CliRunnerError for the UI/log layer. */
+const TAIL_MAX_BYTES = 4096;
 
 class CappedBufferCollector {
   readonly chunks: Buffer[] = [];
@@ -52,6 +56,7 @@ class CappedBufferCollector {
  */
 export async function runCliProcess(params: RunCliProcessParams): Promise<RunProcessResult> {
   const { file, args, stdin, timeoutMs, maxStdoutBytes, maxStderrBytes } = params;
+  const startedAt = Date.now();
 
   return await new Promise((resolve, reject) => {
     const child = spawn(file, args, {
@@ -106,35 +111,115 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
         timedOut,
         truncatedStdout: stdoutAcc.truncated,
         truncatedStderr: stderrAcc.truncated,
+        durationMs: Date.now() - startedAt,
       });
     });
   });
 }
 
-/** Map raw process outcome to CliRunnerError when not successful. */
+/**
+ * Map raw process outcome to CliRunnerError when not successful.
+ *
+ * `command` is the argv (file + args) the runner spawned; we sanitize it
+ * before attaching to the error so callers can render it in the UI without
+ * leaking secrets that may have been passed via `--api-key`-style flags.
+ */
 export function assertCliSuccess(
   result: RunProcessResult,
   label: string,
+  command?: readonly string[],
 ): void {
+  const sanitizedCommand = command ? sanitizeArgv(command) : undefined;
+  const stderrTail = sanitizeTail(result.stderr, TAIL_MAX_BYTES);
+  const stdoutTail = sanitizeTail(result.stdout, TAIL_MAX_BYTES);
+
   if (result.timedOut) {
-    throw new CliRunnerError(
-      "LLM_CLI_TIMEOUT",
-      `${label}: CLI timed out`,
-      { exitCode: result.exitCode, stderr: result.stderr },
-    );
+    throw new CliRunnerError("LLM_CLI_TIMEOUT", `${label}: CLI timed out`, {
+      exitCode: result.exitCode,
+      stderr: stderrTail,
+      stdout: stdoutTail,
+      command: sanitizedCommand,
+      phase: "timeout",
+      durationMs: result.durationMs,
+    });
   }
   if (result.truncatedStdout || result.truncatedStderr) {
     throw new CliRunnerError(
       "LLM_CLI_TRUNCATED",
       `${label}: CLI output exceeded capture limit`,
-      { exitCode: result.exitCode, stderr: result.stderr },
+      {
+        exitCode: result.exitCode,
+        stderr: stderrTail,
+        stdout: stdoutTail,
+        command: sanitizedCommand,
+        phase: "truncated",
+        durationMs: result.durationMs,
+      },
     );
   }
   if (result.exitCode !== 0) {
+    // The Claude Code CLI prints API failures as a JSON envelope on stdout
+    // with `is_error: true` and an exit code of 1, leaving stderr empty.
+    // Promote that into a structured auth/API error so the API layer can
+    // surface a meaningful "Detalles" payload instead of "exited with code 1".
+    const envelope = parseJsonEnvelope(result.stdout);
+    if (envelope && envelope.is_error) {
+      const apiStatus = envelope.api_error_status ?? null;
+      const inner = sanitize(envelope.result ?? "");
+      const isAuth =
+        apiStatus === 401 ||
+        apiStatus === 403 ||
+        /authentication|invalid.*credentials|unauthorized/i.test(inner);
+      const code = isAuth ? "LLM_CLI_AUTH" : "LLM_CLI_API_ERROR";
+      const summary = inner.slice(0, 240) || `api_error_status=${apiStatus}`;
+      throw new CliRunnerError(code, `${label}: ${summary}`, {
+        exitCode: result.exitCode,
+        stderr: stderrTail,
+        stdout: stdoutTail,
+        command: sanitizedCommand,
+        phase: isAuth ? "auth" : "exit",
+        durationMs: result.durationMs,
+        innerErrorCode: apiStatus,
+      });
+    }
     throw new CliRunnerError(
       "LLM_CLI_EXIT",
       `${label}: CLI exited with code ${result.exitCode}`,
-      { exitCode: result.exitCode, stderr: result.stderr },
+      {
+        exitCode: result.exitCode,
+        stderr: stderrTail,
+        stdout: stdoutTail,
+        command: sanitizedCommand,
+        phase: "exit",
+        durationMs: result.durationMs,
+      },
     );
+  }
+}
+
+/**
+ * Best-effort parse of `claude --output-format json` envelopes.
+ *
+ * Returns null when stdout is not a parseable JSON object. We do NOT require
+ * `type === "result"`: some upstream API failures surface envelopes with
+ * `is_error:true` but no `type` field, and we still want to lift those into
+ * `LLM_CLI_AUTH` / `LLM_CLI_API_ERROR` instead of a bare exit-code message.
+ *
+ * Arrays and primitives are rejected — only object envelopes are accepted.
+ */
+function parseJsonEnvelope(stdout: string): {
+  is_error?: boolean;
+  api_error_status?: number | null;
+  result?: string | null;
+  type?: string;
+} | null {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith("{")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as Record<string, never>;
+  } catch {
+    return null;
   }
 }

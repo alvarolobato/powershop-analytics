@@ -30,6 +30,7 @@ import {
 import { formatAgenticProgressLineEs } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
@@ -110,14 +111,18 @@ function finishGenerateFromRawLlm(rawResponse: string, requestId: string): Gener
 
 function mapGenerateLlmError(err: unknown, requestId: string): GenerateFinishErr {
   if (err instanceof AgenticRunnerError) {
+    const cfg = loadDashboardLlmConfig();
+    const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
+    persistAgenticError("generate", err, diagnostic);
     return {
       ok: false,
       status: 500,
       payload: formatApiError(
         "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el prompt o inténtalo de nuevo.",
         "AGENTIC_RUNNER",
-        `${err.code}: ${err.message}`,
+        diagnostic.subError,
         err.requestId,
+        diagnostic,
       ) as unknown as Record<string, unknown>,
     };
   }

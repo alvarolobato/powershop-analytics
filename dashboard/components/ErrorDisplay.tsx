@@ -12,6 +12,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { ApiErrorResponse } from "@/lib/errors";
+import AgenticErrorDetails from "@/components/AgenticErrorDetails";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -131,30 +132,36 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
           </button>
 
           {expanded && (
-            <div
-              className="mt-2 rounded bg-red-900/20 p-3 text-xs text-red-300 font-mono space-y-1"
-              data-testid="technical-details"
-            >
-              <div>
-                <span className="font-semibold">Código:</span>{" "}
-                {(error as ApiErrorResponse).code}
-              </div>
-              <div>
-                <span className="font-semibold">Hora:</span>{" "}
-                {formatTimestamp((error as ApiErrorResponse).timestamp)}
-              </div>
-              <div>
-                <span className="font-semibold">ID:</span>{" "}
-                {(error as ApiErrorResponse).requestId}
-              </div>
-              {(error as ApiErrorResponse).details && (
+            <div className="mt-2" data-testid="technical-details">
+              {/* Header (always shown) — code, timestamp, requestId, and the
+                  optional `details` string. Rich diagnostic sections appear
+                  below via AgenticErrorDetails. */}
+              <div
+                className="rounded bg-red-900/20 p-3 text-xs text-red-300 font-mono space-y-1"
+              >
                 <div>
-                  <span className="font-semibold">Detalle:</span>{" "}
-                  <span className="whitespace-pre-wrap">
-                    {(error as ApiErrorResponse).details}
-                  </span>
+                  <span className="font-semibold">Código:</span>{" "}
+                  {(error as ApiErrorResponse).code}
                 </div>
-              )}
+                <div>
+                  <span className="font-semibold">Hora:</span>{" "}
+                  {formatTimestamp((error as ApiErrorResponse).timestamp)}
+                </div>
+                <div>
+                  <span className="font-semibold">ID:</span>{" "}
+                  {(error as ApiErrorResponse).requestId}
+                </div>
+                {(error as ApiErrorResponse).details && (
+                  <div>
+                    <span className="font-semibold">Detalle:</span>{" "}
+                    <span className="whitespace-pre-wrap">
+                      {(error as ApiErrorResponse).details}
+                    </span>
+                  </div>
+                )}
+              </div>
+              {/* Rich diagnostic sections (Contexto / CLI / Tool / Límites). */}
+              <AgenticErrorDetails errorDetail={error as ApiErrorResponse} skipHeader />
             </div>
           )}
         </div>
@@ -170,7 +177,7 @@ export function ErrorDisplay({ error, title, onRetry, className = "" }: ErrorDis
               className="text-xs font-medium text-red-400 hover:text-red-300 underline transition-colors"
               data-testid="copy-details"
             >
-              {copied ? "Copiado!" : "Copiar detalles"}
+              {copied ? "Copiado!" : "Copiar como JSON"}
             </button>
           )}
           {onRetry && (

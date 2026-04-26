@@ -17,6 +17,79 @@ export interface LogToolCallInput {
   llmDriver?: string | null;
 }
 
+export interface LogLlmErrorInput {
+  requestId: string;
+  endpoint: string;
+  code: string;
+  subError?: string | null;
+  provider: string;
+  driver?: string | null;
+  model?: string | null;
+  phase?: string | null;
+  durationMs?: number | null;
+  toolRoundsUsed?: number | null;
+  toolCallsUsed?: number | null;
+  lastToolName?: string | null;
+  lastToolArgs?: string | null;
+  cliExitCode?: number | null;
+  cliInnerCode?: string | number | null;
+  cliCommand?: string | null;
+  cliStdoutTail?: string | null;
+  cliStderrTail?: string | null;
+  limits?: Record<string, number> | null;
+}
+
+/**
+ * Persist a single AGENTIC_RUNNER failure to `llm_errors`. All free-form
+ * fields are expected to be sanitized by the caller; this function does
+ * not redact further. Insert failures are swallowed (we already logged
+ * to console in the API layer).
+ */
+export async function logLlmError(row: LogLlmErrorInput): Promise<void> {
+  try {
+    await sql(
+      `INSERT INTO llm_errors (
+         request_id, endpoint, code, sub_error, provider, driver, model,
+         phase, duration_ms, tool_rounds_used, tool_calls_used,
+         last_tool_name, last_tool_args,
+         cli_exit_code, cli_inner_code, cli_command, cli_stdout_tail, cli_stderr_tail,
+         limits
+       ) VALUES (
+         $1,$2,$3,$4,$5,$6,$7,
+         $8,$9,$10,$11,
+         $12,$13,
+         $14,$15,$16,$17,$18,
+         $19::jsonb
+       )`,
+      [
+        row.requestId,
+        row.endpoint,
+        row.code,
+        row.subError ?? null,
+        row.provider,
+        row.driver ?? null,
+        row.model ?? null,
+        row.phase ?? null,
+        row.durationMs ?? null,
+        row.toolRoundsUsed ?? null,
+        row.toolCallsUsed ?? null,
+        row.lastToolName ?? null,
+        row.lastToolArgs ?? null,
+        row.cliExitCode ?? null,
+        row.cliInnerCode == null ? null : String(row.cliInnerCode),
+        row.cliCommand ?? null,
+        row.cliStdoutTail ?? null,
+        row.cliStderrTail ?? null,
+        row.limits ? JSON.stringify(row.limits) : null,
+      ],
+    );
+  } catch (err) {
+    if (process.env.VITEST !== "true") {
+      console.error("[llm-errors] insert failed:", err);
+    }
+  }
+}
+
 export async function logLlmToolCall(row: LogToolCallInput): Promise<void> {
   try {
     await sql(

@@ -35,15 +35,60 @@ import {
 import type { AgenticModelAdapter } from "./runner-types";
 import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
 
+/** Rich diagnostic detail attached to an AgenticRunnerError; surfaces in the
+ *  "Detalles" modal and in admin telemetry. Optional fields are populated only
+ *  when relevant (e.g. CLI fields are absent for OpenRouter failures). */
+export interface AgenticRunnerErrorDiagnostic {
+  /** Where in the loop the failure happened. */
+  phase:
+    | "tool_call"
+    | "tool_response"
+    | "final"
+    | "cli_spawn"
+    | "cli_exit"
+    | "limits";
+  toolRoundsUsed: number;
+  toolCallsUsed: number;
+  durationMs: number;
+  lastToolCall?: { name: string; argumentsTruncated: string };
+  /** CLI-specific fields, only set for `provider: cli` failures. */
+  cli?: {
+    exitCode: number | null;
+    /** argv (file + args) the runner spawned, sanitized. */
+    command?: readonly string[];
+    /** Last ~4 KB of CLI stderr, sanitized. */
+    stderrTail?: string;
+    /** Last ~4 KB of CLI stdout, sanitized. */
+    stdoutTail?: string;
+    /** Inner error code surfaced by the CLI binary (e.g. api_error_status). */
+    innerErrorCode?: string | number | null;
+  };
+  /** Limits in effect when the runner failed (helps distinguish "exhausted" vs "crash"). */
+  limitsAtFailure: {
+    maxRounds: number;
+    maxToolCalls: number;
+    toolTimeoutMs: number;
+    executeRowLimit: number;
+    payloadCharLimit: number;
+  };
+}
+
 export class AgenticRunnerError extends Error {
   readonly code: string;
   readonly requestId: string;
+  readonly diagnostic?: AgenticRunnerErrorDiagnostic;
 
-  constructor(code: string, message: string, requestId: string) {
+  constructor(
+    code: string,
+    message: string,
+    requestId: string,
+    diagnostic?: AgenticRunnerErrorDiagnostic,
+  ) {
     super(message);
     this.name = "AgenticRunnerError";
     this.code = code;
     this.requestId = requestId;
+    this.diagnostic = diagnostic;
   }
 }
 
@@ -138,6 +183,40 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
   ];
 
   let toolCallsTotal = 0;
+  let lastToolName: string | null = null;
+  let lastToolArgs: string | null = null;
+  const startedAt = Date.now();
+
+  // ── helpers ─────────────────────────────────────────────────────────────
+  const buildLimits = () => ({
+    maxRounds: cfg.maxToolRounds,
+    maxToolCalls: cfg.maxToolCalls,
+    toolTimeoutMs: cfg.toolTimeoutMs,
+    executeRowLimit: cfg.maxRows,
+    payloadCharLimit: cfg.maxResultChars,
+  });
+  const buildLastToolCall = () =>
+    lastToolName
+      ? {
+          name: lastToolName,
+          argumentsTruncated: (lastToolArgs ?? "").slice(0, 300),
+        }
+      : undefined;
+  const buildBaseDiag = (phase: import("./runner").AgenticRunnerErrorDiagnostic["phase"], roundsDone: number): import("./runner").AgenticRunnerErrorDiagnostic => ({
+    phase,
+    toolRoundsUsed: roundsDone,
+    toolCallsUsed: toolCallsTotal,
+    durationMs: Date.now() - startedAt,
+    lastToolCall: buildLastToolCall(),
+    limitsAtFailure: buildLimits(),
+  });
+  const cliDiagFromError = (e: CliRunnerError) => ({
+    exitCode: e.exitCode,
+    command: e.details.command,
+    stderrTail: e.details.stderr,
+    stdoutTail: e.details.stdout,
+    innerErrorCode: e.details.innerErrorCode ?? null,
+  });
 
   for (let round = 0; round < cfg.maxToolRounds; round++) {
     emitAgenticProgress(ctx, {
@@ -158,19 +237,30 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
     } catch (e) {
       if (e instanceof AgenticRunnerError) throw e;
       if (e instanceof CliRunnerError) {
-        throw new AgenticRunnerError(e.code, e.message, ctx.requestId);
+        const phase: import("./runner").AgenticRunnerErrorDiagnostic["phase"] =
+          e.details.phase === "spawn" ? "cli_spawn" : "cli_exit";
+        throw new AgenticRunnerError(e.code, e.message, ctx.requestId, {
+          ...buildBaseDiag(phase, round),
+          cli: cliDiagFromError(e),
+        });
       }
       throw new AgenticRunnerError(
         "AGENTIC_ADAPTER",
         e instanceof Error ? e.message : "Model step failed.",
         ctx.requestId,
+        buildBaseDiag("tool_call", round),
       );
     }
 
     addUsage(usage, step.usage);
 
     if (step.kind === "error") {
-      throw new AgenticRunnerError(step.code, step.message, ctx.requestId);
+      throw new AgenticRunnerError(
+        step.code,
+        step.message,
+        ctx.requestId,
+        buildBaseDiag("tool_call", round),
+      );
     }
 
     if (step.kind === "final") {
@@ -184,6 +274,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
         "LLM_EMPTY",
         "The model returned no tools or final text.",
         ctx.requestId,
+        buildBaseDiag("final", round),
       );
     }
 
@@ -207,11 +298,14 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
           "AGENTIC_MAX_TOOL_CALLS",
           `Exceeded maximum tool calls (${cfg.maxToolCalls}).`,
           ctx.requestId,
+          buildBaseDiag("limits", round),
         );
       }
 
       const name = tc.function?.name ?? "";
       const rawArgs = tc.function?.arguments ?? "{}";
+      lastToolName = name || "(missing)";
+      lastToolArgs = rawArgs;
       emitAgenticProgress(ctx, {
         type: "tool_start",
         round: round + 1,
@@ -278,5 +372,13 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
     "AGENTIC_MAX_ROUNDS",
     `Exceeded maximum tool rounds (${cfg.maxToolRounds}).`,
     ctx.requestId,
+    {
+      phase: "limits",
+      toolRoundsUsed: cfg.maxToolRounds,
+      toolCallsUsed: toolCallsTotal,
+      durationMs: Date.now() - startedAt,
+      lastToolCall: buildLastToolCall(),
+      limitsAtFailure: buildLimits(),
+    },
   );
 }
