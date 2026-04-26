@@ -55,7 +55,8 @@ WHERE co."fecha_pedido" >= :curr_from
           format: "number",
         },
         {
-          // Distinct suppliers with at least one PO emitted in the selected period.
+          // Distinct suppliers with at least one PO emitted in the period
+          // (filter on ps_compras.fecha_pedido — NOT fecha_recibido).
           label: "Proveedores Activos (período seleccionado)",
           sql: `SELECT COALESCE(COUNT(DISTINCT co."num_proveedor"), 0) AS value
 FROM "public"."ps_compras" co

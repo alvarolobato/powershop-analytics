@@ -39,3 +39,65 @@ describe("TableWidget drill-down", () => {
     });
   });
 });
+
+describe("TableWidget numeric column header alignment", () => {
+  // Regression for closed PR #423 Copilot blocker: numeric column detection
+  // used `colMaxValues[idx] > 0`, which silently mis-classified columns
+  // whose values were ALL 0 or ALL negative as non-numeric (left-aligned).
+  it("right-aligns numeric column headers even when every value is 0", () => {
+    const widget: TableSpec = {
+      type: "table",
+      title: "Pedidos pendientes",
+      sql: "SELECT 1",
+    };
+    const data: WidgetData = {
+      columns: ["Tienda", "Pendientes"],
+      rows: [
+        ["Tienda 05", 0],
+        ["Tienda 01", 0],
+      ],
+    };
+    render(<TableWidget widget={widget} data={data} />);
+    const header = screen.getByText("Pendientes").closest("th");
+    expect(header).not.toBeNull();
+    expect(header!).toHaveStyle({ textAlign: "right" });
+  });
+
+  it("right-aligns numeric column headers when every value is negative", () => {
+    const widget: TableSpec = {
+      type: "table",
+      title: "Variación",
+      sql: "SELECT 1",
+    };
+    const data: WidgetData = {
+      columns: ["Tienda", "Δ"],
+      rows: [
+        ["Tienda 05", -10],
+        ["Tienda 01", -5],
+      ],
+    };
+    render(<TableWidget widget={widget} data={data} />);
+    const header = screen.getByText("Δ").closest("th");
+    expect(header).not.toBeNull();
+    expect(header!).toHaveStyle({ textAlign: "right" });
+  });
+
+  it("left-aligns string column headers", () => {
+    const widget: TableSpec = {
+      type: "table",
+      title: "Lista",
+      sql: "SELECT 1",
+    };
+    const data: WidgetData = {
+      columns: ["Tienda", "Ventas"],
+      rows: [
+        ["Tienda 05", 100],
+        ["Tienda 01", 200],
+      ],
+    };
+    render(<TableWidget widget={widget} data={data} />);
+    const header = screen.getByText("Tienda").closest("th");
+    expect(header).not.toBeNull();
+    expect(header!).toHaveStyle({ textAlign: "left" });
+  });
+});

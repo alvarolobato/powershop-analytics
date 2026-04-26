@@ -53,8 +53,16 @@ export interface ChatSidebarProps {
    */
   pendingModifyInput?: string;
   pendingModifyTriggerId?: number;
-  /** Called once the pre-fill has been applied so the parent can clear state. */
+  /** Called once the modify pre-fill has been applied so the parent can clear state. */
   onPendingModifyInputConsumed?: () => void;
+  /**
+   * When `pendingAnalyzeTriggerId` changes with a non-empty `pendingAnalyzeInput`,
+   * the Analizar tab is selected, the textarea is filled, focused, and the sidebar opens if needed.
+   */
+  pendingAnalyzeInput?: string;
+  pendingAnalyzeTriggerId?: number;
+  /** Called once the analyze pre-fill has been applied so the parent can clear state. */
+  onPendingAnalyzeInputConsumed?: () => void;
   /**
    * Idempotent open when drill-down fires while the sidebar is collapsed.
    */
@@ -73,22 +81,56 @@ export interface ChatSidebarProps {
 // Simulated log sequences
 // ---------------------------------------------------------------------------
 
-const ANALYZE_LOG_SEQUENCE: LogLine[] = [
-  { timestamp: "+0.0s", kind: "tool",   label: "parse_intent",      detail: "intent=analysis · scope=dashboard" },
-  { timestamp: "+0.3s", kind: "tool",   label: "fetch_widget_data", detail: "6 widgets" },
-  { timestamp: "+0.9s", kind: "tool",   label: "run_sql",           detail: "SELECT store, SUM(net) FROM sales …" },
-  { timestamp: "+1.4s", kind: "reason", label: "Razonando",         detail: "comparando con período anterior" },
-  { timestamp: "+2.1s", kind: "tool",   label: "detect_anomalies",  detail: "z > 2.5 · 0 hits" },
-  { timestamp: "+2.7s", kind: "done",   label: "Respuesta lista",   detail: "1.984 tokens · claude-sonnet" },
-];
+// ---------------------------------------------------------------------------
+// NDJSON stream reader
+// ---------------------------------------------------------------------------
+//
+// `/api/dashboard/analyze` and `/api/dashboard/modify` open an NDJSON stream
+// when the agentic runner emits at least one progress event before the LLM
+// finishes. Each line is one JSON object. The terminal frame is either
+// `{type:"result", …}` or `{type:"error", httpStatus, …}`.
+//
+// When no progress event is emitted (or the runtime is in fast/single-shot
+// mode), the response is a single JSON document with the proper HTTP status,
+// and we stay on the legacy `await res.json()` path.
 
-const MODIFY_LOG_SEQUENCE: LogLine[] = [
-  { timestamp: "+0.0s", kind: "tool",   label: "parse_request",     detail: "op=modify · target=dashboard" },
-  { timestamp: "+0.4s", kind: "tool",   label: "lookup_schema",     detail: "table=sales · cols=net,margin" },
-  { timestamp: "+1.0s", kind: "reason", label: "Generando spec",    detail: "planning widget changes" },
-  { timestamp: "+1.6s", kind: "tool",   label: "validate_sql",      detail: "OK · 0 errors" },
-  { timestamp: "+2.0s", kind: "done",   label: "Dashboard listo",   detail: "spec generado · persistido" },
-];
+async function* readNdjsonStream<T>(body: ReadableStream<Uint8Array>): AsyncGenerator<T> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          yield JSON.parse(t) as T;
+        } catch {
+          /* skip malformed line */
+        }
+      }
+    }
+    if (buffer.trim()) {
+      try {
+        yield JSON.parse(buffer.trim()) as T;
+      } catch {
+        /* skip */
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function isNdjsonResponse(res: Response): boolean {
+  const ct = res.headers.get("content-type") ?? "";
+  return ct.includes("application/x-ndjson");
+}
 
 // ---------------------------------------------------------------------------
 // Suggestion chips per mode
@@ -513,14 +555,37 @@ function ModificarTab({
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setLoading(true);
-
-    // Simulate streaming log
     setStreamingLog([]);
-    MODIFY_LOG_SEQUENCE.forEach((line, i) => {
-      setTimeout(() => {
-        setStreamingLog((cur) => cur ? [...cur, line] : cur);
-      }, (i + 1) * 400);
-    });
+
+    // Real progress lines streamed from the server (NDJSON path) — captured
+    // in a local mutable array so the final message logs include exactly
+    // what the user saw during the request.
+    const capturedLogs: LogLine[] = [];
+
+    /**
+     * Append the assistant message AFTER the user message in a way that is
+     * resilient to concurrent message arrivals (the streaming request is
+     * async, so `messages` captured at the start of the callback can be
+     * stale by the time we resolve). We use a functional updater that walks
+     * the current message list and appends immediately after the matching
+     * user message, never overwriting newer messages someone else added.
+     */
+    const appendAssistant = (assistant: ChatMessage) => {
+      let nextSnapshot: ChatMessage[] = [];
+      setMessages((prev) => {
+        // Find our user message by reference — userMessage is unique to
+        // this send. Insert right after it; if not found (defensive),
+        // append to the end.
+        const idx = prev.indexOf(userMessage);
+        const next =
+          idx >= 0
+            ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
+            : [...prev, assistant];
+        nextSnapshot = next;
+        return next;
+      });
+      onMessagesChange?.(nextSnapshot);
+    };
 
     try {
       const res = await fetch("/api/dashboard/modify", {
@@ -529,6 +594,85 @@ function ModificarTab({
         body: JSON.stringify({ spec, prompt: trimmed }),
       });
 
+      // -------------------------------------------------------------------
+      // Streaming path: server opened an NDJSON stream (HTTP 200).
+      // -------------------------------------------------------------------
+      if (res.ok && res.body && isNdjsonResponse(res)) {
+        type ModifyMsg =
+          | { type: "progress"; requestId: string; logLine: LogLine }
+          | { type: "result"; requestId: string; spec: DashboardSpec }
+          | ({ type: "error"; requestId: string; httpStatus?: number } & Partial<ApiErrorResponse>);
+
+        let resultSpec: DashboardSpec | null = null;
+        let errorFrame: (ModifyMsg & { type: "error" }) | null = null;
+
+        for await (const msg of readNdjsonStream<ModifyMsg>(res.body)) {
+          if (msg.type === "progress") {
+            capturedLogs.push(msg.logLine);
+            setStreamingLog([...capturedLogs]);
+          } else if (msg.type === "result") {
+            resultSpec = msg.spec;
+          } else if (msg.type === "error") {
+            errorFrame = msg;
+          }
+        }
+
+        if (errorFrame) {
+          const httpStatus = errorFrame.httpStatus ?? 500;
+          const errorDetail: ApiErrorResponse | undefined = isApiErrorResponse(errorFrame)
+            ? (errorFrame as unknown as ApiErrorResponse)
+            : undefined;
+          const baseMsg = errorFrame.error
+            ?? (httpStatus >= 500
+              ? "Error interno del servidor. Inténtalo de nuevo."
+              : "No se pudo aplicar la modificación. Revisa tu petición.");
+          const userMsg = httpStatus === 429
+            ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+            : baseMsg;
+          console.error("Modify API error (stream):", errorDetail ?? userMsg);
+          appendAssistant({
+            role: "assistant",
+            content: userMsg,
+            timestamp: new Date(),
+            isError: true,
+            errorDetail,
+            logs: [...capturedLogs],
+          });
+          return;
+        }
+
+        if (resultSpec) {
+          onSpecUpdate(resultSpec, trimmed);
+          const widgetDelta = resultSpec.widgets.length - spec.widgets.length;
+          let summary = "Dashboard actualizado.";
+          if (widgetDelta > 0) {
+            summary += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
+          } else if (widgetDelta < 0) {
+            summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+          }
+          appendAssistant({
+            role: "assistant",
+            content: summary,
+            timestamp: new Date(),
+            logs: [...capturedLogs],
+          });
+          return;
+        }
+
+        // Stream ended without result or error — treat as transport error.
+        appendAssistant({
+          role: "assistant",
+          content: "La respuesta del servidor terminó inesperadamente.",
+          timestamp: new Date(),
+          isError: true,
+          logs: [...capturedLogs],
+        });
+        return;
+      }
+
+      // -------------------------------------------------------------------
+      // Legacy JSON path (fast / single-shot / validation errors).
+      // -------------------------------------------------------------------
       if (!res.ok) {
         let errorDetail: ApiErrorResponse | undefined;
         let userMsg: string;
@@ -557,20 +701,14 @@ function ModificarTab({
 
         console.error("Modify API error:", errorDetail ?? userMsg);
 
-        const newMessages: ChatMessage[] = [
-          ...messages,
-          userMessage,
-          {
-            role: "assistant",
-            content: userMsg,
-            timestamp: new Date(),
-            isError: true,
-            errorDetail,
-            logs: streamingLog ?? [],
-          },
-        ];
-        setMessages(newMessages);
-        onMessagesChange?.(newMessages);
+        appendAssistant({
+          role: "assistant",
+          content: userMsg,
+          timestamp: new Date(),
+          isError: true,
+          errorDetail,
+          logs: [...capturedLogs],
+        });
         return;
       }
 
@@ -585,19 +723,12 @@ function ModificarTab({
         summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
       }
 
-      const capturedLogs = [...MODIFY_LOG_SEQUENCE];
-      const newMessages: ChatMessage[] = [
-        ...messages,
-        userMessage,
-        {
-          role: "assistant",
-          content: summary,
-          timestamp: new Date(),
-          logs: capturedLogs,
-        },
-      ];
-      setMessages(newMessages);
-      onMessagesChange?.(newMessages);
+      appendAssistant({
+        role: "assistant",
+        content: summary,
+        timestamp: new Date(),
+        logs: [...capturedLogs],
+      });
     } catch (err) {
       console.error("Error al procesar la solicitud del chat:", err);
 
@@ -606,23 +737,18 @@ function ModificarTab({
           ? "No se pudo conectar con el servidor."
           : "Ocurrió un problema al procesar la respuesta.";
 
-      const newMessages: ChatMessage[] = [
-        ...messages,
-        userMessage,
-        {
-          role: "assistant",
-          content: errorMessage,
-          timestamp: new Date(),
-          isError: true,
-        },
-      ];
-      setMessages(newMessages);
-      onMessagesChange?.(newMessages);
+      appendAssistant({
+        role: "assistant",
+        content: errorMessage,
+        timestamp: new Date(),
+        isError: true,
+        logs: [...capturedLogs],
+      });
     } finally {
       setLoading(false);
       setTimeout(() => setStreamingLog(null), 400);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange, messages, streamingLog]);
+  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -771,6 +897,8 @@ function AnalizarTab({
   onMessagesChange,
   isActive,
   dashboardId,
+  prefillRequest,
+  onPrefillApplied,
 }: {
   spec: DashboardSpec;
   widgetData?: Map<number, WidgetState>;
@@ -779,6 +907,8 @@ function AnalizarTab({
   onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   dashboardId?: number;
+  prefillRequest?: { text: string; id: number } | null;
+  onPrefillApplied?: () => void;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -787,6 +917,18 @@ function AnalizarTab({
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const appliedPrefillIdRef = useRef<number | null>(null);
+
+  // Prefill from drilldown — fires when handleDataPointClick on the page
+  // sets pendingAnalyze with a fresh trigger id.
+  useEffect(() => {
+    if (!prefillRequest?.text.trim()) return;
+    if (appliedPrefillIdRef.current === prefillRequest.id) return;
+    appliedPrefillIdRef.current = prefillRequest.id;
+    setInput(prefillRequest.text);
+    setTimeout(() => inputRef.current?.focus(), 50);
+    onPrefillApplied?.();
+  }, [prefillRequest?.id, prefillRequest?.text, onPrefillApplied]);
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
@@ -811,19 +953,35 @@ function AnalizarTab({
         timestamp: new Date(),
       };
 
-      const updatedMessages = [...messages, userMessage];
-      setMessages(updatedMessages);
+      // Append user message via functional updater so concurrent sends do
+      // not lose each other.
+      setMessages((prev) => [...prev, userMessage]);
       setInput("");
       setSuggestions([]);
       setLoading(true);
-
-      // Simulate streaming log
       setStreamingLog([]);
-      ANALYZE_LOG_SEQUENCE.forEach((line, i) => {
-        setTimeout(() => {
-          setStreamingLog((cur) => cur ? [...cur, line] : cur);
-        }, (i + 1) * 400);
-      });
+
+      // Real progress lines streamed from the server (NDJSON).
+      const capturedLogs: LogLine[] = [];
+
+      /**
+       * Append assistant message right after the user message we just
+       * pushed, walking the current state (not a stale snapshot) to avoid
+       * race conditions when other state changes happen mid-request.
+       */
+      const appendAssistant = (assistant: ChatMessage) => {
+        let nextSnapshot: ChatMessage[] = [];
+        setMessages((prev) => {
+          const idx = prev.indexOf(userMessage);
+          const next =
+            idx >= 0
+              ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
+              : [...prev, assistant];
+          nextSnapshot = next;
+          return next;
+        });
+        onMessagesChange?.(nextSnapshot);
+      };
 
       try {
         const res = await fetch("/api/dashboard/analyze", {
@@ -838,6 +996,77 @@ function AnalizarTab({
           }),
         });
 
+        // -----------------------------------------------------------------
+        // Streaming path: server opened an NDJSON stream.
+        // -----------------------------------------------------------------
+        if (res.ok && res.body && isNdjsonResponse(res)) {
+          type AnalyzeMsg =
+            | { type: "progress"; requestId: string; logLine: LogLine }
+            | { type: "result"; requestId: string; response: string; suggestions: string[] }
+            | ({ type: "error"; requestId: string; httpStatus?: number } & Partial<ApiErrorResponse>);
+
+          let result: { response: string; suggestions: string[] } | null = null;
+          let errorFrame: (AnalyzeMsg & { type: "error" }) | null = null;
+
+          for await (const msg of readNdjsonStream<AnalyzeMsg>(res.body)) {
+            if (msg.type === "progress") {
+              capturedLogs.push(msg.logLine);
+              setStreamingLog([...capturedLogs]);
+            } else if (msg.type === "result") {
+              result = { response: msg.response, suggestions: msg.suggestions ?? [] };
+            } else if (msg.type === "error") {
+              errorFrame = msg;
+            }
+          }
+
+          if (errorFrame) {
+            const httpStatus = errorFrame.httpStatus ?? 500;
+            const errorDetail: ApiErrorResponse | undefined = isApiErrorResponse(errorFrame)
+              ? (errorFrame as unknown as ApiErrorResponse)
+              : undefined;
+            const baseMsg = errorFrame.error
+              ?? (httpStatus >= 500
+                ? "Error interno del servidor. Inténtalo de nuevo."
+                : "No se pudo analizar los datos. Revisa tu petición.");
+            const userMsg = httpStatus === 429
+              ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+              : baseMsg;
+            console.error("Analyze API error (stream):", errorDetail ?? userMsg);
+            appendAssistant({
+              role: "assistant",
+              content: userMsg,
+              timestamp: new Date(),
+              isError: true,
+              errorDetail,
+              logs: [...capturedLogs],
+            });
+            return;
+          }
+
+          if (result) {
+            appendAssistant({
+              role: "assistant",
+              content: result.response,
+              timestamp: new Date(),
+              logs: [...capturedLogs],
+            });
+            setSuggestions(result.suggestions);
+            return;
+          }
+
+          appendAssistant({
+            role: "assistant",
+            content: "La respuesta del servidor terminó inesperadamente.",
+            timestamp: new Date(),
+            isError: true,
+            logs: [...capturedLogs],
+          });
+          return;
+        }
+
+        // -----------------------------------------------------------------
+        // Legacy JSON path (fast / single-shot / validation errors).
+        // -----------------------------------------------------------------
         if (!res.ok) {
           let errorDetail: ApiErrorResponse | undefined;
           let userMsg: string;
@@ -866,36 +1095,25 @@ function AnalizarTab({
 
           console.error("Analyze API error:", errorDetail ?? userMsg);
 
-          const errorMessages: ChatMessage[] = [
-            ...updatedMessages,
-            {
-              role: "assistant",
-              content: userMsg,
-              timestamp: new Date(),
-              isError: true,
-              errorDetail,
-              logs: [...ANALYZE_LOG_SEQUENCE],
-            },
-          ];
-          setMessages(errorMessages);
-          onMessagesChange?.(errorMessages);
+          appendAssistant({
+            role: "assistant",
+            content: userMsg,
+            timestamp: new Date(),
+            isError: true,
+            errorDetail,
+            logs: [...capturedLogs],
+          });
           return;
         }
 
         const data = await res.json() as { response: string; suggestions: string[] };
-        const capturedLogs = [...ANALYZE_LOG_SEQUENCE];
 
-        const finalMessages: ChatMessage[] = [
-          ...updatedMessages,
-          {
-            role: "assistant",
-            content: data.response,
-            timestamp: new Date(),
-            logs: capturedLogs,
-          },
-        ];
-        setMessages(finalMessages);
-        onMessagesChange?.(finalMessages);
+        appendAssistant({
+          role: "assistant",
+          content: data.response,
+          timestamp: new Date(),
+          logs: [...capturedLogs],
+        });
         setSuggestions(data.suggestions ?? []);
       } catch (err) {
         console.error("Error al analizar datos:", err);
@@ -905,23 +1123,19 @@ function AnalizarTab({
             ? "No se pudo conectar con el servidor."
             : "Ocurrió un problema al procesar la respuesta.";
 
-        const errorMessages: ChatMessage[] = [
-          ...updatedMessages,
-          {
-            role: "assistant",
-            content: errorMessage,
-            timestamp: new Date(),
-            isError: true,
-          },
-        ];
-        setMessages(errorMessages);
-        onMessagesChange?.(errorMessages);
+        appendAssistant({
+          role: "assistant",
+          content: errorMessage,
+          timestamp: new Date(),
+          isError: true,
+          logs: [...capturedLogs],
+        });
       } finally {
         setLoading(false);
         setTimeout(() => setStreamingLog(null), 400);
       }
     },
-    [loading, spec, widgetData, messages, setMessages, onMessagesChange, dashboardId]
+    [loading, spec, widgetData, setMessages, onMessagesChange, dashboardId]
   );
 
   const handleInputSend = useCallback(() => {
@@ -1133,6 +1347,9 @@ export default function ChatSidebar({
   pendingModifyInput,
   pendingModifyTriggerId,
   onPendingModifyInputConsumed,
+  pendingAnalyzeInput,
+  pendingAnalyzeTriggerId,
+  onPendingAnalyzeInputConsumed,
   onOpenSidebar,
   initialMode,
   hideWhenClosed = false,
@@ -1181,6 +1398,16 @@ export default function ChatSidebar({
     }
     setActiveTab("modificar");
   }, [pendingModifyInput, pendingModifyTriggerId, isOpen, onOpenSidebar, onToggle]);
+
+  // Handle pending analyze prefill (opens sidebar in analyze tab — fired by drilldowns).
+  useEffect(() => {
+    if (!pendingAnalyzeInput?.trim() || pendingAnalyzeTriggerId === undefined) return;
+    if (!isOpen) {
+      (onOpenSidebar ?? onToggle)();
+      return;
+    }
+    setActiveTab("analizar");
+  }, [pendingAnalyzeInput, pendingAnalyzeTriggerId, isOpen, onOpenSidebar, onToggle]);
 
   // -------------------------------------------------------------------------
   // Collapsed state
@@ -1360,6 +1587,12 @@ export default function ChatSidebar({
             onMessagesChange={onAnalyzeMessagesChange}
             isActive={activeTab === "analizar"}
             dashboardId={dashboardId}
+            prefillRequest={
+              pendingAnalyzeInput?.trim() && pendingAnalyzeTriggerId !== undefined
+                ? { text: pendingAnalyzeInput, id: pendingAnalyzeTriggerId }
+                : null
+            }
+            onPrefillApplied={onPendingAnalyzeInputConsumed}
           />
         )}
       </div>

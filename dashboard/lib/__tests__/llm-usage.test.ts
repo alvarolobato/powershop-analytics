@@ -125,6 +125,16 @@ describe("logUsage", () => {
 describe("checkDailyBudget", () => {
   beforeEach(() => {
     mockQuery.mockReset();
+    // Isolate from any local ~/.config/powershop-analytics/config.yaml so the
+    // central config loader does not silently flip the dashboard LLM provider
+    // (e.g. to "cli") and short-circuit checkDailyBudget. Pointing CONFIG_FILE
+    // at a non-existent path forces the loader to use env > schema-defaults
+    // only, which is the contract these tests are exercising.
+    vi.stubEnv("CONFIG_FILE", "/nonexistent/test-isolation/config.yaml");
+    // Default to the OpenRouter provider — the budget check is OpenRouter-only
+    // by design (CLI rows log zero estimated cost, see D-019). Individual tests
+    // can override this with vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli").
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
     resetDashboardLlmConfigCache();
   });
 

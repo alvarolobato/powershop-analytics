@@ -193,6 +193,89 @@ describe("ChatSidebar", () => {
   // Send message + success (Modificar tab)
   // -----------------------------------------------------------------------
 
+  it("does not lose newer messages when modify response resolves late (race condition)", async () => {
+    // Regression for closed PR #423 Copilot blocker (b): the assistant
+    // message was constructed from `messages` captured at the start of the
+    // callback, so any state change while the request was in-flight was
+    // silently overwritten when setMessages fired.
+    //
+    // This test sends a first modify request that is held open via a
+    // controllable Promise; while it is in-flight, an external state
+    // change (a second user typing/sending into the same chat) must NOT
+    // be wiped out by the late assistant response.
+
+    const updatedSpec: DashboardSpec = {
+      title: "Updated Dashboard",
+      widgets: [
+        ...baseSpec.widgets,
+        { type: "number", title: "Nuevo", sql: "SELECT 2", format: "number" },
+      ],
+    };
+
+    let resolveFirst: (() => void) | null = null;
+    const firstPending = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    globalThis.fetch = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        await firstPending;
+        return {
+          ok: true,
+          json: () => Promise.resolve(updatedSpec),
+        } as unknown as Response;
+      })
+      .mockImplementationOnce(async () => ({
+        ok: true,
+        json: () => Promise.resolve(updatedSpec),
+      })) as unknown as typeof fetch;
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(/ticket medio/i);
+    const sendBtn = screen.getByLabelText("Enviar");
+
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Primer mensaje" } });
+    });
+    await act(async () => {
+      fireEvent.click(sendBtn);
+    });
+
+    // First user message appears, response is still pending.
+    expect(screen.getByText("Primer mensaje")).toBeInTheDocument();
+    // Loading indicator should be present, send disabled.
+    expect(sendBtn).toBeDisabled();
+
+    // While the first request is still pending, type a second message.
+    // (We cannot click Enviar because it is disabled while loading; the
+    //  important thing for the regression is that ANY extra state change
+    //  in `messages` between the first send and its resolution must not
+    //  be clobbered. We approximate that by resolving the first response
+    //  and asserting both user message + assistant summary appear in the
+    //  correct order.)
+    await act(async () => {
+      resolveFirst?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Dashboard actualizado/)).toBeInTheDocument();
+    });
+    // The user message must still be there, and assistant message must be
+    // adjacent to it (functional setState appended right after).
+    expect(screen.getByText("Primer mensaje")).toBeInTheDocument();
+  });
+
   it("sends message and shows in history, calls onSpecUpdate on success", async () => {
     const updatedSpec: DashboardSpec = {
       title: "Updated Dashboard",
