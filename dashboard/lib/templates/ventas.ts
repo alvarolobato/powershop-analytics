@@ -91,7 +91,10 @@ WHERE v."entrada" = true
           // Unidades vendidas / tickets. Indicador de "cesta media".
           // El denominador cuenta tickets con al menos una línea — si ningún
           // ticket tiene líneas, NULLIF evita la división por cero.
-          sql: `SELECT ROUND(SUM(lv."unidades")::numeric / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2) AS value
+          // COALESCE evita "—" cuando el rango no tiene líneas.
+          // Usa format: "decimal" porque es un ratio fraccional (p.ej. 1,69):
+          // "number" lo redondearía a entero (→ 2) y perdería precisión.
+          sql: `SELECT COALESCE(ROUND(SUM(lv."unidades")::numeric / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2), 0) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE v."entrada" = true
@@ -99,7 +102,7 @@ WHERE v."entrada" = true
   AND lv."fecha_creacion" >= :curr_from
   AND lv."fecha_creacion" <= :curr_to
   AND __gf_tienda__`,
-          format: "number",
+          format: "decimal",
         },
         {
           label: "Devoluciones",

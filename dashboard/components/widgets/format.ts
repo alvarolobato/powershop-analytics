@@ -22,6 +22,15 @@ const percentFormatter = new Intl.NumberFormat("es-ES", {
   maximumFractionDigits: 1,
 });
 
+// Decimal formatter for ratios / non-integer indicators such as
+// "Unidades por Ticket" (1,69). Distinct from `number` (integer) so the
+// caller can opt in to preserve fractional precision.
+const decimalFormatter = new Intl.NumberFormat("es-ES", {
+  useGrouping: true,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 /**
  * Format a numeric value according to the given KPI format.
  * Returns a string like "€1.234,56", "1.234", or "12,3%".
@@ -45,6 +54,10 @@ export function formatValue(
       return `${percentFormatter.format(num)}%`;
     case "number":
       return integerFormatter.format(num);
+    case "decimal": {
+      const formatted = decimalFormatter.format(num);
+      return prefix ? `${prefix}${formatted}` : formatted;
+    }
     default:
       return String(num);
   }

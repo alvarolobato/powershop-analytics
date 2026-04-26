@@ -54,4 +54,23 @@ describe("formatValue", () => {
     const result = formatValue(-500.5, "currency", "\u20ac");
     expect(result).toContain("500,50");
   });
+
+  // Regression: format: "number" rounds to integer (1.69 -> "2"). The
+  // "decimal" format preserves fractional precision for ratio KPIs such as
+  // Unidades por Ticket. See PR #424 review.
+  it("formats decimal with two fractional digits (ratios)", () => {
+    expect(formatValue(1.69, "decimal")).toBe("1,69");
+  });
+
+  it("formats decimal large numbers with grouping", () => {
+    expect(formatValue(1234.5, "decimal")).toBe("1.234,50");
+  });
+
+  it("formats decimal integer values with trailing zeros", () => {
+    expect(formatValue(2, "decimal")).toBe("2,00");
+  });
+
+  it("number format still rounds to integer (regression guard)", () => {
+    expect(formatValue(1.69, "number")).toBe("2");
+  });
 });
