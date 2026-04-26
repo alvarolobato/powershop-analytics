@@ -221,9 +221,11 @@ LIMIT 50`,
       // widget — that widget required tienda='99' rows in ps_stock_tienda
       // (the central warehouse) which do NOT exist in the mirror, so it
       // always returned zero. The list is intentionally large; combine with
-      // the global Temporada / Familia / Marca filters to narrow it down.
+      // the global Tienda / Temporada / Familia / Marca filters to narrow it down.
       // LEFT JOIN ps_stock_tienda so SKUs that have no row at all (never
-      // distributed to stores) are still surfaced.
+      // distributed to stores) are still surfaced. __gf_tienda__ is wired into
+      // the LEFT JOIN ON-clause so selecting a store narrows the meaning to
+      // "no stock in the selected store" without breaking left-join semantics.
       sql: `SELECT
        COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia",
        COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción",
@@ -235,6 +237,7 @@ LEFT JOIN "public"."ps_stock_tienda" s
        ON s."codigo" = p."codigo"
       AND s."stock" > 0
       AND s."tienda" <> '99'
+      AND __gf_tienda__
 WHERE p."anulado" = false
   AND __gf_familia__
   AND __gf_temporada__
@@ -269,11 +272,12 @@ WHERE s."stock" > 0
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
-  AND p."codigo" NOT IN (
-    SELECT DISTINCT lv."codigo"
+  AND NOT EXISTS (
+    SELECT 1
     FROM "public"."ps_lineas_ventas" lv
     JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
-    WHERE v."entrada" = true
+    WHERE lv."codigo" = p."codigo"
+      AND v."entrada" = true
       AND lv."tienda" <> '99'
       AND lv."fecha_creacion" >= :curr_from
       AND lv."fecha_creacion" <= :curr_to
