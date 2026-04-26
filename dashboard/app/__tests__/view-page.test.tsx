@@ -8,6 +8,8 @@ import type { DashboardSpec } from "@/lib/schema";
 const chatSidebarCapture = vi.hoisted(() => ({
   pendingModifyInput: undefined as string | undefined,
   pendingModifyTriggerId: undefined as number | undefined,
+  pendingAnalyzeInput: undefined as string | undefined,
+  pendingAnalyzeTriggerId: undefined as number | undefined,
 }));
 
 // ---------------------------------------------------------------------------
@@ -75,6 +77,8 @@ vi.mock("@/components/ChatSidebar", () => ({
     onToggle,
     pendingModifyInput,
     pendingModifyTriggerId,
+    pendingAnalyzeInput,
+    pendingAnalyzeTriggerId,
   }: {
     spec: DashboardSpec;
     onSpecUpdate: (s: DashboardSpec, prompt: string) => void;
@@ -82,14 +86,20 @@ vi.mock("@/components/ChatSidebar", () => ({
     onToggle: () => void;
     pendingModifyInput?: string;
     pendingModifyTriggerId?: number;
+    pendingAnalyzeInput?: string;
+    pendingAnalyzeTriggerId?: number;
   }) => {
     chatSidebarCapture.pendingModifyInput = pendingModifyInput;
     chatSidebarCapture.pendingModifyTriggerId = pendingModifyTriggerId;
+    chatSidebarCapture.pendingAnalyzeInput = pendingAnalyzeInput;
+    chatSidebarCapture.pendingAnalyzeTriggerId = pendingAnalyzeTriggerId;
     return isOpen ? (
       <div
         data-testid="chat-sidebar"
         data-pending={pendingModifyInput ?? ""}
         data-trigger-id={pendingModifyTriggerId ?? ""}
+        data-pending-analyze={pendingAnalyzeInput ?? ""}
+        data-analyze-trigger-id={pendingAnalyzeTriggerId ?? ""}
       >
         <button type="button" onClick={onToggle}>
           Cerrar
@@ -135,6 +145,8 @@ describe("ViewDashboard page", () => {
     mockSearchParamsRef.current = new URLSearchParams();
     chatSidebarCapture.pendingModifyInput = undefined;
     chatSidebarCapture.pendingModifyTriggerId = undefined;
+    chatSidebarCapture.pendingAnalyzeInput = undefined;
+    chatSidebarCapture.pendingAnalyzeTriggerId = undefined;
   });
 
   afterEach(() => {
@@ -178,7 +190,10 @@ describe("ViewDashboard page", () => {
     expect(screen.getByTestId("last-refreshed")).toBeInTheDocument();
   });
 
-  it("chart drill-down opens chat sidebar with Spanish Modificar prefill", async () => {
+  it("chart drill-down opens chat sidebar with Spanish Analizar prefill (drilldown → Analizar tab)", async () => {
+    // Drill-downs ask "why?" — the page now routes them to the Analizar
+    // tab via pendingAnalyze (not pendingModify). The bar_chart prompt
+    // template includes both the segment label AND its value.
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve(dashboardRecord),
@@ -192,14 +207,79 @@ describe("ViewDashboard page", () => {
 
     fireEvent.click(screen.getByTestId("sim-chart-click"));
 
-    const expected =
-      "Detalle de Tienda 05 en Ventas por tienda: desglose por categoría, top artículos y tendencia";
+    await waitFor(() => {
+      expect(screen.getByTestId("chat-sidebar")).toBeInTheDocument();
+    });
+    const sidebar = screen.getByTestId("chat-sidebar");
+    // Modify prefill must be untouched.
+    expect(sidebar).toHaveAttribute("data-pending", "");
+    expect(sidebar).toHaveAttribute("data-trigger-id", "");
+    // Analyze prefill must contain the label and value (bar_chart drilldown).
+    const analyzePrompt = sidebar.getAttribute("data-pending-analyze") ?? "";
+    expect(analyzePrompt).toContain("Tienda 05");
+    expect(analyzePrompt).toContain("Ventas por tienda");
+    expect(analyzePrompt).toContain("999");
+    expect(sidebar).toHaveAttribute("data-analyze-trigger-id", "1");
+  });
+
+  it("chart drill-down with empty value omits the value clause (no 'tiene .' artifact)", async () => {
+    // Regression for the user-reported drilldown bug: TableWidget click
+    // emits `value: ""`, which used to produce "la fila X tiene .".
+    // Override the renderer mock for this single test so it sends an
+    // empty value with widgetType = "table".
+    rendererProps.length = 0;
+    const TestRenderer = ({
+      onDataPointClick,
+    }: {
+      onDataPointClick?: (ctx: { label: string; value: string; widgetTitle: string; widgetType: string }) => void;
+    }) => (
+      <div data-testid="dashboard-renderer">
+        <button
+          type="button"
+          data-testid="sim-table-click"
+          onClick={() =>
+            onDataPointClick?.({
+              label: "Tienda 05",
+              value: "",
+              widgetTitle: "Detalle por tienda",
+              widgetType: "table",
+            })
+          }
+        >
+          Sim table click
+        </button>
+      </div>
+    );
+    vi.doMock("@/components/DashboardRenderer", () => ({ DashboardRenderer: TestRenderer }));
+
+    // Re-import the page with the new mock active.
+    vi.resetModules();
+    const { default: FreshViewDashboard } = await import("../dashboard/[id]/page");
+
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
+    });
+
+    render(<FreshViewDashboard />);
+    await waitFor(() => {
+      expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("sim-table-click"));
 
     await waitFor(() => {
       expect(screen.getByTestId("chat-sidebar")).toBeInTheDocument();
     });
-    expect(screen.getByTestId("chat-sidebar")).toHaveAttribute("data-pending", expected);
-    expect(screen.getByTestId("chat-sidebar")).toHaveAttribute("data-trigger-id", "1");
+    const prompt = screen.getByTestId("chat-sidebar").getAttribute("data-pending-analyze") ?? "";
+    expect(prompt).toContain("Tienda 05");
+    expect(prompt).toContain("Detalle por tienda");
+    // The bug: when value was empty the prompt produced "tiene .". Assert
+    // this artifact is absent.
+    expect(prompt).not.toMatch(/tiene\s*\./);
+    // And no dangling " muestra ." either.
+    expect(prompt).not.toMatch(/muestra\s*\./);
+
+    vi.doUnmock("@/components/DashboardRenderer");
   });
 
   it("shows 404 when dashboard not found", async () => {
