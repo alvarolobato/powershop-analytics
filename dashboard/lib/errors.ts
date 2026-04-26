@@ -30,6 +30,58 @@ export type ErrorCode =
   | "UNKNOWN"
   | "AGENTIC_RUNNER";
 
+/**
+ * Rich diagnostic payload attached to AGENTIC_RUNNER errors so the UI
+ * "Detalles" modal can show provider/driver, CLI exit code + sanitized
+ * stdout/stderr tails, the last tool call, and the configured limits.
+ *
+ * All string fields here MUST be sanitized server-side before being put
+ * on the wire; see `lib/llm-provider/sanitize.ts`.
+ */
+export interface AgenticErrorDiagnostic {
+  /** Inner LLM/CLI failure code (e.g. LLM_CLI_AUTH, LLM_CLI_EXIT). */
+  subError: string;
+  /** OpenRouter HTTP transport vs local CLI. */
+  provider: "openrouter" | "cli";
+  /** CLI driver id (claude_code) when provider=cli, else null. */
+  driver: string | null;
+  /** Effective model id sent to the upstream backend. */
+  model: string;
+  /**
+   * Coarse-grained phase the runner failed in.
+   * `cli_spawn` / `cli_exit` are CLI-only.
+   */
+  phase: "tool_call" | "tool_response" | "final" | "cli_spawn" | "cli_exit" | "limits";
+  /** Wall-clock ms from runner start to failure. */
+  durationMs: number;
+  /** Number of completed adapter rounds (0-based count of finished rounds). */
+  toolRoundsUsed: number;
+  /** Total tool calls attempted across all rounds. */
+  toolCallsUsed: number;
+  /** Last tool the runner started (if any) — name + truncated args. */
+  lastToolCall?: { name: string; argumentsTruncated: string };
+  /** Present only when provider === "cli". */
+  cli?: {
+    exitCode: number | null;
+    /** argv[0] + flags as the runner spawned them (sanitized — no secrets). */
+    command?: string[];
+    /** Last ~4 KB of stderr (sanitized). */
+    stderrTail?: string;
+    /** Last ~4 KB of stdout (sanitized). */
+    stdoutTail?: string;
+    /** Inner code from the CLI envelope (e.g. api_error_status: 401). */
+    innerErrorCode?: string | number | null;
+  };
+  /** Limits in effect when the runner failed. */
+  limitsAtFailure: {
+    maxRounds: number;
+    maxToolCalls: number;
+    toolTimeoutMs: number;
+    executeRowLimit: number;
+    payloadCharLimit: number;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Standard API error response shape
 // ---------------------------------------------------------------------------
@@ -49,6 +101,8 @@ export interface ApiErrorResponse {
   existing_id?: number;
   /** When code is REVIEW_EXISTS — Monday (YYYY-MM-DD) of the reviewed week. */
   week_start?: string;
+  /** Rich diagnostic payload for AGENTIC_RUNNER failures (sanitized). */
+  diagnostic?: AgenticErrorDiagnostic;
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +140,7 @@ export function formatApiError(
   code: ErrorCode,
   details?: string,
   requestId?: string,
+  diagnostic?: AgenticErrorDiagnostic,
 ): ApiErrorResponse {
   return {
     error,
@@ -93,6 +148,7 @@ export function formatApiError(
     ...(details !== undefined ? { details } : {}),
     timestamp: new Date().toISOString(),
     requestId: requestId ?? generateRequestId(),
+    ...(diagnostic !== undefined ? { diagnostic } : {}),
   };
 }
 
@@ -116,7 +172,9 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
     // details must be absent or a string (never an object/array)
     (v.details === undefined || typeof v.details === "string") &&
     (v.existing_id === undefined || typeof v.existing_id === "number") &&
-    (v.week_start === undefined || typeof v.week_start === "string")
+    (v.week_start === undefined || typeof v.week_start === "string") &&
+    (v.diagnostic === undefined ||
+      (typeof v.diagnostic === "object" && v.diagnostic !== null))
   );
 }
 

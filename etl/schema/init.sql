@@ -649,6 +649,38 @@ ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_provider TEXT NOT NULL D
 ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_driver TEXT;
 
 -- ============================================================
+-- AGENTIC_RUNNER failure audit log (Dashboard App — issue #419)
+-- One row per AgenticRunnerError surfaced from /api/dashboard/{generate,modify,analyze}.
+-- All string columns store sanitized values (see lib/llm-provider/sanitize.ts).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS llm_errors (
+    id                SERIAL       PRIMARY KEY,
+    request_id        TEXT         NOT NULL,
+    endpoint          TEXT         NOT NULL,
+    code              TEXT         NOT NULL,
+    sub_error         TEXT,
+    provider          TEXT         NOT NULL,
+    driver            TEXT,
+    model             TEXT,
+    phase             TEXT,
+    duration_ms       INTEGER,
+    tool_rounds_used  INTEGER,
+    tool_calls_used   INTEGER,
+    last_tool_name    TEXT,
+    last_tool_args    TEXT,
+    cli_exit_code     INTEGER,
+    cli_inner_code    TEXT,
+    cli_command       TEXT,
+    cli_stdout_tail   TEXT,
+    cli_stderr_tail   TEXT,
+    limits            JSONB,
+    created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_llm_errors_created_at ON llm_errors(created_at);
+CREATE INDEX IF NOT EXISTS idx_llm_errors_request_id  ON llm_errors(request_id);
+CREATE INDEX IF NOT EXISTS idx_llm_errors_endpoint    ON llm_errors(endpoint);
+
+-- ============================================================
 -- LLM interaction history (Dashboard App — full run audit trail)
 -- ============================================================
 

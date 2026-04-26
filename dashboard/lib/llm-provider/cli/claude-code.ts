@@ -62,6 +62,7 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
     "--output-format",
     "text",
   ];
+  const fullArgv = [cfg.cliBin, ...args];
   const result = await runCliProcess({
     file: cfg.cliBin,
     args,
@@ -71,7 +72,7 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
     maxStderrBytes: Math.min(cfg.cliMaxCaptureBytes, 512_000),
   });
   try {
-    assertCliSuccess(result, "claude single-shot");
+    assertCliSuccess(result, "claude single-shot", fullArgv);
   } catch (e) {
     if (e instanceof CliRunnerError) throw e;
     throw e;
@@ -80,6 +81,9 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
   if (!text) {
     throw new CliRunnerError("LLM_CLI_EMPTY", "claude single-shot: empty stdout", {
       stderr: result.stderr,
+      command: fullArgv,
+      phase: "empty",
+      durationMs: result.durationMs,
     });
   }
   return text;
@@ -113,7 +117,7 @@ function extractJsonObject(text: string): string {
     throw new CliRunnerError(
       "LLM_CLI_PARSE",
       "claude agentic: no JSON object found in output",
-      { stderr: body.slice(0, 500) },
+      { stderr: body.slice(0, 500), phase: "parse" },
     );
   }
   // Walk forward counting balanced braces, respecting strings and escapes,
@@ -214,6 +218,7 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     "--output-format",
     "json",
   ];
+  const fullArgv = [cfg.cliBin, ...args];
 
   const result = await runCliProcess({
     file: cfg.cliBin,
@@ -224,18 +229,40 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     maxStderrBytes: Math.min(cfg.cliMaxCaptureBytes, 512_000),
   });
   try {
-    assertCliSuccess(result, "claude agentic step");
+    assertCliSuccess(result, "claude agentic step", fullArgv);
   } catch (e) {
     if (e instanceof CliRunnerError) throw e;
     throw e;
   }
   // --output-format json wraps the model output in an envelope: { result: "<text>" }.
   // Extract the inner text to avoid spurious trailing content that breaks JSON.parse.
+  // The envelope can also signal `is_error: true` *with* exit code 0 when the
+  // CLI declines to forward an upstream HTTP failure as a process error; treat
+  // that the same way we treat the exit-1 case in `assertCliSuccess`.
   let textOutput = result.stdout;
   try {
     const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
+    if (envelope?.is_error === true) {
+      const status = typeof envelope.api_error_status === "number" ? envelope.api_error_status : null;
+      const inner = typeof envelope.result === "string" ? envelope.result : "";
+      const isAuth = status === 401 || status === 403 || /authentication|invalid.*credentials|unauthorized/i.test(inner);
+      throw new CliRunnerError(
+        isAuth ? "LLM_CLI_AUTH" : "LLM_CLI_API_ERROR",
+        `claude agentic step: ${inner.slice(0, 240) || `api_error_status=${status}`}`,
+        {
+          exitCode: result.exitCode,
+          stderr: result.stderr,
+          stdout: result.stdout,
+          command: fullArgv,
+          phase: isAuth ? "auth" : "exit",
+          durationMs: result.durationMs,
+          innerErrorCode: status,
+        },
+      );
+    }
     if (typeof envelope.result === "string") textOutput = envelope.result;
-  } catch {
+  } catch (e) {
+    if (e instanceof CliRunnerError) throw e;
     // Envelope parse failed — fall back to raw stdout
   }
   return parseClaudeAgenticStepJson(textOutput);

@@ -12,6 +12,7 @@ import LogBlock from "@/components/LogBlock";
 import type { LogLine } from "@/components/LogBlock";
 import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
+import AgenticErrorDetails from "@/components/AgenticErrorDetails";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -212,28 +213,15 @@ function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: 
             Detalles técnicos
           </button>
           {expanded && (
-            <div
-              className="mt-1 rounded bg-red-900/20 p-2 text-xs font-mono space-y-0.5 text-red-300"
-              data-testid="chat-error-details"
-            >
-              <div>
-                <span className="font-semibold">Código:</span> {errorDetail.code}
-              </div>
-              <div>
-                <span className="font-semibold">ID:</span> {errorDetail.requestId}
-              </div>
-              {errorDetail.details && (
-                <div>
-                  <span className="font-semibold">Detalle:</span>{" "}
-                  <span className="whitespace-pre-wrap">{errorDetail.details}</span>
-                </div>
-              )}
+            <div data-testid="chat-error-details">
+              <AgenticErrorDetails errorDetail={errorDetail} />
               <button
                 type="button"
                 onClick={handleCopy}
                 className="mt-1 text-xs text-red-400 hover:text-red-300 underline"
+                data-testid="copy-as-json"
               >
-                {copied ? "Copiado!" : "Copiar detalles"}
+                {copied ? "Copiado!" : "Copiar como JSON"}
               </button>
             </div>
           )}

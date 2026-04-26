@@ -32,6 +32,7 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -233,12 +234,15 @@ export async function POST(request: Request) {
       );
     }
     if (err instanceof AgenticRunnerError) {
+      const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
+      persistAgenticError("analyze", err, diagnostic);
       return NextResponse.json(
         formatApiError(
           "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
           "AGENTIC_RUNNER",
-          `${err.code}: ${err.message}`,
+          diagnostic.subError,
           err.requestId,
+          diagnostic,
         ),
         { status: 500 },
       );

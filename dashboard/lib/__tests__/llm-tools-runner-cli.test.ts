@@ -28,8 +28,9 @@ vi.mock("@/lib/llm-provider/cli/claude-code", () => ({
   claudeCliAgenticStep: mockClaudeStep,
 }));
 
-import { runAgenticChat } from "@/lib/llm-tools/runner";
+import { runAgenticChat, AgenticRunnerError } from "@/lib/llm-tools/runner";
 import { createClaudeCodeAgenticAdapter } from "@/lib/llm-provider/cli/agent-adapter";
+import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
 import type { DashboardLlmConfig } from "@/lib/llm-provider/types";
 
 const cfg: DashboardLlmConfig = {
@@ -60,6 +61,59 @@ describe("runAgenticChat (CLI adapter)", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it("issue #419: surfaces CliRunnerError with diagnostic on AgenticRunnerError", async () => {
+    // Simulate the production failure: claude exits 1 with auth-error JSON envelope.
+    mockClaudeStep.mockRejectedValueOnce(
+      new CliRunnerError(
+        "LLM_CLI_AUTH",
+        "claude agentic step: Failed to authenticate. API Error: 401",
+        {
+          exitCode: 1,
+          stderr: "",
+          stdout:
+            '{"type":"result","is_error":true,"api_error_status":401,"result":"Failed to authenticate"}',
+          command: ["claude", "-p", "x", "--model", "sonnet"],
+          phase: "auth",
+          durationMs: 4321,
+          innerErrorCode: 401,
+        },
+      ),
+    );
+
+    const adapter = createClaudeCodeAgenticAdapter(cfg);
+    let caught: AgenticRunnerError | null = null;
+    try {
+      await runAgenticChat({
+        adapter,
+        model: cfg.cliModel,
+        systemPrompt: "sys",
+        userContent: "go",
+        ctx,
+        temperature: 0.2,
+        maxTokens: 1000,
+      });
+    } catch (e) {
+      caught = e as AgenticRunnerError;
+    }
+    expect(caught).not.toBeNull();
+    expect(caught!).toBeInstanceOf(AgenticRunnerError);
+    expect(caught!.code).toBe("LLM_CLI_AUTH");
+    expect(caught!.diagnostic).toBeDefined();
+    expect(caught!.diagnostic!.phase).toBe("cli_exit");
+    expect(caught!.diagnostic!.cli).toBeDefined();
+    expect(caught!.diagnostic!.cli!.exitCode).toBe(1);
+    expect(caught!.diagnostic!.cli!.innerErrorCode).toBe(401);
+    expect(caught!.diagnostic!.cli!.command).toEqual([
+      "claude",
+      "-p",
+      "x",
+      "--model",
+      "sonnet",
+    ]);
+    expect(caught!.diagnostic!.limitsAtFailure.maxRounds).toBe(4);
+    expect(caught!.diagnostic!.toolRoundsUsed).toBe(0);
   });
 
   it("runs tool round then final via Claude JSON protocol", async () => {
