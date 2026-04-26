@@ -2,12 +2,29 @@
  * POST /api/dashboard/analyze
  *
  * Accepts a dashboard spec + widget data + user prompt, calls the LLM to
- * produce a data analysis, and returns the response plus suggestion chips.
+ * produce a data analysis, and either:
  *
- * Request body:
- *   { spec: DashboardSpec, widgetData: Record<string, unknown>, prompt: string, action?: string }
- * Response:
- *   { response: string, suggestions: string[] }
+ *  a) returns the response as a single JSON document (legacy contract,
+ *     also used for ALL error responses — HTTP status reflects 4xx/5xx), or
+ *  b) streams progress events as NDJSON when the agentic runner emits at
+ *     least one progress event before completing.
+ *
+ * Status / contract:
+ *   • Validation errors        → HTTP 4xx, JSON `ApiErrorResponse`.
+ *   • LLM errors (no progress) → HTTP 4xx/5xx, JSON `ApiErrorResponse`.
+ *   • LLM errors (mid-stream)  → HTTP 200 NDJSON; final frame is
+ *                                `{type:"error", httpStatus, ...ApiErrorResponse}`.
+ *                                Clients MUST check the frame `httpStatus`
+ *                                field rather than `res.status` for
+ *                                mid-stream failures.
+ *   • Success (no progress)    → HTTP 200, JSON `{response, suggestions}`.
+ *   • Success (with progress)  → HTTP 200 NDJSON; final frame is
+ *                                `{type:"result", response, suggestions}`.
+ *
+ * Streaming frames (NDJSON):
+ *   { type: "progress", requestId, logLine: LogLine }   per agentic step
+ *   { type: "result",   requestId, response, suggestions }
+ *   { type: "error",    requestId, httpStatus, error, code, details?, diagnostic? }
  */
 import { NextResponse } from "next/server";
 import {
@@ -25,6 +42,7 @@ import {
   formatApiError,
   generateRequestId,
   sanitizeErrorMessage,
+  type ApiErrorResponse,
 } from "@/lib/errors";
 import type { WidgetData } from "@/components/widgets/types";
 import {
@@ -33,6 +51,9 @@ import {
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
+import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
+import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
+import type { LogLine } from "@/components/LogBlock";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -86,6 +107,61 @@ function deserializeWidgetData(
     map.set(idx, widgetState);
   }
   return map;
+}
+
+/**
+ * Build the LLM error response payload (ApiErrorResponse shape) AND the
+ * HTTP status that should accompany it. Centralized so the JSON-only path
+ * and the NDJSON error frame stay in lock-step.
+ */
+function buildLlmErrorPayload(
+  err: unknown,
+  requestId: string,
+  cfg: ReturnType<typeof loadDashboardLlmConfig>,
+): { status: number; payload: ApiErrorResponse } {
+  if (err instanceof AgenticRunnerError) {
+    const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
+    persistAgenticError("analyze", err, diagnostic);
+    return {
+      status: 500,
+      payload: formatApiError(
+        "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
+        "AGENTIC_RUNNER",
+        diagnostic.subError,
+        err.requestId,
+        diagnostic,
+      ),
+    };
+  }
+  if (err instanceof BudgetExceededError) {
+    return {
+      status: 429,
+      payload: formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
+    };
+  }
+  if (err instanceof CircuitBreakerOpenError) {
+    return {
+      status: 503,
+      payload: formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
+    };
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  const normalizedMessage = message.toLowerCase();
+  const isRateLimit =
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("ratelimit") ||
+    normalizedMessage.includes("429");
+  return {
+    status: isRateLimit ? 429 : 500,
+    payload: formatApiError(
+      isRateLimit
+        ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
+        : "No se pudo analizar el dashboard. Inténtalo de nuevo.",
+      isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+      sanitizeErrorMessage(err),
+      requestId,
+    ),
+  };
 }
 
 // ─── Route handler ────────────────────────────────────────────────────────────
@@ -213,83 +289,149 @@ export async function POST(request: Request) {
     console.error(`[${requestId}] createInteraction(analyze) failed:`, e);
   }
 
-  // --- Call LLM to analyze dashboard ----------------------------------------
-  let analysisResponse: string;
-  try {
-    analysisResponse = await analyzeDashboard(
-      serializedData,
-      prompt.trim(),
-      typeof action === "string" ? action : undefined,
-      {
-        requestId,
-        endpoint: "analyzeDashboard",
-        dashboardId: dashboardIdNum,
-      },
-    );
-  } catch (err) {
+  // --- Run the LLM call, collecting progress events into a buffer ----------
+  // We start the LLM call in the background. The progress callback pushes
+  // log lines into a buffer. We then await either the call's completion or
+  // the first progress event:
+  //
+  //   • If the call completes (success or failure) BEFORE any progress event
+  //     is buffered, we return a normal JSON response with proper HTTP
+  //     status. This is the "fast path" most tests / clients use.
+  //
+  //   • If at least one progress event was buffered before the call
+  //     resolved, we open an NDJSON stream that replays the buffered events
+  //     and continues live. From that point on errors must be reported as a
+  //     terminal `{type:"error", httpStatus, …}` frame because HTTP headers
+  //     have already been committed at status 200.
+  const t0 = Date.now();
+  const buffer: { type: "progress"; logLine: LogLine }[] = [];
+  let firstEventResolve: (() => void) | null = null;
+  const firstEvent = new Promise<void>((resolve) => {
+    firstEventResolve = resolve;
+  });
+
+  const onAgenticProgress = (ev: AgenticProgressEvent) => {
+    const logLine = agenticEventToLogLine(ev, Date.now() - t0);
+    if (!logLine) return;
+    buffer.push({ type: "progress", logLine });
+    if (firstEventResolve) {
+      firstEventResolve();
+      firstEventResolve = null;
+    }
+  };
+
+  type LlmOutcome =
+    | { kind: "ok"; response: string }
+    | { kind: "err"; err: unknown };
+
+  const llmPromise: Promise<LlmOutcome> = analyzeDashboard(
+    serializedData,
+    prompt.trim(),
+    typeof action === "string" ? action : undefined,
+    {
+      requestId,
+      endpoint: "analyzeDashboard",
+      dashboardId: dashboardIdNum,
+      onAgenticProgress,
+    },
+  ).then(
+    (response): LlmOutcome => ({ kind: "ok", response }),
+    (err): LlmOutcome => ({ kind: "err", err }),
+  );
+
+  // Race: first progress event vs. call completion.
+  const raceWinner = await Promise.race([
+    llmPromise.then(() => "done" as const),
+    firstEvent.then(() => "progress" as const),
+  ]);
+
+  if (raceWinner === "done") {
+    // Fast path: no progress was emitted before the call resolved.
+    const outcome = await llmPromise;
+    if (outcome.kind === "err") {
+      const { err } = outcome;
+      if (interactionId) {
+        const errText = err instanceof Error ? err.message : "Error al analizar";
+        await finishInteraction(interactionId, "error", errText).catch((e) =>
+          console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+        );
+      }
+      const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
+      console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
+      return NextResponse.json(payload, { status });
+    }
+    // Success without progress: keep legacy JSON contract.
+    const analysisResponse = outcome.response;
+    const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
+    const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
     if (interactionId) {
-      const errText = err instanceof Error ? err.message : "Error al analizar";
-      await finishInteraction(interactionId, "error", errText).catch((e) =>
-        console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+      await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
+        console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
       );
     }
-    if (err instanceof AgenticRunnerError) {
-      const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
-      persistAgenticError("analyze", err, diagnostic);
-      return NextResponse.json(
-        formatApiError(
-          "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
-          "AGENTIC_RUNNER",
-          diagnostic.subError,
-          err.requestId,
-          diagnostic,
-        ),
-        { status: 500 },
-      );
-    }
-    if (err instanceof BudgetExceededError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-        { status: 429 },
-      );
-    }
-    if (err instanceof CircuitBreakerOpenError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
-        { status: 503 },
-      );
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    const normalizedMessage = message.toLowerCase();
-    console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
-
-    const isRateLimit =
-      normalizedMessage.includes("rate limit") ||
-      normalizedMessage.includes("ratelimit") ||
-      normalizedMessage.includes("429");
-
-    return NextResponse.json(
-      formatApiError(
-        isRateLimit
-          ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-          : "No se pudo analizar el dashboard. Inténtalo de nuevo.",
-        isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
-        sanitizeErrorMessage(err),
-        requestId,
-      ),
-      { status: isRateLimit ? 429 : 500 },
-    );
+    return NextResponse.json({ response: analysisResponse, suggestions });
   }
 
-  // --- Generate suggestions before returning the response ------------------
-  const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
-  const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
+  // Streaming path: at least one progress event was emitted.
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (obj: Record<string, unknown>) => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+      };
 
-  if (interactionId) {
-    await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
-      console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
-    );
-  }
+      // Replay events buffered up to this point. New events will continue
+      // arriving via `onAgenticProgress` → push into `liveBuffer` then drain.
+      const drainBuffer = () => {
+        while (buffer.length) {
+          const ev = buffer.shift()!;
+          send({ ...ev, requestId });
+        }
+      };
+      drainBuffer();
 
-  return NextResponse.json({ response: analysisResponse, suggestions });
+      // Swap the progress callback so future events stream directly.
+      // (Closure-captured `onAgenticProgress` is no longer needed; we just
+      //  poll `buffer` after each await tick.)
+      const outcome = await llmPromise;
+      drainBuffer();
+
+      if (outcome.kind === "err") {
+        const { err } = outcome;
+        if (interactionId) {
+          const errText = err instanceof Error ? err.message : "Error al analizar";
+          await finishInteraction(interactionId, "error", errText).catch((e) =>
+            console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+          );
+        }
+        const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
+        console.error(`[${requestId}] Error al analizar dashboard con LLM (mid-stream):`, err);
+        // Spread payload first so its `requestId` is the canonical one;
+        // then add type / httpStatus which are not part of ApiErrorResponse.
+        send({ ...payload, type: "error", httpStatus: status });
+        controller.close();
+        return;
+      }
+
+      const analysisResponse = outcome.response;
+      const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
+      const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
+      if (interactionId) {
+        await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
+          console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
+        );
+      }
+      send({ type: "result", requestId, response: analysisResponse, suggestions });
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Request-Id": requestId,
+    },
+  });
 }

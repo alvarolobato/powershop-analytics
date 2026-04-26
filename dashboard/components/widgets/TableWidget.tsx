@@ -175,6 +175,30 @@ export function TableWidget({
 
   const colFormats = data.columns.map(detectFormat);
 
+  // Per-column numeric detection (right-aligned headers + cells).
+  //
+  // We cannot rely on `colMaxValues[idx] > 0` here: that misses columns where
+  // every value is 0 or every value is negative — they are still numeric and
+  // must be right-aligned. A column counts as numeric when AT LEAST ONE cell
+  // is a finite number (after Number() coercion). `ref` and `tag` formatted
+  // columns stay left-aligned (they look like words/IDs even if numeric).
+  // `margin_pct` is always numeric.
+  const colIsNumericRight = data.columns.map((_col, idx) => {
+    const fmt = colFormats[idx];
+    if (fmt === "ref" || fmt === "tag") return false;
+    if (fmt === "margin_pct") return true;
+    for (const row of data.rows) {
+      const cell = row[idx];
+      if (cell === null || cell === undefined || cell === "") continue;
+      if (typeof cell === "number" && Number.isFinite(cell)) return true;
+      if (typeof cell === "string") {
+        const n = Number(cell);
+        if (Number.isFinite(n)) return true;
+      }
+    }
+    return false;
+  });
+
   return (
     <div
       style={{
@@ -203,7 +227,7 @@ export function TableWidget({
                 <th
                   key={`${idx}-${col}`}
                   style={{
-                    textAlign: "left",
+                    textAlign: colIsNumericRight[idx] ? "right" : "left",
                     padding: "10px 12px",
                     fontWeight: 500,
                     borderBottom: "1px solid var(--border)",
@@ -234,8 +258,10 @@ export function TableWidget({
                       textTransform: "inherit" as React.CSSProperties["textTransform"],
                       letterSpacing: "inherit",
                       padding: 0,
-                      display: "inline-flex",
+                      width: "100%",
+                      display: "flex",
                       alignItems: "center",
+                      justifyContent: colIsNumericRight[idx] ? "flex-end" : "flex-start",
                       gap: 4,
                     }}
                   >

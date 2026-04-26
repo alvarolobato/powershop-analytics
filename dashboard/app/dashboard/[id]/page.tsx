@@ -118,6 +118,7 @@ export default function ViewDashboard() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(undefined);
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
+  const [pendingAnalyze, setPendingAnalyze] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
   const [glossaryOpen, setGlossaryOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -386,19 +387,45 @@ export default function ViewDashboard() {
   }, []);
 
   const handleDataPointClick = useCallback((ctx: DrillDownContext) => {
+    // Compose a useful prompt. ctx.value may be empty for table/ranked_bars
+    // row clicks (no clean numeric value to highlight). When it is empty we
+    // omit the value clause entirely so we never produce "la fila X tiene .".
+    const value = typeof ctx.value === "string" ? ctx.value.trim() : ctx.value;
+    const hasValue = value !== "" && value !== null && value !== undefined;
+    const labelStr = String(ctx.label ?? "").trim();
+    const title = ctx.widgetTitle ?? "";
     let prompt: string;
     if (ctx.widgetType === "bar_chart" || ctx.widgetType === "donut_chart") {
-      prompt = `Detalle de ${ctx.label} en ${ctx.widgetTitle}: desglose por categoría, top artículos y tendencia`;
+      prompt = hasValue
+        ? `En el widget "${title}", el segmento "${labelStr}" muestra ${value}. ¿Por qué tiene ese valor? Compara con los demás segmentos visibles en el dashboard, identifica si es una anomalía y sugiere qué acción tomar.`
+        : `En el widget "${title}", el segmento "${labelStr}". ¿Por qué destaca? Compara con los demás segmentos visibles en el dashboard, identifica si es una anomalía y sugiere qué acción tomar.`;
     } else if (ctx.widgetType === "line_chart" || ctx.widgetType === "area_chart") {
-      prompt = `¿Qué ocurrió en ${ctx.label} en ${ctx.widgetTitle}? Detalle por tienda y categoría`;
+      prompt = hasValue
+        ? `En el widget "${title}", el punto "${labelStr}" tiene un valor de ${value}. ¿Qué factores explican ese nivel? Compara con el período anterior y con otras tiendas o categorías del dashboard.`
+        : `En el widget "${title}", el punto "${labelStr}". ¿Qué factores explican ese nivel? Compara con el período anterior y con otras tiendas o categorías del dashboard.`;
+    } else if (ctx.widgetType === "table" || ctx.widgetType === "ranked_bars") {
+      // Table/ranked_bars rows usually pass label = primary identifier and
+      // an empty value (no single numeric column to highlight). Build a
+      // prompt around the row identifier only.
+      prompt = hasValue
+        ? `En el widget "${title}", la fila "${labelStr}" tiene ${value}. ¿Es un valor atípico respecto al resto? ¿Qué lo explica y qué se puede hacer?`
+        : `En el widget "${title}", la fila "${labelStr}". ¿Es atípica respecto al resto? ¿Qué la explica y qué se puede hacer?`;
     } else {
-      prompt = `Más información sobre ${ctx.label}`;
+      prompt = hasValue
+        ? `En el widget "${title}", el elemento "${labelStr}" muestra ${value}. Dame más detalle y contexto sobre este dato.`
+        : `En el widget "${title}", dame más detalle y contexto sobre "${labelStr}".`;
     }
     setGlossaryOpen(false);
     setHistoryOpen(false);
     drillDownIdRef.current += 1;
-    setPendingModify({ prompt, id: drillDownIdRef.current });
+    // Drill-downs ask "why?" — route to the Analizar tab, not Modificar.
+    setPendingAnalyze({ prompt, id: drillDownIdRef.current });
+    setChatInitialMode("analizar");
     setChatOpen(true);
+  }, []);
+
+  const handlePendingAnalyzeInputConsumed = useCallback(() => {
+    setPendingAnalyze(null);
   }, []);
 
   const handleChatToggle = useCallback(() => {
@@ -1060,6 +1087,9 @@ export default function ViewDashboard() {
         pendingModifyInput={pendingModify?.prompt}
         pendingModifyTriggerId={pendingModify?.id}
         onPendingModifyInputConsumed={handlePendingModifyInputConsumed}
+        pendingAnalyzeInput={pendingAnalyze?.prompt}
+        pendingAnalyzeTriggerId={pendingAnalyze?.id}
+        onPendingAnalyzeInputConsumed={handlePendingAnalyzeInputConsumed}
         initialMode={chatInitialMode}
       />
 
