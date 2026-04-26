@@ -177,26 +177,37 @@ export function TableWidget({
 
   // Per-column numeric detection (right-aligned headers + cells).
   //
-  // We cannot rely on `colMaxValues[idx] > 0` here: that misses columns where
-  // every value is 0 or every value is negative — they are still numeric and
-  // must be right-aligned. A column counts as numeric when AT LEAST ONE cell
-  // is a finite number (after Number() coercion). `ref` and `tag` formatted
-  // columns stay left-aligned (they look like words/IDs even if numeric).
-  // `margin_pct` is always numeric.
+  // A column counts as numeric when the clear majority (≥80%) of non-null
+  // cells are finite numbers. The "at least one" rule we used before
+  // misclassified identifier columns like "Temporada" — values are mostly
+  // codes ("S26", "VER", "P25-V") but a few rows happen to be a pure year
+  // ("2024"). With the old rule the header right-aligned, the numeric rows
+  // rendered as right-aligned heat cells, and the text rows fell through to
+  // left-aligned text — so each row in the same column landed in a different
+  // place. The majority rule keeps mixed-content identifier columns
+  // consistently left-aligned. `ref` and `tag` formatted columns stay
+  // left-aligned by design; `margin_pct` is always numeric.
   const colIsNumericRight = data.columns.map((_col, idx) => {
     const fmt = colFormats[idx];
     if (fmt === "ref" || fmt === "tag") return false;
     if (fmt === "margin_pct") return true;
+    let total = 0;
+    let numeric = 0;
     for (const row of data.rows) {
       const cell = row[idx];
       if (cell === null || cell === undefined || cell === "") continue;
-      if (typeof cell === "number" && Number.isFinite(cell)) return true;
+      total += 1;
+      if (typeof cell === "number" && Number.isFinite(cell)) {
+        numeric += 1;
+        continue;
+      }
       if (typeof cell === "string") {
         const n = Number(cell);
-        if (Number.isFinite(n)) return true;
+        if (Number.isFinite(n)) numeric += 1;
       }
     }
-    return false;
+    if (total === 0) return false;
+    return numeric / total >= 0.8;
   });
 
   return (
@@ -384,8 +395,12 @@ export function TableWidget({
                     );
                   }
 
-                  // Numeric columns get heat cells
-                  if (isNumeric && colMax > 0) {
+                  // Numeric columns get heat cells. Gate on the column-level
+                  // decision so a single numeric-looking value inside an
+                  // identifier column (e.g. a "2024" inside Temporada) does
+                  // not render right-aligned while its sibling rows render
+                  // left-aligned as text.
+                  if (isNumeric && colIsNumericRight[cIdx] && colMax > 0) {
                     return (
                       <td key={cIdx} style={{ padding: "10px 12px", textAlign: "right" }}>
                         <HeatCell value={numVal} max={colMax} />

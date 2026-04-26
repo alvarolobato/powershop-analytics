@@ -100,4 +100,37 @@ describe("TableWidget numeric column header alignment", () => {
     expect(header).not.toBeNull();
     expect(header!).toHaveStyle({ textAlign: "left" });
   });
+
+  // Regression for the "Temporada" alignment bug: identifier columns whose
+  // values are mostly text codes ("S26", "VER", "P25-V") with a minority of
+  // pure-number values ("2024") used to render numeric rows right-aligned
+  // with heat bars while sibling text rows rendered left-aligned. We treat a
+  // column as numeric only when ≥80% of non-null cells are numbers.
+  it("keeps identifier columns left-aligned when only a minority of cells are numeric", () => {
+    const widget: TableSpec = {
+      type: "table",
+      title: "Dead Stock",
+      sql: "SELECT 1",
+    };
+    const data: WidgetData = {
+      columns: ["Referencia", "Temporada"],
+      rows: [
+        ["REF-001", "S26"],
+        ["REF-002", "VER"],
+        ["REF-003", "P25-V"],
+        ["REF-004", "2024"],
+        ["REF-005", "INV"],
+      ],
+    };
+    render(<TableWidget widget={widget} data={data} />);
+    const header = screen.getByText("Temporada").closest("th");
+    expect(header).not.toBeNull();
+    expect(header!).toHaveStyle({ textAlign: "left" });
+    // The "2024" cell must NOT render as a heat-cell (right-aligned with bar).
+    // Heat-cell wraps the number in a span with a fixed monospace size; a
+    // plain text cell renders the value directly inside the <td>.
+    const cell2024 = screen.getByText("2024").closest("td");
+    expect(cell2024).not.toBeNull();
+    expect(cell2024!).not.toHaveStyle({ textAlign: "right" });
+  });
 });
