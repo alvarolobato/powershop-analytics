@@ -194,12 +194,23 @@ GROUP BY c."reg_cliente", c."nombre", c."nif", c."num_cliente"
 ORDER BY 2`,
 };
 
-/** Familia for purchasing / stock when there is no ps_ventas scope on the date. */
+/**
+ * Familia for purchasing / stock when there is no ps_ventas scope on the date.
+ *
+ * `bind_expr` and `options_sql` both TRIM `fm."fami_grup_marc"` so filtering
+ * matches the trimmed display value used by stock widgets. Without TRIM,
+ * `ps_familias` rows like "PANTALON " (trailing space) and "PANTALON" appear
+ * as a single deduplicated option in the combobox but selecting it would
+ * otherwise filter only one of the underlying rows — leaving the chart total
+ * inconsistent with the unfiltered chart. See PR #426 review.
+ */
 const FAMILIA_CATALOG: GlobalFilter = {
   ...FAMILIA,
-  options_sql: `SELECT fm."fami_grup_marc" AS value, fm."fami_grup_marc" AS label
+  bind_expr: `TRIM(fm."fami_grup_marc")`,
+  options_sql: `SELECT DISTINCT TRIM(fm."fami_grup_marc") AS value,
+       TRIM(fm."fami_grup_marc") AS label
 FROM "public"."ps_familias" fm
-WHERE fm."fami_grup_marc" IS NOT NULL AND fm."fami_grup_marc" <> ''
+WHERE fm."fami_grup_marc" IS NOT NULL AND TRIM(fm."fami_grup_marc") <> ''
 ORDER BY 1`,
 };
 
