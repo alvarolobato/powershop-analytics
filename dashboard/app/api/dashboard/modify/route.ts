@@ -404,7 +404,8 @@ export async function POST(request: Request) {
         }
         const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
         console.error(`[${requestId}] Error al modificar dashboard con LLM (mid-stream):`, err);
-        send({ type: "error", requestId, httpStatus: status, ...payload });
+        // Spread payload first so its `requestId` is canonical.
+        send({ ...payload, type: "error", httpStatus: status });
         controller.close();
         return;
       }
@@ -421,10 +422,9 @@ export async function POST(request: Request) {
           );
         }
         send({
-          type: "error",
-          requestId,
-          httpStatus: validation.status,
           ...validation.payload,
+          type: "error",
+          httpStatus: validation.status,
         });
         controller.close();
         return;

@@ -406,7 +406,9 @@ export async function POST(request: Request) {
         }
         const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
         console.error(`[${requestId}] Error al analizar dashboard con LLM (mid-stream):`, err);
-        send({ type: "error", requestId, httpStatus: status, ...payload });
+        // Spread payload first so its `requestId` is the canonical one;
+        // then add type / httpStatus which are not part of ApiErrorResponse.
+        send({ ...payload, type: "error", httpStatus: status });
         controller.close();
         return;
       }
