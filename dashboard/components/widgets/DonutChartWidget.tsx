@@ -19,6 +19,17 @@ interface DonutChartWidgetProps {
 const DONUT_SIZE = 160;
 const STROKE_WIDTH = 22;
 
+/**
+ * Wide-panel mitigation thresholds (issue #420).
+ * - WIDE_PANEL_MIN_WIDTH: above this px width the panel is rectangular/half-
+ *   width on desktop and the legend uses space-between alignment so it fills
+ *   the right side instead of clinging to the donut.
+ * - MIN_TWO_COL_CATEGORIES: with this many or more categories on a wide panel,
+ *   the legend switches to a 2-column grid for better density.
+ */
+const WIDE_PANEL_MIN_WIDTH = 420;
+const MIN_TWO_COL_CATEGORIES = 4;
+
 export function DonutChartWidget({
   widget,
   data,
@@ -31,7 +42,7 @@ export function DonutChartWidget({
 
   // Track container width so we can mitigate the wide-rectangular-panel
   // empty-space problem (issue #420) when the LLM still picks donut for a
-  // half-width panel. > 420px ≈ a half-width desktop grid panel.
+  // half-width panel. See WIDE_PANEL_MIN_WIDTH for the breakpoint.
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState<number>(0);
   useEffect(() => {
@@ -130,6 +141,12 @@ export function DonutChartWidget({
     return arc;
   });
 
+  // Layout decision for the wide-rectangular-panel mitigation (issue #420).
+  // Computed outside the JSX so the render output stays readable and we don't
+  // reallocate an IIFE on every render.
+  const isWidePanel = containerWidth > WIDE_PANEL_MIN_WIDTH;
+  const useTwoColLegend = isWidePanel && chartData.length >= MIN_TWO_COL_CATEGORIES;
+
   // Center readout
   const display = hoverIdx !== null ? chartData[hoverIdx] : null;
   const centerPct = display
@@ -164,23 +181,20 @@ export function DonutChartWidget({
 
         {/*
           Wide-panel mitigation (issue #420): when the panel is rectangular
-          (width > 420px) the default flex layout leaves the right ~60% empty.
-          Use space-between alignment + a 2-column legend grid so the legend
-          fills the right side instead of clinging to the donut.
+          (width > WIDE_PANEL_MIN_WIDTH) the default flex layout leaves the
+          right ~60% empty. Use space-between alignment + a 2-column legend
+          grid so the legend fills the right side instead of clinging to the
+          donut. Square / narrow panels keep the original behaviour.
         */}
-        {(() => {
-          const isWide = containerWidth > 420;
-          const useTwoColLegend = isWide && chartData.length >= 4;
-          return (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: isWide ? "space-between" : "flex-start",
-                gap: isWide ? 32 : 20,
-                flexWrap: "wrap",
-              }}
-            >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: isWidePanel ? "space-between" : "flex-start",
+            gap: isWidePanel ? 32 : 20,
+            flexWrap: "wrap",
+          }}
+        >
           {/* SVG donut */}
           <svg
             width={DONUT_SIZE}
@@ -315,9 +329,7 @@ export function DonutChartWidget({
               </div>
             ))}
           </div>
-            </div>
-          );
-        })()}
+        </div>
 
         {comparisonTotal !== null && (
           <div

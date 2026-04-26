@@ -32,18 +32,22 @@ const WIDGET_TYPES = `
 | donut_chart   | Proportions                             | title, sql, x, y                         |
 | table         | Detailed data rows                      | title, sql                               |
 | number        | Single big number                       | title, sql, format?, prefix?             |
+| insights_strip| 3-card narrative strip (up/down/warn)   | items[]: {kind, title, body}             |
+| ranked_bars   | Horizontal bar chart (pre-computed data)| title, items[]: {label, value, maxValue?, flag?, unit?} |
+
+> **Note**: \`ranked_bars\` is **data-driven** — supply the \`items\` array directly; it does **not** take a \`sql\` field. \`bar_chart\` is the SQL-driven equivalent and renders **vertical bars only** (there is no \`stacked\` or \`horizontal\` variant in the renderer).
 
 ### Widget selection rules — avoid empty space (CRITICAL)
 
 The dashboard grid renders most widgets in **rectangular panels** (aspect ratio > 1.5:1, half-width on desktop). Choose the widget type that **fills the panel** with data instead of leaving large empty areas.
 
-- **Share / mix / proporciones / distribución** in a rectangular panel → prefer **\`bar_chart\`** (horizontal categories with values), **100% stacked \`bar_chart\`**, or a **\`ranked_bars\`** widget. These fill the full width of the panel.
+- **Share / mix / proporciones / distribución** in a rectangular panel → prefer a **\`bar_chart\`** (vertical categories with values, SQL-driven) or a **\`ranked_bars\`** widget (data inlined as \`items\`). Both fill the full width of the panel.
 - **\`donut_chart\`** is allowed **only when**:
   (a) the panel is square or near-square (kpi_row item, dedicated dashboard with few widgets), **or**
   (b) the donut is paired with dense surrounding categories (≥ 5 segments) so the legend fills the right side without gaps.
   In flat half-width panels with ≤ 4 categories the donut wastes space — switch to \`bar_chart\` or \`number\` instead.
 - **< 3 categorías** → use a **\`number\`** widget (with optional \`trend_sql\` + sparkline) or a **2-item \`kpi_row\`**. Never render a donut with 2 slices in a wide panel.
-- **3+ categories and rectangular panel** → \`bar_chart\` (vertical or horizontal) or \`ranked_bars\`.
+- **3+ categories and rectangular panel** → \`bar_chart\` or \`ranked_bars\`.
 - **Time series** → \`line_chart\` or \`area_chart\`, never \`donut_chart\`.
 - **General rule**: never leave more than ~30% of a panel empty. If the data shape does not fill the panel, change the widget type.
 
