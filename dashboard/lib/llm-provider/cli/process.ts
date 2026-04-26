@@ -199,7 +199,13 @@ export function assertCliSuccess(
 
 /**
  * Best-effort parse of `claude --output-format json` envelopes.
- * Returns null when stdout is not a parseable object with `type: "result"`.
+ *
+ * Returns null when stdout is not a parseable JSON object. We do NOT require
+ * `type === "result"`: some upstream API failures surface envelopes with
+ * `is_error:true` but no `type` field, and we still want to lift those into
+ * `LLM_CLI_AUTH` / `LLM_CLI_API_ERROR` instead of a bare exit-code message.
+ *
+ * Arrays and primitives are rejected — only object envelopes are accepted.
  */
 function parseJsonEnvelope(stdout: string): {
   is_error?: boolean;

@@ -162,7 +162,7 @@ export function formatApiError(
  * Use this instead of loose `"code" in obj` checks to avoid false positives.
  */
 export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
-  if (typeof value !== "object" || value === null) return false;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
   const v = value as Record<string, unknown>;
   return (
     typeof v.error === "string" &&
@@ -173,8 +173,11 @@ export function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
     (v.details === undefined || typeof v.details === "string") &&
     (v.existing_id === undefined || typeof v.existing_id === "number") &&
     (v.week_start === undefined || typeof v.week_start === "string") &&
+    // diagnostic must be absent or a non-array object
     (v.diagnostic === undefined ||
-      (typeof v.diagnostic === "object" && v.diagnostic !== null))
+      (typeof v.diagnostic === "object" &&
+        v.diagnostic !== null &&
+        !Array.isArray(v.diagnostic)))
   );
 }
 

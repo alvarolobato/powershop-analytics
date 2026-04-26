@@ -72,6 +72,54 @@ describe("sanitize()", () => {
     const out = sanitize('{"refresh_token":"abcdef","other":"keep"}');
     expect(out).toContain("[redacted]");
     expect(out).toContain("keep");
+    // Critical regression: the old replacement used `$&` which echoed the
+    // entire match (including the secret) back into the output. Assert the
+    // raw secret value never survives sanitization.
+    expect(out).not.toContain("abcdef");
+  });
+
+  it("redacts access_token / refreshToken / accessToken JSON values without leaking the value", () => {
+    const cases = [
+      '{"access_token":"VERYSECRET-AAA"}',
+      '{"refreshToken":"VERYSECRET-BBB"}',
+      '{"accessToken":"VERYSECRET-CCC"}',
+    ];
+    for (const input of cases) {
+      const out = sanitize(input);
+      expect(out).toContain("[redacted]");
+      expect(out).not.toMatch(/VERYSECRET-[ABC]{3}/);
+    }
+  });
+
+  it("redacts realistic Anthropic sk-ant- credentials", () => {
+    // Shape mimics `sk-ant-api03-…` long-lived API keys.
+    const sample =
+      "sk-ant-api03-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const out = sanitize(`Authorization: Bearer ${sample}\n`);
+    expect(out).not.toContain(sample);
+    expect(out).toContain("[redacted]");
+  });
+
+  it("redacts Authorization: Bearer eyJ… (JWT after scheme)", () => {
+    const jwt =
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0In0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    const out = sanitize(`Authorization: Bearer ${jwt}`);
+    expect(out).not.toContain(jwt);
+    expect(out).toContain("[redacted]");
+  });
+
+  it("redacts Authorization: Basic dXNlcjpwYXNz (basic auth)", () => {
+    const value = "dXNlcjpwYXNzMTIzNA==";
+    const out = sanitize(`Authorization: Basic ${value}`);
+    expect(out).not.toContain(value);
+    expect(out).toMatch(/Authorization:\s*Basic\s*\[redacted\]/);
+  });
+
+  it("redacts Authorization: Token abc123 (token scheme)", () => {
+    const value = "tok_abc123_DEFGHI";
+    const out = sanitize(`Authorization: Token ${value}`);
+    expect(out).not.toContain(value);
+    expect(out).toMatch(/Authorization:\s*Token\s*\[redacted\]/);
   });
 
   it("redacts known sensitive literal values from config schema", () => {
@@ -116,6 +164,25 @@ describe("sanitizeArgv()", () => {
 
   it("returns empty array unchanged", () => {
     expect(sanitizeArgv([])).toEqual([]);
+  });
+
+  it("truncates long prompt values after -p / --prompt", () => {
+    const longPrompt = "x".repeat(500);
+    const out = sanitizeArgv(["claude", "-p", longPrompt, "--model", "sonnet"]);
+    expect(out[0]).toBe("claude");
+    expect(out[1]).toBe("-p");
+    expect(out[2].length).toBeLessThanOrEqual(260);
+    expect(out[2]).toMatch(/truncated/);
+    expect(out[3]).toBe("--model");
+    expect(out[4]).toBe("sonnet");
+  });
+
+  it("redacts secrets that appear inside prompt-flag values", () => {
+    const promptWithSecret =
+      "Please summarize Authorization: Bearer abcdefghij1234567890 quickly";
+    const out = sanitizeArgv(["claude", "--prompt", promptWithSecret]);
+    expect(out[2]).not.toContain("abcdefghij1234567890");
+    expect(out[2]).toContain("[redacted]");
   });
 });
 

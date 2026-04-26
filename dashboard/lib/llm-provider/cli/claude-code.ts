@@ -9,6 +9,10 @@ import { CliRunnerError } from "./errors";
 import { serializeChatMessagesForCli } from "./transcript";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { DASHBOARD_AGENTIC_TOOLS } from "@/lib/llm-tools/catalog";
+import { sanitize, sanitizeArgv, sanitizeTail } from "../sanitize";
+
+/** Tail size to retain on CliRunnerError details (matches process.ts). */
+const TAIL_MAX_BYTES = 4096;
 
 const SINGLE_SHOT_PRINT_ARG = `You are the dashboard assistant.
 The UTF-8 stdin contains the full multi-section prompt (## system, ## user, etc.).
@@ -80,8 +84,8 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
   const text = result.stdout.trim();
   if (!text) {
     throw new CliRunnerError("LLM_CLI_EMPTY", "claude single-shot: empty stdout", {
-      stderr: result.stderr,
-      command: fullArgv,
+      stderr: sanitizeTail(result.stderr, TAIL_MAX_BYTES),
+      command: sanitizeArgv(fullArgv),
       phase: "empty",
       durationMs: result.durationMs,
     });
@@ -117,7 +121,7 @@ function extractJsonObject(text: string): string {
     throw new CliRunnerError(
       "LLM_CLI_PARSE",
       "claude agentic: no JSON object found in output",
-      { stderr: body.slice(0, 500), phase: "parse" },
+      { stderr: sanitize(body.slice(0, 500)), phase: "parse" },
     );
   }
   // Walk forward counting balanced braces, respecting strings and escapes,
@@ -141,7 +145,7 @@ function extractJsonObject(text: string): string {
   throw new CliRunnerError(
     "LLM_CLI_PARSE",
     "claude agentic: unterminated JSON object in output",
-    { stderr: body.slice(start, start + 500) },
+    { stderr: sanitize(body.slice(start, start + 500)) },
   );
 }
 
@@ -153,7 +157,7 @@ export function parseClaudeAgenticStepJson(stdout: string): ClaudeAgenticStep {
     throw new CliRunnerError(
       "LLM_CLI_PARSE",
       `claude agentic: invalid JSON (${e instanceof Error ? e.message : "parse error"})`,
-      { stderr: stdout.slice(0, 800) },
+      { stderr: sanitize(stdout.slice(0, 800)) },
     );
   }
   if (!parsed || typeof parsed !== "object") {
@@ -244,16 +248,17 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
     if (envelope?.is_error === true) {
       const status = typeof envelope.api_error_status === "number" ? envelope.api_error_status : null;
-      const inner = typeof envelope.result === "string" ? envelope.result : "";
+      const innerRaw = typeof envelope.result === "string" ? envelope.result : "";
+      const inner = sanitize(innerRaw);
       const isAuth = status === 401 || status === 403 || /authentication|invalid.*credentials|unauthorized/i.test(inner);
       throw new CliRunnerError(
         isAuth ? "LLM_CLI_AUTH" : "LLM_CLI_API_ERROR",
         `claude agentic step: ${inner.slice(0, 240) || `api_error_status=${status}`}`,
         {
           exitCode: result.exitCode,
-          stderr: result.stderr,
-          stdout: result.stdout,
-          command: fullArgv,
+          stderr: sanitizeTail(result.stderr, TAIL_MAX_BYTES),
+          stdout: sanitizeTail(result.stdout, TAIL_MAX_BYTES),
+          command: sanitizeArgv(fullArgv),
           phase: isAuth ? "auth" : "exit",
           durationMs: result.durationMs,
           innerErrorCode: status,

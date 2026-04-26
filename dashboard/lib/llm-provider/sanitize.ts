@@ -18,15 +18,36 @@ const REDACTED = "[redacted]";
 
 // Regular expressions ordered roughly by specificity → generality.
 // Each captures one occurrence; `replaceAll` semantics rely on `g` flag.
+//
+// IMPORTANT: when using a capture group in the replacement, reference it as
+// `$1`/`$2`/etc. NEVER use `$&` (the full match) — that would echo the
+// secret value back into the output and defeat the redaction.
 const PATTERNS: Array<{ re: RegExp; replacement: string }> = [
-  // OAuth bearer tokens (Authorization: Bearer xxx, with or without quotes).
-  { re: /\bBearer\s+[A-Za-z0-9._\-+/=]{8,}/gi, replacement: "Bearer " + REDACTED },
-  // Authorization header values (after :)
-  { re: /\bAuthorization\s*:\s*[^\s",]+/gi, replacement: "Authorization: " + REDACTED },
-  // OpenAI / OpenRouter style keys: sk-... (>= 20 chars).
-  { re: /\bsk-[A-Za-z0-9_\-]{16,}/g, replacement: REDACTED },
-  // Anthropic CLI long-lived OAuth tokens often start with `sk-ant-`.
+  // Authorization header with Basic/Token/Bearer/Digest scheme prefix:
+  // capture the scheme keyword and replace the value with `[redacted]`.
+  // Match the value as one-or-more non-whitespace tokens that don't start
+  // with `[` (so we don't re-match an already-redacted line on idempotent
+  // runs) and stop at comma/quote so structured logs (`Authorization: Basic
+  // dXNlcjpwYXNz, X-Other: …`) don't bleed across headers. Run BEFORE the
+  // standalone `Bearer …` rule so the scheme is preserved, and BEFORE the
+  // catch-all so we keep the scheme name visible.
+  {
+    re: /\bAuthorization\s*:\s*(Bearer|Basic|Token|Digest)\s+(?!\[)[^\s,"\r\n]+/gi,
+    replacement: "Authorization: $1 " + REDACTED,
+  },
+  // OAuth bearer tokens outside an Authorization header (`token=Bearer xyz`).
+  { re: /\bBearer\s+(?!\[)[A-Za-z0-9._\-+/=]{8,}/gi, replacement: "Bearer " + REDACTED },
+  // Authorization header without a recognised scheme keyword — fully redact.
+  // Skip values that already start with `[` so idempotent runs don't churn.
+  {
+    re: /\bAuthorization\s*:\s*(?!Bearer\b|Basic\b|Token\b|Digest\b|\[)[^\s",]+/gi,
+    replacement: "Authorization: " + REDACTED,
+  },
+  // Anthropic CLI long-lived OAuth tokens often start with `sk-ant-` —
+  // match BEFORE the generic `sk-…` rule so the longer prefix wins.
   { re: /\bsk-ant-[A-Za-z0-9_\-]{8,}/g, replacement: REDACTED },
+  // OpenAI / OpenRouter style keys: sk-... (>= 16 chars after the prefix).
+  { re: /\bsk-[A-Za-z0-9_\-]{16,}/g, replacement: REDACTED },
   // JWT-shaped strings: 3 base64url segments separated by `.`, each at least 8 chars.
   { re: /\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+/g, replacement: REDACTED },
   // PostgreSQL DSN.
@@ -35,8 +56,13 @@ const PATTERNS: Array<{ re: RegExp; replacement: string }> = [
   { re: /:[^@\s'"]+@/g, replacement: ":" + REDACTED + "@" },
   // password=... (query string / log dump form).
   { re: /password\s*=\s*[^\s&'"]+/gi, replacement: "password=" + REDACTED },
-  // refresh_token / access_token JSON values.
-  { re: /"(?:refresh_token|access_token|refreshToken|accessToken)"\s*:\s*"[^"]*"/g, replacement: '"$&": "[redacted]"' },
+  // refresh_token / access_token JSON values: capture the key and emit
+  // `"key": "[redacted]"`. Using `$1` is critical — `$&` would re-emit the
+  // full match (including the secret) into the output.
+  {
+    re: /"(refresh_token|access_token|refreshToken|accessToken)"\s*:\s*"[^"]*"/g,
+    replacement: `"$1": "${REDACTED}"`,
+  },
 ];
 
 /**
@@ -114,13 +140,31 @@ const FLAG_VALUE_REDACT = new Set([
   "--secret",
 ]);
 
+/**
+ * Flags whose value is free-form prompt content. We always pass the
+ * sanitized value through — secrets in user prompts (rare but possible)
+ * are caught by the regex set, and overlong prompts are truncated to
+ * keep the displayed argv readable.
+ */
+const FLAG_PROMPT_LIKE = new Set(["-p", "--prompt", "--system", "--system-prompt"]);
+const PROMPT_DISPLAY_LIMIT = 240;
+
 export function sanitizeArgv(argv: readonly string[]): string[] {
   const out: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     out.push(sanitize(a));
-    if (FLAG_VALUE_REDACT.has(a) && i + 1 < argv.length) {
+    if (i + 1 >= argv.length) continue;
+    if (FLAG_VALUE_REDACT.has(a)) {
       out.push(REDACTED);
+      i += 1;
+    } else if (FLAG_PROMPT_LIKE.has(a)) {
+      const next = sanitize(argv[i + 1]);
+      out.push(
+        next.length > PROMPT_DISPLAY_LIMIT
+          ? next.slice(0, PROMPT_DISPLAY_LIMIT) + "…[truncated]"
+          : next,
+      );
       i += 1;
     }
   }
