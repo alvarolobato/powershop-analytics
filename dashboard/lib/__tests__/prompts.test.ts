@@ -172,6 +172,36 @@ describe("prompts", () => {
       expect(parsed).not.toHaveProperty("value");
     });
 
+    it("buildGeneratePrompt: widget-selection rules discourage donut in rectangular panels (issue #420)", () => {
+      // Heading must be present
+      expect(prompt).toContain("Widget selection rules");
+      // Anti-empty-space message
+      expect(prompt).toMatch(/never leave more than ~30% of a panel empty/i);
+      // Donut guidance — only square/near-square or paired with dense surroundings
+      expect(prompt).toMatch(/donut_chart[`*]*\s+is allowed\s+\*\*only when\*\*/i);
+      expect(prompt).toMatch(/square or near-square/i);
+      // Few-categories guidance
+      expect(prompt).toMatch(/< 3 categor/);
+      // Recommended alternative — must be a real renderable widget type
+      expect(prompt).toMatch(/bar_chart|ranked_bars/);
+    });
+
+    it("WIDGET_TYPES table lists every renderable widget the prompt rules reference", () => {
+      // ranked_bars and insights_strip must appear in the Widget Types table,
+      // not only in the selection rules — otherwise the LLM cannot emit them.
+      const lines = prompt.split("\n");
+      const tableRow = (type: string) =>
+        lines.find((l) => l.includes(`| ${type}`) && l.includes("|"));
+      expect(tableRow("ranked_bars"), "ranked_bars row missing").toBeDefined();
+      expect(tableRow("insights_strip"), "insights_strip row missing").toBeDefined();
+    });
+
+    it("does not advertise stacked/horizontal bar_chart variants (renderer has none)", () => {
+      // Guard against re-introducing capability hallucinations.
+      expect(prompt).not.toMatch(/100%\s*stacked\s*`?bar_chart`?/i);
+      expect(prompt).not.toMatch(/horizontal\s*`?bar_chart`?/i);
+    });
+
     it("donut_chart JSON example is valid according to DashboardSpecSchema", () => {
       const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
         (m) => m[1].trim()
@@ -247,6 +277,12 @@ describe("prompts", () => {
     it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
       expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
       expect(prompt).toContain("comparison_sql");
+    });
+
+    it("buildModifyPrompt: widget-selection rules discourage donut in rectangular panels (issue #420)", () => {
+      expect(prompt).toContain("Widget selection rules");
+      expect(prompt).toMatch(/never leave more than ~30% of a panel empty/i);
+      expect(prompt).toMatch(/donut_chart[`*]*\s+is allowed\s+\*\*only when\*\*/i);
     });
   });
 

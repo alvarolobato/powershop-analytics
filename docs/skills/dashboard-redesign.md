@@ -46,6 +46,7 @@ All tokens are declared on the `html` element in `dashboard/app/globals.css`. Th
 | `--gap` | Grid gap between widgets |
 | `--pad` | Widget inner padding |
 | `--kpi-pad` | KPI card padding |
+| `--gap-section` | Vertical separation between page sections (e.g. global filters bar → first widget row). Default `1.5rem`; scales with density (`compact: 1rem`, `spacious: 2rem`). |
 
 ### Accent variants (data-accent attribute)
 
@@ -137,6 +138,17 @@ The `AnalyzeLauncher` (floating rail) opens the sidebar directly in analizar mod
 2. Use `<TopBarWithTweaks />` instead of `<TopBar />` directly — it owns the TweaksPanel open/close state
 3. Read kpiStyle anywhere via `useKpiStyle()` from `@/components/TweaksPanel`
 4. All tweaks persist to `localStorage` key `ps.tweaks.v1` — same key read by the pre-paint script in layout.tsx
+
+## Widget selection rules — avoid empty panels
+
+The grid is two-column on desktop; non-`isFullWidth` widgets render in **rectangular panels** (aspect ratio > 1.5:1). The LLM and any human author should follow these rules to avoid the donut-with-2-slices-and-empty-space problem (see issue #420):
+
+- **Share / mix / proporciones / distribución** → prefer a SQL-driven `bar_chart` (vertical bars) or a data-driven `ranked_bars` (horizontal bars with `items` array). Both fill panel width. Note: the `bar_chart` renderer is vertical-only — there is no `stacked`/`horizontal` variant — so use `ranked_bars` when you need horizontal layout.
+- **`donut_chart`** is allowed only when (a) the panel is square or near-square or (b) the donut is paired with ≥ 5 dense surrounding categories. **Do not** use a donut with ≤ 4 categories in a flat half-width panel — it leaves the right ~60% of the panel empty.
+- **< 3 categorías** → `number` (with optional `trend_sql` + sparkline) or 2-item `kpi_row`.
+- **General rule**: never leave more than ~30% of a panel empty. If the data shape does not fill the panel, change the widget type.
+
+These rules are mirrored in `dashboard/lib/prompts.ts` (`WIDGET_TYPES` block) and must be kept in sync.
 
 ## chat_messages_modify DB column
 
