@@ -33,6 +33,20 @@ const WIDGET_TYPES = `
 | table         | Detailed data rows                      | title, sql                               |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 
+### Widget selection rules — avoid empty space (CRITICAL)
+
+The dashboard grid renders most widgets in **rectangular panels** (aspect ratio > 1.5:1, half-width on desktop). Choose the widget type that **fills the panel** with data instead of leaving large empty areas.
+
+- **Share / mix / proporciones / distribución** in a rectangular panel → prefer **\`bar_chart\`** (horizontal categories with values), **100% stacked \`bar_chart\`**, or a **\`ranked_bars\`** widget. These fill the full width of the panel.
+- **\`donut_chart\`** is allowed **only when**:
+  (a) the panel is square or near-square (kpi_row item, dedicated dashboard with few widgets), **or**
+  (b) the donut is paired with dense surrounding categories (≥ 5 segments) so the legend fills the right side without gaps.
+  In flat half-width panels with ≤ 4 categories the donut wastes space — switch to \`bar_chart\` or \`number\` instead.
+- **< 3 categorías** → use a **\`number\`** widget (with optional \`trend_sql\` + sparkline) or a **2-item \`kpi_row\`**. Never render a donut with 2 slices in a wide panel.
+- **3+ categories and rectangular panel** → \`bar_chart\` (vertical or horizontal) or \`ranked_bars\`.
+- **Time series** → \`line_chart\` or \`area_chart\`, never \`donut_chart\`.
+- **General rule**: never leave more than ~30% of a panel empty. If the data shape does not fill the panel, change the widget type.
+
 ### format values
 - "currency" — format as money (e.g. 1234.56 → "1.234,56")
 - "number" — format with thousand separators

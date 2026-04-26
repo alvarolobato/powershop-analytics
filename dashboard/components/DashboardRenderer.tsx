@@ -603,7 +603,17 @@ export function DashboardRenderer({
   }, [spec.widgets]);
 
   return (
-    <div style={{ padding: "0 20px 24px" }}>
+    <div
+      style={{
+        // Top padding gives breathing room between the global filters bar
+        // (or page header when no filters are configured) and the first
+        // widget row. Token-driven so density variants scale it.
+        paddingTop: "var(--gap-section, 1.5rem)",
+        paddingLeft: 20,
+        paddingRight: 20,
+        paddingBottom: 24,
+      }}
+    >
       {/* Tabbed layout (when sections are defined) */}
       {spec.sections && spec.sections.length > 0 ? (
         <TabGroup>

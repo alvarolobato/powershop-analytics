@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DonutChartWidget as DonutChartWidgetSpec, GlossaryItem } from "@/lib/schema";
 import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
@@ -28,6 +28,22 @@ export function DonutChartWidget({
 }: DonutChartWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // Track container width so we can mitigate the wide-rectangular-panel
+  // empty-space problem (issue #420) when the LLM still picks donut for a
+  // half-width panel. > 420px ≈ a half-width desktop grid panel.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 0;
+      if (w > 0) setContainerWidth(w);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const chartData = useMemo(() => {
     if (!data || data.rows.length === 0) return null;
@@ -139,13 +155,32 @@ export function DonutChartWidget({
 
       {/* Chart + legend */}
       <div
+        ref={containerRef}
         style={{ padding: "var(--pad, 12px)" }}
         role="img"
         aria-label={`Gráfico de donut: ${widget.title}. ${chartData.length} categorías.`}
       >
         <span className="sr-only">Gráfico de donut con {chartData.length} categorías.</span>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+        {/*
+          Wide-panel mitigation (issue #420): when the panel is rectangular
+          (width > 420px) the default flex layout leaves the right ~60% empty.
+          Use space-between alignment + a 2-column legend grid so the legend
+          fills the right side instead of clinging to the donut.
+        */}
+        {(() => {
+          const isWide = containerWidth > 420;
+          const useTwoColLegend = isWide && chartData.length >= 4;
+          return (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: isWide ? "space-between" : "flex-start",
+                gap: isWide ? 32 : 20,
+                flexWrap: "wrap",
+              }}
+            >
           {/* SVG donut */}
           <svg
             width={DONUT_SIZE}
@@ -218,7 +253,20 @@ export function DonutChartWidget({
           </svg>
 
           {/* Legend */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minWidth: 100 }}>
+          <div
+            style={
+              useTwoColLegend
+                ? {
+                    display: "grid",
+                    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                    columnGap: 24,
+                    rowGap: 8,
+                    flex: 1,
+                    minWidth: 200,
+                  }
+                : { display: "flex", flexDirection: "column", gap: 8, flex: 1, minWidth: 100 }
+            }
+          >
             {chartData.map((d, i) => (
               <div
                 key={i}
@@ -267,7 +315,9 @@ export function DonutChartWidget({
               </div>
             ))}
           </div>
-        </div>
+            </div>
+          );
+        })()}
 
         {comparisonTotal !== null && (
           <div

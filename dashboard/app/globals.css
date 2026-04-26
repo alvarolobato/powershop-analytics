@@ -28,6 +28,7 @@
   --gap: 18px;
   --pad: 20px;
   --kpi-pad: 22px;
+  --gap-section: 1.5rem;
 }
 
 :root[data-theme="light"] {
@@ -51,6 +52,7 @@
   --gap: 18px;
   --pad: 20px;
   --kpi-pad: 22px;
+  --gap-section: 1.5rem;
 }
 
 /* ============================================================
@@ -90,6 +92,7 @@
   --gap: 12px;
   --pad: 14px;
   --kpi-pad: 16px;
+  --gap-section: 1rem;
 }
 
 :root[data-density="comfort"],
@@ -97,12 +100,14 @@
   --gap: 18px;
   --pad: 20px;
   --kpi-pad: 22px;
+  --gap-section: 1.5rem;
 }
 
 :root[data-density="spacious"] {
   --gap: 26px;
   --pad: 28px;
   --kpi-pad: 30px;
+  --gap-section: 2rem;
 }
 
 /* ============================================================

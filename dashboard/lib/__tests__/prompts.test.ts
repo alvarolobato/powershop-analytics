@@ -172,6 +172,20 @@ describe("prompts", () => {
       expect(parsed).not.toHaveProperty("value");
     });
 
+    it("includes widget-selection rules that discourage donut in rectangular panels (issue #420)", () => {
+      // Heading must be present
+      expect(prompt).toContain("Widget selection rules");
+      // Anti-empty-space message
+      expect(prompt).toMatch(/never leave more than ~30% of a panel empty/i);
+      // Donut guidance — only square/near-square or paired with dense surroundings
+      expect(prompt).toMatch(/donut_chart[`*]*\s+is allowed\s+\*\*only when\*\*/i);
+      expect(prompt).toMatch(/square or near-square/i);
+      // Few-categories guidance
+      expect(prompt).toMatch(/< 3 categor/);
+      // Recommended alternative
+      expect(prompt).toMatch(/bar_chart|ranked_bars/);
+    });
+
     it("donut_chart JSON example is valid according to DashboardSpecSchema", () => {
       const blocks = [...prompt.matchAll(/```json\s*([\s\S]*?)```/g)].map(
         (m) => m[1].trim()
@@ -247,6 +261,12 @@ describe("prompts", () => {
     it("prohibits :comp_from/:comp_to in main widget sql (rule 15)", () => {
       expect(prompt).toContain("Do NOT reference :comp_from/:comp_to");
       expect(prompt).toContain("comparison_sql");
+    });
+
+    it("includes widget-selection rules that discourage donut in rectangular panels (issue #420)", () => {
+      expect(prompt).toContain("Widget selection rules");
+      expect(prompt).toMatch(/never leave more than ~30% of a panel empty/i);
+      expect(prompt).toMatch(/donut_chart[`*]*\s+is allowed\s+\*\*only when\*\*/i);
     });
   });
 
