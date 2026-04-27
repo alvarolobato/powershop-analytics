@@ -1,43 +1,83 @@
 #!/bin/bash
-# Syncs the live Claude OAuth token from macOS Keychain to ~/.claude/.credentials.json
-# Run this on the host whenever the dashboard container reports auth errors.
+# Sync the Claude OAuth payload from the macOS Keychain to
+# ~/.claude/.credentials.json so the dashboard container can read it.
 #
-# The container DOES NOT refresh the OAuth token on its own. OAuth refresh-token
-# rotation invalidates the previous refresh_token on every successful refresh,
-# so if the container refreshed it would invalidate the Keychain copy that the
-# host claude CLI relies on — forcing the user to `claude /login` again.
-# (Apr 2026 incident: that exact flow logged the user out.)
+# This is THE refresher entrypoint, run on a schedule by the launchd agent
+# (~/Library/LaunchAgents/com.powershop.claude-token-sync.plist). Despite the
+# name, it does NOT attempt to refresh the OAuth token itself — that endpoint
+# at claude.ai is protected by Cloudflare and direct curl POSTs return an
+# anti-bot challenge page (issue #419, D-024). The host claude CLI handles
+# token rotation internally during normal use; we only mirror its output.
 #
-# The Keychain is the single source of truth. The host's claude CLI rotates it
-# automatically when needed. The container only ever reads a snapshot of the
-# Keychain via this script. When the snapshot's access_token expires, run this
-# script again — do NOT rely on container-side refresh.
+# The dashboard container also never refreshes — see
+# DECISIONS-AND-CHANGES.md D-025 and the Apr 2026 incident in
+# memory/project_dashboard_claude_cli_auth.md (rotating refresh_tokens from
+# the container invalidated the Keychain copy and forced the host user to
+# `claude /login`).
+#
+# Behaviour:
+#   1. Read the OAuth payload from the Keychain entry "Claude Code-credentials".
+#   2. Validate it as JSON with a claudeAiOauth.expiresAt field.
+#   3. Atomically write it to ~/.claude/.credentials.json (chmod 600). The
+#      atomic rename means the container never sees a half-written file.
+#   4. Print the remaining lifetime so launchd logs serve as a heads-up.
+#
+# When the access_token actually expires and host claude cannot refresh
+# (Cloudflare-blocked), the user runs `claude /login` once. This script keeps
+# the container in sync but does not try to be cleverer than the platform
+# allows.
+#
+# Idempotent. Safe to run hundreds of times per day. Always exits 0 — failures
+# are logged but don't fail the launchd cycle.
 
-set -e
+set -u
+set -o pipefail
 
-CREDS="$HOME/.claude/.credentials.json"
+KEYCHAIN_SVC="${CLAUDE_KEYCHAIN_SVC:-Claude Code-credentials}"
+KEYCHAIN_ACCT="${CLAUDE_KEYCHAIN_ACCT:-$USER}"
+CREDS_FILE="${CLAUDE_CREDS_FILE:-$HOME/.claude/.credentials.json}"
+WARN_THRESHOLD_HOURS="${WARN_THRESHOLD_HOURS:-6}"
 
-# Extract from Keychain
-TOKEN=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null)
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: No 'Claude Code-credentials' entry in macOS Keychain." >&2
-  echo "Make sure Claude Code is installed and you're logged in on this Mac:" >&2
-  echo "  claude /login" >&2
-  exit 1
+log() {
+  printf '[claude-token-sync %s] %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
+}
+
+TOKEN_JSON=$(security find-generic-password -s "$KEYCHAIN_SVC" -a "$KEYCHAIN_ACCT" -w 2>/dev/null || true)
+if [ -z "$TOKEN_JSON" ]; then
+  log "ERROR: Keychain entry '$KEYCHAIN_SVC' (account '$KEYCHAIN_ACCT') not found."
+  log "       Run 'claude /login' on this Mac, then re-run this script."
+  exit 0
 fi
 
-# Write to credentials file
-mkdir -p "$(dirname "$CREDS")"
-echo "$TOKEN" > "$CREDS"
-chmod 600 "$CREDS"
+# Validate JSON shape and extract expiresAt. We pass the JSON via env var so
+# stdin redirection cannot conflict.
+HOURS_LEFT=$(CLAUDE_TOKEN_JSON="$TOKEN_JSON" python3 -c '
+import json, os, sys, time
+try:
+    d = json.loads(os.environ["CLAUDE_TOKEN_JSON"])
+    exp = d["claudeAiOauth"]["expiresAt"]
+except Exception:
+    sys.exit(1)
+print((exp - int(time.time() * 1000)) // 3600000)
+' 2>/dev/null || true)
+if [ -z "$HOURS_LEFT" ]; then
+  log "ERROR: Keychain entry is not valid Claude OAuth JSON."
+  exit 0
+fi
 
-# Show expiry
-python3 -c "
-import json, time
-d = json.loads(open('$CREDS').read())
-exp = d['claudeAiOauth']['expiresAt']
-h = (exp - int(time.time()*1000)) // 1000 // 3600
-print(f'Token synced from Keychain. Access token expires in {h}h ({\"OK\" if h > 0 else \"EXPIRED\"}).')
-print('Container will read this file once on startup and never write back to it.')
-print('Re-run this script after host re-login or when the token nears expiry.')
-"
+# Atomic file write so the container never sees a partial file.
+mkdir -p "$(dirname "$CREDS_FILE")"
+TMP="${CREDS_FILE}.tmp.$$"
+printf '%s' "$TOKEN_JSON" > "$TMP"
+chmod 600 "$TMP"
+mv "$TMP" "$CREDS_FILE"
+
+if [ "$HOURS_LEFT" -le 0 ]; then
+  log "WARN: access_token already expired ${HOURS_LEFT#-}h ago. Synced anyway."
+  log "      If host 'claude' cannot refresh, run 'claude /login' and re-run this script."
+elif [ "$HOURS_LEFT" -le "$WARN_THRESHOLD_HOURS" ]; then
+  log "Token nearing expiry (${HOURS_LEFT}h left). Synced to $CREDS_FILE."
+  log "Heads-up: if host 'claude' cannot refresh in time you may need to re-run 'claude /login'."
+else
+  log "Token valid ${HOURS_LEFT}h. Synced to $CREDS_FILE."
+fi

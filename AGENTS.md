@@ -75,6 +75,14 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps dashboard logs` | Show dashboard container logs |
 | `ps dashboard restart` | Restart the dashboard container |
 | `ps dashboard status` | Show dashboard container status |
+| `ps prod bootstrap` | One-time: convert prod's flat directory into a git checkout (preserves `data/`, `.env`, `wren-config.yaml`) |
+| `ps prod deploy` | `git pull` on prod + `docker compose up -d --build` with the prod override |
+| `ps prod restart [svc]` | Restart all services on prod, or a named one |
+| `ps prod status` | `docker compose ps` on prod + Claude token expiry summary |
+| `ps prod logs [svc]` | Tail prod logs (follow); optional service |
+| `ps prod token-status` | Show prod's Claude OAuth access-token expiry hours |
+| `ps prod login` | Interactive `ssh -t` to run `claude /login` on prod |
+| `ps prod ssh` | Open a shell on prod |
 | `ps config` | Show loaded configuration |
 
 ### CLI-first principle
@@ -244,6 +252,10 @@ cp cli/ps ~/bin/ps-analytics  # or symlink
 ---
 
 ## Important Rules for AI Assistants
+
+### Claude OAuth token: single-refresher rule (D-025, issue #440)
+
+The Keychain entry `Claude Code-credentials` on the macOS host is the **single source of truth** for the OAuth payload. Only the host `claude` CLI ever refreshes it (during normal interactive use). The launchd agent at `scripts/launchd/com.powershop.claude-token-sync.plist.template` (installed via `scripts/install-claude-token-launchd.sh`) runs every 2 h and **only mirrors** the Keychain into `~/.claude/.credentials.json` so the dashboard container can read it. **Never** add code that POSTs to `claude.ai/api/auth/oauth/token` from a script or from the container — Cloudflare blocks it AND a successful refresh from anywhere other than host claude will rotate the refresh_token and invalidate the Keychain copy, forcing the user to `claude /login` (Apr 2026 incident).
 
 ### Read-only data access
 
