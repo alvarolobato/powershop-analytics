@@ -247,14 +247,20 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
                 <button
                   onClick={saveValue}
                   disabled={saving}
-                  className="rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  className="rounded-md px-3 py-1 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
+                  style={{ background: "var(--accent)" }}
                 >
                   {saving ? "Guardando..." : "Guardar"}
                 </button>
                 <button
                   onClick={cancelEdit}
                   disabled={saving}
-                  className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle disabled:opacity-50"
+                  className="rounded-md border px-3 py-1 text-xs font-medium hover:brightness-110 disabled:opacity-50"
+                  style={{
+                    background: "var(--bg-2)",
+                    borderColor: "var(--border)",
+                    color: "var(--fg)",
+                  }}
                 >
                   Cancelar
                 </button>
@@ -291,7 +297,12 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
                   onClick={saveToFile}
                   disabled={saving}
                   title="Copia el valor actual al fichero config.yaml"
-                  className="rounded-md border border-blue-300 bg-blue-50 px-2 py-0.5 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:hover:bg-blue-900/40 disabled:opacity-50"
+                  className="rounded-md border px-2 py-0.5 text-xs hover:brightness-110 disabled:opacity-50"
+                  style={{
+                    background: "var(--bg-2)",
+                    borderColor: "var(--border)",
+                    color: "var(--fg)",
+                  }}
                 >
                   {savedToFile ? "Guardado" : "Guardar en fichero"}
                 </button>
@@ -441,7 +452,8 @@ export default function ConfigPageClient() {
             onClick={() => void handleImportAll()}
             disabled={importing || loading}
             title="Copia todas las variables de entorno activas al fichero config.yaml"
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-md px-3 py-1.5 text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
+            style={{ background: "var(--accent)" }}
           >
             {importing ? "Importando..." : "Importar todas las env al fichero"}
           </button>

@@ -158,8 +158,17 @@ export default async function AdminInteractionsPage({
             href={f.href}
             className={
               f.active
-                ? "rounded-full bg-blue-600 px-3 py-1.5 text-xs font-medium text-white"
-                : "rounded-full border border-tremor-border dark:border-dark-tremor-border px-3 py-1.5 text-xs font-medium text-tremor-content dark:text-dark-tremor-content hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle"
+                ? "rounded-full px-3 py-1.5 text-xs font-medium text-white hover:brightness-110"
+                : "rounded-full border px-3 py-1.5 text-xs font-medium hover:brightness-110"
+            }
+            style={
+              f.active
+                ? { background: "var(--accent)" }
+                : {
+                    background: "var(--bg-2)",
+                    borderColor: "var(--border)",
+                    color: "var(--fg)",
+                  }
             }
           >
             {f.label}

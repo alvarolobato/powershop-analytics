@@ -247,7 +247,8 @@ export default function EtlMonitorPage() {
               onClick={handleIncrementalTrigger}
               disabled={triggering || isRunning}
               data-testid="sync-now-button"
-              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+              className="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60 disabled:cursor-not-allowed transition-colors hover:brightness-110"
+              style={{ background: "var(--accent)" }}
             >
               {(triggering || isRunning) && (
                 <span
