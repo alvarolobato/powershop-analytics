@@ -36,6 +36,7 @@ import { generateReview, generateReviewWithProgress, BudgetExceededError, Agenti
 import type { AgenticProgressEvent } from "@/lib/llm";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
 import {
   formatCliRunnerError,
   isCliRunnerError,
@@ -129,6 +130,7 @@ async function generateAndSaveReview(params: {
     formattedResults,
     reviewedWeekDescription,
     generationMode,
+    isAgenticToolsEnabled(),
   );
 
   onPhase?.("Llamando al modelo");

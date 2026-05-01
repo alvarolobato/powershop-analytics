@@ -407,7 +407,9 @@ export async function POST(request: Request) {
     }
 
     const { analysisResponse, message, summary } = resolved;
-    const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${message || analysisResponse}`;
+    // Use the full analysis body for suggestion context so suggestions reflect
+    // the complete analysis, not just the short freeform chat reply.
+    const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
     const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
     if (interactionId) {
       await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
@@ -473,7 +475,8 @@ export async function POST(request: Request) {
       }
 
       const { analysisResponse, message, summary } = resolved;
-      const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${message || analysisResponse}`;
+      // Use the full analysis body for suggestion context (not the short message).
+      const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
       const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
       if (interactionId) {
         await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>

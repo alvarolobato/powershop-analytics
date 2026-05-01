@@ -409,7 +409,9 @@ export async function handleApplyDashboardModification(
     );
   }
 
-  // Validate the spec with Zod.
+  // Validate the spec with Zod — same logic as handleValidateDashboardSpec so
+  // the two tools stay consistent. NOTE: if validation logic changes, update
+  // both handlers (or extract a shared helper).
   const parsed = DashboardSpecSchema.safeParse(args.spec);
   if (!parsed.success) {
     const errors = parsed.error.issues.map((issue) => {
@@ -419,6 +421,7 @@ export async function handleApplyDashboardModification(
     return toolOk({
       ok: false,
       errors,
+      warnings: [],
       hint:
         "Fix the structural errors above and call apply_dashboard_modification again with the corrected spec.",
     });
@@ -500,10 +503,13 @@ export async function handleSubmitDashboardAnalysis(
     );
   }
 
-  const sanitizedMarkdown = sanitize(args.analysis_markdown.trim());
+  // Do NOT run sanitize() on the full analysis markdown — the secret-redaction
+  // patterns could corrupt legitimate business content (IDs, tokens matching
+  // the regex patterns). Store the analysis body as-is. Only the brief_summary
+  // (displayed in the chat chip and logged) requires sanitization.
   const sanitizedSummary = sanitize(args.brief_summary.trim());
 
-  ctx.analyzeResult = { markdown: sanitizedMarkdown, summary: sanitizedSummary };
+  ctx.analyzeResult = { markdown: args.analysis_markdown.trim(), summary: sanitizedSummary };
 
   return toolOk({ ok: true, applied: true });
 }

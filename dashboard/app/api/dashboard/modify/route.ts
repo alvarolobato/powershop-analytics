@@ -15,9 +15,12 @@
  *                                no progress was emitted yet; otherwise
  *                                HTTP 200 NDJSON terminating in
  *                                `{type:"error", httpStatus, ...}`.
- *   • Success (no progress)    → HTTP 200, JSON `{ spec, message?, summary? }`.
+ *   • Success (no progress)    → HTTP 200, JSON spread of DashboardSpec fields
+ *                                plus additive `message` and `summary` strings.
+ *                                Existing clients consuming `spec.title` / `spec.widgets`
+ *                                continue to work — `message` / `summary` are new fields.
  *   • Success (with progress)  → HTTP 200 NDJSON terminating in
- *                                `{type:"result", spec, message, summary}`.
+ *                                `{type:"result", spec: DashboardSpec, message, summary}`.
  *
  * Streaming frames (NDJSON):
  *   { type: "progress", requestId, logLine: LogLine }

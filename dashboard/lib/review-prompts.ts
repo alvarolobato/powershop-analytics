@@ -22,11 +22,16 @@ const QUERY_NAMES_LIST = REVIEW_QUERIES.map((q) => q.name).join(", ");
 
 /**
  * Build the system prompt for the weekly review LLM call (strict JSON v2).
+ *
+ * @param agenticMode - When true (default), includes the publish-tool workflow
+ *   (submit_weekly_review). When false, uses the legacy "return raw JSON" contract
+ *   for when DASHBOARD_AGENTIC_TOOLS_ENABLED=false.
  */
 export function buildReviewPrompt(
   queryResults: string,
   reviewedWeekDescription: string,
   generationMode: "initial" | "refresh_data" | "alternate_angle" = "initial",
+  agenticMode = true,
 ): string {
   const instructionsText = formatInstructions(INSTRUCTIONS);
 
@@ -121,7 +126,9 @@ Restricciones:
 - evidence_queries nunca vacío; solo nombres de la lista permitida.
 - data_quality_notes incluye avisos si faltan datos o una consulta falló (según el bloque de resultados).
 
-## Flujo requerido (OBLIGATORIO)
+${
+  agenticMode
+    ? `## Flujo requerido (OBLIGATORIO)
 
 1. Analiza los datos y construye el objeto JSON de la revisión siguiendo el formato anterior.
 2. Llama a la herramienta \`submit_weekly_review\` con:
@@ -132,7 +139,9 @@ Restricciones:
    describiendo las conclusiones clave de la semana.
 
 **Nunca emitas el JSON de la revisión como tu respuesta final.** El JSON DEBE ir a través de
-\`submit_weekly_review\`. Si emites el JSON directamente como texto, el sistema fallará con un error.
+\`submit_weekly_review\`. Si emites el JSON directamente como texto, el sistema fallará con un error.`
+    : `Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto extra) con la forma descrita arriba.`
+}
 
 ## Datos analizados
 

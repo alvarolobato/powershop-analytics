@@ -355,8 +355,36 @@ export function buildAgenticToolPreamble(): string {
 
 /**
  * Build the system prompt for modifying an existing dashboard.
+ *
+ * @param currentSpec - JSON string of the current dashboard spec.
+ * @param agenticMode - When true (default), includes publish-tool workflow
+ *   instructions (apply_dashboard_modification). When false (tools disabled),
+ *   falls back to the legacy "return raw JSON" contract.
  */
-export function buildModifyPrompt(currentSpec: string): string {
+export function buildModifyPrompt(currentSpec: string, agenticMode = true): string {
+  const workflowSection = agenticMode
+    ? [
+        "## Required workflow (MANDATORY)",
+        "",
+        "1. Inspect the current spec and understand what the user wants to change.",
+        "2. Draft the updated spec in your reasoning (with all existing widgets preserved + changes applied).",
+        "3. Call `validate_dashboard_spec` with your candidate spec until `ok=true`.",
+        "4. Call `apply_dashboard_modification` with the validated spec and a 2–4 sentence Spanish",
+        "   `change_summary` describing what you changed.",
+        "5. After `apply_dashboard_modification` returns `{ ok: true, applied: true }`, write your final",
+        "   assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing what changed.",
+        "",
+        "**Never emit the JSON spec as your final answer.** The spec MUST go through",
+        "`apply_dashboard_modification`. If you emit raw JSON as your final message, the route will",
+        "fail with an error because ctx.modifyResult will be null.",
+      ]
+    : [
+        "## Output",
+        "",
+        "Return the COMPLETE updated dashboard as raw JSON — no markdown fences, no explanation.",
+        "Do not wrap your response in markdown fences; return only the complete updated dashboard as raw JSON.",
+      ];
+
   return [
     "# Role",
     "",
@@ -380,19 +408,7 @@ export function buildModifyPrompt(currentSpec: string): string {
     "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
     "4. The 'glossary' field MUST always be present in your response.",
     "",
-    "## Required workflow (MANDATORY)",
-    "",
-    "1. Inspect the current spec and understand what the user wants to change.",
-    "2. Draft the updated spec in your reasoning (with all existing widgets preserved + changes applied).",
-    "3. Call `validate_dashboard_spec` with your candidate spec until `ok=true`.",
-    "4. Call `apply_dashboard_modification` with the validated spec and a 2–4 sentence Spanish",
-    "   `change_summary` describing what you changed.",
-    "5. After `apply_dashboard_modification` returns `{ ok: true, applied: true }`, write your final",
-    "   assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing what changed.",
-    "",
-    "**Never emit the JSON spec as your final answer.** The spec MUST go through",
-    "`apply_dashboard_modification`. If you emit raw JSON as your final message, the route will",
-    "fail with an error because ctx.modifyResult will be null.",
+    ...workflowSection,
     "",
     "## Current Dashboard Spec",
     "",

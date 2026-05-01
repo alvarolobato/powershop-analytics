@@ -304,7 +304,7 @@ export async function modifyDashboard(
       runAgenticChat({
         adapter,
         model,
-        systemPrompt: `${buildModifyPrompt(currentSpec)}\n\n${buildAgenticToolPreamble()}`,
+        systemPrompt: `${buildModifyPrompt(currentSpec, true)}\n\n${buildAgenticToolPreamble()}`,
         userContent: userPrompt,
         ctx: requestCtx,
         temperature: 0.2,
@@ -317,7 +317,8 @@ export async function modifyDashboard(
     return content;
   }
 
-  const systemPrompt = buildModifyPrompt(currentSpec);
+  // Non-agentic path: use legacy prompt (no publish-tool instructions).
+  const systemPrompt = buildModifyPrompt(currentSpec, false);
   return chatText(
     [
       { role: "system", content: systemPrompt },
@@ -424,6 +425,7 @@ export async function analyzeDashboard(
   if (isAgenticToolsEnabled()) {
     const systemPrompt = `${buildAnalyzePrompt(serializedData, action, {
       dashboardId: requestCtx.dashboardId,
+      agenticMode: true,
     })}\n\n${buildAgenticToolPreamble()}`;
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg);
@@ -444,8 +446,10 @@ export async function analyzeDashboard(
     return content;
   }
 
+  // Non-agentic path: use legacy prompt (no publish-tool instructions).
   const systemPrompt = buildAnalyzePrompt(serializedData, action, {
     dashboardId: requestCtx.dashboardId,
+    agenticMode: false,
   });
 
   return chatText(
