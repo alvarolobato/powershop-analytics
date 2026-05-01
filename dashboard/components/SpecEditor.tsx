@@ -109,7 +109,11 @@ export function SpecEditor({ spec, onSave, onClose }: SpecEditorProps) {
             </button>
             <button
               onClick={handleSave}
-              className="rounded-tremor-default bg-blue-500 px-4 py-1.5 text-tremor-default font-medium text-white hover:bg-blue-600 shadow-lg shadow-blue-500/20 transition-all"
+              className="rounded-tremor-default px-4 py-1.5 text-tremor-default font-medium text-white hover:brightness-110 transition-all"
+              style={{
+                background: "var(--accent)",
+                boxShadow: "0 8px 24px var(--accent-soft)",
+              }}
             >
               {saved ? "Guardado!" : "Guardar"}
             </button>

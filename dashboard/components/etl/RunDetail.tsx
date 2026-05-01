@@ -357,7 +357,7 @@ export function RunDetail({ runId }: RunDetailProps) {
             <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Ejecución #{run.id}</h1>
             <Badge color={statusBadgeColor(run.status)} data-testid="status-badge">
               {run.status === "running" ? (
-                <span className="flex items-center gap-1"><span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />En progreso...</span>
+                <span className="flex items-center gap-1"><span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--accent)" }} />En progreso...</span>
               ) : statusLabel(run.status)}
             </Badge>
           </div>
