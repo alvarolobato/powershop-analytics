@@ -117,6 +117,110 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
   });
 }
 
+export interface RunCliProcessStreamingParams extends RunCliProcessParams {
+  /** Called with each complete JSON line (stripped of newline). */
+  onStdoutLine: (line: string) => void;
+}
+
+/**
+ * Streaming variant of `runCliProcess`. Pipes stdout through a line-buffered
+ * reader, calling `onStdoutLine` for each complete line. Preserves the same
+ * timeout/kill, EAGAIN, and stderr-capture behaviour as `runCliProcess`.
+ * Returns the same `RunProcessResult` shape (stdout = full captured tail).
+ */
+export async function runCliProcessStreaming(
+  params: RunCliProcessStreamingParams,
+): Promise<RunProcessResult> {
+  const { file, args, stdin, timeoutMs, maxStdoutBytes, maxStderrBytes, onStdoutLine } = params;
+  const startedAt = Date.now();
+
+  return await new Promise((resolve, reject) => {
+    const child = spawn(file, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env },
+      windowsHide: true,
+    });
+
+    const stdoutAcc = new CappedBufferCollector(maxStdoutBytes);
+    const stderrAcc = new CappedBufferCollector(maxStderrBytes);
+    let timedOut = false;
+    // Partial-line buffer: holds bytes that arrived without a trailing \n yet.
+    let partial = "";
+
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      const killTimer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* ignore */
+        }
+      }, 2000);
+      killTimer.unref();
+    }, timeoutMs);
+    timer.unref();
+
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdoutAcc.push(chunk);
+      // Split the incoming chunk on newlines, re-joining with any partial tail.
+      const text = partial + chunk.toString("utf8");
+      const lines = text.split("\n");
+      // Last element is either "" (chunk ended with \n) or an incomplete line.
+      partial = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed) {
+          try {
+            onStdoutLine(trimmed);
+          } catch {
+            /* callback errors must not crash the runner */
+          }
+        }
+      }
+    });
+
+    child.stderr?.on("data", (chunk: Buffer) => stderrAcc.push(chunk));
+
+    if (stdin !== undefined && child.stdin) {
+      child.stdin.write(stdin, "utf8");
+      child.stdin.end();
+    } else if (child.stdin) {
+      child.stdin.end();
+    }
+
+    child.on("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    child.on("close", (exitCode) => {
+      clearTimeout(timer);
+      // Flush any remaining partial line (no trailing newline at EOF).
+      if (partial.trim()) {
+        try {
+          onStdoutLine(partial.trim());
+        } catch {
+          /* ignore */
+        }
+      }
+      resolve({
+        exitCode,
+        stdout: stdoutAcc.toStringUtf8(),
+        stderr: stderrAcc.toStringUtf8(),
+        timedOut,
+        truncatedStdout: stdoutAcc.truncated,
+        truncatedStderr: stderrAcc.truncated,
+        durationMs: Date.now() - startedAt,
+      });
+    });
+  });
+}
+
 /**
  * Map raw process outcome to CliRunnerError when not successful.
  *

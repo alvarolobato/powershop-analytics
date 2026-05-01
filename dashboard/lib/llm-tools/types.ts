@@ -7,8 +7,10 @@ import type { DashboardCliDriverId, DashboardLlmProviderId } from "@/lib/llm-pro
 /** High-level events from the tool loop (UI streaming + server logs). */
 export type AgenticProgressEvent =
   | { type: "round"; round: number; maxRounds: number }
+  | { type: "model_step_start"; round: number; provider: DashboardLlmProviderId; driver: DashboardCliDriverId | null }
+  | { type: "model_text_delta"; round: number; chars: number; totalChars: number }
   | { type: "assistant_tools"; round: number; tools: string[] }
-  | { type: "tool_start"; round: number; name: string; toolCallId: string }
+  | { type: "tool_start"; round: number; name: string; toolCallId: string; argsPreview?: string }
   | {
       type: "tool_done";
       round: number;
@@ -17,6 +19,7 @@ export type AgenticProgressEvent =
       ok: boolean;
       ms: number;
       errorCode?: string | null;
+      argsPreview?: string;
     }
   | { type: "finalizing"; messageChars: number };
 

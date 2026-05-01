@@ -8,7 +8,7 @@ import { DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import { substituteDateParams, type DateParamRanges } from "@/lib/date-params";
 import { validateReadOnly, query, SqlValidationError } from "@/lib/db";
 import { validateQueryCost, QueryTooExpensiveError } from "@/lib/query-validator";
-import { lintWidgetSql } from "@/lib/sql-heuristics";
+import { lintDashboardSpec, lintWidgetSql } from "@/lib/sql-heuristics";
 import { extractDashboardSqlRefs } from "../dashboard-query-extractor";
 import type { LlmAgenticContext } from "../types";
 import { toolError, toolOk, type ToolResponseBody } from "../tool-payload";
@@ -285,6 +285,70 @@ export async function handleGetDashboardWidgetRawValues(
       columns: [],
     });
   }
+}
+
+/**
+ * Validate a candidate dashboard JSON spec **before** the model emits its
+ * final answer. Runs (1) Zod schema validation on the structure and (2) the
+ * SQL heuristic lint on every widget query. Returns a structured result so
+ * the model can self-correct mistakes (missing widgets[], wrong widget type,
+ * duplicate ids, mismatched kpi_row items, bad SQL patterns) inside the
+ * tool loop instead of emitting a broken final spec that the route then
+ * rejects with LLM_INVALID_RESPONSE.
+ */
+export async function handleValidateDashboardSpec(
+  rawArgs: string,
+  ctx: LlmAgenticContext,
+): Promise<ToolResponseBody> {
+  let args: { spec?: unknown };
+  try {
+    args = JSON.parse(rawArgs || "{}");
+  } catch {
+    return toolError(
+      "INVALID_ARGS",
+      "validate_dashboard_spec: arguments must be a JSON object with a 'spec' field.",
+      ctx,
+    );
+  }
+  if (typeof args.spec !== "object" || args.spec === null || Array.isArray(args.spec)) {
+    return toolError(
+      "INVALID_ARGS",
+      "validate_dashboard_spec: 'spec' must be a JSON object.",
+      ctx,
+    );
+  }
+
+  const parsed = DashboardSpecSchema.safeParse(args.spec);
+  if (!parsed.success) {
+    const errors = parsed.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+      return `${path}: ${issue.message}`;
+    });
+    return toolOk({
+      ok: false,
+      errors,
+      warnings: [],
+      hint:
+        "Fix the structural errors above and call validate_dashboard_spec again. " +
+        "Do not emit a final answer until ok=true.",
+    });
+  }
+
+  const warnings = lintDashboardSpec(parsed.data);
+  // ok reflects "safe to emit final JSON". Per the prompt contract, only
+  // structural errors block emission — SQL lint warnings are surfaced for
+  // the model to consider but do NOT flip ok to false. Keeping the two
+  // signals aligned with the prompt prevents the model from looping
+  // indefinitely on an unfixable lint warning.
+  return toolOk({
+    ok: true,
+    errors: [],
+    warnings,
+    hint:
+      warnings.length === 0
+        ? "Spec is valid. You may emit the final JSON now."
+        : "Spec is structurally valid but has SQL lint warnings — review each one. Warnings do not block emission; emit the final JSON when you are satisfied.",
+  });
 }
 
 export async function handleGetDashboardAllWidgetStatus(

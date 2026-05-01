@@ -146,6 +146,26 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "validate_dashboard_spec",
+      description:
+        "Validate a candidate dashboard JSON spec before emitting it as the final answer. Runs Zod structural validation and SQL heuristic lint on every widget. Returns { ok, errors[], warnings[], hint }. Call this on every generate/modify task and only emit the final JSON when ok=true.",
+      parameters: {
+        type: "object",
+        properties: {
+          spec: {
+            type: "object",
+            description:
+              "Candidate dashboard spec (the same JSON you would emit as the final answer).",
+            additionalProperties: true,
+          },
+        },
+        required: ["spec"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_dashboard_all_widget_status",
       description:
         "Run read-only validation + cost check + SQL lint on every SQL string in a saved dashboard; does not execute full queries.",

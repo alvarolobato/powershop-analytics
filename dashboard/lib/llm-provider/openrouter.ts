@@ -116,7 +116,8 @@ export function resetOpenRouterClient(): void {
 export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdapter {
   return {
     async runStep(input): Promise<AgenticStepResult> {
-      const completion = await withOpenRouterRetry(() =>
+      // Use streaming so we can emit model_text_delta events while tokens arrive.
+      const stream = await withOpenRouterRetry(() =>
         client.chat.completions.create({
           model: input.model,
           messages: input.messages,
@@ -124,51 +125,91 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
           tool_choice: "auto",
           temperature: input.temperature,
           max_tokens: input.maxTokens,
+          stream: true,
         }),
       );
 
-      const choice = completion.choices[0]?.message;
-      if (!choice) {
-        return {
-          kind: "error",
-          code: "LLM_EMPTY",
-          message: "The model returned no message.",
-          usage: completion.usage ?? null,
-        };
+      // Accumulate content and tool_call deltas.
+      let textContent = "";
+      let totalCharsEmitted = 0;
+      // tool_calls deltas: indexed by delta.index
+      const toolCallAccum: Record<
+        number,
+        { id: string; type: "function"; function: { name: string; arguments: string } }
+      > = {};
+      let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (delta?.content) {
+          textContent += delta.content;
+          const deltaChars = delta.content.length;
+          totalCharsEmitted += deltaChars;
+          if (input.onTextDelta) {
+            try {
+              input.onTextDelta(deltaChars, totalCharsEmitted);
+            } catch {
+              /* ignore callback errors */
+            }
+          }
+        }
+        // Accumulate tool_call chunks (OpenAI streaming tool call pattern).
+        if (delta?.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolCallAccum[idx]) {
+              toolCallAccum[idx] = {
+                id: tc.id ?? "",
+                type: "function",
+                function: { name: tc.function?.name ?? "", arguments: tc.function?.arguments ?? "" },
+              };
+            } else {
+              const acc = toolCallAccum[idx];
+              if (tc.id) acc.id = tc.id;
+              if (tc.function?.name) acc.function.name += tc.function.name;
+              if (tc.function?.arguments) acc.function.arguments += tc.function.arguments;
+            }
+          }
+        }
+        // Usage is typically in the last chunk.
+        if (chunk.usage) {
+          usage = {
+            prompt_tokens: chunk.usage.prompt_tokens,
+            completion_tokens: chunk.usage.completion_tokens,
+            total_tokens: chunk.usage.total_tokens,
+          };
+        }
       }
 
-      const toolCalls = choice.tool_calls;
-      if (toolCalls?.length) {
+      const toolCalls = Object.values(toolCallAccum);
+      if (toolCalls.length > 0) {
         return {
           kind: "tools",
           tool_calls: toolCalls
-            .map((tc) => {
-              if (tc.type !== "function") return null;
-              return {
-                id: tc.id,
-                type: "function" as const,
-                function: {
-                  name: tc.function?.name ?? "",
-                  arguments: tc.function?.arguments ?? "{}",
-                },
-              };
-            })
-            .filter((x): x is NonNullable<typeof x> => x !== null),
-          usage: completion.usage ?? null,
+            .filter((tc) => tc.type === "function" && tc.function.name)
+            .map((tc) => ({
+              id: tc.id,
+              type: "function" as const,
+              function: {
+                name: tc.function.name,
+                arguments: tc.function.arguments || "{}",
+              },
+            })),
+          usage,
         };
       }
 
-      const text = choice.content?.trim();
+      const text = textContent.trim();
       if (!text) {
         return {
           kind: "error",
           code: "LLM_EMPTY",
           message: "The model returned empty content.",
-          usage: completion.usage ?? null,
+          usage,
         };
       }
 
-      return { kind: "final", content: text, usage: completion.usage ?? null };
+      return { kind: "final", content: text, usage };
     },
   };
 }

@@ -5,6 +5,65 @@ const { ok } = vi.hoisted(() => ({
   ok: <T>(data: T) => ({ ok: true as const, data }),
 }));
 
+/**
+ * Create an async iterable from a sequence of chunks, simulating what OpenAI
+ * streaming `chat.completions.create({ stream: true })` returns. Each item in
+ * `chunks` is a partial chat completion chunk.
+ */
+function makeStreamResponse(chunks: object[]): AsyncIterable<object> {
+  return {
+    [Symbol.asyncIterator]() {
+      let idx = 0;
+      return {
+        async next() {
+          if (idx < chunks.length) {
+            return { value: chunks[idx++], done: false as const };
+          }
+          return { value: undefined, done: true as const };
+        },
+      };
+    },
+  };
+}
+
+/** Make a text-content streaming response (single chunk). */
+function makeTextStream(content: string, usage?: object): AsyncIterable<object> {
+  const chunks: object[] = [
+    { choices: [{ delta: { content } }] },
+  ];
+  if (usage) {
+    chunks.push({ choices: [], usage });
+  }
+  return makeStreamResponse(chunks);
+}
+
+/** Make a tool-call streaming response (single chunk with tool_calls). */
+function makeToolCallStream(
+  toolCalls: { id: string; function: { name: string; arguments: string } }[],
+  usage?: object,
+): AsyncIterable<object> {
+  const chunks: object[] = [
+    {
+      choices: [
+        {
+          delta: {
+            tool_calls: toolCalls.map((tc, i) => ({
+              index: i,
+              id: tc.id,
+              type: "function",
+              function: { name: tc.function.name, arguments: tc.function.arguments },
+            })),
+          },
+        },
+      ],
+    },
+  ];
+  if (usage) {
+    chunks.push({ choices: [], usage });
+  }
+  return makeStreamResponse(chunks);
+}
+
 vi.mock("@/lib/llm-tools/logging", () => ({
   logLlmToolCall: vi.fn().mockResolvedValue(undefined),
 }));
@@ -47,10 +106,9 @@ describe("runAgenticChat", () => {
   });
 
   it("returns content when the model answers without tools", async () => {
-    const create = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: "solo texto" } }],
-      usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
-    });
+    const create = vi.fn().mockReturnValue(
+      makeTextStream("solo texto", { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }),
+    );
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
     const adapter = createOpenRouterAgenticAdapter(client);
 
@@ -71,27 +129,15 @@ describe("runAgenticChat", () => {
   it("handles one tool round then a final message", async () => {
     const create = vi
       .fn()
-      .mockResolvedValueOnce({
-        choices: [
-          {
-            message: {
-              content: null,
-              tool_calls: [
-                {
-                  id: "call_1",
-                  type: "function",
-                  function: { name: "list_ps_tables", arguments: "{}" },
-                },
-              ],
-            },
-          },
-        ],
-        usage: { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
-      })
-      .mockResolvedValueOnce({
-        choices: [{ message: { content: "listo" } }],
-        usage: { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 },
-      });
+      .mockReturnValueOnce(
+        makeToolCallStream(
+          [{ id: "call_1", function: { name: "list_ps_tables", arguments: "{}" } }],
+          { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
+        ),
+      )
+      .mockReturnValueOnce(
+        makeTextStream("listo", { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 }),
+      );
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
     const adapter = createOpenRouterAgenticAdapter(client);
 
@@ -115,23 +161,12 @@ describe("runAgenticChat", () => {
 
   it("throws AgenticRunnerError when max tool rounds is exceeded", async () => {
     vi.stubEnv("DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS", "1");
-    const create = vi.fn().mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: null,
-            tool_calls: [
-              {
-                id: "c1",
-                type: "function",
-                function: { name: "list_ps_tables", arguments: "{}" },
-              },
-            ],
-          },
-        },
-      ],
-      usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
-    });
+    const create = vi.fn().mockReturnValue(
+      makeToolCallStream(
+        [{ id: "c1", function: { name: "list_ps_tables", arguments: "{}" } }],
+        { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
+      ),
+    );
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
     const adapter = createOpenRouterAgenticAdapter(client);
 
@@ -150,28 +185,15 @@ describe("runAgenticChat", () => {
 
   it("throws AgenticRunnerError when max tool calls is exceeded", async () => {
     vi.stubEnv("DASHBOARD_AGENTIC_MAX_TOOL_CALLS", "1");
-    const create = vi.fn().mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: null,
-            tool_calls: [
-              {
-                id: "a",
-                type: "function",
-                function: { name: "list_ps_tables", arguments: "{}" },
-              },
-              {
-                id: "b",
-                type: "function",
-                function: { name: "list_ps_tables", arguments: "{}" },
-              },
-            ],
-          },
-        },
-      ],
-      usage: { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
-    });
+    const create = vi.fn().mockReturnValue(
+      makeToolCallStream(
+        [
+          { id: "a", function: { name: "list_ps_tables", arguments: "{}" } },
+          { id: "b", function: { name: "list_ps_tables", arguments: "{}" } },
+        ],
+        { prompt_tokens: 1, completion_tokens: 0, total_tokens: 1 },
+      ),
+    );
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
     const adapter = createOpenRouterAgenticAdapter(client);
 
@@ -192,10 +214,7 @@ describe("runAgenticChat", () => {
   });
 
   it("throws AgenticRunnerError on empty final content", async () => {
-    const create = vi.fn().mockResolvedValue({
-      choices: [{ message: { content: "" } }],
-      usage: {},
-    });
+    const create = vi.fn().mockReturnValue(makeTextStream("", {}));
     const client = { chat: { completions: { create } } } as unknown as OpenAI;
     const adapter = createOpenRouterAgenticAdapter(client);
 

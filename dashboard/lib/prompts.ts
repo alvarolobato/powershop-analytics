@@ -332,6 +332,20 @@ export function buildAgenticToolPreamble(): string {
     "- Prefer validate_query / explain_query before execute_query.",
     "- After you finish tool use, respond with ONLY the final artifact required by the task",
     "  (for generate/modify: raw JSON dashboard spec, no markdown fences; for analyze: markdown analysis).",
+    "",
+    "## Dashboard spec validation (mandatory for generate and modify)",
+    "",
+    "When the task is to produce a dashboard JSON spec (generate or modify), the very last tool",
+    "call before your final answer MUST be `validate_dashboard_spec` with your candidate spec",
+    "as the `spec` argument. The tool returns `{ ok, errors[], warnings[], hint }`:",
+    "- If `ok` is `false` or `errors[]` is non-empty: fix every error and re-call `validate_dashboard_spec`.",
+    "  Repeat until `ok=true` or you have used the round budget. NEVER emit a final spec while",
+    "  errors are unresolved — the route will reject it as LLM_INVALID_RESPONSE and the user sees a failure.",
+    "- If `warnings[]` is non-empty: fix or, if the warning is a known false positive,",
+    "  proceed to the final answer (warnings do not block emission).",
+    "- Only after a passing `validate_dashboard_spec` call should you emit the final raw JSON.",
+    "",
+    "The final JSON you emit MUST be byte-for-byte the same `spec` object that just validated `ok=true`.",
   ].join("\n");
 }
 

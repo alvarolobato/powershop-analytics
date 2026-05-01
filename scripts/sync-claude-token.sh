@@ -34,7 +34,10 @@ set -u
 set -o pipefail
 
 KEYCHAIN_SVC="${CLAUDE_KEYCHAIN_SVC:-Claude Code-credentials}"
-KEYCHAIN_ACCT="${CLAUDE_KEYCHAIN_ACCT:-$USER}"
+# Default to `$(id -un)` rather than `$USER` because under launchd `USER` is
+# often unset and `set -u` would crash. `id -un` always resolves the real
+# user even in a stripped launchd environment.
+KEYCHAIN_ACCT="${CLAUDE_KEYCHAIN_ACCT:-$(id -un)}"
 CREDS_FILE="${CLAUDE_CREDS_FILE:-$HOME/.claude/.credentials.json}"
 WARN_THRESHOLD_HOURS="${WARN_THRESHOLD_HOURS:-6}"
 
