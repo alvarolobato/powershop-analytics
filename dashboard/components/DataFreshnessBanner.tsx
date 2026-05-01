@@ -26,7 +26,7 @@ export function DataFreshnessBanner() {
   const [dismissed, setDismissed] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const { setFreshnessText, setFreshnessStale } = useFreshness();
+  const { setFreshnessText, setFreshnessStale, setFreshnessTooltip } = useFreshness();
 
   useEffect(() => {
     // Check session-scoped dismiss — short-circuit fetch if already dismissed
@@ -82,8 +82,11 @@ export function DataFreshnessBanner() {
         setFreshnessText(`Datos al día · ${age}`);
         setFreshnessStale(false);
       }
+      setFreshnessTooltip(
+        `Última sincronización (${health.stalestTable.name}): ${formatDate(health.stalestTable.lastSync)}`,
+      );
     }
-  }, [health, setFreshnessText, setFreshnessStale]);
+  }, [health, setFreshnessText, setFreshnessStale, setFreshnessTooltip]);
 
   const handleDismiss = () => {
     setDismissed(true);

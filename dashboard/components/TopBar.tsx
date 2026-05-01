@@ -10,18 +10,27 @@ interface TopBarProps {
   freshnessText?: string;
   /** Override freshness stale flag — falls back to context value */
   freshnessStale?: boolean;
+  /** Override freshness tooltip (last-sync timestamp) — falls back to context value */
+  freshnessTooltip?: string | null;
 }
 
-export function TopBar({ onCogClick, freshnessText: propFreshnessText, freshnessStale: propFreshnessStale }: TopBarProps) {
+export function TopBar({
+  onCogClick,
+  freshnessText: propFreshnessText,
+  freshnessStale: propFreshnessStale,
+  freshnessTooltip: propFreshnessTooltip,
+}: TopBarProps) {
   const pathname = usePathname();
   const ctx = useFreshness();
   const freshnessText = propFreshnessText ?? ctx.freshnessText;
   const freshnessStale = propFreshnessStale ?? ctx.freshnessStale;
+  const freshnessTooltip = propFreshnessTooltip ?? ctx.freshnessTooltip;
 
   const navLinks = [
     { href: "/", label: "Paneles" },
     { href: "/review", label: "Revisión" },
-  ];
+    { href: "http://localhost:3000", label: "Wren", external: true },
+  ] as const;
 
   return (
     <header
@@ -61,22 +70,34 @@ export function TopBar({ onCogClick, freshnessText: propFreshnessText, freshness
         {/* Primary nav */}
         <nav className="flex items-center gap-1">
           {navLinks.map((link) => {
+            const isExternal = "external" in link && link.external;
             const isActive =
-              link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+              !isExternal &&
+              (link.href === "/" ? pathname === "/" : pathname.startsWith(link.href));
+            const style = {
+              padding: "6px 12px",
+              borderRadius: 6,
+              fontSize: 13,
+              fontWeight: isActive ? 500 : 400,
+              color: isActive ? "var(--fg)" : "var(--fg-muted)",
+              background: isActive ? "var(--bg-2)" : "transparent",
+              textDecoration: "none",
+            } as const;
+            if (isExternal) {
+              return (
+                <a
+                  key={link.href}
+                  href={link.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={style}
+                >
+                  {link.label}
+                </a>
+              );
+            }
             return (
-              <Link
-                key={link.href}
-                href={link.href}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 6,
-                  fontSize: 13,
-                  fontWeight: isActive ? 500 : 400,
-                  color: isActive ? "var(--fg)" : "var(--fg-muted)",
-                  background: isActive ? "var(--bg-2)" : "transparent",
-                  textDecoration: "none",
-                }}
-              >
+              <Link key={link.href} href={link.href} style={style}>
                 {link.label}
               </Link>
             );
@@ -87,7 +108,10 @@ export function TopBar({ onCogClick, freshnessText: propFreshnessText, freshness
       {/* Right: status + cog + admin + avatar */}
       <div className="flex items-center gap-3 px-5">
         {/* Live status */}
-        <div className="flex items-center gap-1.5">
+        <div
+          className="flex items-center gap-1.5"
+          title={freshnessTooltip ?? undefined}
+        >
           <span
             style={{
               width: 6,
@@ -104,6 +128,7 @@ export function TopBar({ onCogClick, freshnessText: propFreshnessText, freshness
               fontSize: 11,
               color: "var(--fg-muted)",
               fontFamily: "var(--font-jetbrains), monospace",
+              cursor: freshnessTooltip ? "help" : "default",
             }}
           >
             {freshnessText || "Datos al día"}

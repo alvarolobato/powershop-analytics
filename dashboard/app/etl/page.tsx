@@ -97,7 +97,12 @@ export default function EtlMonitorPage() {
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState<string | null>(null);
   const [forceDialogOpen, setForceDialogOpen] = useState(false);
+  // Biases the polling cadence to "fast" for ~15 s after a trigger so the new
+  // run surfaces as soon as the ETL scheduler creates it (its trigger poll is
+  // every 10 s, so we cover that window).
+  const [awaitingTrigger, setAwaitingTrigger] = useState(false);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const awaitingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchRuns = useCallback(async (p: number, silent = false) => {
     if (!silent) setRunsLoading(true);
@@ -157,22 +162,53 @@ export default function EtlMonitorPage() {
   };
 
   const isRunning = runs.some((r) => r.status === "running");
+  const wasRunningRef = useRef(false);
 
-  // Poll every 5 s while a run is active; stop when none are running
+  // Always poll the runs table so newly created or scheduler-triggered runs
+  // surface without a manual refresh. Cadence: 2 s briefly after a trigger,
+  // 3 s while a run is active, 8 s when idle.
   useEffect(() => {
     if (pollingRef.current) {
       clearInterval(pollingRef.current);
       pollingRef.current = null;
     }
-    if (isRunning) {
-      pollingRef.current = setInterval(() => {
-        void fetchRuns(page, true);
-      }, 5_000);
-    }
+    const intervalMs = awaitingTrigger ? 2_000 : isRunning ? 3_000 : 8_000;
+    pollingRef.current = setInterval(() => {
+      void fetchRuns(page, true);
+    }, intervalMs);
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [isRunning, fetchRuns, page]);
+  }, [awaitingTrigger, isRunning, fetchRuns, page]);
+
+  // Clear the awaiting flag as soon as a running run shows up
+  useEffect(() => {
+    if (awaitingTrigger && isRunning) {
+      setAwaitingTrigger(false);
+      if (awaitingTimeoutRef.current) {
+        clearTimeout(awaitingTimeoutRef.current);
+        awaitingTimeoutRef.current = null;
+      }
+    }
+  }, [awaitingTrigger, isRunning]);
+
+  // Clean up the awaiting safety timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (awaitingTimeoutRef.current) {
+        clearTimeout(awaitingTimeoutRef.current);
+        awaitingTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
+  // When a run finishes (running → not running), refresh the stats KPIs too
+  useEffect(() => {
+    if (wasRunningRef.current && !isRunning) {
+      void fetchStats();
+    }
+    wasRunningRef.current = isRunning;
+  }, [isRunning, fetchStats]);
 
   const triggerSync = useCallback(
     async (opts?: ForceResyncOptions) => {
@@ -200,6 +236,15 @@ export default function EtlMonitorPage() {
         } else if (!res.ok) {
           setTriggerError("Error al iniciar la sincronización");
         }
+        // Bias polling to fast cadence until the new run is visible (covers the
+        // ETL scheduler's 10 s trigger-poll). Cleared either by the effect that
+        // detects isRunning or by this safety timeout.
+        setAwaitingTrigger(true);
+        if (awaitingTimeoutRef.current) clearTimeout(awaitingTimeoutRef.current);
+        awaitingTimeoutRef.current = setTimeout(() => {
+          setAwaitingTrigger(false);
+          awaitingTimeoutRef.current = null;
+        }, 15_000);
         await fetchRuns(page, true);
       } catch {
         setTriggerError("Error al iniciar la sincronización");
