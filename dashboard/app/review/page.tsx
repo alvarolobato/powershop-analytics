@@ -76,6 +76,8 @@ interface FullReviewState {
   revision: number;
   generation_mode: string;
   content: ReviewContent;
+  /** Freeform Spanish message from the model (set after generation, null for loaded reviews). */
+  modelMessage?: string | null;
 }
 
 function formatWeekDate(dateStr: string): string {
@@ -298,6 +300,7 @@ export default function ReviewPage() {
     async (body: Record<string, unknown>): Promise<{
       week_start: string;
       id: number;
+      message?: string;
     } | null> => {
       setStreamingLog([]);
       startedAtRef.current = Date.now();
@@ -348,7 +351,7 @@ export default function ReviewPage() {
         | { type: "meta"; requestId: string; message: string; weekStart: string; generationMode: string }
         | { type: "phase"; message: string; index?: number; total?: number }
         | { type: "progress"; event: AgenticProgressEvent }
-        | { type: "result"; review: ReviewContent & { id: number; week_start: string; revision: number; generation_mode: string } }
+        | { type: "result"; message?: string; review: ReviewContent & { id: number; week_start: string; revision: number; generation_mode: string } }
         | { type: "error"; httpStatus: number; error: string; code: string; [k: string]: unknown };
 
       for await (const frame of readNdjsonStream<ReviewFrame>(res.body)) {
@@ -378,7 +381,7 @@ export default function ReviewPage() {
           ]);
         } else if (frame.type === "result") {
           setStreamingLog(null);
-          return { week_start: frame.review.week_start, id: frame.review.id };
+          return { week_start: frame.review.week_start, id: frame.review.id, message: frame.message };
         } else if (frame.type === "error") {
           setStreamingLog(null);
           throw Object.assign(new Error(frame.error ?? "Error al generar la revisión."), {
@@ -403,6 +406,10 @@ export default function ReviewPage() {
       const result = await callGenerateStreaming({});
       if (result) {
         await openWeek(result.week_start, result.id);
+        // Store the model's freeform message alongside the review state.
+        if (result.message) {
+          setCurrent((prev) => prev ? { ...prev, modelMessage: result.message } : prev);
+        }
         void fetchPastReviews();
       }
     } catch (err) {
@@ -425,6 +432,9 @@ export default function ReviewPage() {
       if (result) {
         setRegenMode(null);
         await openWeek(result.week_start, result.id);
+        if (result.message) {
+          setCurrent((prev) => prev ? { ...prev, modelMessage: result.message } : prev);
+        }
         void fetchPastReviews();
       }
     } catch (err) {
@@ -584,7 +594,10 @@ export default function ReviewPage() {
 
           <ReviewDiffPanel prior={priorContent} current={current.content} />
 
-          <ReviewDisplay review={{ ...current.content, id: current.id, week_start: current.week_start }} />
+          <ReviewDisplay
+            review={{ ...current.content, id: current.id, week_start: current.week_start }}
+            modelMessage={current.modelMessage ?? undefined}
+          />
 
           {current.id > 0 && (
             <ReviewActionsBoard

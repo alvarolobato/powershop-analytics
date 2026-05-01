@@ -3,6 +3,8 @@
  */
 
 import type { DashboardCliDriverId, DashboardLlmProviderId } from "@/lib/llm-provider/types";
+import type { DashboardSpec } from "@/lib/schema";
+import type { ReviewLlmOutput } from "@/lib/review-schema";
 
 /** High-level events from the tool loop (UI streaming + server logs). */
 export type AgenticProgressEvent =
@@ -36,6 +38,31 @@ export interface LlmAgenticContext {
   llmProvider?: DashboardLlmProviderId;
   /** When `llmProvider` is `cli`, which driver binary/protocol is used. */
   llmDriver?: DashboardCliDriverId | null;
+
+  // ── Publish-tool side-channel slots ────────────────────────────────────────
+  // These slots are populated by the publish-tool handlers and read by the
+  // route AFTER the agentic loop returns. Handlers MUST only stage results
+  // here — they MUST NOT persist directly to the database (dashboards /
+  // weekly_reviews). The route is the single point of persistence.
+
+  /**
+   * Staged result for the `apply_dashboard_modification` tool.
+   * Set by `handleApplyDashboardModification`; read by the modify route.
+   * The LAST call wins — the route always uses the final value after the loop.
+   */
+  modifyResult?: { spec: DashboardSpec; summary: string } | null;
+
+  /**
+   * Staged result for the `submit_dashboard_analysis` tool.
+   * Set by `handleSubmitDashboardAnalysis`; read by the analyze route.
+   */
+  analyzeResult?: { markdown: string; summary: string } | null;
+
+  /**
+   * Staged result for the `submit_weekly_review` tool.
+   * Set by `handleSubmitWeeklyReview`; read by the review/generate route.
+   */
+  reviewResult?: { content: ReviewLlmOutput; summary: string } | null;
 }
 
 export interface AgenticUsageTotals {

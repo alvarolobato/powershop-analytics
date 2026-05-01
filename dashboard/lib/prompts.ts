@@ -318,6 +318,11 @@ export function buildGeneratePrompt(): string {
 
 /**
  * Instructions appended when the dashboard LLM runs in agentic (tool) mode.
+ *
+ * NOTE: for generate (create-from-scratch) the old contract still applies —
+ * emit the final raw JSON after validate_dashboard_spec passes. The modify,
+ * analyze, and review flows now use publish tools (apply_dashboard_modification,
+ * submit_dashboard_analysis, submit_weekly_review). See the per-flow prompts.
  */
 export function buildAgenticToolPreamble(): string {
   return [
@@ -330,22 +335,21 @@ export function buildAgenticToolPreamble(): string {
     "Rules:",
     "- Only read-only SQL. Never attempt writes.",
     "- Prefer validate_query / explain_query before execute_query.",
-    "- After you finish tool use, respond with ONLY the final artifact required by the task",
-    "  (for generate/modify: raw JSON dashboard spec, no markdown fences; for analyze: markdown analysis).",
+    "- For the **generate** (create-from-scratch) task: after you finish tool use, respond with ONLY",
+    "  the raw JSON dashboard spec (no markdown fences, no explanation).",
+    "- For **modify**, **analyze**, and **review** tasks: use the dedicated publish tool instead of",
+    "  emitting the artifact as your final answer. See the task-specific instructions below.",
     "",
     "## Dashboard spec validation (mandatory for generate and modify)",
     "",
-    "When the task is to produce a dashboard JSON spec (generate or modify), the very last tool",
-    "call before your final answer MUST be `validate_dashboard_spec` with your candidate spec",
-    "as the `spec` argument. The tool returns `{ ok, errors[], warnings[], hint }`:",
+    "When the task is to produce a dashboard JSON spec (generate or modify), you MUST call",
+    "`validate_dashboard_spec` with your candidate spec as the `spec` argument before publishing.",
+    "The tool returns `{ ok, errors[], warnings[], hint }`:",
     "- If `ok` is `false` or `errors[]` is non-empty: fix every error and re-call `validate_dashboard_spec`.",
-    "  Repeat until `ok=true` or you have used the round budget. NEVER emit a final spec while",
-    "  errors are unresolved — the route will reject it as LLM_INVALID_RESPONSE and the user sees a failure.",
-    "- If `warnings[]` is non-empty: fix or, if the warning is a known false positive,",
-    "  proceed to the final answer (warnings do not block emission).",
-    "- Only after a passing `validate_dashboard_spec` call should you emit the final raw JSON.",
-    "",
-    "The final JSON you emit MUST be byte-for-byte the same `spec` object that just validated `ok=true`.",
+    "  Repeat until `ok=true` or you have used the round budget.",
+    "- If `warnings[]` is non-empty: fix or, if the warning is a known false positive, proceed.",
+    "- For **generate**: only after a passing `validate_dashboard_spec` should you emit the final raw JSON.",
+    "- For **modify**: after `validate_dashboard_spec` passes, call `apply_dashboard_modification` (not emit raw JSON).",
   ].join("\n");
 }
 
@@ -358,7 +362,7 @@ export function buildModifyPrompt(currentSpec: string): string {
     "",
     "You are an expert AI dashboard modifier for a Spanish retail and wholesale fashion business (PowerShop).",
     "The user wants to modify an existing dashboard. They will describe the changes they want.",
-    "You must return the COMPLETE updated dashboard JSON — not just the changed parts.",
+    "You must produce the COMPLETE updated dashboard JSON — not just the changed parts.",
     "Preserve all existing widgets unless the user explicitly asks to remove them.",
     "When adding new widgets, continue the id sequence (e.g. if the last widget is w6, the new one is w7).",
     "",
@@ -376,10 +380,23 @@ export function buildModifyPrompt(currentSpec: string): string {
     "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
     "4. The 'glossary' field MUST always be present in your response.",
     "",
+    "## Required workflow (MANDATORY)",
+    "",
+    "1. Inspect the current spec and understand what the user wants to change.",
+    "2. Draft the updated spec in your reasoning (with all existing widgets preserved + changes applied).",
+    "3. Call `validate_dashboard_spec` with your candidate spec until `ok=true`.",
+    "4. Call `apply_dashboard_modification` with the validated spec and a 2–4 sentence Spanish",
+    "   `change_summary` describing what you changed.",
+    "5. After `apply_dashboard_modification` returns `{ ok: true, applied: true }`, write your final",
+    "   assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing what changed.",
+    "",
+    "**Never emit the JSON spec as your final answer.** The spec MUST go through",
+    "`apply_dashboard_modification`. If you emit raw JSON as your final message, the route will",
+    "fail with an error because ctx.modifyResult will be null.",
+    "",
     "## Current Dashboard Spec",
     "",
     "The following is the existing dashboard JSON provided as input context.",
-    "Do not wrap your response in markdown fences; return only the complete updated dashboard as raw JSON.",
     "",
     currentSpec,
     "",

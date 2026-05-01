@@ -8,6 +8,7 @@
  * See dashboard/app/api/dashboard/analyze/route.ts for the contract.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
@@ -70,11 +71,31 @@ describe("POST /api/dashboard/analyze (streaming)", () => {
   });
 
   it("opens NDJSON stream when the agentic runner emits at least one progress event", async () => {
-    vi.mocked(llm.analyzeDashboard).mockImplementation(async (_data, _prompt, _action, opts) => {
-      opts?.onAgenticProgress?.({ type: "tool_done", round: 1, name: "execute_query", toolCallId: "tc_1", ok: true, ms: 12 });
-      await new Promise((r) => setTimeout(r, 0));
-      return "Análisis completo.";
-    });
+    // New contract: model stages ctx.analyzeResult and returns freeform message.
+    vi.mocked(llm.analyzeDashboard).mockImplementation(
+      async (
+        _data: string,
+        _prompt: string,
+        _action: string | undefined,
+        ctx: LlmAgenticContext,
+      ) => {
+        ctx.onAgenticProgress?.({
+          type: "tool_done",
+          round: 1,
+          name: "execute_query",
+          toolCallId: "tc_1",
+          ok: true,
+          ms: 12,
+        });
+        await new Promise((r) => setTimeout(r, 0));
+        // Stage the analysis markdown via publish-tool contract.
+        ctx.analyzeResult = {
+          markdown: "Análisis completo.",
+          summary: "Resumen breve.",
+        };
+        return "He analizado el dashboard y encontré tendencias positivas.";
+      },
+    );
 
     const res = await POST(makeRequest({ spec: baseSpec, widgetData: {}, prompt: "Analiza" }));
     expect(res.status).toBe(200);
@@ -87,16 +108,28 @@ describe("POST /api/dashboard/analyze (streaming)", () => {
     expect(last).toMatchObject({
       type: "result",
       response: "Análisis completo.",
+      message: "He analizado el dashboard y encontré tendencias positivas.",
+      summary: "Resumen breve.",
       suggestions: ["sugerencia 1"],
     });
   });
 
   it("emits a terminal error frame with httpStatus when the LLM fails after streaming starts", async () => {
-    vi.mocked(llm.analyzeDashboard).mockImplementation(async (_d, _p, _a, opts) => {
-      opts?.onAgenticProgress?.({ type: "tool_done", round: 1, name: "validate_query", toolCallId: "tc_2", ok: false, ms: 8, errorCode: "BAD_SQL" });
-      await new Promise((r) => setTimeout(r, 0));
-      throw new Error("upstream rate limit 429 exceeded");
-    });
+    vi.mocked(llm.analyzeDashboard).mockImplementation(
+      async (_d: string, _p: string, _a: string | undefined, ctx: LlmAgenticContext) => {
+        ctx.onAgenticProgress?.({
+          type: "tool_done",
+          round: 1,
+          name: "validate_query",
+          toolCallId: "tc_2",
+          ok: false,
+          ms: 8,
+          errorCode: "BAD_SQL",
+        });
+        await new Promise((r) => setTimeout(r, 0));
+        throw new Error("upstream rate limit 429 exceeded");
+      },
+    );
 
     const res = await POST(makeRequest({ spec: baseSpec, widgetData: {}, prompt: "Analiza" }));
     expect(res.status).toBe(200);

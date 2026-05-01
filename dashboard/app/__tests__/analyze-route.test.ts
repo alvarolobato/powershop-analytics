@@ -16,6 +16,7 @@ vi.mock("@/lib/llm", async () => {
 // Import AFTER mock setup
 import { POST } from "../api/dashboard/analyze/route";
 import * as llm from "@/lib/llm";
+import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -41,6 +42,29 @@ function makeRequest(body: unknown): Request {
   });
 }
 
+/**
+ * Returns a mock implementation for analyzeDashboard that stages analyzeResult
+ * in the ctx (simulating the publish-tool flow) and returns a freeform message.
+ * Pass markdown=null to simulate the model NOT calling submit_dashboard_analysis.
+ */
+function makeAnalyzeMock(
+  markdown: string | null,
+  message = "He analizado el dashboard y encontré varias tendencias.",
+  summary = "Las ventas crecieron un 12%.",
+) {
+  return async (
+    _serializedData: string,
+    _prompt: string,
+    _action: string | undefined,
+    ctx: LlmAgenticContext,
+  ) => {
+    if (markdown !== null) {
+      ctx.analyzeResult = { markdown, summary };
+    }
+    return message;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -58,8 +82,10 @@ describe("POST /api/dashboard/analyze", () => {
   // Valid request
   // -----------------------------------------------------------------------
 
-  it("returns 200 with response and suggestions on valid request", async () => {
-    vi.mocked(llm.analyzeDashboard).mockResolvedValue("# Análisis\n\nEl dashboard muestra ventas de 50.000€.");
+  it("returns 200 with response + message + summary + suggestions on valid request", async () => {
+    vi.mocked(llm.analyzeDashboard).mockImplementation(
+      makeAnalyzeMock("# Análisis\n\nEl dashboard muestra ventas de 50.000€."),
+    );
 
     const req = makeRequest({
       spec: baseSpec,
@@ -71,13 +97,18 @@ describe("POST /api/dashboard/analyze", () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
+    // response = the staged analysis markdown
     expect(body.response).toContain("Análisis");
+    // message = freeform chat reply
+    expect(body.message).toBe("He analizado el dashboard y encontré varias tendencias.");
+    // summary from the staged result
+    expect(body.summary).toBe("Las ventas crecieron un 12%.");
     expect(Array.isArray(body.suggestions)).toBe(true);
     expect(body.suggestions.length).toBeGreaterThan(0);
   });
 
   it("passes action to analyzeDashboard when provided", async () => {
-    vi.mocked(llm.analyzeDashboard).mockResolvedValue("Plan de acción: ...");
+    vi.mocked(llm.analyzeDashboard).mockImplementation(makeAnalyzeMock("Plan de acción: ..."));
 
     const req = makeRequest({
       spec: baseSpec,
@@ -100,7 +131,7 @@ describe("POST /api/dashboard/analyze", () => {
   });
 
   it("returns suggestions from generateSuggestions", async () => {
-    vi.mocked(llm.analyzeDashboard).mockResolvedValue("Respuesta del análisis.");
+    vi.mocked(llm.analyzeDashboard).mockImplementation(makeAnalyzeMock("Respuesta del análisis."));
     vi.mocked(llm.generateSuggestions).mockResolvedValue(["Pregunta 1", "Pregunta 2", "Pregunta 3"]);
 
     const req = makeRequest({
@@ -167,7 +198,7 @@ describe("POST /api/dashboard/analyze", () => {
   });
 
   it("accepts all valid action values", async () => {
-    vi.mocked(llm.analyzeDashboard).mockResolvedValue("OK");
+    vi.mocked(llm.analyzeDashboard).mockImplementation(makeAnalyzeMock("OK"));
 
     const validActions = [
       "explicar",
@@ -244,8 +275,23 @@ describe("POST /api/dashboard/analyze", () => {
     expect(body.code).toBe("LLM_CIRCUIT_OPEN");
   });
 
+  it("returns 500 when model returns text without calling submit_dashboard_analysis", async () => {
+    vi.mocked(llm.analyzeDashboard).mockImplementation(makeAnalyzeMock(null));
+
+    const req = makeRequest({
+      spec: baseSpec,
+      widgetData: {},
+      prompt: "Analiza",
+    });
+
+    const res = await POST(req);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("AGENTIC_RUNNER");
+  });
+
   it("returns 200 even when generateSuggestions returns empty array", async () => {
-    vi.mocked(llm.analyzeDashboard).mockResolvedValue("Análisis correcto.");
+    vi.mocked(llm.analyzeDashboard).mockImplementation(makeAnalyzeMock("Análisis correcto."));
     vi.mocked(llm.generateSuggestions).mockResolvedValue([]);
 
     const req = makeRequest({

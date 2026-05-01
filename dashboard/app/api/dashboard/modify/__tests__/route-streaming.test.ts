@@ -8,6 +8,7 @@
  * See dashboard/app/api/dashboard/modify/route.ts for the contract.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
 const { mockModifyDashboard } = vi.hoisted(() => ({
   mockModifyDashboard: vi.fn(),
@@ -101,12 +102,20 @@ describe("POST /api/dashboard/modify (streaming)", () => {
 
   it("opens an NDJSON stream when the agentic runner emits at least one progress event", async () => {
     // Simulate an agentic runner that emits a `tool_done` event then resolves.
-    mockModifyDashboard.mockImplementation(async (_spec, _prompt, opts) => {
-      opts?.onAgenticProgress?.({ type: "tool_done", name: "validate_query", ok: true, ms: 42 });
-      // Allow a microtask so the route observes the event before completion.
-      await new Promise((r) => setTimeout(r, 0));
-      return JSON.stringify(updatedSpec);
-    });
+    // The new contract: model stages ctx.modifyResult and returns a freeform message.
+    mockModifyDashboard.mockImplementation(
+      async (_spec: string, _prompt: string, ctx: LlmAgenticContext) => {
+        ctx.onAgenticProgress?.({ type: "tool_done", round: 1, name: "validate_query", toolCallId: "tc1", ok: true, ms: 42 });
+        // Allow a microtask so the route observes the event before completion.
+        await new Promise((r) => setTimeout(r, 0));
+        // Stage the result as the publish tool would.
+        ctx.modifyResult = {
+          spec: updatedSpec as unknown as import("@/lib/schema").DashboardSpec,
+          summary: "Actualizado el título.",
+        };
+        return "He actualizado el título del dashboard.";
+      },
+    );
 
     const res = await POST(
       makeRequest({ spec: validSpec, prompt: "añade ventas por tienda" }),
@@ -120,7 +129,12 @@ describe("POST /api/dashboard/modify (streaming)", () => {
     expect(frames.length).toBeGreaterThanOrEqual(2);
     expect(frames[0]).toMatchObject({ type: "progress", logLine: { kind: "tool" } });
     const last = frames[frames.length - 1];
-    expect(last).toMatchObject({ type: "result", spec: { title: "Ventas Marzo Actualizado" } });
+    expect(last).toMatchObject({
+      type: "result",
+      spec: { title: "Ventas Marzo Actualizado" },
+      message: "He actualizado el título del dashboard.",
+      summary: "Actualizado el título.",
+    });
   });
 
   it("emits a terminal error frame with httpStatus when the LLM fails after streaming starts", async () => {

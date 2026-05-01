@@ -32,8 +32,10 @@ import {
 } from "@/lib/errors";
 import { executeReviewQueries, formatAllResults, type ReviewQueryResult } from "@/lib/review-queries";
 import { buildReviewPrompt } from "@/lib/review-prompts";
-import { generateReview, generateReviewWithProgress, BudgetExceededError } from "@/lib/llm";
+import { generateReview, generateReviewWithProgress, BudgetExceededError, AgenticRunnerError } from "@/lib/llm";
 import type { AgenticProgressEvent } from "@/lib/llm";
+import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
+import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import {
   formatCliRunnerError,
   isCliRunnerError,
@@ -83,6 +85,8 @@ async function generateAndSaveReview(params: {
   reviewId: number;
   content: ReviewContent;
   nextRevision: number;
+  /** Freeform Spanish chat message from the model (new). Empty string when using legacy path. */
+  message: string;
 }> {
   const {
     weekStartStr,
@@ -129,14 +133,20 @@ async function generateAndSaveReview(params: {
 
   onPhase?.("Llamando al modelo");
 
-  let llmOut;
+  // generateReviewWithProgress and generateReview now return { content, message }.
+  // In the agentic path, `content` comes from ctx.reviewResult (staged by submit_weekly_review)
+  // and `message` is the model's freeform chat reply. In the legacy path, message is "".
+  let llmResult: { content: import("@/lib/review-schema").ReviewLlmOutput; message: string };
   if (onProgress) {
-    llmOut = await generateReviewWithProgress(systemPrompt, { requestId, onAgenticProgress: onProgress });
+    llmResult = await generateReviewWithProgress(systemPrompt, { requestId, onAgenticProgress: onProgress });
   } else {
-    llmOut = await generateReview(systemPrompt, { requestId });
+    llmResult = await generateReview(systemPrompt, { requestId });
   }
 
   onPhase?.("Validando JSON");
+
+  const llmOut = llmResult.content;
+  const reviewMessage = llmResult.message;
 
   const generatedAt = llmOut.generated_at || new Date().toISOString();
 
@@ -214,7 +224,7 @@ async function generateAndSaveReview(params: {
     );
   }
 
-  return { reviewId: reviewId!, content, nextRevision };
+  return { reviewId: reviewId!, content, nextRevision, message: reviewMessage };
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse | Response> {
@@ -330,7 +340,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
           };
 
           try {
-            const { reviewId, content, nextRevision } = await generateAndSaveReview({
+            const { reviewId, content, nextRevision, message } = await generateAndSaveReview({
               weekStartStr,
               weekEndExclusiveStr,
               weekEndSundayStr,
@@ -345,6 +355,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
             send({
               type: "result",
               requestId,
+              message,
               review: {
                 ...content,
                 id: reviewId,
@@ -357,8 +368,17 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
             let httpStatus = 500;
             let errCode: ErrorCode = "UNKNOWN";
             let errMessage = "Error inesperado al generar la revisión.";
+            let diagnostic: import("@/lib/errors").AgenticErrorDiagnostic | undefined;
 
-            if (err instanceof BudgetExceededError) {
+            if (err instanceof AgenticRunnerError) {
+              const cfg = loadDashboardLlmConfig();
+              const diag = buildAgenticErrorDiagnostic(err, cfg);
+              persistAgenticError("review", err, diag);
+              httpStatus = 500;
+              errCode = "AGENTIC_RUNNER";
+              errMessage = "El flujo de IA alcanzó un límite o no pudo completarse. Inténtalo de nuevo.";
+              diagnostic = diag;
+            } else if (err instanceof BudgetExceededError) {
               httpStatus = 429;
               errCode = "LLM_BUDGET_EXCEEDED";
               errMessage = err.message;
@@ -387,7 +407,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
               errMessage = "Error inesperado al generar la revisión.";
             }
 
-            const errPayload = formatApiError(errMessage, errCode, sanitizeErrorMessage(err), requestId);
+            const errPayload = formatApiError(errMessage, errCode, sanitizeErrorMessage(err), requestId, diagnostic);
             send({
               type: "error",
               httpStatus,
@@ -410,7 +430,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
 
     // Non-streaming path (stream:false): legacy JSON response.
     try {
-      const { reviewId, content, nextRevision } = await generateAndSaveReview({
+      const { reviewId, content, nextRevision, message } = await generateAndSaveReview({
         weekStartStr,
         weekEndExclusiveStr,
         weekEndSundayStr,
@@ -434,6 +454,7 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
 
       return NextResponse.json(
         {
+          message,
           review: {
             ...content,
             id: reviewId,

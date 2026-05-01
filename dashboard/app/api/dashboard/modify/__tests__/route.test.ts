@@ -27,6 +27,7 @@ vi.mock("@/lib/db-write", async () => {
 import { POST } from "../route";
 import { BudgetExceededError, CircuitBreakerOpenError } from "@/lib/llm";
 import * as dbWrite from "@/lib/db-write";
+import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
 // --- Helpers ----------------------------------------------------------------
 
@@ -87,6 +88,24 @@ function makeRawRequest(rawBody: string): Request {
   });
 }
 
+/**
+ * Returns a mock implementation for modifyDashboard that stages modifyResult
+ * in the ctx (simulating the publish-tool flow) and returns a freeform message.
+ * Pass spec=null to simulate the model NOT calling apply_dashboard_modification.
+ */
+function makeModifyMock(
+  spec: typeof updatedSpec | null,
+  message = "He añadido el widget de margen.",
+  summary = "Añadido widget de margen.",
+) {
+  return async (_specStr: string, _prompt: string, ctx: LlmAgenticContext) => {
+    if (spec !== null) {
+      ctx.modifyResult = { spec: spec as unknown as import("@/lib/schema").DashboardSpec, summary };
+    }
+    return message;
+  };
+}
+
 const mockCreateInteraction = vi.mocked(dbWrite.createInteraction);
 const mockFinishInteraction = vi.mocked(dbWrite.finishInteraction);
 
@@ -101,8 +120,8 @@ describe("POST /api/dashboard/modify", () => {
     mockFinishInteraction.mockResolvedValue(undefined);
   });
 
-  it("returns updated spec on valid modification", async () => {
-    mockModifyDashboard.mockResolvedValue(JSON.stringify(updatedSpec));
+  it("returns updated spec + message + summary on valid modification", async () => {
+    mockModifyDashboard.mockImplementation(makeModifyMock(updatedSpec));
 
     const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade el margen" }));
 
@@ -110,17 +129,9 @@ describe("POST /api/dashboard/modify", () => {
     const json = await res.json();
     expect(json.title).toBe("Ventas Marzo — Actualizado");
     expect(json.widgets[0].items).toHaveLength(2);
-  });
-
-  it("strips markdown code blocks from LLM response", async () => {
-    const wrapped = "```json\n" + JSON.stringify(updatedSpec) + "\n```";
-    mockModifyDashboard.mockResolvedValue(wrapped);
-
-    const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade el margen" }));
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.title).toBe("Ventas Marzo — Actualizado");
+    // New additive fields
+    expect(json.message).toBe("He añadido el widget de margen.");
+    expect(json.summary).toBe("Añadido widget de margen.");
   });
 
   it("returns 400 when spec is missing", async () => {
@@ -168,10 +179,8 @@ describe("POST /api/dashboard/modify", () => {
     expect(json.requestId).toBeDefined();
   });
 
-  it("returns 429 when LLM throws an error with status 429", async () => {
-    const rateLimitError = Object.assign(new Error("Rate limit exceeded"), {
-      status: 429,
-    });
+  it("returns 429 when LLM throws an error with rate limit message", async () => {
+    const rateLimitError = Object.assign(new Error("rate limit exceeded"), {});
     mockModifyDashboard.mockRejectedValue(rateLimitError);
 
     const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
@@ -206,30 +215,31 @@ describe("POST /api/dashboard/modify", () => {
     expect(json.error).toMatch(/no disponible|Inténtelo/i);
   });
 
-  it("returns 400 when LLM returns invalid JSON", async () => {
-    mockModifyDashboard.mockResolvedValue("not json at all");
+  it("returns 500 when model returns text without calling apply_dashboard_modification", async () => {
+    // Model returns freeform text but never staged ctx.modifyResult
+    mockModifyDashboard.mockImplementation(makeModifyMock(null));
 
     const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.code).toBe("LLM_INVALID_RESPONSE");
+    expect(json.code).toBe("AGENTIC_RUNNER");
     expect(json.requestId).toBeDefined();
   });
 
-  it("returns 400 when LLM returns valid JSON but invalid spec", async () => {
-    mockModifyDashboard.mockResolvedValue(JSON.stringify({ title: "No widgets" }));
+  it("does not expose raw LLM output in error responses", async () => {
+    // When model doesn't stage result, route returns 500 AGENTIC_RUNNER
+    mockModifyDashboard.mockImplementation(makeModifyMock(null, "secret internal context leaked"));
 
     const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.code).toBe("LLM_INVALID_RESPONSE");
-    expect(json.requestId).toBeDefined();
+    expect(json.raw).toBeUndefined();
   });
 
   it("passes serialized spec and trimmed prompt to LLM", async () => {
-    mockModifyDashboard.mockResolvedValue(JSON.stringify(updatedSpec));
+    mockModifyDashboard.mockImplementation(makeModifyMock(updatedSpec));
 
     await POST(makeRequest({ spec: validSpec, prompt: "  Añade margen  " }));
 
@@ -279,21 +289,11 @@ describe("POST /api/dashboard/modify", () => {
     expect(json.requestId).toBeDefined();
   });
 
-  it("does not expose raw LLM output in error responses", async () => {
-    mockModifyDashboard.mockResolvedValue("secret internal context leaked");
-
-    const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade algo" }));
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.raw).toBeUndefined();
-  });
-
   // --- Persistence (createInteraction / finishInteraction) ---
 
   describe("interaction persistence", () => {
     it("creates an interaction and finishes it as completed on success", async () => {
-      mockModifyDashboard.mockResolvedValue(JSON.stringify(updatedSpec));
+      mockModifyDashboard.mockImplementation(makeModifyMock(updatedSpec));
 
       const res = await POST(makeRequest({ spec: validSpec, prompt: "Añade el margen" }));
       expect(res.status).toBe(200);
@@ -323,7 +323,7 @@ describe("POST /api/dashboard/modify", () => {
     });
 
     it("passes dashboardId to createInteraction when provided in request body", async () => {
-      mockModifyDashboard.mockResolvedValue(JSON.stringify(updatedSpec));
+      mockModifyDashboard.mockImplementation(makeModifyMock(updatedSpec));
 
       await POST(makeRequest({ spec: validSpec, prompt: "Añade el margen", dashboardId: 42 }));
 

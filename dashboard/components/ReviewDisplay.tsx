@@ -11,6 +11,12 @@ import type { ReviewActionRow } from "@/lib/review-actions-db";
 export interface ReviewDisplayProps {
   review: ReviewContent & { id?: number | null; week_start?: string };
   actions?: ReviewActionRow[];
+  /**
+   * Freeform Spanish message from the model describing the review conclusions.
+   * When present, shown as a "Resumen del modelo" intro paragraph above the
+   * executive summary card.
+   */
+  modelMessage?: string;
 }
 
 function formatTimestamp(iso: string): string {
@@ -198,7 +204,7 @@ function ActionCard({ item }: { item: ReviewActionItemV2 }) {
   );
 }
 
-export function ReviewDisplay({ review }: ReviewDisplayProps) {
+export function ReviewDisplay({ review, modelMessage }: ReviewDisplayProps) {
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -267,6 +273,25 @@ export function ReviewDisplay({ review }: ReviewDisplayProps) {
           </button>
         </div>
       </div>
+
+      {modelMessage && modelMessage.trim() && (
+        <div
+          data-testid="model-message"
+          style={{
+            borderRadius: 8,
+            border: "1px solid rgba(var(--accent-rgb,99,102,241),0.2)",
+            background: "rgba(var(--accent-rgb,99,102,241),0.06)",
+            padding: "14px 16px",
+          }}
+        >
+          <p style={{ fontSize: 12, fontWeight: 600, color: "var(--accent)", margin: "0 0 6px" }}>
+            Resumen del modelo
+          </p>
+          <p style={{ fontSize: 13, color: "var(--fg-muted)", margin: 0, lineHeight: 1.6 }}>
+            {modelMessage.trim()}
+          </p>
+        </div>
+      )}
 
       {review.data_quality_notes.length > 0 && (
         <div

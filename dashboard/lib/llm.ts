@@ -461,8 +461,86 @@ export async function analyzeDashboard(
 }
 
 /**
+ * Generate a weekly business review using the agentic runner so that the
+ * `submit_weekly_review` tool is reachable. The model calls the tool to stage
+ * the review JSON, then emits freeform Spanish prose as its final message.
+ *
+ * Returns `{ content: ReviewLlmOutput; message: string }` where `content` is
+ * the validated review JSON (from ctx.reviewResult) and `message` is the
+ * model's freeform chat reply.
+ *
+ * Throws AgenticRunnerError("AGENTIC_RUNNER", phase "final") if the model
+ * returned final text without calling submit_weekly_review.
+ */
+export async function generateReviewAgentic(
+  systemPrompt: string,
+  opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
+): Promise<{ content: ReviewLlmOutput; message: string }> {
+  const requestId = opts?.requestId ?? "req_local";
+
+  await checkDailyBudget();
+
+  const cfg = loadDashboardLlmConfig();
+  // Build a mutable ctx — the side-channel slots start null.
+  const ctx: LlmAgenticContext = attachTelemetry(
+    {
+      requestId,
+      endpoint: "generateReview",
+      onAgenticProgress: opts?.onAgenticProgress,
+      reviewResult: null,
+    },
+    cfg,
+  );
+
+  const adapter = createDashboardAgenticAdapter();
+  const model = getEffectiveDashboardModel(cfg);
+
+  const { content: finalMessage, usage } = await callWithCircuitBreaker(() =>
+    runAgenticChat({
+      adapter,
+      model,
+      systemPrompt,
+      userContent: "Genera la revisión semanal ahora.",
+      ctx,
+      temperature: 0.2,
+      maxTokens: 4096,
+    }),
+  );
+
+  void logUsage("generateReview", model, usage, usageMetaFromCfg(cfg), { requestId });
+
+  // If the model did not call submit_weekly_review, fail loudly.
+  if (!ctx.reviewResult) {
+    throw new AgenticRunnerError(
+      "AGENTIC_RUNNER",
+      "El modelo no llamó a `submit_weekly_review`. El JSON de la revisión debe enviarse a través de la herramienta.",
+      requestId,
+      {
+        phase: "final",
+        toolRoundsUsed: 0,
+        toolCallsUsed: 0,
+        durationMs: 0,
+        limitsAtFailure: {
+          maxRounds: 0,
+          maxToolCalls: 0,
+          toolTimeoutMs: 0,
+          executeRowLimit: 0,
+          payloadCharLimit: 0,
+        },
+      },
+    );
+  }
+
+  return { content: ctx.reviewResult.content, message: finalMessage };
+}
+
+/**
  * Generate a weekly business review from query results (in Spanish), with optional
  * agentic progress callbacks for streaming.
+ *
+ * When agentic tools are enabled, delegates to `generateReviewAgentic` so that
+ * `submit_weekly_review` is reachable. When tools are disabled, falls back to the
+ * single-shot chatText path.
  *
  * Returns the parsed LLM output (validated with Zod). Uses max_tokens: 4096
  * (reviews are shorter than full dashboard specs).
@@ -470,10 +548,14 @@ export async function analyzeDashboard(
 export async function generateReviewWithProgress(
   systemPrompt: string,
   opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
-): Promise<ReviewLlmOutput> {
+): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
   await checkDailyBudget();
+
+  if (isAgenticToolsEnabled()) {
+    return generateReviewAgentic(systemPrompt, opts);
+  }
 
   const cfg = loadDashboardLlmConfig();
   const requestCtx = attachTelemetry(
@@ -486,7 +568,7 @@ export async function generateReviewWithProgress(
   );
 
   // Use chatText-with-delta path so model_text_delta events fire.
-  const content = await chatTextWithProgress(
+  const rawContent = await chatTextWithProgress(
     [{ role: "system", content: systemPrompt }],
     0.2,
     4096,
@@ -494,15 +576,15 @@ export async function generateReviewWithProgress(
     requestCtx,
   );
 
-  const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  const jsonStr = fenced ? fenced[1].trim() : content.trim();
+  const fenced = rawContent.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const jsonStr = fenced ? fenced[1].trim() : rawContent.trim();
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
     throw new Error(
-      `LLM returned invalid JSON for review. Raw response: ${content.slice(0, 500)}`,
+      `LLM returned invalid JSON for review. Raw response: ${rawContent.slice(0, 500)}`,
     );
   }
 
@@ -512,7 +594,7 @@ export async function generateReviewWithProgress(
       `LLM returned JSON that does not match ReviewLlmOutputSchema: ${z.error.message}`,
     );
   }
-  return z.data;
+  return { content: z.data, message: "" };
 }
 
 /**
@@ -524,12 +606,16 @@ export async function generateReviewWithProgress(
 export async function generateReview(
   systemPrompt: string,
   opts?: { requestId?: string },
-): Promise<ReviewLlmOutput> {
+): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
   await checkDailyBudget();
 
-  const content = await chatText(
+  if (isAgenticToolsEnabled()) {
+    return generateReviewAgentic(systemPrompt, { requestId });
+  }
+
+  const rawContent = await chatText(
     [{ role: "system", content: systemPrompt }],
     0.2,
     4096,
@@ -537,15 +623,15 @@ export async function generateReview(
     requestId,
   );
 
-  const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
-  const jsonStr = fenced ? fenced[1].trim() : content.trim();
+  const fenced = rawContent.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const jsonStr = fenced ? fenced[1].trim() : rawContent.trim();
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
   } catch {
     throw new Error(
-      `LLM returned invalid JSON for review. Raw response: ${content.slice(0, 500)}`,
+      `LLM returned invalid JSON for review. Raw response: ${rawContent.slice(0, 500)}`,
     );
   }
 
@@ -555,7 +641,7 @@ export async function generateReview(
       `LLM returned JSON that does not match ReviewLlmOutputSchema: ${z.error.message}`,
     );
   }
-  return z.data;
+  return { content: z.data, message: "" };
 }
 
 /**

@@ -178,4 +178,84 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "apply_dashboard_modification",
+      description:
+        "Call this tool EXACTLY ONCE at the end of a dashboard modification task, after validate_dashboard_spec returns ok=true. " +
+        "Pass the fully updated dashboard spec and a 2–4 sentence Spanish change_summary describing what you changed. " +
+        "The tool stages the spec in a request-scoped side-channel; the route persists it after you return. " +
+        "After this tool returns { ok: true, applied: true }, write your final assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing the change. " +
+        "NEVER emit the JSON spec as your final answer — it MUST go through this tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          spec: {
+            type: "object",
+            description: "The fully updated dashboard spec (byte-for-byte the same object that validate_dashboard_spec just approved with ok=true).",
+            additionalProperties: true,
+          },
+          change_summary: {
+            type: "string",
+            description: "2–4 sentences in Spanish summarising what you changed in the dashboard. Max 1000 characters.",
+          },
+        },
+        required: ["spec", "change_summary"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_dashboard_analysis",
+      description:
+        "Call this tool EXACTLY ONCE at the end of a dashboard analysis task. " +
+        "Pass the full markdown analysis body and a brief_summary (≤ 500 chars, Spanish). " +
+        "The tool stages the analysis; the route persists it. " +
+        "After this tool returns { ok: true, applied: true }, write your final assistant message as a friendly Spanish chat reply to the user (≤ 4 sentences). " +
+        "NEVER emit the analysis markdown as your final answer — it MUST go through this tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          analysis_markdown: {
+            type: "string",
+            description: "The full analysis in markdown format (Spanish). Max 30 KB.",
+          },
+          brief_summary: {
+            type: "string",
+            description: "1–2 sentences in Spanish summarising the key finding. Max 500 characters.",
+          },
+        },
+        required: ["analysis_markdown", "brief_summary"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "submit_weekly_review",
+      description:
+        "Call this tool EXACTLY ONCE at the end of a weekly review generation task. " +
+        "Pass the complete review JSON object (matching ReviewLlmOutputSchema) and a brief_summary (≤ 500 chars, Spanish). " +
+        "The tool validates the review, stages it in a request-scoped side-channel, and the route persists it. " +
+        "After this tool returns { ok: true, applied: true }, write your final assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing the key conclusions. " +
+        "NEVER emit the review JSON as your final answer — it MUST go through this tool.",
+      parameters: {
+        type: "object",
+        properties: {
+          review: {
+            type: "object",
+            description: "The complete weekly review JSON object matching the ReviewLlmOutputSchema.",
+            additionalProperties: true,
+          },
+          brief_summary: {
+            type: "string",
+            description: "1–2 sentences in Spanish summarising the key conclusions. Max 500 characters.",
+          },
+        },
+        required: ["review", "brief_summary"],
+      },
+    },
+  },
 ];

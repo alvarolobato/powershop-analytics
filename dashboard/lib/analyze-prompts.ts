@@ -86,6 +86,18 @@ export function buildAnalyzePrompt(
     "- No inventes datos que no estén en el contexto",
     "- Cuando los datos no estén disponibles, indícalo claramente",
     "",
+    "# Flujo requerido (OBLIGATORIO)",
+    "",
+    "1. Analiza los datos del dashboard y redacta el análisis completo en markdown.",
+    "2. Llama a la herramienta `submit_dashboard_analysis` con:",
+    "   - `analysis_markdown`: el análisis completo en markdown.",
+    "   - `brief_summary`: 1–2 frases en español que resumen el hallazgo principal.",
+    "3. Después de que `submit_dashboard_analysis` devuelva `{ ok: true, applied: true }`,",
+    "   escribe tu mensaje final como una respuesta amistosa en español al usuario (≤ 4 frases).",
+    "",
+    "**Nunca emitas el análisis como tu respuesta final.** El análisis DEBE ir a través de",
+    "`submit_dashboard_analysis`. Si emites el análisis directamente, el sistema fallará.",
+    "",
   ];
 
   // Inject action-specific instructions when provided

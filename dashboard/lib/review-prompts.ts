@@ -54,11 +54,11 @@ ${instructionsText}
 Solo puedes referenciar estos nombres exactos en los arrays evidence_queries:
 ${QUERY_NAMES_LIST}
 
-## Formato de salida (v2)
+## Formato de la revisión (v2)
 
 **Resumen Ejecutivo:** corresponde al campo JSON \`executive_summary\` (array de 3 a 5 bullets en español).
 
-Devuelve ÚNICAMENTE un objeto JSON válido (sin markdown, sin texto extra) con esta forma:
+El objeto JSON de la revisión debe tener esta forma:
 
 {
   "executive_summary": ["bullet 1", "bullet 2", "bullet 3"],
@@ -120,6 +120,19 @@ Restricciones:
 - due_date siempre YYYY-MM-DD (fecha objetivo de seguimiento).
 - evidence_queries nunca vacío; solo nombres de la lista permitida.
 - data_quality_notes incluye avisos si faltan datos o una consulta falló (según el bloque de resultados).
+
+## Flujo requerido (OBLIGATORIO)
+
+1. Analiza los datos y construye el objeto JSON de la revisión siguiendo el formato anterior.
+2. Llama a la herramienta \`submit_weekly_review\` con:
+   - \`review\`: el objeto JSON completo de la revisión.
+   - \`brief_summary\`: 1–2 frases en español que resumen las conclusiones principales.
+3. Después de que \`submit_weekly_review\` devuelva \`{ ok: true, applied: true }\`,
+   escribe tu mensaje final como una respuesta amistosa en español al usuario (≤ 4 frases)
+   describiendo las conclusiones clave de la semana.
+
+**Nunca emitas el JSON de la revisión como tu respuesta final.** El JSON DEBE ir a través de
+\`submit_weekly_review\`. Si emites el JSON directamente como texto, el sistema fallará con un error.
 
 ## Datos analizados
 

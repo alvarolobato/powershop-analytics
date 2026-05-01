@@ -17,14 +17,17 @@
  *                                Clients MUST check the frame `httpStatus`
  *                                field rather than `res.status` for
  *                                mid-stream failures.
- *   • Success (no progress)    → HTTP 200, JSON `{response, suggestions}`.
+ *   • Success (no progress)    → HTTP 200, JSON `{response, message?, summary?, suggestions}`.
  *   • Success (with progress)  → HTTP 200 NDJSON; final frame is
- *                                `{type:"result", response, suggestions}`.
+ *                                `{type:"result", response, message, summary, suggestions}`.
  *
  * Streaming frames (NDJSON):
  *   { type: "progress", requestId, logLine: LogLine }   per agentic step
- *   { type: "result",   requestId, response, suggestions }
+ *   { type: "result",   requestId, response, message, summary, suggestions }
  *   { type: "error",    requestId, httpStatus, error, code, details?, diagnostic? }
+ *
+ * Backward compat: the `response` field (analysis markdown) is preserved.
+ * `message` and `summary` are additive new fields.
  */
 import { NextResponse } from "next/server";
 import {
@@ -50,9 +53,10 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
-import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
+import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
 import type { LogLine } from "@/components/LogBlock";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -290,19 +294,6 @@ export async function POST(request: Request) {
   }
 
   // --- Run the LLM call, collecting progress events into a buffer ----------
-  // We start the LLM call in the background. The progress callback pushes
-  // log lines into a buffer. We then await either the call's completion or
-  // the first progress event:
-  //
-  //   • If the call completes (success or failure) BEFORE any progress event
-  //     is buffered, we return a normal JSON response with proper HTTP
-  //     status. This is the "fast path" most tests / clients use.
-  //
-  //   • If at least one progress event was buffered before the call
-  //     resolved, we open an NDJSON stream that replays the buffered events
-  //     and continues live. From that point on errors must be reported as a
-  //     terminal `{type:"error", httpStatus, …}` frame because HTTP headers
-  //     have already been committed at status 200.
   const t0 = Date.now();
   const buffer: { type: "progress"; logLine: LogLine }[] = [];
   let firstEventResolve: (() => void) | null = null;
@@ -320,6 +311,15 @@ export async function POST(request: Request) {
     }
   };
 
+  // Build a mutable ctx so the route can read back the side-channel after the loop.
+  const analyzeCtx: LlmAgenticContext = {
+    requestId,
+    endpoint: "analyzeDashboard",
+    dashboardId: dashboardIdNum,
+    onAgenticProgress,
+    analyzeResult: null,
+  };
+
   type LlmOutcome =
     | { kind: "ok"; response: string }
     | { kind: "err"; err: unknown };
@@ -328,12 +328,7 @@ export async function POST(request: Request) {
     serializedData,
     prompt.trim(),
     typeof action === "string" ? action : undefined,
-    {
-      requestId,
-      endpoint: "analyzeDashboard",
-      dashboardId: dashboardIdNum,
-      onAgenticProgress,
-    },
+    analyzeCtx,
   ).then(
     (response): LlmOutcome => ({ kind: "ok", response }),
     (err): LlmOutcome => ({ kind: "err", err }),
@@ -344,6 +339,38 @@ export async function POST(request: Request) {
     llmPromise.then(() => "done" as const),
     firstEvent.then(() => "progress" as const),
   ]);
+
+  // -------------------------------------------------------------------------
+  // Helper: extract the analysis response + message + summary from outcome.
+  // With the new publish-tool approach (agentic tools enabled):
+  //   - response (analysis markdown) comes from ctx.analyzeResult.markdown
+  //   - message is the freeform text returned by runAgenticChat (rawResponse)
+  //   - summary comes from ctx.analyzeResult.summary
+  // Legacy path (agentic tools disabled):
+  //   - response IS the freeform raw response (old contract)
+  //   - message and summary are empty
+  // -------------------------------------------------------------------------
+  const resolveAnalysisResult = (rawResponse: string): {
+    analysisResponse: string;
+    message: string;
+    summary: string;
+  } | null => {
+    if (isAgenticToolsEnabled()) {
+      if (!analyzeCtx.analyzeResult) {
+        console.error(
+          `[${requestId}] El modelo no llamó a submit_dashboard_analysis (agentic tools enabled).`,
+        );
+        return null;
+      }
+      return {
+        analysisResponse: analyzeCtx.analyzeResult.markdown,
+        message: rawResponse,
+        summary: analyzeCtx.analyzeResult.summary,
+      };
+    }
+    // Legacy: the raw response IS the analysis.
+    return { analysisResponse: rawResponse, message: "", summary: "" };
+  };
 
   if (raceWinner === "done") {
     // Fast path: no progress was emitted before the call resolved.
@@ -360,16 +387,34 @@ export async function POST(request: Request) {
       console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
       return NextResponse.json(payload, { status });
     }
-    // Success without progress: keep legacy JSON contract.
-    const analysisResponse = outcome.response;
-    const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
+
+    const resolved = resolveAnalysisResult(outcome.response);
+    if (!resolved) {
+      if (interactionId) {
+        await finishInteraction(interactionId, "error", "El modelo no llamó a submit_dashboard_analysis").catch((e) =>
+          console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+        );
+      }
+      return NextResponse.json(
+        formatApiError(
+          "El modelo no publicó el análisis. Inténtalo de nuevo.",
+          "AGENTIC_RUNNER",
+          "El modelo no llamó a `submit_dashboard_analysis`.",
+          requestId,
+        ),
+        { status: 500 },
+      );
+    }
+
+    const { analysisResponse, message, summary } = resolved;
+    const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${message || analysisResponse}`;
     const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
     if (interactionId) {
       await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
         console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
       );
     }
-    return NextResponse.json({ response: analysisResponse, suggestions });
+    return NextResponse.json({ response: analysisResponse, message, summary, suggestions });
   }
 
   // Streaming path: at least one progress event was emitted.
@@ -380,8 +425,6 @@ export async function POST(request: Request) {
         controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
       };
 
-      // Replay events buffered up to this point. New events will continue
-      // arriving via `onAgenticProgress` → push into `liveBuffer` then drain.
       const drainBuffer = () => {
         while (buffer.length) {
           const ev = buffer.shift()!;
@@ -390,9 +433,6 @@ export async function POST(request: Request) {
       };
       drainBuffer();
 
-      // Swap the progress callback so future events stream directly.
-      // (Closure-captured `onAgenticProgress` is no longer needed; we just
-      //  poll `buffer` after each await tick.)
       const outcome = await llmPromise;
       drainBuffer();
 
@@ -406,22 +446,41 @@ export async function POST(request: Request) {
         }
         const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
         console.error(`[${requestId}] Error al analizar dashboard con LLM (mid-stream):`, err);
-        // Spread payload first so its `requestId` is the canonical one;
-        // then add type / httpStatus which are not part of ApiErrorResponse.
         send({ ...payload, type: "error", httpStatus: status });
         controller.close();
         return;
       }
 
-      const analysisResponse = outcome.response;
-      const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
+      const resolved = resolveAnalysisResult(outcome.response);
+      if (!resolved) {
+        if (interactionId) {
+          await finishInteraction(interactionId, "error", "El modelo no llamó a submit_dashboard_analysis").catch((e) =>
+            console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
+          );
+        }
+        send({
+          ...formatApiError(
+            "El modelo no publicó el análisis. Inténtalo de nuevo.",
+            "AGENTIC_RUNNER",
+            "El modelo no llamó a `submit_dashboard_analysis`.",
+            requestId,
+          ),
+          type: "error",
+          httpStatus: 500,
+        });
+        controller.close();
+        return;
+      }
+
+      const { analysisResponse, message, summary } = resolved;
+      const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${message || analysisResponse}`;
       const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
       if (interactionId) {
         await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
           console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
         );
       }
-      send({ type: "result", requestId, response: analysisResponse, suggestions });
+      send({ type: "result", requestId, response: analysisResponse, message, summary, suggestions });
       controller.close();
     },
   });
