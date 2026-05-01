@@ -35,12 +35,26 @@ const fmtMs = (v: number) =>
 const fmtInt = (v: number) =>
   new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(v);
 
-/** Highlight SQL with Prism after formatting. */
+/** Escape HTML special characters to prevent XSS in fallback paths. */
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Highlight SQL with Prism after formatting.
+ * Returns HTML-escaped plain text on Prism error so dangerouslySetInnerHTML
+ * remains safe even if the grammar is not loaded.
+ */
 function highlightSql(formatted: string): string {
   try {
     return Prism.highlight(formatted, Prism.languages.sql, "sql");
   } catch {
-    return formatted;
+    return escapeHtml(formatted);
   }
 }
 
@@ -168,6 +182,13 @@ export default function AdminSlowQueriesPage() {
       .catch((e) =>
         setData({ queries: [], error: e instanceof Error ? e.message : "Error" }),
       );
+  }, []);
+
+  // Cleanup debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (filterTimerRef.current !== null) clearTimeout(filterTimerRef.current);
+    };
   }, []);
 
   // Debounce filter input — 150 ms
@@ -322,7 +343,7 @@ export default function AdminSlowQueriesPage() {
                     <th
                       key={col.label}
                       style={{
-                        padding: "9px 12px",
+                        padding: col.key ? "0" : "9px 12px",
                         fontWeight: 500,
                         fontFamily: "var(--font-inter, sans-serif)",
                         fontSize: 11,
@@ -331,10 +352,7 @@ export default function AdminSlowQueriesPage() {
                         textAlign: col.align,
                         whiteSpace: "nowrap",
                         borderBottom: "1px solid var(--border)",
-                        cursor: col.key ? "pointer" : "default",
-                        userSelect: "none",
                       }}
-                      onClick={col.key ? () => toggleSort(col.key!) : undefined}
                       aria-sort={
                         col.key
                           ? sortKey === col.key
@@ -345,26 +363,48 @@ export default function AdminSlowQueriesPage() {
                           : undefined
                       }
                     >
-                      {col.label}
-                      {col.key && (
-                        <SortArrow
-                          active={sortKey === col.key}
-                          dir={sortDir}
-                        />
+                      {col.key ? (
+                        /* Wrap sortable headers in a button for keyboard + screen-reader accessibility */
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(col.key!)}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            padding: "9px 12px",
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontFamily: "inherit",
+                            fontSize: "inherit",
+                            fontWeight: "inherit",
+                            letterSpacing: "inherit",
+                            color: "inherit",
+                            textAlign: col.align,
+                            whiteSpace: "nowrap",
+                            userSelect: "none",
+                          }}
+                        >
+                          {col.label}
+                          <SortArrow active={sortKey === col.key} dir={sortDir} />
+                        </button>
+                      ) : (
+                        col.label
                       )}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {displayRows.map(({ q, i }) => {
+                {displayRows.map(({ q, i }, displayIndex) => {
                   const fq = formattedQueries[i];
                   const isExpanded = expanded.has(i);
                   return (
                     <tr
                       key={i}
                       style={{
-                        background: i % 2 === 1 ? "var(--bg-2)" : undefined,
+                        /* Use display index for correct stripe pattern after sort/filter */
+                        background: displayIndex % 2 === 1 ? "var(--bg-2)" : undefined,
                         borderTop: "1px solid var(--border)",
                       }}
                     >
@@ -415,14 +455,15 @@ export default function AdminSlowQueriesPage() {
                             wordBreak: "break-word",
                           }}
                         >
-                          {fq ? (
-                            <span
-                              // biome-ignore lint/security/noDangerouslySetInnerHtml
-                              dangerouslySetInnerHTML={{ __html: fq.highlighted }}
-                            />
-                          ) : (
-                            q.query
-                          )}
+                          {/* dangerouslySetInnerHTML is safe here: highlightSql HTML-escapes
+                              the fallback path and Prism only produces span elements with
+                              class attributes from its own grammar tokeniser. */}
+                          <span
+                            // biome-ignore lint/security/noDangerouslySetInnerHtml
+                            dangerouslySetInnerHTML={{
+                              __html: fq ? fq.highlighted : escapeHtml(q.query),
+                            }}
+                          />
                         </div>
                         <button
                           type="button"

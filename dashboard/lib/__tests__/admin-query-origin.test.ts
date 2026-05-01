@@ -177,7 +177,9 @@ describe("findQueryOrigin — saved dashboard matching", () => {
         },
       },
     ];
-    const origin = findQueryOrigin(rawSql, { savedDashboards });
+    // Build candidates once, pass as savedDashboardCandidateList (new API)
+    const candidateList = savedDashboardCandidates(savedDashboards);
+    const origin = findQueryOrigin(rawSql, { savedDashboardCandidateList: candidateList });
     expect(origin).not.toBeNull();
     expect(origin!.source).toContain("Dashboard Mayorista");
   });

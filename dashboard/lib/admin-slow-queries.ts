@@ -1,5 +1,5 @@
 import { query } from "@/lib/db";
-import { findQueryOrigin } from "@/lib/admin-query-origin";
+import { findQueryOrigin, savedDashboardCandidates } from "@/lib/admin-query-origin";
 
 export const SLOW_QUERIES_SQL = `
   SELECT
@@ -46,26 +46,29 @@ export async function fetchSlowQueries(): Promise<SlowQueriesResponse> {
   try {
     const result = await query(SLOW_QUERIES_SQL);
 
-    // Try to load saved dashboards for origin matching — non-fatal if unavailable.
-    let savedDashboards: Array<{ id: string; title?: string; spec: unknown }> = [];
+    // Build saved-dashboard candidates once per request (not per row) to keep
+    // origin matching O(candidates + rows) rather than O(candidates × rows).
+    // Non-fatal: origin matching still works from templates + review queries if
+    // the dashboards table is unavailable.
+    let dbCandidates: ReturnType<typeof savedDashboardCandidates> = [];
     try {
       const dbResult = await query(
         `SELECT id, spec->>'title' AS title, spec FROM dashboards LIMIT 50`,
       );
-      savedDashboards = dbResult.rows.map((row) => ({
+      const dashboards = dbResult.rows.map((row) => ({
         id: String(row[0]),
         title: row[1] ? String(row[1]) : undefined,
         spec: row[2] as unknown,
       }));
+      dbCandidates = savedDashboardCandidates(dashboards);
     } catch {
-      // dashboards table may not exist or spec column structure may differ;
-      // origin matching still works with templates + review queries.
+      // dashboards table may not exist or spec column structure may differ
     }
 
     const queries: SlowQuery[] = result.rows.map((row) => {
       const rawQuery = String(row[0]);
       const origin =
-        findQueryOrigin(rawQuery, { savedDashboards }) ?? undefined;
+        findQueryOrigin(rawQuery, { savedDashboardCandidateList: dbCandidates }) ?? undefined;
       return {
         query: rawQuery,
         calls: Number(row[1]),

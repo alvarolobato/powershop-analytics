@@ -131,30 +131,30 @@ describe("AdminSlowQueriesPage — sort (task 3)", () => {
     render(<AdminSlowQueriesPage />);
     await waitFor(() => screen.getAllByRole("row").length > 1);
 
-    // The sort arrow should appear on "Media ms" header (active, descending)
-    const headers = screen.getAllByRole("columnheader");
-    const mediaHeader = headers.find((h) => h.textContent?.includes("Media ms"));
-    expect(mediaHeader).toBeDefined();
+    // The sort arrow should appear on the "Media ms" sort button (active, descending)
+    const buttons = screen.getAllByRole("button");
+    const mediaBtn = buttons.find((b) => b.textContent?.includes("Media ms"));
+    expect(mediaBtn).toBeDefined();
     // Active sort indicator: the arrow is ↓ for descending
-    expect(mediaHeader!.textContent).toContain("↓");
+    expect(mediaBtn!.textContent).toContain("↓");
   });
 
   it("clicking a column header sorts by that column descending", async () => {
     render(<AdminSlowQueriesPage />);
     await waitFor(() => screen.getAllByRole("row").length > 1);
 
-    const headers = screen.getAllByRole("columnheader");
-    const llamadasHeader = headers.find((h) => h.textContent?.includes("Llamadas"));
-    expect(llamadasHeader).toBeDefined();
+    const buttons = screen.getAllByRole("button");
+    const llamadasBtn = buttons.find((b) => b.textContent?.includes("Llamadas"));
+    expect(llamadasBtn).toBeDefined();
 
     act(() => {
-      fireEvent.click(llamadasHeader!);
+      fireEvent.click(llamadasBtn!);
     });
 
-    // After click, Llamadas header should show ↓ (now the active sort)
+    // After click, Llamadas button should show ↓ (now the active sort)
     await waitFor(() => {
-      const updatedHeaders = screen.getAllByRole("columnheader");
-      const updatedLlamadas = updatedHeaders.find((h) => h.textContent?.includes("Llamadas"));
+      const updatedButtons = screen.getAllByRole("button");
+      const updatedLlamadas = updatedButtons.find((b) => b.textContent?.includes("Llamadas"));
       expect(updatedLlamadas!.textContent).toContain("↓");
     });
   });
@@ -163,17 +163,17 @@ describe("AdminSlowQueriesPage — sort (task 3)", () => {
     render(<AdminSlowQueriesPage />);
     await waitFor(() => screen.getAllByRole("row").length > 1);
 
-    const headers = screen.getAllByRole("columnheader");
-    const mediaHeader = headers.find((h) => h.textContent?.includes("Media ms"));
+    const buttons = screen.getAllByRole("button");
+    const mediaBtn = buttons.find((b) => b.textContent?.includes("Media ms"));
 
     // First click: already sorted desc, should flip to asc
     act(() => {
-      fireEvent.click(mediaHeader!);
+      fireEvent.click(mediaBtn!);
     });
 
     await waitFor(() => {
-      const updatedHeaders = screen.getAllByRole("columnheader");
-      const updatedMedia = updatedHeaders.find((h) => h.textContent?.includes("Media ms"));
+      const updatedButtons = screen.getAllByRole("button");
+      const updatedMedia = updatedButtons.find((b) => b.textContent?.includes("Media ms"));
       expect(updatedMedia!.textContent).toContain("↑");
     });
   });
@@ -182,11 +182,11 @@ describe("AdminSlowQueriesPage — sort (task 3)", () => {
     render(<AdminSlowQueriesPage />);
     await waitFor(() => screen.getAllByRole("row").length > 1);
 
-    const headers = screen.getAllByRole("columnheader");
-    const llamadasHeader = headers.find((h) => h.textContent?.includes("Llamadas"));
+    const buttons = screen.getAllByRole("button");
+    const llamadasBtn = buttons.find((b) => b.textContent?.includes("Llamadas"));
 
     act(() => {
-      fireEvent.click(llamadasHeader!);
+      fireEvent.click(llamadasBtn!);
     });
 
     await waitFor(() => {
