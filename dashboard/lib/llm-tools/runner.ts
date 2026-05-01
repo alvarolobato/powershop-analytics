@@ -31,9 +31,13 @@ import {
   handleGetDashboardQueries,
   handleGetDashboardWidgetRawValues,
   handleGetDashboardAllWidgetStatus,
+  handleValidateDashboardSpec,
 } from "./handlers/dashboards";
-import type { AgenticModelAdapter } from "./runner-types";
+import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
 import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
+import { sanitize } from "@/lib/llm-provider/sanitize";
+
+const ARGS_PREVIEW_MAX = 120;
 
 /** Rich diagnostic detail attached to an AgenticRunnerError; surfaces in the
  *  "Detalles" modal and in admin telemetry. Optional fields are populated only
@@ -156,6 +160,8 @@ async function dispatchTool(
       return handleGetDashboardWidgetRawValues(rawArgs, ctx);
     case "get_dashboard_all_widget_status":
       return handleGetDashboardAllWidgetStatus(rawArgs, ctx);
+    case "validate_dashboard_spec":
+      return handleValidateDashboardSpec(rawArgs, ctx);
     default:
       return toolError("UNKNOWN_TOOL", `Unknown tool: ${name}`, ctx);
   }
@@ -225,15 +231,31 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
       maxRounds: cfg.maxToolRounds,
     });
 
+    emitAgenticProgress(ctx, {
+      type: "model_step_start",
+      round: round + 1,
+      provider: ctx.llmProvider ?? "openrouter",
+      driver: ctx.llmDriver ?? null,
+    });
+
     let step;
     try {
-      step = await adapter.runStep({
+      const stepInput: AgenticRunStepInput = {
         messages,
         tools,
         model,
         temperature,
         maxTokens,
-      });
+        onTextDelta: (chars, totalChars) => {
+          emitAgenticProgress(ctx, {
+            type: "model_text_delta",
+            round: round + 1,
+            chars,
+            totalChars,
+          });
+        },
+      };
+      step = await adapter.runStep(stepInput);
     } catch (e) {
       if (e instanceof AgenticRunnerError) throw e;
       if (e instanceof CliRunnerError) {
@@ -306,11 +328,13 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
       const rawArgs = tc.function?.arguments ?? "{}";
       lastToolName = name || "(missing)";
       lastToolArgs = rawArgs;
+      const argsPreview = sanitize(rawArgs).slice(0, ARGS_PREVIEW_MAX);
       emitAgenticProgress(ctx, {
         type: "tool_start",
         round: round + 1,
         name: name || "(missing)",
         toolCallId: tc.id,
+        argsPreview,
       });
       const t0 = Date.now();
       let body: ToolResponseBody;
@@ -358,6 +382,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
         ok: body.ok,
         ms: latency,
         errorCode,
+        argsPreview,
       });
 
       messages.push({

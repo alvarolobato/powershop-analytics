@@ -5,6 +5,21 @@
  *   week_start?: "YYYY-MM-DD" (default: last completed ISO week)
  *   regenerate?: boolean (default false)
  *   mode?: "refresh_data" | "alternate_angle" (required when regenerate=true)
+ *   stream?: boolean (default true — set false for non-streaming JSON response)
+ *
+ * Streaming response (stream=true): application/x-ndjson
+ *   { type: "meta", requestId, message, weekStart, generationMode }
+ *   { type: "phase", message: "Ejecutando consultas SQL" }
+ *   { type: "phase", message: "X/N consultas listas", index, total }
+ *   { type: "phase", message: "Construyendo prompt" }
+ *   { type: "phase", message: "Llamando al modelo" }
+ *   { type: "progress", event: AgenticProgressEvent }  — from LLM streaming
+ *   { type: "phase", message: "Validando JSON" }
+ *   { type: "phase", message: "Guardando revisión" }
+ *   { type: "result", review }
+ *   { type: "error", httpStatus, error, code, ... }
+ *
+ * Non-streaming response (stream=false): JSON (same shape as before).
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,10 +28,12 @@ import {
   formatApiError,
   generateRequestId,
   sanitizeErrorMessage,
+  type ErrorCode,
 } from "@/lib/errors";
 import { executeReviewQueries, formatAllResults, type ReviewQueryResult } from "@/lib/review-queries";
 import { buildReviewPrompt } from "@/lib/review-prompts";
-import { generateReview, BudgetExceededError } from "@/lib/llm";
+import { generateReview, generateReviewWithProgress, BudgetExceededError } from "@/lib/llm";
+import type { AgenticProgressEvent } from "@/lib/llm";
 import {
   formatCliRunnerError,
   isCliRunnerError,
@@ -41,13 +58,167 @@ interface GenerateBody {
   week_start?: string;
   regenerate?: boolean;
   mode?: "refresh_data" | "alternate_angle";
+  stream?: boolean;
 }
 
 function isIsoDate(s: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-export async function POST(request: NextRequest): Promise<NextResponse> {
+/**
+ * Core review generation logic shared by streaming and non-streaming paths.
+ * Returns the saved review or throws.
+ */
+async function generateAndSaveReview(params: {
+  weekStartStr: string;
+  weekEndExclusiveStr: string;
+  weekEndSundayStr: string;
+  generationMode: "initial" | "refresh_data" | "alternate_angle";
+  regenerate: boolean;
+  latestId: number | null;
+  requestId: string;
+  onPhase?: (message: string, extra?: Record<string, unknown>) => void;
+  onProgress?: (event: AgenticProgressEvent) => void;
+}): Promise<{
+  reviewId: number;
+  content: ReviewContent;
+  nextRevision: number;
+}> {
+  const {
+    weekStartStr,
+    weekEndExclusiveStr,
+    weekEndSundayStr,
+    generationMode,
+    regenerate,
+    latestId,
+    requestId,
+    onPhase,
+    onProgress,
+  } = params;
+
+  onPhase?.("Ejecutando consultas SQL");
+
+  const queryResults: ReviewQueryResult[] = await executeReviewQueries(
+    (sqlStr, sqlParams) => query(sqlStr, sqlParams),
+    weekStartStr,
+    weekEndExclusiveStr,
+  );
+
+  onPhase?.(`${queryResults.length}/${queryResults.length} consultas listas`, {
+    index: queryResults.length,
+    total: queryResults.length,
+  });
+
+  const failureRate = computeQueryFailureRate(queryResults);
+  const failedNames = queryResults.filter((r) => r.error || !r.result).map((r) => r.query.name);
+
+  const formattedResults = formatAllResults(queryResults);
+
+  onPhase?.("Construyendo prompt");
+
+  const reviewedWeekDescription =
+    `Los resultados corresponden a la **semana ISO cerrada** del **${weekStartStr}** (lunes) al **${weekEndSundayStr}** (domingo). ` +
+    `La semana en curso no se incluye (sigue en progreso).`;
+
+  const systemPrompt = buildReviewPrompt(
+    formattedResults,
+    reviewedWeekDescription,
+    generationMode,
+  );
+
+  onPhase?.("Llamando al modelo");
+
+  let llmOut;
+  if (onProgress) {
+    llmOut = await generateReviewWithProgress(systemPrompt, { requestId, onAgenticProgress: onProgress });
+  } else {
+    llmOut = await generateReview(systemPrompt, { requestId });
+  }
+
+  onPhase?.("Validando JSON");
+
+  const generatedAt = llmOut.generated_at || new Date().toISOString();
+
+  let content: ReviewContent = {
+    review_schema_version: 2,
+    executive_summary: llmOut.executive_summary,
+    sections: llmOut.sections.map((s) => ({ ...s })),
+    action_items: llmOut.action_items.map((a) => ({
+      ...a,
+      owner_name: "",
+    })),
+    data_quality_notes: [...llmOut.data_quality_notes],
+    generated_at: generatedAt,
+    quality_status: failureRate > 0.3 ? "degraded" : "ok",
+  };
+
+  if (failureRate > 0.3) {
+    content.data_quality_notes.push(
+      `Calidad degradada: ${Math.round(failureRate * 100)}% de consultas fallaron o sin resultado (${failedNames.join(", ") || "n/a"}).`,
+    );
+  }
+
+  onPhase?.("Enriqueciendo revisión");
+
+  const dashboardUrls: Record<string, string> = {};
+  for (const key of REVIEW_DASHBOARD_KEYS) {
+    const dashId = await getOrCreateReviewDashboardId(key);
+    dashboardUrls[key] = buildDashboardReviewHref(dashId, weekStartStr, weekEndSundayStr);
+  }
+
+  content = enrichReviewContent(content, queryResults, dashboardUrls);
+
+  onPhase?.("Guardando revisión");
+
+  const nextRevision = (await getMaxRevisionForWeek(weekStartStr)) + 1;
+  const supersedes = regenerate ? latestId : null;
+
+  const durationMs = Date.now();
+  console.info(
+    JSON.stringify({
+      event: "review_generate",
+      requestId,
+      week_start: weekStartStr,
+      revision: nextRevision,
+      mode: generationMode,
+      regenerate,
+      query_failures: failedNames.length,
+      query_total: queryResults.length,
+    }),
+  );
+
+  let reviewId: number | null = null;
+  try {
+    reviewId = await saveReview({
+      weekStart: weekStartStr,
+      windowStart: weekStartStr,
+      windowEnd: weekEndSundayStr,
+      revision: nextRevision,
+      generationMode,
+      supersedesReviewId: supersedes,
+      content,
+    });
+    await replaceActionsFromReviewContent(reviewId, content);
+  } catch (err) {
+    if (reviewId != null) {
+      try {
+        await sql(`DELETE FROM weekly_reviews WHERE id = $1`, [reviewId]);
+      } catch (cleanupErr) {
+        console.error(`[${requestId}] Failed to delete orphan weekly_reviews row:`, cleanupErr);
+      }
+    }
+    throw Object.assign(
+      new Error("La revisión se generó, pero no se pudo guardar."),
+      { cause: err, code: "REVIEW_PERSISTENCE" },
+    );
+  }
+
+  void durationMs; // used for logging above
+
+  return { reviewId: reviewId!, content, nextRevision };
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse | Response> {
   const requestId = generateRequestId();
   const started = Date.now();
 
@@ -71,6 +242,9 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 },
     );
   }
+
+  // stream defaults to true when unspecified (callers can pass stream:false for legacy behaviour).
+  const wantStream = body.stream !== false;
 
   try {
     let weekStartStr: string;
@@ -132,30 +306,145 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       ? (mode as "refresh_data" | "alternate_angle")
       : "initial";
 
-    const queryResults: ReviewQueryResult[] = await executeReviewQueries(
-      (sql, params) => query(sql, params),
-      weekStartStr,
-      weekEndExclusiveStr,
-    );
+    if (wantStream) {
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          const send = (obj: Record<string, unknown>) => {
+            controller.enqueue(encoder.encode(`${JSON.stringify(obj)}\n`));
+          };
 
-    const failureRate = computeQueryFailureRate(queryResults);
-    const failedNames = queryResults.filter((r) => r.error || !r.result).map((r) => r.query.name);
+          send({
+            type: "meta",
+            requestId,
+            message: "Generación de revisión iniciada",
+            weekStart: weekStartStr,
+            generationMode,
+          });
 
-    const formattedResults = formatAllResults(queryResults);
+          const onPhase = (message: string, extra?: Record<string, unknown>) => {
+            send({ type: "phase", requestId, message, ...extra });
+          };
 
-    const reviewedWeekDescription =
-      `Los resultados corresponden a la **semana ISO cerrada** del **${weekStartStr}** (lunes) al **${weekEndSundayStr}** (domingo). ` +
-      `La semana en curso no se incluye (sigue en progreso).`;
+          const onProgress = (event: AgenticProgressEvent) => {
+            send({ type: "progress", requestId, event });
+          };
 
-    const systemPrompt = buildReviewPrompt(
-      formattedResults,
-      reviewedWeekDescription,
-      generationMode,
-    );
+          try {
+            const { reviewId, content, nextRevision } = await generateAndSaveReview({
+              weekStartStr,
+              weekEndExclusiveStr,
+              weekEndSundayStr,
+              generationMode,
+              regenerate,
+              latestId,
+              requestId,
+              onPhase,
+              onProgress,
+            });
 
-    let llmOut;
+            send({
+              type: "result",
+              requestId,
+              review: {
+                ...content,
+                id: reviewId,
+                week_start: weekStartStr,
+                revision: nextRevision,
+                generation_mode: generationMode,
+              },
+            });
+          } catch (err) {
+            let httpStatus = 500;
+            let errCode: ErrorCode = "UNKNOWN";
+            let errMessage = "Error inesperado al generar la revisión.";
+
+            if (err instanceof BudgetExceededError) {
+              httpStatus = 429;
+              errCode = "LLM_BUDGET_EXCEEDED";
+              errMessage = err.message;
+            } else if (isCliRunnerError(err)) {
+              const formatted = formatCliRunnerError(
+                err,
+                "Error al generar la revisión con el modelo de IA.",
+              );
+              httpStatus = 502;
+              errCode = "LLM_ERROR";
+              errMessage = formatted.error;
+            } else if (err instanceof ConnectionError) {
+              httpStatus = 503;
+              errCode = "DB_CONNECTION";
+              errMessage = "No se pudo conectar a la base de datos.";
+            } else if (err instanceof QueryTimeoutError) {
+              httpStatus = 503;
+              errCode = "TIMEOUT";
+              errMessage = "Las consultas tardaron demasiado.";
+            } else if (err instanceof Error && (err as NodeJS.ErrnoException & { code?: string }).code === "REVIEW_PERSISTENCE") {
+              httpStatus = 503;
+              errCode = "REVIEW_PERSISTENCE";
+              errMessage = "La revisión se generó, pero no se pudo guardar.";
+            } else {
+              console.error(`[${requestId}] Unexpected error in streaming review generation:`, err);
+              errMessage = "Error inesperado al generar la revisión.";
+            }
+
+            const errPayload = formatApiError(errMessage, errCode, sanitizeErrorMessage(err), requestId);
+            send({
+              type: "error",
+              httpStatus,
+              ...errPayload,
+            });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "application/x-ndjson; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Request-Id": requestId,
+        },
+      });
+    }
+
+    // Non-streaming path (stream:false): legacy JSON response.
     try {
-      llmOut = await generateReview(systemPrompt, { requestId });
+      const { reviewId, content, nextRevision } = await generateAndSaveReview({
+        weekStartStr,
+        weekEndExclusiveStr,
+        weekEndSundayStr,
+        generationMode,
+        regenerate,
+        latestId,
+        requestId,
+      });
+
+      const durationMs = Date.now() - started;
+      console.info(
+        JSON.stringify({
+          event: "review_generate_non_stream",
+          requestId,
+          week_start: weekStartStr,
+          revision: nextRevision,
+          mode: generationMode,
+          duration_ms: durationMs,
+        }),
+      );
+
+      return NextResponse.json(
+        {
+          review: {
+            ...content,
+            id: reviewId,
+            week_start: weekStartStr,
+            revision: nextRevision,
+            generation_mode: generationMode,
+          },
+        },
+        { status: 200 },
+      );
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         return NextResponse.json(
@@ -163,11 +452,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           { status: 429 },
         );
       }
-      console.error(`[${requestId}] LLM error during review generation:`, err);
-      // For CLI-driver failures (DASHBOARD_LLM_PROVIDER=cli) the CliRunnerError
-      // already carries a sanitized stdout/stderr tail, exit code, phase, and
-      // inner code. Surface those into the user-facing message and the
-      // "Detalles" modal so operators see WHAT failed and HOW to fix it.
       if (isCliRunnerError(err)) {
         const formatted = formatCliRunnerError(
           err,
@@ -178,108 +462,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
           { status: 502 },
         );
       }
+      if (err instanceof Error && (err as NodeJS.ErrnoException & { code?: string }).code === "REVIEW_PERSISTENCE") {
+        return NextResponse.json(
+          formatApiError(
+            "La revisión se generó, pero no se pudo guardar. Inténtalo de nuevo más tarde.",
+            "REVIEW_PERSISTENCE",
+            sanitizeErrorMessage(err),
+            requestId,
+          ),
+          { status: 503 },
+        );
+      }
+      console.error(`[${requestId}] Error in non-stream review generation:`, err);
       return NextResponse.json(
         formatApiError(
-          "Error al generar la revisión con el modelo de IA. Inténtalo de nuevo.",
+          "Error al generar la revisión.",
           "LLM_ERROR",
           sanitizeErrorMessage(err),
           requestId,
         ),
-        { status: 502 },
+        { status: 500 },
       );
     }
-
-    const generatedAt = llmOut.generated_at || new Date().toISOString();
-
-    let content: ReviewContent = {
-      review_schema_version: 2,
-      executive_summary: llmOut.executive_summary,
-      sections: llmOut.sections.map((s) => ({ ...s })),
-      action_items: llmOut.action_items.map((a) => ({
-        ...a,
-        owner_name: "",
-      })),
-      data_quality_notes: [...llmOut.data_quality_notes],
-      generated_at: generatedAt,
-      quality_status: failureRate > 0.3 ? "degraded" : "ok",
-    };
-
-    if (failureRate > 0.3) {
-      content.data_quality_notes.push(
-        `Calidad degradada: ${Math.round(failureRate * 100)}% de consultas fallaron o sin resultado (${failedNames.join(", ") || "n/a"}).`,
-      );
-    }
-
-    const dashboardUrls: Record<string, string> = {};
-    for (const key of REVIEW_DASHBOARD_KEYS) {
-      const dashId = await getOrCreateReviewDashboardId(key);
-      dashboardUrls[key] = buildDashboardReviewHref(dashId, weekStartStr, weekEndSundayStr);
-    }
-
-    content = enrichReviewContent(content, queryResults, dashboardUrls);
-
-    const nextRevision = (await getMaxRevisionForWeek(weekStartStr)) + 1;
-    const supersedes = regenerate ? latestId : null;
-
-    const durationMs = Date.now() - started;
-    console.info(
-      JSON.stringify({
-        event: "review_generate",
-        requestId,
-        week_start: weekStartStr,
-        revision: nextRevision,
-        mode: generationMode,
-        regenerate,
-        query_failures: failedNames.length,
-        query_total: queryResults.length,
-        duration_ms: durationMs,
-      }),
-    );
-
-    let reviewId: number | null = null;
-    try {
-      reviewId = await saveReview({
-        weekStart: weekStartStr,
-        windowStart: weekStartStr,
-        windowEnd: weekEndSundayStr,
-        revision: nextRevision,
-        generationMode,
-        supersedesReviewId: supersedes,
-        content,
-      });
-      await replaceActionsFromReviewContent(reviewId, content);
-    } catch (err) {
-      if (reviewId != null) {
-        try {
-          await sql(`DELETE FROM weekly_reviews WHERE id = $1`, [reviewId]);
-        } catch (cleanupErr) {
-          console.error(`[${requestId}] Failed to delete orphan weekly_reviews row:`, cleanupErr);
-        }
-      }
-      console.error(`[${requestId}] Error saving review to DB:`, err);
-      return NextResponse.json(
-        formatApiError(
-          "La revisión se generó, pero no se pudo guardar. Inténtalo de nuevo más tarde.",
-          "REVIEW_PERSISTENCE",
-          sanitizeErrorMessage(err),
-          requestId,
-        ),
-        { status: 503 },
-      );
-    }
-
-    return NextResponse.json(
-      {
-        review: {
-          ...content,
-          id: reviewId!,
-          week_start: weekStartStr,
-          revision: nextRevision,
-          generation_mode: generationMode,
-        },
-      },
-      { status: 200 },
-    );
   } catch (err) {
     if (err instanceof ConnectionError) {
       console.error(`[${requestId}] DB connection error:`, err);

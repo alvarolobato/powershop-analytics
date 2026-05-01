@@ -28,12 +28,17 @@ export type AgenticStepResult =
       usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
     };
 
+export interface AgenticRunStepInput {
+  messages: ChatCompletionMessageParam[];
+  tools: ChatCompletionTool[];
+  model: string;
+  temperature: number;
+  maxTokens: number;
+  /** Optional callback invoked as the model streams text chunks. `chars` is the
+   *  incremental count for this chunk; `totalChars` is the running total. */
+  onTextDelta?: (chars: number, totalChars: number) => void;
+}
+
 export interface AgenticModelAdapter {
-  runStep(input: {
-    messages: ChatCompletionMessageParam[];
-    tools: ChatCompletionTool[];
-    model: string;
-    temperature: number;
-    maxTokens: number;
-  }): Promise<AgenticStepResult>;
+  runStep(input: AgenticRunStepInput): Promise<AgenticStepResult>;
 }

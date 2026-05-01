@@ -19,7 +19,7 @@ import {
 import type { DashboardLlmConfig } from "./llm-provider/types";
 import { isAgenticToolsEnabled } from "./llm-tools/config";
 import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
-import type { LlmAgenticContext } from "./llm-tools/types";
+import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
 import type { LlmUsageProviderMeta } from "./llm-provider/types";
 import {
   getOpenRouterClient,
@@ -57,6 +57,124 @@ function attachTelemetry(ctx: LlmAgenticContext, cfg: DashboardLlmConfig): LlmAg
     llmProvider: cfg.provider,
     llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
   };
+}
+
+/**
+ * Single-shot text completion that emits model_step_start / model_text_delta progress
+ * events via the ctx.onAgenticProgress hook. Used by review generation and other flows
+ * that want live streaming without the full agentic tool loop.
+ *
+ * Emits `model_step_start` before the call and `model_text_delta` for each chunk
+ * (CLI: per streaming line; OpenRouter: per streaming delta).
+ */
+async function chatTextWithProgress(
+  messages: ChatCompletionMessageParam[],
+  temperature: number,
+  maxTokens: number,
+  endpoint: string,
+  ctx: LlmAgenticContext,
+): Promise<string> {
+  const cfg = loadDashboardLlmConfig();
+  const model = getEffectiveDashboardModel(cfg);
+  const meta = usageMetaFromCfg(cfg);
+  const requestId = ctx.requestId ?? null;
+
+  // Emit model_step_start before we call the model.
+  if (ctx.onAgenticProgress) {
+    try {
+      ctx.onAgenticProgress({
+        type: "model_step_start",
+        round: 1,
+        provider: ctx.llmProvider ?? cfg.provider,
+        driver: ctx.llmDriver ?? (cfg.provider === "cli" ? cfg.cliDriver : null),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (cfg.provider === "cli") {
+    // For CLI single-shot we don't have per-chunk streaming, so emit a single delta after completion.
+    const combined = messages
+      .map((m) => {
+        const body = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+        return `## ${m.role}\n${body}`;
+      })
+      .join("\n\n");
+    const text = await callWithCircuitBreaker(() => claudeCliSingleShot({ cfg, prompt: combined }));
+    void logUsage(endpoint, model, EMPTY_USAGE, meta, { requestId });
+    if (ctx.onAgenticProgress && text) {
+      try {
+        ctx.onAgenticProgress({
+          type: "model_text_delta",
+          round: 1,
+          chars: text.length,
+          totalChars: text.length,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+    return text;
+  }
+
+  // OpenRouter streaming path — accumulate content and emit delta per chunk.
+  const client = getOpenRouterClient();
+  const stream = await callWithCircuitBreaker(() =>
+    client.chat.completions.create({
+      model,
+      messages,
+      temperature,
+      max_tokens: maxTokens,
+      stream: true,
+    }),
+  );
+
+  let textContent = "";
+  let totalCharsEmitted = 0;
+  let usageOut: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) {
+      textContent += delta;
+      const deltaChars = delta.length;
+      totalCharsEmitted += deltaChars;
+      if (ctx.onAgenticProgress) {
+        try {
+          ctx.onAgenticProgress({
+            type: "model_text_delta",
+            round: 1,
+            chars: deltaChars,
+            totalChars: totalCharsEmitted,
+          });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    if (chunk.usage) {
+      usageOut = {
+        prompt_tokens: chunk.usage.prompt_tokens,
+        completion_tokens: chunk.usage.completion_tokens,
+        total_tokens: chunk.usage.total_tokens,
+      };
+    }
+  }
+
+  const u = usageOut ?? EMPTY_USAGE;
+  void logUsage(
+    endpoint,
+    model,
+    {
+      prompt_tokens: u.prompt_tokens ?? 0,
+      completion_tokens: u.completion_tokens ?? 0,
+      total_tokens: u.total_tokens ?? 0,
+    },
+    meta,
+    { requestId },
+  );
+  return textContent;
 }
 
 async function chatText(
@@ -340,6 +458,61 @@ export async function analyzeDashboard(
     "analyzeDashboard",
     requestCtx.requestId,
   );
+}
+
+/**
+ * Generate a weekly business review from query results (in Spanish), with optional
+ * agentic progress callbacks for streaming.
+ *
+ * Returns the parsed LLM output (validated with Zod). Uses max_tokens: 4096
+ * (reviews are shorter than full dashboard specs).
+ */
+export async function generateReviewWithProgress(
+  systemPrompt: string,
+  opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
+): Promise<ReviewLlmOutput> {
+  const requestId = opts?.requestId ?? "req_local";
+
+  await checkDailyBudget();
+
+  const cfg = loadDashboardLlmConfig();
+  const requestCtx = attachTelemetry(
+    {
+      requestId,
+      endpoint: "generateReview",
+      onAgenticProgress: opts?.onAgenticProgress,
+    },
+    cfg,
+  );
+
+  // Use chatText-with-delta path so model_text_delta events fire.
+  const content = await chatTextWithProgress(
+    [{ role: "system", content: systemPrompt }],
+    0.2,
+    4096,
+    "generateReview",
+    requestCtx,
+  );
+
+  const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
+  const jsonStr = fenced ? fenced[1].trim() : content.trim();
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonStr);
+  } catch {
+    throw new Error(
+      `LLM returned invalid JSON for review. Raw response: ${content.slice(0, 500)}`,
+    );
+  }
+
+  const z = ReviewLlmOutputSchema.safeParse(parsed);
+  if (!z.success) {
+    throw new Error(
+      `LLM returned JSON that does not match ReviewLlmOutputSchema: ${z.error.message}`,
+    );
+  }
+  return z.data;
 }
 
 /**

@@ -146,8 +146,52 @@ function jsonResponse(ok: boolean, data: unknown, status?: number) {
     ok,
     status: status ?? (ok ? 200 : 500),
     json: () => Promise.resolve(data),
+    headers: { get: () => "application/json" },
   });
 }
+
+/**
+ * Build a mock Response that returns NDJSON stream with the given frames.
+ * This simulates the streaming review/generate endpoint.
+ */
+function ndjsonStreamResponse(frames: unknown[], status = 200) {
+  const encoder = new TextEncoder();
+  const lines = frames.map((f) => JSON.stringify(f) + "\n").join("");
+  const bytes = encoder.encode(lines);
+  let consumed = false;
+  return Promise.resolve({
+    ok: status >= 200 && status < 300,
+    status,
+    headers: { get: (name: string) => name === "content-type" ? "application/x-ndjson" : null },
+    body: {
+      getReader() {
+        return {
+          read: async () => {
+            if (!consumed) {
+              consumed = true;
+              return { done: false, value: bytes };
+            }
+            return { done: true, value: undefined };
+          },
+          releaseLock: () => {},
+        };
+      },
+    },
+    json: () => Promise.resolve(frames[frames.length - 1]),
+  });
+}
+
+const generateSuccessFrames = [
+  { type: "meta", requestId: "req_test", message: "Generación de revisión iniciada", weekStart: "2026-03-31", generationMode: "initial" },
+  { type: "phase", message: "Ejecutando consultas SQL" },
+  { type: "result", review: {
+    ...reviewContentV2,
+    id: 1,
+    week_start: "2026-03-31",
+    revision: 1,
+    generation_mode: "initial",
+  }},
+];
 
 function installGenerateSuccessFetch() {
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -155,15 +199,7 @@ function installGenerateSuccessFetch() {
     const method = (init?.method ?? "GET").toUpperCase();
 
     if (method === "POST" && path === "/api/review/generate") {
-      return jsonResponse(true, {
-        review: {
-          ...reviewContentV2,
-          id: 1,
-          week_start: "2026-03-31",
-          revision: 1,
-          generation_mode: "initial",
-        },
-      });
+      return ndjsonStreamResponse(generateSuccessFrames);
     }
     if (path.startsWith("/api/review/week/")) {
       return jsonResponse(true, [revisionRowForWeek]);
@@ -188,6 +224,7 @@ function mockFetch(responses: Array<{ ok: boolean; data: unknown }>) {
     return Promise.resolve({
       ok: response.ok,
       status: response.ok ? 200 : 500,
+      headers: { get: () => "application/json" },
       json: () => Promise.resolve(response.data),
     });
   });
@@ -217,6 +254,18 @@ describe("ReviewPage", () => {
     render(<ReviewPage />);
     expect(screen.getByTestId("generate-button")).toBeInTheDocument();
     expect(screen.getByText("Generar revisión semanal")).toBeInTheDocument();
+  });
+
+  // ─── Issue #412 item 14 — accent button (no bg-blue) ────────────────────────
+  // The "Generar revisión semanal" CTA must use the shared .btn-accent helper
+  // so it picks up the design tokens (var(--accent) + brightness hover) instead
+  // of the legacy bg-blue-500 Tailwind classes.
+  it("the 'Generar revisión semanal' button uses .btn-accent (no bg-blue tailwind)", () => {
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    render(<ReviewPage />);
+    const btn = screen.getByTestId("generate-button");
+    expect(btn.className).toContain("btn-accent");
+    expect(btn.className).not.toMatch(/bg-blue-/);
   });
 
   it("shows loading spinner while fetching past reviews", () => {
@@ -302,11 +351,14 @@ describe("ReviewPage", () => {
     globalThis.fetch = vi.fn()
       .mockResolvedValueOnce({
         ok: true,
+        status: 200,
+        headers: { get: () => "application/json" },
         json: () => Promise.resolve([]),
       })
       .mockResolvedValueOnce({
         ok: false,
         status: 503,
+        headers: { get: () => "application/json" },
         json: () =>
           Promise.resolve({
             error: "No se pudo conectar a la base de datos.",

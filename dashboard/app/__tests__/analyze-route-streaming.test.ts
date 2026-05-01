@@ -71,7 +71,7 @@ describe("POST /api/dashboard/analyze (streaming)", () => {
 
   it("opens NDJSON stream when the agentic runner emits at least one progress event", async () => {
     vi.mocked(llm.analyzeDashboard).mockImplementation(async (_data, _prompt, _action, opts) => {
-      opts?.onAgenticProgress?.({ type: "tool_done", name: "execute_query", ok: true, ms: 12 });
+      opts?.onAgenticProgress?.({ type: "tool_done", round: 1, name: "execute_query", toolCallId: "tc_1", ok: true, ms: 12 });
       await new Promise((r) => setTimeout(r, 0));
       return "Análisis completo.";
     });
@@ -93,7 +93,7 @@ describe("POST /api/dashboard/analyze (streaming)", () => {
 
   it("emits a terminal error frame with httpStatus when the LLM fails after streaming starts", async () => {
     vi.mocked(llm.analyzeDashboard).mockImplementation(async (_d, _p, _a, opts) => {
-      opts?.onAgenticProgress?.({ type: "tool_done", name: "validate_query", ok: false, ms: 8, errorCode: "BAD_SQL" });
+      opts?.onAgenticProgress?.({ type: "tool_done", round: 1, name: "validate_query", toolCallId: "tc_2", ok: false, ms: 8, errorCode: "BAD_SQL" });
       await new Promise((r) => setTimeout(r, 0));
       throw new Error("upstream rate limit 429 exceeded");
     });

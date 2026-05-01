@@ -6,10 +6,51 @@ import { ReviewActionsBoard } from "@/components/ReviewActionsBoard";
 import { ReviewRevisionTimeline } from "@/components/ReviewRevisionTimeline";
 import { ReviewDiffPanel } from "@/components/ReviewDiffPanel";
 import ErrorDisplay from "@/components/ErrorDisplay";
+import LogBlock from "@/components/LogBlock";
+import type { LogLine } from "@/components/LogBlock";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { ReviewContent } from "@/lib/review-schema";
 import type { ReviewActionRow } from "@/lib/review-actions-db";
+import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
+import type { AgenticProgressEvent } from "@/lib/llm";
+
+// ─── NDJSON stream reader ─────────────────────────────────────────────────────
+
+async function* readNdjsonStream<T>(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<T> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        try {
+          yield JSON.parse(t) as T;
+        } catch {
+          /* skip malformed line */
+        }
+      }
+    }
+    if (buffer.trim()) {
+      try {
+        yield JSON.parse(buffer.trim()) as T;
+      } catch {
+        /* skip */
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
 
 interface ReviewWeekSummary {
   week_start: string;
@@ -139,6 +180,9 @@ export default function ReviewPage() {
   const [priorContent, setPriorContent] = useState<ReviewContent | null>(null);
   const [reviewError, setReviewError] = useState<ApiErrorResponse | string | null>(null);
   const [regenMode, setRegenMode] = useState<RegenMode | null>(null);
+  /** Live log lines while a review is being generated (streaming). */
+  const [streamingLog, setStreamingLog] = useState<LogLine[] | null>(null);
+  const startedAtRef = { current: Date.now() };
 
   const fetchPastReviews = useCallback(async () => {
     setListLoading(true);
@@ -246,6 +290,109 @@ export default function ReviewPage() {
     [openWeek],
   );
 
+  /**
+   * Shared NDJSON streaming handler for generate and regenerate flows.
+   * Emits streaming log events in real-time and resolves when the review is saved.
+   */
+  const callGenerateStreaming = useCallback(
+    async (body: Record<string, unknown>): Promise<{
+      week_start: string;
+      id: number;
+    } | null> => {
+      setStreamingLog([]);
+      startedAtRef.current = Date.now();
+
+      const res = await fetch("/api/review/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...body, stream: true }),
+      });
+
+      const ct = res.headers.get("content-type") ?? "";
+
+      // Check for 409 conflict (review exists) — returned as JSON even in stream mode.
+      if (res.status === 409) {
+        const payload = await res.json().catch(() => null);
+        if (
+          isApiErrorResponse(payload) &&
+          payload.code === "REVIEW_EXISTS" &&
+          typeof payload.week_start === "string" &&
+          typeof payload.existing_id === "number"
+        ) {
+          setStreamingLog(null);
+          await openWeek(payload.week_start, payload.existing_id);
+          void fetchPastReviews();
+          return null;
+        }
+        setStreamingLog(null);
+        throw new Error(
+          isApiErrorResponse(payload) ? payload.error : "Ya existe una revisión para esa semana.",
+        );
+      }
+
+      if (!res.ok || !ct.includes("application/x-ndjson")) {
+        // Fallback to plain JSON error.
+        const payload = await res.json().catch(() => null);
+        setStreamingLog(null);
+        throw new Error(
+          isApiErrorResponse(payload) ? payload.error : "Error al generar la revisión.",
+        );
+      }
+
+      if (!res.body) {
+        setStreamingLog(null);
+        throw new Error("La respuesta no tiene cuerpo.");
+      }
+
+      type ReviewFrame =
+        | { type: "meta"; requestId: string; message: string; weekStart: string; generationMode: string }
+        | { type: "phase"; message: string; index?: number; total?: number }
+        | { type: "progress"; event: AgenticProgressEvent }
+        | { type: "result"; review: ReviewContent & { id: number; week_start: string; revision: number; generation_mode: string } }
+        | { type: "error"; httpStatus: number; error: string; code: string; [k: string]: unknown };
+
+      for await (const frame of readNdjsonStream<ReviewFrame>(res.body)) {
+        if (frame.type === "progress" && frame.event) {
+          const ms = Date.now() - startedAtRef.current;
+          const line = agenticEventToLogLine(frame.event, ms);
+          if (line) {
+            setStreamingLog((prev) => {
+              if (!prev) return [line];
+              // Coalesce model_text_delta: replace last line if it's also "Modelo respondiendo".
+              if (
+                frame.event.type === "model_text_delta" &&
+                prev.length > 0 &&
+                prev[prev.length - 1]?.label === "Modelo respondiendo"
+              ) {
+                return [...prev.slice(0, -1), line];
+              }
+              return [...prev, line];
+            });
+          }
+        } else if (frame.type === "phase") {
+          const ms = Date.now() - startedAtRef.current;
+          const ts = `+${(ms / 1000).toFixed(1)}s`;
+          setStreamingLog((prev) => [
+            ...(prev ?? []),
+            { timestamp: ts, kind: "reason" as const, label: frame.message },
+          ]);
+        } else if (frame.type === "result") {
+          setStreamingLog(null);
+          return { week_start: frame.review.week_start, id: frame.review.id };
+        } else if (frame.type === "error") {
+          setStreamingLog(null);
+          throw Object.assign(new Error(frame.error ?? "Error al generar la revisión."), {
+            apiError: frame,
+          });
+        }
+      }
+
+      setStreamingLog(null);
+      throw new Error("La respuesta de generación terminó sin resultado.");
+    },
+    [fetchPastReviews, openWeek],
+  );
+
   const handleGenerate = useCallback(async () => {
     setView("loading");
     setReviewError(null);
@@ -253,78 +400,39 @@ export default function ReviewPage() {
     setActions([]);
     setPriorContent(null);
     try {
-      const res = await fetch("/api/review/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      const payload = (await res.json().catch(() => null)) as unknown;
-      if (!res.ok) {
-        if (
-          res.status === 409 &&
-          isApiErrorResponse(payload) &&
-          payload.code === "REVIEW_EXISTS" &&
-          typeof payload.week_start === "string" &&
-          typeof payload.existing_id === "number"
-        ) {
-          await openWeek(payload.week_start, payload.existing_id);
-          void fetchPastReviews();
-          return;
-        }
-        setReviewError(isApiErrorResponse(payload) ? payload : "Error al generar la revisión");
-        setView("error");
-        return;
+      const result = await callGenerateStreaming({});
+      if (result) {
+        await openWeek(result.week_start, result.id);
+        void fetchPastReviews();
       }
-      const data = payload as {
-        review: ReviewContent & {
-          id: number | null;
-          week_start: string;
-          revision?: number;
-          generation_mode?: string;
-        };
-      };
-      const r = data.review;
-      if (!r.id || !r.week_start) {
-        setReviewError("La revisión se generó pero no se pudo persistir (sin id).");
-        setView("error");
-        return;
-      }
-      await openWeek(r.week_start, r.id);
-      void fetchPastReviews();
     } catch (err) {
+      setStreamingLog(null);
       setReviewError(err instanceof Error ? err.message : "Error al generar la revisión");
       setView("error");
     }
-  }, [fetchPastReviews, openWeek]);
+  }, [fetchPastReviews, openWeek, callGenerateStreaming]);
 
   const handleRegenerate = useCallback(async () => {
     if (!current || !regenMode) return;
     setView("loading");
     setReviewError(null);
     try {
-      const res = await fetch("/api/review/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          week_start: current.week_start,
-          regenerate: true,
-          mode: regenMode,
-        }),
+      const result = await callGenerateStreaming({
+        week_start: current.week_start,
+        regenerate: true,
+        mode: regenMode,
       });
-      if (!res.ok) {
-        const errBody = await res.json().catch(() => null);
-        setReviewError(isApiErrorResponse(errBody) ? errBody : "Error al regenerar");
-        setView("error");
-        return;
+      if (result) {
+        setRegenMode(null);
+        await openWeek(result.week_start, result.id);
+        void fetchPastReviews();
       }
-      setRegenMode(null);
-      await openWeek(current.week_start);
-      void fetchPastReviews();
     } catch (err) {
+      setStreamingLog(null);
       setReviewError(err instanceof Error ? err.message : "Error al regenerar");
       setView("error");
     }
-  }, [current, fetchPastReviews, openWeek, regenMode]);
+  }, [current, callGenerateStreaming, fetchPastReviews, openWeek, regenMode]);
 
   const handleBackToList = () => {
     setCurrent(null);
@@ -333,6 +441,7 @@ export default function ReviewPage() {
     setPriorContent(null);
     setReviewError(null);
     setRegenMode(null);
+    setStreamingLog(null);
     setView("list");
   };
 
@@ -351,7 +460,14 @@ export default function ReviewPage() {
           <button
             type="button"
             onClick={() => void handleGenerate()}
-            className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-medium text-white hover:bg-blue-600 transition-colors"
+            className="btn-accent"
+            style={{
+              borderRadius: 8,
+              padding: "8px 16px",
+              fontSize: 13,
+              fontWeight: 500,
+              fontFamily: "inherit",
+            }}
             data-testid="generate-button"
           >
             Generar revisión semanal
@@ -359,7 +475,15 @@ export default function ReviewPage() {
         )}
       </div>
 
-      {view === "loading" && <ReviewSkeleton />}
+      {view === "loading" && (
+        <div className="space-y-3">
+          {streamingLog && streamingLog.length > 0 ? (
+            <LogBlock lines={streamingLog} streaming />
+          ) : (
+            <ReviewSkeleton />
+          )}
+        </div>
+      )}
 
       {view === "review" && current && (
         <div className="space-y-4">
@@ -428,7 +552,15 @@ export default function ReviewPage() {
                   type="button"
                   disabled={!regenMode}
                   onClick={() => void handleRegenerate()}
-                  className="rounded-md border border-tremor-border dark:border-dark-tremor-border px-3 py-1 text-xs font-medium disabled:opacity-40"
+                  className="btn-secondary"
+                  style={{
+                    borderRadius: 6,
+                    padding: "4px 12px",
+                    fontSize: 12,
+                    fontWeight: 500,
+                    fontFamily: "inherit",
+                    opacity: regenMode ? 1 : 0.4,
+                  }}
                   data-testid="regenerate-button"
                 >
                   Regenerar
@@ -475,7 +607,8 @@ export default function ReviewPage() {
           {listLoading && (
             <div className="flex justify-center py-8">
               <div
-                className="h-6 w-6 animate-spin rounded-full border-4 border-blue-600 border-t-transparent"
+                className="h-6 w-6 animate-spin rounded-full border-4 border-t-transparent"
+                style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
                 role="status"
                 aria-label="Cargando revisiones"
               />

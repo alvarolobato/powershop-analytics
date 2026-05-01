@@ -4,7 +4,7 @@
  */
 
 import type { DashboardLlmConfig } from "../types";
-import { runCliProcess, assertCliSuccess } from "./process";
+import { runCliProcess, runCliProcessStreaming, assertCliSuccess } from "./process";
 import { CliRunnerError } from "./errors";
 import { serializeChatMessagesForCli } from "./transcript";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
@@ -96,6 +96,9 @@ export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Prom
 export interface ClaudeCliAgenticStepInput {
   cfg: DashboardLlmConfig;
   messages: ChatCompletionMessageParam[];
+  /** Optional callback invoked as the model streams text. `chars` is the delta;
+   *  `totalChars` is the running total since this step began. */
+  onTextDelta?: (chars: number, totalChars: number) => void;
 }
 
 export type ClaudeAgenticStepKind = "final" | "tools";
@@ -207,12 +210,75 @@ export function parseClaudeAgenticStepJson(stdout: string): ClaudeAgenticStep {
   );
 }
 
+/**
+ * Parse a single stream-json NDJSON line from `claude --output-format stream-json --verbose`.
+ *
+ * Supported event shapes (defensive — unknown shapes are silently ignored):
+ *   { type: "system", subtype: "init", ... }
+ *   { type: "assistant", message: { content: [ {type:"text", text:"..."} | {type:"tool_use",...} ] } }
+ *   { type: "result", is_error: bool, result: string, ... }
+ *
+ * Returns:
+ *   { kind: "text", text: string }         — assistant text chunk
+ *   { kind: "result", text: string, isError: bool, status?: number }  — terminal result line
+ *   { kind: "ignore" }                     — all other lines
+ */
+export function parseStreamJsonLine(
+  line: string,
+): { kind: "text"; text: string } | { kind: "result"; text: string; isError: boolean; status?: number | null } | { kind: "ignore" } {
+  let obj: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(line);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return { kind: "ignore" };
+    obj = parsed as Record<string, unknown>;
+  } catch {
+    return { kind: "ignore" };
+  }
+
+  const type = obj.type;
+
+  // Terminal result line — emitted at the end of a step.
+  if (type === "result") {
+    const isError = obj.is_error === true;
+    const resultText = typeof obj.result === "string" ? obj.result : "";
+    const status = typeof obj.api_error_status === "number" ? obj.api_error_status : null;
+    return { kind: "result", text: resultText, isError, status };
+  }
+
+  // Assistant message — can carry text content or tool_use blocks.
+  if (type === "assistant") {
+    const message = obj.message;
+    if (!message || typeof message !== "object" || Array.isArray(message)) return { kind: "ignore" };
+    const content = (message as Record<string, unknown>).content;
+    if (!Array.isArray(content)) return { kind: "ignore" };
+    // Extract text chunks; skip tool_use blocks (they appear in the result envelope).
+    const textParts: string[] = [];
+    for (const block of content) {
+      if (!block || typeof block !== "object" || Array.isArray(block)) continue;
+      const b = block as Record<string, unknown>;
+      if (b.type === "text" && typeof b.text === "string" && b.text) {
+        textParts.push(b.text);
+      }
+    }
+    const joined = textParts.join("");
+    if (joined) return { kind: "text", text: joined };
+    return { kind: "ignore" };
+  }
+
+  return { kind: "ignore" };
+}
+
 export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Promise<ClaudeAgenticStep> {
-  const { cfg, messages } = input;
+  const { cfg, messages, onTextDelta } = input;
   const transcript = serializeChatMessagesForCli(messages);
   const printArg = AGENTIC_PROTOCOL_INSTRUCTION;
   const stdinBody = buildAgenticStdin(transcript);
 
+  // Use --output-format stream-json --verbose so we get incremental NDJSON events
+  // while the model is generating. The --verbose flag includes the full message
+  // content in the event stream. --include-partial-messages adds partial assistant
+  // messages for each chunk (only when supported by this binary version; the flag
+  // is silently ignored on older builds).
   const args = [
     ...cfg.cliExtraArgs,
     "-p",
@@ -220,55 +286,123 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     "--model",
     cfg.cliModel,
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
   ];
   const fullArgv = [cfg.cliBin, ...args];
 
-  const result = await runCliProcess({
+  // Accumulate assistant text across chunks so we can parse the full step JSON
+  // once the result line arrives. We also call onTextDelta for each increment.
+  let accumulatedText = "";
+  let totalCharsEmitted = 0;
+  // Store the last result line so we can use its envelope for error detection.
+  // Use a box object to avoid TypeScript control-flow narrowing issues with
+  // variables mutated inside closures.
+  const resultBox: { line: { text: string; isError: boolean; status?: number | null } | null } = { line: null };
+
+  const result = await runCliProcessStreaming({
     file: cfg.cliBin,
     args,
     stdin: stdinBody,
     timeoutMs: cfg.cliTimeoutMs,
     maxStdoutBytes: cfg.cliMaxCaptureBytes,
     maxStderrBytes: Math.min(cfg.cliMaxCaptureBytes, 512_000),
+    onStdoutLine: (line) => {
+      const parsed = parseStreamJsonLine(line);
+      if (parsed.kind === "text") {
+        accumulatedText += parsed.text;
+        const delta = parsed.text.length;
+        totalCharsEmitted += delta;
+        if (onTextDelta) {
+          try {
+            onTextDelta(delta, totalCharsEmitted);
+          } catch {
+            /* ignore callback errors */
+          }
+        }
+      } else if (parsed.kind === "result") {
+        resultBox.line = parsed;
+      }
+    },
   });
+
   try {
     assertCliSuccess(result, "claude agentic step", fullArgv);
   } catch (e) {
     if (e instanceof CliRunnerError) throw e;
     throw e;
   }
-  // --output-format json wraps the model output in an envelope: { result: "<text>" }.
-  // Extract the inner text to avoid spurious trailing content that breaks JSON.parse.
-  // The envelope can also signal `is_error: true` *with* exit code 0 when the
-  // CLI declines to forward an upstream HTTP failure as a process error; treat
-  // that the same way we treat the exit-1 case in `assertCliSuccess`.
-  let textOutput = result.stdout;
-  try {
-    const envelope = JSON.parse(result.stdout) as Record<string, unknown>;
-    if (envelope?.is_error === true) {
-      const status = typeof envelope.api_error_status === "number" ? envelope.api_error_status : null;
-      const innerRaw = typeof envelope.result === "string" ? envelope.result : "";
-      const inner = sanitize(innerRaw);
-      const isAuth = status === 401 || status === 403 || /authentication|invalid.*credentials|unauthorized/i.test(inner);
-      throw new CliRunnerError(
-        isAuth ? "LLM_CLI_AUTH" : "LLM_CLI_API_ERROR",
-        `claude agentic step: ${inner.slice(0, 240) || `api_error_status=${status}`}`,
-        {
-          exitCode: result.exitCode,
-          stderr: sanitizeTail(result.stderr, TAIL_MAX_BYTES),
-          stdout: sanitizeTail(result.stdout, TAIL_MAX_BYTES),
-          command: sanitizeArgv(fullArgv),
-          phase: isAuth ? "auth" : "exit",
-          durationMs: result.durationMs,
-          innerErrorCode: status,
-        },
-      );
-    }
-    if (typeof envelope.result === "string") textOutput = envelope.result;
-  } catch (e) {
-    if (e instanceof CliRunnerError) throw e;
-    // Envelope parse failed — fall back to raw stdout
+
+  // Check for is_error on the result line — same D-024 handling as before.
+  const resultLine = resultBox.line;
+  if (resultLine?.isError) {
+    const status = resultLine.status ?? null;
+    const innerRaw = resultLine.text;
+    const inner = sanitize(innerRaw);
+    const isAuth = status === 401 || status === 403 || /authentication|invalid.*credentials|unauthorized/i.test(inner);
+    throw new CliRunnerError(
+      isAuth ? "LLM_CLI_AUTH" : "LLM_CLI_API_ERROR",
+      `claude agentic step: ${inner.slice(0, 240) || `api_error_status=${status}`}`,
+      {
+        exitCode: result.exitCode,
+        stderr: sanitizeTail(result.stderr, TAIL_MAX_BYTES),
+        stdout: sanitizeTail(result.stdout, TAIL_MAX_BYTES),
+        command: sanitizeArgv(fullArgv),
+        phase: isAuth ? "auth" : "exit",
+        durationMs: result.durationMs,
+        innerErrorCode: status,
+      },
+    );
   }
+
+  // Prefer the result line text over the accumulated text — the result line
+  // contains the final model output and is more reliable than accumulation.
+  // Fall back to accumulated text if no result line was seen (e.g. older CLI).
+  const textOutput = resultLine?.text || accumulatedText;
+  // (resultBox used above)
+
+  // Final fallback: if stdout has a single-object JSON envelope (older --output-format json
+  // compatible binary), try to parse it the old way.
+  if (!textOutput.trim()) {
+    const stdoutTrimmed = result.stdout.trim();
+    if (stdoutTrimmed) {
+      try {
+        const envelope = JSON.parse(stdoutTrimmed) as Record<string, unknown>;
+        if (envelope?.is_error === true) {
+          const status = typeof envelope.api_error_status === "number" ? envelope.api_error_status : null;
+          const innerRaw = typeof envelope.result === "string" ? envelope.result : "";
+          const inner = sanitize(innerRaw);
+          const isAuth = status === 401 || status === 403 || /authentication|invalid.*credentials|unauthorized/i.test(inner);
+          throw new CliRunnerError(
+            isAuth ? "LLM_CLI_AUTH" : "LLM_CLI_API_ERROR",
+            `claude agentic step: ${inner.slice(0, 240) || `api_error_status=${status}`}`,
+            {
+              exitCode: result.exitCode,
+              stderr: sanitizeTail(result.stderr, TAIL_MAX_BYTES),
+              stdout: sanitizeTail(result.stdout, TAIL_MAX_BYTES),
+              command: sanitizeArgv(fullArgv),
+              phase: isAuth ? "auth" : "exit",
+              durationMs: result.durationMs,
+              innerErrorCode: status,
+            },
+          );
+        }
+        if (typeof envelope.result === "string") {
+          return parseClaudeAgenticStepJson(envelope.result);
+        }
+      } catch (e) {
+        if (e instanceof CliRunnerError) throw e;
+        // JSON parse failed — fall through to raw stdout
+      }
+      return parseClaudeAgenticStepJson(stdoutTrimmed);
+    }
+    throw new CliRunnerError("LLM_CLI_EMPTY", "claude agentic step: empty output", {
+      stderr: sanitizeTail(result.stderr, TAIL_MAX_BYTES),
+      command: sanitizeArgv(fullArgv),
+      phase: "empty",
+      durationMs: result.durationMs,
+    });
+  }
+
   return parseClaudeAgenticStepJson(textOutput);
 }

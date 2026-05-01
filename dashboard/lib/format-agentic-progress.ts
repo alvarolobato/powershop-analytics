@@ -10,6 +10,9 @@ export interface TimedEvent {
  * Convert a single AgenticProgressEvent to a LogLine immediately.
  * Returns null for event types that don't produce visible log lines
  * (e.g. `round` with round=1, `assistant_tools`, `tool_start`).
+ *
+ * For `model_text_delta`: returns a special line with kind="default" so the
+ * caller can coalesce repeated deltas by replacing the last line of that kind.
  */
 export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): LogLine | null {
   const ts = `+${(ms / 1000).toFixed(1)}s`;
@@ -26,6 +29,15 @@ export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): 
         return { timestamp: ts, kind: "reason", label: "Razonando", detail: `ronda ${event.round}` };
       }
       return null;
+    case "model_step_start":
+      return { timestamp: ts, kind: "reason", label: "Modelo pensando…", detail: undefined };
+    case "model_text_delta":
+      return {
+        timestamp: ts,
+        kind: "default",
+        label: "Modelo respondiendo",
+        detail: `${event.totalChars} caracteres`,
+      };
     case "finalizing":
       return { timestamp: ts, kind: "done", label: "Respuesta lista", detail: `${event.messageChars} chars` };
     case "assistant_tools":
@@ -53,7 +65,19 @@ function eventsToLogLines(events: TimedEvent[]): LogLine[] {
   const lines: LogLine[] = [];
   for (const { event, ms } of events) {
     const line = agenticEventToLogLine(event, ms);
-    if (line) lines.push(line);
+    if (!line) continue;
+    // Coalesce consecutive model_text_delta lines so LogBlock shows a single
+    // updating "Modelo respondiendo" tick per round instead of one per chunk.
+    if (
+      event.type === "model_text_delta" &&
+      lines.length > 0 &&
+      lines[lines.length - 1]?.label === "Modelo respondiendo"
+    ) {
+      // Replace the previous delta line with the newer (higher totalChars) one.
+      lines[lines.length - 1] = line;
+    } else {
+      lines.push(line);
+    }
   }
   return lines;
 }
@@ -63,14 +87,21 @@ export function formatAgenticProgressLineEs(event: AgenticProgressEvent): string
   switch (event.type) {
     case "round":
       return `Ronda ${event.round}/${event.maxRounds} — llamada al modelo…`;
+    case "model_step_start":
+      return `Modelo pensando… (${event.provider}${event.driver ? `/${event.driver}` : ""})`;
+    case "model_text_delta":
+      return `Modelo respondiendo · ${event.totalChars} caracteres`;
     case "assistant_tools":
       return `Herramientas solicitadas: ${event.tools.join(", ")}`;
-    case "tool_start":
-      return `  → ${event.name}…`;
+    case "tool_start": {
+      const preview = event.argsPreview ? `: ${event.argsPreview}` : "…";
+      return `  → ${event.name}${preview}`;
+    }
     case "tool_done": {
       const icon = event.ok ? "✓" : "✗";
       const err = event.errorCode ? ` (${event.errorCode})` : "";
-      return `  ${icon} ${event.name} — ${event.ms} ms${err}`;
+      const preview = event.argsPreview ? ` · ${event.argsPreview.slice(0, 60)}` : "";
+      return `  ${icon} ${event.name} — ${event.ms} ms${err}${preview}`;
     }
     case "finalizing":
       return `Respuesta JSON lista (${event.messageChars} caracteres)`;
