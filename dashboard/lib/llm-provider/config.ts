@@ -9,11 +9,13 @@ import type { DashboardCliDriverId, DashboardLlmConfig, DashboardLlmProviderId }
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
 
 function normalizeProvider(raw: string | null | undefined): DashboardLlmProviderId {
-  const v = (raw ?? "openrouter").trim().toLowerCase();
-  if (v === "" || v === "openrouter") return "openrouter";
-  if (v === "cli") return "cli";
+  // Default is `cli` (config/schema.yaml). The CLI provider uses host claude
+  // via the launchd-managed credentials snapshot — see issue #440 / D-025.
+  const v = (raw ?? "cli").trim().toLowerCase();
+  if (v === "" || v === "cli") return "cli";
+  if (v === "openrouter") return "openrouter";
   throw new Error(
-    `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "openrouter" or "cli".`,
+    `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "cli" or "openrouter".`,
   );
 }
 

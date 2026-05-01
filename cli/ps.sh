@@ -24,6 +24,7 @@ Available commands:
   sql          4D SQL operations (schema, query, explore)
   wren         WrenAI knowledge management (push/validate/status)
   dashboard    Dashboard App management (open/logs/restart/status)
+  prod         Production stack control (bootstrap/deploy/logs/status/restart/login/ssh)
   config       Show current configuration
 
 Help commands:
@@ -46,6 +47,10 @@ Examples:
   ps wren status           Show knowledge counts
   ps dashboard open        Open Dashboard App in browser
   ps dashboard status      Show dashboard container status
+  ps prod deploy           Deploy main to production (git pull + compose up)
+  ps prod status           Production services + Claude token expiry
+  ps prod logs [svc]       Tail production logs
+  ps prod login            Interactive ssh to run "claude /login" on prod
   ps config                Show loaded configuration
 EOF
 }

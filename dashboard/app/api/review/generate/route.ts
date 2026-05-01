@@ -18,6 +18,10 @@ import { executeReviewQueries, formatAllResults, type ReviewQueryResult } from "
 import { buildReviewPrompt } from "@/lib/review-prompts";
 import { generateReview, BudgetExceededError } from "@/lib/llm";
 import {
+  formatCliRunnerError,
+  isCliRunnerError,
+} from "@/lib/llm-provider/cli/format-error";
+import {
   getLatestReviewIdForWeek,
   getMaxRevisionForWeek,
   saveReview,
@@ -160,6 +164,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         );
       }
       console.error(`[${requestId}] LLM error during review generation:`, err);
+      // For CLI-driver failures (DASHBOARD_LLM_PROVIDER=cli) the CliRunnerError
+      // already carries a sanitized stdout/stderr tail, exit code, phase, and
+      // inner code. Surface those into the user-facing message and the
+      // "Detalles" modal so operators see WHAT failed and HOW to fix it.
+      if (isCliRunnerError(err)) {
+        const formatted = formatCliRunnerError(
+          err,
+          "Error al generar la revisión con el modelo de IA. Inténtalo de nuevo.",
+        );
+        return NextResponse.json(
+          formatApiError(formatted.error, "LLM_ERROR", formatted.details, requestId),
+          { status: 502 },
+        );
+      }
       return NextResponse.json(
         formatApiError(
           "Error al generar la revisión con el modelo de IA. Inténtalo de nuevo.",

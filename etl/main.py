@@ -548,17 +548,132 @@ def run_full_sync(
 # ---------------------------------------------------------------------------
 
 
-def _run_scheduler_loop(conn_4d, conn_pg) -> None:
-    """Blocking scheduler loop: runs scheduled jobs and polls for manual triggers.
+def _try_connect_4d(config) -> tuple[object, str | None]:
+    """Open a 4D connection. Return (conn, None) on success, (None, error_msg) on failure.
 
-    Polls every 10 seconds. When a pending trigger row is found and no run is
-    active, consumes it and fires run_full_sync with trigger='manual'. If a run
-    is already active the trigger row stays pending and is picked up on the next
-    poll after the active run finishes.
+    Used by the scheduler loop to reconnect lazily when 4D is unreachable at
+    startup or has gone stale between runs. Logs the failure but does not raise.
+    """
+    from etl.db import fourd
+
+    try:
+        conn = fourd.get_connection(config)
+        logger.info("4D connection established")
+        return conn, None
+    except Exception as exc:
+        msg = f"Cannot connect to 4D: {exc}"
+        logger.error(msg)
+        return None, msg
+
+
+def _record_connection_failure(
+    conn_pg,
+    trigger: str,
+    trigger_id: int | None,
+    err_msg: str,
+) -> int | None:
+    """Create a visible failed run when 4D could not be reached.
+
+    Without this, manual triggers fired while 4D is down would silently sit
+    in etl_manual_trigger and the dashboard's runs table would show nothing —
+    the operator has no signal that the click did anything.
+
+    Best-effort: every step is wrapped so a transient PG error doesn't abort
+    the scheduler loop. Returns the run_id (or None if create_run failed).
+    """
+    from etl.db.postgres import (
+        create_run,
+        finish_run,
+        record_table_sync,
+        update_trigger_run_id,
+    )
+
+    try:
+        run_id = create_run(conn_pg, trigger)
+    except Exception:
+        logger.exception(
+            "Could not create failed-run row; trigger will not be visible in dashboard"
+        )
+        return None
+
+    now = datetime.now(timezone.utc)
+    try:
+        record_table_sync(
+            conn_pg,
+            run_id,
+            "(4d_connection)",
+            0,
+            0,
+            status="failed",
+            started_at=now,
+            finished_at=now,
+            error_msg=err_msg[:2000],
+        )
+    except Exception:
+        logger.exception("Could not record connection-failure table row")
+
+    try:
+        finish_run(conn_pg, run_id, "failed", 0, 1, total_rows_synced=0)
+    except Exception:
+        logger.exception("Could not finish failed run row")
+
+    if trigger == "manual" and trigger_id is not None:
+        try:
+            update_trigger_run_id(conn_pg, trigger_id, run_id)
+        except Exception:
+            logger.warning(
+                "Could not link trigger %d to failed run %d", trigger_id, run_id
+            )
+
+    return run_id
+
+
+def _run_scheduler_loop(config, conn_pg, conn_4d, cron_hour: int) -> None:
+    """Blocking scheduler loop: registers the daily job, runs the initial
+    on-startup sync, then polls every 10 s for manual triggers.
+
+    conn_4d may start as None (4D unreachable at process startup). Both the
+    scheduled job and the manual-trigger branch reconnect lazily through this
+    function's local `conn_4d`, so reconnects performed in one path are
+    visible to the other. Any failure inside run_full_sync drops the
+    connection so the next iteration reconnects from scratch.
+
+    When 4D cannot be reached at trigger time, _record_connection_failure
+    creates a visible failed run in the dashboard so the operator sees that
+    "Sincronizar ahora" was acknowledged but couldn't complete.
     """
     import schedule
 
     from etl.db.postgres import check_and_consume_trigger
+
+    def _job() -> None:
+        """Daily scheduled job. Updates the surrounding scope's conn_4d so
+        the polling branch sees reconnects performed here."""
+        nonlocal conn_4d
+        if conn_4d is None:
+            conn_4d, err_msg = _try_connect_4d(config)
+            if conn_4d is None:
+                _record_connection_failure(
+                    conn_pg, "scheduled", None, err_msg or "4D unreachable"
+                )
+                return
+        try:
+            run_full_sync(conn_4d, conn_pg, trigger="scheduled")
+        except Exception:
+            logger.exception(
+                "Scheduled run_full_sync raised; dropping 4D connection for retry"
+            )
+            try:
+                conn_4d.close()
+            except Exception:
+                pass
+            conn_4d = None
+
+    schedule.every().day.at(f"{cron_hour:02d}:00").do(_job)
+
+    # Initial sync at startup so we don't wait until 02:00 the first time.
+    logger.info("Running initial sync on startup ...")
+    _job()
 
     while True:
         schedule.run_pending()
@@ -569,12 +684,30 @@ def _run_scheduler_loop(conn_4d, conn_pg) -> None:
                 logger.exception(
                     "Failed to poll manual ETL trigger; will retry on next tick"
                 )
-            else:
-                if trigger_id is not None:
-                    logger.info("Manual trigger detected — starting sync")
-                    run_full_sync(
-                        conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id
+                trigger_id = None
+
+            if trigger_id is not None:
+                logger.info("Manual trigger %d detected — starting sync", trigger_id)
+                if conn_4d is None:
+                    conn_4d, err_msg = _try_connect_4d(config)
+                if conn_4d is None:
+                    _record_connection_failure(
+                        conn_pg, "manual", trigger_id, err_msg or "4D unreachable"
                     )
+                else:
+                    try:
+                        run_full_sync(
+                            conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id
+                        )
+                    except Exception:
+                        logger.exception(
+                            "run_full_sync raised; dropping 4D connection for retry"
+                        )
+                        try:
+                            conn_4d.close()
+                        except Exception:
+                            pass
+                        conn_4d = None
         time.sleep(10)
 
 
@@ -603,7 +736,7 @@ def main() -> None:
     # ETL_CRON_HOUR is env-only; cron schedule changes require container restart.
     cron_hour = int(os.environ.get("ETL_CRON_HOUR", "2"))
 
-    from etl.db import fourd, postgres
+    from etl.db import postgres
 
     logger.info("Connecting to PostgreSQL ...")
     try:
@@ -639,40 +772,38 @@ def main() -> None:
         )
 
     logger.info("Testing 4D connection to %s:%d ...", config.p4d_host, config.p4d_port)
-    try:
-        conn_4d = fourd.get_connection(config)
-        logger.info("4D connection OK")
-    except Exception as exc:
-        logger.error("Cannot connect to 4D: %s", exc)
-        try:
-            conn_pg.close()
-        except Exception:
-            pass
-        sys.exit(1)
+    conn_4d, conn_err = _try_connect_4d(config)
+    if conn_4d is None:
+        if args.once:
+            # --once is for CI / manual one-shots; without 4D it cannot do anything useful.
+            logger.error("--once requires a working 4D connection; %s", conn_err)
+            try:
+                conn_pg.close()
+            except Exception:
+                pass
+            sys.exit(1)
+        # Scheduler mode: continue with conn_4d=None. The polling loop will
+        # reconnect lazily and record visible failed runs for any manual
+        # triggers that fire while 4D is unreachable. This avoids the
+        # crash-loop pattern where Docker restarts the container every 20s
+        # and pending triggers in etl_manual_trigger never get consumed.
+        logger.warning(
+            "Entering scheduler loop without 4D — manual triggers will produce "
+            "visible failed runs in the dashboard until 4D becomes reachable."
+        )
 
     try:
         if args.once:
             run_full_sync(conn_4d, conn_pg, trigger="cli")
         else:
-            import schedule
-
             logger.info("Scheduler mode: daily sync at %02d:00", cron_hour)
-
-            def _job() -> None:
-                run_full_sync(conn_4d, conn_pg, trigger="scheduled")
-
-            schedule.every().day.at(f"{cron_hour:02d}:00").do(_job)
-
-            # Run immediately on first start so we do not wait until 02:00
-            logger.info("Running initial sync on startup ...")
-            _job()
-
-            _run_scheduler_loop(conn_4d, conn_pg)
+            _run_scheduler_loop(config, conn_pg, conn_4d, cron_hour)
     finally:
-        try:
-            conn_4d.close()
-        except Exception:
-            pass
+        if conn_4d is not None:
+            try:
+                conn_4d.close()
+            except Exception:
+                pass
         try:
             conn_pg.close()
         except Exception:

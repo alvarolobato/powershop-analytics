@@ -241,6 +241,40 @@ User: "Añade el margen por familia"
 | WrenAI config/SQLite | `./data/wren/` | Yes | Yes (bind mount) |
 | Dashboard data | PostgreSQL tables | Yes | Yes (in PG bind mount) |
 
+## Production
+
+Production runs the same Docker Compose stack on a separate Mac at
+`alvarolobato@192.168.1.238:/Users/alvarolobato/powershop`. The base
+`docker-compose.yml` is shared; prod-only knobs (restart policies, log
+rotation) live in `prod/docker-compose.override.prod.yml` and are merged
+with `-f docker-compose.yml -f prod/docker-compose.override.prod.yml`.
+
+### Bootstrap
+
+`scripts/prod-bootstrap.sh` (or `ps prod bootstrap` from local) converts the
+existing flat directory into a git checkout while preserving `data/`, `.env`,
+and `wren-config.yaml`. After bootstrap, prod is a normal git checkout and
+all updates are driven from local with `ps prod deploy`.
+
+### Claude OAuth token sync (D-025)
+
+Both local and prod Macs run the same launchd agent
+(`scripts/launchd/com.powershop.claude-token-sync.plist.template`) every 2 h
+to mirror the macOS Keychain entry `Claude Code-credentials` into
+`~/.claude/.credentials.json` so the dashboard container can read it. The
+container never refreshes the token. When the access token actually expires
+and host claude can't refresh through Cloudflare, run `ps prod login` from
+local to open an interactive ssh session and `claude /login` once on prod;
+the next launchd cycle (within 2 h) syncs the new token automatically.
+
+### CLI commands for prod
+
+`ps prod {bootstrap, deploy, restart, status, logs, token-status, login,
+ssh}` — driven by `PROD_HOST` and `PROD_PATH` env vars (defaults wired in
+`cli/commands/prod.sh`). All routine ops happen from your local machine; no
+manual ssh is needed except for the one-time `claude /login` after a token
+expiry.
+
 ## Technology Decisions
 
 See [DECISIONS-AND-CHANGES.md](DECISIONS-AND-CHANGES.md) for the rationale behind each choice.

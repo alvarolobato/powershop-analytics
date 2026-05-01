@@ -22,7 +22,7 @@ describe("loadDashboardLlmConfig", () => {
     // The central config loader (getSystemConfig) validates enum values at the schema
     // level and throws before normalizeProvider is called. Accept either error message.
     expect(() => loadDashboardLlmConfig()).toThrow(
-      /Invalid DASHBOARD_LLM_PROVIDER|is not one of.*openrouter.*cli/,
+      /Invalid DASHBOARD_LLM_PROVIDER|is not one of/,
     );
   });
 
