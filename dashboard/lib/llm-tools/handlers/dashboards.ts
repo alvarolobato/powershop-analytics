@@ -335,14 +335,19 @@ export async function handleValidateDashboardSpec(
   }
 
   const warnings = lintDashboardSpec(parsed.data);
+  // ok reflects "safe to emit final JSON". Per the prompt contract, only
+  // structural errors block emission — SQL lint warnings are surfaced for
+  // the model to consider but do NOT flip ok to false. Keeping the two
+  // signals aligned with the prompt prevents the model from looping
+  // indefinitely on an unfixable lint warning.
   return toolOk({
-    ok: warnings.length === 0,
+    ok: true,
     errors: [],
     warnings,
     hint:
       warnings.length === 0
         ? "Spec is valid. You may emit the final JSON now."
-        : "Spec is structurally valid but has SQL lint warnings. Fix or justify each warning, then re-validate.",
+        : "Spec is structurally valid but has SQL lint warnings — review each one. Warnings do not block emission; emit the final JSON when you are satisfied.",
   });
 }
 

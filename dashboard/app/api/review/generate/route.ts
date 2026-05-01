@@ -95,6 +95,7 @@ async function generateAndSaveReview(params: {
     onPhase,
     onProgress,
   } = params;
+  const helperStartedMs = Date.now();
 
   onPhase?.("Ejecutando consultas SQL");
 
@@ -173,7 +174,6 @@ async function generateAndSaveReview(params: {
   const nextRevision = (await getMaxRevisionForWeek(weekStartStr)) + 1;
   const supersedes = regenerate ? latestId : null;
 
-  const durationMs = Date.now();
   console.info(
     JSON.stringify({
       event: "review_generate",
@@ -184,6 +184,7 @@ async function generateAndSaveReview(params: {
       regenerate,
       query_failures: failedNames.length,
       query_total: queryResults.length,
+      duration_ms: Date.now() - helperStartedMs,
     }),
   );
 
@@ -212,8 +213,6 @@ async function generateAndSaveReview(params: {
       { cause: err, code: "REVIEW_PERSISTENCE" },
     );
   }
-
-  void durationMs; // used for logging above
 
   return { reviewId: reviewId!, content, nextRevision };
 }

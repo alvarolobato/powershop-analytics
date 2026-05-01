@@ -37,9 +37,8 @@ fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 
-# Render template. We use a portable sed invocation; both __REPO_ROOT__ and
-# __HOME__ are guaranteed to be absolute paths without slashes that need
-# escaping in a sed s|...|...| pattern.
+# Render template. We use `|` as the sed delimiter so the substituted absolute
+# paths (which contain `/`) do not need escaping.
 sed \
   -e "s|__REPO_ROOT__|$REPO_ROOT|g" \
   -e "s|__HOME__|$HOME|g" \
