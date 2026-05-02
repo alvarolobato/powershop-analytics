@@ -218,6 +218,11 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 
 ## Changelog
 
+### 2026-05-01
+- ETL: CCStock sync to `ps_stock_central` (issue #428). New `etl/sync/ccstock.py` full-refreshes 4D `CCStock` (~41 500 rows) to a new mirror table. **Key discovery**: `CCStock.Stock1..Stock34` are `DATA_TYPE=3, DATA_LENGTH=2` — the same signed 16-bit WORD type as `Exportaciones.StockN` — so `decode_signed_int16_word()` is applied here too. The root-level `CCStock.Stock` (Real, type 6) is not decoded. `ps_stock_central` schema: `num_articulo NUMERIC(20,3) PK, stock INTEGER, fecha_modifica DATE`. Dashboard stock template updated: "Unidades en Almacén Central" KPI now reads from `ps_stock_central` instead of the placeholder "Incidencias Stock Negativo".
+- ETL: Purchasing enrichment (issue #429). `ps_lineas_compras` gains `unidades`, `precio_coste`, `precio_neto_si`, `total_si`, `num_proveedor` (all confirmed `DATA_TYPE=6` Real in `CCLineasCompr` via `_USER_COLUMNS`). `ps_albaranes` gains `num_pedido`, `num_proveedor`, `proveedor` (confirmed in `Albaranes` via `_USER_COLUMNS`). `ps_proveedores.nombre` now correctly maps from 4D `Proveedores.Proveedor` (the actual name column; `NombreComercial` is empty for all 520 rows in 4D — confirmed live). Dashboard compras template updated: "Unidades Pedidas" KPI, enriched recepciones widget with supplier + PO.
+- Docs: `docs/architecture/stock-logistics.md` and `docs/architecture/purchasing.md` updated with confirmed field types; `docs/etl-sync-strategy.md` updated with CCStock strategy.
+
 ### 2026-04-27
 - Single-refresher rule for Claude OAuth (issue #440, D-025). Container-side refresh disabled (`8f22c97`). New launchd agent on the host (`scripts/install-claude-token-launchd.sh` + `scripts/launchd/com.powershop.claude-token-sync.plist.template`) syncs the macOS Keychain into `~/.claude/.credentials.json` every 2 h; never refreshes; never mutates the Keychain. `scripts/sync-claude-token.sh` rewritten as a sync-only helper. Default `DASHBOARD_LLM_PROVIDER` flipped to `cli` in `config/schema.yaml` and the TS loader. New `prod/` directory (docker-compose override + README) and `scripts/prod-bootstrap.sh` to convert `/Users/alvarolobato/powershop` into a git checkout. New `ps prod {bootstrap,deploy,restart,status,logs,token-status,login,ssh}` CLI for driving prod from local.
 

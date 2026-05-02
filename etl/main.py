@@ -269,6 +269,7 @@ SYNC_NAMES: tuple[str, ...] = (
     "albaranes",
     "facturas_compra",
     "stock",
+    "ccstock",
     "traspasos",
 )
 
@@ -338,6 +339,7 @@ def run_full_sync(
         sync_gc_lin_pedidos,
         sync_gc_pedidos,
     )
+    from etl.sync.ccstock import sync_ccstock
     from etl.sync.stock import sync_stock, sync_traspasos
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
 
@@ -493,6 +495,11 @@ def run_full_sync(
     # ------------------------------------------------------------------
     _s("stock", sync_stock, wm=True)
     _s("traspasos", sync_traspasos, wm=True)
+
+    # ------------------------------------------------------------------
+    # 7b. CCStock (central warehouse, full refresh) — small table (~41 500 rows)
+    # ------------------------------------------------------------------
+    _s("ccstock", sync_ccstock)
 
     # ------------------------------------------------------------------
     # 8. MA cascade cleanup — remove line-table rows referencing MA articles

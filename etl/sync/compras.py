@@ -18,6 +18,23 @@ PK precision warning
 4D PKs are REAL (float) with a .99 suffix pattern.  They are stored as NUMERIC in
 PostgreSQL to avoid binary-float precision loss.  All PK/FK values are converted to
 decimal.Decimal before being passed to the PostgreSQL insert helpers.
+
+Proveedores.nombre mapping (confirmed 2026-05-01)
+-------------------------------------------------
+The 4D field ``Proveedor`` (DATA_TYPE=10, text, 100 chars) contains the actual
+supplier name.  ``NombreComercial`` is empty for all 520 rows in 4D.  We map
+``proveedor`` → ``nombre`` in ps_proveedores.
+
+CCLineasCompr enrichment (confirmed 2026-05-01)
+-----------------------------------------------
+Fields Unidades, PrecioCoste, PrecioNetoSI, TotalSI, NumProveedor all exist on
+CCLineasCompr (DATA_TYPE=6, Real) and are now included in the sync.
+
+Albaranes enrichment (confirmed 2026-05-01)
+-------------------------------------------
+Fields NPedido, NumProveedor (both DATA_TYPE=6, Real) and Proveedor (DATA_TYPE=10,
+text) exist on Albaranes and are now included in the sync, giving ps_albaranes a
+FK link to ps_compras and ps_proveedores.
 """
 
 from __future__ import annotations
@@ -39,6 +56,13 @@ _NUMERIC_FIELDS = {
     "numpedido",
     "numtienda",
     "numarticulo",
+    # ps_lineas_compras enrichment (CCLineasCompr REAL fields — DATA_TYPE=6)
+    "unidades",
+    "preciocoste",
+    "precionetosi",
+    "totalsi",
+    # ps_albaranes enrichment
+    "npedido",
     # ps_facturas
     "regfactura",
     # ps_albaranes
@@ -86,6 +110,12 @@ _LINEAS_COMPRAS_MAPPING: dict[str, str] = {
     "numtienda": "num_tienda",
     "fecha": "fecha",
     "numarticulo": "num_articulo",
+    # Enrichment fields confirmed in CCLineasCompr via _USER_COLUMNS (2026-05-01).
+    "unidades": "unidades",
+    "preciocoste": "precio_coste",
+    "precionetosi": "precio_neto_si",
+    "totalsi": "total_si",
+    "numproveedor": "num_proveedor",
 }
 
 _FACTURAS_MAPPING: dict[str, str] = {
@@ -98,6 +128,11 @@ _ALBARANES_MAPPING: dict[str, str] = {
     "regalbaran": "reg_albaran",
     "fecharecibido": "fecha_recibido",
     "modificada": "modificada",
+    # Enrichment fields confirmed in Albaranes via _USER_COLUMNS (2026-05-01).
+    # NPedido is the FK to Compras.RegPedido; NumProveedor is FK to Proveedores.
+    "npedido": "num_pedido",
+    "numproveedor": "num_proveedor",
+    "proveedor": "proveedor",
 }
 
 _FACTURAS_COMPRA_MAPPING: dict[str, str] = {
@@ -111,7 +146,9 @@ _FACTURAS_COMPRA_MAPPING: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 _SQL_LINEAS_COMPRAS = (
-    "SELECT RegLineaCompra, NumPedido, NumTienda, Fecha, NumArticulo FROM CCLineasCompr"
+    "SELECT RegLineaCompra, NumPedido, NumTienda, Fecha, NumArticulo,"
+    " Unidades, PrecioCoste, PrecioNetoSI, TotalSI, NumProveedor"
+    " FROM CCLineasCompr"
 )
 
 

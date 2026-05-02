@@ -196,13 +196,27 @@ The actual series definitions are in `CCOPSeriCali` (47 rows — e.g., "S/M/L", 
 
 ## ETL Sync Strategy
 
-> Validated against production data 2026-03-30.
+> Validated against production data 2026-03-30; CCStock added 2026-05-01.
 
 | Table | Rows | Delta field | Strategy |
 |-------|------|-------------|---------|
 | Exportaciones | 2,058,201 | `FechaModifica` (NULLs exist for zero-stock articles) | UPSERT delta + unpivot |
 | Traspasos | 262,689 | `FechaS` (send date — no FechaModifica) | Append-only by `FechaS` |
+| CCStock | 41,478 | None | Full refresh nightly → `ps_stock_central` |
 
 **Traspasos** is mostly historical: only 153 new rows since 2025-01-01. Records appear immutable once created. Append-only by `FechaS` is safe.
+
+### CCStock (central warehouse stock) — confirmed 2026-05-01
+
+`CCStock` is the central-warehouse stock matrix: one row per article (41 478 rows), 34 stock-slot columns (`Stock1..Stock34`). Confirmed field types via `_USER_COLUMNS`:
+
+- `NumArticulo` : `DATA_TYPE=6` (Real, 8 bytes) — PK (.99 suffix pattern)
+- `Stock` : `DATA_TYPE=6` (Real, 8 bytes) — row-level total maintained by 4D
+- `Stock1..Stock34` : **`DATA_TYPE=3, DATA_LENGTH=2` (16-bit WORD)** — same type as `Exportaciones.StockN`. The p4d driver returns unsigned values for negatives (`65535 = −1`). `decode_signed_int16_word()` is applied on each slot before summing.
+- `FechaModifica` : `DATA_TYPE=8` (Date)
+
+> **Important correction to issue #428 description**: The issue stated CCStock columns are "Real (DATA_TYPE=6)". This is TRUE for the root-level `Stock` column but FALSE for `Stock1..Stock34` which are int16 WORD (type 3, length 2) — confirmed by `_USER_COLUMNS` and live samples showing 65535 values. The ETL must apply `decode_signed_int16_word()` on these slots, the same as for `Exportaciones`.
+
+**Mirror**: `ps_stock_central` columns: `num_articulo NUMERIC(20,3) PK`, `stock INTEGER` (SUM of 34 decoded slots), `fecha_modifica DATE`. Full-refresh nightly; ~41 500 rows; no watermark needed.
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.

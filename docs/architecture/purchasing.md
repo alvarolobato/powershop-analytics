@@ -195,3 +195,24 @@ erDiagram
 - **LinAlbaranes** has size-level columns (Talla1-17) matching the CCStock wide format for receiving goods per size.
 - **DivisionCompra** (10,981 rows) tracks how purchase orders are allocated across multiple stores.
 - Proveedores links to Articulos via `Articulos.NumProveedor -> Proveedores.RegProveedor`.
+
+## Field Discoveries (confirmed via _USER_COLUMNS, 2026-05-01)
+
+### CCLineasCompr (→ ps_lineas_compras)
+All confirmed `DATA_TYPE=6` (Real, 8 bytes):
+- `Unidades` — quantity ordered (maps to `ps_lineas_compras.unidades`)
+- `PrecioCoste` — unit cost (maps to `precio_coste`)
+- `PrecioNetoSI` — net unit price ex-VAT (maps to `precio_neto_si`)
+- `TotalSI` — line total ex-VAT (maps to `total_si`)
+- `NumProveedor` — FK → Proveedores.RegProveedor (maps to `num_proveedor`)
+
+### Albaranes (→ ps_albaranes)
+All confirmed `DATA_TYPE=6` (Real) or `DATA_TYPE=10` (text):
+- `NPedido` (Real) — FK → Compras.RegPedido (maps to `num_pedido`)
+- `NumProveedor` (Real) — FK → Proveedores.RegProveedor (maps to `num_proveedor`)
+- `Proveedor` (text, 100 chars) — denormalised supplier name (maps to `proveedor`)
+
+### Proveedores (→ ps_proveedores)
+- `Proveedor` (text, 100 chars) — **the actual supplier name**. Maps to `ps_proveedores.nombre`.
+- `NombreComercial` (text, 160 chars) — **empty for all 520 rows** in 4D. Do NOT map this field to `nombre`.
+- `Codigo` (Real) — supplier code (not mapped to mirror currently).

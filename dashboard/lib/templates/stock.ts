@@ -13,15 +13,14 @@
  *    `:curr_to`. Only the dead-stock lookback ("sin ventas en período") and
  *    "Traspasos recientes" widgets react to the date picker.
  *
- * 2. **No central-warehouse mirror.** Tienda code `'99'` is the central
- *    warehouse in PowerShop, but its stock lives in the separate `CCStock`
- *    4D table which is **not** synced to PostgreSQL. `Exportaciones.CCStock`
- *    (mirrored as `ps_stock_tienda.cc_stock`) is the **per-row net stock**
- *    for `(Codigo, TiendaCodigo)` — *not* the central warehouse balance —
- *    so attempting to pull "Almacén Central" from this table would be
- *    misleading. We surface a Stock Negativo incidencias KPI instead, and
- *    document the gap. (See `docs/architecture/stock-logistics.md` and
- *    `DECISIONS-AND-CHANGES.md` D-017.)
+ * 2. **Central-warehouse stock from ps_stock_central.** CCStock (4D table)
+ *    is now synced nightly to `ps_stock_central` (issue #428). The KPI
+ *    "Unidades en Almacén Central" reads `SUM(stock) FROM ps_stock_central`
+ *    and reflects the signed-int16-decoded total per article summed across
+ *    all 34 size slots. `ps_stock_central` has no tienda column — it is the
+ *    central warehouse; the global Tienda filter does not apply. (See
+ *    `docs/architecture/stock-logistics.md` and `DECISIONS-AND-CHANGES.md`
+ *    D-017 for the int16 decoder details.)
  *
  * 3. **Signed-int16 stock (D-017).** `ps_stock_tienda.stock` already passes
  *    through the ETL `decode_signed_int16_word()` decoder, so negatives from
@@ -91,20 +90,16 @@ WHERE s."stock" > 0
           format: "number",
         },
         {
-          // Replaces the previous (broken) "Unidades en Almacén Central" KPI:
-          // tienda='99' rows do not exist in ps_stock_tienda (the central
-          // warehouse stock lives in the un-mirrored CCStock 4D table). This
-          // KPI surfaces the count of rows with negative stock — a direct
-          // health check on the D-017 signed-int16 decoder and on inventory
-          // regularisation pending in POS.
-          label: "Incidencias Stock Negativo",
-          sql: `SELECT COUNT(*) AS value
-FROM "public"."ps_stock_tienda" s
-WHERE s."stock" < 0
-  AND s."tienda" <> '99'
-  AND __gf_tienda__`,
+          // Central-warehouse total units (issue #428): reads from ps_stock_central
+          // which mirrors the 4D CCStock table (nightly full refresh). Stock
+          // values are decoded from signed-int16 WORD fields in the ETL (same
+          // decode_signed_int16_word used for Exportaciones — CCStock.Stock1..34
+          // are also DATA_TYPE=3, DATA_LENGTH=2). No tienda filter: this is the
+          // central warehouse, not a store.
+          label: "Unidades en Almacén Central",
+          sql: `SELECT COALESCE(SUM(sc."stock"), 0) AS value
+FROM "public"."ps_stock_central" sc`,
           format: "number",
-          inverted: true,
         },
         {
           label: "Valor Stock al Coste",
