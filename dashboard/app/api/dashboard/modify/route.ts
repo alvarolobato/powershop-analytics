@@ -15,20 +15,29 @@
  *                                no progress was emitted yet; otherwise
  *                                HTTP 200 NDJSON terminating in
  *                                `{type:"error", httpStatus, ...}`.
- *   • Success (no progress)    → HTTP 200, JSON spread of DashboardSpec fields
- *                                plus additive `message` and `summary` strings.
- *                                Existing clients consuming `spec.title` / `spec.widgets`
- *                                continue to work — `message` / `summary` are new fields.
+ *   • Success (no progress)    → HTTP 200, JSON object where the DashboardSpec
+ *                                fields (title, description, widgets, filters, …)
+ *                                appear at the top level together with additive
+ *                                `message` and `summary` strings (i.e. the spec
+ *                                is spread, NOT wrapped under a `spec` key).
+ *                                Existing clients consuming `spec.title` /
+ *                                `spec.widgets` continue to work unchanged —
+ *                                `message` / `summary` are new top-level fields.
  *   • Success (with progress)  → HTTP 200 NDJSON terminating in
  *                                `{type:"result", spec: DashboardSpec, message, summary}`.
+ *
+ * Response shape (non-streaming):  `{ ...DashboardSpec, message?, summary? }`
+ * Response shape (streaming result frame):
+ *   { type: "result", requestId, spec: DashboardSpec, message: string, summary: string }
  *
  * Streaming frames (NDJSON):
  *   { type: "progress", requestId, logLine: LogLine }
  *   { type: "result",   requestId, spec: DashboardSpec, message: string, summary: string }
  *   { type: "error",    requestId, httpStatus, error, code, details?, diagnostic? }
  *
- * Backward compat: the `spec` field is always present in the result frame /
- * JSON response. `message` and `summary` are additive new fields.
+ * Backward compat: the non-streaming success response spreads spec fields at the
+ * top level for wire-compatibility with existing clients. `message` and
+ * `summary` are additive and will not collide with DashboardSpec field names.
  */
 import { NextResponse } from "next/server";
 import {
@@ -50,7 +59,7 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
+import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
@@ -301,14 +310,36 @@ export async function POST(request: Request) {
         console.error(
           `[${requestId}] El modelo no llamó a apply_dashboard_modification (agentic tools enabled).`,
         );
+        const agenticCfg = getAgenticConfig();
+        const contractErr = new AgenticRunnerError(
+          "AGENTIC_RUNNER",
+          "El modelo no publicó el dashboard modificado. Reformula el cambio o inténtalo de nuevo.",
+          requestId,
+          {
+            phase: "final",
+            toolRoundsUsed: 0,
+            toolCallsUsed: 0,
+            durationMs: 0,
+            limitsAtFailure: {
+              maxRounds: agenticCfg.maxToolRounds,
+              maxToolCalls: agenticCfg.maxToolCalls,
+              toolTimeoutMs: agenticCfg.toolTimeoutMs,
+              executeRowLimit: agenticCfg.maxRows,
+              payloadCharLimit: agenticCfg.maxResultChars,
+            },
+          },
+        );
+        const diagnostic = buildAgenticErrorDiagnostic(contractErr, cfg);
+        persistAgenticError("modify", contractErr, diagnostic);
         return {
           ok: false,
           status: 500,
           payload: formatApiError(
-            "El modelo no publicó el dashboard modificado. Reformula el cambio o inténtalo de nuevo.",
+            contractErr.message,
             "AGENTIC_RUNNER",
             "El modelo no llamó a `apply_dashboard_modification`.",
             requestId,
+            diagnostic,
           ),
         };
       }

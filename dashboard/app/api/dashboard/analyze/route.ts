@@ -53,7 +53,7 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
+import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
@@ -395,12 +395,34 @@ export async function POST(request: Request) {
           console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
         );
       }
+      const agenticCfg = getAgenticConfig();
+      const contractErr = new AgenticRunnerError(
+        "AGENTIC_RUNNER",
+        "El modelo no publicó el análisis. Inténtalo de nuevo.",
+        requestId,
+        {
+          phase: "final",
+          toolRoundsUsed: 0,
+          toolCallsUsed: 0,
+          durationMs: 0,
+          limitsAtFailure: {
+            maxRounds: agenticCfg.maxToolRounds,
+            maxToolCalls: agenticCfg.maxToolCalls,
+            toolTimeoutMs: agenticCfg.toolTimeoutMs,
+            executeRowLimit: agenticCfg.maxRows,
+            payloadCharLimit: agenticCfg.maxResultChars,
+          },
+        },
+      );
+      const diagnostic = buildAgenticErrorDiagnostic(contractErr, cfg);
+      persistAgenticError("analyze", contractErr, diagnostic);
       return NextResponse.json(
         formatApiError(
-          "El modelo no publicó el análisis. Inténtalo de nuevo.",
+          contractErr.message,
           "AGENTIC_RUNNER",
           "El modelo no llamó a `submit_dashboard_analysis`.",
           requestId,
+          diagnostic,
         ),
         { status: 500 },
       );
@@ -460,12 +482,34 @@ export async function POST(request: Request) {
             console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
           );
         }
+        const agenticCfg = getAgenticConfig();
+        const contractErr = new AgenticRunnerError(
+          "AGENTIC_RUNNER",
+          "El modelo no publicó el análisis. Inténtalo de nuevo.",
+          requestId,
+          {
+            phase: "final",
+            toolRoundsUsed: 0,
+            toolCallsUsed: 0,
+            durationMs: 0,
+            limitsAtFailure: {
+              maxRounds: agenticCfg.maxToolRounds,
+              maxToolCalls: agenticCfg.maxToolCalls,
+              toolTimeoutMs: agenticCfg.toolTimeoutMs,
+              executeRowLimit: agenticCfg.maxRows,
+              payloadCharLimit: agenticCfg.maxResultChars,
+            },
+          },
+        );
+        const diagnostic = buildAgenticErrorDiagnostic(contractErr, cfg);
+        persistAgenticError("analyze", contractErr, diagnostic);
         send({
           ...formatApiError(
-            "El modelo no publicó el análisis. Inténtalo de nuevo.",
+            contractErr.message,
             "AGENTIC_RUNNER",
             "El modelo no llamó a `submit_dashboard_analysis`.",
             requestId,
+            diagnostic,
           ),
           type: "error",
           httpStatus: 500,

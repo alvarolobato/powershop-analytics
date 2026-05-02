@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 if "schedule" not in sys.modules:
     _schedule_stub = types.ModuleType("schedule")
     _schedule_stub.run_pending = MagicMock()  # type: ignore[attr-defined]
+    _schedule_stub.every = MagicMock()  # type: ignore[attr-defined]
     sys.modules["schedule"] = _schedule_stub
 
 
@@ -233,19 +234,20 @@ class TestSchedulerLoopTriggerCheck:
         ):
             import etl.main as main_mod
 
+            config = MagicMock()
             conn_4d, conn_pg = MagicMock(), MagicMock()
             try:
-                main_mod._run_scheduler_loop(conn_4d, conn_pg)
+                main_mod._run_scheduler_loop(config, conn_pg, conn_4d, 2)
             except StopIteration:
                 pass
 
-            mock_sync.assert_called_once_with(
-                conn_4d, conn_pg, trigger="manual", trigger_id=7
-            )
+            mock_sync.assert_any_call(conn_4d, conn_pg, trigger="manual", trigger_id=7)
 
     def test_second_trigger_while_active_is_not_consumed(self):
         """When a run is already active, check_and_consume_trigger is never called
-        so the pending trigger row is preserved for the next poll tick."""
+        so the pending trigger row is preserved for the next poll tick.
+        The startup _job() may call run_full_sync(trigger='scheduled'), but
+        no manual-trigger call should occur."""
         with (
             patch("etl.db.postgres.check_and_consume_trigger") as mock_consume,
             patch("etl.main._is_run_active", return_value=True),
@@ -255,17 +257,24 @@ class TestSchedulerLoopTriggerCheck:
         ):
             import etl.main as main_mod
 
+            config = MagicMock()
             conn_4d, conn_pg = MagicMock(), MagicMock()
             try:
-                main_mod._run_scheduler_loop(conn_4d, conn_pg)
+                main_mod._run_scheduler_loop(config, conn_pg, conn_4d, 2)
             except StopIteration:
                 pass
 
             mock_consume.assert_not_called()
-            mock_sync.assert_not_called()
+            # The loop skips the manual-trigger path while a run is active.
+            # (The startup _job may have fired a scheduled call, but no manual trigger.)
+            for call_args in mock_sync.call_args_list:
+                assert call_args.kwargs.get("trigger") != "manual", (
+                    f"run_full_sync should not be called with trigger='manual', got {call_args}"
+                )
 
     def test_no_trigger_no_manual_run(self):
-        """When check_and_consume_trigger returns None, run_full_sync is not called."""
+        """When check_and_consume_trigger returns None, run_full_sync is not called
+        with a manual trigger (the startup _job may fire a scheduled call)."""
         with (
             patch("etl.db.postgres.check_and_consume_trigger", return_value=None),
             patch("etl.main._is_run_active", return_value=False),
@@ -275,17 +284,21 @@ class TestSchedulerLoopTriggerCheck:
         ):
             import etl.main as main_mod
 
+            config = MagicMock()
             conn_4d, conn_pg = MagicMock(), MagicMock()
             try:
-                main_mod._run_scheduler_loop(conn_4d, conn_pg)
+                main_mod._run_scheduler_loop(config, conn_pg, conn_4d, 2)
             except StopIteration:
                 pass
 
-            mock_sync.assert_not_called()
+            for call_args in mock_sync.call_args_list:
+                assert call_args.kwargs.get("trigger") != "manual", (
+                    f"run_full_sync should not be called with trigger='manual', got {call_args}"
+                )
 
     def test_poll_exception_does_not_crash_loop(self):
         """RISK-TRIG-7: transient DB error in check_and_consume_trigger is logged;
-        the loop continues and run_full_sync is not called."""
+        the loop continues and run_full_sync is not called with a manual trigger."""
         with (
             patch(
                 "etl.db.postgres.check_and_consume_trigger",
@@ -298,13 +311,17 @@ class TestSchedulerLoopTriggerCheck:
         ):
             import etl.main as main_mod
 
+            config = MagicMock()
             conn_4d, conn_pg = MagicMock(), MagicMock()
             try:
-                main_mod._run_scheduler_loop(conn_4d, conn_pg)
+                main_mod._run_scheduler_loop(config, conn_pg, conn_4d, 2)
             except StopIteration:
                 pass
 
-            mock_sync.assert_not_called()
+            for call_args in mock_sync.call_args_list:
+                assert call_args.kwargs.get("trigger") != "manual", (
+                    f"run_full_sync should not be called with trigger='manual', got {call_args}"
+                )
 
 
 # ---------------------------------------------------------------------------

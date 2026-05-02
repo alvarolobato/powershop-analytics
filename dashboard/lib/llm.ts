@@ -17,7 +17,7 @@ import {
   getEffectiveDashboardModel,
 } from "./llm-provider/config";
 import type { DashboardLlmConfig } from "./llm-provider/types";
-import { isAgenticToolsEnabled } from "./llm-tools/config";
+import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
 import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
 import type { LlmUsageProviderMeta } from "./llm-provider/types";
@@ -515,6 +515,7 @@ export async function generateReviewAgentic(
 
   // If the model did not call submit_weekly_review, fail loudly.
   if (!ctx.reviewResult) {
+    const agenticCfg = getAgenticConfig();
     throw new AgenticRunnerError(
       "AGENTIC_RUNNER",
       "El modelo no llamó a `submit_weekly_review`. El JSON de la revisión debe enviarse a través de la herramienta.",
@@ -525,11 +526,11 @@ export async function generateReviewAgentic(
         toolCallsUsed: 0,
         durationMs: 0,
         limitsAtFailure: {
-          maxRounds: 0,
-          maxToolCalls: 0,
-          toolTimeoutMs: 0,
-          executeRowLimit: 0,
-          payloadCharLimit: 0,
+          maxRounds: agenticCfg.maxToolRounds,
+          maxToolCalls: agenticCfg.maxToolCalls,
+          toolTimeoutMs: agenticCfg.toolTimeoutMs,
+          executeRowLimit: agenticCfg.maxRows,
+          payloadCharLimit: agenticCfg.maxResultChars,
         },
       },
     );
