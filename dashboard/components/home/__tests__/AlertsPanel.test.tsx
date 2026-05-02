@@ -59,4 +59,37 @@ describe("AlertsPanel", () => {
     // 4 non-info alerts
     expect(screen.getByText(/4 activas/)).toBeInTheDocument();
   });
+
+  it("gives every alert a unique data-testid even when severities repeat", () => {
+    render(<AlertsPanel alerts={ALERTS} />);
+    // 5 alerts → 5 distinct testids, indexed
+    expect(screen.getByTestId("alert-item-crit-0")).toBeInTheDocument();
+    expect(screen.getByTestId("alert-item-crit-1")).toBeInTheDocument();
+    expect(screen.getByTestId("alert-item-warn-2")).toBeInTheDocument();
+    expect(screen.getByTestId("alert-item-warn-3")).toBeInTheDocument();
+    expect(screen.getByTestId("alert-item-info-4")).toBeInTheDocument();
+  });
+
+  it("disables action button when alert has no href", () => {
+    // None of the mock alerts have href → all action buttons must be disabled.
+    render(<AlertsPanel alerts={ALERTS} />);
+    const buttons = screen.getAllByRole("button", { name: /Llamar tienda|Revisar|Comparar|Ignorar/ });
+    expect(buttons.length).toBeGreaterThan(0);
+    buttons.forEach((b) => expect(b).toBeDisabled());
+  });
+
+  it("enables action button when alert has href", () => {
+    const withHref: HomeViewModel["alerts"] = [
+      { sev: "crit", store: "X", reason: "r", expected: "e", since: "now", action: "Abrir", href: "https://example.test" },
+    ];
+    render(<AlertsPanel alerts={withHref} />);
+    const btn = screen.getByRole("button", { name: /Abrir/ });
+    expect(btn).not.toBeDisabled();
+  });
+
+  it("disables 'Configurar reglas' button (placeholder until wired up)", () => {
+    render(<AlertsPanel alerts={ALERTS} />);
+    const btn = screen.getByRole("button", { name: /Configurar reglas/ });
+    expect(btn).toBeDisabled();
+  });
 });

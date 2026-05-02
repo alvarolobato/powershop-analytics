@@ -20,10 +20,7 @@ function formatMetricValue(metric: Metric): string {
     case "int":
       return fmtInt(metric.value);
     case "pct":
-      return `${(metric.value * 100).toLocaleString("es-ES", {
-        minimumFractionDigits: 1,
-        maximumFractionDigits: 1,
-      })}%`;
+      return fmtPct(metric.value);
     case "x":
       return fmtX(metric.value);
     default:

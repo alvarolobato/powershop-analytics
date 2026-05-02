@@ -60,7 +60,7 @@ export function TopStoresTable({ stores }: TopStoresTableProps) {
           title="Top 10 tiendas — hoy"
           subtitle="Ventas en curso · evolución últimos 7 días"
         />
-        <a href="/stores" style={outlineLink} aria-label="Ver todas las tiendas">
+        <a href="/paneles" style={outlineLink} aria-label="Ver todos los paneles">
           Ver todas →
         </a>
       </div>

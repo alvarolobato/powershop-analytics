@@ -85,8 +85,8 @@ describe("PeriodGrid", () => {
   });
 
   it("renders em-dash when deltaYoY is null", () => {
-    const periodsWithMissingYoY = [
-      { ...PERIODS[0], deltaYoY: null as unknown as number },
+    const periodsWithMissingYoY: HomeViewModel["periods"] = [
+      { ...PERIODS[0], deltaYoY: null },
     ];
     render(<PeriodGrid periods={periodsWithMissingYoY} />);
     expect(screen.getByTestId("period-card-hoy").textContent).toContain("—");

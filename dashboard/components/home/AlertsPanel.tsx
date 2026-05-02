@@ -65,7 +65,13 @@ export function AlertsPanel({ alerts, reviewedAgo = "12 min" }: AlertsPanelProps
           title="Alertas"
           subtitle={`${activeCount} activas · revisado hace ${reviewedAgo}`}
         />
-        <button type="button" style={outlineBtn} aria-label="Configurar reglas de alertas">
+        <button
+          type="button"
+          style={{ ...outlineBtn, opacity: 0.5, cursor: "not-allowed" }}
+          aria-label="Configurar reglas de alertas (próximamente)"
+          title="Próximamente"
+          disabled
+        >
           Configurar reglas
         </button>
       </div>
@@ -88,6 +94,7 @@ export function AlertsPanel({ alerts, reviewedAgo = "12 min" }: AlertsPanelProps
         <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {alerts.map((alert, i) => {
             const { color, bg, label } = sevConfig(alert.sev);
+            const hasAction = Boolean(alert.href);
             return (
               <li
                 key={i}
@@ -100,7 +107,7 @@ export function AlertsPanel({ alerts, reviewedAgo = "12 min" }: AlertsPanelProps
                     i < alerts.length - 1 ? "1px solid var(--border)" : "none",
                   alignItems: "center",
                 }}
-                data-testid={`alert-item-${alert.sev}`}
+                data-testid={`alert-item-${alert.sev}-${i}`}
               >
                 {/* Severity pill */}
                 <span
@@ -146,10 +153,12 @@ export function AlertsPanel({ alerts, reviewedAgo = "12 min" }: AlertsPanelProps
                   type="button"
                   style={{
                     ...outlineBtn,
-                    opacity: alert.sev === "info" ? 0.5 : 1,
+                    opacity: alert.sev === "info" || !hasAction ? 0.5 : 1,
+                    cursor: hasAction ? "pointer" : "not-allowed",
                   }}
                   aria-label={alert.action}
-                  onClick={alert.href ? () => window.open(alert.href, "_blank") : undefined}
+                  disabled={!hasAction}
+                  onClick={hasAction ? () => window.open(alert.href, "_blank") : undefined}
                 >
                   {alert.action} →
                 </button>

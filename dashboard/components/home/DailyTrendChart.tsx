@@ -5,9 +5,33 @@ import { SectionHeader } from "./SectionHeader";
 
 interface DailyTrendChartProps {
   dailyTrend: HomeViewModel["dailyTrend"];
+  /** ISO date or display string ("lun 04 may · 11:42") for the chart's "as of" moment.
+   *  Used to derive the legend labels ("Mayo 2026" / "Mayo 2025"). */
+  asOf?: string;
 }
 
-export function DailyTrendChart({ dailyTrend }: DailyTrendChartProps) {
+const MONTH_NAMES_ES = [
+  "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
+  "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre",
+];
+
+function deriveLegendLabels(asOf?: string): { current: string; previous: string } {
+  // Try to parse asOf as a Date first; fall back to current real time.
+  let date: Date;
+  if (asOf) {
+    const maybe = new Date(asOf);
+    date = isNaN(maybe.getTime()) ? new Date() : maybe;
+  } else {
+    date = new Date();
+  }
+  const month = MONTH_NAMES_ES[date.getMonth()] ?? "";
+  const year = date.getFullYear();
+  return { current: `${month} ${year}`, previous: `${month} ${year - 1}` };
+}
+
+export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
+  const { current: currentLabel, previous: previousLabel } = deriveLegendLabels(asOf);
+
   const W = 1000;
   const H = 220;
   const padL = 44;
@@ -87,7 +111,7 @@ export function DailyTrendChart({ dailyTrend }: DailyTrendChartProps) {
               style={{ width: 16, height: 2, background: "var(--accent)", borderRadius: 2 }}
               aria-hidden="true"
             />
-            Mayo 2026
+            {currentLabel}
           </span>
           <span
             style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--fg-muted)" }}
@@ -96,7 +120,7 @@ export function DailyTrendChart({ dailyTrend }: DailyTrendChartProps) {
               style={{ width: 16, height: 0, borderTop: "1.5px dashed var(--accent-2)" }}
               aria-hidden="true"
             />
-            Mayo 2025
+            {previousLabel}
           </span>
         </div>
       </div>

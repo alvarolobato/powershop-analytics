@@ -174,7 +174,7 @@ export default function InicioPage() {
               color: "var(--fg)",
             }}
           >
-            Hola Álvaro
+            Hola
             <span style={{ color: "var(--fg-muted)", fontWeight: 500 }}>
               {" "}— esto es lo que pasa hoy
             </span>
@@ -218,7 +218,13 @@ export default function InicioPage() {
           >
             ⟳ Actualizar
           </button>
-          <button type="button" style={outlineBtn} aria-label="Exportar datos">
+          <button
+            type="button"
+            style={{ ...outlineBtn, opacity: 0.5, cursor: "not-allowed" }}
+            aria-label="Exportar datos (próximamente)"
+            title="Próximamente"
+            disabled
+          >
             Exportar
           </button>
           <Link
@@ -292,7 +298,7 @@ export default function InicioPage() {
             }}
             data-testid="trend-alerts-row"
           >
-            <DailyTrendChart dailyTrend={data.dailyTrend} />
+            <DailyTrendChart dailyTrend={data.dailyTrend} asOf={data.asOf} />
             <AlertsPanel alerts={data.alerts} />
           </section>
 

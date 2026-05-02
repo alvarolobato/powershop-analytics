@@ -23,7 +23,9 @@ export type HomeViewModel = {
     value: number;
     deltaPrev: number;
     prevLabel: string;
-    deltaYoY: number;
+    /** Year-over-year delta as a signed fraction. Nullable when YoY isn't
+     *  available (e.g. brand-new metric / store, or first calendar year). */
+    deltaYoY: number | null;
     yoyLabel: string;
     spark: number[];
     sparkLabels: string[];

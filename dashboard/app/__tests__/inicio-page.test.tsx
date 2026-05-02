@@ -114,7 +114,9 @@ describe("InicioPage", () => {
   it("shows the page header with H1 greeting", () => {
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
     render(<InicioPage />);
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Hola Álvaro");
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      /Hola.*— esto es lo que pasa hoy/,
+    );
   });
 
   it("shows the refresh button", () => {

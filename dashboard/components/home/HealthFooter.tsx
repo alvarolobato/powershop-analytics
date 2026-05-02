@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { HomeViewModel } from "@/lib/home-types";
 import { fmtInt } from "@/components/widgets/format";
 
@@ -119,7 +120,7 @@ export function HealthFooter({ health }: HealthFooterProps) {
       <span style={{ flex: 1 }} />
 
       {/* Diagnostics link */}
-      <a
+      <Link
         href="/admin"
         style={{
           fontSize: 11,
@@ -129,7 +130,7 @@ export function HealthFooter({ health }: HealthFooterProps) {
         aria-label="Ver diagnóstico del sistema"
       >
         Diagnóstico →
-      </a>
+      </Link>
     </footer>
   );
 }
