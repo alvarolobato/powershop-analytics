@@ -1,0 +1,92 @@
+// @vitest-environment jsdom
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { HeroToday } from "../HeroToday";
+import type { HomeViewModel } from "@/lib/home-types";
+
+const BASE_HERO: HomeViewModel["hero"] = {
+  todayValue: 38420,
+  forecastEOD: 39800,
+  todayPace: 0.062,
+  vsYesterday: 0.082,
+  vsLY: -0.114,
+  yesterday: 35510,
+  lastYear: 43370,
+  status: "on-pace",
+  hourly: [
+    null, null, null, null, null, null, null, null,
+    1200, 6500, 12200, 18420,
+    null, null, null, null, null, null, null, null,
+    null, null, null, null,
+  ],
+  hourlyYesterday: [
+    0, 0, 0, 0, 0, 0, 0, 0,
+    1100, 5900, 10800, 16800, 22500, 28200, 33100, 35200,
+    35510, 35510, 35510, 35510, 35510, 35510, 35510, 35510,
+  ],
+};
+
+describe("HeroToday", () => {
+  it("renders the hero value", () => {
+    render(<HeroToday hero={BASE_HERO} asOf="lun 04 may · 11:42" />);
+    const value = screen.getByTestId("hero-value");
+    expect(value.textContent).toContain("38");
+  });
+
+  it("renders the status badge", () => {
+    render(<HeroToday hero={BASE_HERO} asOf="lun 04 may · 11:42" />);
+    const badge = screen.getByTestId("hero-status");
+    expect(badge.textContent).toBe("En ritmo previsto");
+  });
+
+  it("renders the 'AHORA' marker when data exists", () => {
+    render(<HeroToday hero={BASE_HERO} asOf="lun 04 may · 11:42" />);
+    const marker = screen.getByTestId("ahora-marker");
+    expect(marker).toBeInTheDocument();
+  });
+
+  it("renders the hero container", () => {
+    render(<HeroToday hero={BASE_HERO} asOf="lun 04 may · 11:42" />);
+    expect(screen.getByTestId("hero-today")).toBeInTheDocument();
+  });
+
+  describe("pre-9am state (no hourly data)", () => {
+    const preOpenHero: HomeViewModel["hero"] = {
+      ...BASE_HERO,
+      todayValue: 0,
+      hourly: new Array(24).fill(null) as null[],
+    };
+
+    it("shows '0 €' for pre-open state", () => {
+      render(<HeroToday hero={preOpenHero} asOf="07:30" />);
+      const value = screen.getByTestId("hero-value");
+      expect(value.textContent).toContain("0");
+    });
+
+    it("shows 'Sin actividad' status badge", () => {
+      render(<HeroToday hero={preOpenHero} asOf="07:30" />);
+      const badge = screen.getByTestId("hero-status");
+      expect(badge.textContent).toBe("Sin actividad");
+    });
+
+    it("does not render the AHORA marker", () => {
+      render(<HeroToday hero={preOpenHero} asOf="07:30" />);
+      expect(screen.queryByTestId("ahora-marker")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("status badges", () => {
+    it("shows 'Por debajo del previsto' for below status", () => {
+      const hero = { ...BASE_HERO, status: "below" as const };
+      render(<HeroToday hero={hero} asOf="11:42" />);
+      expect(screen.getByTestId("hero-status").textContent).toBe("Por debajo del previsto");
+    });
+
+    it("shows 'Por encima del previsto' for above status", () => {
+      const hero = { ...BASE_HERO, status: "above" as const };
+      render(<HeroToday hero={hero} asOf="11:42" />);
+      expect(screen.getByTestId("hero-status").textContent).toBe("Por encima del previsto");
+    });
+  });
+});

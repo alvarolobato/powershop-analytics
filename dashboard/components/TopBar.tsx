@@ -28,8 +28,9 @@ export function TopBar({
 
   const navLinks = [
     { href: "/inicio", label: "Inicio" },
-    { href: "/", label: "Paneles" },
+    { href: "/paneles", label: "Paneles" },
     { href: "/review", label: "Revisión" },
+    { href: "/glossary", label: "Glosario" },
     { href: "http://localhost:3000", label: "Wren", external: true },
   ] as const;
 
@@ -74,7 +75,9 @@ export function TopBar({
             const isExternal = "external" in link && link.external;
             const isActive =
               !isExternal &&
-              (link.href === "/" ? pathname === "/" : pathname.startsWith(link.href));
+              (link.href === "/inicio"
+                ? pathname === "/" || pathname.startsWith("/inicio")
+                : pathname.startsWith(link.href));
             const style = {
               padding: "6px 12px",
               borderRadius: 6,

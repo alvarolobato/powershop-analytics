@@ -77,6 +77,43 @@ export function fmtEUR(value: number): string {
   }).format(value);
 }
 
+/** Format as EUR with 0 decimals (es-ES). E.g. 38420 → "38.420 €" */
+export function fmtEUR0(value: number): string {
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+/** Format as EUR with 2 decimals (es-ES). E.g. 26.55 → "26,55 €" */
+export function fmtEUR2(value: number): string {
+  return new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: "EUR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+/** Format signed percentage delta from a fraction (e.g. 0.082 → "+8,2%"). */
+export function fmtPctSigned(value: number): string {
+  const sign = value > 0 ? "+" : "";
+  const pct = (value * 100).toLocaleString("es-ES", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+  return `${sign}${pct}%`;
+}
+
+/** Format a multiplier (e.g. 4.2 → "4,2"). */
+export function fmtX(value: number): string {
+  return value.toLocaleString("es-ES", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
 /** Format integer (es-ES locale, no decimals). */
 export function fmtInt(value: number): string {
   return new Intl.NumberFormat("es-ES", { maximumFractionDigits: 0 }).format(value);

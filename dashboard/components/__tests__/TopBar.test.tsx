@@ -66,7 +66,20 @@ describe("TopBar", () => {
     const nav = screen.getByRole("navigation");
     const links = Array.from(nav.querySelectorAll("a"));
     const labels = links.map((l) => l.textContent?.trim());
-    expect(labels).toEqual(["Inicio", "Paneles", "Revisión", "Wren"]);
+    expect(labels).toEqual(["Inicio", "Paneles", "Revisión", "Glosario", "Wren"]);
+  });
+
+  it("includes Glosario link pointing to /glossary", () => {
+    render(<TopBar />);
+    const glossaryLink = screen.getByRole("link", { name: "Glosario" });
+    expect(glossaryLink).toBeInTheDocument();
+    expect(glossaryLink).toHaveAttribute("href", "/glossary");
+  });
+
+  it("Paneles link points to /paneles", () => {
+    render(<TopBar />);
+    const panelesLink = screen.getByRole("link", { name: "Paneles" });
+    expect(panelesLink).toHaveAttribute("href", "/paneles");
   });
 
   it("marks '/inicio' link as active when on the inicio page", () => {
