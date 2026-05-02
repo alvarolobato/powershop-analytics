@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
+import { FreshnessProvider } from "@/components/FreshnessContext";
 import type { DataHealthResponse } from "@/app/api/data-health/route";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +45,14 @@ function mockFetchWith(data: DataHealthResponse | null, ok = true) {
   });
 }
 
+function renderWithProvider() {
+  return render(
+    <FreshnessProvider>
+      <DataFreshnessBanner />
+    </FreshnessProvider>,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -77,16 +86,17 @@ describe("DataFreshnessBanner", () => {
 
   it("does not render banner when data is fresh", async () => {
     globalThis.fetch = mockFetchWith(FRESH_RESPONSE);
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
-      expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
+      expect(globalThis.fetch).toHaveBeenCalled();
     });
+    expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
   });
 
   it("renders banner when data is stale", async () => {
     globalThis.fetch = mockFetchWith(STALE_RESPONSE);
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
       expect(screen.getByTestId("data-freshness-banner")).toBeInTheDocument();
@@ -97,26 +107,27 @@ describe("DataFreshnessBanner", () => {
 
   it("does not render banner on API error (graceful fallback)", async () => {
     globalThis.fetch = mockFetchWith(null, false);
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
-      // Banner should not appear
-      expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
+      expect(globalThis.fetch).toHaveBeenCalled();
     });
+    expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
   });
 
   it("does not render banner when fetch throws", async () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
-      expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
+      expect(globalThis.fetch).toHaveBeenCalled();
     });
+    expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
   });
 
   it("dismisses banner when X button is clicked", async () => {
     globalThis.fetch = mockFetchWith(STALE_RESPONSE);
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
       expect(screen.getByTestId("data-freshness-banner")).toBeInTheDocument();
@@ -127,55 +138,28 @@ describe("DataFreshnessBanner", () => {
     expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
     expect(globalThis.sessionStorage.setItem).toHaveBeenCalledWith(
       "data-health-dismissed",
-      "1"
+      "1",
     );
   });
 
-  it("does not show banner and skips fetch when sessionStorage has dismiss flag", async () => {
+  it("hides banner when sessionStorage already has dismiss flag (but provider still fetches)", async () => {
     // Pre-set dismissed flag
     (globalThis.sessionStorage.getItem as ReturnType<typeof vi.fn>).mockReturnValue("1");
-    const fetchMock = vi.fn();
-    globalThis.fetch = fetchMock;
+    globalThis.fetch = mockFetchWith(STALE_RESPONSE);
 
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
-      // Even with stale data, banner should not show
-      expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
+      // Provider must still fetch so the TopBar tooltip lights up regardless of dismissal.
+      expect(globalThis.fetch).toHaveBeenCalled();
     });
-    // Fetch should not be called when already dismissed
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("aborts fetch on unmount", async () => {
-    const abortSpy = vi.spyOn(AbortController.prototype, "abort");
-
-    // Keep the fetch pending so the component is still waiting when we unmount
-    let resolveFetch!: () => void;
-    globalThis.fetch = vi.fn(
-      () =>
-        new Promise((resolve) => {
-          resolveFetch = () =>
-            resolve({ ok: true, json: () => Promise.resolve(FRESH_RESPONSE) } as Response);
-        })
-    );
-
-    const { unmount } = render(<DataFreshnessBanner />);
-
-    // Wait for the effect to start (fetch called) before unmounting
-    await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
-
-    unmount();
-
-    expect(abortSpy).toHaveBeenCalled();
-
-    // Resolve after unmount to avoid unhandled-rejection noise
-    resolveFetch();
+    // Banner stays hidden because of the dismiss flag, even though data is stale.
+    expect(screen.queryByTestId("data-freshness-banner")).not.toBeInTheDocument();
   });
 
   it("collapses and expands the detail list", async () => {
     globalThis.fetch = mockFetchWith(STALE_RESPONSE);
-    render(<DataFreshnessBanner />);
+    renderWithProvider();
 
     await waitFor(() => {
       expect(screen.getByTestId("data-freshness-banner")).toBeInTheDocument();
@@ -188,7 +172,6 @@ describe("DataFreshnessBanner", () => {
     fireEvent.click(screen.getByTestId("banner-collapse-toggle"));
 
     // After collapse, the detail list should be hidden
-    // The main message still shows ps_ventas, but the detail <li> should be gone
     const items = screen.queryAllByRole("listitem");
     expect(items).toHaveLength(0);
 

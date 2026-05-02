@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { DataHealthResponse } from "@/app/api/data-health/route";
 import { useFreshness } from "@/components/FreshnessContext";
 
 const DISMISSED_KEY = "data-health-dismissed";
@@ -22,71 +21,17 @@ function formatDate(iso: string): string {
 }
 
 export function DataFreshnessBanner() {
-  const [health, setHealth] = useState<DataHealthResponse | null>(null);
   const [dismissed, setDismissed] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const { setFreshnessText, setFreshnessStale, setFreshnessTooltip } = useFreshness();
+  const { health } = useFreshness();
 
   useEffect(() => {
-    // Check session-scoped dismiss — short-circuit fetch if already dismissed
-    let isDismissed = false;
     try {
-      if (sessionStorage.getItem(DISMISSED_KEY) === "1") {
-        isDismissed = true;
-        setDismissed(true);
-      }
+      if (sessionStorage.getItem(DISMISSED_KEY) === "1") setDismissed(true);
     } catch {
       // sessionStorage not available (e.g. in tests without jsdom)
     }
-
-    if (isDismissed) {
-      setLoaded(true);
-      return;
-    }
-
-    const controller = new AbortController();
-
-    fetch("/api/data-health", { signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) return null;
-        return res.json() as Promise<DataHealthResponse>;
-      })
-      .then((data) => {
-        if (!controller.signal.aborted && data) setHealth(data);
-      })
-      .catch(() => {
-        // Graceful degradation — includes AbortError from cleanup
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoaded(true);
-      });
-
-    return () => controller.abort();
   }, []);
-
-  // Propagate freshness state to TopBar via context
-  useEffect(() => {
-    if (!health) return;
-    if (health.stalestTable) {
-      const d = new Date(health.stalestTable.lastSync);
-      const minutesAgo = Math.round((Date.now() - d.getTime()) / 60000);
-      const age =
-        minutesAgo < 60
-          ? `hace ${minutesAgo}m`
-          : `hace ${Math.round(minutesAgo / 60)}h`;
-      if (health.overallStale) {
-        setFreshnessText(`Datos desactualizados · ${age}`);
-        setFreshnessStale(true);
-      } else {
-        setFreshnessText(`Datos al día · ${age}`);
-        setFreshnessStale(false);
-      }
-      setFreshnessTooltip(
-        `Última sincronización (${health.stalestTable.name}): ${formatDate(health.stalestTable.lastSync)}`,
-      );
-    }
-  }, [health, setFreshnessText, setFreshnessStale, setFreshnessTooltip]);
 
   const handleDismiss = () => {
     setDismissed(true);
@@ -97,11 +42,8 @@ export function DataFreshnessBanner() {
     }
   };
 
-  // Don't render until loaded to avoid flash
-  if (!loaded) return null;
-  // No health data or no stale tables → don't render
+  // No health data yet, no stale tables, or dismissed → don't render
   if (!health || !health.overallStale) return null;
-  // Dismissed for this session
   if (dismissed) return null;
 
   const stalest = health.stalestTable;

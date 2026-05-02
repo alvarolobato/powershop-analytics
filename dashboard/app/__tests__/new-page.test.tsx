@@ -88,16 +88,36 @@ describe("NewDashboard page", () => {
   });
 
   it("generates and saves dashboard, then redirects", async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(
-        mockJsonFetchOk({ tables: [], overallStale: false, stalestTable: null }),
-      )
-      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec as unknown as Record<string, unknown>))
-      .mockResolvedValueOnce({
+    // URL-based dispatch instead of positional mockResolvedValueOnce so we
+    // don't depend on the exact order or count of background fetches (e.g.
+    // the freshness provider may or may not run depending on whether a
+    // FreshnessProvider is mounted in the test tree).
+    const fetchMock = vi.fn().mockImplementation((url: RequestInfo) => {
+      const u = typeof url === "string" ? url : String(url);
+      if (u.includes("data-health")) {
+        return Promise.resolve(
+          mockJsonFetchOk({ tables: [], overallStale: false, stalestTable: null }),
+        );
+      }
+      if (u.includes("/api/dashboard/generate")) {
+        return Promise.resolve(
+          mockNdjsonGenerateSuccess(generatedSpec as unknown as Record<string, unknown>),
+        );
+      }
+      if (u.includes("/api/dashboard") && u.match(/\/api\/dashboard\/?$/)) {
+        return Promise.resolve({
+          ok: true,
+          status: 201,
+          json: () => Promise.resolve({ id: 42, ...generatedSpec }),
+        });
+      }
+      // Fallback for the save endpoint (POST /api/dashboard).
+      return Promise.resolve({
         ok: true,
         status: 201,
         json: () => Promise.resolve({ id: 42, ...generatedSpec }),
       });
+    });
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
