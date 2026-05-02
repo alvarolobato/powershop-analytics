@@ -4,6 +4,24 @@
 
 ## Decision Log
 
+### D-026: Pantalla de Inicio — read-only home dashboard at /inicio — 2026-05-01
+**Context**: Issue #449. Users needed a "state of the business at a glance" panel accessible from the TopBar as the first navigation item, summarising the most important KPIs without requiring a prompt or selecting a saved dashboard. (Note: `/` still shows the dashboard list — `/inicio` is reached via the TopBar link or direct bookmark, not by automatic redirect.)
+**Decision**:
+- New route `/inicio` (Next.js App Router) renders the template `dashboard/lib/templates/inicio.ts` directly via `DashboardRenderer` in read-only mode. No chat sidebar, no save flow, no modify flow, no Analizar con IA launcher.
+- The home template is **not** added to `TEMPLATES` (user-pickable templates array) — it is not a template to generate dashboards from; it is a fixed panel maintained in code.
+- **No date-picker, no global filters**: all temporal ranges are implicit via `CURRENT_DATE` / `DATE_TRUNC`. The spec has `filters: []`. This eliminates the complexity of deciding which `:curr_from`/`:curr_to` applies to a panel that is "always current".
+- **TopBar**: added `{ href: "/inicio", label: "Inicio" }` as the first nav item (order: `Inicio · Paneles · Revisión · Wren`).
+- **`/` root**: unchanged — still shows the dashboard list. No redirect.
+- **9 widgets** in the catalog: (1) data freshness per domain, (2) ventas hoy/ayer/YoY, (3) ventas semana/anterior/YoY, (4) ventas mes/anterior/YoY, (5) KPIs operativos (tickets, ticket medio, margen mes, devoluciones %), (6) evolución diaria últimos 30 días, (7) top 10 tiendas mes actual, (8) KPIs mayorista+compras+stock, (9) tiendas sin venta hoy.
+- **`ps_tiendas` finding (2026-05-02)**: the table has only `reg_tienda`, `codigo`, `fecha_modifica` — no `activa`/`anulada` field. Widget 9 lists all tiendas except '99'.
+- **LineChartWidget capability finding (2026-05-02)**: the component supports a single series (columns `x`/`y`) driven by `resolveXY()`. No `series` column for multi-series. Widget 6 aggregates all tiendas into one total daily series rather than adding a new widget type.
+- **`etl_watermarks` table_name mapping (2026-05-02)**: ventas domain = `ventas`+`lineas_ventas`; stock = `stock`; compras = `compras`+`lineas_compras`+`facturas_compra`; mayorista = `gc_facturas`+`gc_lin_facturas`+`gc_pedidos`. All 22 rows confirmed.
+**Alternatives rejected**:
+- Making `/` redirect to `/inicio`: breaks existing bookmarks; deferred to a separate issue.
+- Adding multi-series capability to LineChartWidget for widget 6: out of scope, new behaviour; the aggregated single-series approach is sufficient and readable.
+- Adding the home template to `TEMPLATES`: it is not a user-pickable template — it has no filters and should not be instantiated as a new dashboard.
+**See**: `dashboard/lib/templates/inicio.ts`, `dashboard/app/inicio/page.tsx`, `dashboard/components/TopBar.tsx`.
+
 ### D-025: Single-refresher rule for Claude OAuth — host launchd is the only refresher — 2026-04-27
 **Context**: Issue #440. The dashboard's CLI provider needs the host's Claude OAuth credentials. On macOS those live in the Keychain entry `Claude Code-credentials`. Earlier this week (`8f22c97`) the container's entrypoint refreshed the token through `claude.ai/api/auth/oauth/token` whenever access expired within an hour. OAuth refresh-token rotation issues a new refresh_token on every successful refresh and revokes the previous one — so the container's refresh wrote the new refresh_token to `~/.claude/.credentials.json` while the Keychain still held the now-revoked old one. The next time host claude tried to use the Keychain it got 401 invalid_grant, forcing the user to `claude /login`. This actually happened to me as I was helping the user; D-025 is the post-mortem.
 **Decision**:
@@ -217,6 +235,9 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 ---
 
 ## Changelog
+
+### 2026-05-02
+- Pantalla de inicio (issue #449, D-026): new route `/inicio` renders the home template (`dashboard/lib/templates/inicio.ts`) directly in read-only mode. 9 widgets: data freshness per domain, ventas hoy/semana/mes vs período anterior y YoY, KPIs operativos, evolución diaria 30 días, top 10 tiendas mes, KPIs mayorista+compras+stock, alertas tiendas sin venta. TopBar adds "Inicio" as first nav link. No date-picker, no filters, no chat. All SQL validated against local mirror.
 
 ### 2026-05-01
 - ETL: CCStock sync to `ps_stock_central` (issue #428). New `etl/sync/ccstock.py` full-refreshes 4D `CCStock` (~41 500 rows) to a new mirror table. **Key discovery**: `CCStock.Stock1..Stock34` are `DATA_TYPE=3, DATA_LENGTH=2` — the same signed 16-bit WORD type as `Exportaciones.StockN` — so `decode_signed_int16_word()` is applied here too. The root-level `CCStock.Stock` (Real, type 6) is not decoded. `ps_stock_central` schema: `num_articulo NUMERIC(20,3) PK, stock INTEGER, fecha_modifica DATE`. Dashboard stock template updated: "Unidades en Almacén Central" KPI now reads from `ps_stock_central` instead of the placeholder "Incidencias Stock Negativo".
