@@ -56,8 +56,11 @@ _NUMERIC_FIELDS = {
     "numpedido",
     "numtienda",
     "numarticulo",
-    # ps_lineas_compras enrichment
-    "numpedido",
+    # ps_lineas_compras enrichment (CCLineasCompr REAL fields — DATA_TYPE=6)
+    "unidades",
+    "preciocoste",
+    "precionetosi",
+    "totalsi",
     # ps_albaranes enrichment
     "npedido",
     # ps_facturas

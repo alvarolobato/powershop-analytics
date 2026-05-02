@@ -199,15 +199,25 @@ class TestSyncCcstockIntegration:
         )
 
     def test_no_unsigned_overflow(self, conn_pg, synced_ccstock):
-        """No rows in ps_stock_central should have stock >= 32768 (unsigned overflow)."""
+        """No rows in ps_stock_central should have an implausibly large stock.
+
+        The old assertion (stock >= 32768) was wrong: ps_stock_central.stock is the
+        SUM of up to 34 signed-int16 slots, so legitimate positive totals can easily
+        exceed 32767 (e.g. a busy SKU with many size slots).
+
+        Instead we check for implausibly large values that would only appear if an
+        undecoded WORD value (65535 max per slot × 34 slots = 2,227,090) slipped
+        through without decoding. A threshold of 1,000,000 units is generous for a
+        real SKU total yet safely below the undecoded-WORD explosion.
+        """
         _ = synced_ccstock
         with conn_pg.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM ps_stock_central WHERE stock >= 32768")
+            cur.execute("SELECT COUNT(*) FROM ps_stock_central WHERE stock > 1000000")
             overflow_count = cur.fetchone()[0]
 
         assert overflow_count == 0, (
-            f"{overflow_count} rows in ps_stock_central have stock >= 32768 "
-            "(signed-int16 decoder not applied correctly)"
+            f"{overflow_count} rows in ps_stock_central have stock > 1,000,000 "
+            "— likely caused by undecoded WORD values from the p4d driver"
         )
 
     def test_total_stock_plausible(self, conn_pg, synced_ccstock):

@@ -26,7 +26,6 @@ No watermark is needed.
 
 ps_stock_central schema (see etl/schema/init.sql):
   num_articulo  NUMERIC(20,3) PK   — from NumArticulo
-  codigo        TEXT               — joined from ps_articulos
   stock         INTEGER            — SUM(decode(Stock1..Stock34))
   fecha_modifica DATE              — from FechaModifica
 """

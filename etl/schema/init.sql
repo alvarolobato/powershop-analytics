@@ -794,9 +794,6 @@ CREATE INDEX IF NOT EXISTS idx_lv_tienda     ON ps_lineas_ventas(tienda);
 CREATE INDEX IF NOT EXISTS idx_stock_codigo ON ps_stock_tienda(codigo);
 CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 
--- Central warehouse stock index (article lookup)
-CREATE INDEX IF NOT EXISTS idx_stock_central_num_articulo ON ps_stock_central(num_articulo);
-
 -- Purchasing enrichment indexes
 CREATE INDEX IF NOT EXISTS idx_lc_num_proveedor ON ps_lineas_compras(num_proveedor);
 CREATE INDEX IF NOT EXISTS idx_alb_num_pedido    ON ps_albaranes(num_pedido);

@@ -98,8 +98,7 @@ WHERE s."stock" > 0
           // central warehouse, not a store.
           label: "Unidades en Almacén Central",
           sql: `SELECT COALESCE(SUM(sc."stock"), 0) AS value
-FROM "public"."ps_stock_central" sc
-WHERE sc."stock" > 0`,
+FROM "public"."ps_stock_central" sc`,
           format: "number",
         },
         {
