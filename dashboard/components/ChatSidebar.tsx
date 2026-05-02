@@ -28,6 +28,17 @@ export interface ChatMessage {
   isError?: boolean;
   /** Log lines captured during the API call that produced this message. */
   logs?: LogLine[];
+  /**
+   * Short summary from the publish tool (apply_dashboard_modification or
+   * submit_dashboard_analysis). When present, a compact "Cambios aplicados"
+   * chip is rendered below the chat bubble.
+   */
+  appliedSummary?: string;
+  /**
+   * Label for the chip shown when appliedSummary is set.
+   * Defaults to "Cambios aplicados" for modify, "Análisis publicado" for analyze.
+   */
+  appliedChipLabel?: string;
 }
 
 export interface ChatSidebarProps {
@@ -359,6 +370,24 @@ function MessageBubble({
           )}
         </div>
       )}
+
+      {/* "Cambios aplicados" / "Análisis publicado" chip — shown for successful publish-tool responses */}
+      {!isUser && !isError && msg.appliedSummary && (
+        <div
+          data-testid="applied-chip"
+          style={{
+            fontSize: 10,
+            padding: "3px 8px",
+            borderRadius: 10,
+            background: "rgba(var(--accent-rgb,99,102,241),0.12)",
+            border: "1px solid rgba(var(--accent-rgb,99,102,241),0.25)",
+            color: "var(--accent)",
+            maxWidth: "86%",
+          }}
+        >
+          ✓ {msg.appliedChipLabel ?? "Cambios aplicados"}
+        </div>
+      )}
     </div>
   );
 }
@@ -600,10 +629,12 @@ function ModificarTab({
       if (res.ok && res.body && isNdjsonResponse(res)) {
         type ModifyMsg =
           | { type: "progress"; requestId: string; logLine: LogLine }
-          | { type: "result"; requestId: string; spec: DashboardSpec }
+          | { type: "result"; requestId: string; spec: DashboardSpec; message?: string; summary?: string }
           | ({ type: "error"; requestId: string; httpStatus?: number } & Partial<ApiErrorResponse>);
 
         let resultSpec: DashboardSpec | null = null;
+        let resultMessage: string | null = null;
+        let resultSummary: string | null = null;
         let errorFrame: (ModifyMsg & { type: "error" }) | null = null;
 
         for await (const msg of readNdjsonStream<ModifyMsg>(res.body)) {
@@ -612,6 +643,8 @@ function ModificarTab({
             setStreamingLog([...capturedLogs]);
           } else if (msg.type === "result") {
             resultSpec = msg.spec;
+            resultMessage = msg.message ?? null;
+            resultSummary = msg.summary ?? null;
           } else if (msg.type === "error") {
             errorFrame = msg;
           }
@@ -643,18 +676,25 @@ function ModificarTab({
 
         if (resultSpec) {
           onSpecUpdate(resultSpec, trimmed);
-          const widgetDelta = resultSpec.widgets.length - spec.widgets.length;
-          let summary = "Dashboard actualizado.";
-          if (widgetDelta > 0) {
-            summary += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
-          } else if (widgetDelta < 0) {
-            summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+          // Use the model's freeform message if provided, otherwise fallback to widget delta summary.
+          let chatContent: string;
+          if (resultMessage && resultMessage.trim()) {
+            chatContent = resultMessage.trim();
+          } else {
+            const widgetDelta = resultSpec.widgets.length - spec.widgets.length;
+            chatContent = "Dashboard actualizado.";
+            if (widgetDelta > 0) {
+              chatContent += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
+            } else if (widgetDelta < 0) {
+              chatContent += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+            }
           }
           appendAssistant({
             role: "assistant",
-            content: summary,
+            content: chatContent,
             timestamp: new Date(),
             logs: [...capturedLogs],
+            ...(resultSummary ? { appliedSummary: resultSummary } : {}),
           });
           return;
         }
@@ -712,22 +752,32 @@ function ModificarTab({
         return;
       }
 
-      const newSpec: DashboardSpec = await res.json();
-      onSpecUpdate(newSpec, trimmed);
+      const responseBody = await res.json() as DashboardSpec & { message?: string; summary?: string };
+      // The new response body has { ...spec, message?, summary? }.
+      // Extract spec fields (title, widgets, etc.) and the additive message field.
+      const { message: respMessage, summary: respSummary, ...newSpec } = responseBody;
+      onSpecUpdate(newSpec as DashboardSpec, trimmed);
 
-      const widgetDelta = newSpec.widgets.length - spec.widgets.length;
-      let summary = "Dashboard actualizado.";
-      if (widgetDelta > 0) {
-        summary += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
-      } else if (widgetDelta < 0) {
-        summary += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+      // Use the model's freeform message if provided, otherwise fallback to widget delta summary.
+      let chatContent: string;
+      if (respMessage && respMessage.trim()) {
+        chatContent = respMessage.trim();
+      } else {
+        const widgetDelta = (newSpec as DashboardSpec).widgets.length - spec.widgets.length;
+        chatContent = "Dashboard actualizado.";
+        if (widgetDelta > 0) {
+          chatContent += ` Se ${widgetDelta === 1 ? "ha añadido 1 widget" : `han añadido ${widgetDelta} widgets`}.`;
+        } else if (widgetDelta < 0) {
+          chatContent += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
+        }
       }
 
       appendAssistant({
         role: "assistant",
-        content: summary,
+        content: chatContent,
         timestamp: new Date(),
         logs: [...capturedLogs],
+        ...(respSummary ? { appliedSummary: respSummary } : {}),
       });
     } catch (err) {
       console.error("Error al procesar la solicitud del chat:", err);
@@ -1002,10 +1052,10 @@ function AnalizarTab({
         if (res.ok && res.body && isNdjsonResponse(res)) {
           type AnalyzeMsg =
             | { type: "progress"; requestId: string; logLine: LogLine }
-            | { type: "result"; requestId: string; response: string; suggestions: string[] }
+            | { type: "result"; requestId: string; response: string; message?: string; summary?: string; suggestions: string[] }
             | ({ type: "error"; requestId: string; httpStatus?: number } & Partial<ApiErrorResponse>);
 
-          let result: { response: string; suggestions: string[] } | null = null;
+          let result: { response: string; message?: string; summary?: string; suggestions: string[] } | null = null;
           let errorFrame: (AnalyzeMsg & { type: "error" }) | null = null;
 
           for await (const msg of readNdjsonStream<AnalyzeMsg>(res.body)) {
@@ -1013,7 +1063,12 @@ function AnalizarTab({
               capturedLogs.push(msg.logLine);
               setStreamingLog([...capturedLogs]);
             } else if (msg.type === "result") {
-              result = { response: msg.response, suggestions: msg.suggestions ?? [] };
+              result = {
+                response: msg.response,
+                message: msg.message,
+                summary: msg.summary,
+                suggestions: msg.suggestions ?? [],
+              };
             } else if (msg.type === "error") {
               errorFrame = msg;
             }
@@ -1044,11 +1099,15 @@ function AnalizarTab({
           }
 
           if (result) {
+            // With the publish-tool contract: message = freeform chat reply, response = analysis body.
+            // If message is empty (legacy path), fall back to response.
+            const chatContent = result.message?.trim() || result.response;
             appendAssistant({
               role: "assistant",
-              content: result.response,
+              content: chatContent,
               timestamp: new Date(),
               logs: [...capturedLogs],
+              ...(result.summary ? { appliedSummary: result.summary, appliedChipLabel: "Análisis publicado" } : {}),
             });
             setSuggestions(result.suggestions);
             return;
@@ -1106,13 +1165,16 @@ function AnalizarTab({
           return;
         }
 
-        const data = await res.json() as { response: string; suggestions: string[] };
+        const data = await res.json() as { response: string; message?: string; summary?: string; suggestions: string[] };
 
+        // With publish-tool contract: message = freeform chat reply, response = analysis body.
+        const chatContent = data.message?.trim() || data.response;
         appendAssistant({
           role: "assistant",
-          content: data.response,
+          content: chatContent,
           timestamp: new Date(),
           logs: [...capturedLogs],
+          ...(data.summary ? { appliedSummary: data.summary, appliedChipLabel: "Análisis publicado" } : {}),
         });
         setSuggestions(data.suggestions ?? []);
       } catch (err) {

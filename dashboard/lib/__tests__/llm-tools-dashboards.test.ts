@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { extractDashboardSqlRefs } from "@/lib/llm-tools/dashboard-query-extractor";
-import { handleValidateDashboardSpec } from "@/lib/llm-tools/handlers/dashboards";
+import {
+  handleValidateDashboardSpec,
+  handleApplyDashboardModification,
+  handleSubmitDashboardAnalysis,
+  handleSubmitWeeklyReview,
+} from "@/lib/llm-tools/handlers/dashboards";
 import type { DashboardSpec } from "@/lib/schema";
 import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
@@ -141,5 +146,199 @@ describe("handleValidateDashboardSpec", () => {
       expect(data.warnings.length).toBeGreaterThan(0);
       expect(data.warnings.join(" ")).toMatch(/COALESCE|texto/);
     }
+  });
+});
+
+// ─── handleApplyDashboardModification ────────────────────────────────────────
+
+const validModifySpec: DashboardSpec = {
+  title: "Ventas",
+  widgets: [
+    {
+      type: "kpi_row",
+      items: [{ label: "Ventas", sql: "SELECT SUM(total_si) FROM ps_ventas", format: "currency" }],
+    },
+  ],
+};
+
+describe("handleApplyDashboardModification", () => {
+  it("stages ctx.modifyResult and returns ok=true, applied=true for valid args", async () => {
+    const mutableCtx: LlmAgenticContext = { ...ctx };
+    const out = await handleApplyDashboardModification(
+      JSON.stringify({ spec: validModifySpec, change_summary: "He añadido un widget de ventas." }),
+      mutableCtx,
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      const d = out.data as { ok: boolean; applied: boolean };
+      expect(d.ok).toBe(true);
+      expect(d.applied).toBe(true);
+    }
+    expect(mutableCtx.modifyResult).not.toBeNull();
+    expect(mutableCtx.modifyResult?.summary).toBe("He añadido un widget de ventas.");
+    expect(mutableCtx.modifyResult?.spec.title).toBe("Ventas");
+  });
+
+  it("returns toolOk({ ok: false }) with errors when spec is invalid", async () => {
+    const mutableCtx: LlmAgenticContext = { ...ctx };
+    const out = await handleApplyDashboardModification(
+      JSON.stringify({ spec: { title: "no widgets" }, change_summary: "Cambié algo." }),
+      mutableCtx,
+    );
+    expect(out.ok).toBe(true); // toolOk wraps the validation result
+    if (out.ok) {
+      const d = out.data as { ok: boolean; errors: string[] };
+      expect(d.ok).toBe(false);
+      expect(d.errors.length).toBeGreaterThan(0);
+    }
+    expect(mutableCtx.modifyResult).toBeUndefined();
+  });
+
+  it("returns INVALID_ARGS when change_summary is missing", async () => {
+    const out = await handleApplyDashboardModification(
+      JSON.stringify({ spec: validModifySpec }),
+      ctx,
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
+  });
+
+  it("returns INVALID_ARGS when change_summary exceeds 1000 chars", async () => {
+    const out = await handleApplyDashboardModification(
+      JSON.stringify({ spec: validModifySpec, change_summary: "x".repeat(1001) }),
+      ctx,
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
+  });
+
+  it("overwrites ctx.modifyResult on double-call and adds note", async () => {
+    const mutableCtx: LlmAgenticContext = { ...ctx };
+    await handleApplyDashboardModification(
+      JSON.stringify({ spec: validModifySpec, change_summary: "Primera llamada." }),
+      mutableCtx,
+    );
+    const second = await handleApplyDashboardModification(
+      JSON.stringify({ spec: { ...validModifySpec, title: "Ventas v2" }, change_summary: "Segunda llamada." }),
+      mutableCtx,
+    );
+    expect(mutableCtx.modifyResult?.spec.title).toBe("Ventas v2");
+    expect(mutableCtx.modifyResult?.summary).toBe("Segunda llamada.");
+    if (second.ok) {
+      const d = second.data as { note?: string };
+      expect(d.note).toMatch(/overwritten|latest|LAST/i);
+    }
+  });
+});
+
+// ─── handleSubmitDashboardAnalysis ───────────────────────────────────────────
+
+describe("handleSubmitDashboardAnalysis", () => {
+  it("stages ctx.analyzeResult and returns ok=true, applied=true for valid args", async () => {
+    const mutableCtx: LlmAgenticContext = { ...ctx };
+    const out = await handleSubmitDashboardAnalysis(
+      JSON.stringify({
+        analysis_markdown: "# Análisis\n\nVentas crecieron un 12%.",
+        brief_summary: "Ventas al alza.",
+      }),
+      mutableCtx,
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      const d = out.data as { ok: boolean; applied: boolean };
+      expect(d.ok).toBe(true);
+      expect(d.applied).toBe(true);
+    }
+    expect(mutableCtx.analyzeResult?.markdown).toContain("Análisis");
+    expect(mutableCtx.analyzeResult?.summary).toBe("Ventas al alza.");
+  });
+
+  it("returns INVALID_ARGS when analysis_markdown is empty", async () => {
+    const out = await handleSubmitDashboardAnalysis(
+      JSON.stringify({ analysis_markdown: "  ", brief_summary: "Resumen." }),
+      ctx,
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
+  });
+
+  it("returns INVALID_ARGS when analysis_markdown exceeds 30 KB", async () => {
+    const out = await handleSubmitDashboardAnalysis(
+      JSON.stringify({ analysis_markdown: "x".repeat(31 * 1024), brief_summary: "Resumen." }),
+      ctx,
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
+  });
+
+  it("returns INVALID_ARGS when brief_summary is missing", async () => {
+    const out = await handleSubmitDashboardAnalysis(
+      JSON.stringify({ analysis_markdown: "# Análisis" }),
+      ctx,
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
+  });
+});
+
+// ─── handleSubmitWeeklyReview ─────────────────────────────────────────────────
+
+// Minimal valid review that passes ReviewLlmOutputSchema
+const validReviewPayload = {
+  executive_summary: ["Ventas +12%", "Stock OK", "Tres pedidos"],
+  sections: [
+    { key: "ventas_retail", title: "Ventas Retail", narrative: "Texto.", kpis: ["KPI 1"], evidence_queries: ["ventas_semana_cerrada"], dashboard_key: "ventas_retail" },
+    { key: "canal_mayorista", title: "Mayorista", narrative: "Texto.", kpis: ["KPI 1"], evidence_queries: ["facturacion_mayorista_semana_cerrada"], dashboard_key: "canal_mayorista" },
+    { key: "stock", title: "Stock", narrative: "Texto.", kpis: ["KPI 1"], evidence_queries: ["stock_total_unidades"], dashboard_key: "stock" },
+    { key: "compras", title: "Compras", narrative: "Texto.", kpis: ["KPI 1"], evidence_queries: ["compras_semana_cerrada"], dashboard_key: "compras" },
+  ],
+  action_items: [
+    { action_key: "revisar_stock", priority: "alta", owner_role: "Logística", due_date: "2026-05-10", action: "Revisar stock.", expected_impact: "Menos roturas.", evidence_queries: ["articulos_stock_critico"], dashboard_key: "stock" },
+    { action_key: "contactar_clientes", priority: "media", owner_role: "Ventas", due_date: "2026-05-10", action: "Contactar clientes.", expected_impact: "Mejor cobro.", evidence_queries: ["top3_clientes_mayorista_semana_cerrada"], dashboard_key: "canal_mayorista" },
+    { action_key: "planificar_traspasos", priority: "baja", owner_role: "Tiendas", due_date: "2026-05-15", action: "Planificar traspasos.", expected_impact: "Mejor distribución.", evidence_queries: ["traspasos_semana_cerrada"], dashboard_key: "stock" },
+  ],
+  data_quality_notes: [],
+  generated_at: "2026-05-01T00:00:00.000Z",
+};
+
+describe("handleSubmitWeeklyReview", () => {
+  it("stages ctx.reviewResult and returns ok=true for valid args", async () => {
+    const mutableCtx: LlmAgenticContext = { ...ctx };
+    const out = await handleSubmitWeeklyReview(
+      JSON.stringify({ review: validReviewPayload, brief_summary: "Buena semana." }),
+      mutableCtx,
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      const d = out.data as { ok: boolean; applied: boolean };
+      expect(d.ok).toBe(true);
+      expect(d.applied).toBe(true);
+    }
+    expect(mutableCtx.reviewResult?.content.executive_summary[0]).toBe("Ventas +12%");
+    expect(mutableCtx.reviewResult?.summary).toBe("Buena semana.");
+  });
+
+  it("returns toolOk({ ok: false }) when review JSON is malformed", async () => {
+    const mutableCtx: LlmAgenticContext = { ...ctx };
+    const out = await handleSubmitWeeklyReview(
+      JSON.stringify({ review: { bad: "structure" }, brief_summary: "Resumen." }),
+      mutableCtx,
+    );
+    expect(out.ok).toBe(true);
+    if (out.ok) {
+      const d = out.data as { ok: boolean; errors: string[] };
+      expect(d.ok).toBe(false);
+      expect(d.errors.length).toBeGreaterThan(0);
+    }
+    expect(mutableCtx.reviewResult).toBeUndefined();
+  });
+
+  it("returns INVALID_ARGS when brief_summary is missing", async () => {
+    const out = await handleSubmitWeeklyReview(
+      JSON.stringify({ review: validReviewPayload }),
+      ctx,
+    );
+    expect(out.ok).toBe(false);
+    if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
   });
 });

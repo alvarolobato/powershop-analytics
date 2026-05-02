@@ -235,7 +235,8 @@ describe("prompts", () => {
 
     it("does not wrap current spec in markdown fences", () => {
       expect(prompt).not.toContain("```json\n" + sampleSpec);
-      expect(prompt).toContain("Do not wrap your response in markdown fences");
+      // New contract: spec goes through apply_dashboard_modification tool, not raw JSON output.
+      expect(prompt).toContain("apply_dashboard_modification");
     });
 
     it("instructs to preserve existing widgets", () => {

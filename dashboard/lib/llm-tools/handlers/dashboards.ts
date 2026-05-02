@@ -13,6 +13,8 @@ import { extractDashboardSqlRefs } from "../dashboard-query-extractor";
 import type { LlmAgenticContext } from "../types";
 import { toolError, toolOk, type ToolResponseBody } from "../tool-payload";
 import { getAgenticConfig } from "../config";
+import { ReviewLlmOutputSchema } from "@/lib/review-schema";
+import { sanitize } from "@/lib/llm-provider/sanitize";
 
 const LimitSchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
@@ -349,6 +351,234 @@ export async function handleValidateDashboardSpec(
         ? "Spec is valid. You may emit the final JSON now."
         : "Spec is structurally valid but has SQL lint warnings — review each one. Warnings do not block emission; emit the final JSON when you are satisfied.",
   });
+}
+
+// ── Publish-tool handlers ────────────────────────────────────────────────────
+// These handlers stage results into the request-scoped `ctx` side-channel.
+// They MUST NOT write to PostgreSQL directly — persistence is the route's job.
+
+const CHANGE_SUMMARY_MAX = 1000;
+const BRIEF_SUMMARY_MAX = 500;
+const MARKDOWN_MAX_BYTES = 30 * 1024; // 30 KB
+
+/**
+ * `apply_dashboard_modification` — validate spec + stage modify result.
+ *
+ * The model calls this once at the end of a modify task with the full updated
+ * spec and a 2–4 sentence Spanish change_summary. The tool validates the spec
+ * with Zod and runs the SQL heuristic lint. On success it stages the result in
+ * ctx.modifyResult and returns `{ ok: true, applied: true }`. The LAST call
+ * wins — intentional double-calls are accepted (latest spec overwrites).
+ */
+export async function handleApplyDashboardModification(
+  rawArgs: string,
+  ctx: LlmAgenticContext,
+): Promise<ToolResponseBody> {
+  let args: { spec?: unknown; change_summary?: unknown };
+  try {
+    args = JSON.parse(rawArgs || "{}");
+  } catch {
+    return toolError(
+      "INVALID_ARGS",
+      "apply_dashboard_modification: arguments must be a JSON object.",
+      ctx,
+    );
+  }
+
+  if (typeof args.spec !== "object" || args.spec === null || Array.isArray(args.spec)) {
+    return toolError(
+      "INVALID_ARGS",
+      "apply_dashboard_modification: 'spec' must be a JSON object.",
+      ctx,
+    );
+  }
+
+  if (typeof args.change_summary !== "string" || args.change_summary.trim().length === 0) {
+    return toolError(
+      "INVALID_ARGS",
+      "apply_dashboard_modification: 'change_summary' must be a non-empty string.",
+      ctx,
+    );
+  }
+
+  if (args.change_summary.length > CHANGE_SUMMARY_MAX) {
+    return toolError(
+      "INVALID_ARGS",
+      `apply_dashboard_modification: 'change_summary' must be ≤ ${CHANGE_SUMMARY_MAX} characters.`,
+      ctx,
+    );
+  }
+
+  // Validate the spec with Zod — same logic as handleValidateDashboardSpec so
+  // the two tools stay consistent. NOTE: if validation logic changes, update
+  // both handlers (or extract a shared helper).
+  const parsed = DashboardSpecSchema.safeParse(args.spec);
+  if (!parsed.success) {
+    const errors = parsed.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+      return `${path}: ${issue.message}`;
+    });
+    return toolOk({
+      ok: false,
+      errors,
+      warnings: [],
+      hint:
+        "Fix the structural errors above and call apply_dashboard_modification again with the corrected spec.",
+    });
+  }
+
+  // Run SQL heuristic lint (non-blocking — surfaced as warnings).
+  const warnings = lintDashboardSpec(parsed.data);
+
+  // Sanitize the summary before staging.
+  const sanitizedSummary = sanitize(args.change_summary.trim());
+
+  const wasAlreadySet = ctx.modifyResult != null;
+  ctx.modifyResult = { spec: parsed.data, summary: sanitizedSummary };
+
+  return toolOk({
+    ok: true,
+    applied: true,
+    warnings,
+    ...(wasAlreadySet
+      ? {
+          note: "Previous staged result overwritten. The LAST call to apply_dashboard_modification wins.",
+        }
+      : {}),
+  });
+}
+
+/**
+ * `submit_dashboard_analysis` — stage analysis markdown result.
+ *
+ * The model calls this once at the end of an analyze task with the full
+ * markdown analysis and a brief_summary (≤ 500 chars). Stages the result in
+ * ctx.analyzeResult.
+ */
+export async function handleSubmitDashboardAnalysis(
+  rawArgs: string,
+  ctx: LlmAgenticContext,
+): Promise<ToolResponseBody> {
+  let args: { analysis_markdown?: unknown; brief_summary?: unknown };
+  try {
+    args = JSON.parse(rawArgs || "{}");
+  } catch {
+    return toolError(
+      "INVALID_ARGS",
+      "submit_dashboard_analysis: arguments must be a JSON object.",
+      ctx,
+    );
+  }
+
+  if (typeof args.analysis_markdown !== "string" || args.analysis_markdown.trim().length === 0) {
+    return toolError(
+      "INVALID_ARGS",
+      "submit_dashboard_analysis: 'analysis_markdown' must be a non-empty string.",
+      ctx,
+    );
+  }
+
+  // Check size (~30 KB limit to avoid oversized payloads).
+  if (Buffer.byteLength(args.analysis_markdown, "utf8") > MARKDOWN_MAX_BYTES) {
+    return toolError(
+      "INVALID_ARGS",
+      `submit_dashboard_analysis: 'analysis_markdown' must be ≤ ${MARKDOWN_MAX_BYTES} bytes.`,
+      ctx,
+    );
+  }
+
+  if (typeof args.brief_summary !== "string" || args.brief_summary.trim().length === 0) {
+    return toolError(
+      "INVALID_ARGS",
+      "submit_dashboard_analysis: 'brief_summary' must be a non-empty string.",
+      ctx,
+    );
+  }
+
+  if (args.brief_summary.length > BRIEF_SUMMARY_MAX) {
+    return toolError(
+      "INVALID_ARGS",
+      `submit_dashboard_analysis: 'brief_summary' must be ≤ ${BRIEF_SUMMARY_MAX} characters.`,
+      ctx,
+    );
+  }
+
+  // Do NOT run sanitize() on the full analysis markdown — the secret-redaction
+  // patterns could corrupt legitimate business content (IDs, tokens matching
+  // the regex patterns). Store the analysis body as-is. Only the brief_summary
+  // (displayed in the chat chip and logged) requires sanitization.
+  const sanitizedSummary = sanitize(args.brief_summary.trim());
+
+  ctx.analyzeResult = { markdown: args.analysis_markdown.trim(), summary: sanitizedSummary };
+
+  return toolOk({ ok: true, applied: true });
+}
+
+/**
+ * `submit_weekly_review` — validate review JSON + stage review result.
+ *
+ * The model calls this once at the end of a weekly review task with the full
+ * review JSON object and a brief_summary. Validates against ReviewLlmOutputSchema,
+ * then stages in ctx.reviewResult.
+ */
+export async function handleSubmitWeeklyReview(
+  rawArgs: string,
+  ctx: LlmAgenticContext,
+): Promise<ToolResponseBody> {
+  let args: { review?: unknown; brief_summary?: unknown };
+  try {
+    args = JSON.parse(rawArgs || "{}");
+  } catch {
+    return toolError(
+      "INVALID_ARGS",
+      "submit_weekly_review: arguments must be a JSON object.",
+      ctx,
+    );
+  }
+
+  if (typeof args.review !== "object" || args.review === null || Array.isArray(args.review)) {
+    return toolError(
+      "INVALID_ARGS",
+      "submit_weekly_review: 'review' must be a JSON object.",
+      ctx,
+    );
+  }
+
+  if (typeof args.brief_summary !== "string" || args.brief_summary.trim().length === 0) {
+    return toolError(
+      "INVALID_ARGS",
+      "submit_weekly_review: 'brief_summary' must be a non-empty string.",
+      ctx,
+    );
+  }
+
+  if (args.brief_summary.length > BRIEF_SUMMARY_MAX) {
+    return toolError(
+      "INVALID_ARGS",
+      `submit_weekly_review: 'brief_summary' must be ≤ ${BRIEF_SUMMARY_MAX} characters.`,
+      ctx,
+    );
+  }
+
+  // Validate review against ReviewLlmOutputSchema.
+  const parsed = ReviewLlmOutputSchema.safeParse(args.review);
+  if (!parsed.success) {
+    const errors = parsed.error.issues.map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+      return `${path}: ${issue.message}`;
+    });
+    return toolOk({
+      ok: false,
+      errors,
+      hint: "Fix the validation errors above and call submit_weekly_review again with the corrected review JSON.",
+    });
+  }
+
+  const sanitizedSummary = sanitize(args.brief_summary.trim());
+
+  ctx.reviewResult = { content: parsed.data, summary: sanitizedSummary };
+
+  return toolOk({ ok: true, applied: true });
 }
 
 export async function handleGetDashboardAllWidgetStatus(

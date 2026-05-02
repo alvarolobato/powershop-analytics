@@ -15,14 +15,29 @@
  *                                no progress was emitted yet; otherwise
  *                                HTTP 200 NDJSON terminating in
  *                                `{type:"error", httpStatus, ...}`.
- *   • Success (no progress)    → HTTP 200, JSON updated `DashboardSpec`.
+ *   • Success (no progress)    → HTTP 200, JSON object where the DashboardSpec
+ *                                fields (title, description, widgets, filters, …)
+ *                                appear at the top level together with additive
+ *                                `message` and `summary` strings (i.e. the spec
+ *                                is spread, NOT wrapped under a `spec` key).
+ *                                Existing clients consuming `spec.title` /
+ *                                `spec.widgets` continue to work unchanged —
+ *                                `message` / `summary` are new top-level fields.
  *   • Success (with progress)  → HTTP 200 NDJSON terminating in
- *                                `{type:"result", spec}`.
+ *                                `{type:"result", spec: DashboardSpec, message, summary}`.
+ *
+ * Response shape (non-streaming):  `{ ...DashboardSpec, message?, summary? }`
+ * Response shape (streaming result frame):
+ *   { type: "result", requestId, spec: DashboardSpec, message: string, summary: string }
  *
  * Streaming frames (NDJSON):
  *   { type: "progress", requestId, logLine: LogLine }
- *   { type: "result",   requestId, spec: DashboardSpec }
+ *   { type: "result",   requestId, spec: DashboardSpec, message: string, summary: string }
  *   { type: "error",    requestId, httpStatus, error, code, details?, diagnostic? }
+ *
+ * Backward compat: the non-streaming success response spreads spec fields at the
+ * top level for wire-compatibility with existing clients. `message` and
+ * `summary` are additive and will not collide with DashboardSpec field names.
  */
 import { NextResponse } from "next/server";
 import {
@@ -44,9 +59,10 @@ import {
   finishInteraction,
 } from "@/lib/db-write";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
-import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
+import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
 import type { LogLine } from "@/components/LogBlock";
 
 /**
@@ -247,6 +263,15 @@ export async function POST(request: Request) {
     }
   };
 
+  // Build a mutable ctx so the route can read back the side-channel after the loop.
+  const modifyCtx: LlmAgenticContext = {
+    requestId,
+    endpoint: "modifyDashboard",
+    dashboardId: dashboardIdNum ?? undefined,
+    onAgenticProgress,
+    modifyResult: null,
+  };
+
   type LlmOutcome =
     | { kind: "ok"; rawResponse: string }
     | { kind: "err"; err: unknown };
@@ -254,7 +279,7 @@ export async function POST(request: Request) {
   const llmPromise: Promise<LlmOutcome> = modifyDashboard(
     JSON.stringify(specParse.data),
     prompt.trim(),
-    { requestId, endpoint: "modifyDashboard", onAgenticProgress },
+    modifyCtx,
   ).then(
     (rawResponse): LlmOutcome => ({ kind: "ok", rawResponse }),
     (err): LlmOutcome => ({ kind: "err", err }),
@@ -266,14 +291,68 @@ export async function POST(request: Request) {
   ]);
 
   // -------------------------------------------------------------------------
-  // Helper: parse + validate the LLM raw response into a DashboardSpec.
-  // Returns a discriminated result so both code paths can react identically.
+  // Helper: extract spec + message from the LLM outcome.
+  // With the new publish-tool approach (agentic tools enabled):
+  //   - spec comes from ctx.modifyResult (staged by the tool handler)
+  //   - message is the freeform text returned by runAgenticChat
+  // Legacy path (agentic tools disabled):
+  //   - rawResponse is the raw JSON spec (old contract)
+  //   - message is empty
   // -------------------------------------------------------------------------
   type ValidationOutcome =
-    | { ok: true; spec: DashboardSpec }
+    | { ok: true; spec: DashboardSpec; message: string; summary: string }
     | { ok: false; status: number; payload: ApiErrorResponse };
 
   const validateLlmResponse = (rawResponse: string): ValidationOutcome => {
+    // Agentic path: ctx.modifyResult was staged by apply_dashboard_modification.
+    if (isAgenticToolsEnabled()) {
+      if (!modifyCtx.modifyResult) {
+        console.error(
+          `[${requestId}] El modelo no llamó a apply_dashboard_modification (agentic tools enabled).`,
+        );
+        const agenticCfg = getAgenticConfig();
+        const contractErr = new AgenticRunnerError(
+          "AGENTIC_RUNNER",
+          "El modelo no publicó el dashboard modificado. Reformula el cambio o inténtalo de nuevo.",
+          requestId,
+          {
+            phase: "final",
+            toolRoundsUsed: 0,
+            toolCallsUsed: 0,
+            durationMs: 0,
+            limitsAtFailure: {
+              maxRounds: agenticCfg.maxToolRounds,
+              maxToolCalls: agenticCfg.maxToolCalls,
+              toolTimeoutMs: agenticCfg.toolTimeoutMs,
+              executeRowLimit: agenticCfg.maxRows,
+              payloadCharLimit: agenticCfg.maxResultChars,
+            },
+          },
+        );
+        const diagnostic = buildAgenticErrorDiagnostic(contractErr, cfg);
+        persistAgenticError("modify", contractErr, diagnostic);
+        return {
+          ok: false,
+          status: 500,
+          payload: formatApiError(
+            contractErr.message,
+            "AGENTIC_RUNNER",
+            "El modelo no llamó a `apply_dashboard_modification`.",
+            requestId,
+            diagnostic,
+          ),
+        };
+      }
+      // The spec was already Zod-validated inside the tool handler.
+      return {
+        ok: true,
+        spec: modifyCtx.modifyResult.spec,
+        message: rawResponse,
+        summary: modifyCtx.modifyResult.summary,
+      };
+    }
+
+    // Legacy path: parse JSON from the raw response string.
     const jsonStr = extractJson(rawResponse);
     let parsed: unknown;
     try {
@@ -329,7 +408,7 @@ export async function POST(request: Request) {
       };
     }
 
-    return { ok: true, spec: updatedSpec };
+    return { ok: true, spec: updatedSpec, message: "", summary: "" };
   };
 
   // -------------------------------------------------------------------------
@@ -364,13 +443,14 @@ export async function POST(request: Request) {
       return NextResponse.json(validation.payload, { status: validation.status });
     }
 
-    const updatedSpec = validation.spec;
+    const { spec: updatedSpec, message, summary } = validation;
     if (interactionId) {
       await finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
         console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
       );
     }
-    return NextResponse.json(updatedSpec);
+    // Return additive fields: spec (existing contract) + message + summary (new).
+    return NextResponse.json({ ...updatedSpec, message, summary });
   }
 
   // -------------------------------------------------------------------------
@@ -430,13 +510,14 @@ export async function POST(request: Request) {
         return;
       }
 
-      const updatedSpec = validation.spec;
+      const { spec: updatedSpec, message, summary } = validation;
       if (interactionId) {
         await finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
           console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
         );
       }
-      send({ type: "result", requestId, spec: updatedSpec });
+      // Additive NDJSON result frame: spec (existing) + message + summary (new).
+      send({ type: "result", requestId, spec: updatedSpec, message, summary });
       controller.close();
     },
   });

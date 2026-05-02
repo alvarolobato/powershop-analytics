@@ -32,6 +32,9 @@ import {
   handleGetDashboardWidgetRawValues,
   handleGetDashboardAllWidgetStatus,
   handleValidateDashboardSpec,
+  handleApplyDashboardModification,
+  handleSubmitDashboardAnalysis,
+  handleSubmitWeeklyReview,
 } from "./handlers/dashboards";
 import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
 import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
@@ -162,6 +165,12 @@ async function dispatchTool(
       return handleGetDashboardAllWidgetStatus(rawArgs, ctx);
     case "validate_dashboard_spec":
       return handleValidateDashboardSpec(rawArgs, ctx);
+    case "apply_dashboard_modification":
+      return handleApplyDashboardModification(rawArgs, ctx);
+    case "submit_dashboard_analysis":
+      return handleSubmitDashboardAnalysis(rawArgs, ctx);
+    case "submit_weekly_review":
+      return handleSubmitWeeklyReview(rawArgs, ctx);
     default:
       return toolError("UNKNOWN_TOOL", `Unknown tool: ${name}`, ctx);
   }

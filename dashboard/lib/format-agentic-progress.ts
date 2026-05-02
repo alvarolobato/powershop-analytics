@@ -104,7 +104,7 @@ export function formatAgenticProgressLineEs(event: AgenticProgressEvent): string
       return `  ${icon} ${event.name} — ${event.ms} ms${err}${preview}`;
     }
     case "finalizing":
-      return `Respuesta JSON lista (${event.messageChars} caracteres)`;
+      return `Respuesta lista · ${event.messageChars} caracteres`;
     default: {
       return JSON.stringify(event);
     }

@@ -24,22 +24,21 @@ vi.mock("@/lib/review-prompts", () => ({
 
 vi.mock("@/lib/llm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/llm")>();
+  // generateReview and generateReviewWithProgress now return { content, message }
+  const mockReviewResult = {
+    content: {
+      executive_summary: ["Resumen OK"],
+      sections: [],
+      action_items: [],
+      data_quality_notes: [],
+      generated_at: "2026-04-01T00:00:00.000Z",
+    },
+    message: "He generado la revisión semanal.",
+  };
   return {
     ...actual,
-    generateReview: vi.fn().mockResolvedValue({
-      executive_summary: ["Resumen OK"],
-      sections: [],
-      action_items: [],
-      data_quality_notes: [],
-      generated_at: "2026-04-01T00:00:00.000Z",
-    }),
-    generateReviewWithProgress: vi.fn().mockResolvedValue({
-      executive_summary: ["Resumen OK"],
-      sections: [],
-      action_items: [],
-      data_quality_notes: [],
-      generated_at: "2026-04-01T00:00:00.000Z",
-    }),
+    generateReview: vi.fn().mockResolvedValue(mockReviewResult),
+    generateReviewWithProgress: vi.fn().mockResolvedValue(mockReviewResult),
     BudgetExceededError: actual.BudgetExceededError,
   };
 });
@@ -154,6 +153,8 @@ describe("POST /api/review/generate — streaming", () => {
     expect((result as Record<string, unknown>)?.review).toBeDefined();
     const review = (result as Record<string, { id?: unknown }>)?.review;
     expect(review?.id).toBe(42);
+    // New additive field: freeform chat message
+    expect((result as Record<string, unknown>)?.message).toBe("He generado la revisión semanal.");
   });
 
   it("emits error frame when review already exists (409) is detected early", async () => {

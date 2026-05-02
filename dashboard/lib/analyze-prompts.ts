@@ -55,22 +55,31 @@ function formatBusinessRules(): string {
 
 // ─── Public API ──────────────────────────────────────────────────────────────
 
+export interface BuildAnalyzePromptOptions {
+  /** When set, the model may use dashboard tools with this id. */
+  dashboardId?: number;
+  /**
+   * When true (default), includes the publish-tool workflow instructions
+   * (submit_dashboard_analysis). When false, falls back to the legacy
+   * "respond with markdown analysis" contract for the non-agentic path.
+   */
+  agenticMode?: boolean;
+}
+
 /**
  * Build the system prompt for analyzing dashboard data.
  *
  * @param serializedData  — Formatted widget data string from serializeWidgetData()
  * @param action          — Optional preset action that drives specific instructions
+ * @param options         — Optional options including dashboardId and agenticMode
  */
-export interface BuildAnalyzePromptOptions {
-  /** When set, the model may use dashboard tools with this id. */
-  dashboardId?: number;
-}
-
 export function buildAnalyzePrompt(
   serializedData: string,
   action?: string,
   options?: BuildAnalyzePromptOptions,
 ): string {
+  const agenticMode = options?.agenticMode !== false; // default true
+
   const sections: string[] = [
     "# Rol",
     "",
@@ -87,6 +96,23 @@ export function buildAnalyzePrompt(
     "- Cuando los datos no estén disponibles, indícalo claramente",
     "",
   ];
+
+  if (agenticMode) {
+    sections.push(
+      "# Flujo requerido (OBLIGATORIO)",
+      "",
+      "1. Analiza los datos del dashboard y redacta el análisis completo en markdown.",
+      "2. Llama a la herramienta `submit_dashboard_analysis` con:",
+      "   - `analysis_markdown`: el análisis completo en markdown.",
+      "   - `brief_summary`: 1–2 frases en español que resumen el hallazgo principal.",
+      "3. Después de que `submit_dashboard_analysis` devuelva `{ ok: true, applied: true }`,",
+      "   escribe tu mensaje final como una respuesta amistosa en español al usuario (≤ 4 frases).",
+      "",
+      "**Nunca emitas el análisis como tu respuesta final.** El análisis DEBE ir a través de",
+      "`submit_dashboard_analysis`. Si emites el análisis directamente, el sistema fallará.",
+      "",
+    );
+  }
 
   // Inject action-specific instructions when provided
   const normalizedAction = action as AnalyzeAction | undefined;
