@@ -27,6 +27,7 @@ export function TopBar({
   const freshnessTooltip = propFreshnessTooltip ?? ctx.freshnessTooltip;
 
   const navLinks = [
+    { href: "/inicio", label: "Inicio" },
     { href: "/", label: "Paneles" },
     { href: "/review", label: "Revisión" },
     { href: "http://localhost:3000", label: "Wren", external: true },
