@@ -148,6 +148,21 @@ body {
   }
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ============================================================
    Prism dark syntax highlighting for JSON spec editor
    ============================================================ */

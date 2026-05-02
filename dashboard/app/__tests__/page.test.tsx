@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
+// Note: The dashboard list has moved from "/" to "/paneles".
+// This test now imports from "../paneles/page" to keep testing the dashboard list logic.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
-import Home from "../page";
+import Home from "../paneles/page";
 
 // ---------------------------------------------------------------------------
 // Mock next/navigation
