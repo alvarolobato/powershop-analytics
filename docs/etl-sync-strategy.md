@@ -67,12 +67,15 @@ SELECT ... FROM Ventas WHERE FechaModifica > :last_sync
 |-------|------|----|-------------|---------|
 | Exportaciones | 2,058,201 | `(Codigo, TiendaCodigo)` compound | `FechaModifica` (some NULLs for zero-stock articles) | UPSERT delta + normalize |
 | Traspasos | 262,689 | `RegTraspaso` | `FechaS` (send date) | Append-only by `FechaS` |
+| CCStock | 41,478 | `NumArticulo` (Real) | None | Full refresh nightly → `ps_stock_central` |
 
-**Exportaciones normalization:** The source table is wide-format (Talla1..Talla34 + Stock1..Stock34 per row). `_USER_COLUMNS` shows every **`Stock1`…`Stock34`** as **`DATA_TYPE = 3`**, **`DATA_LENGTH = 2`** (16-bit integer). Through **4D SQL / p4d**, slot values can arrive as **unsigned** (`65535` for `−1`); ETL applies **`decode_signed_int16_word()`** (`etl/db/fourd.py`) before `int` cast so `ps_stock_tienda.stock` matches native/POS signed semantics. **`CCStock`** on the same row is **Real** and already carries the signed row total. Re-run a full stock sync after deploying the decoder to refresh existing mirror rows.
+**Exportaciones normalization:** The source table is wide-format (Talla1..Talla34 + Stock1..Stock34 per row). `_USER_COLUMNS` shows every **`Stock1`…`Stock34`** as **`DATA_TYPE = 3`**, **`DATA_LENGTH = 2`** (16-bit integer). Through **4D SQL / p4d**, slot values can arrive as **unsigned** (`65535` for `−1`); ETL applies **`decode_signed_int16_word()`** (`etl/db/fourd.py`) before `int` cast so `ps_stock_tienda.stock` matches native/POS signed semantics. **`CCStock`** on the same row (the `Exportaciones.CCStock` column) is **Real** and already carries the signed row total.
 
 `TiendaCodigo` format: `"104/169"` = store 104 / article 169. The compound `(Codigo, TiendaCodigo)` is the natural PK — verified by row count.
 
 **Traspasos:** Only 153 rows since 2025-01-01 (mostly historical log). No `FechaModifica`. Records appear immutable once created. Append-only by `FechaS`. Initial load covers all 262K rows.
+
+**CCStock (central warehouse, confirmed 2026-05-01):** One row per article (41 478 rows). `NumArticulo` is the PK (Real, .99 suffix). `Stock1..Stock34` are **`DATA_TYPE=3, DATA_LENGTH=2`** (16-bit WORD) — same type as `Exportaciones.StockN`. `decode_signed_int16_word()` is applied before summing. The root-level `Stock` column (Real, type 6) is the 4D-maintained total but we recompute from slots for accuracy. No delta field: full refresh is fast at 41K rows. Mirror: `ps_stock_central(num_articulo, stock, fecha_modifica)`.
 
 ---
 
@@ -143,6 +146,11 @@ WHERE NAlbaran IN (
 | FacturasCompra | 3,884 | — (verify) | `FechaFactura` | Full refresh |
 
 **Important:** `LineasCompras` does not exist as a table. The line items for purchase orders are in `CCLineasCompr`. It links to `Compras` via `NumPedido` (not a direct `NumCompra` field), and to `Tiendas` via `NumTienda`.
+
+**Enrichment added 2026-05-01 (issue #429):**
+- `CCLineasCompr` now also syncs: `Unidades`, `PrecioCoste`, `PrecioNetoSI`, `TotalSI`, `NumProveedor` (all `DATA_TYPE=6`, Real).
+- `Albaranes` now also syncs: `NPedido` (FK → Compras.RegPedido), `NumProveedor` (FK → Proveedores.RegProveedor), `Proveedor` (denorm text, 100 chars).
+- `Proveedores.nombre` fix: the actual name is in `Proveedor` (text, 100 chars) not `NombreComercial` (empty in 4D for all 520 rows). ETL now maps `Proveedor` → `ps_proveedores.nombre`.
 
 ---
 

@@ -34,6 +34,7 @@ _SYNC_TARGETS = [
     "etl.sync.compras.sync_facturas_compra",
     "etl.sync.stock.sync_stock",
     "etl.sync.stock.sync_traspasos",
+    "etl.sync.ccstock.sync_ccstock",
 ]
 _N_SYNC_TABLES = len(_SYNC_TARGETS)  # 22 tables tracked by record_table_sync
 _N_RESULTS = _N_SYNC_TABLES + 1  # +1 for MA cleanup step tracked in _results

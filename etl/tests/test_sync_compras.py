@@ -8,6 +8,9 @@ What is tested:
 - Row count in ps_compras matches 4D source after sync (~2,700).
 - Row count in ps_lineas_compras matches 4D CCLineasCompr after sync (~44,000).
 - FK integrity: all num_pedido values in ps_lineas_compras exist in ps_compras.
+- Enriched lineas_compras columns (unidades, total_si) have non-null values.
+- ps_albaranes.num_pedido and num_proveedor are populated (issue #429).
+- ps_proveedores.nombre is non-empty after sync (Proveedor field fix, issue #429).
 """
 
 from __future__ import annotations
@@ -171,4 +174,100 @@ class TestSyncCompras:
         assert orphan_count == 0, (
             f"{orphan_count} rows in ps_lineas_compras have num_pedido that"
             " does not exist in ps_compras (reg_pedido)."
+        )
+
+    def test_lineas_compras_enriched_unidades(self, conn_pg, synced_compras):
+        """ps_lineas_compras.unidades must be populated (issue #429 enrichment).
+
+        We verify that at least 90% of rows have a non-NULL unidades value.
+        """
+        _ = synced_compras
+
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(unidades) AS with_unidades
+                FROM ps_lineas_compras
+                """
+            )
+            total, with_unidades = cur.fetchone()
+
+        assert total > 0, "ps_lineas_compras is empty"
+        fill_rate = with_unidades / total if total else 0
+        assert fill_rate >= 0.9, (
+            f"ps_lineas_compras.unidades fill rate is {fill_rate:.1%} "
+            "(expected ≥ 90%) — enrichment may have failed"
+        )
+
+    def test_lineas_compras_enriched_total_si(self, conn_pg, synced_compras):
+        """ps_lineas_compras.total_si must be populated (issue #429 enrichment)."""
+        _ = synced_compras
+
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(total_si) AS with_total_si
+                FROM ps_lineas_compras
+                """
+            )
+            total, with_total_si = cur.fetchone()
+
+        assert total > 0, "ps_lineas_compras is empty"
+        fill_rate = with_total_si / total if total else 0
+        assert fill_rate >= 0.9, (
+            f"ps_lineas_compras.total_si fill rate is {fill_rate:.1%} (expected ≥ 90%)"
+        )
+
+    def test_albaranes_enriched_num_pedido(self, conn_pg, synced_compras):
+        """ps_albaranes.num_pedido must be populated for most rows (issue #429).
+
+        We check that the column is non-NULL for ≥ 90% of rows.
+        """
+        _ = synced_compras
+
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(num_pedido) AS with_num_pedido
+                FROM ps_albaranes
+                """
+            )
+            total, with_num_pedido = cur.fetchone()
+
+        assert total > 0, "ps_albaranes is empty"
+        fill_rate = with_num_pedido / total if total else 0
+        assert fill_rate >= 0.9, (
+            f"ps_albaranes.num_pedido fill rate is {fill_rate:.1%} (expected ≥ 90%)"
+        )
+
+    def test_proveedores_nombre_populated(self, conn_pg, synced_compras):
+        """ps_proveedores.nombre must be non-empty for most rows (issue #429).
+
+        The fix maps 4D Proveedores.Proveedor → ps_proveedores.nombre.
+        Previously NombreComercial was mapped but it was empty in 4D.
+        """
+        _ = synced_compras
+
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS total,
+                    COUNT(CASE WHEN nombre IS NOT NULL AND nombre <> '' THEN 1 END) AS with_nombre
+                FROM ps_proveedores
+                """
+            )
+            total, with_nombre = cur.fetchone()
+
+        assert total > 0, "ps_proveedores is empty"
+        fill_rate = with_nombre / total if total else 0
+        assert fill_rate >= 0.9, (
+            f"ps_proveedores.nombre fill rate is {fill_rate:.1%} "
+            "(expected ≥ 90%) — Proveedor field mapping may have failed"
         )

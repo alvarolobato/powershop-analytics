@@ -119,6 +119,7 @@ _SYNC_FN_PATHS = [
     "etl.sync.compras.sync_facturas_compra",
     "etl.sync.stock.sync_stock",
     "etl.sync.stock.sync_traspasos",
+    "etl.sync.ccstock.sync_ccstock",
 ]
 
 _POSTGRES_HELPER_PATHS = [

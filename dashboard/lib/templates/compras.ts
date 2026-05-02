@@ -5,22 +5,24 @@
  * recent receptions, and monthly purchase-order trends.
  * All date filters use :curr_from / :curr_to tokens set by the date picker.
  *
- * Schema notes (validated 2026-04-26 against the live mirror):
+ * Schema notes (updated 2026-05-01 after ETL enrichment in issue #429):
  * - "ps_compras" columns: reg_pedido, fecha_pedido, fecha_recibido,
  *   modificada, num_proveedor.  Uses fecha_pedido (NOT fecha_creacion);
  *   fecha_recibido EXISTS but is NULL for ~91% of rows (orders not yet
  *   received), so widgets that filter on it will return very few rows
  *   compared to fecha_pedido.
- * - "ps_lineas_compras" columns: reg_linea_compra, num_pedido, num_tienda,
- *   fecha, num_articulo (NUMERIC FK).  THERE IS NO unidades / total /
- *   importe column on this mirror table — do not aggregate amounts here.
- *   Joins to compras via num_pedido = reg_pedido.
- * - "ps_albaranes" columns: reg_albaran, fecha_recibido, modificada.  Has
- *   NO FK to ps_compras or ps_proveedores in the current ETL — the
- *   "Recepciones" widget can only show the albaran id and the date.
- * - "ps_proveedores.nombre" is currently empty for every row (520/520) in
- *   the mirror; SQL therefore COALESCEs to num_proveedor as a fallback so
- *   widgets stay readable until the ETL backfills the name.
+ * - "ps_lineas_compras" columns now include: reg_linea_compra, num_pedido,
+ *   num_tienda, fecha, num_articulo, unidades, precio_coste, precio_neto_si,
+ *   total_si, num_proveedor (all confirmed present in CCLineasCompr 4D via
+ *   _USER_COLUMNS, DATA_TYPE=6 Real).  Aggregation on amounts is now enabled.
+ * - "ps_albaranes" columns now include: reg_albaran, fecha_recibido,
+ *   modificada, num_pedido (→ ps_compras.reg_pedido), num_proveedor
+ *   (→ ps_proveedores.reg_proveedor), proveedor (denorm name).  Confirmed
+ *   present in Albaranes 4D via _USER_COLUMNS (2026-05-01).
+ * - "ps_proveedores.nombre" is now populated from 4D Proveedores.Proveedor
+ *   (the actual name field; NombreComercial was empty for all 520 rows).
+ *   The COALESCE fallback to num_proveedor is kept for defence-in-depth
+ *   in case old mirrors haven't run the new ETL yet.
  *
  * If you change a field name in this template, update the comment above
  * the affected SQL block to keep the contract explicit for future agents.
@@ -99,11 +101,11 @@ WHERE co."fecha_recibido" IS NULL
           inverted: true,
         },
         {
-          // Lines belonging to POs emitted in the period.
-          // Counted on ps_lineas_compras.reg_linea_compra (PK) — there is
-          // no unidades column on this table.
-          label: "Líneas de Compra (período seleccionado)",
-          sql: `SELECT COALESCE(COUNT(lc."reg_linea_compra"), 0) AS value
+          // Total units ordered across all line items in the period.
+          // Uses ps_lineas_compras.unidades (enriched in issue #429 — field
+          // CCLineasCompr.Unidades, DATA_TYPE=6 Real, confirmed 2026-05-01).
+          label: "Unidades Pedidas (período seleccionado)",
+          sql: `SELECT COALESCE(SUM(lc."unidades"), 0) AS value
 FROM "public"."ps_lineas_compras" lc
 JOIN "public"."ps_compras" co ON lc."num_pedido" = co."reg_pedido"
 WHERE co."fecha_pedido" >= :curr_from
@@ -208,16 +210,18 @@ ORDER BY co."fecha_pedido" ASC, co."reg_pedido" ASC
 LIMIT 20`,
     },
     {
-      // Recent receptions.  ps_albaranes has only reg_albaran +
-      // fecha_recibido + modificada in the current ETL — no FK to compras
-      // or proveedores — so the table cannot show supplier or PO for now.
-      // If the ETL adds RegPedido / NumProveedor on Albaranes, extend this
-      // widget then update the docstring above.  No __gf_proveedor_compras__
-      // applied here for the same reason: no proveedor column to bind to.
+      // Recent receptions.  ps_albaranes now has num_pedido (FK to
+      // ps_compras.reg_pedido) and num_proveedor / proveedor (enriched in
+      // issue #429 — fields Albaranes.NPedido, NumProveedor, Proveedor
+      // confirmed via _USER_COLUMNS 2026-05-01).  __gf_proveedor_compras__
+      // is still not applied because the filter binds to ps_compras.num_proveedor
+      // and we want receptions shown even when the PO join is missing.
       id: "compras-recepciones-recientes",
       type: "table",
       title: "Recepciones Recientes (período seleccionado)",
       sql: `SELECT a."reg_albaran" AS "Albarán",
+       COALESCE(NULLIF(a."proveedor", ''), CAST(a."num_proveedor" AS TEXT), '—') AS "Proveedor",
+       a."num_pedido" AS "Pedido",
        a."fecha_recibido" AS "Fecha Recibido"
 FROM "public"."ps_albaranes" a
 WHERE a."fecha_recibido" >= :curr_from

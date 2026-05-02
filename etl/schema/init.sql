@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS ps_tiendas (
 
 CREATE TABLE IF NOT EXISTS ps_proveedores (
     reg_proveedor  NUMERIC(20,3) PRIMARY KEY,
-    nombre         TEXT,
+    nombre         TEXT,   -- 4D Proveedores.Proveedor (the actual name field; NombreComercial is empty)
     nif            TEXT,
     pais           TEXT,
     f_modifica     DATE
@@ -231,6 +231,16 @@ CREATE TABLE IF NOT EXISTS ps_stock_tienda (
     st_stock        NUMERIC(15,2),
     fecha_modifica  DATE,
     PRIMARY KEY (codigo, tienda_codigo, talla)
+);
+
+-- Central-warehouse stock per article (source: CCStock 4D table).
+-- One row per article (num_articulo PK). stock = SUM(Stock1..Stock34) decoded
+-- from signed-int16 WORD fields (same Data_Type=3, Data_Length=2 as
+-- Exportaciones.StockN — see D-017 and sync/ccstock.py). Full-refresh nightly.
+CREATE TABLE IF NOT EXISTS ps_stock_central (
+    num_articulo    NUMERIC(20,3) PRIMARY KEY,  -- 4D CCStock.NumArticulo (Real PK, .99 suffix)
+    stock           INTEGER,                     -- SUM of decoded Stock1..Stock34
+    fecha_modifica  DATE                         -- 4D CCStock.FechaModifica
 );
 
 -- Transfer movements between stores (append-only by fecha_s).
@@ -374,13 +384,27 @@ CREATE TABLE IF NOT EXISTS ps_compras (
 
 -- CCLineasCompr in 4D (NOT LineasCompras — that table does not exist).
 -- Links to Compras via NumPedido, and to Tiendas via NumTienda.
+-- Fields unidades, precio_coste, precio_neto_si, total_si, num_proveedor confirmed
+-- present in 4D CCLineasCompr via _USER_COLUMNS (DATA_TYPE=6, Real), 2026-05-01.
 CREATE TABLE IF NOT EXISTS ps_lineas_compras (
     reg_linea_compra  NUMERIC(20,3) PRIMARY KEY,
     num_pedido        NUMERIC(20,3),
     num_tienda        NUMERIC(20,3),
     fecha             DATE,
-    num_articulo      NUMERIC
+    num_articulo      NUMERIC,
+    unidades          NUMERIC(15,2),   -- CCLineasCompr.Unidades (Real)
+    precio_coste      NUMERIC(15,2),   -- CCLineasCompr.PrecioCoste (Real)
+    precio_neto_si    NUMERIC(15,2),   -- CCLineasCompr.PrecioNetoSI (Real)
+    total_si          NUMERIC(15,2),   -- CCLineasCompr.TotalSI (Real)
+    num_proveedor     NUMERIC(20,3)    -- CCLineasCompr.NumProveedor (Real FK)
 );
+
+-- Migration: add new columns to existing installs that have the old schema.
+ALTER TABLE ps_lineas_compras ADD COLUMN IF NOT EXISTS unidades       NUMERIC(15,2);
+ALTER TABLE ps_lineas_compras ADD COLUMN IF NOT EXISTS precio_coste   NUMERIC(15,2);
+ALTER TABLE ps_lineas_compras ADD COLUMN IF NOT EXISTS precio_neto_si NUMERIC(15,2);
+ALTER TABLE ps_lineas_compras ADD COLUMN IF NOT EXISTS total_si       NUMERIC(15,2);
+ALTER TABLE ps_lineas_compras ADD COLUMN IF NOT EXISTS num_proveedor  NUMERIC(20,3);
 
 CREATE TABLE IF NOT EXISTS ps_facturas (
     reg_factura     NUMERIC(20,3) PRIMARY KEY,
@@ -388,11 +412,22 @@ CREATE TABLE IF NOT EXISTS ps_facturas (
     fecha_modifica  DATE
 );
 
+-- Albaranes: delivery notes from suppliers.
+-- NPedido FK to Compras and NumProveedor FK confirmed in 4D via _USER_COLUMNS
+-- (DATA_TYPE=6, Real), 2026-05-01.
 CREATE TABLE IF NOT EXISTS ps_albaranes (
     reg_albaran    NUMERIC(20,3) PRIMARY KEY,
     fecha_recibido DATE,
-    modificada     DATE
+    modificada     DATE,
+    num_pedido     NUMERIC(20,3),   -- Albaranes.NPedido → Compras.RegPedido
+    num_proveedor  NUMERIC(20,3),   -- Albaranes.NumProveedor → Proveedores.RegProveedor
+    proveedor      TEXT             -- Albaranes.Proveedor (denormalised name)
 );
+
+-- Migration: add new columns to existing installs that have the old schema.
+ALTER TABLE ps_albaranes ADD COLUMN IF NOT EXISTS num_pedido    NUMERIC(20,3);
+ALTER TABLE ps_albaranes ADD COLUMN IF NOT EXISTS num_proveedor NUMERIC(20,3);
+ALTER TABLE ps_albaranes ADD COLUMN IF NOT EXISTS proveedor     TEXT;
 
 -- ps_facturas_compra: no reg_* PK found in 4D; strategy is full-refresh only
 -- (TRUNCATE ... RESTART IDENTITY + INSERT).  The surrogate key is for internal
@@ -759,6 +794,14 @@ CREATE INDEX IF NOT EXISTS idx_lv_tienda     ON ps_lineas_ventas(tienda);
 CREATE INDEX IF NOT EXISTS idx_stock_codigo ON ps_stock_tienda(codigo);
 CREATE INDEX IF NOT EXISTS idx_stock_tienda ON ps_stock_tienda(tienda);
 
+-- Central warehouse stock index (article lookup)
+CREATE INDEX IF NOT EXISTS idx_stock_central_num_articulo ON ps_stock_central(num_articulo);
+
+-- Purchasing enrichment indexes
+CREATE INDEX IF NOT EXISTS idx_lc_num_proveedor ON ps_lineas_compras(num_proveedor);
+CREATE INDEX IF NOT EXISTS idx_alb_num_pedido    ON ps_albaranes(num_pedido);
+CREATE INDEX IF NOT EXISTS idx_alb_num_proveedor ON ps_albaranes(num_proveedor);
+
 -- Dashboard indexes
 CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard_id ON dashboard_versions(dashboard_id);
 CREATE INDEX IF NOT EXISTS idx_dashboards_updated_at ON dashboards(updated_at);
@@ -859,6 +902,7 @@ ANALYZE ps_ventas;
 ANALYZE ps_lineas_ventas;
 ANALYZE ps_pagos_ventas;
 ANALYZE ps_stock_tienda;
+ANALYZE ps_stock_central;
 ANALYZE ps_traspasos;
 ANALYZE ps_gc_albaranes;
 ANALYZE ps_gc_lin_albarane;

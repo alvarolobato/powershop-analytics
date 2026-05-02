@@ -20,6 +20,13 @@ PK precision
 4D primary keys are REAL (float) with a `.99` suffix pattern.
 All PK/FK values are converted to Decimal before insertion to prevent
 binary-float precision loss when stored in PostgreSQL NUMERIC columns.
+
+Proveedores.nombre fix (confirmed 2026-05-01)
+---------------------------------------------
+The 4D Proveedores table has ``Proveedor`` (text, 100 chars) as the actual
+supplier name.  ``NombreComercial`` (text, 160 chars) is empty for all 520
+rows.  We now map ``Proveedor`` → ``nombre`` in ps_proveedores.  The old
+desired list used ``Nombre`` which does not exist; this has been corrected.
 """
 
 from __future__ import annotations
@@ -223,9 +230,11 @@ def sync_tiendas(conn_4d, conn_pg) -> int:
 # ---------------------------------------------------------------------------
 
 # Mapping for ps_proveedores (init.sql).
+# NOTE: 4D field is "Proveedor" (not "Nombre") — confirmed via _USER_COLUMNS
+# and live data (2026-05-01). "NombreComercial" is always empty.
 _PROVEEDORES_MAP: dict[str, str] = {
     "regproveedor": "reg_proveedor",
-    "nombre": "nombre",
+    "proveedor": "nombre",  # Proveedores.Proveedor → ps_proveedores.nombre
     "nif": "nif",
     "pais": "pais",
     "fmodifica": "f_modifica",
@@ -233,7 +242,7 @@ _PROVEEDORES_MAP: dict[str, str] = {
 
 _PROVEEDORES_DESIRED = [
     "RegProveedor",
-    "Nombre",
+    "Proveedor",  # The actual supplier name column (NombreComercial is always empty)
     "NIF",
     "Pais",
     "FModifica",
