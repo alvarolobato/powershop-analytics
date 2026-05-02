@@ -146,8 +146,8 @@ WHERE v."entrada" = true
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('week', CURRENT_DATE)
-  AND v."fecha_creacion" < DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '1 week'`,
+  AND v."fecha_creacion" >= DATE_TRUNC('week', CURRENT_DATE)::date
+  AND v."fecha_creacion" < (DATE_TRUNC('week', CURRENT_DATE) + INTERVAL '1 week')::date`,
           format: "currency",
           prefix: "€",
         },
@@ -157,20 +157,25 @@ WHERE v."entrada" = true
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')
-  AND v."fecha_creacion" < DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week') + INTERVAL '1 week'`,
+  AND v."fecha_creacion" >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week')::date
+  AND v."fecha_creacion" < (DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 week') + INTERVAL '1 week')::date`,
           format: "currency",
           prefix: "€",
         },
         {
           label: "Esta Semana (año pasado)",
-          // Misma semana ISO del año anterior.
+          // La semana que contiene la fecha de hace exactamente 1 año.
+          // DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 year') devuelve el
+          // lunes de la semana en que cae la misma fecha del año anterior; no
+          // garantiza semana ISO equivalente si CURRENT_DATE es lunes (cruce de
+          // semana ISO). Para el propósito del panel de inicio esta aproximación
+          // es suficiente y consistente con la lógica del resto de comparativas YoY.
           sql: `SELECT COALESCE(SUM(v."total_si"), 0) AS value
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 year')
-  AND v."fecha_creacion" < DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 year') + INTERVAL '1 week'`,
+  AND v."fecha_creacion" >= DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 year')::date
+  AND v."fecha_creacion" < (DATE_TRUNC('week', CURRENT_DATE - INTERVAL '1 year') + INTERVAL '1 week')::date`,
           format: "currency",
           prefix: "€",
         },
@@ -190,8 +195,8 @@ WHERE v."entrada" = true
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
-  AND v."fecha_creacion" < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'`,
+  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)::date
+  AND v."fecha_creacion" < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date`,
           format: "currency",
           prefix: "€",
         },
@@ -201,8 +206,8 @@ WHERE v."entrada" = true
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')
-  AND v."fecha_creacion" < DATE_TRUNC('month', CURRENT_DATE)`,
+  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 month')::date
+  AND v."fecha_creacion" < DATE_TRUNC('month', CURRENT_DATE)::date`,
           format: "currency",
           prefix: "€",
         },
@@ -212,8 +217,8 @@ WHERE v."entrada" = true
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 year')
-  AND v."fecha_creacion" < DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 year') + INTERVAL '1 month'`,
+  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 year')::date
+  AND v."fecha_creacion" < (DATE_TRUNC('month', CURRENT_DATE - INTERVAL '1 year') + INTERVAL '1 month')::date`,
           format: "currency",
           prefix: "€",
         },
@@ -262,8 +267,8 @@ JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE v."entrada" = true
   AND lv."tienda" <> '99'
   AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
-  AND lv."fecha_creacion" < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'`,
+  AND lv."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)::date
+  AND lv."fecha_creacion" < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date`,
           format: "percent",
         },
         {
@@ -318,8 +323,8 @@ ORDER BY x`,
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = true
   AND v."tienda" <> '99'
-  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)
-  AND v."fecha_creacion" < DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month'
+  AND v."fecha_creacion" >= DATE_TRUNC('month', CURRENT_DATE)::date
+  AND v."fecha_creacion" < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date
 GROUP BY v."tienda"
 ORDER BY value DESC
 LIMIT 10`,
@@ -338,10 +343,13 @@ LIMIT 10`,
           label: "Facturación Mayorista (mes)",
           // Suma de las tres bases imponibles de las facturas mayorista del mes actual.
           // `abono = false` excluye las notas de crédito/abono (misma regla que general.ts).
+          // Range predicate instead of DATE_TRUNC on the column, so any
+          // future index on fecha_factura can be used.
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
 WHERE "abono" = false
-  AND DATE_TRUNC('month', "fecha_factura") = DATE_TRUNC('month', CURRENT_DATE)`,
+  AND "fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)::date
+  AND "fecha_factura" < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date`,
           format: "currency",
           prefix: "€",
         },

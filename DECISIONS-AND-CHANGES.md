@@ -5,7 +5,7 @@
 ## Decision Log
 
 ### D-026: Pantalla de Inicio — read-only home dashboard at /inicio — 2026-05-01
-**Context**: Issue #449. Users needed a "state of the business at a glance" landing page that loads automatically when opening the app and summarises the most important KPIs without requiring a prompt or selecting a saved dashboard.
+**Context**: Issue #449. Users needed a "state of the business at a glance" panel accessible from the TopBar as the first navigation item, summarising the most important KPIs without requiring a prompt or selecting a saved dashboard. (Note: `/` still shows the dashboard list — `/inicio` is reached via the TopBar link or direct bookmark, not by automatic redirect.)
 **Decision**:
 - New route `/inicio` (Next.js App Router) renders the template `dashboard/lib/templates/inicio.ts` directly via `DashboardRenderer` in read-only mode. No chat sidebar, no save flow, no modify flow, no Analizar con IA launcher.
 - The home template is **not** added to `TEMPLATES` (user-pickable templates array) — it is not a template to generate dashboards from; it is a fixed panel maintained in code.
@@ -19,7 +19,7 @@
 **Alternatives rejected**:
 - Making `/` redirect to `/inicio`: breaks existing bookmarks; deferred to a separate issue.
 - Adding multi-series capability to LineChartWidget for widget 6: out of scope, new behaviour; the aggregated single-series approach is sufficient and readable.
-- Adding the home template to `TEMPLATES`: it is not a user-picakble template — it has no filters and should not be instantiated as a new dashboard.
+- Adding the home template to `TEMPLATES`: it is not a user-pickable template — it has no filters and should not be instantiated as a new dashboard.
 **See**: `dashboard/lib/templates/inicio.ts`, `dashboard/app/inicio/page.tsx`, `dashboard/components/TopBar.tsx`.
 
 ### D-025: Single-refresher rule for Claude OAuth — host launchd is the only refresher — 2026-04-27
