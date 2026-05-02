@@ -18,6 +18,11 @@
 import { NextResponse } from "next/server";
 import { query, ConnectionError } from "@/lib/db";
 
+// Always evaluate per-request — without this, Next.js 14 renders the route
+// statically at build time (when Postgres is unreachable) and serves the empty
+// fallback forever.
+export const dynamic = "force-dynamic";
+
 const STALE_THRESHOLD_HOURS = 36;
 
 export interface TableFreshness {
