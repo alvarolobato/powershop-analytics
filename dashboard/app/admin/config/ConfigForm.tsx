@@ -29,6 +29,22 @@ import {
 } from "@/components/admin/EnumSelect";
 import { OpenRouterModelCombobox } from "@/components/admin/OpenRouterModelCombobox";
 
+// Sí / No options for bool keys.
+const BOOL_OPTIONS = [
+  { value: "true", label: "Sí" },
+  { value: "false", label: "No" },
+];
+
+// `value_display` for bool keys can come back as "true"/"false"/"1"/"0"/"yes"/"no" —
+// the system loader is permissive. Normalize to the canonical "true"/"false"
+// strings the dropdown expects so an unknown value doesn't blank out the select.
+function normalizeBoolString(v: string): string {
+  const trimmed = (v ?? "").trim().toLowerCase();
+  if (trimmed === "1" || trimmed === "yes" || trimmed === "y" || trimmed === "on") return "true";
+  if (trimmed === "0" || trimmed === "no" || trimmed === "n" || trimmed === "off" || trimmed === "") return "false";
+  return trimmed === "true" ? "true" : trimmed === "false" ? "false" : "false";
+}
+
 // ---------------------------------------------------------------------------
 // Types (mirror server response shape)
 // ---------------------------------------------------------------------------
@@ -282,6 +298,13 @@ function ConfigRow({ item, onSaved, llmProvider }: ConfigRowProps) {
                   onChange={setEditValue}
                   options={CLAUDE_CLI_MODEL_OPTIONS}
                   ariaLabel="Modelo CLI de Claude Code"
+                />
+              ) : item.type === "bool" ? (
+                <EnumSelect
+                  value={normalizeBoolString(editValue)}
+                  onChange={setEditValue}
+                  options={BOOL_OPTIONS}
+                  ariaLabel={item.key}
                 />
               ) : (
                 <input

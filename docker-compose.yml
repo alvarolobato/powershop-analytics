@@ -229,7 +229,6 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
       # CONFIG_FILE pins the config path to the host-mounted /config directory.
@@ -237,12 +236,13 @@ services:
       # (inside the container) which does not exist.
       CONFIG_FILE: /config/config.yaml
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
-      # DASHBOARD_LLM_PROVIDER intentionally NOT set here — the value comes from
-      # config.yaml (D-023 precedence: env > config.yaml > default). Setting a
-      # default here would silently override the user's config.yaml choice.
-      # Set it on the host shell only if you want to override config.yaml.
-      DASHBOARD_LLM_CLI_DRIVER: ${DASHBOARD_LLM_CLI_DRIVER:-claude_code}
-      DASHBOARD_LLM_CLI_BIN: ${DASHBOARD_LLM_CLI_BIN:-claude}
+      # DASHBOARD_LLM_PROVIDER / DASHBOARD_LLM_MODEL_* / DASHBOARD_LLM_CLI_*
+      # intentionally NOT set here — the values come from config.yaml
+      # (D-023 precedence: env > config.yaml > default). Setting a default
+      # here would silently override the operator's config.yaml choice and
+      # block editing from the admin /config UI (env-sourced keys are
+      # surfaced as read-only). Set them on the host shell only if you
+      # genuinely want a hard override.
       # Claude Code CLI credentials (OAuth token). The CLI is installed inside the
       # image via npm; only the credentials need to be mounted from the host.
       # The nextjs user (uid 1001) inside the container reads from /home/nextjs/.claude/

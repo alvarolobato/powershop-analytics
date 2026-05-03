@@ -220,7 +220,8 @@
 
 - key: dashboard.llm_cli_driver
   env: DASHBOARD_LLM_CLI_DRIVER
-  type: string
+  type: enum
+  enum_values: [claude_code]
   sensitive: false
   default: "claude_code"
   section: "Dashboard LLM"
