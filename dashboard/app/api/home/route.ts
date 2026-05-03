@@ -530,19 +530,15 @@ export async function GET(req: NextRequest) {
       : [];
 
     // Build the comparison legend label from the as-of date minus 7 days
-    // (same weekday). e.g. "Mismo sábado 26 abr" — keeps the UI honest
+    // (same weekday). e.g. "Sábado anterior" — keeps the UI honest
     // about which day is plotted, instead of the previous hardcoded
     // "Mismo lunes 2025" string.
     const compDate = new Date(y, m - 1, d - 7);
     const COMP_DAYS_ES = [
-      "domingo", "lunes", "martes", "miércoles",
-      "jueves", "viernes", "sábado",
+      "Domingo", "Lunes", "Martes", "Miércoles",
+      "Jueves", "Viernes", "Sábado",
     ];
-    const COMP_MONTHS_ES = [
-      "ene", "feb", "mar", "abr", "may", "jun",
-      "jul", "ago", "sep", "oct", "nov", "dic",
-    ];
-    const comparisonLabel = `Mismo ${COMP_DAYS_ES[compDate.getDay()]} ${compDate.getDate()} ${COMP_MONTHS_ES[compDate.getMonth()]}`;
+    const comparisonLabel = `${COMP_DAYS_ES[compDate.getDay()]} anterior`;
 
     const hero: HomeViewModel["hero"] = {
       todayValue,

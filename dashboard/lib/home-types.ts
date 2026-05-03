@@ -30,7 +30,7 @@ export type HomeViewModel = {
      *  previously mislabeled in the UI. */
     hourlyComparison: number[];
     /** Human-readable label for the comparison curve, derived in the API
-     *  from `asOfDate - 7 days` (e.g. "Mismo sábado 26 abr"). */
+     *  from the weekday of `asOfDate - 7 days` (e.g. "Sábado anterior"). */
     comparisonLabel: string;
   };
   periods: Array<{

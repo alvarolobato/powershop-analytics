@@ -25,7 +25,7 @@ const BASE_HERO: HomeViewModel["hero"] = {
     1100, 5900, 10800, 16800, 22500, 28200, 33100, 35200,
     35510, 35510, 35510, 35510, 35510, 35510, 35510, 35510,
   ],
-  comparisonLabel: "Mismo lunes 27 abr",
+  comparisonLabel: "Lunes anterior",
 };
 
 describe("HeroToday", () => {
@@ -53,9 +53,9 @@ describe("HeroToday", () => {
   });
 
   it("renders the dynamic comparison legend label", () => {
-    const hero = { ...BASE_HERO, comparisonLabel: "Mismo sábado 26 abr" };
+    const hero = { ...BASE_HERO, comparisonLabel: "Sábado anterior" };
     render(<HeroToday hero={hero} asOf="sáb 03 may · 11:42" />);
-    expect(screen.getByText("Mismo sábado 26 abr")).toBeInTheDocument();
+    expect(screen.getByText("Sábado anterior")).toBeInTheDocument();
   });
 
   describe("pre-9am state (no hourly data)", () => {

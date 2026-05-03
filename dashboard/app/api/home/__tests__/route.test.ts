@@ -38,7 +38,7 @@ describe("GET /api/home", () => {
     expect(Array.isArray(hero.hourlyComparison)).toBe(true);
     expect(hero.hourlyComparison).toHaveLength(24);
     expect(typeof hero.comparisonLabel).toBe("string");
-    expect(hero.comparisonLabel.startsWith("Mismo ")).toBe(true);
+    expect(hero.comparisonLabel.endsWith(" anterior")).toBe(true);
   });
 
   it("returns 4 periods", async () => {
