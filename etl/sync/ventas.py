@@ -138,6 +138,10 @@ _VENTAS_MAPPING: dict[str, str] = {
     "tienda": "tienda",
     "fechacreacion": "fecha_creacion",
     "fechamodifica": "fecha_modifica",
+    # 4D Ventas.Hora is a Time field (DATA_TYPE 9). Brought into the
+    # mirror so the home page hero can render a real intraday curve
+    # instead of the date-only fallback.
+    "hora": "hora_creacion",
     "totalsi": "total_si",
     "total": "total",
     "numcliente": "num_cliente",
@@ -208,7 +212,7 @@ _PAGOS_NUMERIC: set[str] = {"regpagos", "numventas", "importecob"}
 
 _SQL_VENTAS_BASE = (
     "SELECT RegVentas, NDocumento, SerieV, Tienda, FechaCreacion, FechaModifica,"
-    " TotalSI, Total, NumCliente, CodigoCajero, CajeroNombre, TipoVenta,"
+    " Hora, TotalSI, Total, NumCliente, CodigoCajero, CajeroNombre, TipoVenta,"
     " TipoDocumento, Forma, Entrada, Pendiente, PedidoWeb"
     " FROM Ventas"
 )

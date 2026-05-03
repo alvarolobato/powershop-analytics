@@ -112,23 +112,29 @@ export async function GET(req: NextRequest) {
     const pivotRow = await query(
       `SELECT
          (SELECT MAX(fecha_creacion) FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99')::text AS max_avail,
+           WHERE entrada=true AND tienda<>'99')::text AS max_synced,
          (SELECT MIN(fecha_creacion) FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99')::text AS min_avail,
+           WHERE entrada=true AND tienda<>'99')::text AS min_synced,
+         (NOW() AT TIME ZONE 'Europe/Madrid')::date::text AS today_madrid,
          NOW() AS now_utc`,
     );
-    const maxAvailStr = String(pivotRow.rows[0][0] ?? "");
+    const maxSyncedStr = String(pivotRow.rows[0][0] ?? "");
     const minAvailStr = String(pivotRow.rows[0][1] ?? "");
-    const nowUtcIso = String(pivotRow.rows[0][2] ?? "");
+    const todayMadrid = String(pivotRow.rows[0][2] ?? "");
+    const nowUtcIso = String(pivotRow.rows[0][3] ?? "");
 
-    // Clamp the requested date into [min_avail, max_avail]; default to max_avail.
-    let asOfDate = maxAvailStr;
+    // Default as-of (when no ?date= supplied) is the most recent fully
+    // synced day so KPIs aren't dominated by a potentially-stale today.
+    // BUT the navigator cap (`maxAvailableDate`) goes up to today_madrid
+    // so the user can still scroll forward to days the ETL hasn't caught
+    // up with yet — those days show honest zeros instead of a stuck arrow.
+    let asOfDate = maxSyncedStr;
     if (requestedClean) {
       if (minAvailStr && requestedClean < minAvailStr) asOfDate = minAvailStr;
-      else if (maxAvailStr && requestedClean > maxAvailStr) asOfDate = maxAvailStr;
+      else if (todayMadrid && requestedClean > todayMadrid) asOfDate = todayMadrid;
       else asOfDate = requestedClean;
     }
-    const maxAvailableDate = maxAvailStr || asOfDate;
+    const maxAvailableDate = todayMadrid || maxSyncedStr || asOfDate;
 
     const [y, m, d] = asOfDate.split("-").map((s) => parseInt(s, 10));
     const asOfDateObj = new Date(y, m - 1, d);
@@ -510,9 +516,12 @@ export async function GET(req: NextRequest) {
       },
       {
         id: "anyo",
+        // For YTD the natural "previous" comparison IS year-over-year
+        // (there is no distinct previous-period concept), so deltaPrev
+        // and deltaYoY share the same value.
         label: "Año (YTD)",
         value: anyoCurr,
-        deltaPrev: 0,
+        deltaPrev: anyoLY > 0 ? safeRatio(anyoCurr, anyoLY) : 0,
         prevLabel: `vs YTD ${asOfDateObj.getFullYear() - 1}`,
         deltaYoY: anyoLY > 0 ? safeRatio(anyoCurr, anyoLY) : null,
         yoyLabel: `vs ${asOfDateObj.getFullYear() - 1} mismo tramo`,

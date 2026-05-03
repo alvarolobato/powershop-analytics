@@ -129,6 +129,7 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
       <div style={{ padding: 16 }}>
         <svg
           viewBox={`0 0 ${W} ${H}`}
+          preserveAspectRatio="none"
           style={{ width: "100%", height: 220, display: "block" }}
           role="img"
           aria-label="Tendencia de ventas diarias: mes actual vs mismo mes del año anterior"

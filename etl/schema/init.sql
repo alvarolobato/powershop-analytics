@@ -183,6 +183,10 @@ CREATE TABLE IF NOT EXISTS ps_ventas (
     tienda           TEXT,
     fecha_creacion   DATE,
     fecha_modifica   DATE,
+    -- 4D Ventas.Hora — time-of-day component, used by the home hero to
+    -- render a real intraday curve. NULL on rows synced before this
+    -- column existed; refilled on the next delta upsert per row.
+    hora_creacion    TIME,
     total_si         NUMERIC(15,2),  -- VAT-exclusive total (use for analytics)
     total            NUMERIC(15,2),  -- VAT-inclusive total (do not use for revenue)
     num_cliente      NUMERIC(20,3),
@@ -195,6 +199,10 @@ CREATE TABLE IF NOT EXISTS ps_ventas (
     pendiente        BOOLEAN,
     pedido_web       TEXT
 );
+
+-- Idempotent migration for existing deployments where ps_ventas
+-- was created before the hora_creacion column existed.
+ALTER TABLE ps_ventas ADD COLUMN IF NOT EXISTS hora_creacion TIME;
 
 CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
     reg_lineas          NUMERIC(20,3) PRIMARY KEY,
