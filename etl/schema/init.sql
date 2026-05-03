@@ -137,8 +137,19 @@ CREATE TABLE IF NOT EXISTS ps_clientes (
 CREATE TABLE IF NOT EXISTS ps_tiendas (
     reg_tienda     NUMERIC(20,3) PRIMARY KEY,
     codigo         TEXT,
+    -- 4D Tiendas.IdentificadorTienda — human-readable label shown in the
+    -- 4D POS form ("Lojas / Armazém") above the address block, e.g.
+    -- "Factory Rio Mo", "Valencia Alcantara". May be empty for some
+    -- stores; consumers fall back to poblacion, then "Tienda <codigo>".
+    identificador  TEXT,
+    poblacion      TEXT,
     fecha_modifica DATE
 );
+
+-- Idempotent migration for existing deployments where ps_tiendas was
+-- created before the identificador / poblacion columns existed.
+ALTER TABLE ps_tiendas ADD COLUMN IF NOT EXISTS identificador TEXT;
+ALTER TABLE ps_tiendas ADD COLUMN IF NOT EXISTS poblacion TEXT;
 
 CREATE TABLE IF NOT EXISTS ps_proveedores (
     reg_proveedor  NUMERIC(20,3) PRIMARY KEY,
@@ -172,6 +183,10 @@ CREATE TABLE IF NOT EXISTS ps_ventas (
     tienda           TEXT,
     fecha_creacion   DATE,
     fecha_modifica   DATE,
+    -- 4D Ventas.Hora — time-of-day component, used by the home hero to
+    -- render a real intraday curve. NULL on rows synced before this
+    -- column existed; refilled on the next delta upsert per row.
+    hora_creacion    TIME,
     total_si         NUMERIC(15,2),  -- VAT-exclusive total (use for analytics)
     total            NUMERIC(15,2),  -- VAT-inclusive total (do not use for revenue)
     num_cliente      NUMERIC(20,3),
@@ -184,6 +199,10 @@ CREATE TABLE IF NOT EXISTS ps_ventas (
     pendiente        BOOLEAN,
     pedido_web       TEXT
 );
+
+-- Idempotent migration for existing deployments where ps_ventas
+-- was created before the hora_creacion column existed.
+ALTER TABLE ps_ventas ADD COLUMN IF NOT EXISTS hora_creacion TIME;
 
 CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
     reg_lineas          NUMERIC(20,3) PRIMARY KEY,
@@ -781,10 +800,18 @@ CREATE INDEX IF NOT EXISTS idx_lv_num_ventas   ON ps_lineas_ventas(num_ventas);
 CREATE INDEX IF NOT EXISTS idx_pv_num_ventas   ON ps_pagos_ventas(num_ventas);
 CREATE INDEX IF NOT EXISTS idx_lv_codigo       ON ps_lineas_ventas(codigo);
 
--- Date indexes (delta queries, time filters)
-CREATE INDEX IF NOT EXISTS idx_ventas_fecha_mod ON ps_ventas(fecha_modifica);
-CREATE INDEX IF NOT EXISTS idx_lv_fecha_mod     ON ps_lineas_ventas(fecha_modifica);
-CREATE INDEX IF NOT EXISTS idx_lv_mes           ON ps_lineas_ventas(mes);
+-- Date indexes (delta queries, time filters).
+-- fecha_modifica drives the ETL delta `WHERE FechaModifica > since`.
+-- fecha_creacion drives every dashboard query that filters on the
+-- business day (hero, periods, daily trend, top-stores, ops). Without
+-- the fecha_creacion index, /api/home falls back to ~22 parallel seq
+-- scans of ~924k rows each (~12 s wall time). With it, the same page
+-- responds in ~0.9 s.
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha_mod      ON ps_ventas(fecha_modifica);
+CREATE INDEX IF NOT EXISTS idx_lv_fecha_mod          ON ps_lineas_ventas(fecha_modifica);
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha_creacion ON ps_ventas(fecha_creacion);
+CREATE INDEX IF NOT EXISTS idx_lv_fecha_creacion     ON ps_lineas_ventas(fecha_creacion);
+CREATE INDEX IF NOT EXISTS idx_lv_mes                ON ps_lineas_ventas(mes);
 
 -- Store indexes (per-store analytics)
 CREATE INDEX IF NOT EXISTS idx_ventas_tienda ON ps_ventas(tienda);

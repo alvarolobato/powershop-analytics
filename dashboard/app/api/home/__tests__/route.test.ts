@@ -35,8 +35,10 @@ describe("GET /api/home", () => {
     expect(["on-pace", "below", "above"]).toContain(hero.status);
     expect(Array.isArray(hero.hourly)).toBe(true);
     expect(hero.hourly).toHaveLength(24);
-    expect(Array.isArray(hero.hourlyYesterday)).toBe(true);
-    expect(hero.hourlyYesterday).toHaveLength(24);
+    expect(Array.isArray(hero.hourlyComparison)).toBe(true);
+    expect(hero.hourlyComparison).toHaveLength(24);
+    expect(typeof hero.comparisonLabel).toBe("string");
+    expect(hero.comparisonLabel.endsWith(" anterior")).toBe(true);
   });
 
   it("returns 4 periods", async () => {

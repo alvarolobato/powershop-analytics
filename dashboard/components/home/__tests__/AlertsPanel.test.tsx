@@ -3,9 +3,9 @@ import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { AlertsPanel } from "../AlertsPanel";
-import type { HomeViewModel } from "@/lib/home-types";
+import type { HomeAlert } from "@/lib/home-types";
 
-const ALERTS: HomeViewModel["alerts"] = [
+const ALERTS: HomeAlert[] = [
   { sev: "crit", store: "97 — Toledo Centro",       reason: "0€ ventas hoy · ayer 1.245€", expected: "Lun-Vie operativa", since: "hace 4h",   action: "Llamar tienda" },
   { sev: "crit", store: "804 — Outlet San Fernando", reason: "0€ ventas hoy · ayer 1.890€", expected: "L-D operativa",    since: "hace 4h",   action: "Llamar tienda" },
   { sev: "warn", store: "601 — Zaragoza Independ.",  reason: "Ventas −14,2% · margen 27,8%", expected: "Media red 61%",  since: "3 días",     action: "Revisar descuentos" },

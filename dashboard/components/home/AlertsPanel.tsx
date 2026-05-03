@@ -1,12 +1,12 @@
 "use client";
 
-import type { HomeViewModel } from "@/lib/home-types";
+import type { HomeAlert } from "@/lib/home-types";
 import { SectionHeader } from "./SectionHeader";
 
-type Alert = HomeViewModel["alerts"][number];
+type Alert = HomeAlert;
 
 interface AlertsPanelProps {
-  alerts: HomeViewModel["alerts"];
+  alerts: HomeAlert[];
   /** "revisado hace N min" label */
   reviewedAgo?: string;
 }
