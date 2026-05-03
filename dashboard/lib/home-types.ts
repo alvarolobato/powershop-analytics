@@ -23,7 +23,15 @@ export type HomeViewModel = {
     lastYear: number; // EUR
     status: "on-pace" | "below" | "above";
     hourly: (number | null)[]; // [] when mirror has no time-of-day data
-    hourlyYesterday: number[];
+    /** Cumulative-by-hour curve for the **same weekday one week earlier**
+     *  (e.g. as-of Saturday → previous Saturday). Weekday-aligned so the
+     *  comparison is meaningful for retail patterns; calendar-date-based
+     *  comparisons (T-1 day, T-1 year) cross weekday boundaries and were
+     *  previously mislabeled in the UI. */
+    hourlyComparison: number[];
+    /** Human-readable label for the comparison curve, derived in the API
+     *  from `asOfDate - 7 days` (e.g. "Mismo sábado 26 abr"). */
+    comparisonLabel: string;
   };
   periods: Array<{
     id: "hoy" | "semana" | "mes" | "anyo";

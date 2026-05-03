@@ -16,7 +16,7 @@
  *
  * Limitations:
  * - ps_ventas has only date granularity (no time-of-day), so the hero's
- *   `hourly` / `hourlyYesterday` arrays are returned empty. HeroToday
+ *   `hourly` / `hourlyComparison` arrays are returned empty. HeroToday
  *   detects this and renders a daily-resolution layout instead.
  * - The "store name" comes from the new `ps_tiendas.identificador` field
  *   (4D `Tiendas.IdentificadorTienda`). When empty, we fall back to
@@ -160,7 +160,7 @@ export async function GET(req: NextRequest) {
     const [
       heroRow,
       hourlyTodayRow,
-      hourlyYesterdayRow,
+      hourlyComparisonRow,
       periodHoyRow,
       periodSemanaRow,
       periodMesRow,
@@ -218,7 +218,11 @@ export async function GET(req: NextRequest) {
         [asOfDate],
       ),
 
-      // Hero hourly cumulative for the day before the as-of day.
+      // Hero hourly cumulative for the **same weekday one week before**
+      // the as-of day. Weekday-aligned comparison: as-of Saturday →
+      // previous Saturday, not yesterday (which would be Friday). The UI
+      // legend label is derived from `asOfDate - 7 days` so it stays
+      // honest about which day is being compared.
       query(
         `WITH hours AS (
            SELECT generate_series(0, 23) AS h
@@ -228,7 +232,7 @@ export async function GET(req: NextRequest) {
                   SUM(total_si)::numeric AS s
            FROM ps_ventas
            WHERE entrada = true AND tienda <> '99'
-             AND fecha_creacion = ($1::date - INTERVAL '1 day')::date
+             AND fecha_creacion = ($1::date - INTERVAL '7 days')::date
              AND hora_creacion IS NOT NULL
            GROUP BY EXTRACT(HOUR FROM hora_creacion)
          )
@@ -498,8 +502,8 @@ export async function GET(req: NextRequest) {
     // back to its "Sin granularidad horaria" pane.
     const todayHasHourly = hourlyTodayRow.rows.length > 0
       && (hourlyTodayRow.rows[0][2] === true || hourlyTodayRow.rows[0][2] === "t");
-    const yesterdayHasHourly = hourlyYesterdayRow.rows.length > 0
-      && (hourlyYesterdayRow.rows[0][2] === true || hourlyYesterdayRow.rows[0][2] === "t");
+    const comparisonHasHourly = hourlyComparisonRow.rows.length > 0
+      && (hourlyComparisonRow.rows[0][2] === true || hourlyComparisonRow.rows[0][2] === "t");
 
     // For the as-of day mask hours after the current hour as `null` when
     // the as-of date IS today_madrid (the day is still in progress).
@@ -521,9 +525,24 @@ export async function GET(req: NextRequest) {
         })
       : [];
 
-    const hourlyYesterdayArr: number[] = yesterdayHasHourly
-      ? hourlyYesterdayRow.rows.map((r) => num(r[1]))
+    const hourlyComparisonArr: number[] = comparisonHasHourly
+      ? hourlyComparisonRow.rows.map((r) => num(r[1]))
       : [];
+
+    // Build the comparison legend label from the as-of date minus 7 days
+    // (same weekday). e.g. "Mismo sábado 26 abr" — keeps the UI honest
+    // about which day is plotted, instead of the previous hardcoded
+    // "Mismo lunes 2025" string.
+    const compDate = new Date(y, m - 1, d - 7);
+    const COMP_DAYS_ES = [
+      "domingo", "lunes", "martes", "miércoles",
+      "jueves", "viernes", "sábado",
+    ];
+    const COMP_MONTHS_ES = [
+      "ene", "feb", "mar", "abr", "may", "jun",
+      "jul", "ago", "sep", "oct", "nov", "dic",
+    ];
+    const comparisonLabel = `Mismo ${COMP_DAYS_ES[compDate.getDay()]} ${compDate.getDate()} ${COMP_MONTHS_ES[compDate.getMonth()]}`;
 
     const hero: HomeViewModel["hero"] = {
       todayValue,
@@ -535,7 +554,8 @@ export async function GET(req: NextRequest) {
       lastYear,
       status: "on-pace",
       hourly: hourlyToday,
-      hourlyYesterday: hourlyYesterdayArr,
+      hourlyComparison: hourlyComparisonArr,
+      comparisonLabel,
     };
 
     // ─────────────────────────────────────────────────────────────────────

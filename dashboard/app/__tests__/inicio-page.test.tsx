@@ -53,7 +53,8 @@ const MOCK_DATA: HomeViewModel = {
     status: "on-pace",
     // Empty arrays — mirror has only date granularity (no time-of-day).
     hourly: [],
-    hourlyYesterday: [],
+    hourlyComparison: [],
+    comparisonLabel: "Mismo lunes 28 abr",
   },
   periods: [
     { id: "hoy",    label: "Hoy",       value: 38420,   deltaPrev: 0.082,  prevLabel: "vs ayer",    deltaYoY: -0.114, yoyLabel: "vs lun 5 may 2025", spark: [1, 2, 3], sparkLabels: ["a"] },

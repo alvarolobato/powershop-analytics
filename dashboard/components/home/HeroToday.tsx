@@ -39,10 +39,10 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
   const padT = 8;
   const padB = 18;
 
-  const allYesterday = hero.hourlyYesterday.filter((v) => typeof v === "number" && v > 0);
+  const allComparison = hero.hourlyComparison.filter((v) => typeof v === "number" && v > 0);
   const maxVal =
     Math.max(
-      ...(allYesterday.length > 0 ? allYesterday : [0]),
+      ...(allComparison.length > 0 ? allComparison : [0]),
       ...hero.hourly.filter((v): v is number => v !== null),
       hero.forecastEOD > 0 ? hero.forecastEOD : 0
     ) * 1.1 || 1;
@@ -51,8 +51,8 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
   const yForVal = (val: number) =>
     padT + (1 - val / maxVal) * (H - padT - padB);
 
-  // Last-year line
-  const lyPts: [number, number][] = hero.hourlyYesterday.map((v, i) => [
+  // Comparison line (same weekday last week — see hero.comparisonLabel)
+  const lyPts: [number, number][] = hero.hourlyComparison.map((v, i) => [
     xForHour(i),
     yForVal(v),
   ]);
@@ -322,7 +322,7 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
             <LegendItem
               lineStyle="dashed"
               color="var(--accent-2)"
-              label="Mismo lunes 2025"
+              label={hero.comparisonLabel}
             />
             <LegendItem
               lineStyle="dotted"
