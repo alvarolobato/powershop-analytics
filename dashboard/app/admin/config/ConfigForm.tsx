@@ -22,6 +22,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import SecretField from "@/components/SecretField";
+import { EnumSelect, PROVIDER_OPTIONS } from "@/components/admin/EnumSelect";
+import { OpenRouterModelCombobox } from "@/components/admin/OpenRouterModelCombobox";
 
 // ---------------------------------------------------------------------------
 // Types (mirror server response shape)
@@ -33,6 +35,7 @@ interface ConfigKey {
   section: string;
   description: string;
   type: "string" | "int" | "bool" | "enum";
+  enum_values?: string[];
   sensitive: boolean;
   source: "env" | "file" | "default";
   requires_restart: string[];
@@ -234,6 +237,25 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
                   revealed={editValue}
                   onChange={setEditValue}
                   placeholder="Introduce el valor..."
+                />
+              ) : item.key === "dashboard.llm_provider" ? (
+                <EnumSelect
+                  value={editValue}
+                  onChange={setEditValue}
+                  options={PROVIDER_OPTIONS}
+                  ariaLabel="Proveedor LLM"
+                />
+              ) : item.type === "enum" && item.enum_values && item.enum_values.length > 0 ? (
+                <EnumSelect
+                  value={editValue}
+                  onChange={setEditValue}
+                  options={item.enum_values.map((v) => ({ value: v, label: v }))}
+                  ariaLabel={item.key}
+                />
+              ) : item.key === "dashboard.llm_model_openrouter" ? (
+                <OpenRouterModelCombobox
+                  value={editValue}
+                  onChange={setEditValue}
                 />
               ) : (
                 <input

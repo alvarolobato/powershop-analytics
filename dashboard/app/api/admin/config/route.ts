@@ -47,6 +47,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     section: cv.section,
     description: cv.description,
     type: cv.type,
+    enum_values: cv.enum_values,
     sensitive: cv.sensitive,
     source: cv.source,
     requires_restart: cv.requires_restart,
