@@ -48,3 +48,19 @@ export const PROVIDER_OPTIONS: EnumSelectOption[] = [
   { value: "cli", label: "Claude Code CLI (host claude binary)" },
   { value: "openrouter", label: "OpenRouter (API HTTP)" },
 ];
+
+/** Curated list of native Claude model ids accepted by `claude --model`.
+ *  This is hand-maintained because the CLI doesn't expose a catalog API
+ *  the way OpenRouter does. Order = newest first within each tier so the
+ *  default open-state shows the most relevant model.
+ *
+ *  When new Claude models ship, append them here (and bump the default
+ *  in config/schema.yaml if appropriate). Stale ids are harmless — they
+ *  just won't appear in the dropdown until they're added. */
+export const CLAUDE_CLI_MODEL_OPTIONS: EnumSelectOption[] = [
+  { value: "claude-opus-4-7", label: "Opus 4.7 (último, máxima capacidad)" },
+  { value: "claude-opus-4-6", label: "Opus 4.6" },
+  { value: "claude-sonnet-4-6", label: "Sonnet 4.6 (recomendado por defecto)" },
+  { value: "claude-sonnet-4-5", label: "Sonnet 4.5" },
+  { value: "claude-haiku-4-5-20251001", label: "Haiku 4.5 (rápido y barato)" },
+];
