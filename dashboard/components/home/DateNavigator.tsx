@@ -1,11 +1,14 @@
 "use client";
 
+import { useRef } from "react";
+
 interface DateNavigatorProps {
   /** ISO YYYY-MM-DD string of the currently selected date. */
   value: string;
   onChange: (next: string) => void;
   /** Disable the next-day arrow when we're already on the most recent
-   *  available date. The hint label still shows the as-of-day clamp. */
+   *  available date. Days the ETL hasn't reached yet show honest zeros,
+   *  so callers typically pass `today_madrid`. */
   maxDate?: string;
 }
 
@@ -61,10 +64,11 @@ const labelBtn: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: 8,
-  position: "relative",
 };
 
 export function DateNavigator({ value, onChange, maxDate }: DateNavigatorProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const shift = (days: number) => {
     const d = parseISO(value);
     d.setDate(d.getDate() + days);
@@ -74,6 +78,28 @@ export function DateNavigator({ value, onChange, maxDate }: DateNavigatorProps) 
   };
 
   const atMax = !!maxDate && value >= maxDate;
+
+  // Open the browser-native calendar. On Chrome ≥ 99 / Edge / Safari ≥ 16.4
+  // we use input.showPicker() which opens the calendar on demand. On
+  // older browsers we fall back to focusing the input — the browser's
+  // own UA logic decides whether to open the calendar from focus.
+  const openCalendar = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    type WithShowPicker = HTMLInputElement & { showPicker?: () => void };
+    const withPicker = el as WithShowPicker;
+    if (typeof withPicker.showPicker === "function") {
+      try {
+        withPicker.showPicker();
+        return;
+      } catch {
+        // showPicker can throw when the element is not in DOM or the
+        // browser refuses to open it — fall through to focus.
+      }
+    }
+    el.focus();
+    el.click();
+  };
 
   return (
     <div
@@ -90,14 +116,26 @@ export function DateNavigator({ value, onChange, maxDate }: DateNavigatorProps) 
         ‹
       </button>
 
-      {/* The label is also a real <input type="date">; the calendar UI is
-          the browser-native picker. The label sits on top of the input so
-          the visible text is the formatted Spanish date while the input
-          handles keyboard / picker interactions. */}
-      <label style={labelBtn} data-testid="date-label">
-        <span style={{ fontFamily: "var(--font-jetbrains, monospace)" }}>📅</span>
+      {/* Visible button shows the localized date and triggers the native
+          calendar via showPicker(). The real <input type="date"> sits in
+          a 0×0 wrapper next to it: it owns the value + change events but
+          doesn't take any layout space, so click reliability comes from
+          the explicit showPicker() call above. */}
+      <button
+        type="button"
+        style={labelBtn}
+        onClick={openCalendar}
+        aria-label="Elegir fecha"
+        data-testid="date-label"
+      >
+        <span style={{ fontFamily: "var(--font-jetbrains, monospace)" }} aria-hidden="true">
+          📅
+        </span>
         <span>{fmtDateEs(value)}</span>
+      </button>
+      <span style={{ width: 0, height: 0, overflow: "hidden", display: "inline-block" }}>
         <input
+          ref={inputRef}
           type="date"
           value={value}
           max={maxDate}
@@ -106,16 +144,24 @@ export function DateNavigator({ value, onChange, maxDate }: DateNavigatorProps) 
             if (v) onChange(v);
           }}
           style={{
-            position: "absolute",
-            inset: 0,
+            // The input must remain a real focusable element for
+            // showPicker() to be allowed by the browser, but we don't
+            // want it to take any visible space. Width 0 + a small
+            // height + opacity 0 keeps it accessible without affecting
+            // layout.
+            width: 0,
+            height: 1,
             opacity: 0,
-            cursor: "pointer",
-            fontFamily: "inherit",
+            border: "none",
+            padding: 0,
+            margin: 0,
+            background: "transparent",
           }}
-          aria-label="Elegir fecha"
+          aria-hidden="true"
+          tabIndex={-1}
           data-testid="date-input"
         />
-      </label>
+      </span>
 
       <button
         type="button"

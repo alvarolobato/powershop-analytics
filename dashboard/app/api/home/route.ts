@@ -159,6 +159,8 @@ export async function GET(req: NextRequest) {
     // ─────────────────────────────────────────────────────────────────────
     const [
       heroRow,
+      hourlyTodayRow,
+      hourlyYesterdayRow,
       periodHoyRow,
       periodSemanaRow,
       periodMesRow,
@@ -185,6 +187,56 @@ export async function GET(req: NextRequest) {
          FROM ps_ventas
          WHERE entrada = true AND tienda <> '99'
            AND fecha_creacion BETWEEN ($1::date - INTERVAL '1 year' - INTERVAL '7 days')::date AND $1::date`,
+        [asOfDate],
+      ),
+
+      // Hero hourly (cumulative through hour) for the as-of day. NULL
+      // values for hours that have no rows AND no preceding rows. Once
+      // ps_ventas.hora_creacion is fully backfilled, this drives the
+      // intraday curve in HeroToday. When hora_creacion is NULL on every
+      // row (pre-backfill), the cumulative is 0 across all hours and the
+      // route falls back to empty arrays so the hero shows the
+      // "Sin granularidad horaria" panel.
+      query(
+        `WITH hours AS (
+           SELECT generate_series(0, 23) AS h
+         ),
+         per_hour AS (
+           SELECT EXTRACT(HOUR FROM hora_creacion)::int AS h,
+                  SUM(total_si)::numeric AS s
+           FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion = $1::date
+             AND hora_creacion IS NOT NULL
+           GROUP BY EXTRACT(HOUR FROM hora_creacion)
+         )
+         SELECT h.h,
+                COALESCE(SUM(p.s) OVER (ORDER BY h.h), 0)::numeric AS cumul,
+                EXISTS (SELECT 1 FROM per_hour) AS has_data
+         FROM hours h LEFT JOIN per_hour p ON p.h = h.h
+         ORDER BY h.h`,
+        [asOfDate],
+      ),
+
+      // Hero hourly cumulative for the day before the as-of day.
+      query(
+        `WITH hours AS (
+           SELECT generate_series(0, 23) AS h
+         ),
+         per_hour AS (
+           SELECT EXTRACT(HOUR FROM hora_creacion)::int AS h,
+                  SUM(total_si)::numeric AS s
+           FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion = ($1::date - INTERVAL '1 day')::date
+             AND hora_creacion IS NOT NULL
+           GROUP BY EXTRACT(HOUR FROM hora_creacion)
+         )
+         SELECT h.h,
+                COALESCE(SUM(p.s) OVER (ORDER BY h.h), 0)::numeric AS cumul,
+                EXISTS (SELECT 1 FROM per_hour) AS has_data
+         FROM hours h LEFT JOIN per_hour p ON p.h = h.h
+         ORDER BY h.h`,
         [asOfDate],
       ),
 
@@ -440,17 +492,50 @@ export async function GET(req: NextRequest) {
     const yesterday = num(heroRow.rows[0][1]);
     const lastYear = num(heroRow.rows[0][2]);
 
+    // Build hourly cumulative arrays from the per-hour query. When the
+    // mirror has no time-of-day data for either day (rows where
+    // hora_creacion IS NULL), we return empty arrays so HeroToday falls
+    // back to its "Sin granularidad horaria" pane.
+    const todayHasHourly = hourlyTodayRow.rows.length > 0
+      && (hourlyTodayRow.rows[0][2] === true || hourlyTodayRow.rows[0][2] === "t");
+    const yesterdayHasHourly = hourlyYesterdayRow.rows.length > 0
+      && (hourlyYesterdayRow.rows[0][2] === true || hourlyYesterdayRow.rows[0][2] === "t");
+
+    // For the as-of day mask hours after the current hour as `null` when
+    // the as-of date IS today_madrid (the day is still in progress).
+    // For past days, every hour is in the past, so no masking.
+    const isAsOfToday = asOfDate === todayMadrid;
+    const madridHourFmt = new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid",
+      hour: "2-digit",
+      hour12: false,
+    });
+    const currentHourMadrid = parseInt(madridHourFmt.format(new Date(nowUtcIso)), 10);
+
+    const hourlyToday: (number | null)[] = todayHasHourly
+      ? hourlyTodayRow.rows.map((r) => {
+          const h = num(r[0]);
+          const cumul = num(r[1]);
+          if (isAsOfToday && h > currentHourMadrid) return null;
+          return cumul;
+        })
+      : [];
+
+    const hourlyYesterdayArr: number[] = yesterdayHasHourly
+      ? hourlyYesterdayRow.rows.map((r) => num(r[1]))
+      : [];
+
     const hero: HomeViewModel["hero"] = {
       todayValue,
-      forecastEOD: todayValue, // no projection model: as-of is a closed business day
+      forecastEOD: todayValue,
       todayPace: 0,
       vsYesterday: safeRatio(todayValue, yesterday),
       vsLY: safeRatio(todayValue, lastYear),
       yesterday,
       lastYear,
       status: "on-pace",
-      hourly: [], // ps_ventas has no time-of-day component
-      hourlyYesterday: [],
+      hourly: hourlyToday,
+      hourlyYesterday: hourlyYesterdayArr,
     };
 
     // ─────────────────────────────────────────────────────────────────────
