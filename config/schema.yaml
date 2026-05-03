@@ -158,23 +158,13 @@
   requires_restart: []
   components: [dashboard]
 
-- key: dashboard.llm_model
-  env: DASHBOARD_LLM_MODEL
-  type: string
-  sensitive: false
-  default: "anthropic/claude-sonnet-4"
-  section: "Dashboard LLM"
-  description: "Modelo LLM por defecto para el dashboard (aplicado a ambos proveedores si no hay override específico)."
-  requires_restart: []
-  components: [dashboard]
-
 - key: dashboard.llm_model_openrouter
   env: DASHBOARD_LLM_MODEL_OPENROUTER
   type: string
   sensitive: false
   default: null
   section: "Dashboard LLM"
-  description: "Modelo OpenRouter por defecto del dashboard (anula dashboard.llm_model). Cualquier ajuste por flujo (generate / modify / analyze / weekly) tiene prioridad sobre este valor."
+  description: "Modelo OpenRouter por defecto del dashboard. Cualquier ajuste por flujo (generate / modify / analyze / weekly) tiene prioridad sobre este valor."
   requires_restart: []
   components: [dashboard]
 
@@ -224,7 +214,7 @@
   sensitive: false
   default: "claude-sonnet-4-6"
   section: "Dashboard LLM"
-  description: "Modelo CLI específico para el dashboard (anula dashboard.llm_model). Usa IDs nativos de Claude (p.ej. claude-sonnet-4-6), no formato OpenRouter."
+  description: "Modelo CLI nativo de Claude (p.ej. claude-sonnet-4-6). No usa formato OpenRouter."
   requires_restart: []
   components: [dashboard]
 

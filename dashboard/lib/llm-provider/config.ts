@@ -55,6 +55,7 @@ let _cached: DashboardLlmConfig | null = null;
  */
 export function resetDashboardLlmConfigCache(): void {
   _cached = null;
+  _legacyEnvWarned = false;
   resetConfigCache();
 }
 
@@ -63,19 +64,39 @@ export function resetDashboardLlmConfigCache(): void {
  *
  * Precedence (inherited from getSystemConfig): env > config.yaml > schema defaults.
  *
- * Precedence for models:
+ * Model resolution:
  * - OpenRouter: per-flow override (llm_model_openrouter_<flow>)
  *               → dashboard.llm_model_openrouter
- *               → dashboard.llm_model (legacy)
- *               → default
- *   The per-flow value is captured raw so callers can decide whether to
- *   apply the override; the resolver `getEffectiveDashboardModel(cfg, flow)`
- *   handles the cascade.
- * - CLI: dashboard.llm_model_cli → dashboard.llm_model (legacy) → default
+ *               → DASHBOARD_LLM_MODEL env var (deprecated)
+ *               → hard-coded default
+ * - CLI: dashboard.llm_model_cli
+ *               → DASHBOARD_LLM_MODEL env var (deprecated, only when value
+ *                 is in native Claude format — has no slash)
+ *               → hard-coded default
+ *
+ * `dashboard.llm_model` was removed from the schema in favour of explicit
+ * per-provider keys. The env var `DASHBOARD_LLM_MODEL` is still read once
+ * as a transition fallback so existing deployments don't break, with a
+ * one-time deprecation warning. New configs should set
+ * `dashboard.llm_model_openrouter` and/or `dashboard.llm_model_cli`.
  */
 function readStr(cfg: ReturnType<typeof getSystemConfig>, key: string): string {
   const v = cfg[key]?.value;
   return v !== null && v !== undefined ? String(v).trim() : "";
+}
+
+let _legacyEnvWarned = false;
+function readLegacyEnvFallback(): string {
+  const raw = (process.env.DASHBOARD_LLM_MODEL ?? "").trim();
+  if (raw && !_legacyEnvWarned) {
+    _legacyEnvWarned = true;
+    console.warn(
+      "[dashboard/llm] DASHBOARD_LLM_MODEL is deprecated; set " +
+        "DASHBOARD_LLM_MODEL_OPENROUTER and/or DASHBOARD_LLM_MODEL_CLI " +
+        "explicitly. Falling back to the legacy env var for now.",
+    );
+  }
+  return raw;
 }
 
 export function loadDashboardLlmConfig(): DashboardLlmConfig {
@@ -86,10 +107,16 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
   const providerRaw = cfg["dashboard.llm_provider"]?.value;
   const provider = normalizeProvider(providerRaw !== null ? String(providerRaw ?? "") : undefined);
 
-  const legacyModelStr = readStr(cfg, "dashboard.llm_model");
+  const legacyEnv = readLegacyEnvFallback();
+  // The legacy env value can be either an OpenRouter id ("vendor/name") or
+  // a native Claude id ("claude-sonnet-4-6"). Apply it only to the
+  // matching provider so a stale OpenRouter value doesn't leak into the
+  // CLI driver as an unknown `--model` flag.
+  const legacyForOpenRouter = legacyEnv.includes("/") ? legacyEnv : "";
+  const legacyForCli = legacyEnv && !legacyEnv.includes("/") ? legacyEnv : "";
 
   const openrouterModel =
-    readStr(cfg, "dashboard.llm_model_openrouter") || legacyModelStr || DEFAULT_MODEL;
+    readStr(cfg, "dashboard.llm_model_openrouter") || legacyForOpenRouter || DEFAULT_MODEL;
 
   // Per-flow OpenRouter overrides. Empty string means "no override" — the
   // resolver will fall back to openrouterModel.
@@ -100,7 +127,8 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
     weekly: readStr(cfg, "dashboard.llm_model_openrouter_weekly"),
   };
 
-  const cliModel = readStr(cfg, "dashboard.llm_model_cli") || legacyModelStr || DEFAULT_MODEL;
+  const cliModel =
+    readStr(cfg, "dashboard.llm_model_cli") || legacyForCli || "claude-sonnet-4-6";
 
   const cliDriverRaw = cfg["dashboard.llm_cli_driver"]?.value;
   const cliDriver: DashboardCliDriverId =
