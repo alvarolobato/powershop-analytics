@@ -800,10 +800,18 @@ CREATE INDEX IF NOT EXISTS idx_lv_num_ventas   ON ps_lineas_ventas(num_ventas);
 CREATE INDEX IF NOT EXISTS idx_pv_num_ventas   ON ps_pagos_ventas(num_ventas);
 CREATE INDEX IF NOT EXISTS idx_lv_codigo       ON ps_lineas_ventas(codigo);
 
--- Date indexes (delta queries, time filters)
-CREATE INDEX IF NOT EXISTS idx_ventas_fecha_mod ON ps_ventas(fecha_modifica);
-CREATE INDEX IF NOT EXISTS idx_lv_fecha_mod     ON ps_lineas_ventas(fecha_modifica);
-CREATE INDEX IF NOT EXISTS idx_lv_mes           ON ps_lineas_ventas(mes);
+-- Date indexes (delta queries, time filters).
+-- fecha_modifica drives the ETL delta `WHERE FechaModifica > since`.
+-- fecha_creacion drives every dashboard query that filters on the
+-- business day (hero, periods, daily trend, top-stores, ops). Without
+-- the fecha_creacion index, /api/home falls back to ~22 parallel seq
+-- scans of ~924k rows each (~12 s wall time). With it, the same page
+-- responds in ~0.9 s.
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha_mod      ON ps_ventas(fecha_modifica);
+CREATE INDEX IF NOT EXISTS idx_lv_fecha_mod          ON ps_lineas_ventas(fecha_modifica);
+CREATE INDEX IF NOT EXISTS idx_ventas_fecha_creacion ON ps_ventas(fecha_creacion);
+CREATE INDEX IF NOT EXISTS idx_lv_fecha_creacion     ON ps_lineas_ventas(fecha_creacion);
+CREATE INDEX IF NOT EXISTS idx_lv_mes                ON ps_lineas_ventas(mes);
 
 -- Store indexes (per-store analytics)
 CREATE INDEX IF NOT EXISTS idx_ventas_tienda ON ps_ventas(tienda);
