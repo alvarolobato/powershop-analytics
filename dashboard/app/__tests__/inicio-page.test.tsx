@@ -10,9 +10,10 @@ import type { HomeViewModel } from "@/lib/home-types";
 // ---------------------------------------------------------------------------
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useParams: () => ({}),
   usePathname: () => "/inicio",
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock("next/link", () => ({
@@ -39,17 +40,20 @@ vi.mock("next/link", () => ({
 
 const MOCK_DATA: HomeViewModel = {
   asOf: "lun 04 may · 11:42",
+  asOfDate: "2026-05-04",
+  maxAvailableDate: "2026-05-04",
   hero: {
     todayValue: 38420,
-    forecastEOD: 39800,
-    todayPace: 0.062,
+    forecastEOD: 38420,
+    todayPace: 0,
     vsYesterday: 0.082,
     vsLY: -0.114,
     yesterday: 35510,
     lastYear: 43370,
     status: "on-pace",
-    hourly: [null, null, null, null, null, null, null, null, 1200, 6500, 12200, 18420, null, null, null, null, null, null, null, null, null, null, null, null],
-    hourlyYesterday: [0, 0, 0, 0, 0, 0, 0, 0, 1100, 5900, 10800, 16800, 22500, 28200, 33100, 35200, 35510, 35510, 35510, 35510, 35510, 35510, 35510, 35510],
+    // Empty arrays — mirror has only date granularity (no time-of-day).
+    hourly: [],
+    hourlyYesterday: [],
   },
   periods: [
     { id: "hoy",    label: "Hoy",       value: 38420,   deltaPrev: 0.082,  prevLabel: "vs ayer",    deltaYoY: -0.114, yoyLabel: "vs lun 5 may 2025", spark: [1, 2, 3], sparkLabels: ["a"] },
@@ -59,25 +63,12 @@ const MOCK_DATA: HomeViewModel = {
   ],
   dailyTrend: [{ day: 1, actual: 8000, ly: 8500 }, { day: 2, actual: null, ly: 9000 }],
   topStores: [
-    { code: "611", name: "Madrid Serrano", sales: 4920, delta: 0.082, spark: [1, 2, 3], status: "ok" },
-    { code: "622", name: "Barcelona Diagonal", sales: 4180, delta: 0.041, spark: [1, 2, 3], status: "ok" },
-    { code: "608", name: "Valencia Colón", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "ok" },
-    { code: "637", name: "Sevilla Nervión", sales: 3740, delta: 0.024, spark: [1, 2, 3], status: "ok" },
-    { code: "606", name: "Bilbao Gran Vía", sales: 3210, delta: -0.064, spark: [1, 2, 3], status: "watch" },
-    { code: "612", name: "Málaga Larios", sales: 3080, delta: 0.018, spark: [1, 2, 3], status: "ok" },
-    { code: "601", name: "Zaragoza Independ.", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert" },
-    { code: "645", name: "A Coruña Real", sales: 2680, delta: 0.012, spark: [1, 2, 3], status: "ok" },
-    { code: "157", name: "Granada Recogidas", sales: 2540, delta: -0.034, spark: [1, 2, 3], status: "ok" },
-    { code: "632", name: "Murcia Trapería", sales: 2410, delta: 0.052, spark: [1, 2, 3], status: "ok" },
-  ],
-  alerts: [
-    { sev: "crit", store: "97 — Toledo Centro", reason: "0€ ventas hoy", expected: "Lun-Vie", since: "hace 4h", action: "Llamar tienda" },
+    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, spark: [1, 2, 3], status: "ok" },
+    { code: "608", name: "Montijo", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "ok" },
+    { code: "601", name: "Badajoz", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert" },
   ],
   opsRetail: [
-    { id: "ticket", label: "Ticket medio", value: 26.55, format: "eur2", delta: 0.138 },
-  ],
-  opsWholesale: [
-    { id: "fact", label: "Facturación", value: 84200, format: "eur", delta: 0.041 },
+    { id: "ticket", label: "Ticket medio", value: 26.55, format: "eur2", delta: 0 },
   ],
   health: { syncAge: "12 min", lastEtl: "11:30 · OK", anomalies: 2, rows: 1842600 },
 };
@@ -147,12 +138,31 @@ describe("InicioPage", () => {
     });
   });
 
-  it("renders alerts panel after data loads", async () => {
+  it("does NOT render the alerts panel (removed in retail-only redesign)", async () => {
     globalThis.fetch = mockFetch(MOCK_DATA);
     render(<InicioPage />);
     await waitFor(() => {
-      expect(screen.getByTestId("alerts-panel")).toBeInTheDocument();
+      expect(screen.getByTestId("daily-trend-chart")).toBeInTheDocument();
     });
+    expect(screen.queryByTestId("alerts-panel")).not.toBeInTheDocument();
+  });
+
+  it("does NOT render the wholesale operations row", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("operations-row-retail")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("operations-row-mayorista")).not.toBeInTheDocument();
+  });
+
+  it("renders the date navigator with the as-of date", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("date-navigator")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("date-input")).toHaveValue("2026-05-04");
   });
 
   it("renders daily trend chart after data loads", async () => {

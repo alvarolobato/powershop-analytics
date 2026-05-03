@@ -169,15 +169,23 @@ def sync_clientes(conn_4d, conn_pg) -> int:
 # ---------------------------------------------------------------------------
 
 # Minimum required columns for ps_tiendas (init.sql).
+# IdentificadorTienda is the human-readable store label shown in the 4D POS
+# form above the address block (e.g. "Factory Rio Mo", "Valencia Alcantara").
+# It may be empty; downstream consumers fall back to Poblacion, then the
+# raw store Codigo.
 _TIENDAS_MAP: dict[str, str] = {
     "regtienda": "reg_tienda",
     "codigo": "codigo",
+    "identificadortienda": "identificador",
+    "poblacion": "poblacion",
     "fechamodifica": "fecha_modifica",
 }
 
 _TIENDAS_DESIRED = [
     "RegTienda",
     "Codigo",
+    "IdentificadorTienda",
+    "Poblacion",
     "FechaModifica",
 ]
 

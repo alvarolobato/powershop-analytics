@@ -57,11 +57,11 @@ export function TopStoresTable({ stores }: TopStoresTableProps) {
         }}
       >
         <SectionHeader
-          title="Top 10 tiendas — hoy"
-          subtitle="Ventas en curso · evolución últimos 7 días"
+          title={`Tiendas (${stores.length}) — ordenadas por ventas`}
+          subtitle="Ventas del día seleccionado · evolución últimos 7 días"
         />
         <a href="/paneles" style={outlineLink} aria-label="Ver todos los paneles">
-          Ver todas →
+          Ver paneles →
         </a>
       </div>
 
@@ -167,7 +167,7 @@ export function TopStoresTable({ stores }: TopStoresTableProps) {
                       title={`Estado: ${store.status}`}
                       aria-label={`Estado ${store.status}`}
                     />
-                    {store.name}
+                    {store.name || `Tienda ${store.code}`}
                   </span>
                 </td>
 
@@ -217,7 +217,7 @@ export function TopStoresTable({ stores }: TopStoresTableProps) {
                       color={sparkCol}
                       width={90}
                       height={22}
-                      label={`Tendencia 7 días ${store.name}`}
+                      label={`Tendencia 7 días ${store.name || store.code}`}
                     />
                   </div>
                 </td>

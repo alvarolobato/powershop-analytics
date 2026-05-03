@@ -86,8 +86,15 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
   // Hour ticks
   const hourTicks = [0, 4, 8, 12, 16, 20, 23];
 
-  // Pre-9am state: no data
-  const isPreOpen = currentHourIdx < 0 || currentHourIdx < 8;
+  // Whether intraday granularity is available at all. When the API returns
+  // an empty array (mirror only has date granularity), we show today's
+  // value as a single-day total instead of the hourly chart.
+  const hasIntraday = hero.hourly.length > 0;
+
+  // Pre-open state: only meaningful when we DO have hourly data and the
+  // store hasn't opened yet. With no intraday data, we just show today's
+  // total alongside its deltas.
+  const isPreOpen = hasIntraday && (currentHourIdx < 0 || currentHourIdx < 8);
 
   return (
     <div
@@ -259,7 +266,30 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
         </div>
       </div>
 
-      {/* ── Right: hourly chart ── */}
+      {/* ── Right: hourly chart (when intraday data exists) ── */}
+      {!hasIntraday ? (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            color: "var(--fg-muted)",
+            fontSize: 12,
+            fontFamily: "var(--font-jetbrains, monospace)",
+            textAlign: "center",
+            gap: 8,
+          }}
+          data-testid="hero-no-intraday"
+        >
+          <span style={{ textTransform: "uppercase", letterSpacing: "0.08em", fontSize: 10 }}>
+            Sin granularidad horaria
+          </span>
+          <span style={{ fontSize: 11, color: "var(--fg-subtle)" }}>
+            Ver evolución diaria abajo
+          </span>
+        </div>
+      ) : (
       <div style={{ position: "relative" }}>
         {/* Chart header */}
         <div
@@ -471,6 +501,7 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -2,14 +2,15 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { HomeViewModel } from "@/lib/home-types";
 import { HeroToday } from "@/components/home/HeroToday";
 import { PeriodGrid } from "@/components/home/PeriodGrid";
 import { DailyTrendChart } from "@/components/home/DailyTrendChart";
-import { AlertsPanel } from "@/components/home/AlertsPanel";
 import { OperationsRow } from "@/components/home/OperationsRow";
 import { TopStoresTable } from "@/components/home/TopStoresTable";
 import { HealthFooter } from "@/components/home/HealthFooter";
+import { DateNavigator } from "@/components/home/DateNavigator";
 
 // ---------------------------------------------------------------------------
 // Skeleton shimmer card
@@ -32,7 +33,7 @@ function SkeletonBlock({ height = 120 }: { height?: number }) {
 }
 
 // ---------------------------------------------------------------------------
-// Page buttons style
+// Page button styles
 // ---------------------------------------------------------------------------
 const outlineBtn: React.CSSProperties = {
   background: "transparent",
@@ -62,15 +63,20 @@ const primaryBtn: React.CSSProperties = {
 // ---------------------------------------------------------------------------
 
 export default function InicioPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const dateParam = searchParams?.get("date") ?? null;
+
   const [data, setData] = useState<HomeViewModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (date: string | null) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/home");
+      const url = date ? `/api/home?date=${encodeURIComponent(date)}` : "/api/home";
+      const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: HomeViewModel = await res.json();
       setData(json);
@@ -82,12 +88,18 @@ export default function InicioPage() {
   }, []);
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(dateParam);
+  }, [load, dateParam]);
 
-  // Check wholesale toggle via env-equivalent flag in response
-  const showWholesale =
-    !data || (data.opsWholesale && data.opsWholesale.length > 0);
+  const handleDateChange = useCallback(
+    (next: string) => {
+      // Persist the selection in the URL so it survives refresh + sharing.
+      const params = new URLSearchParams(searchParams?.toString() ?? "");
+      params.set("date", next);
+      router.replace(`/inicio?${params.toString()}`);
+    },
+    [router, searchParams],
+  );
 
   return (
     <div data-no-main-padding data-testid="inicio-page">
@@ -145,7 +157,7 @@ export default function InicioPage() {
                 textTransform: "uppercase",
               }}
             >
-              Estado del negocio
+              Estado del negocio (retail)
             </span>
             <span
               style={{
@@ -162,7 +174,6 @@ export default function InicioPage() {
             </span>
           </div>
 
-          {/* H1 */}
           <h1
             style={{
               margin: 0,
@@ -180,7 +191,6 @@ export default function InicioPage() {
             </span>
           </h1>
 
-          {/* Description */}
           <p
             style={{
               margin: "8px 0 0",
@@ -190,29 +200,44 @@ export default function InicioPage() {
               lineHeight: 1.5,
             }}
           >
-            Resumen del estado del negocio: ventas en curso, comparativa
-            multi-periodo, tiendas top, alertas y operativa retail + mayorista.
+            Resumen retail: ventas hoy, comparativa multi-periodo, evolución
+            diaria, operativa y ranking de tiendas.
           </p>
         </div>
 
-        {/* Right block: timestamp + buttons */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        {/* Right block: date navigator + buttons */}
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
           {data && (
-            <span
-              style={{
-                fontFamily: "var(--font-jetbrains, monospace)",
-                fontSize: 11,
-                color: "var(--fg-subtle)",
-                marginRight: 4,
-              }}
-            >
-              {data.asOf}
-            </span>
+            <>
+              <DateNavigator
+                value={data.asOfDate}
+                maxDate={data.maxAvailableDate}
+                onChange={handleDateChange}
+              />
+              <span
+                title={`Datos sincronizados ${data.asOf}`}
+                style={{
+                  fontFamily: "var(--font-jetbrains, monospace)",
+                  fontSize: 11,
+                  color: "var(--fg-subtle)",
+                  marginLeft: 4,
+                }}
+              >
+                {data.asOf}
+              </span>
+            </>
           )}
           <button
             type="button"
             style={outlineBtn}
-            onClick={load}
+            onClick={() => load(dateParam)}
             aria-label="Actualizar datos"
             data-testid="refresh-btn"
           >
@@ -269,7 +294,7 @@ export default function InicioPage() {
           <div style={{ fontSize: 13, color: "var(--fg-muted)" }}>{error}</div>
           <button
             type="button"
-            onClick={load}
+            onClick={() => load(dateParam)}
             style={{ ...outlineBtn, marginTop: 12 }}
           >
             Reintentar
@@ -278,31 +303,25 @@ export default function InicioPage() {
       )}
 
       {/* ──────────────────────────────────────────────────────────────── */}
-      {/* Main content — all 8 regions                                     */}
+      {/* Main content (retail-only)                                       */}
       {/* ──────────────────────────────────────────────────────────────── */}
       {!loading && !error && data && (
         <>
-          {/* 2. Hero */}
+          {/* Hero */}
           <HeroToday hero={data.hero} asOf={data.asOf} />
 
-          {/* 3. Period grid */}
+          {/* Period grid */}
           <PeriodGrid periods={data.periods} />
 
-          {/* 4. Trend + Alerts */}
+          {/* Daily trend (full width) */}
           <section
-            style={{
-              padding: "0 24px 18px",
-              display: "grid",
-              gridTemplateColumns: "1.6fr 1fr",
-              gap: 18,
-            }}
-            data-testid="trend-alerts-row"
+            style={{ padding: "0 24px 18px" }}
+            data-testid="trend-row"
           >
             <DailyTrendChart dailyTrend={data.dailyTrend} asOf={data.asOf} />
-            <AlertsPanel alerts={data.alerts} />
           </section>
 
-          {/* 5. Operations rows */}
+          {/* Retail ops */}
           <section
             style={{ padding: "0 24px 18px", display: "grid", gap: 18 }}
             data-testid="operations-section"
@@ -310,25 +329,17 @@ export default function InicioPage() {
             <OperationsRow
               sectionLabel="RETAIL"
               title="Operativa retail"
-              subtitle="hoy · vs ayer mismo tramo"
+              subtitle="día seleccionado · margen del mes"
               metrics={data.opsRetail}
             />
-            {showWholesale && data.opsWholesale.length > 0 && (
-              <OperationsRow
-                sectionLabel="MAYORISTA"
-                title="Operativa mayorista"
-                subtitle="mes en curso · vs mes anterior"
-                metrics={data.opsWholesale}
-              />
-            )}
           </section>
 
-          {/* 6. Top 10 tiendas */}
+          {/* All stores */}
           <section style={{ padding: "0 24px 18px" }} data-testid="top-stores-section">
             <TopStoresTable stores={data.topStores} />
           </section>
 
-          {/* 7. Health footer */}
+          {/* Health footer */}
           <HealthFooter health={data.health} />
         </>
       )}

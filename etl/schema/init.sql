@@ -137,8 +137,19 @@ CREATE TABLE IF NOT EXISTS ps_clientes (
 CREATE TABLE IF NOT EXISTS ps_tiendas (
     reg_tienda     NUMERIC(20,3) PRIMARY KEY,
     codigo         TEXT,
+    -- 4D Tiendas.IdentificadorTienda — human-readable label shown in the
+    -- 4D POS form ("Lojas / Armazém") above the address block, e.g.
+    -- "Factory Rio Mo", "Valencia Alcantara". May be empty for some
+    -- stores; consumers fall back to poblacion, then "Tienda <codigo>".
+    identificador  TEXT,
+    poblacion      TEXT,
     fecha_modifica DATE
 );
+
+-- Idempotent migration for existing deployments where ps_tiendas was
+-- created before the identificador / poblacion columns existed.
+ALTER TABLE ps_tiendas ADD COLUMN IF NOT EXISTS identificador TEXT;
+ALTER TABLE ps_tiendas ADD COLUMN IF NOT EXISTS poblacion TEXT;
 
 CREATE TABLE IF NOT EXISTS ps_proveedores (
     reg_proveedor  NUMERIC(20,3) PRIMARY KEY,
