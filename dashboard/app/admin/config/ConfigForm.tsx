@@ -252,7 +252,7 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
                   options={item.enum_values.map((v) => ({ value: v, label: v }))}
                   ariaLabel={item.key}
                 />
-              ) : item.key === "dashboard.llm_model_openrouter" ? (
+              ) : item.key.startsWith("dashboard.llm_model_openrouter") ? (
                 <OpenRouterModelCombobox
                   value={editValue}
                   onChange={setEditValue}

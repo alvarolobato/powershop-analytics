@@ -4,7 +4,12 @@
  */
 
 import { getSystemConfig, resetConfigCache } from "@/lib/system-config/loader";
-import type { DashboardCliDriverId, DashboardLlmConfig, DashboardLlmProviderId } from "./types";
+import type {
+  DashboardCliDriverId,
+  DashboardLlmConfig,
+  DashboardLlmFlow,
+  DashboardLlmProviderId,
+} from "./types";
 
 const DEFAULT_MODEL = "anthropic/claude-sonnet-4";
 
@@ -59,9 +64,20 @@ export function resetDashboardLlmConfigCache(): void {
  * Precedence (inherited from getSystemConfig): env > config.yaml > schema defaults.
  *
  * Precedence for models:
- * - OpenRouter: dashboard.llm_model_openrouter → dashboard.llm_model (legacy) → default
+ * - OpenRouter: per-flow override (llm_model_openrouter_<flow>)
+ *               → dashboard.llm_model_openrouter
+ *               → dashboard.llm_model (legacy)
+ *               → default
+ *   The per-flow value is captured raw so callers can decide whether to
+ *   apply the override; the resolver `getEffectiveDashboardModel(cfg, flow)`
+ *   handles the cascade.
  * - CLI: dashboard.llm_model_cli → dashboard.llm_model (legacy) → default
  */
+function readStr(cfg: ReturnType<typeof getSystemConfig>, key: string): string {
+  const v = cfg[key]?.value;
+  return v !== null && v !== undefined ? String(v).trim() : "";
+}
+
 export function loadDashboardLlmConfig(): DashboardLlmConfig {
   if (_cached) return _cached;
 
@@ -70,20 +86,21 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
   const providerRaw = cfg["dashboard.llm_provider"]?.value;
   const provider = normalizeProvider(providerRaw !== null ? String(providerRaw ?? "") : undefined);
 
-  const legacyModel = cfg["dashboard.llm_model"]?.value;
-  const legacyModelStr = legacyModel !== null && legacyModel !== undefined ? String(legacyModel).trim() : "";
+  const legacyModelStr = readStr(cfg, "dashboard.llm_model");
 
-  const openrouterModelRaw = cfg["dashboard.llm_model_openrouter"]?.value;
   const openrouterModel =
-    (openrouterModelRaw !== null && openrouterModelRaw !== undefined ? String(openrouterModelRaw).trim() : "") ||
-    legacyModelStr ||
-    DEFAULT_MODEL;
+    readStr(cfg, "dashboard.llm_model_openrouter") || legacyModelStr || DEFAULT_MODEL;
 
-  const cliModelRaw = cfg["dashboard.llm_model_cli"]?.value;
-  const cliModel =
-    (cliModelRaw !== null && cliModelRaw !== undefined ? String(cliModelRaw).trim() : "") ||
-    legacyModelStr ||
-    DEFAULT_MODEL;
+  // Per-flow OpenRouter overrides. Empty string means "no override" — the
+  // resolver will fall back to openrouterModel.
+  const openrouterModelByFlow: Record<DashboardLlmFlow, string> = {
+    generate: readStr(cfg, "dashboard.llm_model_openrouter_generate"),
+    modify: readStr(cfg, "dashboard.llm_model_openrouter_modify"),
+    analyze: readStr(cfg, "dashboard.llm_model_openrouter_analyze"),
+    weekly: readStr(cfg, "dashboard.llm_model_openrouter_weekly"),
+  };
+
+  const cliModel = readStr(cfg, "dashboard.llm_model_cli") || legacyModelStr || DEFAULT_MODEL;
 
   const cliDriverRaw = cfg["dashboard.llm_cli_driver"]?.value;
   const cliDriver: DashboardCliDriverId =
@@ -116,6 +133,7 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
   _cached = {
     provider,
     openrouterModel,
+    openrouterModelByFlow,
     cliModel,
     cliDriver,
     cliBin,
@@ -126,7 +144,22 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
   return _cached;
 }
 
-/** Effective model id for the configured provider (for OpenRouter API or CLI --model). */
-export function getEffectiveDashboardModel(cfg: DashboardLlmConfig): string {
-  return cfg.provider === "openrouter" ? cfg.openrouterModel : cfg.cliModel;
+/**
+ * Effective model id for the configured provider.
+ *
+ * For OpenRouter, when `flow` is supplied, a non-empty per-flow override
+ * (e.g. `dashboard.llm_model_openrouter_modify`) wins over the default
+ * `openrouterModel`. CLI doesn't differentiate by flow — the flat-rate
+ * Claude subscription makes per-flow tuning pointless.
+ */
+export function getEffectiveDashboardModel(
+  cfg: DashboardLlmConfig,
+  flow?: DashboardLlmFlow,
+): string {
+  if (cfg.provider !== "openrouter") return cfg.cliModel;
+  if (flow) {
+    const override = cfg.openrouterModelByFlow[flow];
+    if (override) return override;
+  }
+  return cfg.openrouterModel;
 }

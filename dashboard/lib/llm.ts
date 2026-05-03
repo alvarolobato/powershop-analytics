@@ -16,7 +16,7 @@ import {
   loadDashboardLlmConfig,
   getEffectiveDashboardModel,
 } from "./llm-provider/config";
-import type { DashboardLlmConfig } from "./llm-provider/types";
+import type { DashboardLlmConfig, DashboardLlmFlow } from "./llm-provider/types";
 import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
 import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
@@ -73,9 +73,10 @@ async function chatTextWithProgress(
   maxTokens: number,
   endpoint: string,
   ctx: LlmAgenticContext,
+  flow?: DashboardLlmFlow,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg);
+  const model = getEffectiveDashboardModel(cfg, flow);
   const meta = usageMetaFromCfg(cfg);
   const requestId = ctx.requestId ?? null;
 
@@ -183,9 +184,10 @@ async function chatText(
   maxTokens: number,
   endpoint: string,
   requestId?: string | null,
+  flow?: DashboardLlmFlow,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg);
+  const model = getEffectiveDashboardModel(cfg, flow);
   const meta = usageMetaFromCfg(cfg);
   const usageOpts = { requestId: requestId ?? null };
 
@@ -248,7 +250,7 @@ export async function generateDashboard(
 
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
-    const model = getEffectiveDashboardModel(cfg);
+    const model = getEffectiveDashboardModel(cfg, "generate");
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
@@ -276,6 +278,7 @@ export async function generateDashboard(
     8192,
     "generateDashboard",
     requestCtx.requestId,
+    "generate",
   );
 }
 
@@ -299,7 +302,7 @@ export async function modifyDashboard(
 
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
-    const model = getEffectiveDashboardModel(cfg);
+    const model = getEffectiveDashboardModel(cfg, "modify");
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
@@ -328,6 +331,7 @@ export async function modifyDashboard(
     8192,
     "modifyDashboard",
     requestCtx.requestId,
+    "modify",
   );
 }
 
@@ -428,7 +432,7 @@ export async function analyzeDashboard(
       agenticMode: true,
     })}\n\n${buildAgenticToolPreamble()}`;
     const adapter = createDashboardAgenticAdapter();
-    const model = getEffectiveDashboardModel(cfg);
+    const model = getEffectiveDashboardModel(cfg, "analyze");
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
@@ -461,6 +465,7 @@ export async function analyzeDashboard(
     4096,
     "analyzeDashboard",
     requestCtx.requestId,
+    "analyze",
   );
 }
 
@@ -497,7 +502,7 @@ export async function generateReviewAgentic(
   );
 
   const adapter = createDashboardAgenticAdapter();
-  const model = getEffectiveDashboardModel(cfg);
+  const model = getEffectiveDashboardModel(cfg, "weekly");
 
   const { content: finalMessage, usage } = await callWithCircuitBreaker(() =>
     runAgenticChat({
@@ -579,6 +584,7 @@ export async function generateReviewWithProgress(
     4096,
     "generateReview",
     requestCtx,
+    "weekly",
   );
 
   const fenced = rawContent.match(/```(?:json)?\s*\n?([\s\S]*?)```/);

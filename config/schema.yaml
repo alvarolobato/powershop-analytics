@@ -174,7 +174,47 @@
   sensitive: false
   default: null
   section: "Dashboard LLM"
-  description: "Modelo OpenRouter específico para el dashboard (anula dashboard.llm_model)."
+  description: "Modelo OpenRouter por defecto del dashboard (anula dashboard.llm_model). Cualquier ajuste por flujo (generate / modify / analyze / weekly) tiene prioridad sobre este valor."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_generate
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_GENERATE
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para generación de dashboards (genera el spec inicial desde un prompt). Si está vacío, cae en dashboard.llm_model_openrouter."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_modify
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_MODIFY
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para modificación de dashboards existentes (más SQL agéntico, conviene un modelo fuerte). Si está vacío, cae en dashboard.llm_model_openrouter."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_analyze
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_ANALYZE
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para análisis narrativo de un dashboard ya cargado (no hace falta SQL; un modelo barato y rápido suele ir mejor). Si está vacío, cae en dashboard.llm_model_openrouter."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_weekly
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_WEEKLY
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para la revisión semanal (digest largo, lectura de muchos números). Si está vacío, cae en dashboard.llm_model_openrouter."
   requires_restart: []
   components: [dashboard]
 
