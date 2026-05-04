@@ -528,7 +528,15 @@ def run_full_sync(
     if run_id is not None:
         tables_ok = sum(results)
         tables_failed = len(results) - tables_ok
-        status = "success" if tables_failed == 0 else "partial"
+        # Three buckets so the dashboard can distinguish "everything broke"
+        # (typically a 4D-side outage or a stale connection) from a real
+        # partial run where some tables landed and others didn't.
+        if tables_failed == 0:
+            status = "success"
+        elif tables_ok == 0:
+            status = "failed"
+        else:
+            status = "partial"
         try:
             finish_run(
                 conn_pg,
@@ -571,6 +579,25 @@ def _try_connect_4d(config) -> tuple[object, str | None]:
         msg = f"Cannot connect to 4D: {exc}"
         logger.error(msg)
         return None, msg
+
+
+def _refresh_4d_connection(conn_4d, config) -> tuple[object, str | None]:
+    """Close any existing 4D connection and open a fresh one before each run.
+
+    The scheduler loop sleeps for hours between firings, and the p4d socket
+    held across that idle window often dies (server-side reset, firewall
+    idle-timeout, network blip). When that happens the driver does not raise
+    on send — it returns ``ProgrammingError(b'')`` for every query, so all
+    24 syncs fail in 0 ms with an empty error and the run is logged as
+    "todo falló". Reconnecting at the start of every scheduled job and
+    every manual trigger is cheap and removes the stale-socket failure mode.
+    """
+    if conn_4d is not None:
+        try:
+            conn_4d.close()
+        except Exception:
+            pass  # best-effort; we're about to replace it anyway
+    return _try_connect_4d(config)
 
 
 def _record_connection_failure(
@@ -655,15 +682,18 @@ def _run_scheduler_loop(config, conn_pg, conn_4d, cron_hour: int) -> None:
 
     def _job() -> None:
         """Daily scheduled job. Updates the surrounding scope's conn_4d so
-        the polling branch sees reconnects performed here."""
+        the polling branch sees reconnects performed here.
+
+        Always closes + reopens the 4D connection before the run: the cron
+        fires after ~24 h of idle wait and any socket held across that
+        window is almost certainly stale (see _refresh_4d_connection)."""
         nonlocal conn_4d
+        conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
         if conn_4d is None:
-            conn_4d, err_msg = _try_connect_4d(config)
-            if conn_4d is None:
-                _record_connection_failure(
-                    conn_pg, "scheduled", None, err_msg or "4D unreachable"
-                )
-                return
+            _record_connection_failure(
+                conn_pg, "scheduled", None, err_msg or "4D unreachable"
+            )
+            return
         try:
             run_full_sync(conn_4d, conn_pg, trigger="scheduled")
         except Exception:
@@ -695,8 +725,9 @@ def _run_scheduler_loop(config, conn_pg, conn_4d, cron_hour: int) -> None:
 
             if trigger_id is not None:
                 logger.info("Manual trigger %d detected — starting sync", trigger_id)
-                if conn_4d is None:
-                    conn_4d, err_msg = _try_connect_4d(config)
+                # Same rationale as _job(): the polling loop may have been
+                # idle for hours since the last run, so always refresh.
+                conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
                 if conn_4d is None:
                     _record_connection_failure(
                         conn_pg, "manual", trigger_id, err_msg or "4D unreachable"

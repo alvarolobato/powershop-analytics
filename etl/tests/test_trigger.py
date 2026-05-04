@@ -225,11 +225,17 @@ class TestRunFullSyncTriggerParam:
 class TestSchedulerLoopTriggerCheck:
     def test_manual_trigger_fires_run_full_sync(self):
         """When a trigger is pending and no run is active, run_full_sync is called
-        with trigger='manual' and the trigger_id."""
+        with trigger='manual' and the trigger_id.
+
+        Note: each scheduler firing closes + reopens the 4D connection (see
+        _refresh_4d_connection), so run_full_sync is invoked with the *fresh*
+        connection, not the one originally handed to the scheduler loop."""
+        fresh_conn_4d = MagicMock(name="fresh_conn_4d")
         with (
             patch("etl.db.postgres.check_and_consume_trigger", return_value=7),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
+            patch("etl.main._try_connect_4d", return_value=(fresh_conn_4d, None)),
             patch("schedule.run_pending"),
             patch("time.sleep", side_effect=StopIteration),
         ):
@@ -242,7 +248,9 @@ class TestSchedulerLoopTriggerCheck:
             except StopIteration:
                 pass
 
-            mock_sync.assert_any_call(conn_4d, conn_pg, trigger="manual", trigger_id=7)
+            mock_sync.assert_any_call(
+                fresh_conn_4d, conn_pg, trigger="manual", trigger_id=7
+            )
 
     def test_second_trigger_while_active_is_not_consumed(self):
         """When a run is already active, check_and_consume_trigger is never called
