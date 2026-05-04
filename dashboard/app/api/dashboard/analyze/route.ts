@@ -55,7 +55,7 @@ import {
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
-import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
+import { agenticEventToLogLine, pushAgenticLogLine } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
 import type { LogLine } from "@/components/LogBlock";
 
@@ -293,9 +293,13 @@ export async function POST(request: Request) {
     console.error(`[${requestId}] createInteraction(analyze) failed:`, e);
   }
 
-  // --- Run the LLM call, collecting progress events into a buffer ----------
+  // --- Run the LLM call, with live event pump once streaming opens ---------
+  // See modify/route.ts for design notes — same pattern: events buffer until
+  // the streaming controller installs `liveSend`, then bypass the buffer so
+  // the client sees Claude thinking + writing in real time.
   const t0 = Date.now();
   const buffer: { type: "progress"; logLine: LogLine }[] = [];
+  let liveSend: ((entry: { type: "progress"; logLine: LogLine }) => void) | null = null;
   let firstEventResolve: (() => void) | null = null;
   const firstEvent = new Promise<void>((resolve) => {
     firstEventResolve = resolve;
@@ -304,7 +308,12 @@ export async function POST(request: Request) {
   const onAgenticProgress = (ev: AgenticProgressEvent) => {
     const logLine = agenticEventToLogLine(ev, Date.now() - t0);
     if (!logLine) return;
-    buffer.push({ type: "progress", logLine });
+    const entry = { type: "progress" as const, logLine };
+    if (liveSend) {
+      liveSend(entry);
+    } else {
+      pushAgenticLogLine(buffer, entry);
+    }
     if (firstEventResolve) {
       firstEventResolve();
       firstEventResolve = null;
@@ -457,7 +466,11 @@ export async function POST(request: Request) {
       };
       drainBuffer();
 
+      // Switch onAgenticProgress to live-pump mode (same as modify route).
+      liveSend = (entry) => send({ ...entry, requestId });
+
       const outcome = await llmPromise;
+      liveSend = null;
       drainBuffer();
 
       if (outcome.kind === "err") {

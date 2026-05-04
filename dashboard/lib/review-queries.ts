@@ -301,6 +301,22 @@ WHERE fecha_pedido >= ($1::date - INTERVAL '7 days')
  * @param weekEndExclusive - Monday after the review week (YYYY-MM-DD), exclusive upper bound
  * @returns Array of ReviewQueryResult (success or error per query)
  */
+/**
+ * Highest `$N` placeholder referenced by a SQL string. PostgreSQL's bind
+ * protocol rejects extra parameters with "wrong number of parameters for
+ * prepared statement" — a query that only references `$1` must receive
+ * exactly one parameter, not two. We use this to size the per-query param
+ * array correctly even when callers always pass `[weekStart, weekEnd]`.
+ */
+function highestPlaceholder(sql: string): number {
+  let max = 0;
+  for (const m of sql.matchAll(/\$(\d+)/g)) {
+    const n = Number(m[1]);
+    if (n > max) max = n;
+  }
+  return max;
+}
+
 export async function executeReviewQueries(
   queryFn: (sql: string, params?: unknown[]) => Promise<QueryResult>,
   weekStart: string,
@@ -308,7 +324,14 @@ export async function executeReviewQueries(
 ): Promise<ReviewQueryResult[]> {
   const weekParams = [weekStart, weekEndExclusive];
   const results = await Promise.allSettled(
-    REVIEW_QUERIES.map((q) => queryFn(q.sql, weekParams))
+    REVIEW_QUERIES.map((q) => {
+      const n = highestPlaceholder(q.sql);
+      // Slice to exactly the placeholders this query uses (n=0 → no params).
+      // Pads with undefined defensively if a query references $N beyond the
+      // available `weekParams`, so the DB driver returns a clear error.
+      const params = n === 0 ? undefined : weekParams.slice(0, n);
+      return queryFn(q.sql, params);
+    })
   );
 
   return REVIEW_QUERIES.map((q, i) => {

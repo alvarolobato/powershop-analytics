@@ -11,6 +11,8 @@ export interface LogLine {
   kind: "tool" | "reason" | "done" | "default";
   label: string;
   detail?: string;
+  /** Multi-line content rendered below the row (e.g. streaming model text). */
+  body?: string;
 }
 
 export interface LogBlockProps {
@@ -78,6 +80,25 @@ function LogLineRow({ line, isLast }: { line: LogLine; isLast: boolean }) {
               animation: "pulse-dot 2s ease-in-out infinite",
             }}
           />
+        )}
+        {line.body && (
+          <pre
+            style={{
+              marginTop: 4,
+              padding: "8px 10px",
+              borderLeft: "2px solid var(--accent)",
+              background: "var(--bg-1)",
+              color: "var(--fg)",
+              fontFamily: "inherit",
+              fontSize: 12,
+              lineHeight: 1.5,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              overflowX: "hidden",
+            }}
+          >
+            {line.body}
+          </pre>
         )}
       </span>
     </div>

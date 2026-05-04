@@ -30,7 +30,6 @@ export function TopBar({
     { href: "/inicio", label: "Inicio" },
     { href: "/paneles", label: "Paneles" },
     { href: "/review", label: "Revisión" },
-    { href: "/glossary", label: "Glosario" },
     { href: "http://localhost:3000", label: "Wren", external: true },
   ] as const;
 

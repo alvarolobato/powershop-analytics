@@ -10,6 +10,7 @@ import type { ApiErrorResponse } from "@/lib/errors";
 import type { WidgetState } from "@/components/DashboardRenderer";
 import LogBlock from "@/components/LogBlock";
 import type { LogLine } from "@/components/LogBlock";
+import { appendCoalescedLogLine } from "@/lib/format-agentic-progress";
 import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
 import AgenticErrorDetails from "@/components/AgenticErrorDetails";
@@ -639,7 +640,12 @@ function ModificarTab({
 
         for await (const msg of readNdjsonStream<ModifyMsg>(res.body)) {
           if (msg.type === "progress") {
-            capturedLogs.push(msg.logLine);
+            // Coalesce consecutive streaming ticks (model_text_delta /
+            // model_thinking_delta) into a single growing line. With
+            // token-level streaming the server sends one frame per token,
+            // so without dedup the UI would stack hundreds of identical
+            // "Modelo respondiendo · N caracteres" rows.
+            appendCoalescedLogLine(capturedLogs, msg.logLine);
             setStreamingLog([...capturedLogs]);
           } else if (msg.type === "result") {
             resultSpec = msg.spec;
@@ -1060,7 +1066,8 @@ function AnalizarTab({
 
           for await (const msg of readNdjsonStream<AnalyzeMsg>(res.body)) {
             if (msg.type === "progress") {
-              capturedLogs.push(msg.logLine);
+              // Coalesce streaming ticks — see modify branch above.
+              appendCoalescedLogLine(capturedLogs, msg.logLine);
               setStreamingLog([...capturedLogs]);
             } else if (msg.type === "result") {
               result = {

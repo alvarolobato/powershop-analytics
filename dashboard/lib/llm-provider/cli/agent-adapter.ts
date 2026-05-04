@@ -13,10 +13,10 @@ function makeToolCallId(round: number, index: number): string {
 export function createClaudeCodeAgenticAdapter(cfg: DashboardLlmConfig): AgenticModelAdapter {
   let roundCounter = 0;
   return {
-    async runStep({ messages, onTextDelta }) {
+    async runStep({ messages, onTextDelta, onThinkingDelta }) {
       roundCounter += 1;
       const r = roundCounter;
-      const step = await claudeCliAgenticStep({ cfg, messages, onTextDelta });
+      const step = await claudeCliAgenticStep({ cfg, messages, onTextDelta, onThinkingDelta });
       if (step.kind === "final") {
         return {
           kind: "final",

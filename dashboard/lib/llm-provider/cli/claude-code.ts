@@ -98,7 +98,11 @@ export interface ClaudeCliAgenticStepInput {
   messages: ChatCompletionMessageParam[];
   /** Optional callback invoked as the model streams text. `chars` is the delta;
    *  `totalChars` is the running total since this step began. */
-  onTextDelta?: (chars: number, totalChars: number) => void;
+  onTextDelta?: (chars: number, totalChars: number, accumulatedText: string) => void;
+  /** Optional callback invoked as the model streams extended-thinking content.
+   *  Same contract as onTextDelta but for the chain-of-thought block (only
+   *  emitted on Claude builds with thinking enabled). */
+  onThinkingDelta?: (chars: number, totalChars: number, accumulatedThinking: string) => void;
 }
 
 export type ClaudeAgenticStepKind = "final" | "tools";
@@ -213,19 +217,33 @@ export function parseClaudeAgenticStepJson(stdout: string): ClaudeAgenticStep {
 /**
  * Parse a single stream-json NDJSON line from `claude --output-format stream-json --verbose`.
  *
+ * With `--include-partial-messages` the binary also emits incremental
+ * `stream_event` lines with `content_block_delta` for each token chunk —
+ * we surface those as `text_delta` so the UI can show Claude typing in
+ * real time. The cumulative `assistant` envelope is emitted at the end
+ * of each message and carries the same content; on newer builds (where
+ * deltas are present) callers should treat it as a redundant duplicate.
+ *
  * Supported event shapes (defensive — unknown shapes are silently ignored):
  *   { type: "system", subtype: "init", ... }
+ *   { type: "stream_event", event: { type:"content_block_delta", delta:{ type:"text_delta", text:"..." } } }
  *   { type: "assistant", message: { content: [ {type:"text", text:"..."} | {type:"tool_use",...} ] } }
  *   { type: "result", is_error: bool, result: string, ... }
  *
  * Returns:
- *   { kind: "text", text: string }         — assistant text chunk
+ *   { kind: "text_delta", text: string }    — incremental token chunk (partial-messages flag)
+ *   { kind: "text_full",  text: string }    — cumulative assistant text (one per message)
  *   { kind: "result", text: string, isError: bool, status?: number }  — terminal result line
  *   { kind: "ignore" }                     — all other lines
  */
-export function parseStreamJsonLine(
-  line: string,
-): { kind: "text"; text: string } | { kind: "result"; text: string; isError: boolean; status?: number | null } | { kind: "ignore" } {
+export type StreamJsonLineParse =
+  | { kind: "text_delta"; text: string }
+  | { kind: "thinking_delta"; text: string }
+  | { kind: "text_full"; text: string }
+  | { kind: "result"; text: string; isError: boolean; status?: number | null }
+  | { kind: "ignore" };
+
+export function parseStreamJsonLine(line: string): StreamJsonLineParse {
   let obj: Record<string, unknown>;
   try {
     const parsed = JSON.parse(line);
@@ -245,6 +263,28 @@ export function parseStreamJsonLine(
     return { kind: "result", text: resultText, isError, status };
   }
 
+  // Incremental token chunks emitted with --include-partial-messages.
+  if (type === "stream_event") {
+    const ev = obj.event;
+    if (!ev || typeof ev !== "object" || Array.isArray(ev)) return { kind: "ignore" };
+    const e = ev as Record<string, unknown>;
+    if (e.type === "content_block_delta") {
+      const delta = e.delta;
+      if (delta && typeof delta === "object" && !Array.isArray(delta)) {
+        const d = delta as Record<string, unknown>;
+        if (d.type === "text_delta" && typeof d.text === "string" && d.text) {
+          return { kind: "text_delta", text: d.text };
+        }
+        // Extended thinking: visible chain-of-thought reasoning emitted before
+        // the final answer. Surface it so the UI can show "Claude razonando".
+        if (d.type === "thinking_delta" && typeof d.thinking === "string" && d.thinking) {
+          return { kind: "thinking_delta", text: d.thinking };
+        }
+      }
+    }
+    return { kind: "ignore" };
+  }
+
   // Assistant message — can carry text content or tool_use blocks.
   if (type === "assistant") {
     const message = obj.message;
@@ -261,7 +301,7 @@ export function parseStreamJsonLine(
       }
     }
     const joined = textParts.join("");
-    if (joined) return { kind: "text", text: joined };
+    if (joined) return { kind: "text_full", text: joined };
     return { kind: "ignore" };
   }
 
@@ -269,16 +309,20 @@ export function parseStreamJsonLine(
 }
 
 export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Promise<ClaudeAgenticStep> {
-  const { cfg, messages, onTextDelta } = input;
+  const { cfg, messages, onTextDelta, onThinkingDelta } = input;
   const transcript = serializeChatMessagesForCli(messages);
   const printArg = AGENTIC_PROTOCOL_INSTRUCTION;
   const stdinBody = buildAgenticStdin(transcript);
 
-  // Use --output-format stream-json --verbose so we get incremental NDJSON events
-  // while the model is generating. The --verbose flag includes the full message
-  // content in the event stream. --include-partial-messages adds partial assistant
-  // messages for each chunk (only when supported by this binary version; the flag
-  // is silently ignored on older builds).
+  // Use --output-format stream-json --verbose --include-partial-messages so we get
+  // token-level NDJSON events while the model is generating. Each token chunk
+  // arrives as { type:"stream_event", event:{ type:"content_block_delta", delta:
+  // { type:"text_delta", text } } } and is forwarded via onTextDelta so the UI
+  // can show Claude typing in real time. The cumulative `type:"assistant"`
+  // envelope at the end of each message is treated as a duplicate and skipped
+  // (sawAnyDelta below). On older binaries that ignore --include-partial-messages
+  // no deltas arrive — we then fall back to the cumulative assistant message
+  // and emit it as a single chunk.
   const args = [
     ...cfg.cliExtraArgs,
     "-p",
@@ -288,17 +332,49 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     "--output-format",
     "stream-json",
     "--verbose",
+    "--include-partial-messages",
   ];
   const fullArgv = [cfg.cliBin, ...args];
 
   // Accumulate assistant text across chunks so we can parse the full step JSON
-  // once the result line arrives. We also call onTextDelta for each increment.
+  // once the result line arrives. Extended-thinking blocks accumulate in
+  // parallel and are forwarded via onThinkingDelta.
   let accumulatedText = "";
   let totalCharsEmitted = 0;
+  let accumulatedThinking = "";
+  let totalThinkingCharsEmitted = 0;
+  // Whether any incremental text_delta events arrived for this step. When true,
+  // the cumulative `type:"assistant"` envelope (text_full) is a duplicate and
+  // must be ignored to avoid double-counting.
+  let sawAnyDelta = false;
   // Store the last result line so we can use its envelope for error detection.
   // Use a box object to avoid TypeScript control-flow narrowing issues with
   // variables mutated inside closures.
   const resultBox: { line: { text: string; isError: boolean; status?: number | null } | null } = { line: null };
+
+  const emitDelta = (deltaText: string) => {
+    accumulatedText += deltaText;
+    totalCharsEmitted += deltaText.length;
+    if (onTextDelta) {
+      try {
+        onTextDelta(deltaText.length, totalCharsEmitted, accumulatedText);
+      } catch {
+        /* ignore callback errors */
+      }
+    }
+  };
+
+  const emitThinkingDelta = (deltaText: string) => {
+    accumulatedThinking += deltaText;
+    totalThinkingCharsEmitted += deltaText.length;
+    if (onThinkingDelta) {
+      try {
+        onThinkingDelta(deltaText.length, totalThinkingCharsEmitted, accumulatedThinking);
+      } catch {
+        /* ignore callback errors */
+      }
+    }
+  };
 
   const result = await runCliProcessStreaming({
     file: cfg.cliBin,
@@ -309,16 +385,17 @@ export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Pr
     maxStderrBytes: Math.min(cfg.cliMaxCaptureBytes, 512_000),
     onStdoutLine: (line) => {
       const parsed = parseStreamJsonLine(line);
-      if (parsed.kind === "text") {
-        accumulatedText += parsed.text;
-        const delta = parsed.text.length;
-        totalCharsEmitted += delta;
-        if (onTextDelta) {
-          try {
-            onTextDelta(delta, totalCharsEmitted);
-          } catch {
-            /* ignore callback errors */
-          }
+      if (parsed.kind === "text_delta") {
+        sawAnyDelta = true;
+        emitDelta(parsed.text);
+      } else if (parsed.kind === "thinking_delta") {
+        emitThinkingDelta(parsed.text);
+      } else if (parsed.kind === "text_full") {
+        // Older CLI builds (or partial-messages flag silently ignored) emit
+        // only the cumulative assistant message — surface it as one chunk.
+        // Newer builds emit deltas first and then this duplicate; skip it.
+        if (!sawAnyDelta) {
+          emitDelta(parsed.text);
         }
       } else if (parsed.kind === "result") {
         resultBox.line = parsed;

@@ -147,7 +147,7 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
           totalCharsEmitted += deltaChars;
           if (input.onTextDelta) {
             try {
-              input.onTextDelta(deltaChars, totalCharsEmitted);
+              input.onTextDelta(deltaChars, totalCharsEmitted, textContent);
             } catch {
               /* ignore callback errors */
             }

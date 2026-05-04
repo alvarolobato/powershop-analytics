@@ -111,6 +111,7 @@ async function chatTextWithProgress(
           round: 1,
           chars: text.length,
           totalChars: text.length,
+          text,
         });
       } catch {
         /* ignore */
@@ -148,6 +149,7 @@ async function chatTextWithProgress(
             round: 1,
             chars: deltaChars,
             totalChars: totalCharsEmitted,
+            text: textContent,
           });
         } catch {
           /* ignore */
