@@ -327,7 +327,7 @@ export function RunDetail({ runId }: RunDetailProps) {
   if (notFound) {
     return (
       <div className="space-y-4" data-testid="not-found">
-        <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
+        <Link href="/etl" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
         <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Ejecución no encontrada</h1>
         <p className="text-sm text-tremor-content dark:text-dark-tremor-content">La ejecución con ID {runId} no existe.</p>
       </div>
@@ -337,7 +337,7 @@ export function RunDetail({ runId }: RunDetailProps) {
   if (error || !data) {
     return (
       <div className="space-y-4" data-testid="error-state">
-        <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
+        <Link href="/etl" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
         <p className="text-sm text-red-500 dark:text-red-400" data-testid="error-message">{error ?? "Error al cargar la ejecución"}</p>
         <button type="button" onClick={() => { setLoading(true); void fetchRun(); }} className="rounded-lg border border-tremor-border dark:border-dark-tremor-border px-3 py-1.5 text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle">
           Reintentar
@@ -352,7 +352,7 @@ export function RunDetail({ runId }: RunDetailProps) {
     <div className="space-y-6" data-testid="run-detail">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-1">
-          <Link href="/" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
+          <Link href="/etl" className="text-sm text-tremor-content dark:text-dark-tremor-content hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis">&larr; Volver al monitor</Link>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-tremor-content-strong dark:text-dark-tremor-content-strong">Ejecución #{run.id}</h1>
             <Badge color={statusBadgeColor(run.status)} data-testid="status-badge">
