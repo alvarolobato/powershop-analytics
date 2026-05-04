@@ -383,13 +383,22 @@ def fail_orphan_running_runs(conn) -> int:
         raise
 
 
-def create_run(conn, trigger: str) -> int:
-    """Insert an etl_sync_runs record with status='running' and return its id."""
+def create_run(conn, trigger: str, kind: str = "full") -> int:
+    """Insert an etl_sync_runs record with status='running' and return its id.
+
+    `kind` is the run's mode — 'delta' for the hourly watermark-only sweep
+    or 'full' for the nightly everything-pass. Stored as-is so the dashboard
+    can render a Delta/Completa pill without recomputing it from per-table
+    methods.
+    """
+    if kind not in ("delta", "full"):
+        raise ValueError(f"Invalid run kind: {kind!r} (expected 'delta' or 'full')")
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO etl_sync_runs (trigger, status) VALUES (%s, 'running') RETURNING id",
-                (trigger,),
+                "INSERT INTO etl_sync_runs (trigger, kind, status) "
+                "VALUES (%s, %s, 'running') RETURNING id",
+                (trigger, kind),
             )
             run_id: int = cur.fetchone()[0]
         conn.commit()

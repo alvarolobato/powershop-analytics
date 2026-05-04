@@ -37,7 +37,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from etl.db.fourd import decode_signed_int16_word, safe_fetch
-from etl.db.postgres import truncate_and_insert
+from etl.db.postgres import truncate_and_insert, upsert
 
 logger = logging.getLogger(__name__)
 
@@ -91,23 +91,23 @@ def _map_ccstock_row(src: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def sync_ccstock(conn_4d: Any, conn_pg: Any) -> int:
-    """Full-refresh ps_stock_central from the 4D CCStock table.
+def sync_ccstock(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
+    """Sync ps_stock_central from the 4D CCStock table.
 
-    Fetches all rows from CCStock, decodes the 34 signed-int16 stock slots
-    per row (applying decode_signed_int16_word — same as Exportaciones), sums
-    them into a single ``stock`` integer, and bulk-inserts into
-    ps_stock_central via truncate_and_insert.
-
-    Args:
-        conn_4d: An open p4d connection.
-        conn_pg: An open psycopg2 connection.
-
-    Returns:
-        Number of rows loaded into ps_stock_central.
+    since=None  → full refresh (TRUNCATE + INSERT). Catches articles
+                  removed from the central warehouse.
+    since=date  → delta upsert (WHERE FechaModifica > since). The hourly
+                  delta cron uses this; the nightly full pass cleans up.
     """
-    sql = f"SELECT {_CCSTOCK_COLUMNS} FROM CCStock"
-    logger.info("sync_ccstock: fetching all rows from CCStock ...")
+    where = ""
+    if since is not None:
+        date_str = since.strftime("%Y-%m-%d")
+        where = f" WHERE FechaModifica > {{d '{date_str}'}}"
+    sql = f"SELECT {_CCSTOCK_COLUMNS} FROM CCStock{where}"
+    logger.info(
+        "sync_ccstock: fetching %s rows from CCStock ...",
+        "delta" if since is not None else "all",
+    )
 
     raw_rows = safe_fetch(conn_4d, sql)
     logger.info("sync_ccstock: fetched %d source rows", len(raw_rows))
@@ -126,6 +126,13 @@ def sync_ccstock(conn_4d: Any, conn_pg: Any) -> int:
             "sync_ccstock: skipped %d rows with missing/zero NumArticulo", skipped
         )
 
-    count = truncate_and_insert(conn_pg, "ps_stock_central", pg_rows)
-    logger.info("sync_ccstock: inserted %d rows into ps_stock_central", count)
+    if since is None:
+        count = truncate_and_insert(conn_pg, "ps_stock_central", pg_rows)
+        logger.info("sync_ccstock: inserted %d rows into ps_stock_central", count)
+        return count
+
+    if not pg_rows:
+        return 0
+    count = upsert(conn_pg, "ps_stock_central", pg_rows, pk_cols=["num_articulo"])
+    logger.info("sync_ccstock: upserted %d rows into ps_stock_central", count)
     return count

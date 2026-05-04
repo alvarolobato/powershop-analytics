@@ -185,7 +185,7 @@ class TestRunFullSyncTriggerParam:
 
         captured_trigger: list[str] = []
 
-        def _capture_create_run(conn_pg, trigger):
+        def _capture_create_run(conn_pg, trigger, kind="full"):
             captured_trigger.append(trigger)
             return 1
 

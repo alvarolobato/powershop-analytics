@@ -252,47 +252,58 @@ def get_ma_article_codes(conn_4d: Any) -> set[str]:
     return {r["codigo"] for r in rows if r.get("codigo")}
 
 
-def sync_articulos(conn_4d: Any, conn_pg: Any) -> int:
-    """Full-refresh ps_articulos from the 4D Articulos table.
+def sync_articulos(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
+    """Sync ps_articulos from the 4D Articulos table.
+
+    Two modes:
+      since=None  → full refresh (TRUNCATE + INSERT). Used by the nightly
+                    cron and any manual force_full trigger; catches hard-
+                    deletes in 4D since the table is fully reloaded.
+      since=date  → delta upsert (WHERE FechaModifica > since, ON CONFLICT
+                    (reg_articulo) DO UPDATE). Used by the hourly cron.
+                    Hard-deletes are not reflected, but the nightly full
+                    pass takes care of those.
 
     MA-prefix articles (CCRefeJOFACM starting with 'MA') are excluded at the
-    source query level.  Any MA rows left over from previous syncs are also
-    deleted after the truncate+insert to ensure a clean state.
-
-    Args:
-        conn_4d: An open p4d connection.
-        conn_pg: An open psycopg2 connection.
-
-    Returns:
-        Number of rows loaded into ps_articulos.
+    source query level in both modes.  In full mode an extra safety-net
+    DELETE removes any stragglers from before the WHERE filter existed.
     """
     from etl.db.fourd import safe_fetch
-    from etl.db.postgres import truncate_and_insert
+    from etl.db.postgres import truncate_and_insert, upsert
 
-    raw_rows = safe_fetch(conn_4d, _SQL_ARTICULOS)
+    if since is None:
+        sql = _SQL_ARTICULOS
+    else:
+        date_str = since.strftime("%Y-%m-%d")
+        sql = f"{_SQL_ARTICULOS} AND FechaModifica > {{d '{date_str}'}}"
+
+    raw_rows = safe_fetch(conn_4d, sql)
     pg_rows = [_nullify_zero_fks(_map_row(r, _ARTICULOS_MAPPING)) for r in raw_rows]
-    count = truncate_and_insert(conn_pg, "ps_articulos", pg_rows)
 
-    # Safety net: remove any MA rows that survived from a previous sync run
-    # before this filter was applied.  truncate_and_insert already wipes the
-    # table, so in practice this is a no-op after the first clean run.
-    # This DELETE runs in a separate transaction from the truncate+insert above,
-    # which already committed.  A failure here does NOT undo the loaded data;
-    # we log a warning and continue rather than raising, since ps_articulos is
-    # already in a valid (MA-free) state thanks to the WHERE clause in the
-    # source query.
-    try:
-        with conn_pg.cursor() as cur:
-            cur.execute("DELETE FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'")
-        conn_pg.commit()
-    except Exception as exc:
-        conn_pg.rollback()
-        logger.warning(
-            "sync_articulos: safety-net DELETE failed (data already loaded cleanly): %s",
-            exc,
-        )
+    if since is None:
+        count = truncate_and_insert(conn_pg, "ps_articulos", pg_rows)
+        # Safety net: drop any pre-WHERE-filter MA rows that may have
+        # survived. After the first clean run this is a no-op. The DELETE
+        # runs in its own transaction; failure here does NOT undo the
+        # loaded data — the source-query WHERE already keeps MA out.
+        try:
+            with conn_pg.cursor() as cur:
+                cur.execute(
+                    "DELETE FROM ps_articulos WHERE LEFT(ccrefejofacm, 2) = 'MA'"
+                )
+            conn_pg.commit()
+        except Exception as exc:
+            conn_pg.rollback()
+            logger.warning(
+                "sync_articulos: safety-net DELETE failed "
+                "(data already loaded cleanly): %s",
+                exc,
+            )
+        return count
 
-    return count
+    if not pg_rows:
+        return 0
+    return upsert(conn_pg, "ps_articulos", pg_rows, pk_cols=["reg_articulo"])
 
 
 def sync_catalogos(conn_4d: Any, conn_pg: Any) -> dict[str, int]:

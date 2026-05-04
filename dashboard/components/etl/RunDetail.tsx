@@ -10,6 +10,7 @@ export type RunStatus = "success" | "partial" | "failed" | "running";
 export type TableStatus = "success" | "failed" | "running";
 export type SyncMethod = "full_refresh" | "upsert_delta" | "append";
 export type Trigger = "scheduled" | "manual";
+export type RunKind = "delta" | "full";
 
 export interface EtlSyncRun {
   id: number;
@@ -17,6 +18,8 @@ export interface EtlSyncRun {
   finished_at: string | null;
   duration_ms: number | null;
   status: RunStatus;
+  /** 'delta' for the hourly watermark sweep, 'full' for the nightly truncate-and-reinsert pass. */
+  kind: RunKind;
   total_tables: number;
   tables_ok: number;
   tables_failed: number;
@@ -359,6 +362,9 @@ export function RunDetail({ runId }: RunDetailProps) {
               {run.status === "running" ? (
                 <span className="flex items-center gap-1"><span className="h-2 w-2 animate-pulse rounded-full" style={{ background: "var(--accent)" }} />En progreso...</span>
               ) : statusLabel(run.status)}
+            </Badge>
+            <Badge color={run.kind === "delta" ? "blue" : "gray"} data-testid="kind-badge">
+              {run.kind === "delta" ? "Delta" : "Completa"}
             </Badge>
           </div>
           <p className="text-sm text-tremor-content dark:text-dark-tremor-content">

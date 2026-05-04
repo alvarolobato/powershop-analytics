@@ -19,6 +19,7 @@ function makeRun(overrides: Partial<EtlSyncRun> = {}): EtlSyncRun {
     tables_failed: 0,
     total_rows_synced: 45000,
     trigger: "scheduled",
+    kind: "full",
     ...overrides,
   };
 }

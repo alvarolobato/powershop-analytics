@@ -103,7 +103,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     // Get paginated rows
     const runsResult = await query(
       `SELECT id, started_at, finished_at, duration_ms, status,
-              total_tables, tables_ok, tables_failed, total_rows_synced, trigger
+              total_tables, tables_ok, tables_failed, total_rows_synced, trigger,
+              kind
        FROM etl_sync_runs
        ORDER BY started_at DESC
        LIMIT $1 OFFSET $2`,
@@ -121,6 +122,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       tables_failed: row[7] != null ? Number(row[7]) : null,
       total_rows_synced: row[8] != null ? Number(row[8]) : null,
       trigger: String(row[9]),
+      kind: row[10] === "delta" ? "delta" : "full",
     }));
 
     const response: EtlRunsResponse = { runs, total, page, per_page: perPage };

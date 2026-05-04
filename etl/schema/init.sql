@@ -598,6 +598,10 @@ CREATE TABLE IF NOT EXISTS etl_sync_runs (
     finished_at       TIMESTAMPTZ,
     duration_ms       INTEGER,
     status            TEXT         NOT NULL DEFAULT 'running',
+    -- 'delta' (hourly, only watermark-driven syncs) vs 'full' (nightly,
+    -- every module including the truncate-only ones). Pre-existing rows
+    -- are backfilled to 'full' since that was the only mode before.
+    kind              TEXT         NOT NULL DEFAULT 'full',
     tables_ok         INTEGER,
     tables_failed     INTEGER,
     total_tables      INTEGER,
@@ -605,6 +609,7 @@ CREATE TABLE IF NOT EXISTS etl_sync_runs (
 );
 
 ALTER TABLE etl_sync_runs ADD COLUMN IF NOT EXISTS total_tables INTEGER;
+ALTER TABLE etl_sync_runs ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'full';
 
 CREATE TABLE IF NOT EXISTS etl_sync_run_tables (
     id               SERIAL       PRIMARY KEY,

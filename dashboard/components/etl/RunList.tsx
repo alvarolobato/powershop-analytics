@@ -12,6 +12,8 @@ export interface EtlSyncRun {
   finished_at: string | null;
   duration_ms: number | null;
   status: string;
+  /** 'delta' (hourly watermark sweep) or 'full' (nightly truncate-and-reinsert). */
+  kind: "delta" | "full";
   total_tables: number | null;
   tables_ok: number | null;
   tables_failed: number | null;
@@ -64,6 +66,16 @@ const TRIGGER_LABELS: Record<string, string> = {
 
 function triggerLabel(trigger: string): string {
   return TRIGGER_LABELS[trigger] ?? trigger;
+}
+
+function kindLabel(kind: "delta" | "full"): string {
+  return kind === "delta" ? "Delta" : "Completa";
+}
+
+function kindBadgeColor(kind: "delta" | "full"): BadgeColor {
+  // Delta = blue (cheap, frequent, watermark sweep).
+  // Full  = gray (heavy nightly job; not an alert state, just denser).
+  return kind === "delta" ? "blue" : "gray";
 }
 
 // ─── Loading skeleton ─────────────────────────────────────────────────────────
@@ -122,6 +134,7 @@ export function RunList({ runs, total, page, perPage, loading, onPageChange }: R
           <thead className="bg-tremor-background-muted dark:bg-dark-tremor-background-muted">
             <tr>
               <th className="px-4 py-3 text-left text-xs font-medium text-tremor-content dark:text-dark-tremor-content uppercase tracking-wider">Estado</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-tremor-content dark:text-dark-tremor-content uppercase tracking-wider">Tipo</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-tremor-content dark:text-dark-tremor-content uppercase tracking-wider">Iniciada</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-tremor-content dark:text-dark-tremor-content uppercase tracking-wider">Duración</th>
               <th className="px-4 py-3 text-left text-xs font-medium text-tremor-content dark:text-dark-tremor-content uppercase tracking-wider">Tablas OK / Error</th>
@@ -144,6 +157,13 @@ export function RunList({ runs, total, page, perPage, loading, onPageChange }: R
                   >
                     <Badge color={statusBadgeColor(run.status)} size="xs">
                       {statusLabel(run.status)}
+                    </Badge>
+                  </Link>
+                </td>
+                <td className="px-4 py-3">
+                  <Link href={`/etl/${run.id}`} className="block">
+                    <Badge color={kindBadgeColor(run.kind)} size="xs">
+                      {kindLabel(run.kind)}
                     </Badge>
                   </Link>
                 </td>

@@ -123,11 +123,17 @@ _CLIENTES_DESIRED = [
 ]
 
 
-def sync_clientes(conn_4d, conn_pg) -> int:
-    """Full-refresh sync of Clientes → ps_clientes.
+def sync_clientes(conn_4d, conn_pg, since=None) -> int:
+    """Sync Clientes → ps_clientes.
 
-    Returns the number of rows inserted.
+    since=None  → full refresh (TRUNCATE + INSERT). Catches hard-deletes.
+    since=date  → delta upsert (WHERE FechaModifica > since). The hourly
+                  delta cron uses this; the nightly full pass cleans up.
+
+    Returns the number of rows touched.
     """
+    from etl.db.postgres import upsert
+
     # Discover which desired columns actually exist in 4D (safe columns only).
     safe_cols = set(_discover_columns(conn_4d, "Clientes"))
     # Intersect with desired list, preserving desired order.
@@ -142,7 +148,17 @@ def sync_clientes(conn_4d, conn_pg) -> int:
         )
         return 0
 
-    sql = f"SELECT {', '.join(cols_to_query)} FROM Clientes"
+    where = ""
+    if since is not None:
+        if "FechaModifica" not in safe_cols:
+            logger.warning(
+                "sync_clientes: delta requested but FechaModifica missing — falling back to full refresh"
+            )
+        else:
+            date_str = since.strftime("%Y-%m-%d")
+            where = f" WHERE FechaModifica > {{d '{date_str}'}}"
+
+    sql = f"SELECT {', '.join(cols_to_query)} FROM Clientes{where}"
     logger.info("sync_clientes: querying 4D — %s", sql)
     rows_4d = safe_fetch(conn_4d, sql)
     logger.info("sync_clientes: fetched %d rows from 4D", len(rows_4d))
@@ -159,8 +175,15 @@ def sync_clientes(conn_4d, conn_pg) -> int:
                 mapped[pg_key] = v
         pg_rows.append(mapped)
 
-    count = truncate_and_insert(conn_pg, "ps_clientes", pg_rows)
-    logger.info("sync_clientes: inserted %d rows into ps_clientes", count)
+    if since is None or not where:
+        count = truncate_and_insert(conn_pg, "ps_clientes", pg_rows)
+        logger.info("sync_clientes: inserted %d rows into ps_clientes", count)
+        return count
+
+    if not pg_rows:
+        return 0
+    count = upsert(conn_pg, "ps_clientes", pg_rows, pk_cols=["reg_cliente"])
+    logger.info("sync_clientes: upserted %d rows into ps_clientes", count)
     return count
 
 
