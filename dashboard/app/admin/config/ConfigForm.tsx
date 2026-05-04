@@ -22,6 +22,28 @@
 
 import { useCallback, useEffect, useState } from "react";
 import SecretField from "@/components/SecretField";
+import {
+  EnumSelect,
+  PROVIDER_OPTIONS,
+  CLAUDE_CLI_MODEL_OPTIONS,
+} from "@/components/admin/EnumSelect";
+import { OpenRouterModelCombobox } from "@/components/admin/OpenRouterModelCombobox";
+
+// Sí / No options for bool keys.
+const BOOL_OPTIONS = [
+  { value: "true", label: "Sí" },
+  { value: "false", label: "No" },
+];
+
+// `value_display` for bool keys can come back as "true"/"false"/"1"/"0"/"yes"/"no" —
+// the system loader is permissive. Normalize to the canonical "true"/"false"
+// strings the dropdown expects so an unknown value doesn't blank out the select.
+function normalizeBoolString(v: string): string {
+  const trimmed = (v ?? "").trim().toLowerCase();
+  if (trimmed === "1" || trimmed === "yes" || trimmed === "y" || trimmed === "on") return "true";
+  if (trimmed === "0" || trimmed === "no" || trimmed === "n" || trimmed === "off" || trimmed === "") return "false";
+  return trimmed === "true" ? "true" : trimmed === "false" ? "false" : "false";
+}
 
 // ---------------------------------------------------------------------------
 // Types (mirror server response shape)
@@ -33,6 +55,7 @@ interface ConfigKey {
   section: string;
   description: string;
   type: "string" | "int" | "bool" | "enum";
+  enum_values?: string[];
   sensitive: boolean;
   source: "env" | "file" | "default";
   requires_restart: string[];
@@ -98,13 +121,17 @@ function RestartBanner({ services }: { services: string[] }) {
 interface ConfigRowProps {
   item: ConfigKey;
   onSaved: () => void;
+  /** The currently saved value of `dashboard.llm_provider`. Used to grey
+   *  out fields that are inert under the active provider (e.g. all
+   *  `dashboard.llm_model_openrouter*` keys when provider=cli). */
+  llmProvider: string;
 }
 
 /**
  * ConfigRow uses same-origin fetch() without explicit auth headers.
  * The browser sends the ps_admin httpOnly cookie automatically.
  */
-function ConfigRow({ item, onSaved }: ConfigRowProps) {
+function ConfigRow({ item, onSaved, llmProvider }: ConfigRowProps) {
   const [editValue, setEditValue] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -112,7 +139,18 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
   const [error, setError] = useState<string | null>(null);
   const [revealedValue, setRevealedValue] = useState<string | null>(null);
 
-  const canEdit = item.editable;
+  // Provider-aware "inert" flag: keys whose value cannot influence
+  // anything under the currently saved provider are surfaced read-only
+  // with an explanatory note so the operator doesn't try to edit them.
+  const isOpenRouterModelKey = item.key.startsWith("dashboard.llm_model_openrouter");
+  const isCliModelKey =
+    item.key === "dashboard.llm_model_cli" || item.key === "dashboard.llm_cli_driver" ||
+    item.key === "dashboard.llm_cli_bin" || item.key.startsWith("dashboard.llm_cli_");
+  const inertUnderProvider =
+    (llmProvider === "cli" && isOpenRouterModelKey) ||
+    (llmProvider === "openrouter" && isCliModelKey);
+
+  const canEdit = item.editable && !inertUnderProvider;
 
   async function handleReveal() {
     try {
@@ -235,6 +273,39 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
                   onChange={setEditValue}
                   placeholder="Introduce el valor..."
                 />
+              ) : item.key === "dashboard.llm_provider" ? (
+                <EnumSelect
+                  value={editValue}
+                  onChange={setEditValue}
+                  options={PROVIDER_OPTIONS}
+                  ariaLabel="Proveedor LLM"
+                />
+              ) : item.type === "enum" && item.enum_values && item.enum_values.length > 0 ? (
+                <EnumSelect
+                  value={editValue}
+                  onChange={setEditValue}
+                  options={item.enum_values.map((v) => ({ value: v, label: v }))}
+                  ariaLabel={item.key}
+                />
+              ) : item.key.startsWith("dashboard.llm_model_openrouter") ? (
+                <OpenRouterModelCombobox
+                  value={editValue}
+                  onChange={setEditValue}
+                />
+              ) : item.key === "dashboard.llm_model_cli" ? (
+                <EnumSelect
+                  value={editValue}
+                  onChange={setEditValue}
+                  options={CLAUDE_CLI_MODEL_OPTIONS}
+                  ariaLabel="Modelo CLI de Claude Code"
+                />
+              ) : item.type === "bool" ? (
+                <EnumSelect
+                  value={normalizeBoolString(editValue)}
+                  onChange={setEditValue}
+                  options={BOOL_OPTIONS}
+                  ariaLabel={item.key}
+                />
               ) : (
                 <input
                   type={item.type === "int" ? "number" : "text"}
@@ -319,6 +390,14 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
         </p>
       )}
 
+      {/* Inert under current provider */}
+      {inertUnderProvider && (
+        <p className="mt-1 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+          Inactivo: este ajuste solo aplica cuando <code className="font-mono">dashboard.llm_provider</code> es{" "}
+          <code className="font-mono">{isOpenRouterModelKey ? "openrouter" : "cli"}</code>.
+        </p>
+      )}
+
       {/* Admin key env-only notice */}
       {item.key === "dashboard.admin_api_key" && (
         <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
@@ -345,9 +424,11 @@ function ConfigRow({ item, onSaved }: ConfigRowProps) {
 function SectionCard({
   section,
   onRefresh,
+  llmProvider,
 }: {
   section: ConfigSection;
   onRefresh: () => void;
+  llmProvider: string;
 }) {
   const restartServices = Array.from(
     new Set(section.keys.flatMap((k) => k.requires_restart)),
@@ -371,6 +452,7 @@ function SectionCard({
             key={item.key}
             item={item}
             onSaved={onRefresh}
+            llmProvider={llmProvider}
           />
         ))}
       </div>
@@ -478,22 +560,28 @@ export default function ConfigPageClient() {
         </div>
       )}
 
-      {data && !loading && (
-        <div className="space-y-4">
-          <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
-            {data.values.length} claves de configuración en {data.sections.length} secciones.
-            Los cambios en el fichero se aplican inmediatamente para ajustes LLM/agentic; las
-            conexiones de base de datos requieren reiniciar el contenedor correspondiente.
-          </p>
-          {data.sections.map((section) => (
-            <SectionCard
-              key={section.name}
-              section={section}
-              onRefresh={() => void loadConfig()}
-            />
-          ))}
-        </div>
-      )}
+      {data && !loading && (() => {
+        const llmProvider = String(
+          data.values.find((v) => v.key === "dashboard.llm_provider")?.value_display ?? "cli",
+        );
+        return (
+          <div className="space-y-4">
+            <p className="text-sm text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
+              {data.values.length} claves de configuración en {data.sections.length} secciones.
+              Los cambios en el fichero se aplican inmediatamente para ajustes LLM/agentic; las
+              conexiones de base de datos requieren reiniciar el contenedor correspondiente.
+            </p>
+            {data.sections.map((section) => (
+              <SectionCard
+                key={section.name}
+                section={section}
+                onRefresh={() => void loadConfig()}
+                llmProvider={llmProvider}
+              />
+            ))}
+          </div>
+        );
+      })()}
     </div>
   );
 }

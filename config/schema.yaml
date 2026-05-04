@@ -158,23 +158,53 @@
   requires_restart: []
   components: [dashboard]
 
-- key: dashboard.llm_model
-  env: DASHBOARD_LLM_MODEL
-  type: string
-  sensitive: false
-  default: "anthropic/claude-sonnet-4"
-  section: "Dashboard LLM"
-  description: "Modelo LLM por defecto para el dashboard (aplicado a ambos proveedores si no hay override específico)."
-  requires_restart: []
-  components: [dashboard]
-
 - key: dashboard.llm_model_openrouter
   env: DASHBOARD_LLM_MODEL_OPENROUTER
   type: string
   sensitive: false
   default: null
   section: "Dashboard LLM"
-  description: "Modelo OpenRouter específico para el dashboard (anula dashboard.llm_model)."
+  description: "Modelo OpenRouter por defecto del dashboard. Cualquier ajuste por flujo (generate / modify / analyze / weekly) tiene prioridad sobre este valor."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_generate
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_GENERATE
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para generación de dashboards (genera el spec inicial desde un prompt). Si está vacío, cae en dashboard.llm_model_openrouter."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_modify
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_MODIFY
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para modificación de dashboards existentes (más SQL agéntico, conviene un modelo fuerte). Si está vacío, cae en dashboard.llm_model_openrouter."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_analyze
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_ANALYZE
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para análisis narrativo de un dashboard ya cargado (no hace falta SQL; un modelo barato y rápido suele ir mejor). Si está vacío, cae en dashboard.llm_model_openrouter."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_model_openrouter_weekly
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_WEEKLY
+  type: string
+  sensitive: false
+  default: null
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter para la revisión semanal (digest largo, lectura de muchos números). Si está vacío, cae en dashboard.llm_model_openrouter."
   requires_restart: []
   components: [dashboard]
 
@@ -184,13 +214,14 @@
   sensitive: false
   default: "claude-sonnet-4-6"
   section: "Dashboard LLM"
-  description: "Modelo CLI específico para el dashboard (anula dashboard.llm_model). Usa IDs nativos de Claude (p.ej. claude-sonnet-4-6), no formato OpenRouter."
+  description: "Modelo CLI nativo de Claude (p.ej. claude-sonnet-4-6). No usa formato OpenRouter."
   requires_restart: []
   components: [dashboard]
 
 - key: dashboard.llm_cli_driver
   env: DASHBOARD_LLM_CLI_DRIVER
-  type: string
+  type: enum
+  enum_values: [claude_code]
   sensitive: false
   default: "claude_code"
   section: "Dashboard LLM"

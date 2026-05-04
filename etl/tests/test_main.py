@@ -44,6 +44,7 @@ _SYNC_FN_PATHS: list[str] = [
     "etl.sync.compras.sync_facturas_compra",
     "etl.sync.stock.sync_stock",
     "etl.sync.stock.sync_traspasos",
+    "etl.sync.ccstock.sync_ccstock",
 ]
 
 _POSTGRES_HELPER_PATHS: list[str] = [
@@ -59,6 +60,7 @@ def _make_mocks(
     *,
     fail_sync_names: set[str] | None = None,
     create_run_raises: bool = False,
+    fail_ma_cleanup: bool = False,
 ) -> dict[str, MagicMock]:
     """Run run_full_sync with all external calls mocked.
 
@@ -67,6 +69,8 @@ def _make_mocks(
 
     fail_sync_names: short names of sync fns that should raise RuntimeError
     create_run_raises: if True, create_run raises to simulate monitoring outage
+    fail_ma_cleanup: if True, get_ma_article_codes raises (the production
+        "stale 4D socket" scenario fails this too, not only the syncs)
     """
     fail_sync_names = fail_sync_names or set()
     captured: dict[str, MagicMock] = {}
@@ -93,10 +97,13 @@ def _make_mocks(
         else:
             captured["create_run"].return_value = 42
 
-        # MA cleanup: return empty list so the function is a no-op
-        m = stack.enter_context(
-            patch("etl.sync.articulos.get_ma_article_codes", return_value=[])
-        )
+        # MA cleanup: return empty list so the function is a no-op, unless
+        # the test wants it to fail too (mirrors the prod stale-4D case).
+        m = stack.enter_context(patch("etl.sync.articulos.get_ma_article_codes"))
+        if fail_ma_cleanup:
+            m.side_effect = RuntimeError("simulated 4D failure in get_ma_article_codes")
+        else:
+            m.return_value = []
         captured["get_ma_article_codes"] = m
 
         # Row totals: skip the DB call
@@ -164,6 +171,21 @@ class TestPerModuleFailure:
         tables_failed = args[4]
         assert status == "partial", f"Expected 'partial', got {status!r}"
         assert tables_failed >= 1
+
+    def test_finish_run_records_failed_when_every_module_errors(self):
+        """When *every* sync module raises, finish_run gets status='failed' — not
+        'partial'. This is the run #307 case (stale 4D socket → all 24 syncs
+        return ProgrammingError(b'')); reporting it as partial is misleading
+        because zero rows landed."""
+        all_syncs = {p.rsplit(".", 1)[-1] for p in _SYNC_FN_PATHS}
+        mocks = _make_mocks(fail_sync_names=all_syncs, fail_ma_cleanup=True)
+
+        mocks["finish_run"].assert_called_once()
+        _, args, _ = mocks["finish_run"].mock_calls[0]
+        status = args[2]
+        tables_ok = args[3]
+        assert status == "failed", f"Expected 'failed', got {status!r}"
+        assert tables_ok == 0
 
 
 class TestCreateRunFailure:

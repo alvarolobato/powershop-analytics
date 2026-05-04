@@ -14,7 +14,12 @@ describe("loadDashboardLlmConfig", () => {
   it("throws on unknown CLI driver", () => {
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
     vi.stubEnv("DASHBOARD_LLM_CLI_DRIVER", "unknown_agent");
-    expect(() => loadDashboardLlmConfig()).toThrow(/Invalid DASHBOARD_LLM_CLI_DRIVER/);
+    // The central schema validates enum values up-front (it's an enum
+    // [claude_code]) and throws before normalizeDriver runs; accept either
+    // wording so we stay robust if the validation layer moves later.
+    expect(() => loadDashboardLlmConfig()).toThrow(
+      /Invalid DASHBOARD_LLM_CLI_DRIVER|is not one of/,
+    );
   });
 
   it("throws on invalid DASHBOARD_LLM_PROVIDER value", () => {
@@ -40,10 +45,49 @@ describe("loadDashboardLlmConfig", () => {
     expect(getEffectiveDashboardModel(c)).toBe("m-cli");
   });
 
-  it("does not validate CLI driver when provider is openrouter", () => {
+  it("validates CLI driver at the schema layer regardless of provider", () => {
+    // dashboard.llm_cli_driver is an enum [claude_code] in config/schema.yaml,
+    // so the central loader rejects unknown values at startup — even when the
+    // active provider is openrouter and would never read the field. Catching
+    // typos early beats silently ignoring them.
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
     vi.stubEnv("DASHBOARD_LLM_CLI_DRIVER", "totally_invalid");
-    const c = loadDashboardLlmConfig();
-    expect(c.cliDriver).toBe("claude_code");
+    expect(() => loadDashboardLlmConfig()).toThrow(/is not one of/);
+  });
+
+  describe("per-flow OpenRouter model overrides", () => {
+    it("uses the per-flow override when set", () => {
+      vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER", "default-or");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER_MODIFY", "claude-opus-4");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER_ANALYZE", "claude-haiku-4");
+      const c = loadDashboardLlmConfig();
+      expect(getEffectiveDashboardModel(c, "modify")).toBe("claude-opus-4");
+      expect(getEffectiveDashboardModel(c, "analyze")).toBe("claude-haiku-4");
+    });
+
+    it("falls back to llm_model_openrouter when the per-flow override is empty", () => {
+      vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER", "default-or");
+      const c = loadDashboardLlmConfig();
+      expect(getEffectiveDashboardModel(c, "modify")).toBe("default-or");
+      expect(getEffectiveDashboardModel(c, "weekly")).toBe("default-or");
+    });
+
+    it("ignores the per-flow override on the cli provider", () => {
+      vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_CLI", "m-cli");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER_MODIFY", "claude-opus-4");
+      const c = loadDashboardLlmConfig();
+      expect(getEffectiveDashboardModel(c, "modify")).toBe("m-cli");
+    });
+
+    it("returns llm_model_openrouter when called without a flow", () => {
+      vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER", "default-or");
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER_GENERATE", "claude-sonnet-4");
+      const c = loadDashboardLlmConfig();
+      expect(getEffectiveDashboardModel(c)).toBe("default-or");
+    });
   });
 });

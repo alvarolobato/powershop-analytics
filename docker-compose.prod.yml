@@ -225,13 +225,15 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      DASHBOARD_LLM_MODEL: ${DASHBOARD_LLM_MODEL:-anthropic/claude-sonnet-4}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       # Set true only behind HTTPS; on plain HTTP (e.g. LAN) leave unset so the admin cookie is stored.
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
       # CONFIG_FILE pins the config path to the host-mounted /config directory.
       CONFIG_FILE: /config/config.yaml
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
+      # DASHBOARD_LLM_PROVIDER / DASHBOARD_LLM_MODEL_* / DASHBOARD_LLM_CLI_*
+      # intentionally NOT set here — values come from config.yaml so the
+      # admin /config UI can edit them (env-sourced keys render read-only).
     volumes:
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
       - ./config/schema.yaml:/app/config/schema.yaml:ro

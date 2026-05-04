@@ -18,11 +18,27 @@ describe("dashboard LLM model config", () => {
     expect(getDashboardLlmModel()).toBe("openai/gpt-4o");
   });
 
-  it("falls back to DASHBOARD_LLM_MODEL for OpenRouter when OPENROUTER-specific unset", () => {
+  it("falls back to DASHBOARD_LLM_MODEL (deprecated) for OpenRouter when the per-provider key is unset", () => {
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
     delete process.env.DASHBOARD_LLM_MODEL_OPENROUTER;
+    // Slash format → routed to the OpenRouter side; the loader emits
+    // a one-time deprecation warning that is silenced in vitest.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.stubEnv("DASHBOARD_LLM_MODEL", "legacy/model");
     expect(getDashboardLlmModel()).toBe("legacy/model");
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("does NOT route a slashed legacy DASHBOARD_LLM_MODEL into the CLI driver", () => {
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+    delete process.env.DASHBOARD_LLM_MODEL_CLI;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubEnv("DASHBOARD_LLM_MODEL", "openrouter-style/something");
+    // The CLI accepts native Claude ids only — a slashed legacy value is
+    // ignored and the hard-coded default ("claude-sonnet-4-6") wins.
+    expect(getDashboardLlmModel()).toBe("claude-sonnet-4-6");
+    warn.mockRestore();
   });
 
   it("returns CLI model from DASHBOARD_LLM_MODEL_CLI when provider is cli", () => {
