@@ -101,8 +101,12 @@ def sync_ccstock(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
     """
     where = ""
     if since is not None:
+        # `>=` not `>`: FechaModifica is date-only (DATA_TYPE=8). Strict `>`
+        # would silently skip same-day updates once the watermark advances
+        # to today. Upsert is idempotent so re-fetching today's rows is
+        # harmless.
         date_str = since.strftime("%Y-%m-%d")
-        where = f" WHERE FechaModifica > {{d '{date_str}'}}"
+        where = f" WHERE FechaModifica >= {{d '{date_str}'}}"
     sql = f"SELECT {_CCSTOCK_COLUMNS} FROM CCStock{where}"
     logger.info(
         "sync_ccstock: fetching %s rows from CCStock ...",

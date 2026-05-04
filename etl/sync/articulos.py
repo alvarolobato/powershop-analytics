@@ -274,8 +274,13 @@ def sync_articulos(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
     if since is None:
         sql = _SQL_ARTICULOS
     else:
+        # `>=` not `>`: 4D's FechaModifica is a date-only field. With strict
+        # `>` once the watermark advances to today, same-day updates with
+        # FechaModifica == today are silently skipped until tomorrow. `>=`
+        # re-fetches every row already touched today; upsert is idempotent
+        # so the only cost is one extra UPDATE per untouched row.
         date_str = since.strftime("%Y-%m-%d")
-        sql = f"{_SQL_ARTICULOS} AND FechaModifica > {{d '{date_str}'}}"
+        sql = f"{_SQL_ARTICULOS} AND FechaModifica >= {{d '{date_str}'}}"
 
     raw_rows = safe_fetch(conn_4d, sql)
     pg_rows = [_nullify_zero_fks(_map_row(r, _ARTICULOS_MAPPING)) for r in raw_rows]

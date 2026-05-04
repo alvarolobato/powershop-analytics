@@ -155,8 +155,11 @@ def sync_clientes(conn_4d, conn_pg, since=None) -> int:
                 "sync_clientes: delta requested but FechaModifica missing — falling back to full refresh"
             )
         else:
+            # `>=` not `>`: FechaModifica is date-only; strict `>` would
+            # silently skip same-day updates once the watermark advances.
+            # Upsert is idempotent so re-fetching today's rows is harmless.
             date_str = since.strftime("%Y-%m-%d")
-            where = f" WHERE FechaModifica > {{d '{date_str}'}}"
+            where = f" WHERE FechaModifica >= {{d '{date_str}'}}"
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Clientes{where}"
     logger.info("sync_clientes: querying 4D — %s", sql)

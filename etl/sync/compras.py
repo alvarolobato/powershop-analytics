@@ -261,8 +261,11 @@ def sync_facturas(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
                 "sync_facturas: delta requested but FechaModifica missing — falling back to full refresh"
             )
         else:
+            # `>=` not `>`: FechaModifica is date-only; strict `>` would
+            # silently skip same-day updates once the watermark advances.
+            # Upsert is idempotent so re-fetching today's rows is harmless.
             date_str = since.strftime("%Y-%m-%d")
-            where = f" WHERE FechaModifica > {{d '{date_str}'}}"
+            where = f" WHERE FechaModifica >= {{d '{date_str}'}}"
 
     sql = (
         "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM Facturas" + where

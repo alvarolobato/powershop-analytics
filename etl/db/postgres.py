@@ -383,6 +383,68 @@ def fail_orphan_running_runs(conn) -> int:
         raise
 
 
+# Stable lock-id used by try_acquire_run_lock. PostgreSQL advisory locks
+# take a single bigint; this constant is just a project-scoped magic number
+# (chosen as a CRC32 of "etl_sync_runs" — value is opaque, what matters is
+# that it stays consistent across processes and never collides with any
+# other advisory-lock user in the database).
+RUN_ADVISORY_LOCK_ID = 0x4554_4C53_524E_5F5F  # bigint, fits in PG's lock id
+
+
+def try_acquire_run_lock(conn) -> bool:
+    """Try to grab the project-wide ETL run advisory lock (non-blocking).
+
+    Returns True when the caller is now the sole owner of the lock and is
+    free to call run_full_sync; False when another scheduler instance (or
+    a parallel manual trigger that escaped the _is_run_active check) is
+    already holding it.
+
+    The lock is session-scoped: it auto-releases when this PG connection
+    closes, so a crashed ETL container will release it on its next
+    reconnect — no zombie locks across container restarts.
+
+    Why this exists: _is_run_active() reads etl_sync_runs.status, but
+    create_run is best-effort and may have failed, leaving no row. In that
+    edge case _is_run_active returns False and a second scheduler could
+    start a concurrent run. The advisory lock is independent of the
+    monitoring rows and survives such failures.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(%s)", (RUN_ADVISORY_LOCK_ID,))
+            got: bool = bool(cur.fetchone()[0])
+        conn.commit()
+        return got
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        # If we cannot even check the lock, fail closed so we don't run
+        # twice in parallel. The next scheduler tick will retry.
+        return False
+
+
+def release_run_lock(conn) -> None:
+    """Release the advisory lock acquired by try_acquire_run_lock.
+
+    Safe to call when the lock is not held — pg_advisory_unlock returns
+    false in that case but does not raise. We swallow exceptions because
+    failing to release is recoverable (the lock auto-frees on connection
+    close).
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(%s)", (RUN_ADVISORY_LOCK_ID,))
+            cur.fetchone()
+        conn.commit()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+
+
 def create_run(conn, trigger: str, kind: str = "full") -> int:
     """Insert an etl_sync_runs record with status='running' and return its id.
 

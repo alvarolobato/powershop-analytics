@@ -418,8 +418,24 @@ def run_full_sync(
         create_run,
         finish_run,
         get_trigger_force_flags,
+        release_run_lock,
         reset_watermarks,
+        try_acquire_run_lock,
     )
+
+    # Cross-process exclusion. _is_run_active (row check) can race with
+    # create_run when a manual trigger and a cron firing land close in
+    # time, letting two runs proceed in parallel. The advisory lock is
+    # held inside PG and is independent of any monitoring row, so it is
+    # the authoritative gate. Session-scoped: auto-released on connection
+    # close, so a crashed container leaves no zombie lock.
+    if not try_acquire_run_lock(conn_pg):
+        logger.warning(
+            "Another ETL run is already in progress (advisory lock held) — skipping %s sync",
+            kind,
+        )
+        return
+
     from etl.sync.articulos import sync_articulos
     from etl.sync.compras import (
         sync_albaranes,
@@ -446,242 +462,247 @@ def run_full_sync(
     from etl.sync.stock import sync_stock, sync_traspasos
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
 
-    logger.info("=== %s sync started ===", "Delta" if kind == "delta" else "Full")
-    pipeline_start = time.time()
+    try:
+        logger.info("=== %s sync started ===", "Delta" if kind == "delta" else "Full")
+        pipeline_start = time.time()
 
-    # ------------------------------------------------------------------
-    # Honour manual trigger's force flags BEFORE creating the run, so the
-    # watermark reset happens even if create_run fails downstream. Resetting
-    # watermarks is idempotent and safe: the worst case is one extra pass over
-    # incremental tables on the next sync.
-    # ------------------------------------------------------------------
-    if trigger == "manual" and trigger_id is not None:
-        try:
-            force_full, force_tables, triggered_by = get_trigger_force_flags(
-                conn_pg, trigger_id
-            )
-        except Exception:
-            logger.exception(
-                "Trigger %d: could not read force flags — running incrementally",
-                trigger_id,
-            )
-            force_full, force_tables, triggered_by = False, [], None
-
-        logger.info(
-            "Trigger %d: triggered_by=%r",
-            trigger_id,
-            triggered_by if triggered_by else "unknown",
-        )
-
-        if force_full:
-            logger.warning(
-                "Trigger %d requested force_full=True — clearing ALL watermarks "
-                "for %d tables (this can dramatically increase sync duration)",
-                trigger_id,
-                len(SYNC_NAMES_WITH_WATERMARK),
-            )
+        # ------------------------------------------------------------------
+        # Honour manual trigger's force flags BEFORE creating the run, so the
+        # watermark reset happens even if create_run fails downstream. Resetting
+        # watermarks is idempotent and safe: the worst case is one extra pass over
+        # incremental tables on the next sync.
+        # ------------------------------------------------------------------
+        if trigger == "manual" and trigger_id is not None:
             try:
-                deleted = reset_watermarks(conn_pg, list(SYNC_NAMES_WITH_WATERMARK))
-                logger.info(
-                    "Trigger %d: reset_watermarks(force_full) deleted %d rows",
-                    trigger_id,
-                    deleted,
+                force_full, force_tables, triggered_by = get_trigger_force_flags(
+                    conn_pg, trigger_id
                 )
             except Exception:
                 logger.exception(
-                    "Trigger %d: force_full watermark reset failed; continuing",
+                    "Trigger %d: could not read force flags — running incrementally",
                     trigger_id,
                 )
-        elif force_tables:
-            # Filter to known watermark-backed syncs only. A name absent from
-            # SYNC_NAMES_WITH_WATERMARK is dropped with a warning — API/UI
-            # already validate, this is a defense-in-depth check.
-            valid = [t for t in force_tables if t in SYNC_NAMES_WITH_WATERMARK]
-            unknown = sorted(set(force_tables) - set(valid))
-            if unknown:
+                force_full, force_tables, triggered_by = False, [], None
+
+            logger.info(
+                "Trigger %d: triggered_by=%r",
+                trigger_id,
+                triggered_by if triggered_by else "unknown",
+            )
+
+            if force_full:
                 logger.warning(
-                    "Trigger %d: ignoring unknown force_tables %s (not in registry)",
+                    "Trigger %d requested force_full=True — clearing ALL watermarks "
+                    "for %d tables (this can dramatically increase sync duration)",
                     trigger_id,
-                    unknown,
-                )
-            if valid:
-                logger.info(
-                    "Trigger %d: force_tables=%s — resetting watermarks",
-                    trigger_id,
-                    valid,
+                    len(SYNC_NAMES_WITH_WATERMARK),
                 )
                 try:
-                    deleted = reset_watermarks(conn_pg, valid)
+                    deleted = reset_watermarks(conn_pg, list(SYNC_NAMES_WITH_WATERMARK))
                     logger.info(
-                        "Trigger %d: reset_watermarks deleted %d row(s)",
+                        "Trigger %d: reset_watermarks(force_full) deleted %d rows",
                         trigger_id,
                         deleted,
                     )
                 except Exception:
                     logger.exception(
-                        "Trigger %d: reset_watermarks failed; continuing incrementally",
+                        "Trigger %d: force_full watermark reset failed; continuing",
                         trigger_id,
                     )
+            elif force_tables:
+                # Filter to known watermark-backed syncs only. A name absent from
+                # SYNC_NAMES_WITH_WATERMARK is dropped with a warning — API/UI
+                # already validate, this is a defense-in-depth check.
+                valid = [t for t in force_tables if t in SYNC_NAMES_WITH_WATERMARK]
+                unknown = sorted(set(force_tables) - set(valid))
+                if unknown:
+                    logger.warning(
+                        "Trigger %d: ignoring unknown force_tables %s (not in registry)",
+                        trigger_id,
+                        unknown,
+                    )
+                if valid:
+                    logger.info(
+                        "Trigger %d: force_tables=%s — resetting watermarks",
+                        trigger_id,
+                        valid,
+                    )
+                    try:
+                        deleted = reset_watermarks(conn_pg, valid)
+                        logger.info(
+                            "Trigger %d: reset_watermarks deleted %d row(s)",
+                            trigger_id,
+                            deleted,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Trigger %d: reset_watermarks failed; continuing incrementally",
+                            trigger_id,
+                        )
 
-    run_id: int | None = None
-    try:
-        run_id = create_run(conn_pg, trigger, kind=kind)
-    except Exception:
-        logger.exception(
-            "Monitoring: create_run failed; continuing without run tracking"
-        )
-        if trigger == "manual" and trigger_id is not None:
-            logger.warning(
-                "Manual trigger %d will complete but run_id tracking is unavailable",
-                trigger_id,
-            )
-
-    results: list[bool] = []
-    total_rows = 0
-
-    def _s(name, fn, *, wm=False):
-        """Dispatch one sync. In delta runs, non-watermark modules are skipped
-        — they cover catalog/master/full-refresh-only data that doesn't need
-        per-hour refresh and would needlessly wipe + reinsert their tables."""
-        nonlocal total_rows
-        if kind == "delta" and not wm:
-            return
-        rows, ok = _run_sync(
-            name,
-            fn,
-            conn_4d,
-            conn_pg,
-            uses_watermark=wm,
-            run_id=run_id,
-            kind=kind,
-            target_table=SYNC_TARGET_TABLE.get(name),
-        )
-        results.append(ok)
-        # Accumulate row counts for etl_sync_runs.total_rows_synced so the
-        # Monitor ETL "Filas sincronizadas" KPI reflects the real sum across
-        # all tables. Failures return rows=0, so they do not skew the total.
-        total_rows += rows
-
-    # ------------------------------------------------------------------
-    # 1. Catalog (full refresh, no watermark) — full-runs only
-    # ------------------------------------------------------------------
-    # Load catalogos BEFORE articulos: truncate_and_insert uses TRUNCATE ...
-    # CASCADE, and ps_articulos has FKs to all five catalog tables.  If
-    # articulos ran first, the next catalog truncate would cascade-wipe it.
-    _s("catalogos", _run_sync_catalogos)
-    # articulos is delta-capable — runs every hour AND every full-refresh.
-    _s("articulos", sync_articulos, wm=True)
-
-    # ------------------------------------------------------------------
-    # 2. Masters
-    # ------------------------------------------------------------------
-    _s("tiendas", sync_tiendas)  # full-only (51 rows)
-    _s("clientes", sync_clientes, wm=True)  # delta-capable
-    _s("proveedores", sync_proveedores)  # full-only (520 rows)
-    _s("gc_comerciales", sync_gc_comerciales)  # full-only (5 rows)
-
-    # ------------------------------------------------------------------
-    # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)
-    # ------------------------------------------------------------------
-    _s("ventas", sync_ventas, wm=True)
-    _s("lineas_ventas", sync_lineas_ventas, wm=True)
-    _s("pagos_ventas", sync_pagos_ventas, wm=True)
-
-    # ------------------------------------------------------------------
-    # 5. Wholesale (delta by Modifica for headers; full for pedidos lines)
-    # ------------------------------------------------------------------
-    _s("gc_albaranes", sync_gc_albaranes, wm=True)
-    _s("gc_lin_albarane", sync_gc_lin_albarane, wm=True)
-    _s("gc_facturas", sync_gc_facturas, wm=True)
-    _s("gc_lin_facturas", sync_gc_lin_facturas, wm=True)
-    _s("gc_pedidos", sync_gc_pedidos)  # full-only — workflow data, can shrink
-    _s("gc_lin_pedidos", sync_gc_lin_pedidos)  # full-only — same reason
-
-    # ------------------------------------------------------------------
-    # 6. Purchasing — facturas is delta-capable; the rest stay full because
-    # the 4D source tables don't expose a FechaModifica field.
-    # ------------------------------------------------------------------
-    _s("compras", sync_compras)  # full-only (no FechaModifica in Compras)
-    _s(
-        "lineas_compras", sync_lineas_compras
-    )  # full-only (CCLineasCompr has only Fecha)
-    _s("facturas", sync_facturas, wm=True)
-    _s("albaranes", sync_albaranes)  # full-only (only FechaRecibido)
-    _s("facturas_compra", sync_facturas_compra)  # full-only (only FechaFactura)
-
-    # ------------------------------------------------------------------
-    # 7. Stock (delta by FechaModifica) — last because Exportaciones is very slow (2M rows)
-    # ------------------------------------------------------------------
-    _s("stock", sync_stock, wm=True)
-    _s("traspasos", sync_traspasos, wm=True)
-
-    # ------------------------------------------------------------------
-    # 7b. CCStock (central warehouse) — delta-capable
-    # ------------------------------------------------------------------
-    _s("ccstock", sync_ccstock, wm=True)
-
-    # ------------------------------------------------------------------
-    # 8. MA cascade cleanup — remove line-table rows referencing MA articles
-    # ------------------------------------------------------------------
-    # MA articles (CCRefeJOFACM starting with 'MA') are excluded from
-    # ps_articulos at the source query level.  Here we cascade that exclusion
-    # to line-item tables whose rows reference MA article codes via `codigo`.
-    # This is necessary because line tables use delta/upsert strategies that
-    # may have inserted MA-linked rows in previous sync runs before this filter.
-    # Failures are logged but do not abort the pipeline (consistent with _run_sync).
-    # Skipped on delta runs: it scans every line-item table and the MA set
-    # only changes on full runs (when ps_articulos is fully reloaded).
-    if kind == "full":
-        ma_ok = True
+        run_id: int | None = None
         try:
-            _cleanup_ma_linked_rows(conn_4d, conn_pg)
+            run_id = create_run(conn_pg, trigger, kind=kind)
         except Exception:
-            logger.exception("MA cleanup failed; continuing with pipeline completion")
-            ma_ok = False
-        results.append(ma_ok)
+            logger.exception(
+                "Monitoring: create_run failed; continuing without run tracking"
+            )
+            if trigger == "manual" and trigger_id is not None:
+                logger.warning(
+                    "Manual trigger %d will complete but run_id tracking is unavailable",
+                    trigger_id,
+                )
 
-    total_ms = int((time.time() - pipeline_start) * 1000)
-    logger.info(
-        "=== %s sync completed in %d ms ===",
-        "Delta" if kind == "delta" else "Full",
-        total_ms,
-    )
+        results: list[bool] = []
+        total_rows = 0
 
-    rows_total = _get_rows_total(conn_pg)
-    if rows_total:
-        logger.info("Post-sync row totals: %s", rows_total)
-
-    if run_id is not None:
-        tables_ok = sum(results)
-        tables_failed = len(results) - tables_ok
-        # Three buckets so the dashboard can distinguish "everything broke"
-        # (typically a 4D-side outage or a stale connection) from a real
-        # partial run where some tables landed and others didn't.
-        if tables_failed == 0:
-            status = "success"
-        elif tables_ok == 0:
-            status = "failed"
-        else:
-            status = "partial"
-        try:
-            finish_run(
+        def _s(name, fn, *, wm=False):
+            """Dispatch one sync. In delta runs, non-watermark modules are skipped
+            — they cover catalog/master/full-refresh-only data that doesn't need
+            per-hour refresh and would needlessly wipe + reinsert their tables."""
+            nonlocal total_rows
+            if kind == "delta" and not wm:
+                return
+            rows, ok = _run_sync(
+                name,
+                fn,
+                conn_4d,
                 conn_pg,
-                run_id,
-                status,
-                tables_ok,
-                tables_failed,
-                total_rows_synced=total_rows,
+                uses_watermark=wm,
+                run_id=run_id,
+                kind=kind,
+                target_table=SYNC_TARGET_TABLE.get(name),
             )
-        except Exception:
-            logger.exception("Monitoring: finish_run failed")
+            results.append(ok)
+            # Accumulate row counts for etl_sync_runs.total_rows_synced so the
+            # Monitor ETL "Filas sincronizadas" KPI reflects the real sum across
+            # all tables. Failures return rows=0, so they do not skew the total.
+            total_rows += rows
 
-        if trigger == "manual" and trigger_id is not None:
-            from etl.db.postgres import update_trigger_run_id
+        # ------------------------------------------------------------------
+        # 1. Catalog (full refresh, no watermark) — full-runs only
+        # ------------------------------------------------------------------
+        # Load catalogos BEFORE articulos: truncate_and_insert uses TRUNCATE ...
+        # CASCADE, and ps_articulos has FKs to all five catalog tables.  If
+        # articulos ran first, the next catalog truncate would cascade-wipe it.
+        _s("catalogos", _run_sync_catalogos)
+        # articulos is delta-capable — runs every hour AND every full-refresh.
+        _s("articulos", sync_articulos, wm=True)
 
+        # ------------------------------------------------------------------
+        # 2. Masters
+        # ------------------------------------------------------------------
+        _s("tiendas", sync_tiendas)  # full-only (51 rows)
+        _s("clientes", sync_clientes, wm=True)  # delta-capable
+        _s("proveedores", sync_proveedores)  # full-only (520 rows)
+        _s("gc_comerciales", sync_gc_comerciales)  # full-only (5 rows)
+
+        # ------------------------------------------------------------------
+        # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)
+        # ------------------------------------------------------------------
+        _s("ventas", sync_ventas, wm=True)
+        _s("lineas_ventas", sync_lineas_ventas, wm=True)
+        _s("pagos_ventas", sync_pagos_ventas, wm=True)
+
+        # ------------------------------------------------------------------
+        # 5. Wholesale (delta by Modifica for headers; full for pedidos lines)
+        # ------------------------------------------------------------------
+        _s("gc_albaranes", sync_gc_albaranes, wm=True)
+        _s("gc_lin_albarane", sync_gc_lin_albarane, wm=True)
+        _s("gc_facturas", sync_gc_facturas, wm=True)
+        _s("gc_lin_facturas", sync_gc_lin_facturas, wm=True)
+        _s("gc_pedidos", sync_gc_pedidos)  # full-only — workflow data, can shrink
+        _s("gc_lin_pedidos", sync_gc_lin_pedidos)  # full-only — same reason
+
+        # ------------------------------------------------------------------
+        # 6. Purchasing — facturas is delta-capable; the rest stay full because
+        # the 4D source tables don't expose a FechaModifica field.
+        # ------------------------------------------------------------------
+        _s("compras", sync_compras)  # full-only (no FechaModifica in Compras)
+        _s(
+            "lineas_compras", sync_lineas_compras
+        )  # full-only (CCLineasCompr has only Fecha)
+        _s("facturas", sync_facturas, wm=True)
+        _s("albaranes", sync_albaranes)  # full-only (only FechaRecibido)
+        _s("facturas_compra", sync_facturas_compra)  # full-only (only FechaFactura)
+
+        # ------------------------------------------------------------------
+        # 7. Stock (delta by FechaModifica) — last because Exportaciones is very slow (2M rows)
+        # ------------------------------------------------------------------
+        _s("stock", sync_stock, wm=True)
+        _s("traspasos", sync_traspasos, wm=True)
+
+        # ------------------------------------------------------------------
+        # 7b. CCStock (central warehouse) — delta-capable
+        # ------------------------------------------------------------------
+        _s("ccstock", sync_ccstock, wm=True)
+
+        # ------------------------------------------------------------------
+        # 8. MA cascade cleanup — remove line-table rows referencing MA articles
+        # ------------------------------------------------------------------
+        # MA articles (CCRefeJOFACM starting with 'MA') are excluded from
+        # ps_articulos at the source query level.  Here we cascade that exclusion
+        # to line-item tables whose rows reference MA article codes via `codigo`.
+        # This is necessary because line tables use delta/upsert strategies that
+        # may have inserted MA-linked rows in previous sync runs before this filter.
+        # Failures are logged but do not abort the pipeline (consistent with _run_sync).
+        # Skipped on delta runs: it scans every line-item table and the MA set
+        # only changes on full runs (when ps_articulos is fully reloaded).
+        if kind == "full":
+            ma_ok = True
             try:
-                update_trigger_run_id(conn_pg, trigger_id, run_id)
+                _cleanup_ma_linked_rows(conn_4d, conn_pg)
             except Exception:
-                logger.warning("Could not update trigger run_id — non-fatal")
+                logger.exception(
+                    "MA cleanup failed; continuing with pipeline completion"
+                )
+                ma_ok = False
+            results.append(ma_ok)
+
+        total_ms = int((time.time() - pipeline_start) * 1000)
+        logger.info(
+            "=== %s sync completed in %d ms ===",
+            "Delta" if kind == "delta" else "Full",
+            total_ms,
+        )
+
+        rows_total = _get_rows_total(conn_pg)
+        if rows_total:
+            logger.info("Post-sync row totals: %s", rows_total)
+
+        if run_id is not None:
+            tables_ok = sum(results)
+            tables_failed = len(results) - tables_ok
+            # Three buckets so the dashboard can distinguish "everything broke"
+            # (typically a 4D-side outage or a stale connection) from a real
+            # partial run where some tables landed and others didn't.
+            if tables_failed == 0:
+                status = "success"
+            elif tables_ok == 0:
+                status = "failed"
+            else:
+                status = "partial"
+            try:
+                finish_run(
+                    conn_pg,
+                    run_id,
+                    status,
+                    tables_ok,
+                    tables_failed,
+                    total_rows_synced=total_rows,
+                )
+            except Exception:
+                logger.exception("Monitoring: finish_run failed")
+
+            if trigger == "manual" and trigger_id is not None:
+                from etl.db.postgres import update_trigger_run_id
+
+                try:
+                    update_trigger_run_id(conn_pg, trigger_id, run_id)
+                except Exception:
+                    logger.warning("Could not update trigger run_id — non-fatal")
+    finally:
+        release_run_lock(conn_pg)
 
 
 # ---------------------------------------------------------------------------
@@ -824,6 +845,21 @@ def _run_scheduler_loop(
                 "Skipping scheduled %s sync — a run is already in progress", kind
             )
             return
+        # Avoid the back-to-back full+delta pair at the nightly minute. Both
+        # jobs are due at cron_hour:delta_minute; the daily full runs first
+        # and finishes (clearing _is_run_active) BEFORE the delta job in the
+        # same run_pending tick fires. The original "register full first"
+        # comment was wrong — schedule.run_pending dispatches sequentially.
+        # Drop the colliding delta explicitly.
+        if kind == "delta":
+            now = datetime.now(timezone.utc)
+            if now.hour == cron_hour and now.minute == delta_minute:
+                logger.info(
+                    "Skipping delta at %02d:%02d — daily full just ran in this slot",
+                    cron_hour,
+                    delta_minute,
+                )
+                return
         conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
         if conn_4d is None:
             _record_connection_failure(
@@ -844,13 +880,11 @@ def _run_scheduler_loop(
             conn_4d = None
 
     # Nightly full — the heavy pass that catches hard-deletes by truncating
-    # and reinserting the watermark-backed tables. Registered FIRST so when
-    # both jobs are due at the same wall-clock minute (cron_hour:delta_minute),
-    # the schedule library runs this one first; the hourly delta then sees
-    # _is_run_active=True and skips.
+    # and reinserting the watermark-backed tables.
     schedule.every().day.at(f"{cron_hour:02d}:{delta_minute:02d}").do(_job, kind="full")
-    # Hourly delta — at :MM past every hour. At cron_hour:delta_minute the
-    # full has already started, so this firing is a no-op.
+    # Hourly delta — at :MM past every hour. At the cron_hour:delta_minute
+    # slot both jobs are due; the explicit wall-clock guard inside _job
+    # drops this one so we don't get a full+delta pair in the same tick.
     schedule.every().hour.at(f":{delta_minute:02d}").do(_job, kind="delta")
 
     # Initial sync at startup so we don't wait an hour the first time. Use a
