@@ -10,6 +10,40 @@ import { serializeChatMessagesForCli } from "./transcript";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { DASHBOARD_AGENTIC_TOOLS } from "@/lib/llm-tools/catalog";
 import { sanitize, sanitizeArgv, sanitizeTail } from "../sanitize";
+import { triggerHostTokenSync } from "./host-token-sync";
+
+/**
+ * Run a CLI operation and, on `LLM_CLI_AUTH` failure (typically caused by an
+ * out-of-band rotation of the Keychain refresh_token while the container was
+ * holding the previous access_token), trigger an on-demand sync of the host
+ * Keychain into the credentials file via launchd's WatchPaths and retry once.
+ *
+ * Strict scope: this NEVER refreshes the token itself — the kick fires the
+ * existing host-side sync-only script. Single-refresher rule (D-025) stands.
+ */
+async function withAuthAutoRecovery<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (err) {
+    if (!(err instanceof CliRunnerError) || err.code !== "LLM_CLI_AUTH") {
+      throw err;
+    }
+    const sync = await triggerHostTokenSync();
+    if (!sync.ok) {
+      // Plumbing missing on the host — the retry would fail the same way.
+      // Surface the original auth error verbatim.
+      console.warn(
+        `[claude-cli] auth-recovery skipped: ${sync.reason}`,
+      );
+      throw err;
+    }
+    const note = "timeout" in sync && sync.timeout
+      ? `mtime didn't advance within ${sync.waitedMs}ms — retrying anyway`
+      : `creds refreshed in ${sync.waitedMs}ms`;
+    console.warn(`[claude-cli] LLM_CLI_AUTH → kicked host launchd, ${note}; retrying once`);
+    return await operation();
+  }
+}
 
 /** Tail size to retain on CliRunnerError details (matches process.ts). */
 const TAIL_MAX_BYTES = 4096;
@@ -55,7 +89,11 @@ export interface ClaudeCliSingleShotInput {
   prompt: string;
 }
 
-export async function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Promise<string> {
+export function claudeCliSingleShot(input: ClaudeCliSingleShotInput): Promise<string> {
+  return withAuthAutoRecovery(() => claudeCliSingleShotOnce(input));
+}
+
+async function claudeCliSingleShotOnce(input: ClaudeCliSingleShotInput): Promise<string> {
   const { cfg, prompt } = input;
   const args = [
     ...cfg.cliExtraArgs,
@@ -308,7 +346,11 @@ export function parseStreamJsonLine(line: string): StreamJsonLineParse {
   return { kind: "ignore" };
 }
 
-export async function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Promise<ClaudeAgenticStep> {
+export function claudeCliAgenticStep(input: ClaudeCliAgenticStepInput): Promise<ClaudeAgenticStep> {
+  return withAuthAutoRecovery(() => claudeCliAgenticStepOnce(input));
+}
+
+async function claudeCliAgenticStepOnce(input: ClaudeCliAgenticStepInput): Promise<ClaudeAgenticStep> {
   const { cfg, messages, onTextDelta, onThinkingDelta } = input;
   const transcript = serializeChatMessagesForCli(messages);
   const printArg = AGENTIC_PROTOCOL_INSTRUCTION;
