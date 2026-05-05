@@ -13,8 +13,11 @@ vi.mock("@/lib/db", () => {
   return {
     query: vi.fn(async (sql: string) => {
       // The pivot query reads max/min of fecha_creacion + Madrid today.
-      // Return a believable date so the rest of the route picks a real
-      // as-of and computes per-flow date arithmetic without bombing.
+      // Default: today has zero mirrored rows so the route's default
+      // asOfDate falls back to max_synced (closed yesterday). The
+      // cutoff-active test below overrides this once via
+      // mockImplementationOnce to set today_row_count=42 and
+      // today_mirror_hour=8.
       if (sql.includes("max_synced") && sql.includes("today_madrid")) {
         return {
           rows: [
@@ -23,6 +26,8 @@ vi.mock("@/lib/db", () => {
               "2024-01-01",
               "2026-05-03",
               "2026-05-03T07:00:00Z",
+              null,
+              0,
             ],
           ],
         };
@@ -93,6 +98,7 @@ describe("GET /api/home", () => {
     expect(body).toHaveProperty("periods");
     expect(body).toHaveProperty("dailyTrend");
     expect(body).toHaveProperty("topStores");
+    expect(body).toHaveProperty("inactiveStores");
     expect(body).toHaveProperty("opsRetail");
     expect(body).toHaveProperty("health");
     // Removed in PR #458 (the home page is retail-only and dropped alerts).
@@ -115,6 +121,76 @@ describe("GET /api/home", () => {
     expect(Array.isArray(hero.hourlyComparison)).toBe(true);
     expect(typeof hero.comparisonLabel).toBe("string");
     expect(hero.comparisonLabel.endsWith(" anterior")).toBe(true);
+    // Same-hour-cutoff fields. When the as-of date is in the past
+    // (the default in this test fixture: 2026-04-30 vs today 2026-05-03)
+    // the cutoff is inactive and these are null.
+    expect(hero).toHaveProperty("comparisonCutoffHour");
+    expect(hero).toHaveProperty("yesterdayCutoff");
+    expect(hero).toHaveProperty("lastYearCutoff");
+    expect(hero.comparisonCutoffHour).toBeNull();
+    expect(hero.yesterdayCutoff).toBeNull();
+    expect(hero.lastYearCutoff).toBeNull();
+  });
+
+  it("activates same-hour cutoff when ?date= is today_madrid", async () => {
+    // Override the default pivot mock (which reports today_row_count=0)
+    // with a row where today HAS mirrored data: today_mirror_hour=8 and
+    // today_row_count=42. Combined with now_utc=2026-05-03T07:00:00Z
+    // (Madrid is UTC+2 in May / CEST → wall hour 9), effective cutoff
+    // is LEAST(9, 8) = 8.
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementationOnce(async () => ({
+      rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", 8, 42]],
+    }));
+    const res = await GET(makeReq("2026-05-03"));
+    const { hero, periods } = await res.json();
+    // Exact value, not just a range — locks in the LEAST(wall, mirror) math.
+    expect(hero.comparisonCutoffHour).toBe(8);
+    expect(typeof hero.yesterdayCutoff).toBe("number");
+    expect(typeof hero.lastYearCutoff).toBe("number");
+    // The "Hoy" period card surfaces the exact cutoff hour in its labels.
+    const hoyPeriod = periods.find((p: { id: string }) => p.id === "hoy");
+    expect(hoyPeriod.prevLabel).toContain("hasta las 08:00");
+    expect(hoyPeriod.yoyLabel).toContain("hasta las 08:00");
+    // The cutoff-aware queries (hero + periodHoy) MUST receive parameters
+    // in [asOfDate, cutoffHour, cutoffActive] order — a swap would silently
+    // produce wrong totals. Inspect the mock to lock that down.
+    const heroSqlCalls = queryMock.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === "string" &&
+        sql.includes("ayer_cutoff") &&
+        sql.includes("ly_cutoff"),
+    );
+    expect(heroSqlCalls.length).toBe(1);
+    expect(heroSqlCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+    const periodHoySqlCalls = queryMock.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === "string" &&
+        sql.includes("AS hoy") &&
+        sql.includes("AS ayer") &&
+        sql.includes("AS lyear") &&
+        !sql.includes("ayer_cutoff"), // disambiguate from hero
+    );
+    expect(periodHoySqlCalls.length).toBe(1);
+    expect(periodHoySqlCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+  });
+
+  it("deactivates the cutoff when today has zero mirrored rows", async () => {
+    // Re-mock the pivot row so today_row_count=0 and today_mirror_hour=null.
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementationOnce(async () => ({
+      rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]],
+    }));
+    const res = await GET(makeReq("2026-05-03"));
+    const { hero } = await res.json();
+    // No rows for today → cutoff inactive even though as-of is today.
+    expect(hero.comparisonCutoffHour).toBeNull();
+    expect(hero.yesterdayCutoff).toBeNull();
+    expect(hero.lastYearCutoff).toBeNull();
   });
 
   it("returns 4 periods", async () => {

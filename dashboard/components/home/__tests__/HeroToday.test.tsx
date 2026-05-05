@@ -13,6 +13,9 @@ const BASE_HERO: HomeViewModel["hero"] = {
   vsLY: -0.114,
   yesterday: 35510,
   lastYear: 43370,
+  comparisonCutoffHour: null,
+  yesterdayCutoff: null,
+  lastYearCutoff: null,
   status: "on-pace",
   hourly: [
     null, null, null, null, null, null, null, null,
@@ -80,6 +83,38 @@ describe("HeroToday", () => {
     it("does not render the AHORA marker", () => {
       render(<HeroToday hero={preOpenHero} asOf="07:30" />);
       expect(screen.queryByTestId("ahora-marker")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("same-hour-cutoff caption", () => {
+    it("does NOT show '(hasta las HH:00)' when cutoff is null", () => {
+      render(<HeroToday hero={BASE_HERO} asOf="11:42" />);
+      expect(screen.queryByText(/hasta las/)).not.toBeInTheDocument();
+    });
+
+    it("shows '(hasta las HH:00)' on both delta cells when cutoff is set", () => {
+      const hero: HomeViewModel["hero"] = {
+        ...BASE_HERO,
+        comparisonCutoffHour: 14,
+        yesterdayCutoff: 22000,
+        lastYearCutoff: 28000,
+      };
+      render(<HeroToday hero={hero} asOf="14:30" />);
+      const captions = screen.getAllByText(/hasta las 14:00/);
+      // Two captions: VS AYER and VS AÑO PASADO.
+      expect(captions.length).toBe(2);
+    });
+
+    it("shows the cutoff value as the primary supporting line and the full day in light grey", () => {
+      const hero: HomeViewModel["hero"] = {
+        ...BASE_HERO,
+        comparisonCutoffHour: 14,
+        yesterdayCutoff: 22000,
+        lastYearCutoff: 28000,
+      };
+      render(<HeroToday hero={hero} asOf="14:30" />);
+      // Cutoff values surface first; full-day shown as "día completo: …".
+      expect(screen.getAllByText(/día completo/).length).toBe(2);
     });
   });
 

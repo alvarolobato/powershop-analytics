@@ -116,19 +116,39 @@ export async function GET(req: NextRequest) {
          (SELECT MIN(fecha_creacion) FROM ps_ventas
            WHERE entrada=true AND tienda<>'99')::text AS min_synced,
          (NOW() AT TIME ZONE 'Europe/Madrid')::date::text AS today_madrid,
-         NOW() AS now_utc`,
+         NOW() AS now_utc,
+         -- Latest hour observed in today's mirror, in Madrid local hour. Used
+         -- to clamp the cutoff to what we actually have data for, rather
+         -- than the wall-clock — otherwise a mid-day request with stale ETL
+         -- compares "today=0 (no rows yet)" vs "yesterday up to hour 14"
+         -- and the deltas turn even more deeply red than before.
+         (SELECT EXTRACT(HOUR FROM MAX(hora_creacion))::int FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+             AND hora_creacion IS NOT NULL
+             AND fecha_creacion = (NOW() AT TIME ZONE 'Europe/Madrid')::date) AS today_mirror_hour,
+         (SELECT COUNT(*)::int FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+             AND fecha_creacion = (NOW() AT TIME ZONE 'Europe/Madrid')::date) AS today_row_count`,
     );
     const maxSyncedStr = String(pivotRow.rows[0][0] ?? "");
     const minAvailStr = String(pivotRow.rows[0][1] ?? "");
     const todayMadrid = String(pivotRow.rows[0][2] ?? "");
     const nowUtcIso = String(pivotRow.rows[0][3] ?? "");
+    const todayMirrorHour =
+      pivotRow.rows[0][4] !== null && pivotRow.rows[0][4] !== undefined
+        ? Number(pivotRow.rows[0][4])
+        : null;
+    const todayRowCount = Number(pivotRow.rows[0][5] ?? 0);
 
-    // Default as-of (when no ?date= supplied) is the most recent fully
-    // synced day so KPIs aren't dominated by a potentially-stale today.
-    // BUT the navigator cap (`maxAvailableDate`) goes up to today_madrid
-    // so the user can still scroll forward to days the ETL hasn't caught
-    // up with yet — those days show honest zeros instead of a stuck arrow.
-    let asOfDate = maxSyncedStr;
+    // Default as-of (when no ?date= supplied):
+    //   - if today (Madrid) has any mirrored rows → today_madrid, so the
+    //     same-hour-cutoff path fires and the user lands on a live view;
+    //   - otherwise → max_synced (yesterday under nightly ETL), so KPIs
+    //     are computed against a closed day instead of an empty today.
+    // The navigator cap (`maxAvailableDate`) still goes up to today_madrid
+    // so the user can scroll forward and back regardless of the default.
+    let asOfDate =
+      todayMadrid && todayRowCount > 0 ? todayMadrid : maxSyncedStr;
     if (requestedClean) {
       if (minAvailStr && requestedClean < minAvailStr) asOfDate = minAvailStr;
       else if (todayMadrid && requestedClean > todayMadrid) asOfDate = todayMadrid;
@@ -139,6 +159,41 @@ export async function GET(req: NextRequest) {
     const [y, m, d] = asOfDate.split("-").map((s) => parseInt(s, 10));
     const asOfDateObj = new Date(y, m - 1, d);
     const lastYearSameDay = new Date(y - 1, m - 1, d);
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Same-hour-cutoff comparison
+    //
+    // When the as-of date IS today, today's value is a *running total* up
+    // to the current Madrid hour. Comparing it against yesterday's or last
+    // year's *full-day* total guarantees a deep red until the closing
+    // hour, so most of the trading day the deltas are useless.
+    //
+    // Fix: when as-of is today, compare today-running vs yesterday-and-LY
+    // *up to the same hour*. For past as-of dates we keep the full-day
+    // comparison — both sides are closed, so apples-to-apples is full-vs-full.
+    //
+    // The cutoff hour is `LEAST(currentHourMadrid, todayMirrorHour)`. If
+    // the ETL hasn't synced today's recent hours yet, today's running
+    // total only covers up to `todayMirrorHour`, so we clamp the cutoff
+    // there to keep the comparison fair. If today has zero rows in the
+    // mirror at all, we deactivate the cutoff (the cutoff branch would
+    // compare 0 today vs 0 yesterday, which is meaningless).
+    // ─────────────────────────────────────────────────────────────────────
+    const isAsOfToday = asOfDate === todayMadrid;
+    const madridHourFmt = new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid",
+      hour: "2-digit",
+      hour12: false,
+    });
+    const currentHourMadrid = parseInt(madridHourFmt.format(new Date(nowUtcIso)), 10);
+    const effectiveCutoffHour =
+      todayMirrorHour !== null
+        ? Math.min(currentHourMadrid, todayMirrorHour)
+        : currentHourMadrid;
+    const cutoffActive = isAsOfToday && todayRowCount > 0;
+    // Placeholder when cutoff is inactive — never read because the SQL
+    // gate (`NOT $3::bool OR …`) short-circuits before evaluating it.
+    const cutoffHour = cutoffActive ? effectiveCutoffHour : 0;
 
     // asOf header: most recent successful sales-domain sync (for staleness).
     const watermarkRow = await query(
@@ -178,16 +233,30 @@ export async function GET(req: NextRequest) {
       anomaliesRow,
       lastWatermarkRow,
     ] = await Promise.all([
-      // Hero today / yesterday / LY same day
+      // Hero today / yesterday / LY same day. Returns BOTH a full-day SUM
+      // and a same-hour-cutoff SUM for yesterday and LY. The route picks
+      // which one drives the delta based on `cutoffActive`. `$2` is the
+      // cutoff hour (0..23); when the cutoff is inactive ($3=false) every
+      // row qualifies, so the cutoff column equals the full column.
       query(
         `SELECT
            COALESCE(SUM(CASE WHEN fecha_creacion = $1::date           THEN total_si END), 0) AS hoy,
-           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date THEN total_si END), 0) AS ayer,
-           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS hace_un_anyo
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date THEN total_si END), 0) AS ayer_full,
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date
+                              AND (NOT $3::bool
+                                   OR (hora_creacion IS NOT NULL
+                                       AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
+                            THEN total_si END), 0) AS ayer_cutoff,
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS ly_full,
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date
+                              AND (NOT $3::bool
+                                   OR (hora_creacion IS NOT NULL
+                                       AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
+                            THEN total_si END), 0) AS ly_cutoff
          FROM ps_ventas
          WHERE entrada = true AND tienda <> '99'
            AND fecha_creacion BETWEEN ($1::date - INTERVAL '1 year' - INTERVAL '7 days')::date AND $1::date`,
-        [asOfDate],
+        [asOfDate, cutoffHour, cutoffActive],
       ),
 
       // Hero hourly (cumulative through hour) for the as-of day. NULL
@@ -244,16 +313,26 @@ export async function GET(req: NextRequest) {
         [asOfDate],
       ),
 
-      // Period: hoy
+      // Period: hoy — same cutoff treatment as the hero query so the Hoy
+      // card's "vs ayer" / "vs LY" deltas don't go all-red while the day
+      // is still in progress.
       query(
         `SELECT
            COALESCE(SUM(CASE WHEN fecha_creacion = $1::date           THEN total_si END), 0) AS hoy,
-           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date THEN total_si END), 0) AS ayer,
-           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS lyear
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date
+                              AND (NOT $3::bool
+                                   OR (hora_creacion IS NOT NULL
+                                       AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
+                            THEN total_si END), 0) AS ayer,
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date
+                              AND (NOT $3::bool
+                                   OR (hora_creacion IS NOT NULL
+                                       AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
+                            THEN total_si END), 0) AS lyear
          FROM ps_ventas
          WHERE entrada = true AND tienda <> '99'
            AND fecha_creacion BETWEEN ($1::date - INTERVAL '1 year' - INTERVAL '2 days')::date AND $1::date`,
-        [asOfDate],
+        [asOfDate, cutoffHour, cutoffActive],
       ),
 
       // Period: semana
@@ -398,15 +477,19 @@ export async function GET(req: NextRequest) {
         [asOfDate],
       ),
 
-      // ALL stores for the as-of date (sorted by sales DESC), with name
-      // resolved from ps_tiendas.identificador / poblacion. LEFT JOIN so
-      // stores with zero sales today still appear.
+      // ALL stores for the as-of date (sorted by sales DESC), plus a
+      // 30-day total used to flag the store as inactive. Stores with
+      // total_30d = 0 don't appear in the main table — they live in the
+      // separate "tiendas inactivas" list. LEFT JOIN keeps stores that
+      // are open today but had a slow as-of day.
       query(
         `SELECT t.codigo,
                 t.identificador,
                 t.poblacion,
                 COALESCE(s.sales, 0)::numeric AS sales,
-                COALESCE(avg7.avg7, 0)::numeric AS avg7
+                COALESCE(avg7.avg7, 0)::numeric AS avg7,
+                COALESCE(s30.total_30d, 0)::numeric AS total_30d,
+                last_sale.last_sale_date::text AS last_sale_date
          FROM ps_tiendas t
          LEFT JOIN (
            SELECT tienda, SUM(total_si) AS sales
@@ -426,6 +509,25 @@ export async function GET(req: NextRequest) {
            ) per_day
            GROUP BY tienda
          ) avg7 ON avg7.tienda = t.codigo
+         LEFT JOIN (
+           SELECT tienda, SUM(total_si) AS total_30d
+           FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+             AND fecha_creacion >= ($1::date - INTERVAL '30 days')::date
+             AND fecha_creacion <= $1::date
+           GROUP BY tienda
+         ) s30 ON s30.tienda = t.codigo
+         LEFT JOIN (
+           -- Last sale across all history; used for the "ver tiendas
+           -- inactivas" caption, not the 30-day filter. Measured at
+           -- ~240 ms on the 911 K-row mirror with the existing
+           -- idx_ventas_tienda — runs in parallel with the other 18
+           -- aggregates on the route, so it doesn't bottleneck.
+           SELECT tienda, MAX(fecha_creacion) AS last_sale_date
+           FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+           GROUP BY tienda
+         ) last_sale ON last_sale.tienda = t.codigo
          WHERE t.codigo <> '99'
          ORDER BY COALESCE(s.sales, 0) DESC, t.codigo`,
         [asOfDate],
@@ -493,8 +595,29 @@ export async function GET(req: NextRequest) {
     // Hero
     // ─────────────────────────────────────────────────────────────────────
     const todayValue = num(heroRow.rows[0][0]);
-    const yesterday = num(heroRow.rows[0][1]);
-    const lastYear = num(heroRow.rows[0][2]);
+    const yesterdayFull = num(heroRow.rows[0][1]);
+    const yesterdayCutoffRaw = num(heroRow.rows[0][2]);
+    const lastYearFull = num(heroRow.rows[0][3]);
+    const lastYearCutoffRaw = num(heroRow.rows[0][4]);
+    // Legacy-NULL fallback: if the cutoff branch returns 0 because the
+    // comparison day has only pre-backfill rows (`hora_creacion IS NULL`
+    // is excluded by the cutoff predicate), the comparison is misleading
+    // — today vs 0 always reads "+∞%". Fall back to the full-day value
+    // for that side when the cutoff is empty but the full-day total
+    // exists.
+    const yesterdayCutoff =
+      cutoffActive && yesterdayCutoffRaw === 0 && yesterdayFull > 0
+        ? yesterdayFull
+        : yesterdayCutoffRaw;
+    const lastYearCutoff =
+      cutoffActive && lastYearCutoffRaw === 0 && lastYearFull > 0
+        ? lastYearFull
+        : lastYearCutoffRaw;
+    // Pick which side drives the delta. When today is closed (asOfDate is
+    // in the past), the cutoff columns equal the full columns, so this
+    // is a no-op — the picks just keep the code honest.
+    const yesterdayForDelta = cutoffActive ? yesterdayCutoff : yesterdayFull;
+    const lastYearForDelta = cutoffActive ? lastYearCutoff : lastYearFull;
 
     // Build hourly cumulative arrays from the per-hour query. When the
     // mirror has no time-of-day data for either day (rows where
@@ -508,14 +631,6 @@ export async function GET(req: NextRequest) {
     // For the as-of day mask hours after the current hour as `null` when
     // the as-of date IS today_madrid (the day is still in progress).
     // For past days, every hour is in the past, so no masking.
-    const isAsOfToday = asOfDate === todayMadrid;
-    const madridHourFmt = new Intl.DateTimeFormat("es-ES", {
-      timeZone: "Europe/Madrid",
-      hour: "2-digit",
-      hour12: false,
-    });
-    const currentHourMadrid = parseInt(madridHourFmt.format(new Date(nowUtcIso)), 10);
-
     const hourlyToday: (number | null)[] = todayHasHourly
       ? hourlyTodayRow.rows.map((r) => {
           const h = num(r[0]);
@@ -544,10 +659,15 @@ export async function GET(req: NextRequest) {
       todayValue,
       forecastEOD: todayValue,
       todayPace: 0,
-      vsYesterday: safeRatio(todayValue, yesterday),
-      vsLY: safeRatio(todayValue, lastYear),
-      yesterday,
-      lastYear,
+      vsYesterday: safeRatio(todayValue, yesterdayForDelta),
+      vsLY: safeRatio(todayValue, lastYearForDelta),
+      yesterday: yesterdayFull,
+      lastYear: lastYearFull,
+      // When the cutoff is active, expose the hour and the cutoff totals
+      // so the UI can show "hasta las HH:00 · X €" alongside the delta.
+      comparisonCutoffHour: cutoffActive ? cutoffHour : null,
+      yesterdayCutoff: cutoffActive ? yesterdayCutoff : null,
+      lastYearCutoff: cutoffActive ? lastYearCutoff : null,
       status: "on-pace",
       hourly: hourlyToday,
       hourlyComparison: hourlyComparisonArr,
@@ -587,9 +707,13 @@ export async function GET(req: NextRequest) {
         label: "Hoy",
         value: periodHoyCurr,
         deltaPrev: safeRatio(periodHoyCurr, periodHoyPrev),
-        prevLabel: "vs ayer",
+        prevLabel: cutoffActive
+          ? `vs ayer (hasta las ${String(cutoffHour).padStart(2, "0")}:00)`
+          : "vs ayer",
         deltaYoY: periodHoyLY > 0 ? safeRatio(periodHoyCurr, periodHoyLY) : null,
-        yoyLabel: `vs ${dateLabelEs(lastYearSameDay)}`,
+        yoyLabel: cutoffActive
+          ? `vs ${dateLabelEs(lastYearSameDay)} (hasta las ${String(cutoffHour).padStart(2, "0")}:00)`
+          : `vs ${dateLabelEs(lastYearSameDay)}`,
         spark: hoySpark,
         sparkLabels: hoySparkLabels,
       },
@@ -655,13 +779,14 @@ export async function GET(req: NextRequest) {
       if (!sparkByStore[code]) sparkByStore[code] = [];
       sparkByStore[code].push(num(r[2]));
     }
-    const topStores: HomeViewModel["topStores"] = storesRow.rows.map((r) => {
+    const allStoreRows = storesRow.rows.map((r) => {
       const code = String(r[0]);
       const identificador = r[1];
       const poblacion = r[2];
       const sales = num(r[3]);
       const avg7 = num(r[4]);
-      // Δ vs the same store's own 7-day average (excluding the as-of day).
+      const total30d = num(r[5]);
+      const lastSaleDate = r[6] ? String(r[6]) : null;
       const delta = avg7 > 0 ? sales / avg7 - 1 : 0;
       return {
         code,
@@ -670,8 +795,24 @@ export async function GET(req: NextRequest) {
         delta,
         spark: sparkByStore[code] ?? [],
         status: statusFromDelta(delta),
+        total30d,
+        lastSaleDate,
       };
     });
+
+    // Split: active = at least one sale in the last 30 days; inactive =
+    // none. The main table only renders active stores so a couple of
+    // closed-decade-ago tiendas don't bury today's active list. The
+    // inactive list is exposed through "Ver tiendas inactivas" in the UI.
+    const activeRaw = allStoreRows.filter((s) => s.total30d > 0);
+    const inactiveRaw = allStoreRows.filter((s) => s.total30d <= 0);
+
+    const topStores: HomeViewModel["topStores"] = activeRaw.map(
+      ({ total30d: _t, lastSaleDate: _l, ...rest }) => rest,
+    );
+    const inactiveStores: HomeViewModel["inactiveStores"] = inactiveRaw.map(
+      ({ code, name, lastSaleDate }) => ({ code, name, lastSaleDate }),
+    );
 
     // ─────────────────────────────────────────────────────────────────────
     // Retail ops
@@ -732,6 +873,7 @@ export async function GET(req: NextRequest) {
       periods,
       dailyTrend,
       topStores,
+      inactiveStores,
       opsRetail,
       health,
     };

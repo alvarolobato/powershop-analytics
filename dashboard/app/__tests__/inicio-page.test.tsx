@@ -50,6 +50,9 @@ const MOCK_DATA: HomeViewModel = {
     vsLY: -0.114,
     yesterday: 35510,
     lastYear: 43370,
+    comparisonCutoffHour: null,
+    yesterdayCutoff: null,
+    lastYearCutoff: null,
     status: "on-pace",
     // Empty arrays — mirror has only date granularity (no time-of-day).
     hourly: [],
@@ -68,6 +71,7 @@ const MOCK_DATA: HomeViewModel = {
     { code: "608", name: "Montijo", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "ok" },
     { code: "601", name: "Badajoz", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert" },
   ],
+  inactiveStores: [],
   opsRetail: [
     { id: "ticket", label: "Ticket medio", value: 26.55, format: "eur2", delta: 0 },
   ],

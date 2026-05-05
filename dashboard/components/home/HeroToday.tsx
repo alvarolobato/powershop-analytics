@@ -211,63 +211,20 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
             marginTop: 24,
           }}
         >
-          <div>
-            <div
-              style={{
-                fontFamily: "var(--font-jetbrains, monospace)",
-                fontSize: 10,
-                color: "var(--fg-subtle)",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                marginBottom: 4,
-              }}
-            >
-              VS AYER
-            </div>
-            <Delta value={isPreOpen ? null : hero.vsYesterday} size="lg" />
-            <div
-              style={{
-                fontFamily: "var(--font-jetbrains, monospace)",
-                fontSize: 11,
-                color: "var(--fg-subtle)",
-                marginTop: 4,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {fmtEUR0(hero.yesterday)}
-            </div>
-          </div>
-          <div>
-            <div
-              style={{
-                fontFamily: "var(--font-jetbrains, monospace)",
-                fontSize: 10,
-                color: "var(--fg-subtle)",
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                marginBottom: 4,
-              }}
-            >
-              VS AÑO PASADO
-            </div>
-            <Delta
-              value={
-                hero.vsLY !== undefined && hero.vsLY !== null ? hero.vsLY : null
-              }
-              size="lg"
-            />
-            <div
-              style={{
-                fontFamily: "var(--font-jetbrains, monospace)",
-                fontSize: 11,
-                color: "var(--fg-subtle)",
-                marginTop: 4,
-                fontVariantNumeric: "tabular-nums",
-              }}
-            >
-              {fmtEUR0(hero.lastYear)}
-            </div>
-          </div>
+          <DeltaCell
+            label="VS AYER"
+            value={isPreOpen ? null : hero.vsYesterday}
+            cutoffHour={hero.comparisonCutoffHour}
+            cutoffValue={hero.yesterdayCutoff}
+            fullValue={hero.yesterday}
+          />
+          <DeltaCell
+            label="VS AÑO PASADO"
+            value={hero.vsLY !== undefined && hero.vsLY !== null ? hero.vsLY : null}
+            cutoffHour={hero.comparisonCutoffHour}
+            cutoffValue={hero.lastYearCutoff}
+            fullValue={hero.lastYear}
+          />
         </div>
       </div>
 
@@ -613,6 +570,77 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
         </div>
       </div>
       )}
+    </div>
+  );
+}
+
+// ─── Delta cell ──────────────────────────────────────────────────────────────
+
+/**
+ * One of the two delta blocks under the hero number ("VS AYER" / "VS AÑO
+ * PASADO"). When `cutoffHour` is set we surface the same-hour-cutoff total
+ * as the primary supporting line (since that's what the delta is computed
+ * against) and the full-day total in lighter grey beneath it.
+ */
+function DeltaCell({
+  label,
+  value,
+  cutoffHour,
+  cutoffValue,
+  fullValue,
+}: {
+  label: string;
+  value: number | null;
+  cutoffHour: number | null;
+  cutoffValue: number | null;
+  fullValue: number;
+}) {
+  const cutoffActive = cutoffHour !== null && cutoffValue !== null;
+  const hh = cutoffHour !== null ? String(cutoffHour).padStart(2, "0") : null;
+  return (
+    <div>
+      <div
+        style={{
+          fontFamily: "var(--font-jetbrains, monospace)",
+          fontSize: 10,
+          color: "var(--fg-subtle)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+          marginBottom: 4,
+        }}
+      >
+        {label}
+        {cutoffActive ? (
+          <span style={{ color: "var(--fg-muted)", marginLeft: 6 }}>
+            (hasta las {hh}:00)
+          </span>
+        ) : null}
+      </div>
+      <Delta value={value} size="lg" />
+      <div
+        style={{
+          fontFamily: "var(--font-jetbrains, monospace)",
+          fontSize: 11,
+          color: "var(--fg-subtle)",
+          marginTop: 4,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {cutoffActive ? fmtEUR0(cutoffValue!) : fmtEUR0(fullValue)}
+      </div>
+      {cutoffActive ? (
+        <div
+          style={{
+            fontFamily: "var(--font-jetbrains, monospace)",
+            fontSize: 10,
+            color: "var(--fg-muted)",
+            marginTop: 2,
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          día completo: {fmtEUR0(fullValue)}
+        </div>
+      ) : null}
     </div>
   );
 }

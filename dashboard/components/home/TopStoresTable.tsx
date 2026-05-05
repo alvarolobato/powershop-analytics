@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { HomeViewModel } from "@/lib/home-types";
 import { Delta } from "./Delta";
 import { HomeSparkline } from "./Sparkline";
@@ -7,9 +8,13 @@ import { SectionHeader } from "./SectionHeader";
 import { fmtEUR0 } from "@/components/widgets/format";
 
 type Store = HomeViewModel["topStores"][number];
+type InactiveStore = HomeViewModel["inactiveStores"][number];
 
 interface TopStoresTableProps {
   stores: HomeViewModel["topStores"];
+  /** Stores hidden from the active list because they had no sales in the
+   *  last 30 days. Surfaced under a "Ver tiendas inactivas" toggle. */
+  inactiveStores?: HomeViewModel["inactiveStores"];
 }
 
 function statusDotColor(status: Store["status"]): string {
@@ -38,8 +43,10 @@ const outlineLink: React.CSSProperties = {
   display: "inline-block",
 };
 
-export function TopStoresTable({ stores }: TopStoresTableProps) {
+export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) {
   const maxSales = Math.max(...stores.map((s) => s.sales), 1);
+  const [showInactive, setShowInactive] = useState(false);
+  const inactiveCount = inactiveStores?.length ?? 0;
 
   return (
     <div
@@ -97,7 +104,7 @@ export function TopStoresTable({ stores }: TopStoresTableProps) {
 
       {/* Table rows */}
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <caption style={{ display: "none" }}>Top 10 tiendas por ventas hoy</caption>
+        <caption style={{ display: "none" }}>Tiendas activas por ventas hoy</caption>
         <tbody>
           {stores.map((store, i) => {
             const pct = (store.sales / maxSales) * 100;
@@ -226,6 +233,99 @@ export function TopStoresTable({ stores }: TopStoresTableProps) {
           })}
         </tbody>
       </table>
+
+      {/* "Ver tiendas inactivas" toggle + collapsible list */}
+      {inactiveCount > 0 && (
+        <div
+          style={{
+            padding: "10px 16px",
+            borderTop: "1px solid var(--border)",
+            fontSize: 11,
+          }}
+          data-testid="inactive-stores-section"
+        >
+          <button
+            type="button"
+            onClick={() => setShowInactive((s) => !s)}
+            aria-expanded={showInactive}
+            aria-controls="inactive-stores-list"
+            className="inactive-stores-toggle"
+            style={{
+              all: "unset",
+              cursor: "pointer",
+              color: "var(--fg-muted)",
+              fontFamily: "var(--font-jetbrains, monospace)",
+            }}
+          >
+            <span aria-hidden="true">{showInactive ? "▼" : "▶"}</span>{" "}
+            Ver tiendas inactivas ({inactiveCount})
+          </button>
+          <style jsx>{`
+            .inactive-stores-toggle:focus-visible {
+              outline: 2px solid var(--accent);
+              outline-offset: 2px;
+              border-radius: 2px;
+            }
+          `}</style>
+          {showInactive && (
+            <div id="inactive-stores-list" style={{ marginTop: 10 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--fg-subtle)",
+                  marginBottom: 6,
+                  fontFamily: "var(--font-jetbrains, monospace)",
+                }}
+              >
+                Sin ventas en los últimos 30 días.
+              </div>
+              <ul
+                style={{
+                  listStyle: "none",
+                  margin: 0,
+                  padding: 0,
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+                  gap: "4px 16px",
+                }}
+              >
+                {inactiveStores?.map((s: InactiveStore) => (
+                  <li
+                    key={s.code}
+                    style={{
+                      fontSize: 12,
+                      color: "var(--fg-muted)",
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "baseline",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        color: "var(--fg-subtle)",
+                        fontSize: 10,
+                      }}
+                    >
+                      {s.code}
+                    </span>
+                    <span style={{ flex: 1 }}>{s.name}</span>
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        fontSize: 10,
+                        color: "var(--fg-subtle)",
+                      }}
+                    >
+                      {s.lastSaleDate ? `últ. ${s.lastSaleDate}` : "sin historial"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
