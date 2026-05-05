@@ -248,6 +248,8 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
             type="button"
             onClick={() => setShowInactive((s) => !s)}
             aria-expanded={showInactive}
+            aria-controls="inactive-stores-list"
+            className="inactive-stores-toggle"
             style={{
               all: "unset",
               cursor: "pointer",
@@ -255,10 +257,18 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
               fontFamily: "var(--font-jetbrains, monospace)",
             }}
           >
-            {showInactive ? "▼" : "▶"} Ver tiendas inactivas ({inactiveCount})
+            <span aria-hidden="true">{showInactive ? "▼" : "▶"}</span>{" "}
+            Ver tiendas inactivas ({inactiveCount})
           </button>
+          <style jsx>{`
+            .inactive-stores-toggle:focus-visible {
+              outline: 2px solid var(--accent);
+              outline-offset: 2px;
+              border-radius: 2px;
+            }
+          `}</style>
           {showInactive && (
-            <div style={{ marginTop: 10 }}>
+            <div id="inactive-stores-list" style={{ marginTop: 10 }}>
               <div
                 style={{
                   fontSize: 10,

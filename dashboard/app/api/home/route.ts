@@ -116,12 +116,28 @@ export async function GET(req: NextRequest) {
          (SELECT MIN(fecha_creacion) FROM ps_ventas
            WHERE entrada=true AND tienda<>'99')::text AS min_synced,
          (NOW() AT TIME ZONE 'Europe/Madrid')::date::text AS today_madrid,
-         NOW() AS now_utc`,
+         NOW() AS now_utc,
+         -- Latest hour observed in today's mirror, in Madrid local hour. Used
+         -- to clamp the cutoff to what we actually have data for, rather
+         -- than the wall-clock — otherwise a mid-day request with stale ETL
+         -- compares "today=0 (no rows yet)" vs "yesterday up to hour 14"
+         -- and the deltas turn even more deeply red than before.
+         (SELECT EXTRACT(HOUR FROM MAX(hora_creacion))::int FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+             AND hora_creacion IS NOT NULL
+             AND fecha_creacion = (NOW() AT TIME ZONE 'Europe/Madrid')::date) AS today_mirror_hour,
+         (SELECT COUNT(*)::int FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+             AND fecha_creacion = (NOW() AT TIME ZONE 'Europe/Madrid')::date) AS today_row_count`,
     );
     const maxSyncedStr = String(pivotRow.rows[0][0] ?? "");
     const minAvailStr = String(pivotRow.rows[0][1] ?? "");
     const todayMadrid = String(pivotRow.rows[0][2] ?? "");
     const nowUtcIso = String(pivotRow.rows[0][3] ?? "");
+    const todayMirrorHour = pivotRow.rows[0][4] !== null && pivotRow.rows[0][4] !== undefined
+      ? Number(pivotRow.rows[0][4])
+      : null;
+    const todayRowCount = Number(pivotRow.rows[0][5] ?? 0);
 
     // Default as-of (when no ?date= supplied) is the most recent fully
     // synced day so KPIs aren't dominated by a potentially-stale today.
@@ -149,12 +165,15 @@ export async function GET(req: NextRequest) {
     // hour, so most of the trading day the deltas are useless.
     //
     // Fix: when as-of is today, compare today-running vs yesterday-and-LY
-    // *up to the same hour* (`hora_creacion <= currentHourMadrid`). For
-    // past as-of dates we keep the full-day comparison — both sides are
-    // closed, so apples-to-apples is full-vs-full.
+    // *up to the same hour*. For past as-of dates we keep the full-day
+    // comparison — both sides are closed, so apples-to-apples is full-vs-full.
     //
-    // We compute the cutoff totals server-side and also keep the full-day
-    // values for context on the UI ("ayer total: 8 989 €").
+    // The cutoff hour is `LEAST(currentHourMadrid, todayMirrorHour)`. If
+    // the ETL hasn't synced today's recent hours yet, today's running
+    // total only covers up to `todayMirrorHour`, so we clamp the cutoff
+    // there to keep the comparison fair. If today has zero rows in the
+    // mirror at all, we deactivate the cutoff (the cutoff branch would
+    // compare 0 today vs 0 yesterday, which is meaningless).
     // ─────────────────────────────────────────────────────────────────────
     const isAsOfToday = asOfDate === todayMadrid;
     const madridHourFmt = new Intl.DateTimeFormat("es-ES", {
@@ -163,8 +182,14 @@ export async function GET(req: NextRequest) {
       hour12: false,
     });
     const currentHourMadrid = parseInt(madridHourFmt.format(new Date(nowUtcIso)), 10);
-    const cutoffActive = isAsOfToday;
-    const cutoffHour = cutoffActive ? currentHourMadrid : 23;
+    const effectiveCutoffHour =
+      todayMirrorHour !== null
+        ? Math.min(currentHourMadrid, todayMirrorHour)
+        : currentHourMadrid;
+    const cutoffActive = isAsOfToday && todayRowCount > 0;
+    // Placeholder when cutoff is inactive — never read because the SQL
+    // gate (`NOT $3::bool OR …`) short-circuits before evaluating it.
+    const cutoffHour = cutoffActive ? effectiveCutoffHour : 0;
 
     // asOf header: most recent successful sales-domain sync (for staleness).
     const watermarkRow = await query(
@@ -490,7 +515,10 @@ export async function GET(req: NextRequest) {
          ) s30 ON s30.tienda = t.codigo
          LEFT JOIN (
            -- Last sale across all history; used for the "ver tiendas
-           -- inactivas" caption, not the 30-day filter.
+           -- inactivas" caption, not the 30-day filter. Measured at
+           -- ~240 ms on the 911 K-row mirror with the existing
+           -- idx_ventas_tienda — runs in parallel with the other 18
+           -- aggregates on the route, so it doesn't bottleneck.
            SELECT tienda, MAX(fecha_creacion) AS last_sale_date
            FROM ps_ventas
            WHERE entrada=true AND tienda<>'99'
@@ -564,9 +592,23 @@ export async function GET(req: NextRequest) {
     // ─────────────────────────────────────────────────────────────────────
     const todayValue = num(heroRow.rows[0][0]);
     const yesterdayFull = num(heroRow.rows[0][1]);
-    const yesterdayCutoff = num(heroRow.rows[0][2]);
+    const yesterdayCutoffRaw = num(heroRow.rows[0][2]);
     const lastYearFull = num(heroRow.rows[0][3]);
-    const lastYearCutoff = num(heroRow.rows[0][4]);
+    const lastYearCutoffRaw = num(heroRow.rows[0][4]);
+    // Legacy-NULL fallback: if the cutoff branch returns 0 because the
+    // comparison day has only pre-backfill rows (`hora_creacion IS NULL`
+    // is excluded by the cutoff predicate), the comparison is misleading
+    // — today vs 0 always reads "+∞%". Fall back to the full-day value
+    // for that side when the cutoff is empty but the full-day total
+    // exists.
+    const yesterdayCutoff =
+      cutoffActive && yesterdayCutoffRaw === 0 && yesterdayFull > 0
+        ? yesterdayFull
+        : yesterdayCutoffRaw;
+    const lastYearCutoff =
+      cutoffActive && lastYearCutoffRaw === 0 && lastYearFull > 0
+        ? lastYearFull
+        : lastYearCutoffRaw;
     // Pick which side drives the delta. When today is closed (asOfDate is
     // in the past), the cutoff columns equal the full columns, so this
     // is a no-op — the picks just keep the code honest.
