@@ -192,6 +192,11 @@ WHERE abono = false
   AND fecha_factura < $2::date`,
   },
   {
+    // ps_gc_facturas.num_cliente actually stores the parent's `reg_cliente`
+    // PK (the `.990`-suffixed Real, not the `.000` `NumCliente` code), so the
+    // join key on the right side is `ps_clientes.reg_cliente`. Joining on
+    // `c.num_cliente` returned zero matches and the COALESCE fell back to
+    // the numeric ID instead of the textual name.
     name: "top3_clientes_mayorista_semana_cerrada",
     domain: "canal_mayorista",
     sql: `SELECT
@@ -200,7 +205,7 @@ WHERE abono = false
   COALESCE(SUM(f.base1 + f.base2 + f.base3), 0) AS facturacion_neta,
   COUNT(*) AS num_facturas
 FROM ps_gc_facturas f
-LEFT JOIN ps_clientes c ON c.num_cliente = f.num_cliente
+LEFT JOIN ps_clientes c ON c.reg_cliente = f.num_cliente
 WHERE f.abono = false
   AND f.fecha_factura >= $1::date
   AND f.fecha_factura < $2::date
@@ -227,15 +232,29 @@ WHERE NOT EXISTS (
   // ── Stock ──────────────────────────────────────────────────────────────────
 
   {
+    // Warehouse stock lives in ps_stock_central (sourced from 4D CCStock per
+    // D-017), NOT in ps_stock_tienda — there is no `tienda='99'` row in the
+    // store-level mirror. CTEs aggregate each table once (count + sum) so
+    // PostgreSQL doesn't re-scan the 12 M-row stock_tienda for every column.
     name: "stock_total_unidades",
     domain: "stock",
-    sql: `SELECT
-  COUNT(DISTINCT codigo) AS num_referencias,
-  SUM(stock) AS stock_total,
-  SUM(CASE WHEN tienda <> '99' THEN stock ELSE 0 END) AS stock_tiendas,
-  SUM(CASE WHEN tienda = '99' THEN stock ELSE 0 END) AS stock_almacen
-FROM ps_stock_tienda
-WHERE stock > 0`,
+    sql: `WITH tiendas AS (
+  SELECT COUNT(DISTINCT codigo) AS refs, COALESCE(SUM(stock), 0) AS stk
+  FROM ps_stock_tienda
+  WHERE stock > 0 AND tienda <> '99'
+),
+almacen AS (
+  SELECT COUNT(*) AS refs, COALESCE(SUM(stock), 0) AS stk
+  FROM ps_stock_central
+  WHERE stock > 0
+)
+SELECT
+  tiendas.refs AS referencias_tiendas,
+  almacen.refs AS referencias_almacen,
+  tiendas.stk  AS stock_tiendas,
+  almacen.stk  AS stock_almacen,
+  tiendas.stk + almacen.stk AS stock_total
+FROM tiendas, almacen`,
   },
   {
     name: "articulos_stock_critico",
@@ -262,24 +281,101 @@ WHERE (fecha_s >= $1::date AND fecha_s < $2::date)
   },
 
   // ── Compras ────────────────────────────────────────────────────────────────
+  // Header counts come from ps_compras (fecha_pedido). Amount + unit totals
+  // come from ps_lineas_compras (CCLineasCompr; total_si and unidades both
+  // populated, confirmed 2026-05-01). The two counts can diverge: a header
+  // can exist without lines (open POs not yet detailed) — we surface both
+  // so the model can flag the gap.
 
   {
+    // Single-pass aggregation: pedidos count from ps_compras, line metrics
+    // from ps_lineas_compras filtered through the same date range. Cross-join
+    // produces one row with all five columns and avoids re-scanning either
+    // table per scalar subquery.
     name: "compras_semana_cerrada",
     domain: "compras",
-    sql: `SELECT
-  COUNT(*) AS num_pedidos
-FROM ps_compras
-WHERE fecha_pedido >= $1::date
-  AND fecha_pedido < $2::date`,
+    sql: `WITH pedidos AS (
+  SELECT COUNT(*) AS n
+  FROM ps_compras
+  WHERE fecha_pedido >= $1::date AND fecha_pedido < $2::date
+),
+lineas AS (
+  SELECT
+    COUNT(DISTINCT lc.num_pedido) AS pedidos_con_lineas,
+    COUNT(*) AS num_lineas,
+    COALESCE(SUM(lc.unidades), 0) AS unidades,
+    COALESCE(SUM(lc.total_si), 0) AS importe
+  FROM ps_lineas_compras lc
+  JOIN ps_compras c ON c.reg_pedido = lc.num_pedido
+  WHERE c.fecha_pedido >= $1::date AND c.fecha_pedido < $2::date
+)
+SELECT
+  pedidos.n               AS num_pedidos,
+  lineas.pedidos_con_lineas,
+  lineas.num_lineas,
+  lineas.unidades         AS unidades_compradas,
+  lineas.importe          AS importe_neto_si
+FROM pedidos, lineas`,
   },
   {
     name: "compras_semana_previa",
     domain: "compras",
+    sql: `WITH pedidos AS (
+  SELECT COUNT(*) AS n
+  FROM ps_compras
+  WHERE fecha_pedido >= ($1::date - INTERVAL '7 days') AND fecha_pedido < $1::date
+),
+lineas AS (
+  SELECT
+    COUNT(DISTINCT lc.num_pedido) AS pedidos_con_lineas,
+    COUNT(*) AS num_lineas,
+    COALESCE(SUM(lc.unidades), 0) AS unidades,
+    COALESCE(SUM(lc.total_si), 0) AS importe
+  FROM ps_lineas_compras lc
+  JOIN ps_compras c ON c.reg_pedido = lc.num_pedido
+  WHERE c.fecha_pedido >= ($1::date - INTERVAL '7 days') AND c.fecha_pedido < $1::date
+)
+SELECT
+  pedidos.n               AS num_pedidos,
+  lineas.pedidos_con_lineas,
+  lineas.num_lineas,
+  lineas.unidades         AS unidades_compradas,
+  lineas.importe          AS importe_neto_si
+FROM pedidos, lineas`,
+  },
+  {
+    name: "top3_proveedores_compras_semana_cerrada",
+    domain: "compras",
     sql: `SELECT
-  COUNT(*) AS num_pedidos
-FROM ps_compras
-WHERE fecha_pedido >= ($1::date - INTERVAL '7 days')
-  AND fecha_pedido < $1::date`,
+  COALESCE(p.nombre, lc.num_proveedor::text) AS proveedor,
+  COUNT(DISTINCT lc.num_pedido) AS num_pedidos,
+  COALESCE(SUM(lc.unidades), 0) AS unidades,
+  COALESCE(SUM(lc.total_si), 0) AS importe_neto_si
+FROM ps_lineas_compras lc
+JOIN ps_compras c ON c.reg_pedido = lc.num_pedido
+LEFT JOIN ps_proveedores p ON p.reg_proveedor = lc.num_proveedor
+WHERE c.fecha_pedido >= $1::date
+  AND c.fecha_pedido < $2::date
+GROUP BY p.nombre, lc.num_proveedor
+ORDER BY importe_neto_si DESC NULLS LAST
+LIMIT 3`,
+  },
+  {
+    name: "top5_articulos_compras_semana_cerrada",
+    domain: "compras",
+    sql: `SELECT
+  COALESCE(a.ccrefejofacm, a.codigo, lc.num_articulo::text) AS referencia,
+  COALESCE(a.descripcion, '') AS descripcion,
+  COALESCE(SUM(lc.unidades), 0) AS unidades,
+  COALESCE(SUM(lc.total_si), 0) AS importe_neto_si
+FROM ps_lineas_compras lc
+JOIN ps_compras c ON c.reg_pedido = lc.num_pedido
+LEFT JOIN ps_articulos a ON a.reg_articulo = lc.num_articulo
+WHERE c.fecha_pedido >= $1::date
+  AND c.fecha_pedido < $2::date
+GROUP BY a.ccrefejofacm, a.codigo, a.descripcion, lc.num_articulo
+ORDER BY unidades DESC NULLS LAST
+LIMIT 5`,
   },
 ];
 
@@ -301,6 +397,22 @@ WHERE fecha_pedido >= ($1::date - INTERVAL '7 days')
  * @param weekEndExclusive - Monday after the review week (YYYY-MM-DD), exclusive upper bound
  * @returns Array of ReviewQueryResult (success or error per query)
  */
+/**
+ * Highest `$N` placeholder referenced by a SQL string. PostgreSQL's bind
+ * protocol rejects extra parameters with "wrong number of parameters for
+ * prepared statement" — a query that only references `$1` must receive
+ * exactly one parameter, not two. We use this to size the per-query param
+ * array correctly even when callers always pass `[weekStart, weekEnd]`.
+ */
+function highestPlaceholder(sql: string): number {
+  let max = 0;
+  for (const m of sql.matchAll(/\$(\d+)/g)) {
+    const n = Number(m[1]);
+    if (n > max) max = n;
+  }
+  return max;
+}
+
 export async function executeReviewQueries(
   queryFn: (sql: string, params?: unknown[]) => Promise<QueryResult>,
   weekStart: string,
@@ -308,7 +420,15 @@ export async function executeReviewQueries(
 ): Promise<ReviewQueryResult[]> {
   const weekParams = [weekStart, weekEndExclusive];
   const results = await Promise.allSettled(
-    REVIEW_QUERIES.map((q) => queryFn(q.sql, weekParams))
+    REVIEW_QUERIES.map((q) => {
+      const n = highestPlaceholder(q.sql);
+      // Slice to exactly the placeholders this query uses (n=0 → no params).
+      // If a query references `$N` beyond the supplied `weekParams`, slice
+      // returns the full array and the driver surfaces a missing-parameter
+      // error — that's the expected loud failure for a malformed query.
+      const params = n === 0 ? undefined : weekParams.slice(0, n);
+      return queryFn(q.sql, params);
+    })
   );
 
   return REVIEW_QUERIES.map((q, i) => {

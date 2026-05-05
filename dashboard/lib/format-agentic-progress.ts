@@ -32,11 +32,24 @@ export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): 
     case "model_step_start":
       return { timestamp: ts, kind: "reason", label: "Modelo pensando…", detail: undefined };
     case "model_text_delta":
+      // The streaming "text" in agentic flows is the JSON tool-protocol payload
+      // (e.g. submit_weekly_review with the full spec inlined) — not human
+      // prose. Showing it as a body floods the log with unreadable JSON, so we
+      // only show the progress count here. Readable reasoning lives in the
+      // thinking block (model_thinking_delta) below.
       return {
         timestamp: ts,
-        kind: "default",
+        kind: "reason",
         label: "Modelo respondiendo",
         detail: `${event.totalChars} caracteres`,
+      };
+    case "model_thinking_delta":
+      return {
+        timestamp: ts,
+        kind: "reason",
+        label: "Claude está razonando",
+        detail: `${event.totalChars} caracteres`,
+        body: event.text,
       };
     case "finalizing":
       return { timestamp: ts, kind: "done", label: "Respuesta lista", detail: `${event.messageChars} chars` };
@@ -46,6 +59,59 @@ export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): 
     default:
       return null;
   }
+}
+
+/** Labels whose consecutive ticks should be coalesced into a single growing
+ *  log line (model_text_delta + model_thinking_delta variants). Shared by the
+ *  server-side pushAgenticLogLine helper and the client-side appendCoalesced
+ *  helper used in ChatSidebar / review page. */
+export const COALESCEABLE_LABELS: ReadonlySet<string> = new Set([
+  "Modelo respondiendo",
+  "Claude está razonando",
+]);
+
+/**
+ * Append a `LogLine` to a streaming buffer, coalescing consecutive ticks of
+ * the same coalesce-eligible label (currently "Modelo respondiendo" and
+ * "Claude está razonando" — see {@link COALESCEABLE_LABELS}) into a single
+ * line that grows. Called by API routes that buffer NDJSON `progress` frames
+ * so the client doesn't receive one frame per token.
+ */
+export function pushAgenticLogLine<T extends { logLine: LogLine }>(
+  buffer: T[],
+  entry: T,
+): void {
+  const lastLabel = buffer[buffer.length - 1]?.logLine.label;
+  const newLabel = entry.logLine.label;
+  if (
+    buffer.length > 0 &&
+    COALESCEABLE_LABELS.has(newLabel) &&
+    lastLabel === newLabel
+  ) {
+    buffer[buffer.length - 1] = entry;
+    return;
+  }
+  buffer.push(entry);
+}
+
+/**
+ * Client-side counterpart: append a `LogLine` to an array, coalescing
+ * consecutive ticks of the same coalesce-eligible label. Returns the
+ * mutated array (which is the same reference as `lines`) so callers can
+ * pass it straight to `setState([...lines])`.
+ */
+export function appendCoalescedLogLine(lines: LogLine[], next: LogLine): LogLine[] {
+  const lastLabel = lines[lines.length - 1]?.label;
+  if (
+    lines.length > 0 &&
+    COALESCEABLE_LABELS.has(next.label) &&
+    lastLabel === next.label
+  ) {
+    lines[lines.length - 1] = next;
+  } else {
+    lines.push(next);
+  }
+  return lines;
 }
 
 /** Build a LogLine collector for use as onAgenticProgress, then call toLogLines() after the run. */
@@ -66,18 +132,11 @@ function eventsToLogLines(events: TimedEvent[]): LogLine[] {
   for (const { event, ms } of events) {
     const line = agenticEventToLogLine(event, ms);
     if (!line) continue;
-    // Coalesce consecutive model_text_delta lines so LogBlock shows a single
-    // updating "Modelo respondiendo" tick per round instead of one per chunk.
-    if (
-      event.type === "model_text_delta" &&
-      lines.length > 0 &&
-      lines[lines.length - 1]?.label === "Modelo respondiendo"
-    ) {
-      // Replace the previous delta line with the newer (higher totalChars) one.
-      lines[lines.length - 1] = line;
-    } else {
-      lines.push(line);
-    }
+    // Coalesce consecutive streaming ticks of the same eligible label so
+    // LogBlock shows one growing line per kind instead of one per chunk.
+    // Reuses COALESCEABLE_LABELS so the post-run collector and the live
+    // streaming helpers stay aligned.
+    appendCoalescedLogLine(lines, line);
   }
   return lines;
 }

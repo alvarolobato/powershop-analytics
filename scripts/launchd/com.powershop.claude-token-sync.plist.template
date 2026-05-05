@@ -17,6 +17,18 @@
   <key>StartInterval</key>
   <integer>7200</integer>
 
+  <!-- Also fire on demand: when a process (typically the dashboard container)
+       writes/touches the kick file, launchd runs the sync script immediately.
+       This is the recovery path for the case where my own use of `claude` on
+       the host rotates the Keychain refresh_token while the container still
+       holds the previous access_token (now revoked server-side). The kick
+       only ever triggers the same mirror-from-Keychain script — it never
+       refreshes anything itself, preserving D-025's single-refresher rule. -->
+  <key>WatchPaths</key>
+  <array>
+    <string>__HOME__/.config/powershop-analytics/.claude-token-kick</string>
+  </array>
+
   <!-- Capture both streams to the same log file so the cause of any error is
        in one place. The launchd agent runs as the user, so the log inherits
        the user's permissions. -->

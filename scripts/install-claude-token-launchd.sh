@@ -37,6 +37,17 @@ fi
 
 mkdir -p "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 
+# Ensure the kick file exists so launchd's WatchPaths has something to watch.
+# The dashboard container touches this file on demand to trigger an
+# immediate Keychain → ~/.claude/.credentials.json sync (recovery path
+# for the case where a host-side `claude` invocation rotates the
+# refresh_token while the container still holds the previous access_token).
+KICK_DIR="$HOME/.config/powershop-analytics"
+KICK_FILE="$KICK_DIR/.claude-token-kick"
+mkdir -p "$KICK_DIR"
+[ -e "$KICK_FILE" ] || : > "$KICK_FILE"
+chmod 0664 "$KICK_FILE"
+
 # Render template. We use `|` as the sed delimiter so the substituted absolute
 # paths (which contain `/`) do not need escaping.
 sed \

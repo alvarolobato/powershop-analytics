@@ -10,7 +10,25 @@ import type { ReviewLlmOutput } from "@/lib/review-schema";
 export type AgenticProgressEvent =
   | { type: "round"; round: number; maxRounds: number }
   | { type: "model_step_start"; round: number; provider: DashboardLlmProviderId; driver: DashboardCliDriverId | null }
-  | { type: "model_text_delta"; round: number; chars: number; totalChars: number }
+  | {
+      type: "model_text_delta";
+      round: number;
+      chars: number;
+      totalChars: number;
+      // No `text` field: the streaming UI only renders the running counter for
+      // text deltas (the body is the JSON tool-protocol payload, not human
+      // prose), so emitting the cumulative text on every token would grow each
+      // NDJSON frame quadratically. Readable prose is carried by
+      // `model_thinking_delta` instead.
+    }
+  | {
+      type: "model_thinking_delta";
+      round: number;
+      chars: number;
+      totalChars: number;
+      /** Full extended-thinking text streamed so far this step (cumulative). */
+      text?: string;
+    }
   | { type: "assistant_tools"; round: number; tools: string[] }
   | { type: "tool_start"; round: number; name: string; toolCallId: string; argsPreview?: string }
   | {

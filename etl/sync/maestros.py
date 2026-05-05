@@ -85,16 +85,19 @@ def _discover_columns(
 
 # Mapping from lowercase 4D column names → PostgreSQL column names.
 # Only the columns present in ps_clientes (init.sql) are mapped.
-# Actual 4D column names discovered via _USER_COLUMNS:
+# Actual 4D column names discovered via _USER_COLUMNS + docs/schema-discovery:
 #   - NumCliente does not exist; Codigo is the client code
-#   - Nombre does not exist; NombreComercial is the commercial name (it's in safe cols)
+#   - Cliente (Alpha 100) is the canonical customer name. NombreComercial
+#     exists too but is empty for ~98% of rows (27 452 / 27 988); using it
+#     leaves the wholesale review showing num_cliente numerics instead of
+#     names. Same gotcha pattern as Proveedores.NombreComercial (D-017).
 #   - NIF does not exist; CIF is the tax ID
 #   - Email does not exist (case-sensitive); 'email' (lowercase) is the column
 #   - CodigoPostal does not exist; Postal is the zip code
 _CLIENTES_MAP: dict[str, str] = {
     "regcliente": "reg_cliente",
     "codigo": "num_cliente",  # Codigo = client code (maps to num_cliente)
-    "nombrecomercial": "nombre",  # NombreComercial = business name (maps to nombre)
+    "cliente": "nombre",  # Cliente = canonical customer name (Alpha 100)
     "cif": "nif",  # CIF = tax ID (maps to nif)
     "email": "email",  # email (lowercase in 4D)
     "postal": "codigo_postal",  # Postal = zip code (maps to codigo_postal)
@@ -108,10 +111,13 @@ _CLIENTES_MAP: dict[str, str] = {
 # Preferred 4D column names to query (original casing required in SQL).
 # These are the *desired* columns; if a column is missing from the table
 # it will be silently omitted by the discovery step.
+# `NombreComercial` is queried as a fallback for the few rows where Cliente
+# is empty: the post-fetch loop COALESCEs them.
 _CLIENTES_DESIRED = [
     "RegCliente",
     "Codigo",  # client code → num_cliente
-    "NombreComercial",  # business name → nombre
+    "Cliente",  # canonical name → nombre (preferred)
+    "NombreComercial",  # business name fallback when Cliente is empty
     "CIF",  # tax ID → nif
     "email",  # email (lowercase in 4D)
     "Postal",  # zip code → codigo_postal
@@ -176,6 +182,15 @@ def sync_clientes(conn_4d, conn_pg, since=None) -> int:
                 if pg_key in ("reg_cliente", "num_cliente"):
                     v = _to_decimal(v)
                 mapped[pg_key] = v
+        # Fallback: if the canonical Cliente field is empty for this row but
+        # NombreComercial has something, use it. ~98% of clients had Cliente
+        # populated and NombreComercial empty in the live mirror, but the few
+        # rows that only have NombreComercial would otherwise show num_cliente.
+        nombre = mapped.get("nombre")
+        if (nombre is None or nombre == "") and "nombrecomercial" in row:
+            fallback = row["nombrecomercial"]
+            if fallback:
+                mapped["nombre"] = fallback
         pg_rows.append(mapped)
 
     if since is None or not where:

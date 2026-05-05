@@ -15,6 +15,34 @@ import type { ReviewActionRow } from "@/lib/review-actions-db";
 import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent } from "@/lib/llm";
 
+// ─── Error helpers ────────────────────────────────────────────────────────────
+
+/** Error thrown from the generate flow that may carry the structured ApiErrorResponse. */
+type GenerateError = Error & { apiError?: ApiErrorResponse };
+
+/**
+ * Build a `GenerateError` that preserves the full `ApiErrorResponse` when the
+ * server payload looks like one. The catch block in handleGenerate/handleRegenerate
+ * unwraps `.apiError` and feeds it to <ErrorDisplay>, which renders the
+ * AGENTIC_RUNNER diagnostic ("Detalles técnicos" with provider / CLI / tool / limits).
+ * This is the same shape ChatSidebar uses for /generate and /modify.
+ */
+function generateErrorFromPayload(payload: unknown, fallbackMessage: string): GenerateError {
+  const apiError = isApiErrorResponse(payload) ? (payload as ApiErrorResponse) : undefined;
+  const err: GenerateError = new Error(apiError?.error ?? fallbackMessage);
+  if (apiError) err.apiError = apiError;
+  return err;
+}
+
+/** Pull the structured ApiErrorResponse off a thrown error, when present. */
+function apiErrorOf(err: unknown): ApiErrorResponse | undefined {
+  if (err && typeof err === "object" && "apiError" in err) {
+    const candidate = (err as { apiError?: unknown }).apiError;
+    if (isApiErrorResponse(candidate)) return candidate;
+  }
+  return undefined;
+}
+
 // ─── NDJSON stream reader ─────────────────────────────────────────────────────
 
 async function* readNdjsonStream<T>(
@@ -337,9 +365,7 @@ export default function ReviewPage() {
         // Fallback to plain JSON error.
         const payload = await res.json().catch(() => null);
         setStreamingLog(null);
-        throw new Error(
-          isApiErrorResponse(payload) ? payload.error : "Error al generar la revisión.",
-        );
+        throw generateErrorFromPayload(payload, "Error al generar la revisión.");
       }
 
       if (!res.body) {
@@ -361,12 +387,17 @@ export default function ReviewPage() {
           if (line) {
             setStreamingLog((prev) => {
               if (!prev) return [line];
-              // Coalesce model_text_delta: replace last line if it's also "Modelo respondiendo".
-              if (
-                frame.event.type === "model_text_delta" &&
-                prev.length > 0 &&
-                prev[prev.length - 1]?.label === "Modelo respondiendo"
-              ) {
+              // Coalesce streaming ticks (text_delta and thinking_delta) so
+              // each tick replaces the previous one of its own kind. Thinking
+              // and text are *separate* rows — once the thinking block ends
+              // and text starts streaming, a new "Modelo respondiendo" line
+              // appears under the (now frozen) "Claude está razonando".
+              const lastLabel = prev[prev.length - 1]?.label;
+              const isTextCoalesce =
+                frame.event.type === "model_text_delta" && lastLabel === "Modelo respondiendo";
+              const isThinkingCoalesce =
+                frame.event.type === "model_thinking_delta" && lastLabel === "Claude está razonando";
+              if (prev.length > 0 && (isTextCoalesce || isThinkingCoalesce)) {
                 return [...prev.slice(0, -1), line];
               }
               return [...prev, line];
@@ -384,9 +415,7 @@ export default function ReviewPage() {
           return { week_start: frame.review.week_start, id: frame.review.id, message: frame.message };
         } else if (frame.type === "error") {
           setStreamingLog(null);
-          throw Object.assign(new Error(frame.error ?? "Error al generar la revisión."), {
-            apiError: frame,
-          });
+          throw generateErrorFromPayload(frame, "Error al generar la revisión.");
         }
       }
 
@@ -414,7 +443,10 @@ export default function ReviewPage() {
       }
     } catch (err) {
       setStreamingLog(null);
-      setReviewError(err instanceof Error ? err.message : "Error al generar la revisión");
+      const detail = apiErrorOf(err);
+      setReviewError(
+        detail ?? (err instanceof Error ? err.message : "Error al generar la revisión"),
+      );
       setView("error");
     }
   }, [fetchPastReviews, openWeek, callGenerateStreaming]);
@@ -439,7 +471,8 @@ export default function ReviewPage() {
       }
     } catch (err) {
       setStreamingLog(null);
-      setReviewError(err instanceof Error ? err.message : "Error al regenerar");
+      const detail = apiErrorOf(err);
+      setReviewError(detail ?? (err instanceof Error ? err.message : "Error al regenerar"));
       setView("error");
     }
   }, [current, callGenerateStreaming, fetchPastReviews, openWeek, regenMode]);

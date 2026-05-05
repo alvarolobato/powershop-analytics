@@ -75,14 +75,66 @@ function makeStreamJsonResult(finalText: string): string[] {
 }
 
 describe("parseStreamJsonLine", () => {
-  it("parses assistant text content", () => {
+  it("parses cumulative assistant text content as text_full", () => {
     const line = JSON.stringify({
       type: "assistant",
       message: { content: [{ type: "text", text: "hello" }] },
     });
     const r = parseStreamJsonLine(line);
-    expect(r.kind).toBe("text");
-    if (r.kind === "text") expect(r.text).toBe("hello");
+    expect(r.kind).toBe("text_full");
+    if (r.kind === "text_full") expect(r.text).toBe("hello");
+  });
+
+  it("parses incremental content_block_delta text_delta as text_delta", () => {
+    const line = JSON.stringify({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "1, 2, 3" },
+      },
+    });
+    const r = parseStreamJsonLine(line);
+    expect(r.kind).toBe("text_delta");
+    if (r.kind === "text_delta") expect(r.text).toBe("1, 2, 3");
+  });
+
+  it("parses extended-thinking content_block_delta thinking_delta as thinking_delta", () => {
+    const line = JSON.stringify({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "Let me check the data..." },
+      },
+    });
+    const r = parseStreamJsonLine(line);
+    expect(r.kind).toBe("thinking_delta");
+    if (r.kind === "thinking_delta") expect(r.text).toBe("Let me check the data...");
+  });
+
+  it("ignores signature_delta (extended-thinking signature, not visible)", () => {
+    const line = JSON.stringify({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "abc123" },
+      },
+    });
+    expect(parseStreamJsonLine(line).kind).toBe("ignore");
+  });
+
+  it("ignores non-text content_block_delta variants (e.g. input_json_delta)", () => {
+    const line = JSON.stringify({
+      type: "stream_event",
+      event: {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: "{\"a\":" },
+      },
+    });
+    expect(parseStreamJsonLine(line).kind).toBe("ignore");
   });
 
   it("ignores tool_use content blocks", () => {
@@ -257,28 +309,63 @@ describe("claudeCliAgenticStep", () => {
     ).rejects.toMatchObject({ code: "LLM_CLI_API_ERROR" });
   });
 
-  it("invokes onTextDelta for each text chunk", async () => {
+  it("invokes onTextDelta for each token-level text_delta and forwards accumulated text", async () => {
     const finalText = '{"kind":"final","content":"answer"}';
+    // Newer claude builds emit incremental stream_event content_block_delta
+    // events with --include-partial-messages; we forward each one through
+    // onTextDelta and also pass the running cumulative text.
     mockRunCliProcessStreaming.mockImplementation(
       makeStreamingMock([
-        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: '{"kind":"fina' }] } }),
-        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: 'l","content":"answer"}' }] } }),
+        JSON.stringify({
+          type: "stream_event",
+          event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: '{"kind":"fina' } },
+        }),
+        JSON.stringify({
+          type: "stream_event",
+          event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: 'l","content":"answer"}' } },
+        }),
+        // The cumulative assistant envelope follows; runner skips it because
+        // text_delta events were already seen for this message.
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: finalText }] } }),
         JSON.stringify({ type: "result", is_error: false, result: finalText }),
       ]),
     );
 
-    const deltas: { chars: number; totalChars: number }[] = [];
+    const deltas: { chars: number; totalChars: number; accumulated: string }[] = [];
     await claudeCliAgenticStep({
       cfg,
       messages: [{ role: "user", content: "hi" }],
-      onTextDelta: (chars, totalChars) => deltas.push({ chars, totalChars }),
+      onTextDelta: (chars, totalChars, accumulated) => deltas.push({ chars, totalChars, accumulated }),
     });
 
-    expect(deltas.length).toBeGreaterThanOrEqual(2);
-    expect(deltas[deltas.length - 1].totalChars).toBeGreaterThan(0);
+    expect(deltas.length).toBe(2);
+    expect(deltas[0].accumulated).toBe('{"kind":"fina');
+    expect(deltas[1].accumulated).toBe(finalText);
+    expect(deltas[1].totalChars).toBe(finalText.length);
   });
 
-  it("uses --output-format stream-json --verbose flags", async () => {
+  it("falls back to text_full when no deltas arrive (older binary or flag ignored)", async () => {
+    const finalText = '{"kind":"final","content":"ok"}';
+    mockRunCliProcessStreaming.mockImplementation(
+      makeStreamingMock([
+        // No stream_event deltas — only the cumulative assistant envelope.
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: finalText }] } }),
+        JSON.stringify({ type: "result", is_error: false, result: finalText }),
+      ]),
+    );
+
+    const deltas: { chars: number; totalChars: number; accumulated: string }[] = [];
+    await claudeCliAgenticStep({
+      cfg,
+      messages: [{ role: "user", content: "hi" }],
+      onTextDelta: (chars, totalChars, accumulated) => deltas.push({ chars, totalChars, accumulated }),
+    });
+
+    expect(deltas.length).toBe(1);
+    expect(deltas[0].accumulated).toBe(finalText);
+  });
+
+  it("uses --output-format stream-json --verbose --include-partial-messages flags", async () => {
     const finalText = '{"kind":"final","content":"ok"}';
     mockRunCliProcessStreaming.mockImplementation(
       makeStreamingMock(makeStreamJsonResult(finalText)),
@@ -290,5 +377,6 @@ describe("claudeCliAgenticStep", () => {
     expect(callArgs.args).toContain("--output-format");
     expect(callArgs.args).toContain("stream-json");
     expect(callArgs.args).toContain("--verbose");
+    expect(callArgs.args).toContain("--include-partial-messages");
   });
 });

@@ -61,7 +61,7 @@ import {
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
-import { agenticEventToLogLine } from "@/lib/format-agentic-progress";
+import { agenticEventToLogLine, pushAgenticLogLine } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
 import type { LogLine } from "@/components/LogBlock";
 
@@ -247,7 +247,12 @@ export async function POST(request: Request) {
   // common case, and (b) only open an NDJSON stream when the agentic runner
   // actually streams progress events.
   const t0 = Date.now();
+  // Buffer accumulates events emitted *before* the streaming controller
+  // installs its live pump (`liveSend`). Once streaming is open, events flow
+  // through `liveSend` directly so the client sees Claude thinking + writing
+  // in real time instead of receiving everything in a single end-of-run dump.
   const buffer: { type: "progress"; logLine: LogLine }[] = [];
+  let liveSend: ((entry: { type: "progress"; logLine: LogLine }) => void) | null = null;
   let firstEventResolve: (() => void) | null = null;
   const firstEvent = new Promise<void>((resolve) => {
     firstEventResolve = resolve;
@@ -256,7 +261,12 @@ export async function POST(request: Request) {
   const onAgenticProgress = (ev: AgenticProgressEvent) => {
     const logLine = agenticEventToLogLine(ev, Date.now() - t0);
     if (!logLine) return;
-    buffer.push({ type: "progress", logLine });
+    const entry = { type: "progress" as const, logLine };
+    if (liveSend) {
+      liveSend(entry);
+    } else {
+      pushAgenticLogLine(buffer, entry);
+    }
     if (firstEventResolve) {
       firstEventResolve();
       firstEventResolve = null;
@@ -471,7 +481,13 @@ export async function POST(request: Request) {
       };
       drainBuffer();
 
+      // Switch onAgenticProgress to live-pump mode. Subsequent events bypass
+      // the buffer and reach the client immediately — same UX as the review
+      // streaming endpoint.
+      liveSend = (entry) => send({ ...entry, requestId });
+
       const outcome = await llmPromise;
+      liveSend = null;
       drainBuffer();
 
       if (outcome.kind === "err") {
