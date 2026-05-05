@@ -74,7 +74,16 @@ def _map_row(
 
 
 def _date_literal(dt: datetime) -> str:
-    """Return a 4D SQL date literal string: {d 'YYYY-MM-DD'}."""
+    """Return a 4D SQL date literal string: {d 'YYYY-MM-DD'}.
+
+    Callers in this module pair the literal with `FechaModifica >=` (not
+    strict `>`). Ventas/LineasVentas/PagosVentas.FechaModifica are date-
+    only (`_USER_COLUMNS` DATA_TYPE=8): with strict `>` once the watermark
+    advances to today, same-day updates with FechaModifica == today are
+    silently skipped until tomorrow's run. `>=` re-fetches every row
+    already touched today; upsert is idempotent so the only cost is one
+    extra UPDATE per untouched row. See issue #459 / PR #461.
+    """
     return f"{{d '{dt.strftime('%Y-%m-%d')}'}}"
 
 
@@ -98,7 +107,7 @@ def _sync_table(
 
     Args:
         sql_base:     SELECT ... FROM table (no WHERE/ORDER/LIMIT).
-        where_clause: Already-formatted WHERE clause (e.g. "FechaModifica > {d '...'}").
+        where_clause: Already-formatted WHERE clause (e.g. "FechaModifica >= {d '...'}").
         pk_col_4d:    4D column name used for ORDER BY (original casing). Unused now but kept for API compat.
         pg_table:     Target PostgreSQL table name.
         pk_cols_pg:   PK column list for ON CONFLICT.
@@ -257,7 +266,7 @@ def sync_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> in
           memory usage for the initial full load (~911K rows).
     """
     effective_since = since if since is not None else _EPOCH
-    where = f"FechaModifica > {_date_literal(effective_since)}"
+    where = f"FechaModifica >= {_date_literal(effective_since)}"
     return _sync_table(
         conn_4d,
         conn_pg,
@@ -291,7 +300,7 @@ def sync_lineas_ventas(
         - PK and FK floats (RegLineas, NumVentas, NDocumento) converted to Decimal.
     """
     effective_since = since if since is not None else _EPOCH
-    where = f"FechaModifica > {_date_literal(effective_since)}"
+    where = f"FechaModifica >= {_date_literal(effective_since)}"
     return _sync_table(
         conn_4d,
         conn_pg,
@@ -323,7 +332,7 @@ def sync_pagos_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None)
           concatenates store codes; ImporteCob is unaffected.
     """
     effective_since = since if since is not None else _EPOCH
-    where = f"FechaModifica > {_date_literal(effective_since)}"
+    where = f"FechaModifica >= {_date_literal(effective_since)}"
     return _sync_table(
         conn_4d,
         conn_pg,
