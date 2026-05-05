@@ -74,7 +74,8 @@ export async function GET(
   try {
     const runResult = await query(
       `SELECT id, started_at, finished_at, duration_ms, status,
-              total_tables, tables_ok, tables_failed, total_rows_synced, trigger
+              total_tables, tables_ok, tables_failed, total_rows_synced, trigger,
+              kind
        FROM etl_sync_runs
        WHERE id = $1`,
       [id],
@@ -104,6 +105,7 @@ export async function GET(
       tables_failed: r[7] != null ? Number(r[7]) : null,
       total_rows_synced: r[8] != null ? Number(r[8]) : null,
       trigger: String(r[9]),
+      kind: r[10] === "delta" ? "delta" : "full",
     };
 
     const tablesResult = await query(

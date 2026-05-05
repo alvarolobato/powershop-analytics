@@ -39,8 +39,11 @@ FK link to ps_compras and ps_proveedores.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -223,21 +226,14 @@ def sync_lineas_compras(conn_4d: Any, conn_pg: Any) -> int:
     return truncate_and_insert(conn_pg, "ps_lineas_compras", pg_rows)
 
 
-def sync_facturas(conn_4d: Any, conn_pg: Any) -> int:
-    """Full-refresh ps_facturas from the 4D Facturas table.
+def sync_facturas(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
+    """Sync ps_facturas from the 4D Facturas table.
 
-    Verifies PK column existence and uses get_queryable_columns to avoid
-    type-0 column errors.
-
-    Args:
-        conn_4d: An open p4d connection.
-        conn_pg: An open psycopg2 connection.
-
-    Returns:
-        Number of rows loaded into ps_facturas.
+    since=None  → full refresh (TRUNCATE + INSERT). Catches hard-deletes.
+    since=date  → delta upsert (WHERE FechaModifica > since).
     """
     from etl.db.fourd import get_queryable_columns, safe_fetch
-    from etl.db.postgres import truncate_and_insert
+    from etl.db.postgres import truncate_and_insert, upsert
 
     # Verify PK
     pk_check = safe_fetch(
@@ -257,11 +253,33 @@ def sync_facturas(conn_4d: Any, conn_pg: Any) -> int:
 
     cols_map = {k: v for k, v in _FACTURAS_MAPPING.items() if k in queryable_lower}
     selected = [k for k in _FACTURAS_MAPPING if k in queryable_lower]
-    sql = "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM Facturas"
+
+    where = ""
+    if since is not None:
+        if "fechamodifica" not in queryable_lower:
+            logger.warning(
+                "sync_facturas: delta requested but FechaModifica missing — falling back to full refresh"
+            )
+        else:
+            # `>=` not `>`: FechaModifica is date-only; strict `>` would
+            # silently skip same-day updates once the watermark advances.
+            # Upsert is idempotent so re-fetching today's rows is harmless.
+            date_str = since.strftime("%Y-%m-%d")
+            where = f" WHERE FechaModifica >= {{d '{date_str}'}}"
+
+    sql = (
+        "SELECT " + ", ".join(orig_case[k] for k in selected) + " FROM Facturas" + where
+    )
 
     raw_rows = safe_fetch(conn_4d, sql)
     pg_rows = [_map_row(r, cols_map) for r in raw_rows]
-    return truncate_and_insert(conn_pg, "ps_facturas", pg_rows)
+
+    if since is None or not where:
+        return truncate_and_insert(conn_pg, "ps_facturas", pg_rows)
+
+    if not pg_rows:
+        return 0
+    return upsert(conn_pg, "ps_facturas", pg_rows, pk_cols=["reg_factura"])
 
 
 def sync_albaranes(conn_4d: Any, conn_pg: Any) -> int:

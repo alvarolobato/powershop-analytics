@@ -404,7 +404,17 @@
   sensitive: false
   default: 2
   section: "ETL"
-  description: "Hora UTC a la que se ejecuta la sincronización ETL nocturna. Solo env var; los cambios en config.yaml se ignoran (etl/main.py lee únicamente ETL_CRON_HOUR del entorno). Requiere reiniciar el contenedor ETL."
+  description: "Hora UTC a la que se ejecuta la sincronización completa nocturna (truncate + insert; refleja borrados duros del 4D). Solo env var; los cambios en config.yaml se ignoran (etl/main.py lee únicamente ETL_CRON_HOUR del entorno). Requiere reiniciar el contenedor ETL."
+  requires_restart: [etl]
+  components: [etl, docker]
+
+- key: etl.delta_cron_minute
+  env: ETL_DELTA_CRON_MINUTE
+  type: int
+  sensitive: false
+  default: 0
+  section: "ETL"
+  description: "Minuto de cada hora en que arranca la sincronización delta (0-59). La completa nocturna también arranca a este minuto en la hora ETL_CRON_HOUR; el firing de delta a esa hora se salta automáticamente al detectar que ya hay run activa. Solo env var. Requiere reiniciar el contenedor ETL."
   requires_restart: [etl]
   components: [etl, docker]
 

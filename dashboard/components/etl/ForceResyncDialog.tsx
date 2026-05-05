@@ -17,6 +17,10 @@ export interface ForceResyncOptions {
 // ALLOWED_FORCE_TABLES in /api/etl/run/route.ts.
 export const RESYNCABLE_TABLES: ReadonlyArray<{ name: string; label: string }> =
   [
+    { name: "articulos", label: "Artículos" },
+    { name: "clientes", label: "Clientes" },
+    { name: "ccstock", label: "Stock central (CCStock)" },
+    { name: "facturas", label: "Facturas" },
     { name: "stock", label: "Stock (Exportaciones)" },
     { name: "ventas", label: "Ventas" },
     { name: "lineas_ventas", label: "Líneas de ventas" },

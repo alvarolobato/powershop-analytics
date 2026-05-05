@@ -77,7 +77,7 @@ def test_create_run_called_once():
         from etl.main import run_full_sync
 
         run_full_sync(conn_4d, conn_pg)
-    mocks["create_run"].assert_called_once_with(conn_pg, "scheduled")
+    mocks["create_run"].assert_called_once_with(conn_pg, "scheduled", kind="full")
 
 
 def test_finish_run_called_once_with_success():

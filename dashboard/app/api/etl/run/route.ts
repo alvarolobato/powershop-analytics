@@ -34,6 +34,10 @@ const STALE_RUN_HOURS = 4;
 // the dashboard cannot import from Python; add a CI check if these ever
 // drift (see issue #398 for the registry).
 const ALLOWED_FORCE_TABLES: ReadonlySet<string> = new Set([
+  "articulos",
+  "clientes",
+  "ccstock",
+  "facturas",
   "ventas",
   "lineas_ventas",
   "pagos_ventas",

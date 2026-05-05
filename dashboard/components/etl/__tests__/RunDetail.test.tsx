@@ -35,6 +35,7 @@ const successRun = {
   tables_failed: 0,
   total_rows_synced: 18500000,
   trigger: "scheduled" as const,
+  kind: "full" as const,
 };
 
 const failedRun = {
