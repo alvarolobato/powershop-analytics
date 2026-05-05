@@ -127,10 +127,12 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
 
       {/* Chart body */}
       <div style={{ padding: 16 }}>
+        {/* Default preserveAspectRatio (xMidYMid meet) — non-uniform stretch
+            distorts axis labels and inflates the stroke on the dominant
+            axis. Letting the height auto-scale keeps the chart proportional. */}
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          style={{ width: "100%", height: 220, display: "block" }}
+          style={{ width: "100%", height: "auto", display: "block" }}
           role="img"
           aria-label="Tendencia de ventas diarias: mes actual vs mismo mes del año anterior"
         >

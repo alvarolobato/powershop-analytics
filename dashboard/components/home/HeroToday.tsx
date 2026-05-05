@@ -332,11 +332,12 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
           </div>
         </div>
 
-        {/* SVG chart */}
+        {/* SVG chart — uses default preserveAspectRatio so text and stroke
+            widths are not stretched horizontally. Height auto-scales by the
+            viewBox aspect (W:H = 600:120). */}
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          preserveAspectRatio="none"
-          style={{ width: "100%", height: 160, display: "block" }}
+          style={{ width: "100%", height: "auto", display: "block" }}
           role="img"
           aria-label="Gráfico de ventas por hora con proyección de cierre"
         >
