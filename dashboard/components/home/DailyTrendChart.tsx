@@ -1,7 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import type { HomeViewModel } from "@/lib/home-types";
 import { SectionHeader } from "./SectionHeader";
+import { fmtEUR0 } from "@/components/widgets/format";
 
 interface DailyTrendChartProps {
   dailyTrend: HomeViewModel["dailyTrend"];
@@ -126,13 +128,103 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
       </div>
 
       {/* Chart body */}
-      <div style={{ padding: 16 }}>
-        {/* Default preserveAspectRatio (xMidYMid meet) — non-uniform stretch
-            distorts axis labels and inflates the stroke on the dominant
-            axis. Letting the height auto-scale keeps the chart proportional. */}
+      <ChartBody
+        W={W}
+        H={H}
+        padL={padL}
+        padR={padR}
+        padT={padT}
+        padB={padB}
+        chartW={chartW}
+        yTicks={yTicks}
+        lyPath={lyPath}
+        actualPath={actualPath}
+        actualArea={actualArea}
+        lastActual={lastActual}
+        xTicks={xTicks}
+        xForIdx={xForIdx}
+        yForVal={yForVal}
+        dailyTrend={dailyTrend}
+        currentLabel={currentLabel}
+        previousLabel={previousLabel}
+      />
+    </div>
+  );
+}
+
+// ─── Chart body (extracted so we can use hooks) ───────────────────────────────
+
+interface ChartBodyProps {
+  W: number;
+  H: number;
+  padL: number;
+  padR: number;
+  padT: number;
+  padB: number;
+  chartW: number;
+  yTicks: Array<{ val: number; y: number }>;
+  lyPath: string;
+  actualPath: string;
+  actualArea: string;
+  lastActual: [number, number, number] | null;
+  xTicks: HomeViewModel["dailyTrend"];
+  xForIdx: (i: number) => number;
+  yForVal: (v: number) => number;
+  dailyTrend: HomeViewModel["dailyTrend"];
+  currentLabel: string;
+  previousLabel: string;
+}
+
+function ChartBody(props: ChartBodyProps) {
+  const {
+    W,
+    H,
+    padL,
+    padR,
+    padT,
+    padB,
+    chartW,
+    yTicks,
+    lyPath,
+    actualPath,
+    actualArea,
+    lastActual,
+    xTicks,
+    xForIdx,
+    dailyTrend,
+    currentLabel,
+    previousLabel,
+  } = props;
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  return (
+    <div style={{ padding: 16 }}>
+      {/* SVG fills the column horizontally and is fixed at 220px tall.
+          preserveAspectRatio="none" keeps the geometry filling the box;
+          vector-effect="non-scaling-stroke" stops strokes from inflating.
+          Text labels are HTML overlays so glyphs aren't stretched. */}
+      <div
+        style={{ position: "relative", width: "100%", height: 220 }}
+        onMouseMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          // Compute X within the chart area only (excluding left padding).
+          const px = e.clientX - rect.left;
+          const chartLeftPx = (padL / W) * rect.width;
+          const chartWPx = (chartW / W) * rect.width;
+          if (px < chartLeftPx || px > chartLeftPx + chartWPx) {
+            setHoverIdx(null);
+            return;
+          }
+          const ratio = (px - chartLeftPx) / chartWPx;
+          const idx = Math.round(ratio * (dailyTrend.length - 1));
+          if (idx >= 0 && idx < dailyTrend.length) setHoverIdx(idx);
+        }}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
         <svg
           viewBox={`0 0 ${W} ${H}`}
-          style={{ width: "100%", height: "auto", display: "block" }}
+          preserveAspectRatio="none"
+          style={{ width: "100%", height: "100%", display: "block" }}
           role="img"
           aria-label="Tendencia de ventas diarias: mes actual vs mismo mes del año anterior"
         >
@@ -144,28 +236,18 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
             </linearGradient>
           </defs>
 
-          {/* Horizontal gridlines with labels */}
-          {yTicks.map(({ val, y }, i) => (
-            <g key={i}>
-              <line
-                x1={padL}
-                y1={y}
-                x2={W - padR}
-                y2={y}
-                stroke="var(--grid)"
-                strokeWidth="1"
-              />
-              <text
-                x={padL - 6}
-                y={y + 3}
-                textAnchor="end"
-                fontSize="10"
-                fill="var(--fg-subtle)"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {(val / 1000).toFixed(0)}k€
-              </text>
-            </g>
+          {/* Horizontal gridlines */}
+          {yTicks.map(({ y }, i) => (
+            <line
+              key={i}
+              x1={padL}
+              y1={y}
+              x2={W - padR}
+              y2={y}
+              stroke="var(--grid)"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
           ))}
 
           {/* LY line */}
@@ -177,6 +259,7 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
               strokeWidth="1.5"
               strokeDasharray="4 4"
               opacity="0.65"
+              vectorEffect="non-scaling-stroke"
             />
           )}
 
@@ -190,20 +273,13 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
             />
           )}
 
-          {/* "HOY · DÍA N" marker */}
+          {/* "HOY · DÍA N" marker — line + dot (label is HTML overlay) */}
           {lastActual && (
-            <g>
-              <circle
-                cx={lastActual[0]}
-                cy={lastActual[1]}
-                r="4.5"
-                fill="var(--accent)"
-                stroke="var(--bg-1)"
-                strokeWidth="2"
-              />
+            <>
               <line
                 x1={lastActual[0]}
                 y1={padT}
@@ -213,38 +289,133 @@ export function DailyTrendChart({ dailyTrend, asOf }: DailyTrendChartProps) {
                 strokeWidth="1"
                 strokeDasharray="2 2"
                 opacity="0.35"
+                vectorEffect="non-scaling-stroke"
               />
-              <text
-                x={lastActual[0]}
-                y={padT - 2}
-                textAnchor="middle"
-                fontSize="9"
+              <circle
+                cx={lastActual[0]}
+                cy={lastActual[1]}
+                r="4.5"
                 fill="var(--accent)"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                HOY · DÍA {lastActual[2]}
-              </text>
-            </g>
+                stroke="var(--bg-1)"
+                strokeWidth="2"
+                vectorEffect="non-scaling-stroke"
+              />
+            </>
           )}
 
-          {/* X ticks every 5 days */}
-          {xTicks.map((d, idx) => {
-            const origIdx = dailyTrend.indexOf(d);
-            return (
-              <text
-                key={idx}
-                x={xForIdx(origIdx).toFixed(1)}
-                y={H - 6}
-                textAnchor="middle"
-                fontSize="10"
-                fill="var(--fg-subtle)"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {d.day}
-              </text>
-            );
-          })}
+          {/* Hover crosshair */}
+          {hoverIdx !== null && (
+            <line
+              x1={xForIdx(hoverIdx)}
+              y1={padT}
+              x2={xForIdx(hoverIdx)}
+              y2={H - padB}
+              stroke="var(--fg-muted)"
+              strokeWidth="1"
+              strokeDasharray="2 3"
+              opacity="0.55"
+              vectorEffect="non-scaling-stroke"
+            />
+          )}
         </svg>
+
+        {/* HTML label overlays */}
+        {yTicks.map(({ val, y }, i) => (
+          <span
+            key={i}
+            style={{
+              position: "absolute",
+              left: `${((padL - 6) / W) * 100}%`,
+              top: `${(y / H) * 100}%`,
+              transform: "translate(-100%, -50%)",
+              fontFamily: "var(--font-jetbrains, monospace)",
+              fontSize: 10,
+              color: "var(--fg-subtle)",
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {(val / 1000).toFixed(0)}k€
+          </span>
+        ))}
+        {lastActual && (
+          <span
+            style={{
+              position: "absolute",
+              left: `${(lastActual[0] / W) * 100}%`,
+              top: 0,
+              transform: "translate(-50%, 0)",
+              fontFamily: "var(--font-jetbrains, monospace)",
+              fontSize: 9,
+              color: "var(--accent)",
+              pointerEvents: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            HOY · DÍA {lastActual[2]}
+          </span>
+        )}
+        {xTicks.map((d, idx) => {
+          const origIdx = dailyTrend.indexOf(d);
+          return (
+            <span
+              key={idx}
+              style={{
+                position: "absolute",
+                left: `${(xForIdx(origIdx) / W) * 100}%`,
+                bottom: 0,
+                transform: "translate(-50%, 0)",
+                fontFamily: "var(--font-jetbrains, monospace)",
+                fontSize: 10,
+                color: "var(--fg-subtle)",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {d.day}
+            </span>
+          );
+        })}
+
+        {/* Hover tooltip */}
+        {hoverIdx !== null && (() => {
+          const tx = (xForIdx(hoverIdx) / W) * 100;
+          const day = dailyTrend[hoverIdx];
+          const flipLeft = tx > 75;
+          return (
+            <div
+              style={{
+                position: "absolute",
+                left: `${tx}%`,
+                top: 8,
+                transform: flipLeft ? "translate(-100%, 0)" : "translate(8px, 0)",
+                background: "var(--bg-2)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                padding: "6px 8px",
+                fontFamily: "var(--font-jetbrains, monospace)",
+                fontSize: 11,
+                color: "var(--fg)",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+                boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                zIndex: 2,
+              }}
+            >
+              <div style={{ color: "var(--fg-subtle)", marginBottom: 2 }}>
+                Día {day.day}
+              </div>
+              <div style={{ color: "var(--accent)" }}>
+                {currentLabel}:{" "}
+                {day.actual !== null && day.actual !== undefined ? fmtEUR0(day.actual) : "—"}
+              </div>
+              <div style={{ color: "var(--accent-2)", opacity: 0.85 }}>
+                {previousLabel}:{" "}
+                {typeof day.ly === "number" ? fmtEUR0(day.ly) : "—"}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

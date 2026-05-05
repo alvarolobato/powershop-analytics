@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { HomeViewModel } from "@/lib/home-types";
 import { Delta } from "./Delta";
 import { fmtEUR0 } from "@/components/widgets/format";
@@ -85,6 +86,10 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
 
   // Hour ticks
   const hourTicks = [0, 4, 8, 12, 16, 20, 23];
+
+  // Hover tooltip state — index into the 0..23 hour array, or null when
+  // the cursor is not over the chart.
+  const [hoverHour, setHoverHour] = useState<number | null>(null);
 
   // Whether intraday granularity is available at all. When the API returns
   // an empty array (mirror only has date granularity), we show today's
@@ -332,137 +337,227 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
           </div>
         </div>
 
-        {/* SVG chart — uses default preserveAspectRatio so text and stroke
-            widths are not stretched horizontally. Height auto-scales by the
-            viewBox aspect (W:H = 600:120). */}
-        <svg
-          viewBox={`0 0 ${W} ${H}`}
-          style={{ width: "100%", height: "auto", display: "block" }}
-          role="img"
-          aria-label="Gráfico de ventas por hora con proyección de cierre"
+        {/* SVG fills the column horizontally and is fixed at 160px tall.
+            preserveAspectRatio="none" stretches the geometry to fill, but
+            every stroke uses vector-effect="non-scaling-stroke" so line
+            widths render at the declared CSS pixel width regardless of the
+            stretch. Text labels are NOT in SVG (they would distort) — they
+            are rendered as HTML elements positioned by % over the chart. */}
+        <div
+          style={{ position: "relative", width: "100%", height: 160 }}
+          onMouseMove={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const ratio = (e.clientX - rect.left) / rect.width;
+            const idx = Math.round(ratio * 23);
+            if (idx >= 0 && idx <= 23) setHoverHour(idx);
+          }}
+          onMouseLeave={() => setHoverHour(null)}
         >
-          <title>Ventas por hora con proyección de cierre</title>
-          <defs>
-            <linearGradient id="todayGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.4" />
-              <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
-            </linearGradient>
-          </defs>
+          <svg
+            viewBox={`0 0 ${W} ${H}`}
+            preserveAspectRatio="none"
+            style={{ width: "100%", height: "100%", display: "block" }}
+            role="img"
+            aria-label="Gráfico de ventas por hora con proyección de cierre"
+          >
+            <title>Ventas por hora con proyección de cierre</title>
+            <defs>
+              <linearGradient id="todayGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.4" />
+                <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+              </linearGradient>
+            </defs>
 
-          {/* Gridlines */}
-          {[0, 0.5, 1].map((t) => (
-            <line
-              key={t}
-              x1={0}
-              y1={padT + t * (H - padT - padB)}
-              x2={W}
-              y2={padT + t * (H - padT - padB)}
-              stroke="var(--grid)"
-              strokeWidth="1"
-            />
-          ))}
+            {/* Gridlines */}
+            {[0, 0.5, 1].map((t) => (
+              <line
+                key={t}
+                x1={0}
+                y1={padT + t * (H - padT - padB)}
+                x2={W}
+                y2={padT + t * (H - padT - padB)}
+                stroke="var(--grid)"
+                strokeWidth="1"
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
 
-          {/* Last year line */}
-          {lyPath && (
-            <path
-              d={lyPath}
-              fill="none"
-              stroke="var(--accent-2)"
-              strokeWidth="1.5"
-              strokeDasharray="4 4"
-              opacity="0.65"
-            />
-          )}
+            {/* Last year line */}
+            {lyPath && (
+              <path
+                d={lyPath}
+                fill="none"
+                stroke="var(--accent-2)"
+                strokeWidth="1.5"
+                strokeDasharray="4 4"
+                opacity="0.65"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
 
-          {/* Today area + line */}
-          {todayArea && <path d={todayArea} fill="url(#todayGrad)" />}
-          {todayPath && (
-            <path
-              d={todayPath}
-              fill="none"
-              stroke="var(--accent)"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
+            {/* Today area + line */}
+            {todayArea && <path d={todayArea} fill="url(#todayGrad)" />}
+            {todayPath && (
+              <path
+                d={todayPath}
+                fill="none"
+                stroke="var(--accent)"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
 
-          {/* Forecast line */}
-          {lastPt && forecastEnd && !isPreOpen && (
-            <line
-              x1={lastPt[0]}
-              y1={lastPt[1]}
-              x2={forecastEnd[0]}
-              y2={forecastEnd[1]}
-              stroke="var(--fg-muted)"
-              strokeWidth="1.5"
-              strokeDasharray="2 4"
-              opacity="0.6"
-            />
-          )}
-
-          {/* Forecast end dot */}
-          {forecastEnd && !isPreOpen && (
-            <circle
-              cx={forecastEnd[0]}
-              cy={forecastEnd[1]}
-              r="3"
-              fill="var(--fg-muted)"
-              stroke="var(--bg-1)"
-              strokeWidth="1.5"
-            />
-          )}
-
-          {/* "Ahora" marker */}
-          {lastPt && !isPreOpen && (
-            <>
+            {/* Forecast line */}
+            {lastPt && forecastEnd && !isPreOpen && (
               <line
                 x1={lastPt[0]}
-                y1={padT}
-                x2={lastPt[0]}
-                y2={H - padB}
-                stroke="var(--accent)"
-                strokeWidth="1"
-                strokeDasharray="2 2"
-                opacity="0.4"
+                y1={lastPt[1]}
+                x2={forecastEnd[0]}
+                y2={forecastEnd[1]}
+                stroke="var(--fg-muted)"
+                strokeWidth="1.5"
+                strokeDasharray="2 4"
+                opacity="0.6"
+                vectorEffect="non-scaling-stroke"
               />
-              <circle
-                cx={lastPt[0]}
-                cy={lastPt[1]}
-                r="5"
-                fill="var(--accent)"
-                stroke="var(--bg-1)"
-                strokeWidth="2"
-                data-testid="ahora-marker"
-              />
-              <text
-                x={lastPt[0]}
-                y={padT - 1}
-                textAnchor="middle"
-                fontSize="9"
-                fill="var(--accent)"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                AHORA
-              </text>
-            </>
-          )}
+            )}
 
-          {/* Hour ticks */}
+            {/* Forecast end dot */}
+            {forecastEnd && !isPreOpen && (
+              <circle
+                cx={forecastEnd[0]}
+                cy={forecastEnd[1]}
+                r="3"
+                fill="var(--fg-muted)"
+                stroke="var(--bg-1)"
+                strokeWidth="1.5"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+
+            {/* "Ahora" marker — vertical line + dot. Label rendered in HTML overlay below. */}
+            {lastPt && !isPreOpen && (
+              <>
+                <line
+                  x1={lastPt[0]}
+                  y1={padT}
+                  x2={lastPt[0]}
+                  y2={H - padB}
+                  stroke="var(--accent)"
+                  strokeWidth="1"
+                  strokeDasharray="2 2"
+                  opacity="0.4"
+                  vectorEffect="non-scaling-stroke"
+                />
+                <circle
+                  cx={lastPt[0]}
+                  cy={lastPt[1]}
+                  r="5"
+                  fill="var(--accent)"
+                  stroke="var(--bg-1)"
+                  strokeWidth="2"
+                  vectorEffect="non-scaling-stroke"
+                  data-testid="ahora-marker"
+                />
+              </>
+            )}
+
+            {/* Hover crosshair */}
+            {hoverHour !== null && (
+              <line
+                x1={xForHour(hoverHour)}
+                y1={padT}
+                x2={xForHour(hoverHour)}
+                y2={H - padB}
+                stroke="var(--fg-muted)"
+                strokeWidth="1"
+                strokeDasharray="2 3"
+                opacity="0.55"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+          </svg>
+
+          {/* HTML overlays: text labels position at viewBox-percent so glyph
+              metrics stay in CSS pixels (not stretched). */}
+          {lastPt && !isPreOpen && (
+            <span
+              data-testid="ahora-label"
+              style={{
+                position: "absolute",
+                left: `${(lastPt[0] / W) * 100}%`,
+                top: 0,
+                transform: "translate(-50%, 0)",
+                fontFamily: "var(--font-jetbrains, monospace)",
+                fontSize: 9,
+                color: "var(--accent)",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              AHORA
+            </span>
+          )}
           {hourTicks.map((hr) => (
-            <text
+            <span
               key={hr}
-              x={xForHour(hr)}
-              y={H - 4}
-              textAnchor="middle"
-              fontSize="10"
-              fill="var(--fg-subtle)"
-              fontFamily="JetBrains Mono, monospace"
+              style={{
+                position: "absolute",
+                left: `${(xForHour(hr) / W) * 100}%`,
+                bottom: 0,
+                transform: "translate(-50%, 0)",
+                fontFamily: "var(--font-jetbrains, monospace)",
+                fontSize: 10,
+                color: "var(--fg-subtle)",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+              }}
             >
               {String(hr).padStart(2, "0")}:00
-            </text>
+            </span>
           ))}
-        </svg>
+
+          {/* Hover tooltip */}
+          {hoverHour !== null && (() => {
+            const tx = (xForHour(hoverHour) / W) * 100;
+            const todayVal = hero.hourly[hoverHour];
+            const lyVal = hero.hourlyComparison[hoverHour];
+            const flipLeft = tx > 75;
+            return (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${tx}%`,
+                  top: 8,
+                  transform: flipLeft ? "translate(-100%, 0)" : "translate(8px, 0)",
+                  background: "var(--bg-2)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  padding: "6px 8px",
+                  fontFamily: "var(--font-jetbrains, monospace)",
+                  fontSize: 11,
+                  color: "var(--fg)",
+                  pointerEvents: "none",
+                  whiteSpace: "nowrap",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+                  zIndex: 2,
+                }}
+              >
+                <div style={{ color: "var(--fg-subtle)", marginBottom: 2 }}>
+                  {String(hoverHour).padStart(2, "0")}:00
+                </div>
+                <div style={{ color: "var(--accent)" }}>
+                  Hoy: {todayVal !== null && todayVal !== undefined ? fmtEUR0(todayVal) : "—"}
+                </div>
+                <div style={{ color: "var(--accent-2)", opacity: 0.85 }}>
+                  {hero.comparisonLabel}: {typeof lyVal === "number" ? fmtEUR0(lyVal) : "—"}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
 
         {/* Chart footer */}
         <div
