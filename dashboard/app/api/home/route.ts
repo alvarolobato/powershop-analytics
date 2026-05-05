@@ -518,11 +518,13 @@ export async function GET(req: NextRequest) {
            GROUP BY tienda
          ) s30 ON s30.tienda = t.codigo
          LEFT JOIN (
-           -- Last sale across all history; used for the "ver tiendas
+           -- Last sale across all history. Drives the "ver tiendas
            -- inactivas" caption, not the 30-day filter. Measured at
            -- ~240 ms on the 911 K-row mirror with the existing
            -- idx_ventas_tienda — runs in parallel with the other 18
            -- aggregates on the route, so it doesn't bottleneck.
+           -- (Avoid stray semicolons inside SQL: the read-only guard
+           -- in lib/db.ts rejects them as multi-statement.)
            SELECT tienda, MAX(fecha_creacion) AS last_sale_date
            FROM ps_ventas
            WHERE entrada=true AND tienda<>'99'
