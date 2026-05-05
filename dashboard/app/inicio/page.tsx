@@ -336,7 +336,10 @@ export default function InicioPage() {
 
           {/* All stores */}
           <section style={{ padding: "0 24px 18px" }} data-testid="top-stores-section">
-            <TopStoresTable stores={data.topStores} />
+            <TopStoresTable
+              stores={data.topStores}
+              inactiveStores={data.inactiveStores}
+            />
           </section>
 
           {/* Health footer */}

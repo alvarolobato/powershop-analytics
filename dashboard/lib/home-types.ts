@@ -19,8 +19,20 @@ export type HomeViewModel = {
     todayPace: number; // signed fraction (0 when no intraday data)
     vsYesterday: number; // signed fraction
     vsLY: number; // signed fraction
-    yesterday: number; // EUR
-    lastYear: number; // EUR
+    yesterday: number; // EUR (full-day total — context line under the delta)
+    lastYear: number; // EUR (full-day total — context line under the delta)
+    /** Hour (0–23 in Europe/Madrid) used as the same-hour cutoff for the
+     *  `vsYesterday` / `vsLY` deltas while the as-of day is still in
+     *  progress. `null` when the as-of day is closed (full-day vs full-day
+     *  is honest), in which case the deltas use `yesterday` and
+     *  `lastYear`. */
+    comparisonCutoffHour: number | null;
+    /** Yesterday's running total up to (and including) `comparisonCutoffHour`.
+     *  Set in tandem with `comparisonCutoffHour`; `null` when no cutoff is
+     *  in effect. The UI shows it in small print to explain the delta. */
+    yesterdayCutoff: number | null;
+    /** Same as `yesterdayCutoff` for last year same date. */
+    lastYearCutoff: number | null;
     status: "on-pace" | "below" | "above";
     hourly: (number | null)[]; // [] when mirror has no time-of-day data
     /** Cumulative-by-hour curve for the **same weekday one week earlier**
@@ -47,9 +59,10 @@ export type HomeViewModel = {
     sparkLabels: string[];
   }>;
   dailyTrend: Array<{ day: number; actual: number | null; ly: number }>;
-  /** All retail stores (excluding tienda='99') sorted by sales DESC for
-   *  the as-of date. `name` is derived in the API from
-   *  `Tiendas.IdentificadorTienda`, falling back to `Poblacion`. */
+  /** Active retail stores (excluding tienda='99' and any store with zero
+   *  sales in the last 30 days), sorted by sales DESC for the as-of
+   *  date. `name` is derived in the API from `Tiendas.IdentificadorTienda`,
+   *  falling back to `Poblacion`. */
   topStores: Array<{
     code: string;
     name: string;
@@ -58,6 +71,16 @@ export type HomeViewModel = {
     delta: number;
     spark: number[]; // last 7 days
     status: "ok" | "watch" | "alert";
+  }>;
+  /** Stores excluded from `topStores` because they had no sales in the
+   *  last 30 days. Surfaced under "Ver tiendas inactivas" so they remain
+   *  discoverable without burying the active list. */
+  inactiveStores: Array<{
+    code: string;
+    name: string;
+    /** Most recent date the store sold anything (any time, not limited
+     *  to 30 days). `null` when the mirror has no record at all. */
+    lastSaleDate: string | null;
   }>;
   opsRetail: Metric[];
   health: { syncAge: string; lastEtl: string; anomalies: number; rows: number };

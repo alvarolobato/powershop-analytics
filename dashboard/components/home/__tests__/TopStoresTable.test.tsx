@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { TopStoresTable } from "../TopStoresTable";
 import type { HomeViewModel } from "@/lib/home-types";
@@ -73,5 +73,35 @@ describe("TopStoresTable", () => {
     const row = screen.getByTestId("store-row-606");
     const dot = row.querySelector('[title="Estado: watch"]');
     expect(dot?.getAttribute("style")).toContain("var(--warn)");
+  });
+
+  describe("inactive stores section", () => {
+    const INACTIVE: HomeViewModel["inactiveStores"] = [
+      { code: "104", name: "Funchal", lastSaleDate: "2020-09-30" },
+      { code: "152", name: "Lisboa antigua", lastSaleDate: "2016-12-31" },
+    ];
+
+    it("does NOT render the toggle when there are no inactive stores", () => {
+      render(<TopStoresTable stores={STORES} inactiveStores={[]} />);
+      expect(screen.queryByTestId("inactive-stores-section")).not.toBeInTheDocument();
+    });
+
+    it("renders the 'Ver tiendas inactivas' toggle when there are inactive stores", () => {
+      render(<TopStoresTable stores={STORES} inactiveStores={INACTIVE} />);
+      expect(screen.getByTestId("inactive-stores-section")).toBeInTheDocument();
+      expect(screen.getByText(/Ver tiendas inactivas \(2\)/)).toBeInTheDocument();
+    });
+
+    it("inactive list is collapsed initially", () => {
+      render(<TopStoresTable stores={STORES} inactiveStores={INACTIVE} />);
+      expect(screen.queryByText("Funchal")).not.toBeInTheDocument();
+    });
+
+    it("expands the list on toggle click and shows last sale date", () => {
+      render(<TopStoresTable stores={STORES} inactiveStores={INACTIVE} />);
+      fireEvent.click(screen.getByText(/Ver tiendas inactivas/));
+      expect(screen.getByText("Funchal")).toBeInTheDocument();
+      expect(screen.getByText(/últ. 2020-09-30/)).toBeInTheDocument();
+    });
   });
 });

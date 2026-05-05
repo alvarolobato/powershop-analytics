@@ -93,6 +93,7 @@ describe("GET /api/home", () => {
     expect(body).toHaveProperty("periods");
     expect(body).toHaveProperty("dailyTrend");
     expect(body).toHaveProperty("topStores");
+    expect(body).toHaveProperty("inactiveStores");
     expect(body).toHaveProperty("opsRetail");
     expect(body).toHaveProperty("health");
     // Removed in PR #458 (the home page is retail-only and dropped alerts).
@@ -115,6 +116,32 @@ describe("GET /api/home", () => {
     expect(Array.isArray(hero.hourlyComparison)).toBe(true);
     expect(typeof hero.comparisonLabel).toBe("string");
     expect(hero.comparisonLabel.endsWith(" anterior")).toBe(true);
+    // Same-hour-cutoff fields. When the as-of date is in the past
+    // (the default in this test fixture: 2026-04-30 vs today 2026-05-03)
+    // the cutoff is inactive and these are null.
+    expect(hero).toHaveProperty("comparisonCutoffHour");
+    expect(hero).toHaveProperty("yesterdayCutoff");
+    expect(hero).toHaveProperty("lastYearCutoff");
+    expect(hero.comparisonCutoffHour).toBeNull();
+    expect(hero.yesterdayCutoff).toBeNull();
+    expect(hero.lastYearCutoff).toBeNull();
+  });
+
+  it("activates same-hour cutoff when ?date= is today_madrid", async () => {
+    // The mock pivot row reports today_madrid = 2026-05-03 and
+    // now_utc = 2026-05-03T07:00:00Z (Madrid is UTC+2 in May, so 09:00).
+    const res = await GET(makeReq("2026-05-03"));
+    const { hero, periods } = await res.json();
+    expect(typeof hero.comparisonCutoffHour).toBe("number");
+    expect(hero.comparisonCutoffHour).toBeGreaterThanOrEqual(0);
+    expect(hero.comparisonCutoffHour).toBeLessThanOrEqual(23);
+    // yesterdayCutoff / lastYearCutoff are numeric (not null) when active.
+    expect(typeof hero.yesterdayCutoff).toBe("number");
+    expect(typeof hero.lastYearCutoff).toBe("number");
+    // The "Hoy" period card surfaces the cutoff in its prevLabel/yoyLabel.
+    const hoyPeriod = periods.find((p: { id: string }) => p.id === "hoy");
+    expect(hoyPeriod.prevLabel).toMatch(/hasta las \d{2}:00/);
+    expect(hoyPeriod.yoyLabel).toMatch(/hasta las \d{2}:00/);
   });
 
   it("returns 4 periods", async () => {
