@@ -71,10 +71,11 @@ export const COALESCEABLE_LABELS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Append a `LogLine` to a streaming buffer, coalescing consecutive
- * model-text ticks (Claude está escribiendo / Modelo respondiendo) into a
- * single line that grows. Called by API routes that buffer NDJSON `progress`
- * frames so the client doesn't receive one frame per token.
+ * Append a `LogLine` to a streaming buffer, coalescing consecutive ticks of
+ * the same coalesce-eligible label (currently "Modelo respondiendo" and
+ * "Claude está razonando" — see {@link COALESCEABLE_LABELS}) into a single
+ * line that grows. Called by API routes that buffer NDJSON `progress` frames
+ * so the client doesn't receive one frame per token.
  */
 export function pushAgenticLogLine<T extends { logLine: LogLine }>(
   buffer: T[],
@@ -131,17 +132,11 @@ function eventsToLogLines(events: TimedEvent[]): LogLine[] {
   for (const { event, ms } of events) {
     const line = agenticEventToLogLine(event, ms);
     if (!line) continue;
-    // Coalesce consecutive streaming ticks (text_delta or thinking_delta) so
+    // Coalesce consecutive streaming ticks of the same eligible label so
     // LogBlock shows one growing line per kind instead of one per chunk.
-    const lastLabel = lines[lines.length - 1]?.label;
-    const isTextTick = event.type === "model_text_delta" && lastLabel === "Modelo respondiendo";
-    const isThinkingTick =
-      event.type === "model_thinking_delta" && lastLabel === "Claude está razonando";
-    if (lines.length > 0 && (isTextTick || isThinkingTick)) {
-      lines[lines.length - 1] = line;
-    } else {
-      lines.push(line);
-    }
+    // Reuses COALESCEABLE_LABELS so the post-run collector and the live
+    // streaming helpers stay aligned.
+    appendCoalescedLogLine(lines, line);
   }
   return lines;
 }

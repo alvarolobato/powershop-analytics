@@ -182,12 +182,12 @@ function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent
   } catch (hookErr) {
     console.warn("[agentic] onAgenticProgress hook failed:", hookErr);
   }
-  // Server logs: drop the cumulative `text` payload from model_text_delta /
-  // model_thinking_delta — it grows with every token chunk and would flood the
-  // log with redundant copies of Claude's running response/reasoning. The
-  // client still receives the full text via the NDJSON stream.
+  // Server logs: drop the cumulative `text` payload from model_thinking_delta
+  // — it grows with every token chunk and would flood the log with redundant
+  // copies of Claude's running reasoning. The client still receives the full
+  // text via the NDJSON stream. (`model_text_delta` no longer carries `text`.)
   const logEvent =
-    (event.type === "model_text_delta" || event.type === "model_thinking_delta") && "text" in event
+    event.type === "model_thinking_delta" && "text" in event
       ? { ...event, text: undefined }
       : event;
   console.info(`[agentic][${ctx.endpoint}][${ctx.requestId}]`, JSON.stringify(logEvent));
@@ -263,13 +263,12 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
         model,
         temperature,
         maxTokens,
-        onTextDelta: (chars, totalChars, accumulatedText) => {
+        onTextDelta: (chars, totalChars) => {
           emitAgenticProgress(ctx, {
             type: "model_text_delta",
             round: round + 1,
             chars,
             totalChars,
-            text: accumulatedText,
           });
         },
         onThinkingDelta: (chars, totalChars, accumulatedThinking) => {

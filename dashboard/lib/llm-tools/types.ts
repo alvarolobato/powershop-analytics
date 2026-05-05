@@ -15,9 +15,11 @@ export type AgenticProgressEvent =
       round: number;
       chars: number;
       totalChars: number;
-      /** Full assistant text streamed so far this step (cumulative). Optional —
-       *  older clients/adapters may omit it; UI must tolerate undefined. */
-      text?: string;
+      // No `text` field: the streaming UI only renders the running counter for
+      // text deltas (the body is the JSON tool-protocol payload, not human
+      // prose), so emitting the cumulative text on every token would grow each
+      // NDJSON frame quadratically. Readable prose is carried by
+      // `model_thinking_delta` instead.
     }
   | {
       type: "model_thinking_delta";
