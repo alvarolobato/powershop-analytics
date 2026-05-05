@@ -54,9 +54,9 @@ describe("REVIEW_QUERIES", () => {
     expect(count).toBe(3);
   });
 
-  it("has 2 compras queries", () => {
+  it("has 4 compras queries", () => {
     const count = REVIEW_QUERIES.filter((q) => q.domain === "compras").length;
-    expect(count).toBe(2);
+    expect(count).toBe(4);
   });
 });
 
@@ -132,12 +132,22 @@ describe("executeReviewQueries", () => {
     }
   });
 
-  it("calls the query function with the SQL of each query and week bounds", async () => {
+  it("calls the query function with the SQL of each query and exactly the placeholders it uses", async () => {
     const mockQueryFn = vi.fn().mockResolvedValue({ columns: [], rows: [] });
     await executeReviewQueries(mockQueryFn, SAMPLE_WEEK_START, SAMPLE_WEEK_END_EXCL);
 
+    // PostgreSQL rejects extra parameters: a query referencing only $1 must
+    // not be called with [start, end]. The runner slices weekParams to the
+    // highest $N actually present in the SQL (and passes undefined for $0).
     for (const q of REVIEW_QUERIES) {
-      expect(mockQueryFn).toHaveBeenCalledWith(q.sql, [SAMPLE_WEEK_START, SAMPLE_WEEK_END_EXCL]);
+      const usesEnd = /\$2\b/.test(q.sql);
+      const usesStart = /\$1\b/.test(q.sql);
+      const expectedParams = usesEnd
+        ? [SAMPLE_WEEK_START, SAMPLE_WEEK_END_EXCL]
+        : usesStart
+          ? [SAMPLE_WEEK_START]
+          : undefined;
+      expect(mockQueryFn).toHaveBeenCalledWith(q.sql, expectedParams);
     }
   });
 });
