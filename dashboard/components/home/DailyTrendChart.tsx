@@ -270,37 +270,28 @@ function ChartBody(props: ChartBodyProps) {
               d={actualPath}
               fill="none"
               stroke="var(--accent)"
-              strokeWidth="2.5"
+              strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
             />
           )}
 
-          {/* "HOY · DÍA N" marker — line + dot (label is HTML overlay) */}
+          {/* "HOY · DÍA N" crosshair line. The dot is an HTML overlay
+              because circle fills get stretched into an ellipse under
+              preserveAspectRatio="none". */}
           {lastActual && (
-            <>
-              <line
-                x1={lastActual[0]}
-                y1={padT}
-                x2={lastActual[0]}
-                y2={H - padB}
-                stroke="var(--accent)"
-                strokeWidth="1"
-                strokeDasharray="2 2"
-                opacity="0.35"
-                vectorEffect="non-scaling-stroke"
-              />
-              <circle
-                cx={lastActual[0]}
-                cy={lastActual[1]}
-                r="4.5"
-                fill="var(--accent)"
-                stroke="var(--bg-1)"
-                strokeWidth="2"
-                vectorEffect="non-scaling-stroke"
-              />
-            </>
+            <line
+              x1={lastActual[0]}
+              y1={padT}
+              x2={lastActual[0]}
+              y2={H - padB}
+              stroke="var(--accent)"
+              strokeWidth="1"
+              strokeDasharray="2 2"
+              opacity="0.35"
+              vectorEffect="non-scaling-stroke"
+            />
           )}
 
           {/* Hover crosshair */}
@@ -339,21 +330,38 @@ function ChartBody(props: ChartBodyProps) {
           </span>
         ))}
         {lastActual && (
-          <span
-            style={{
-              position: "absolute",
-              left: `${(lastActual[0] / W) * 100}%`,
-              top: 0,
-              transform: "translate(-50%, 0)",
-              fontFamily: "var(--font-jetbrains, monospace)",
-              fontSize: 9,
-              color: "var(--accent)",
-              pointerEvents: "none",
-              whiteSpace: "nowrap",
-            }}
-          >
-            HOY · DÍA {lastActual[2]}
-          </span>
+          <>
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: `${(lastActual[0] / W) * 100}%`,
+                top: `${(lastActual[1] / H) * 100}%`,
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                border: "2px solid var(--bg-1)",
+                transform: "translate(-50%, -50%)",
+                pointerEvents: "none",
+              }}
+            />
+            <span
+              style={{
+                position: "absolute",
+                left: `${(lastActual[0] / W) * 100}%`,
+                top: 0,
+                transform: "translate(-50%, 0)",
+                fontFamily: "var(--font-jetbrains, monospace)",
+                fontSize: 9,
+                color: "var(--accent)",
+                pointerEvents: "none",
+                whiteSpace: "nowrap",
+              }}
+            >
+              HOY · DÍA {lastActual[2]}
+            </span>
+          </>
         )}
         {xTicks.map((d, idx) => {
           const origIdx = dailyTrend.indexOf(d);

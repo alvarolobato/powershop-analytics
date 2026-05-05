@@ -402,7 +402,7 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
                 d={todayPath}
                 fill="none"
                 stroke="var(--accent)"
-                strokeWidth="2.5"
+                strokeWidth="1.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 vectorEffect="non-scaling-stroke"
@@ -424,44 +424,22 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
               />
             )}
 
-            {/* Forecast end dot */}
-            {forecastEnd && !isPreOpen && (
-              <circle
-                cx={forecastEnd[0]}
-                cy={forecastEnd[1]}
-                r="3"
-                fill="var(--fg-muted)"
-                stroke="var(--bg-1)"
-                strokeWidth="1.5"
+            {/* "Ahora" marker — vertical line only. The dot is an HTML
+                overlay because <circle> fills are scaled non-uniformly
+                by preserveAspectRatio="none" and would render as an
+                elongated ellipse. */}
+            {lastPt && !isPreOpen && (
+              <line
+                x1={lastPt[0]}
+                y1={padT}
+                x2={lastPt[0]}
+                y2={H - padB}
+                stroke="var(--accent)"
+                strokeWidth="1"
+                strokeDasharray="2 2"
+                opacity="0.4"
                 vectorEffect="non-scaling-stroke"
               />
-            )}
-
-            {/* "Ahora" marker — vertical line + dot. Label rendered in HTML overlay below. */}
-            {lastPt && !isPreOpen && (
-              <>
-                <line
-                  x1={lastPt[0]}
-                  y1={padT}
-                  x2={lastPt[0]}
-                  y2={H - padB}
-                  stroke="var(--accent)"
-                  strokeWidth="1"
-                  strokeDasharray="2 2"
-                  opacity="0.4"
-                  vectorEffect="non-scaling-stroke"
-                />
-                <circle
-                  cx={lastPt[0]}
-                  cy={lastPt[1]}
-                  r="5"
-                  fill="var(--accent)"
-                  stroke="var(--bg-1)"
-                  strokeWidth="2"
-                  vectorEffect="non-scaling-stroke"
-                  data-testid="ahora-marker"
-                />
-              </>
             )}
 
             {/* Hover crosshair */}
@@ -480,8 +458,45 @@ export function HeroToday({ hero, asOf }: HeroTodayProps) {
             )}
           </svg>
 
-          {/* HTML overlays: text labels position at viewBox-percent so glyph
-              metrics stay in CSS pixels (not stretched). */}
+          {/* HTML overlays: text labels and circular markers positioned
+              by viewBox-percent. HTML elements aren't subject to the SVG
+              stretch transform, so glyphs stay readable and dots stay
+              circular at every viewport width. */}
+          {lastPt && !isPreOpen && (
+            <span
+              data-testid="ahora-marker"
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: `${(lastPt[0] / W) * 100}%`,
+                top: `${(lastPt[1] / H) * 100}%`,
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: "var(--accent)",
+                border: "2px solid var(--bg-1)",
+                transform: "translate(-50%, -50%)",
+                pointerEvents: "none",
+              }}
+            />
+          )}
+          {forecastEnd && !isPreOpen && (
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: `${(forecastEnd[0] / W) * 100}%`,
+                top: `${(forecastEnd[1] / H) * 100}%`,
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: "var(--fg-muted)",
+                border: "1.5px solid var(--bg-1)",
+                transform: "translate(-50%, -50%)",
+                pointerEvents: "none",
+              }}
+            />
+          )}
           {lastPt && !isPreOpen && (
             <span
               data-testid="ahora-label"
