@@ -13,12 +13,11 @@ vi.mock("@/lib/db", () => {
   return {
     query: vi.fn(async (sql: string) => {
       // The pivot query reads max/min of fecha_creacion + Madrid today.
-      // Return a believable date so the rest of the route picks a real
-      // as-of and computes per-flow date arithmetic without bombing.
-      // today_mirror_hour=8 (today's data is synced through hour 8) and
-      // today_row_count=42 (today has rows) so cutoffActive=true when
-      // ?date=2026-05-03 is passed; LEAST(9, 8) = 8 is the effective
-      // cutoff hour.
+      // Default: today has zero mirrored rows so the route's default
+      // asOfDate falls back to max_synced (closed yesterday). The
+      // cutoff-active test below overrides this once via
+      // mockImplementationOnce to set today_row_count=42 and
+      // today_mirror_hour=8.
       if (sql.includes("max_synced") && sql.includes("today_madrid")) {
         return {
           rows: [
@@ -27,8 +26,8 @@ vi.mock("@/lib/db", () => {
               "2024-01-01",
               "2026-05-03",
               "2026-05-03T07:00:00Z",
-              8,
-              42,
+              null,
+              0,
             ],
           ],
         };
@@ -134,13 +133,17 @@ describe("GET /api/home", () => {
   });
 
   it("activates same-hour cutoff when ?date= is today_madrid", async () => {
-    // The mock pivot row reports today_madrid = 2026-05-03,
-    // now_utc = 2026-05-03T07:00:00Z (Madrid is UTC+2 in May / CEST → 09:00),
-    // and today_mirror_hour = 8 (ETL has only synced through hour 8 today).
-    // Effective cutoff is LEAST(9, 8) = 8.
+    // Override the default pivot mock (which reports today_row_count=0)
+    // with a row where today HAS mirrored data: today_mirror_hour=8 and
+    // today_row_count=42. Combined with now_utc=2026-05-03T07:00:00Z
+    // (Madrid is UTC+2 in May / CEST → wall hour 9), effective cutoff
+    // is LEAST(9, 8) = 8.
     const { query: queryMock } = (await import("@/lib/db")) as unknown as {
       query: ReturnType<typeof vi.fn>;
     };
+    queryMock.mockImplementationOnce(async () => ({
+      rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", 8, 42]],
+    }));
     const res = await GET(makeReq("2026-05-03"));
     const { hero, periods } = await res.json();
     // Exact value, not just a range — locks in the LEAST(wall, mirror) math.

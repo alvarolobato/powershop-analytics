@@ -134,17 +134,21 @@ export async function GET(req: NextRequest) {
     const minAvailStr = String(pivotRow.rows[0][1] ?? "");
     const todayMadrid = String(pivotRow.rows[0][2] ?? "");
     const nowUtcIso = String(pivotRow.rows[0][3] ?? "");
-    const todayMirrorHour = pivotRow.rows[0][4] !== null && pivotRow.rows[0][4] !== undefined
-      ? Number(pivotRow.rows[0][4])
-      : null;
+    const todayMirrorHour =
+      pivotRow.rows[0][4] !== null && pivotRow.rows[0][4] !== undefined
+        ? Number(pivotRow.rows[0][4])
+        : null;
     const todayRowCount = Number(pivotRow.rows[0][5] ?? 0);
 
-    // Default as-of (when no ?date= supplied) is the most recent fully
-    // synced day so KPIs aren't dominated by a potentially-stale today.
-    // BUT the navigator cap (`maxAvailableDate`) goes up to today_madrid
-    // so the user can still scroll forward to days the ETL hasn't caught
-    // up with yet — those days show honest zeros instead of a stuck arrow.
-    let asOfDate = maxSyncedStr;
+    // Default as-of (when no ?date= supplied):
+    //   - if today (Madrid) has any mirrored rows → today_madrid, so the
+    //     same-hour-cutoff path fires and the user lands on a live view;
+    //   - otherwise → max_synced (yesterday under nightly ETL), so KPIs
+    //     are computed against a closed day instead of an empty today.
+    // The navigator cap (`maxAvailableDate`) still goes up to today_madrid
+    // so the user can scroll forward and back regardless of the default.
+    let asOfDate =
+      todayMadrid && todayRowCount > 0 ? todayMadrid : maxSyncedStr;
     if (requestedClean) {
       if (minAvailStr && requestedClean < minAvailStr) asOfDate = minAvailStr;
       else if (todayMadrid && requestedClean > todayMadrid) asOfDate = todayMadrid;
