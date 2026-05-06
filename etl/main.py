@@ -915,18 +915,33 @@ def _run_scheduler_loop(
                 # (or set force_tables, which also resets watermarks). The
                 # nightly cron at cron_hour:delta_minute keeps doing a full
                 # to catch hard-deletes — see _job(kind="full").
+                #
+                # If reading the force flags fails, we DON'T silently fall
+                # back to delta: the operator might have clicked "Forzar
+                # resync completo" and degrading to delta with no UI signal
+                # is misleading. Instead we record a failed run (visible in
+                # the dashboard) and skip — the user retries, the next
+                # attempt almost certainly succeeds since this read is a
+                # single SELECT on the just-claimed trigger row.
                 try:
                     force_full, force_tables, _triggered_by = get_trigger_force_flags(
                         conn_pg, trigger_id
                     )
-                except Exception:
+                except Exception as exc:
                     logger.exception(
-                        "Failed to read force flags for trigger %d; "
-                        "defaulting to delta sync",
+                        "Failed to read force flags for trigger %d — "
+                        "recording failed run instead of guessing kind",
                         trigger_id,
                     )
-                    force_full, force_tables = False, []
-                manual_kind = "full" if (force_full or force_tables) else "delta"
+                    _record_connection_failure(
+                        conn_pg,
+                        "manual",
+                        trigger_id,
+                        f"Could not read trigger force flags: {exc}"[:2000],
+                    )
+                    time.sleep(10)
+                    continue
+                manual_kind = "full" if (force_full or bool(force_tables)) else "delta"
                 logger.info(
                     "Manual trigger %d detected — starting %s sync "
                     "(force_full=%s, force_tables=%s)",

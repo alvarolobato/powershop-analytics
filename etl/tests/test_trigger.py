@@ -421,11 +421,13 @@ class TestManualTriggerKind:
             f"Expected kind='full' for force_tables non-empty, got {kwargs['kind']!r}"
         )
 
-    def test_get_force_flags_failure_falls_back_to_delta(self):
+    def test_get_force_flags_failure_records_failed_run_and_skips_sync(self):
         """If reading the trigger row fails (e.g. transient DB error), we
-        default to the cheaper delta path rather than blocking the user.
-        Worst case: a force_full request runs as delta and the user clicks
-        again — much better than blocking the whole sync on a flake."""
+        DON'T silently fall back to delta — the operator might have clicked
+        "Forzar resync completo" and degrading to delta with no UI signal
+        is misleading. Instead we record a visible failed run via
+        _record_connection_failure and skip. The user retries; the next
+        attempt almost certainly succeeds."""
         fresh_conn_4d = MagicMock(name="fresh_conn_4d")
         with (
             patch("etl.db.postgres.check_and_consume_trigger", return_value=12),
@@ -435,6 +437,7 @@ class TestManualTriggerKind:
             ),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
+            patch("etl.main._record_connection_failure") as mock_fail,
             patch("etl.main._try_connect_4d", return_value=(fresh_conn_4d, None)),
             patch("schedule.run_pending"),
             patch("time.sleep", side_effect=StopIteration),
@@ -453,12 +456,18 @@ class TestManualTriggerKind:
                 for c in mock_sync.call_args_list
                 if c.kwargs.get("trigger") == "manual"
             ]
-            assert len(manual_calls) == 1, (
-                f"Expected exactly 1 manual run_full_sync call, got {manual_calls!r}"
+            assert manual_calls == [], (
+                "run_full_sync must NOT be called when force-flags read fails — "
+                f"got {manual_calls!r}"
             )
-            assert manual_calls[0].kwargs["kind"] == "delta", (
-                f"Expected kind='delta' fallback on flag read failure, "
-                f"got {manual_calls[0].kwargs['kind']!r}"
+            mock_fail.assert_called_once()
+            args = mock_fail.call_args.args
+            assert args[1] == "manual" and args[2] == 12, (
+                f"_record_connection_failure should be called with "
+                f"(conn_pg, 'manual', 12, err_msg); got args={args!r}"
+            )
+            assert "transient DB error" in args[3], (
+                f"err_msg should include the underlying exception text, got {args[3]!r}"
             )
 
 
