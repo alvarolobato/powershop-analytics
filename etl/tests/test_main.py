@@ -311,3 +311,46 @@ class TestResetWatermarksBeforeCreateRun:
             f"reset_watermarks (position {rw_idx}) must be called before "
             f"create_run (position {cr_idx}); got order: {call_order}"
         )
+
+    def test_force_flags_kwarg_skips_internal_read(self):
+        """When the polling loop pre-reads the trigger flags and passes them
+        via force_flags=(...), run_full_sync must NOT re-read them. This
+        guarantees the kind selection upstream and the watermark-reset block
+        downstream see exactly the same tuple — single source of truth, single
+        DB round-trip (Copilot + Opus review on PR #465).
+        """
+        with ExitStack() as stack:
+            for path in _SYNC_FN_PATHS:
+                stack.enter_context(patch(path, return_value=100))
+            for path in _POSTGRES_HELPER_PATHS:
+                stack.enter_context(patch(path))
+
+            mock_get_flags = stack.enter_context(
+                patch(
+                    "etl.db.postgres.get_trigger_force_flags",
+                    return_value=(False, [], None),
+                )
+            )
+            mock_reset = stack.enter_context(
+                patch("etl.db.postgres.reset_watermarks", return_value=0)
+            )
+            stack.enter_context(patch("etl.db.postgres.update_trigger_run_id"))
+            stack.enter_context(
+                patch("etl.sync.articulos.get_ma_article_codes", return_value=[])
+            )
+            stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
+
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            run_full_sync(
+                conn_4d,
+                conn_pg,
+                trigger="manual",
+                trigger_id=1,
+                force_flags=(True, ["ventas"], "dashboard"),
+            )
+
+            mock_get_flags.assert_not_called()
+            # The pre-read tuple has force_full=True so reset_watermarks
+            # should fire — confirms the watermark-reset block is using the
+            # passed-in flags rather than the (now unread) DB row.
+            mock_reset.assert_called_once()

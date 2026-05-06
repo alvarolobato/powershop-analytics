@@ -397,16 +397,30 @@ def run_full_sync(
     trigger: str = "scheduled",
     trigger_id: int | None = None,
     kind: str = "full",
+    *,
+    force_flags: tuple[bool, list[str], str | None] | None = None,
 ) -> None:
     """Execute all sync tasks in topological order.
 
     `kind`:
       'full'  — every module runs; watermark-backed syncs do truncate-and-
-                reinsert (so hard-deletes in 4D are reflected).  Used by
-                the nightly cron and by every manual trigger.
+                reinsert (so hard-deletes in 4D are reflected). Used by the
+                nightly cron and by manual triggers that opt in via the
+                "Forzar resync" dialog (force_full=True, or force_tables
+                non-empty — both reset watermarks before the run).
       'delta' — only watermark-backed syncs run; each fetches FechaModifica
-                > stored_watermark and upserts.  Cheap (~seconds), used by
-                the hourly cron between nightly fulls.
+                > stored_watermark and upserts. Cheap (~seconds), used by
+                the hourly cron between nightly fulls AND by the default
+                "Sincronizar ahora" button click.
+
+    `force_flags` (optional, manual triggers only): a pre-read
+    ``(force_full, force_tables, triggered_by)`` tuple from
+    :func:`get_trigger_force_flags`. The scheduler loop now reads these flags
+    once to pick `kind`, then passes the same tuple here so the watermark-
+    reset block doesn't re-read them — guaranteeing kind selection and the
+    reset decision come from a single source. Pass ``None`` (the default) to
+    have :func:`run_full_sync` read the flags itself, used by the integration
+    test path and by callers that don't pre-compute kind.
 
     Errors in individual tables are caught and logged; execution continues.
     Monitoring (create_run / record_table_sync / finish_run) is best-effort:
@@ -473,16 +487,24 @@ def run_full_sync(
         # incremental tables on the next sync.
         # ------------------------------------------------------------------
         if trigger == "manual" and trigger_id is not None:
-            try:
-                force_full, force_tables, triggered_by = get_trigger_force_flags(
-                    conn_pg, trigger_id
-                )
-            except Exception:
-                logger.exception(
-                    "Trigger %d: could not read force flags — running incrementally",
-                    trigger_id,
-                )
-                force_full, force_tables, triggered_by = False, [], None
+            if force_flags is not None:
+                # Pre-read by the scheduler loop (the normal path now). Using
+                # the same tuple here guarantees the kind selection upstream
+                # and the watermark-reset decision below see identical flag
+                # values — they cannot diverge even if the underlying row
+                # were somehow mutated between two SELECTs.
+                force_full, force_tables, triggered_by = force_flags
+            else:
+                try:
+                    force_full, force_tables, triggered_by = get_trigger_force_flags(
+                        conn_pg, trigger_id
+                    )
+                except Exception:
+                    logger.exception(
+                        "Trigger %d: could not read force flags — running incrementally",
+                        trigger_id,
+                    )
+                    force_full, force_tables, triggered_by = False, [], None
 
             logger.info(
                 "Trigger %d: triggered_by=%r",
@@ -828,7 +850,7 @@ def _run_scheduler_loop(
     """
     import schedule
 
-    from etl.db.postgres import check_and_consume_trigger
+    from etl.db.postgres import check_and_consume_trigger, get_trigger_force_flags
 
     def _job(kind: str) -> None:
         """Scheduled job entry point. Updates the surrounding scope's conn_4d
@@ -904,7 +926,48 @@ def _run_scheduler_loop(
                 trigger_id = None
 
             if trigger_id is not None:
-                logger.info("Manual trigger %d detected — starting sync", trigger_id)
+                # Manual triggers default to a delta sync — the "Sincronizar
+                # ahora" button is meant to top up watermark-backed tables
+                # (ventas, lineas_ventas, etc.) with a few seconds of work.
+                # Only opt into the heavy full-refresh path when the operator
+                # explicitly checked "force_full" in the dashboard dialog
+                # (or set force_tables, which also resets watermarks). The
+                # nightly cron at cron_hour:delta_minute keeps doing a full
+                # to catch hard-deletes — see _job(kind="full").
+                #
+                # If reading the force flags fails, we DON'T silently fall
+                # back to delta: the operator might have clicked "Forzar
+                # resync completo" and degrading to delta with no UI signal
+                # is misleading. Instead we record a failed run (visible in
+                # the dashboard) and skip — the user retries, the next
+                # attempt almost certainly succeeds since this read is a
+                # single SELECT on the just-claimed trigger row.
+                try:
+                    flags = get_trigger_force_flags(conn_pg, trigger_id)
+                except Exception as exc:
+                    logger.exception(
+                        "Failed to read force flags for trigger %d — "
+                        "recording failed run instead of guessing kind",
+                        trigger_id,
+                    )
+                    _record_connection_failure(
+                        conn_pg,
+                        "manual",
+                        trigger_id,
+                        f"Could not read trigger force flags: {exc}"[:2000],
+                    )
+                    time.sleep(10)
+                    continue
+                force_full, force_tables, _triggered_by = flags
+                manual_kind = "full" if (force_full or bool(force_tables)) else "delta"
+                logger.info(
+                    "Manual trigger %d detected — starting %s sync "
+                    "(force_full=%s, force_tables=%s)",
+                    trigger_id,
+                    manual_kind,
+                    force_full,
+                    force_tables,
+                )
                 # Same rationale as _job(): the polling loop may have been
                 # idle for hours since the last run, so always refresh.
                 conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
@@ -914,8 +977,16 @@ def _run_scheduler_loop(
                     )
                 else:
                     try:
+                        # Pass the already-read flags through so the watermark-
+                        # reset block uses the SAME tuple that drove the kind
+                        # selection — single source of truth, single DB read.
                         run_full_sync(
-                            conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id
+                            conn_4d,
+                            conn_pg,
+                            trigger="manual",
+                            trigger_id=trigger_id,
+                            kind=manual_kind,
+                            force_flags=flags,
                         )
                     except Exception:
                         logger.exception(
