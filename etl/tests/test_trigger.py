@@ -225,7 +225,9 @@ class TestRunFullSyncTriggerParam:
 class TestSchedulerLoopTriggerCheck:
     def test_manual_trigger_fires_run_full_sync(self):
         """When a trigger is pending and no run is active, run_full_sync is called
-        with trigger='manual' and the trigger_id.
+        with trigger='manual' and the trigger_id. The default kind for manual
+        triggers (force_full=False, force_tables=[]) is 'delta' — see the
+        TestManualTriggerKind class below for the full kind matrix.
 
         Note: each scheduler firing closes + reopens the 4D connection (see
         _refresh_4d_connection), so run_full_sync is invoked with the *fresh*
@@ -233,6 +235,10 @@ class TestSchedulerLoopTriggerCheck:
         fresh_conn_4d = MagicMock(name="fresh_conn_4d")
         with (
             patch("etl.db.postgres.check_and_consume_trigger", return_value=7),
+            patch(
+                "etl.db.postgres.get_trigger_force_flags",
+                return_value=(False, [], "dashboard"),
+            ),
             patch("etl.main._is_run_active", return_value=False),
             patch("etl.main.run_full_sync") as mock_sync,
             patch("etl.main._try_connect_4d", return_value=(fresh_conn_4d, None)),
@@ -249,7 +255,11 @@ class TestSchedulerLoopTriggerCheck:
                 pass
 
             mock_sync.assert_any_call(
-                fresh_conn_4d, conn_pg, trigger="manual", trigger_id=7
+                fresh_conn_4d,
+                conn_pg,
+                trigger="manual",
+                trigger_id=7,
+                kind="delta",
             )
 
     def test_second_trigger_while_active_is_not_consumed(self):
@@ -331,6 +341,125 @@ class TestSchedulerLoopTriggerCheck:
                 assert call_args.kwargs.get("trigger") != "manual", (
                     f"run_full_sync should not be called with trigger='manual', got {call_args}"
                 )
+
+
+# ---------------------------------------------------------------------------
+# Manual-trigger kind selection: default delta, opt-in to full
+# ---------------------------------------------------------------------------
+
+
+class TestManualTriggerKind:
+    """The "Sincronizar ahora" button should default to a cheap delta and only
+    escalate to a full when the operator opts in via force_full or force_tables.
+    Before this change every manual click ran a full (~1h47m on prod), wasting
+    cycles when the operator just wanted the freshest watermark-backed deltas.
+    """
+
+    def _run_loop_with_flags(
+        self,
+        force_full: bool,
+        force_tables: list[str],
+    ) -> dict:
+        """Drive _run_scheduler_loop one tick with a fake trigger row whose
+        force flags are (`force_full`, `force_tables`). Returns the kwargs of
+        the (single) manual run_full_sync call observed."""
+        fresh_conn_4d = MagicMock(name="fresh_conn_4d")
+        with (
+            patch("etl.db.postgres.check_and_consume_trigger", return_value=11),
+            patch(
+                "etl.db.postgres.get_trigger_force_flags",
+                return_value=(force_full, force_tables, "dashboard"),
+            ),
+            patch("etl.main._is_run_active", return_value=False),
+            patch("etl.main.run_full_sync") as mock_sync,
+            patch("etl.main._try_connect_4d", return_value=(fresh_conn_4d, None)),
+            patch("schedule.run_pending"),
+            patch("time.sleep", side_effect=StopIteration),
+        ):
+            import etl.main as main_mod
+
+            config = MagicMock()
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            try:
+                main_mod._run_scheduler_loop(config, conn_pg, conn_4d, 2)
+            except StopIteration:
+                pass
+
+            manual_calls = [
+                c
+                for c in mock_sync.call_args_list
+                if c.kwargs.get("trigger") == "manual"
+            ]
+            assert len(manual_calls) == 1, (
+                f"Expected exactly 1 manual run_full_sync call, got {manual_calls!r}"
+            )
+            return dict(manual_calls[0].kwargs)
+
+    def test_default_trigger_is_delta(self):
+        """force_full=False, force_tables=[] → kind='delta'. The base case for
+        a plain "Sincronizar ahora" click."""
+        kwargs = self._run_loop_with_flags(force_full=False, force_tables=[])
+        assert kwargs["kind"] == "delta", (
+            f"Expected kind='delta' for plain manual trigger, got {kwargs['kind']!r}"
+        )
+
+    def test_force_full_escalates_to_full(self):
+        """force_full=True → kind='full'. The "Forzar resync completo"
+        dialog opt-in must bypass the delta default."""
+        kwargs = self._run_loop_with_flags(force_full=True, force_tables=[])
+        assert kwargs["kind"] == "full", (
+            f"Expected kind='full' for force_full=True, got {kwargs['kind']!r}"
+        )
+
+    def test_force_tables_escalates_to_full(self):
+        """force_tables=['ventas'] → kind='full'. Resetting watermarks for
+        a subset of tables only makes sense paired with the truncate-and-
+        reinsert pass that 'full' provides; otherwise the watermark reset
+        does nothing useful in delta mode."""
+        kwargs = self._run_loop_with_flags(force_full=False, force_tables=["ventas"])
+        assert kwargs["kind"] == "full", (
+            f"Expected kind='full' for force_tables non-empty, got {kwargs['kind']!r}"
+        )
+
+    def test_get_force_flags_failure_falls_back_to_delta(self):
+        """If reading the trigger row fails (e.g. transient DB error), we
+        default to the cheaper delta path rather than blocking the user.
+        Worst case: a force_full request runs as delta and the user clicks
+        again — much better than blocking the whole sync on a flake."""
+        fresh_conn_4d = MagicMock(name="fresh_conn_4d")
+        with (
+            patch("etl.db.postgres.check_and_consume_trigger", return_value=12),
+            patch(
+                "etl.db.postgres.get_trigger_force_flags",
+                side_effect=RuntimeError("transient DB error"),
+            ),
+            patch("etl.main._is_run_active", return_value=False),
+            patch("etl.main.run_full_sync") as mock_sync,
+            patch("etl.main._try_connect_4d", return_value=(fresh_conn_4d, None)),
+            patch("schedule.run_pending"),
+            patch("time.sleep", side_effect=StopIteration),
+        ):
+            import etl.main as main_mod
+
+            config = MagicMock()
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            try:
+                main_mod._run_scheduler_loop(config, conn_pg, conn_4d, 2)
+            except StopIteration:
+                pass
+
+            manual_calls = [
+                c
+                for c in mock_sync.call_args_list
+                if c.kwargs.get("trigger") == "manual"
+            ]
+            assert len(manual_calls) == 1, (
+                f"Expected exactly 1 manual run_full_sync call, got {manual_calls!r}"
+            )
+            assert manual_calls[0].kwargs["kind"] == "delta", (
+                f"Expected kind='delta' fallback on flag read failure, "
+                f"got {manual_calls[0].kwargs['kind']!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

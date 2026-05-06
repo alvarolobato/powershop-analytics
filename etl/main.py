@@ -402,11 +402,14 @@ def run_full_sync(
 
     `kind`:
       'full'  — every module runs; watermark-backed syncs do truncate-and-
-                reinsert (so hard-deletes in 4D are reflected).  Used by
-                the nightly cron and by every manual trigger.
+                reinsert (so hard-deletes in 4D are reflected). Used by the
+                nightly cron and by manual triggers that opt in via the
+                "Forzar resync" dialog (force_full=True, or force_tables
+                non-empty — both reset watermarks before the run).
       'delta' — only watermark-backed syncs run; each fetches FechaModifica
-                > stored_watermark and upserts.  Cheap (~seconds), used by
-                the hourly cron between nightly fulls.
+                > stored_watermark and upserts. Cheap (~seconds), used by
+                the hourly cron between nightly fulls AND by the default
+                "Sincronizar ahora" button click.
 
     Errors in individual tables are caught and logged; execution continues.
     Monitoring (create_run / record_table_sync / finish_run) is best-effort:
@@ -828,7 +831,7 @@ def _run_scheduler_loop(
     """
     import schedule
 
-    from etl.db.postgres import check_and_consume_trigger
+    from etl.db.postgres import check_and_consume_trigger, get_trigger_force_flags
 
     def _job(kind: str) -> None:
         """Scheduled job entry point. Updates the surrounding scope's conn_4d
@@ -904,7 +907,34 @@ def _run_scheduler_loop(
                 trigger_id = None
 
             if trigger_id is not None:
-                logger.info("Manual trigger %d detected — starting sync", trigger_id)
+                # Manual triggers default to a delta sync — the "Sincronizar
+                # ahora" button is meant to top up watermark-backed tables
+                # (ventas, lineas_ventas, etc.) with a few seconds of work.
+                # Only opt into the heavy full-refresh path when the operator
+                # explicitly checked "force_full" in the dashboard dialog
+                # (or set force_tables, which also resets watermarks). The
+                # nightly cron at cron_hour:delta_minute keeps doing a full
+                # to catch hard-deletes — see _job(kind="full").
+                try:
+                    force_full, force_tables, _triggered_by = get_trigger_force_flags(
+                        conn_pg, trigger_id
+                    )
+                except Exception:
+                    logger.exception(
+                        "Failed to read force flags for trigger %d; "
+                        "defaulting to delta sync",
+                        trigger_id,
+                    )
+                    force_full, force_tables = False, []
+                manual_kind = "full" if (force_full or force_tables) else "delta"
+                logger.info(
+                    "Manual trigger %d detected — starting %s sync "
+                    "(force_full=%s, force_tables=%s)",
+                    trigger_id,
+                    manual_kind,
+                    force_full,
+                    force_tables,
+                )
                 # Same rationale as _job(): the polling loop may have been
                 # idle for hours since the last run, so always refresh.
                 conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
@@ -915,7 +945,11 @@ def _run_scheduler_loop(
                 else:
                     try:
                         run_full_sync(
-                            conn_4d, conn_pg, trigger="manual", trigger_id=trigger_id
+                            conn_4d,
+                            conn_pg,
+                            trigger="manual",
+                            trigger_id=trigger_id,
+                            kind=manual_kind,
                         )
                     except Exception:
                         logger.exception(
