@@ -397,6 +397,8 @@ def run_full_sync(
     trigger: str = "scheduled",
     trigger_id: int | None = None,
     kind: str = "full",
+    *,
+    force_flags: tuple[bool, list[str], str | None] | None = None,
 ) -> None:
     """Execute all sync tasks in topological order.
 
@@ -410,6 +412,15 @@ def run_full_sync(
                 > stored_watermark and upserts. Cheap (~seconds), used by
                 the hourly cron between nightly fulls AND by the default
                 "Sincronizar ahora" button click.
+
+    `force_flags` (optional, manual triggers only): a pre-read
+    ``(force_full, force_tables, triggered_by)`` tuple from
+    :func:`get_trigger_force_flags`. The scheduler loop now reads these flags
+    once to pick `kind`, then passes the same tuple here so the watermark-
+    reset block doesn't re-read them — guaranteeing kind selection and the
+    reset decision come from a single source. Pass ``None`` (the default) to
+    have :func:`run_full_sync` read the flags itself, used by the integration
+    test path and by callers that don't pre-compute kind.
 
     Errors in individual tables are caught and logged; execution continues.
     Monitoring (create_run / record_table_sync / finish_run) is best-effort:
@@ -476,16 +487,24 @@ def run_full_sync(
         # incremental tables on the next sync.
         # ------------------------------------------------------------------
         if trigger == "manual" and trigger_id is not None:
-            try:
-                force_full, force_tables, triggered_by = get_trigger_force_flags(
-                    conn_pg, trigger_id
-                )
-            except Exception:
-                logger.exception(
-                    "Trigger %d: could not read force flags — running incrementally",
-                    trigger_id,
-                )
-                force_full, force_tables, triggered_by = False, [], None
+            if force_flags is not None:
+                # Pre-read by the scheduler loop (the normal path now). Using
+                # the same tuple here guarantees the kind selection upstream
+                # and the watermark-reset decision below see identical flag
+                # values — they cannot diverge even if the underlying row
+                # were somehow mutated between two SELECTs.
+                force_full, force_tables, triggered_by = force_flags
+            else:
+                try:
+                    force_full, force_tables, triggered_by = get_trigger_force_flags(
+                        conn_pg, trigger_id
+                    )
+                except Exception:
+                    logger.exception(
+                        "Trigger %d: could not read force flags — running incrementally",
+                        trigger_id,
+                    )
+                    force_full, force_tables, triggered_by = False, [], None
 
             logger.info(
                 "Trigger %d: triggered_by=%r",
@@ -924,9 +943,7 @@ def _run_scheduler_loop(
                 # attempt almost certainly succeeds since this read is a
                 # single SELECT on the just-claimed trigger row.
                 try:
-                    force_full, force_tables, _triggered_by = get_trigger_force_flags(
-                        conn_pg, trigger_id
-                    )
+                    flags = get_trigger_force_flags(conn_pg, trigger_id)
                 except Exception as exc:
                     logger.exception(
                         "Failed to read force flags for trigger %d — "
@@ -941,6 +958,7 @@ def _run_scheduler_loop(
                     )
                     time.sleep(10)
                     continue
+                force_full, force_tables, _triggered_by = flags
                 manual_kind = "full" if (force_full or bool(force_tables)) else "delta"
                 logger.info(
                     "Manual trigger %d detected — starting %s sync "
@@ -959,12 +977,16 @@ def _run_scheduler_loop(
                     )
                 else:
                     try:
+                        # Pass the already-read flags through so the watermark-
+                        # reset block uses the SAME tuple that drove the kind
+                        # selection — single source of truth, single DB read.
                         run_full_sync(
                             conn_4d,
                             conn_pg,
                             trigger="manual",
                             trigger_id=trigger_id,
                             kind=manual_kind,
+                            force_flags=flags,
                         )
                     except Exception:
                         logger.exception(

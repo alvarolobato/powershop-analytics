@@ -260,6 +260,7 @@ class TestSchedulerLoopTriggerCheck:
                 trigger="manual",
                 trigger_id=7,
                 kind="delta",
+                force_flags=(False, [], "dashboard"),
             )
 
     def test_second_trigger_while_active_is_not_consumed(self):
@@ -419,6 +420,18 @@ class TestManualTriggerKind:
         kwargs = self._run_loop_with_flags(force_full=False, force_tables=["ventas"])
         assert kwargs["kind"] == "full", (
             f"Expected kind='full' for force_tables non-empty, got {kwargs['kind']!r}"
+        )
+
+    def test_flags_forwarded_to_run_full_sync(self):
+        """The polling loop reads get_trigger_force_flags ONCE and passes the
+        same tuple to run_full_sync via force_flags=. This avoids a second
+        read inside run_full_sync and guarantees the kind selection upstream
+        and the watermark-reset block downstream see identical flag values
+        (Copilot + Opus review on PR #465). Verify the tuple is plumbed."""
+        kwargs = self._run_loop_with_flags(force_full=True, force_tables=["ventas"])
+        assert kwargs.get("force_flags") == (True, ["ventas"], "dashboard"), (
+            "force_flags tuple should be forwarded to run_full_sync verbatim; "
+            f"got {kwargs.get('force_flags')!r}"
         )
 
     def test_get_force_flags_failure_records_failed_run_and_skips_sync(self):
