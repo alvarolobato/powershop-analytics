@@ -158,31 +158,45 @@ describe("GET /api/data-health", () => {
   // Headline freshness filter — see HEADLINE_FRESHNESS_EXCLUDED in route.ts
   // -------------------------------------------------------------------------
   describe("headline freshness ignores lookup-only tables", () => {
-    it("excludes catalogos/tiendas/proveedores/gc_comerciales from stalestTable", async () => {
-      // Lookup tables 10h old (only refresh on full / container restart),
-      // transactional tables fresh. The TopBar must report the FRESH set,
-      // not the stale lookup tables — otherwise it lies about data freshness.
-      const lookupOld = new Date(NOW.getTime() - 10 * 60 * 60 * 1000);
+    it("excludes every full-refresh-only table from stalestTable", async () => {
+      // Real-world scenario: the 10 full-only tables (lookups + purchasing
+      // tables that have no FechaModifica in 4D + wholesale workflow tables)
+      // are 10h old because the last full sync was the container startup.
+      // Delta-capable tables (ventas, stock, …) are minutes-fresh from the
+      // hourly cron. The TopBar must report the FRESH set — not whichever
+      // full-only table happens to be alphabetically first.
+      const fullOldEpoch = NOW.getTime() - 10 * 60 * 60 * 1000;
       const fresh = freshDate();
+      // Spread the timestamps by 1 ms so the ASC ORDER BY is deterministic
+      const fullOnly = [
+        "catalogos",
+        "tiendas",
+        "proveedores",
+        "gc_comerciales",
+        "gc_pedidos",
+        "gc_lin_pedidos",
+        "compras",
+        "lineas_compras",
+        "albaranes",
+        "facturas_compra",
+      ];
+      const rows: Array<[string, Date, string]> = fullOnly.map((name, i) => [
+        name,
+        new Date(fullOldEpoch + i),
+        "ok",
+      ]);
+      rows.push(["ventas", fresh, "ok"], ["stock", fresh, "ok"]);
       mockQuery.mockResolvedValue({
         columns: ["table_name", "last_sync_at", "status"],
-        // ASC by last_sync_at — lookup tables come first
-        rows: [
-          ["catalogos", lookupOld, "ok"],
-          ["tiendas", lookupOld, "ok"],
-          ["proveedores", lookupOld, "ok"],
-          ["gc_comerciales", lookupOld, "ok"],
-          ["ventas", fresh, "ok"],
-          ["lineas_ventas", fresh, "ok"],
-        ],
+        rows,
       });
 
       const response = await GET();
       const body = await response.json();
 
-      // Full list still includes all 6 tables — the banner needs them.
-      expect(body.tables).toHaveLength(6);
-      // Headline ignores the 4 lookup tables → first transactional is "ventas".
+      // Full list preserved — banner needs all 12 entries.
+      expect(body.tables).toHaveLength(12);
+      // Headline excludes all 10 full-only tables → first delta-capable is "ventas".
       expect(body.stalestTable?.name).toBe("ventas");
     });
 

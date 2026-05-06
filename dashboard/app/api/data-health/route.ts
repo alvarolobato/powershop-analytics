@@ -26,28 +26,38 @@ export const dynamic = "force-dynamic";
 const STALE_THRESHOLD_HOURS = 36;
 
 /**
- * Lookup-only tables that the headline freshness indicator (`stalestTable`,
- * `overallStale`) ignores.
+ * Tables that the headline freshness indicator (`stalestTable`,
+ * `overallStale`) ignores. The list MUST stay in sync with the
+ * full-refresh-only set in etl/main.py's run_full_sync orchestration
+ * (the `_s(name, fn)` calls without `wm=True`).
  *
- * The hourly delta cron only runs watermark-backed syncs (ventas, stock,
- * articulos, …). These four small reference tables are full-refresh only
- * — they update on the nightly cron at 02:00 or on container restart —
- * and almost never change during business hours (catálogos: payment
- * forms, sales types; tiendas: store list; proveedores: supplier list;
- * gc_comerciales: sales reps).
+ * Why: the hourly delta cron only runs watermark-backed (delta-capable)
+ * syncs. Tables here are full-only by design — either small lookups
+ * that almost never change, or transactional tables whose 4D source
+ * doesn't expose a usable `FechaModifica` so they can only be
+ * truncate-and-reinserted in a full pass. Their freshness is bounded
+ * by the nightly cron at 02:00 (or a manual "Forzar resync"), so they
+ * spend most of the day at 8–24h "old" by definition.
  *
- * Without this filter the TopBar would report "hace 10h" purely because
- * one of these lookup tables hasn't been touched since the last full
- * sync, masking the fact that ventas/stock are minutes-fresh. The
- * `tables` array still includes them — the banner needs the full list
- * to show per-table status — but the headline is computed across the
- * transactional set only.
+ * If we let them drive the headline, the TopBar pins itself at "hace
+ * Xh" within an hour of every deploy — masking the fact that the
+ * delta-capable set (ventas, stock, articulos, …) is minutes-fresh.
+ * The `tables` array still includes them; only the headline filters.
  */
 const HEADLINE_FRESHNESS_EXCLUDED = new Set<string>([
+  // Lookups — refresh on nightly / container restart only
   "catalogos",
   "tiendas",
   "proveedores",
   "gc_comerciales",
+  // Wholesale workflow — full-only because rows can be deleted in 4D
+  "gc_pedidos",
+  "gc_lin_pedidos",
+  // Purchasing — full-only because the 4D source has no FechaModifica
+  "compras",
+  "lineas_compras",
+  "albaranes",
+  "facturas_compra",
 ]);
 
 export interface TableFreshness {
