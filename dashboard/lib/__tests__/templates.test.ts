@@ -8,8 +8,8 @@ import { lintDashboardSpec, collectWidgetSqlStrings } from "../sql-heuristics";
 // ---------------------------------------------------------------------------
 
 describe("TEMPLATES array", () => {
-  it("exports exactly 5 templates", () => {
-    expect(TEMPLATES).toHaveLength(5);
+  it("exports exactly 6 templates", () => {
+    expect(TEMPLATES).toHaveLength(6);
   });
 
   it("has unique slugs", () => {
