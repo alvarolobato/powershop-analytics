@@ -37,6 +37,11 @@
  *    `fm` → ps_familias.  Coverage CTEs use these aliases internally so that
  *    `__gf_tienda__`, `__gf_familia__`, `__gf_temporada__`, `__gf_marca__`,
  *    `__gf_proveedor__` resolve correctly.
+ *
+ * 9. **`cobertura-por-tienda` omits `__gf_tienda__` by design.**  That chart's
+ *    purpose is to compare *all* stores side-by-side; filtering to a single store
+ *    would make it a one-bar chart with no comparative value.  All other widgets
+ *    honour `__gf_tienda__`.
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersCobertura } from "@/lib/template-global-filters";
@@ -73,10 +78,9 @@ export const spec: DashboardSpec = {
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 )
@@ -111,15 +115,17 @@ WHERE p."anulado" = false
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 )
 SELECT COALESCE(
-         ROUND(AVG(sa.total_stock / NULLIF(vd.unidades_30d / 30.0, 0))::numeric, 1),
+         ROUND(
+           (SUM(sa.total_stock) / NULLIF(SUM(vd.unidades_30d) / 30.0, 0))::numeric,
+           1
+         ),
          0
        ) AS value
 FROM "public"."ps_articulos" p
@@ -151,10 +157,9 @@ WHERE p."anulado" = false
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 )
@@ -189,10 +194,9 @@ WHERE p."anulado" = false
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 )
@@ -235,11 +239,10 @@ WHERE p."anulado" = false
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock,
+         GREATEST(SUM(s."stock"), 0) AS total_stock,
          COUNT(DISTINCT s."tienda") AS num_tiendas
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 ),
@@ -294,10 +297,9 @@ LIMIT 50`,
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 ),
@@ -333,23 +335,23 @@ LIMIT 15`,
       // Sorted DESC so the most at-risk stores appear first.
       // __gf_tienda__ is intentionally omitted: this chart compares all stores.
       sql: `WITH ventas_30d AS (
-  SELECT lv."codigo",
+  SELECT lv."tienda",
+         lv."codigo",
          SUM(lv."unidades") AS unidades_30d
   FROM "public"."ps_lineas_ventas" lv
   JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
   WHERE v."entrada" = true
     AND lv."tienda" <> '99'
     AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days'
-  GROUP BY lv."codigo"
+  GROUP BY lv."tienda", lv."codigo"
   HAVING SUM(lv."unidades") > 0
 ),
 stock_por_tienda AS (
   SELECT s."tienda",
          s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
   GROUP BY s."tienda", s."codigo"
 ),
 cobertura_tienda AS (
@@ -357,7 +359,7 @@ cobertura_tienda AS (
     spt."tienda",
     spt.total_stock / NULLIF(vd.unidades_30d / 30.0, 0) AS cobertura_dias
   FROM stock_por_tienda spt
-  JOIN ventas_30d vd ON vd."codigo" = spt."codigo"
+  JOIN ventas_30d vd ON vd."codigo" = spt."codigo" AND vd."tienda" = spt."tienda"
   JOIN "public"."ps_articulos" p ON p."codigo" = spt."codigo"
   LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
   WHERE p."anulado" = false
@@ -398,10 +400,9 @@ LIMIT 20`,
 ),
 stock_art AS (
   SELECT s."codigo",
-         SUM(s."stock") AS total_stock
+         GREATEST(SUM(s."stock"), 0) AS total_stock
   FROM "public"."ps_stock_tienda" s
-  WHERE s."stock" > 0
-    AND s."tienda" <> '99'
+  WHERE s."tienda" <> '99'
     AND __gf_tienda__
   GROUP BY s."codigo"
 )
@@ -418,6 +419,7 @@ JOIN ventas_30d vd ON vd."codigo" = p."codigo"
 LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE p."anulado" = false
   AND (sa.total_stock / NULLIF(vd.unidades_30d / 30.0, 0)) > 90
+  AND (sa.total_stock / NULLIF(vd.unidades_30d / 30.0, 0)) < 365
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
