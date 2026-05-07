@@ -293,6 +293,23 @@ When you fix a non-obvious bug or discover a gotcha, document it. Procedure: [ag
 
 ---
 
+## Revisiones semanales de negocio (D-028, issue #467)
+
+Cada lunes 06:00 UTC un workflow simula 7 roles de negocio (CEO, Retail, Mayorista, Compras, CFO, Producto, BI Skeptic) y abre como mucho 1 issue por rol con propuestas de mejora. Las issues van etiquetadas con `business-review`, `role:<slug>`, `review-type:<slug>`, `needs-human-approval` y **NO** llevan `ai-work`.
+
+**Regla**: la AI Factory **no debe implementar** una propuesta `business-review` mientras lleve `needs-human-approval`. Triagear y planificar sí, ejecutar no. Cuando un humano apruebe: retirar `needs-human-approval` y añadir `ai-work` para que arranque el flujo estándar de la factoría.
+
+**Modificar el sistema**:
+- Cambiar foco de un rol → editar su MD en `docs/business-review/roles/`.
+- Añadir un 8º rol → nuevo MD + dos líneas en la matriz del workflow.
+- Añadir un nuevo tipo de revisión → nueva sección en `docs/business-review/review-types.md` y referenciarla desde el rol que lo use.
+
+Ejecución manual: `gh workflow run business-review-weekly.yml -f dry_run=true` (no crea nada, sólo imprime). `-f only_role=cfo` ejecuta sólo ese rol.
+
+Detalles completos: [docs/business-review/README.md](docs/business-review/README.md).
+
+---
+
 ## Keeping data architecture docs up to date
 
 The `docs/architecture/` files and `docs/etl-sync-strategy.md` are **living documents**. Whenever you run real queries against the 4D database and learn something new, update them immediately — do not defer.
