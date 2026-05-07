@@ -215,8 +215,9 @@ describe("GET /api/home", () => {
     };
     const original = queryMock.getMockImplementation()!;
     queryMock.mockImplementation(async (sql: string, ...args: unknown[]) => {
-      // Return rev=cost (margin=0%) for the previous month query
-      if (sql.includes("INTERVAL '1 month'")) {
+      // Return rev=cost (margin=0%) for the previous month query.
+      // Discriminate by total_coste_si (unique to the prev-month margin query).
+      if (sql.includes("total_coste_si")) {
         return { rows: [[100_000, 100_000]] };
       }
       return original(sql, ...args);
