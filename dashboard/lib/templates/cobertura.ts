@@ -42,6 +42,13 @@
  *    purpose is to compare *all* stores side-by-side; filtering to a single store
  *    would make it a one-bar chart with no comparative value.  All other widgets
  *    honour `__gf_tienda__`.
+ *
+ * 10. **Sales velocity is always company-wide, even under `__gf_tienda__`.**
+ *    `ventas_30d` sums across all stores (no `tienda` filter); `stock_art`
+ *    respects `__gf_tienda__`.  This is intentional: the purchasing director
+ *    needs to answer "given all demand in the company, how many days can this
+ *    store's stock cover?".  A store-local velocity would underestimate coverage
+ *    for articles whose sales are distributed across multiple locations.
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersCobertura } from "@/lib/template-global-filters";
@@ -317,6 +324,8 @@ cobertura_art AS (
     AND __gf_marca__
     AND __gf_proveedor__
 )
+-- Simple average (not volume-weighted) so every article weighs equally;
+-- this surfaces per-reference risk regardless of volume.
 SELECT familia AS label,
        ROUND(AVG(cobertura_dias)::numeric, 1) AS value
 FROM cobertura_art
