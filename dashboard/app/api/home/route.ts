@@ -229,6 +229,8 @@ export async function GET(req: NextRequest) {
       storesSparkRow,
       opsRetailRow,
       retailMonthRow,
+      opsRetailPrevDayRow,
+      retailPrevMonthRow,
       etlRunRow,
       anomaliesRow,
       lastWatermarkRow,
@@ -575,6 +577,34 @@ export async function GET(req: NextRequest) {
         [asOfDate],
       ),
 
+      // Retail ops: previous-day tickets, gross, devoluciones (with same-hour cutoff)
+      query(
+        `SELECT
+           COUNT(DISTINCT CASE WHEN entrada=true THEN reg_ventas END)::int AS tickets_prev,
+           COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0)::numeric AS gross_prev,
+           COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric AS devolu_prev
+         FROM ps_ventas
+         WHERE tienda<>'99'
+           AND fecha_creacion = ($1::date - INTERVAL '1 day')::date
+           AND (NOT $3::bool
+                OR (hora_creacion IS NOT NULL
+                    AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))`,
+        [asOfDate, cutoffHour, cutoffActive],
+      ),
+
+      // Retail ops: previous full calendar month revenue + cost for margin comparison
+      query(
+        `SELECT
+           COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+           COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+         FROM ps_lineas_ventas lv
+         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+           AND lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 month')::date
+           AND lv.fecha_creacion < DATE_TRUNC('month', $1::date)::date`,
+        [asOfDate],
+      ),
+
       // ETL latest run
       query(
         `SELECT id, status, started_at, finished_at, total_rows_synced
@@ -827,11 +857,53 @@ export async function GET(req: NextRequest) {
     const monthCost = num(retailMonthRow.rows[0][1]);
     const margenPct = monthRev > 0 ? (monthRev - monthCost) / monthRev : 0;
 
+    const ticketsPrev = num(opsRetailPrevDayRow.rows[0][0]);
+    const grossPrev = num(opsRetailPrevDayRow.rows[0][1]);
+    const devoluPrev = num(opsRetailPrevDayRow.rows[0][2]);
+    const ticketMedioPrev = ticketsPrev > 0 ? grossPrev / ticketsPrev : 0;
+
+    const prevMonthRev = num(retailPrevMonthRow.rows[0][0]);
+    const prevMonthCost = num(retailPrevMonthRow.rows[0][1]);
+    const prevMargenPct = prevMonthRev > 0 ? (prevMonthRev - prevMonthCost) / prevMonthRev : 0;
+
+    const dayCompLabel = cutoffActive
+      ? `vs ayer (hasta las ${String(cutoffHour).padStart(2, "0")}:00)`
+      : "vs ayer";
+
     const opsRetail: Metric[] = [
-      { id: "ticket", label: "Ticket medio", value: ticketMedio, format: "eur2", delta: 0 },
-      { id: "tickets", label: "Tickets", value: tickets, format: "int", delta: 0 },
-      { id: "margen", label: "Margen mes", value: margenPct, format: "pct", delta: 0 },
-      { id: "devolu", label: "Devoluciones", value: devolu, format: "eur", delta: 0, inverted: true },
+      {
+        id: "ticket",
+        label: "Ticket medio",
+        value: ticketMedio,
+        format: "eur2",
+        delta: ticketMedioPrev > 0 ? safeRatio(ticketMedio, ticketMedioPrev) : null,
+        sub: dayCompLabel,
+      },
+      {
+        id: "tickets",
+        label: "Tickets",
+        value: tickets,
+        format: "int",
+        delta: ticketsPrev > 0 ? safeRatio(tickets, ticketsPrev) : null,
+        sub: dayCompLabel,
+      },
+      {
+        id: "margen",
+        label: "Margen mes",
+        value: margenPct,
+        format: "pct",
+        delta: prevMonthRev > 0 ? safeRatio(margenPct, prevMargenPct) : null,
+        sub: "vs mes ant",
+      },
+      {
+        id: "devolu",
+        label: "Devoluciones",
+        value: devolu,
+        format: "eur",
+        delta: devoluPrev > 0 ? safeRatio(devolu, devoluPrev) : null,
+        inverted: true,
+        sub: dayCompLabel,
+      },
     ];
 
     // ─────────────────────────────────────────────────────────────────────

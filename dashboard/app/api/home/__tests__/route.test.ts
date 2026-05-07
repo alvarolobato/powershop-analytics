@@ -235,4 +235,45 @@ describe("GET /api/home", () => {
     const body = await res.json();
     expect(body.asOfDate).toBe("2026-05-03");
   });
+
+  it("returns opsRetail with 4 metrics, null deltas when no comparison data, and sub labels", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    // Always 4 metrics
+    expect(opsRetail).toHaveLength(4);
+    // When mock returns all-null prev rows (prev=0), deltas must be null — not 0
+    for (const m of opsRetail) {
+      expect(m.delta).toBeNull();
+    }
+    // Every metric must have a non-empty sub label describing the comparison period
+    for (const m of opsRetail) {
+      expect(typeof m.sub).toBe("string");
+      expect(m.sub.length).toBeGreaterThan(0);
+    }
+    // Margen always compares vs previous month
+    const margen = opsRetail.find((m: { id: string }) => m.id === "margen");
+    expect(margen.sub).toBe("vs mes ant");
+    // Ticket, tickets, devolu compare vs previous day
+    const ticket = opsRetail.find((m: { id: string }) => m.id === "ticket");
+    expect(ticket.sub).toBe("vs ayer");
+  });
+
+  it("opsRetail previous-day query receives cutoff params when cutoff is active", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementationOnce(async () => ({
+      rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", 8, 42]],
+    }));
+    await GET(makeReq("2026-05-03"));
+    // Find the previous-day ops query (contains tickets_prev and NOT $3::bool)
+    const prevDayCalls = queryMock.mock.calls.filter(
+      ([sql]: [string]) =>
+        typeof sql === "string" &&
+        sql.includes("tickets_prev") &&
+        sql.includes("NOT $3::bool"),
+    );
+    expect(prevDayCalls.length).toBe(1);
+    expect(prevDayCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+  });
 });

@@ -13,6 +13,13 @@ const RETAIL_METRICS: Metric[] = [
   { id: "conver",  label: "Conversión",     value: 0.184,    format: "pct",  delta:  0.006 },
 ];
 
+const RETAIL_METRICS_WITH_NULL_DELTA: Metric[] = [
+  { id: "ticket",  label: "Ticket medio",   value: 26.55,    format: "eur2", delta: null, sub: "vs ayer" },
+  { id: "tickets", label: "Tickets",        value: 5077,     format: "int",  delta: null, sub: "vs ayer" },
+  { id: "margen",  label: "Margen mes",     value: 0.612,    format: "pct",  delta: null, sub: "vs mes ant" },
+  { id: "devolu",  label: "Devoluciones",   value: 12522.50, format: "eur",  delta: null, inverted: true, sub: "vs ayer" },
+];
+
 describe("OperationsRow (RETAIL)", () => {
   it("renders all 5 metric cells", () => {
     render(
@@ -89,5 +96,28 @@ describe("OperationsRow (RETAIL)", () => {
     expect(screen.getByTestId("metric-cell-rotac")).toBeInTheDocument();
     // Sub-text for pedidos pendientes
     expect(screen.getByText("€312k valor")).toBeInTheDocument();
+  });
+
+  it("renders — for metrics with null delta instead of a percentage chip", () => {
+    render(
+      <OperationsRow
+        sectionLabel="RETAIL"
+        title="Operativa retail"
+        subtitle="día seleccionado · sin datos de comparación"
+        metrics={RETAIL_METRICS_WITH_NULL_DELTA}
+      />
+    );
+    // Each metric cell should show the em dash, not a percentage
+    const cells = ["ticket", "tickets", "margen", "devolu"];
+    for (const id of cells) {
+      const cell = screen.getByTestId(`metric-cell-${id}`);
+      expect(cell.textContent).toContain("—");
+      // Should NOT contain a % sign from a delta chip
+      const deltaChip = cell.querySelector("[aria-label]");
+      expect(deltaChip).toBeNull();
+    }
+    // Sub labels should be rendered
+    expect(screen.getAllByText("vs ayer").length).toBe(3);
+    expect(screen.getByText("vs mes ant")).toBeInTheDocument();
   });
 });
