@@ -19,6 +19,7 @@
  * Response codes:
  *   202 { trigger_id: number }                                — trigger inserted
  *   202 { trigger_id: number, already_queued: true }          — pending trigger already existed
+ *   202 { trigger_id: null,   already_queued: true }          — trigger consumed by ETL between INSERT conflict and fallback SELECT
  *   400 { error: "invalid_body", detail: string }             — body rejected (unknown table, bad type)
  *   409 { error: "already_running", run_id: number }          — sync already active
  *   503 { error: "db_error" }                                 — database unreachable
