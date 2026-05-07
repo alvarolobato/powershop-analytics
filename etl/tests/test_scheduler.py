@@ -321,3 +321,16 @@ def test_cron_hour_none_defaults_to_2():
     from etl.main import _parse_cron_hour
 
     assert _parse_cron_hour(None) == 2
+
+
+def test_cron_hour_non_integer_defaults_to_2(caplog):
+    """Non-integer ETL_CRON_HOUR defaults to 2 with a warning."""
+    import logging
+
+    from etl.main import _parse_cron_hour
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_cron_hour("abc")
+
+    assert result == 2
+    assert "not an integer" in caplog.text
