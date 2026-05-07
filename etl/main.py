@@ -30,6 +30,20 @@ logging.basicConfig(
 logger = logging.getLogger("etl")
 
 # ---------------------------------------------------------------------------
+# Cron-setting helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_cron_hour(raw: str | None) -> int:
+    """Validate ETL_CRON_HOUR string; clamp to [0, 23], default 2."""
+    value = int(raw or "2")
+    if not (0 <= value <= 23):
+        logger.warning("ETL_CRON_HOUR=%d out of range; clamping to 2", value)
+        return 2
+    return value
+
+
+# ---------------------------------------------------------------------------
 # Schema initialisation
 # ---------------------------------------------------------------------------
 
@@ -1026,7 +1040,7 @@ def main() -> None:
     # changes require container restart. cron_hour controls the nightly full;
     # delta_cron_minute controls the minute-of-hour for the hourly delta
     # (and also the minute the nightly full fires on cron_hour).
-    cron_hour = int(os.environ.get("ETL_CRON_HOUR", "2"))
+    cron_hour = _parse_cron_hour(os.environ.get("ETL_CRON_HOUR"))
     delta_cron_minute = int(os.environ.get("ETL_DELTA_CRON_MINUTE", "0"))
     if not (0 <= delta_cron_minute <= 59):
         logger.warning(

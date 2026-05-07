@@ -274,3 +274,50 @@ def test_ma_cleanup_failure_does_not_abort_pipeline():
 
     # sync_traspasos runs before cleanup — we verify the pipeline completed normally
     assert stock_called, "sync_traspasos was not called; pipeline may have aborted"
+
+
+# ---------------------------------------------------------------------------
+# Tests: ETL_CRON_HOUR validation (_parse_cron_hour helper)
+# ---------------------------------------------------------------------------
+
+
+def test_cron_hour_out_of_range_clamped_to_default(caplog):
+    """ETL_CRON_HOUR outside [0, 23] is clamped to 2 with a warning."""
+    import logging
+
+    from etl.main import _parse_cron_hour
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_cron_hour("99")
+
+    assert result == 2
+    assert "ETL_CRON_HOUR=99 out of range" in caplog.text
+
+
+def test_cron_hour_negative_clamped_to_default(caplog):
+    """Negative ETL_CRON_HOUR is clamped to 2 with a warning."""
+    import logging
+
+    from etl.main import _parse_cron_hour
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_cron_hour("-1")
+
+    assert result == 2
+    assert "ETL_CRON_HOUR=-1 out of range" in caplog.text
+
+
+def test_cron_hour_valid_values_unchanged():
+    """ETL_CRON_HOUR within [0, 23] is returned as-is."""
+    from etl.main import _parse_cron_hour
+
+    assert _parse_cron_hour("0") == 0
+    assert _parse_cron_hour("2") == 2
+    assert _parse_cron_hour("23") == 23
+
+
+def test_cron_hour_none_defaults_to_2():
+    """None (env var not set) returns the default of 2."""
+    from etl.main import _parse_cron_hour
+
+    assert _parse_cron_hour(None) == 2
