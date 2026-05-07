@@ -104,7 +104,7 @@ export type Metric = {
   label: string;
   value: number;
   format: "eur" | "eur2" | "int" | "pct" | "x";
-  delta: number;
+  delta: number | null;
   inverted?: boolean; // true for "lower is better"
   sub?: string;
   suffix?: string;

@@ -175,6 +175,38 @@ describe("GET /api/home", () => {
     );
     expect(periodHoySqlCalls.length).toBe(1);
     expect(periodHoySqlCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+    // The retail ops prev-day query also receives cutoff parameters.
+    const retailPrevDayCalls = queryMock.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === "string" &&
+        sql.includes("tickets_prev") &&
+        sql.includes("NOT $3::bool"),
+    );
+    expect(retailPrevDayCalls.length).toBe(1);
+    expect(retailPrevDayCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+  });
+
+  it("returns opsRetail with 4 metrics, null deltas when no comparison data, and sub labels", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    // Shape: exactly 4 metrics
+    expect(opsRetail).toHaveLength(4);
+    const ids = opsRetail.map((m: { id: string }) => m.id);
+    expect(ids).toEqual(["ticket", "tickets", "margen", "devolu"]);
+    // The mock returns all zeros → prev = 0 → delta must be null (not 0)
+    for (const m of opsRetail) {
+      expect(m.delta).toBeNull();
+    }
+    // Every metric must carry a non-empty sub string
+    for (const m of opsRetail) {
+      expect(typeof m.sub).toBe("string");
+      expect((m.sub as string).length).toBeGreaterThan(0);
+    }
+    // Margen uses "vs mes ant"; others use "vs ayer"
+    const margen = opsRetail.find((m: { id: string }) => m.id === "margen");
+    expect(margen.sub).toBe("vs mes ant");
+    const ticket = opsRetail.find((m: { id: string }) => m.id === "ticket");
+    expect(ticket.sub).toBe("vs ayer");
   });
 
   it("deactivates the cutoff when today has zero mirrored rows", async () => {

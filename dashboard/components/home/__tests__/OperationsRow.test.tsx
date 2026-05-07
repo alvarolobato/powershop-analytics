@@ -8,7 +8,7 @@ import type { Metric } from "@/lib/home-types";
 const RETAIL_METRICS: Metric[] = [
   { id: "ticket",  label: "Ticket medio",   value: 26.55,    format: "eur2", delta:  0.138 },
   { id: "tickets", label: "Tickets",        value: 5077,     format: "int",  delta: -0.287 },
-  { id: "margen",  label: "Margen",         value: 0.612,    format: "pct",  delta: -0.012 },
+  { id: "margen",  label: "Margen",         value: 0.612,    format: "pct",  delta:  null },
   { id: "devolu",  label: "Devoluciones",   value: 12522.50, format: "eur",  delta:  0.083, inverted: true },
   { id: "conver",  label: "Conversión",     value: 0.184,    format: "pct",  delta:  0.006 },
 ];
@@ -67,6 +67,22 @@ describe("OperationsRow (RETAIL)", () => {
     // The Delta chip for inverted=true, value=0.083 (positive) should render with --down color
     const chipStyle = devoluCell.querySelector("[aria-label]")?.getAttribute("style") ?? "";
     expect(chipStyle).toContain("var(--down)");
+  });
+
+  it("renders — for a metric with delta: null instead of a percentage chip", () => {
+    render(
+      <OperationsRow
+        sectionLabel="RETAIL"
+        title="Operativa retail"
+        subtitle="hoy · vs ayer"
+        metrics={RETAIL_METRICS}
+      />
+    );
+    // The "Margen" metric has delta: null — expect em dash, no % chip
+    const margenCell = screen.getByTestId("metric-cell-margen");
+    expect(margenCell).toHaveTextContent("—");
+    // The em dash should not carry an aria-label (which the % chip adds)
+    expect(margenCell.querySelector("[aria-label]")).toBeNull();
   });
 
   it("renders correct number of metrics for MAYORISTA", () => {
