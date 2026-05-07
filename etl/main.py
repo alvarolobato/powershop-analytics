@@ -42,7 +42,7 @@ def _parse_cron_hour(raw: str | None) -> int:
         logger.warning("ETL_CRON_HOUR=%r is not an integer; defaulting to 2", raw)
         return 2
     if not (0 <= value <= 23):
-        logger.warning("ETL_CRON_HOUR=%d out of range; clamping to 2", value)
+        logger.warning("ETL_CRON_HOUR=%d out of range; defaulting to 2", value)
         return 2
     return value
 

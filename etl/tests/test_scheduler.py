@@ -281,8 +281,8 @@ def test_ma_cleanup_failure_does_not_abort_pipeline():
 # ---------------------------------------------------------------------------
 
 
-def test_cron_hour_out_of_range_clamped_to_default(caplog):
-    """ETL_CRON_HOUR outside [0, 23] is clamped to 2 with a warning."""
+def test_cron_hour_out_of_range_defaults_to_2(caplog):
+    """ETL_CRON_HOUR outside [0, 23] defaults to 2 with a warning."""
     import logging
 
     from etl.main import _parse_cron_hour
@@ -294,8 +294,8 @@ def test_cron_hour_out_of_range_clamped_to_default(caplog):
     assert "ETL_CRON_HOUR=99 out of range" in caplog.text
 
 
-def test_cron_hour_negative_clamped_to_default(caplog):
-    """Negative ETL_CRON_HOUR is clamped to 2 with a warning."""
+def test_cron_hour_negative_defaults_to_2(caplog):
+    """Negative ETL_CRON_HOUR defaults to 2 with a warning."""
     import logging
 
     from etl.main import _parse_cron_hour
