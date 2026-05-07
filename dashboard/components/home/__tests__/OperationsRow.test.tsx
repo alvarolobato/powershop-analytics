@@ -10,7 +10,7 @@ const RETAIL_METRICS: Metric[] = [
   { id: "tickets", label: "Tickets",        value: 5077,     format: "int",  delta: -0.287 },
   { id: "margen",  label: "Margen",         value: 0.612,    format: "pct",  delta: -0.012 },
   { id: "devolu",  label: "Devoluciones",   value: 12522.50, format: "eur",  delta:  0.083, inverted: true },
-  { id: "conver",  label: "Conversión",     value: 0.184,    format: "pct",  delta:  0.006 },
+  { id: "conver",  label: "Conversión",     value: 0.184,    format: "pct",  delta:  null },
 ];
 
 describe("OperationsRow (RETAIL)", () => {
@@ -52,6 +52,19 @@ describe("OperationsRow (RETAIL)", () => {
       />
     );
     expect(screen.getByText("hoy · vs ayer mismo tramo")).toBeInTheDocument();
+  });
+
+  it("renders — for a metric with delta: null", () => {
+    render(
+      <OperationsRow
+        sectionLabel="RETAIL"
+        title="Operativa retail"
+        subtitle="hoy · vs ayer mismo tramo"
+        metrics={RETAIL_METRICS}
+      />
+    );
+    const converCell = screen.getByTestId("metric-cell-conver");
+    expect(converCell.textContent).toContain("—");
   });
 
   it("renders the Devoluciones delta with inverted logic (positive delta → down color)", () => {

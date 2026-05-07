@@ -175,6 +175,15 @@ describe("GET /api/home", () => {
     );
     expect(periodHoySqlCalls.length).toBe(1);
     expect(periodHoySqlCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+    // The prev-day retail ops query must also receive cutoff parameters
+    const retailPrevDayCalls = queryMock.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === "string" &&
+        sql.includes("tickets_prev") &&
+        sql.includes("NOT $3::bool"),
+    );
+    expect(retailPrevDayCalls.length).toBe(1);
+    expect(retailPrevDayCalls[0][1]).toEqual(["2026-05-03", 8, true]);
   });
 
   it("deactivates the cutoff when today has zero mirrored rows", async () => {
@@ -210,6 +219,20 @@ describe("GET /api/home", () => {
       expect(typeof entry.day).toBe("number");
       expect(typeof entry.ly).toBe("number");
       expect(entry.actual === null || typeof entry.actual === "number").toBe(true);
+    }
+  });
+
+  it("returns opsRetail with 4 metrics, null deltas when no comparison data, and sub labels", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    expect(opsRetail).toHaveLength(4);
+    const ids = opsRetail.map((m: { id: string }) => m.id);
+    expect(ids).toEqual(["ticket", "tickets", "margen", "devolu"]);
+    // Mock returns all-null rows → prev totals are 0 → deltas must be null
+    for (const m of opsRetail) {
+      expect(m.delta).toBeNull();
+      expect(typeof m.sub).toBe("string");
+      expect(m.sub.length).toBeGreaterThan(0);
     }
   });
 
