@@ -36,7 +36,7 @@ Revisión de los paneles que el negocio consulta para tomar decisiones operativa
 
 ---
 
-## `data_quality`
+## `data-quality`
 
 Revisión de la fiabilidad de los datos que alimentan los paneles. No se trata de calidad de SQL, sino de **si los datos llegan a tiempo y completos** para que las decisiones sean fiables.
 
@@ -62,7 +62,7 @@ Revisión de la fiabilidad de los datos que alimentan los paneles. No se trata d
 
 ---
 
-## `llm_telemetry`
+## `llm-telemetry`
 
 Revisión del comportamiento del LLM dentro de la propia plataforma — qué pide la gente, qué falla, qué patrones se repiten.
 

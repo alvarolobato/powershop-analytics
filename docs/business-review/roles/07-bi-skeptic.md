@@ -1,7 +1,7 @@
 # Rol: Analista de Datos crítico (BI Skeptic)
 
 - **slug**: `bi-skeptic`
-- **tipo_revision**: `dashboards`, `data_quality`
+- **tipo_revision**: `dashboards`, `data-quality`
 
 ## Persona
 
@@ -27,7 +27,7 @@ Lo que le quita el sueño: un panel que muestra una cifra impresionante pero sin
 Combinación de los dos tipos:
 
 - **`dashboards`**: `/inicio`, paneles de `/paneles`, todos sus widgets con valores actuales.
-- **`data_quality`**: `etl_watermarks`, `etl_sync_runs`, edad de los datos en tablas críticas, gaps de tiendas o días.
+- **`data-quality`**: `etl_watermarks`, `etl_sync_runs`, edad de los datos en tablas críticas, gaps de tiendas o días.
 
 ## Preguntas críticas
 
