@@ -209,6 +209,26 @@ describe("GET /api/home", () => {
     expect(ticket.sub).toBe("vs ayer");
   });
 
+  it("returns null margen delta when prevMargenPct is 0 (rev == cost)", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    const original = queryMock.getMockImplementation()!;
+    queryMock.mockImplementation(async (sql: string, ...args: unknown[]) => {
+      // Return rev=cost (margin=0%) for the previous month query
+      if (sql.includes("INTERVAL '1 month'")) {
+        return { rows: [[100_000, 100_000]] };
+      }
+      return original(sql, ...args);
+    });
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    const margen = opsRetail.find((m: { id: string }) => m.id === "margen");
+    // prevMonthRev>0 but prevMargenPct===0 → ratio undefined → delta must be null
+    expect(margen.delta).toBeNull();
+    queryMock.mockImplementation(original);
+  });
+
   it("deactivates the cutoff when today has zero mirrored rows", async () => {
     // Re-mock the pivot row so today_row_count=0 and today_mirror_hour=null.
     const { query: queryMock } = (await import("@/lib/db")) as unknown as {
