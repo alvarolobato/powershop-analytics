@@ -189,7 +189,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       const existing = await query(
         `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
       );
-      triggerId = Number(existing.rows[0][0]);
+      if (existing.rows.length > 0) {
+        triggerId = Number(existing.rows[0][0]);
+      } else {
+        // The trigger was consumed between our INSERT conflict and this SELECT.
+        // Treat it as already queued (the ETL already picked it up).
+        return NextResponse.json(
+          { trigger_id: null, already_queued: true },
+          { status: 202 },
+        );
+      }
     }
     return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
   } catch (err) {
