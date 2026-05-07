@@ -36,7 +36,11 @@ logger = logging.getLogger("etl")
 
 def _parse_cron_hour(raw: str | None) -> int:
     """Validate ETL_CRON_HOUR string; clamp to [0, 23], default 2."""
-    value = int(raw or "2")
+    try:
+        value = int(raw or "2")
+    except ValueError:
+        logger.warning("ETL_CRON_HOUR=%r is not an integer; defaulting to 2", raw)
+        return 2
     if not (0 <= value <= 23):
         logger.warning("ETL_CRON_HOUR=%d out of range; clamping to 2", value)
         return 2
