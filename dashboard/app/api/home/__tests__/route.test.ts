@@ -175,6 +175,16 @@ describe("GET /api/home", () => {
     );
     expect(periodHoySqlCalls.length).toBe(1);
     expect(periodHoySqlCalls[0][1]).toEqual(["2026-05-03", 8, true]);
+    // The prev-day retail query (tickets_prev, gross_prev, devolu_prev) must
+    // receive the same [asOfDate, cutoffHour, cutoffActive] triple.
+    const prevDayRetailCalls = queryMock.mock.calls.filter(
+      ([sql]) =>
+        typeof sql === "string" &&
+        sql.includes("tickets_prev") &&
+        sql.includes("NOT $3::bool"),
+    );
+    expect(prevDayRetailCalls.length).toBe(1);
+    expect(prevDayRetailCalls[0][1]).toEqual(["2026-05-03", 8, true]);
   });
 
   it("deactivates the cutoff when today has zero mirrored rows", async () => {
@@ -191,6 +201,28 @@ describe("GET /api/home", () => {
     expect(hero.comparisonCutoffHour).toBeNull();
     expect(hero.yesterdayCutoff).toBeNull();
     expect(hero.lastYearCutoff).toBeNull();
+  });
+
+  it("returns opsRetail with 4 metrics, null deltas when no comparison data, and sub labels", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    expect(opsRetail).toHaveLength(4);
+    const ids = opsRetail.map((m: { id: string }) => m.id);
+    expect(ids).toEqual(["ticket", "tickets", "margen", "devolu"]);
+    // Mock returns all zeros → prev data is 0 → deltas must be null, not 0
+    for (const m of opsRetail) {
+      expect(m.delta).toBeNull();
+    }
+    // Every metric must have a non-empty sub label describing the comparison period
+    for (const m of opsRetail) {
+      expect(typeof m.sub).toBe("string");
+      expect(m.sub.length).toBeGreaterThan(0);
+    }
+    // Margen compares vs previous month, others compare vs yesterday
+    const margen = opsRetail.find((m: { id: string }) => m.id === "margen");
+    expect(margen.sub).toBe("vs mes ant");
+    const ticket = opsRetail.find((m: { id: string }) => m.id === "ticket");
+    expect(ticket.sub).toBe("vs ayer");
   });
 
   it("returns 4 periods", async () => {
