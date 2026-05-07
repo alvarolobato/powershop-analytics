@@ -238,6 +238,82 @@ ORDER BY "Cobertura (días)" ASC
 LIMIT 50`,
     },
     {
+      id: "stock-distribucion-tallas",
+      type: "bar_chart",
+      title: "Distribución de Stock por Talla",
+      sql: `SELECT s."talla" AS label, SUM(s."stock") AS value
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
+  AND p."anulado" = false
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+GROUP BY s."talla"
+ORDER BY s."talla" ASC`,
+      x: "label",
+      y: "value",
+    },
+    {
+      id: "stock-roturas-por-talla",
+      type: "table",
+      title: "Tallas en Rotura (referencias sin stock)",
+      // Counts distinct articles with stock <= 0 (Sin Stock) vs stock > 0 (Con Stock)
+      // per (Familia, Talla) combination. HAVING filters to rows with at least one
+      // article without stock. Only detects stockouts for size/family combos that
+      // have appeared in ps_stock_tienda — sizes never stocked are not surfaced.
+      sql: `SELECT
+       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia",
+       s."talla" AS "Talla",
+       COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END) AS "Sin Stock",
+       COUNT(DISTINCT CASE WHEN s."stock" > 0 THEN s."codigo" END) AS "Con Stock",
+       COUNT(DISTINCT s."codigo") AS "Total Refs",
+       ROUND(
+         COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END)::NUMERIC
+         / NULLIF(COUNT(DISTINCT s."codigo"), 0) * 100,
+         1
+       ) AS "% Rotura"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."tienda" <> '99'
+  AND p."anulado" = false
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla"
+HAVING COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END) > 0
+ORDER BY "% Rotura" DESC`,
+    },
+    {
+      id: "stock-articulos-por-talla",
+      type: "table",
+      title: "Stock por Artículo y Talla (top acumuladores)",
+      sql: `SELECT
+       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia",
+       s."talla" AS "Talla",
+       COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia",
+       COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción",
+       SUM(s."stock") AS "Stock"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0
+  AND s."tienda" <> '99'
+  AND p."anulado" = false
+  AND __gf_tienda__
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+GROUP BY fm."fami_grup_marc", s."talla", p."ccrefejofacm", p."descripcion"
+ORDER BY "Stock" DESC
+LIMIT 50`,
+    },
+    {
       id: "stock-bajo",
       type: "table",
       title: "Artículos con Stock Bajo (< 5 unidades en alguna tienda)",

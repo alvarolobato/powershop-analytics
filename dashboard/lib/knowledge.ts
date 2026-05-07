@@ -564,6 +564,18 @@ export const SQL_PAIRS: SqlPair[] = [
     question: "¿Top artículos vendidos con su stock actual?",
     sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20`,
   },
+  {
+    question: "¿Distribución de stock por talla?",
+    sql: `SELECT s."talla" AS "Talla", SUM(s."stock") AS "Unidades" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 AND s."tienda" <> '99' AND p."anulado" = false GROUP BY s."talla" ORDER BY s."talla" ASC`,
+  },
+  {
+    question: "¿Qué tallas tienen más roturas (referencias sin stock)?",
+    sql: `SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia", s."talla" AS "Talla", COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END) AS "Sin Stock", COUNT(DISTINCT CASE WHEN s."stock" > 0 THEN s."codigo" END) AS "Con Stock", COUNT(DISTINCT s."codigo") AS "Total Refs", ROUND(COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END)::NUMERIC / NULLIF(COUNT(DISTINCT s."codigo"), 0) * 100, 1) AS "% Rotura" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE s."tienda" <> '99' AND p."anulado" = false GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla" HAVING COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END) > 0 ORDER BY "% Rotura" DESC`,
+  },
+  {
+    question: "¿Qué artículos acumulan más stock por talla?",
+    sql: `SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia", s."talla" AS "Talla", COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia", COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE s."stock" > 0 AND s."tienda" <> '99' AND p."anulado" = false GROUP BY fm."fami_grup_marc", s."talla", p."ccrefejofacm", p."descripcion" ORDER BY "Stock" DESC LIMIT 50`,
+  },
 
   // ── Wholesale ──────────────────────────────────────────────────────
   {

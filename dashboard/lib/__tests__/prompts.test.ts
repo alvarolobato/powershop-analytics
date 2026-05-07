@@ -42,7 +42,7 @@ describe("prompts", () => {
 
     it("includes SQL pairs", () => {
       expect(prompt).toContain("Example SQL Patterns");
-      expect(prompt).toContain("53 pairs");
+      expect(prompt).toContain("56 pairs");
     });
 
     it("includes output format spec", () => {
