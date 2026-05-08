@@ -328,7 +328,12 @@ jobs:
           MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-stale-base" || true
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "ai-merge-conflict" || true
+          # Also clear ai-blocked + ai-merge-conflict — a prior cycle on this PR
+          # may have set them when the LLM step couldn't finish; now that the
+          # rebase is clean, both are stale.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" \
+            --remove-label "ai-merge-conflict" \
+            --remove-label "ai-blocked" || true
           BEFORE="${{ steps.rebase.outputs.before }}"
           AFTER="${{ steps.rebase.outputs.after }}"
           BASE="${{ steps.pr.outputs.base }}"
@@ -374,10 +379,23 @@ jobs:
           UNMERGED="${{ steps.rebase.outputs.unmerged_files }}"
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: \`${{ steps.pr.outputs.branch }}\` has real conflicts with \`origin/$BASE\` and Claude's auto-resolution attempt didn't complete the rebase (likely an ambiguous semantic conflict). Conflicted files: \`${UNMERGED}\`. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally. $MARKER" || true
 
+      # Covers BOTH rebased-but-push-failed AND LLM-resolved-but-push-failed.
+      # `failure()` is required because the `Push rebased branch` step exits 1
+      # on persistent push failure, which sets the job status to failure and
+      # would otherwise short-circuit `success()`-implicit `if:` conditions.
+      # Deliberately does NOT embed the dedup marker — push failure on the
+      # same head SHA must allow a retry on the next cycle (otherwise the
+      # `Skip if a remediation comment was already posted for this head SHA`
+      # gate would block forever, since head SHA doesn't change without a push).
       - name: Push failure
-        if: steps.rebase.outputs.outcome == 'rebased' && steps.push.outputs.pushed != 'true'
+        if: failure() && steps.push.outputs.pushed == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
-          MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: rebased the branch locally but \`git push --force-with-lease\` failed (likely a concurrent push). Will retry next cycle. $MARKER" || true
+          BASE="${{ steps.pr.outputs.base }}"
+          if [ "${{ steps.rebase.outputs.outcome }}" = "rebased" ]; then
+            CTX="rebased the branch locally"
+          else
+            CTX="LLM-resolved conflicts during rebase"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: $CTX but \`git push --force-with-lease origin HEAD:${{ steps.pr.outputs.branch }}\` failed (likely a concurrent push or network error). Will retry on the next cycle." || true
