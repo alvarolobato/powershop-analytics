@@ -71,12 +71,13 @@ describe("stock template", () => {
     }
   });
 
-  it("stock-roturas-por-talla SQL uses CASE aggregates and HAVING", () => {
+  it("stock-roturas-por-talla SQL uses CASE aggregates, HAVING, and LIMIT 50", () => {
     const widget = spec.widgets.find((w) => w.id === "stock-roturas-por-talla");
     expect(widget?.type).toBe("table");
     if (widget?.type === "table") {
       expect(widget.sql).toContain("CASE WHEN");
       expect(widget.sql).toContain("HAVING");
+      expect(widget.sql).toContain("LIMIT 50");
     }
   });
 

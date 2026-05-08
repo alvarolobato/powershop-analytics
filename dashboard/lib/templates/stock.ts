@@ -296,7 +296,8 @@ SELECT
 FROM stock_por_codigo
 GROUP BY familia, "talla"
 HAVING COUNT(CASE WHEN stock_total <= 0 THEN 1 END) > 0
-ORDER BY "% Rotura" DESC`,
+ORDER BY "% Rotura" DESC
+LIMIT 50`,
     },
     {
       id: "stock-articulos-por-talla",
