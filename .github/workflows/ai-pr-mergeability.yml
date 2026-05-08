@@ -155,6 +155,26 @@ jobs:
           echo "marker=$MARKER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
 
+      # Detect whether the PR touches workflow files. Claude Code Action's
+      # OIDC app-token exchange validates that workflow files on the PR branch
+      # match the default branch — a 401 here would crash the LLM resolution
+      # step. Mirrors the same guard in ai-pr-review.yml / ai-address-feedback.yml.
+      - name: Detect workflow-file changes
+        id: workflow_files
+        if: steps.gate.outputs.skip != 'true' && steps.dedup.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          COUNT=$(gh api "repos/$REPO/pulls/$PR_NUMBER/files" --paginate \
+            --jq '.[] | select(.filename | startswith(".github/workflows/")) | .filename' 2>/dev/null \
+            | wc -l | tr -d ' ' || echo "0")
+          if [ "${COUNT:-0}" -gt 0 ]; then
+            echo "skip_llm=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_llm=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Attempt rebase onto base branch
         id: rebase
         if: steps.gate.outputs.skip != 'true' && steps.dedup.outputs.skip != 'true'
@@ -165,28 +185,124 @@ jobs:
           set -euo pipefail
           git fetch origin "$BASE" --depth=0
           BEFORE=$(git rev-parse HEAD)
+          echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 
-          # Try a clean rebase. We DO NOT pass --strategy-option=theirs/ours —
+          # Try a clean rebase. DO NOT pass --strategy-option=theirs/ours —
           # silent conflict resolution can lose review-resolved changes.
-          # If a real conflict exists, surface it as ai-merge-conflict so a
-          # human (or address-feedback) can resolve it.
+          # On conflict we leave the rebase IN PROGRESS so the next step can
+          # invoke Claude to resolve files in the working tree.
           if git rebase "origin/$BASE"; then
             AFTER=$(git rev-parse HEAD)
             if [ "$BEFORE" = "$AFTER" ]; then
               echo "outcome=noop" >> "$GITHUB_OUTPUT"
             else
               echo "outcome=rebased" >> "$GITHUB_OUTPUT"
-              echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
               echo "after=$AFTER" >> "$GITHUB_OUTPUT"
             fi
           else
-            git rebase --abort || true
+            # Capture the conflicted file list now in case Claude is skipped.
+            UNMERGED=$(git diff --name-only --diff-filter=U | head -20 | tr '\n' ',' || true)
+            echo "unmerged_files=$UNMERGED" >> "$GITHUB_OUTPUT"
             echo "outcome=conflict" >> "$GITHUB_OUTPUT"
           fi
 
+      # Skip Claude resolution if the PR touches workflow files (OIDC 401)
+      # — abort the rebase so the working tree is clean for the next run.
+      - name: Abort rebase when LLM cannot run
+        if: steps.rebase.outputs.outcome == 'conflict' && steps.workflow_files.outputs.skip_llm == 'true'
+        run: |
+          git rebase --abort || true
+
+      # LLM-driven conflict resolution. Runs only when the rebase produced a
+      # real conflict AND the PR doesn't touch workflow files. Cap budget
+      # tightly: --max-turns 60, single resolution attempt per head SHA
+      # (the dedup step earlier guarantees we won't loop on the same SHA).
+      - name: Auto-resolve conflicts with Claude
+        id: claude_resolve
+        if: steps.rebase.outputs.outcome == 'conflict' && steps.workflow_files.outputs.skip_llm != 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ env.PR_NUMBER }}
+          REPO: ${{ env.REPO }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--permission-mode bypassPermissions --max-turns 60"
+          prompt: |
+            You are resolving merge conflicts during a `git rebase` of PR #${{ env.PR_NUMBER }}.
+
+            **Context**:
+            - Branch `${{ steps.pr.outputs.branch }}` is being rebased onto `origin/${{ steps.pr.outputs.base }}`.
+            - The first conflicting commit has stopped the rebase. The working tree contains conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`).
+            - There may be additional conflicting commits after this one — repeat the resolution loop until rebase finishes.
+
+            **Your job**:
+            1. Run `git status` to see the unmerged files.
+            2. For each unmerged file, read it, locate the conflict markers, and decide a resolution. Guidelines:
+               - **Prefer additive merges** when both sides add complementary content (new widgets, new SQL pairs, new test cases). Keep both.
+               - **For test-file rule changes** where one side has a more general rule that subsumes the other, keep the more general rule.
+               - **For semantic conflicts** where both sides change the same logic incompatibly, prefer the version on `origin/${{ steps.pr.outputs.base }}` (HEAD during rebase) — that's the merged decision; the branch's version is older.
+               - **Never delete code without a clear reason** — when unsure, keep both.
+               - **Never invent new logic** — only choose between or combine the existing sides.
+            3. After editing each file, verify there are no remaining conflict markers (`grep -nE '^(<{7}|={7}|>{7}) ' <file>` should return nothing).
+            4. Stage the resolved files: `git add <file>`.
+            5. Continue the rebase: `GIT_EDITOR=true git rebase --continue`.
+            6. If a subsequent commit produces another conflict, repeat from step 1.
+            7. When `git status` shows the rebase is no longer in progress (no `.git/rebase-merge` and no `.git/rebase-apply`), stop. Do NOT push — the workflow handles that.
+
+            **Hard constraints**:
+            - Do NOT run `git rebase --abort`, `git reset --hard`, `git checkout --`, or any destructive command.
+            - Do NOT run `git push` — the next workflow step pushes with `--force-with-lease`.
+            - Do NOT skip a commit with `git rebase --skip` — that silently drops work.
+            - Do NOT touch files not involved in the current conflict.
+            - For any file under `.github/workflows/` — STOP and exit without resolving (Claude Code Action cannot validate workflow file changes).
+            - If you cannot make a confident, safe decision for ANY conflict, STOP without continuing the rebase. The workflow will detect the in-progress state and mark the PR as needing human resolution.
+
+            **At the end**, post a short summary as a regular shell command (just `echo`) describing which files you resolved and how. Do NOT post a PR comment yourself — the workflow does that.
+
+            Repository conventions to be aware of (see CLAUDE.md / AGENTS.md):
+            - Read-only SQL on `ps_*` tables (no INSERT / UPDATE / DELETE).
+            - 4D PKs are NUMERIC, never FLOAT8.
+            - For wide tables, specify columns explicitly — never `SELECT *`.
+
+      # Verify Claude actually finished the rebase. If a conflict remains
+      # in the working tree, mark the PR for human resolution.
+      - name: Verify resolution completed
+        id: verify_resolve
+        if: always() && steps.rebase.outputs.outcome == 'conflict' && steps.workflow_files.outputs.skip_llm != 'true'
+        run: |
+          set -euo pipefail
+          if [ -d .git/rebase-merge ] || [ -d .git/rebase-apply ]; then
+            echo "Rebase still in progress — Claude did not finish."
+            git rebase --abort || true
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only --diff-filter=U | grep -q .; then
+            echo "Working tree still has unmerged files."
+            git rebase --abort 2>/dev/null || true
+            git checkout -- . 2>/dev/null || true
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          AFTER=$(git rev-parse HEAD)
+          BEFORE="${{ steps.rebase.outputs.before }}"
+          if [ "$BEFORE" = "$AFTER" ]; then
+            # No commits applied even though the rebase finished — defensive
+            # guard against a Claude session that ran `git rebase --abort`
+            # despite the prompt forbidding it.
+            echo "Rebase finished but HEAD didn't move — refusing to push."
+            echo "resolved=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "resolved=true" >> "$GITHUB_OUTPUT"
+          echo "after=$AFTER" >> "$GITHUB_OUTPUT"
+
       - name: Push rebased branch
         id: push
-        if: steps.rebase.outputs.outcome == 'rebased'
+        if: >-
+          steps.rebase.outputs.outcome == 'rebased' ||
+          steps.verify_resolve.outputs.resolved == 'true'
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
         run: |
@@ -205,23 +321,40 @@ jobs:
           echo "pushed=false" >> "$GITHUB_OUTPUT"
           exit 1
 
-      - name: Comment + label on successful rebase
+      - name: Comment + label on clean rebase
         if: steps.rebase.outputs.outcome == 'rebased' && steps.push.outputs.pushed == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
-          HEAD_SHA: ${{ steps.dedup.outputs.head_sha }}
         run: |
           gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-stale-base" || true
-          # Clear ai-merge-conflict if it was previously set — we just resolved it.
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "ai-merge-conflict" || true
+          # Also clear ai-blocked + ai-merge-conflict — a prior cycle on this PR
+          # may have set them when the LLM step couldn't finish; now that the
+          # rebase is clean, both are stale.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" \
+            --remove-label "ai-merge-conflict" \
+            --remove-label "ai-blocked" || true
           BEFORE="${{ steps.rebase.outputs.before }}"
           AFTER="${{ steps.rebase.outputs.after }}"
           BASE="${{ steps.pr.outputs.base }}"
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "🔁 **AI Mergeability**: rebased \`${{ steps.pr.outputs.branch }}\` onto \`origin/$BASE\` (\`${BEFORE:0:7}\` → \`${AFTER:0:7}\`). CI will re-run on the new head. $MARKER" || true
 
-      - name: Mark unresolvable conflict
-        if: steps.rebase.outputs.outcome == 'conflict'
+      - name: Comment + label on LLM-resolved conflict
+        if: steps.rebase.outputs.outcome == 'conflict' && steps.verify_resolve.outputs.resolved == 'true' && steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MARKER: ${{ steps.dedup.outputs.marker }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-stale-base" || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "ai-merge-conflict" --remove-label "ai-blocked" || true
+          BEFORE="${{ steps.rebase.outputs.before }}"
+          AFTER="${{ steps.verify_resolve.outputs.after }}"
+          BASE="${{ steps.pr.outputs.base }}"
+          UNMERGED="${{ steps.rebase.outputs.unmerged_files }}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "🤖 **AI Mergeability**: real conflict on \`${{ steps.pr.outputs.branch }}\` vs \`origin/$BASE\` was **auto-resolved by Claude** (\`${BEFORE:0:7}\` → \`${AFTER:0:7}\`). Conflicted files: \`${UNMERGED}\`. **Please review the merge resolution before merging this PR** — the LLM may have made semantic choices that need human verification. CI will re-run on the new head. $MARKER" || true
+
+      - name: Mark unresolvable conflict (LLM skipped — workflow-file change)
+        if: steps.rebase.outputs.outcome == 'conflict' && steps.workflow_files.outputs.skip_llm == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
@@ -230,12 +363,39 @@ jobs:
             --add-label "ai-blocked" --add-label "ai-merge-conflict" \
             --remove-label "ai-awaiting-owner" || true
           BASE="${{ steps.pr.outputs.base }}"
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: cannot auto-rebase \`${{ steps.pr.outputs.branch }}\` onto \`origin/$BASE\` — there is a real conflict. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally or run \`/plan\` on this PR for a fix proposal. $MARKER" || true
+          UNMERGED="${{ steps.rebase.outputs.unmerged_files }}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: \`${{ steps.pr.outputs.branch }}\` conflicts with \`origin/$BASE\` and the PR modifies files under \`.github/workflows/\` — the Claude Code Action's OIDC app-token exchange would 401 on this branch, so the LLM resolution step is skipped by design. Conflicted files: \`${UNMERGED}\`. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally. $MARKER" || true
 
-      - name: Push failure
-        if: steps.rebase.outputs.outcome == 'rebased' && steps.push.outputs.pushed != 'true'
+      - name: Mark unresolvable conflict (LLM ran but couldn't finish)
+        if: steps.rebase.outputs.outcome == 'conflict' && steps.workflow_files.outputs.skip_llm != 'true' && steps.verify_resolve.outputs.resolved != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: rebased the branch locally but \`git push --force-with-lease\` failed (likely a concurrent push). Will retry next cycle. $MARKER" || true
+          gh pr edit "$PR_NUMBER" --repo "$REPO" \
+            --add-label "ai-blocked" --add-label "ai-merge-conflict" \
+            --remove-label "ai-awaiting-owner" || true
+          BASE="${{ steps.pr.outputs.base }}"
+          UNMERGED="${{ steps.rebase.outputs.unmerged_files }}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: \`${{ steps.pr.outputs.branch }}\` has real conflicts with \`origin/$BASE\` and Claude's auto-resolution attempt didn't complete the rebase (likely an ambiguous semantic conflict). Conflicted files: \`${UNMERGED}\`. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally. $MARKER" || true
+
+      # Covers BOTH rebased-but-push-failed AND LLM-resolved-but-push-failed.
+      # `failure()` is required because the `Push rebased branch` step exits 1
+      # on persistent push failure, which sets the job status to failure and
+      # would otherwise short-circuit `success()`-implicit `if:` conditions.
+      # Deliberately does NOT embed the dedup marker — push failure on the
+      # same head SHA must allow a retry on the next cycle (otherwise the
+      # `Skip if a remediation comment was already posted for this head SHA`
+      # gate would block forever, since head SHA doesn't change without a push).
+      - name: Push failure
+        if: failure() && steps.push.outputs.pushed == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BASE="${{ steps.pr.outputs.base }}"
+          if [ "${{ steps.rebase.outputs.outcome }}" = "rebased" ]; then
+            CTX="rebased the branch locally"
+          else
+            CTX="LLM-resolved conflicts during rebase"
+          fi
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: $CTX but \`git push --force-with-lease origin HEAD:${{ steps.pr.outputs.branch }}\` failed (likely a concurrent push or network error). Will retry on the next cycle." || true
