@@ -569,7 +569,7 @@ export const SQL_PAIRS: SqlPair[] = [
     sql: `SELECT s."talla" AS "Talla", SUM(s."stock") AS "Unidades" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 AND s."tienda" <> '99' AND p."anulado" = false GROUP BY s."talla" ORDER BY s."talla" ASC`,
   },
   {
-    question: "¿Qué tallas tienen más roturas (referencias sin stock)?",
+    question: "¿Qué familias y tallas tienen más roturas de stock (referencias sin stock)?",
     sql: `WITH stock_por_codigo AS (SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS familia, s."talla", s."codigo", SUM(s."stock") AS stock_total FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE s."tienda" <> '99' AND p."anulado" = false GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", s."codigo") SELECT familia AS "Familia", "talla" AS "Talla", COUNT(CASE WHEN stock_total <= 0 THEN 1 END) AS "Sin Stock", COUNT(CASE WHEN stock_total > 0 THEN 1 END) AS "Con Stock", COUNT(*) AS "Total Refs", ROUND(COUNT(CASE WHEN stock_total <= 0 THEN 1 END)::NUMERIC / NULLIF(COUNT(*), 0) * 100, 1) AS "% Rotura" FROM stock_por_codigo GROUP BY familia, "talla" HAVING COUNT(CASE WHEN stock_total <= 0 THEN 1 END) > 0 ORDER BY "% Rotura" DESC`,
   },
   {
