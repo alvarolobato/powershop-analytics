@@ -47,6 +47,21 @@ def _parse_cron_hour(raw: str | None) -> int:
     return value
 
 
+def _parse_cron_minute(raw: str | None) -> int:
+    """Validate ETL_DELTA_CRON_MINUTE string; default to 0 when non-integer or outside [0, 59]."""
+    try:
+        value = int(raw or "0")
+    except ValueError:
+        logger.warning(
+            "ETL_DELTA_CRON_MINUTE=%r is not an integer; defaulting to 0", raw
+        )
+        return 0
+    if not (0 <= value <= 59):
+        logger.warning("ETL_DELTA_CRON_MINUTE=%d out of range; clamping to 0", value)
+        return 0
+    return value
+
+
 # ---------------------------------------------------------------------------
 # Schema initialisation
 # ---------------------------------------------------------------------------
@@ -1045,13 +1060,7 @@ def main() -> None:
     # delta_cron_minute controls the minute-of-hour for the hourly delta
     # (and also the minute the nightly full fires on cron_hour).
     cron_hour = _parse_cron_hour(os.environ.get("ETL_CRON_HOUR"))
-    delta_cron_minute = int(os.environ.get("ETL_DELTA_CRON_MINUTE", "0"))
-    if not (0 <= delta_cron_minute <= 59):
-        logger.warning(
-            "ETL_DELTA_CRON_MINUTE=%d out of range; clamping to 0",
-            delta_cron_minute,
-        )
-        delta_cron_minute = 0
+    delta_cron_minute = _parse_cron_minute(os.environ.get("ETL_DELTA_CRON_MINUTE"))
 
     from etl.db import postgres
 
