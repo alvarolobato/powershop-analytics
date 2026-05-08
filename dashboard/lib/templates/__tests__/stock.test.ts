@@ -21,8 +21,8 @@ describe("stock template", () => {
     expect(spec.title.length).toBeGreaterThan(0);
   });
 
-  it("has 10 widgets (7 original + 3 talla widgets)", () => {
-    expect(spec.widgets).toHaveLength(10);
+  it("has 11 widgets (8 original + 3 talla widgets)", () => {
+    expect(spec.widgets).toHaveLength(11);
   });
 
   it("every widget has a non-empty id", () => {
