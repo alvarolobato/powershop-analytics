@@ -319,7 +319,7 @@ WHERE s."stock" > 0
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
-GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", p."ccrefejofacm", p."descripcion"
+GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", COALESCE(NULLIF(p."ccrefejofacm", ''), '—'), COALESCE(NULLIF(p."descripcion", ''), '—')
 ORDER BY "Stock" DESC
 LIMIT 50`,
     },
