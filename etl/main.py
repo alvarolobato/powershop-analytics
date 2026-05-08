@@ -57,7 +57,7 @@ def _parse_cron_minute(raw: str | None) -> int:
         )
         return 0
     if not (0 <= value <= 59):
-        logger.warning("ETL_DELTA_CRON_MINUTE=%d out of range; clamping to 0", value)
+        logger.warning("ETL_DELTA_CRON_MINUTE=%d out of range; defaulting to 0", value)
         return 0
     return value
 
