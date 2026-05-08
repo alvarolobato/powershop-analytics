@@ -104,7 +104,8 @@ export type Metric = {
   label: string;
   value: number;
   format: "eur" | "eur2" | "int" | "pct" | "x";
-  delta: number;
+  /** Signed fraction vs previous period, or null when no comparison data. */
+  delta: number | null;
   inverted?: boolean; // true for "lower is better"
   sub?: string;
   suffix?: string;

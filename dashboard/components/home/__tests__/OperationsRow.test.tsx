@@ -69,6 +69,26 @@ describe("OperationsRow (RETAIL)", () => {
     expect(chipStyle).toContain("var(--down)");
   });
 
+  it("renders — when delta is null (no comparison data available)", () => {
+    const metricsWithNull: Metric[] = [
+      { id: "ticket", label: "Ticket medio", value: 26.55, format: "eur2", delta: null, sub: "vs ayer" },
+      ...RETAIL_METRICS.slice(1),
+    ];
+    render(
+      <OperationsRow
+        sectionLabel="RETAIL"
+        title="Operativa retail"
+        subtitle="hoy · vs ayer"
+        metrics={metricsWithNull}
+      />
+    );
+    const ticketCell = screen.getByTestId("metric-cell-ticket");
+    // Delta component renders an em dash when value is null
+    expect(ticketCell.textContent).toContain("—");
+    // The sub label is still shown
+    expect(ticketCell.textContent).toContain("vs ayer");
+  });
+
   it("renders correct number of metrics for MAYORISTA", () => {
     const wholesale: Metric[] = [
       { id: "fact",  label: "Facturación",        value: 84200,   format: "eur", delta:  0.041 },
