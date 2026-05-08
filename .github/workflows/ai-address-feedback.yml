@@ -128,6 +128,14 @@ jobs:
             SHOULD_RUN="false"
             REASON="PR #$PR labelled no-address-feedback"
           fi
+          # D-021: don't even kick off the address job for converged PRs.
+          # The address job has its own d021 step as a defence in depth, but
+          # short-circuiting here saves a runner and avoids touching labels.
+          if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
+             && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            SHOULD_RUN="false"
+            REASON="PR #$PR already has ai-cp-after-1 + ai-o-after-1 (D-021 converged)"
+          fi
 
           echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
           echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
@@ -141,13 +149,64 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
+      # D-021 enforcement (must run BEFORE `Announce start`, which strips
+      # ai-awaiting-owner). If both Copilot and Opus rounds have already been
+      # addressed, a fresh address-feedback run would just surface nit-picks
+      # and create a new commit, kicking off another cycle. Bail here and keep
+      # the converged state sticky. PRs #493 / #495 had 4+ rounds before this
+      # guard existed.
+      - name: D-021 — bail if both rounds done
+        id: d021
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.resolve.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          LABELS=$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '[.labels[].name] | join(",")')
+          if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
+             && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            echo "PR #$PR has both rounds addressed — D-021 converged."
+            # Cosmetic-only label cleanup (always safe).
+            gh pr edit "$PR" --repo "$REPO" \
+              --remove-label "ai-ready-for-review" \
+              --remove-label "ai-phase-copilot" \
+              --remove-label "ai-phase-opus" \
+              --remove-label "ai-blocked" \
+              --remove-label "ai-auto-retry" || true
+            # Owner handoff is CI-gated to match the rest of this file
+            # (see `owner_handoff_or_ci_gate` below). Don't claim merge-ready
+            # if CI is failing or still running.
+            HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)
+            CI_STATE=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+              --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
+              2>/dev/null || echo "unknown")
+            if echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+              CI_STATE="failing"
+            fi
+            if [ "$CI_STATE" = "ready" ]; then
+              gh pr edit "$PR" --repo "$REPO" --add-label "ai-awaiting-owner" || true
+              gh pr comment "$PR" --repo "$REPO" \
+                --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed. Skipping address-feedback. Awaiting owner merge decision." || true
+            else
+              gh pr comment "$PR" --repo "$REPO" \
+                --body "ℹ️ **AI Factory**: D-021 — both rounds already addressed. Skipping address-feedback. **Not marking \`ai-awaiting-owner\`** because CI is \`$CI_STATE\`." || true
+            fi
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.d021.outputs.skip != 'true'
         with:
           ref: ${{ needs.resolve.outputs.head_ref }}
           fetch-depth: 0
 
       - name: Capture initial HEAD
         id: initial_head
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -156,6 +215,7 @@ jobs:
           echo "Initial HEAD: $SHA"
 
       - name: Announce start
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -173,6 +233,7 @@ jobs:
       # knows why automated address-feedback can't run.
       - name: Detect workflow-file change
         id: workflow_change
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -193,7 +254,7 @@ jobs:
           fi
 
       - name: Skip Claude address-feedback — PR touches .github/workflows
-        if: steps.workflow_change.outputs.skip == 'true'
+        if: steps.d021.outputs.skip != 'true' && steps.workflow_change.outputs.skip == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -209,7 +270,7 @@ jobs:
 
       - name: Address Review Feedback
         id: address
-        if: steps.workflow_change.outputs.skip != 'true'
+        if: steps.d021.outputs.skip != 'true' && steps.workflow_change.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
           GH_TOKEN: ${{ github.token }}
@@ -305,7 +366,7 @@ jobs:
             - Stay within this PR's scope — do not pull in unrelated work.
 
       - name: Fetch CI handoff helper from default branch
-        if: success() && steps.workflow_change.outputs.skip != 'true'
+        if: success() && steps.d021.outputs.skip != 'true' && steps.workflow_change.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -317,7 +378,7 @@ jobs:
 
       - name: Route next automated review (or converge)
         id: route
-        if: success() && steps.workflow_change.outputs.skip != 'true'
+        if: success() && steps.d021.outputs.skip != 'true' && steps.workflow_change.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           # PAT-capable token for Copilot reviewer assignment. GITHUB_TOKEN
@@ -424,6 +485,23 @@ jobs:
           gh label create "ai-cp-after-1" --color "0e8a16" --description "AI Factory: addressed Copilot review" 2>/dev/null || true
           gh label create "ai-o-after-1" --color "0e8a16" --description "AI Factory: addressed Opus review" 2>/dev/null || true
           gh label create "ai-ready-for-review" --color "fbca04" --description "AI Factory: PR ready for automated review" 2>/dev/null || true
+
+          # D-021: defensive bail in case both round markers are already set.
+          # The job-level d021 step catches the common case before the
+          # claude-code-action runs; this catches the rarer case where the
+          # bot's address-feedback session itself completed both rounds.
+          if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
+             && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            echo "Both ai-cp-after-1 + ai-o-after-1 set — D-021 converged."
+            gh pr edit "$PR" --repo "$REPO" \
+              --remove-label "ai-phase-copilot" \
+              --remove-label "ai-phase-opus" \
+              --remove-label "ai-ready-for-review" \
+              --remove-label "ai-blocked" \
+              --remove-label "ai-auto-retry" || true
+            owner_handoff_or_ci_gate "✅ **AI Factory**: Both review rounds (Copilot + Opus) addressed. PR is ready for human merge decision."
+            exit 0
+          fi
 
           if echo ",$LABELS," | grep -q ",ai-phase-copilot,"; then
             if echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
