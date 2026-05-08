@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildGeneratePrompt, buildModifyPrompt } from "../prompts";
 import { DashboardSpecSchema } from "../schema";
+import { SQL_PAIRS } from "../knowledge";
 
 describe("prompts", () => {
   describe("buildGeneratePrompt", () => {
@@ -42,7 +43,7 @@ describe("prompts", () => {
 
     it("includes SQL pairs", () => {
       expect(prompt).toContain("Example SQL Patterns");
-      expect(prompt).toContain("53 pairs");
+      expect(prompt).toContain(`${SQL_PAIRS.length} pairs`);
     });
 
     it("includes output format spec", () => {
