@@ -184,6 +184,20 @@ jobs:
               continue
             fi
 
+            # D-021: skip PRs where both rounds were already addressed.
+            # The address-feedback workflow now strips ai-ready-for-review on
+            # converge, but a stale label could still trip this step into
+            # re-dispatching a third review (PR #495 had 5+ Opus rounds because
+            # of this loop).
+            if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
+               && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              echo "PR #$NUM: D-021 converged (both ai-cp-after-1 + ai-o-after-1) — clearing stale ai-ready-for-review and skipping"
+              gh pr edit "$NUM" --repo "$REPO_FULL" \
+                --remove-label "ai-ready-for-review" \
+                --add-label "ai-awaiting-owner" || true
+              continue
+            fi
+
             # Find when ai-ready-for-review label was last added by looking at
             # pr-review runs triggered for this PR in the last 30 minutes.
             NOW=$(date -u +%s)
@@ -273,7 +287,7 @@ jobs:
             CREATED_AT=$(echo "$pr" | jq -r '.createdAt')
             LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
 
-            # Any label that proves pr-review already progressed on this PR.
+            # Any single label that proves pr-review already progressed.
             for HAS in ai-ready-for-review ai-phase-copilot ai-phase-opus \
                        ai-awaiting-owner ai-ci-failing ai-blocked \
                        no-pr-review; do
@@ -282,6 +296,20 @@ jobs:
                 continue 2
               fi
             done
+
+            # D-021: skip when BOTH ai-cp-after-1 + ai-o-after-1 are present.
+            # That's the converged-state signal; an earlier workflow may have
+            # stripped ai-awaiting-owner, leaving the PR exposed to a fresh
+            # cold-dispatch (PRs #493 / #495 hit this — 4 cold-dispatches across
+            # 8 hours despite both rounds being addressed). Re-add awaiting-owner
+            # so the PR's state is consistent.
+            if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
+               && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              echo "PR #$NUM has both ai-cp-after-1 + ai-o-after-1 — D-021 converged, skipping cold-dispatch."
+              gh pr edit "$NUM" --repo "$REPO_FULL" \
+                --add-label "ai-awaiting-owner" || true
+              continue
+            fi
 
             # Give the event-driven trigger a grace period.
             NOW=$(date -u +%s)

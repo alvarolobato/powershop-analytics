@@ -13,9 +13,15 @@ on:
         required: true
         type: number
 
-# One Opus PR review at a time across the repo — avoids Anthropic rate limits when many PRs move together.
+# Per-PR concurrency. The previous global `ai-pr-review-global` group serialised
+# every Opus review repo-wide; when many PRs landed at once, downstream steps
+# that dispatch this workflow (e.g. the phase-advance in ai-address-feedback)
+# stranded PRs in `ai-phase-opus` forever (PR #496 was stuck overnight). Per-PR
+# groups still prevent two concurrent reviews of the same PR while letting
+# different PRs proceed in parallel. Anthropic-side rate limits are handled by
+# the claude-code-action's own retry.
 concurrency:
-  group: ai-pr-review-global
+  group: ai-pr-review-${{ github.event.pull_request.number || inputs.pr_number }}
   cancel-in-progress: false
 
 permissions:
@@ -44,19 +50,51 @@ jobs:
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
+      # D-021 enforcement: if both Copilot and Opus rounds have already been
+      # addressed, this PR is converged. Don't run a third review — it will
+      # surface nit-picks that loop with address-feedback (PRs #493 / #495
+      # had 4+ Copilot rounds and 5+ Opus rounds before this guard existed).
+      # Runs first so we can also short-circuit later steps via this output.
+      - name: D-021 — short-circuit when both rounds done
+        id: d021
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          LABELS=$(gh pr view "$PR_NUMBER" --repo "${{ github.repository }}" \
+            --json labels --jq '[.labels[].name] | join(",")')
+          if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
+             && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            echo "PR #$PR_NUMBER already has ai-cp-after-1 + ai-o-after-1 — D-021 converged."
+            gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --add-label "ai-awaiting-owner" \
+              --remove-label "ai-ready-for-review" \
+              --remove-label "ai-phase-copilot" \
+              --remove-label "ai-phase-opus" || true
+            gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" \
+              --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed (\`ai-cp-after-1\` + \`ai-o-after-1\`). Skipping additional review to break review-loop. Awaiting owner merge decision." || true
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       # Most runs are workflow_dispatch; the label would otherwise linger and the
-      # watchdog would keep re-dispatching this workflow.
+      # watchdog would keep re-dispatching this workflow. We DON'T strip
+      # ai-awaiting-owner here any more — stripping it on every dispatch was
+      # what let the cold-dispatch loop undo the converged state on #493 / #495.
+      # The d021 step above already cleans up label state for converged PRs.
       - name: Clear ai-ready-for-review (best-effort)
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
             --remove-label "ai-ready-for-review" \
-            --remove-label "ai-awaiting-owner" \
             --remove-label "ai-ci-failing" || true
 
       - name: Resolve PR ref and title
         id: resolve
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -73,11 +111,13 @@ jobs:
           echo "TITLE_EOF" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v4
+        if: steps.d021.outputs.skip != 'true'
         with:
           ref: ${{ steps.resolve.outputs.ref }}
           fetch-depth: 0
 
       - name: Fetch CI handoff helper from default branch
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -90,6 +130,7 @@ jobs:
 
       - name: Load review guidelines
         id: guidelines
+        if: steps.d021.outputs.skip != 'true'
         run: |
           {
             echo 'CONTENT<<PR_REVIEW_EOF'
@@ -100,6 +141,7 @@ jobs:
 
       - name: Check Opus review cap (legacy PRs)
         id: cap
+        if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -130,7 +172,7 @@ jobs:
           echo "skip_reason=$SKIP_REASON" >> "$GITHUB_OUTPUT"
 
       - name: Skip Claude review — PR touches .github/workflows
-        if: steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'workflow-file-change'
+        if: steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'workflow-file-change'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -143,7 +185,7 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$MSG" || true
 
       - name: Claude PR Review
-        if: steps.cap.outputs.skip != 'true'
+        if: steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
           # Default gh auth for every Claude-side call EXCEPT the Copilot
