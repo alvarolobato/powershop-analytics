@@ -334,3 +334,62 @@ def test_cron_hour_non_integer_defaults_to_2(caplog):
 
     assert result == 2
     assert "not an integer" in caplog.text
+
+
+# Tests: ETL_DELTA_CRON_MINUTE validation (_parse_cron_minute helper)
+# ---------------------------------------------------------------------------
+
+
+def test_delta_cron_minute_non_integer_defaults_to_0(caplog):
+    """Non-integer ETL_DELTA_CRON_MINUTE defaults to 0 with a warning."""
+    import logging
+
+    from etl.main import _parse_cron_minute
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_cron_minute("abc")
+
+    assert result == 0
+    assert "not an integer" in caplog.text
+
+
+def test_delta_cron_minute_out_of_range_defaults_to_0(caplog):
+    """ETL_DELTA_CRON_MINUTE outside [0, 59] defaults to 0 with a warning."""
+    import logging
+
+    from etl.main import _parse_cron_minute
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_cron_minute("99")
+
+    assert result == 0
+    assert "out of range" in caplog.text
+
+
+def test_delta_cron_minute_negative_defaults_to_0(caplog):
+    """Negative ETL_DELTA_CRON_MINUTE defaults to 0 with a warning."""
+    import logging
+
+    from etl.main import _parse_cron_minute
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_cron_minute("-1")
+
+    assert result == 0
+    assert "out of range" in caplog.text
+
+
+def test_delta_cron_minute_valid_values_unchanged():
+    """ETL_DELTA_CRON_MINUTE within [0, 59] is returned as-is."""
+    from etl.main import _parse_cron_minute
+
+    assert _parse_cron_minute("0") == 0
+    assert _parse_cron_minute("30") == 30
+    assert _parse_cron_minute("59") == 59
+
+
+def test_delta_cron_minute_none_defaults_to_0():
+    """None (env var not set) returns the default of 0."""
+    from etl.main import _parse_cron_minute
+
+    assert _parse_cron_minute(None) == 0
