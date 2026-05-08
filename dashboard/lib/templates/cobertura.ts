@@ -18,8 +18,10 @@
  *    coverage widgets.
  *
  * 3. **Lead time per supplier.**  `AVG(fecha_recibido − fecha_pedido)` from
- *    `ps_compras` where both dates are non-NULL; falls back to 15 days via
- *    `COALESCE` when no completed POs exist for a supplier.
+ *    `ps_compras` where both dates are non-NULL and `fecha_recibido >=
+ *    fecha_pedido` (guards against data-entry errors that produce negative
+ *    lead times); falls back to 15 days via `COALESCE` when no completed
+ *    POs exist for a supplier.
  *
  * 4. **Critical threshold = 7 days.**  Hardcoded in SQL — adjust if business
  *    rule changes.  Overstock threshold = 90 days.
@@ -179,6 +181,7 @@ JOIN ventas_30d vd ON vd."codigo" = p."codigo"
 LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE p."anulado" = false
   AND (sa.total_stock / NULLIF(vd.unidades_30d / 30.0, 0)) > 90
+  AND (sa.total_stock / NULLIF(vd.unidades_30d / 30.0, 0)) < 365
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
@@ -261,6 +264,7 @@ lead_time_prov AS (
   FROM "public"."ps_compras" co
   WHERE co."fecha_recibido" IS NOT NULL
     AND co."fecha_pedido" IS NOT NULL
+    AND co."fecha_recibido" >= co."fecha_pedido"
   GROUP BY co."num_proveedor"
 )
 SELECT
