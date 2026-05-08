@@ -77,6 +77,14 @@ jobs:
             List every discrete unit of work. Each task must be independently implementable
             (own branch + PR) and small enough to complete in a focused session.
 
+            **DO NOT create sub-issues for lifecycle steps.** "Run all checks", "Copilot
+            review", "Opus review", and "Create commit" are steps inside the feature PR's
+            lifecycle (the worker handles them automatically) — they are not independent
+            code changes. Decomposing a parent into one `ai-task` per lifecycle step
+            spawns N parallel PRs that all implement the same feature (this happened
+            with #481 → #482..#487 → PRs #490, #491, #494, #496). If the parent produces
+            only one logical change, output **one** sub-issue, not five.
+
             | # | Title | Files | Acceptance |
             |---|-------|-------|------------|
             | 1 | ... | ... | ... |

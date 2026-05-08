@@ -1,0 +1,241 @@
+name: AI PR Mergeability
+# Keeps factory PRs (ai/*) merge-ready: when a PR falls behind main or has
+# merge conflicts, attempts an automated rebase + push. If the rebase cannot
+# be resolved cleanly, the PR is labeled `ai-blocked` + `ai-merge-conflict`
+# and the owner is pinged. Companion to ai-ci-remediation.yml — that one
+# fixes failing CI; this one fixes everything BEFORE CI can even run.
+on:
+  schedule:
+    # Every 30 minutes
+    - cron: "*/30 * * * *"
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Specific PR number to check (omit for all open ai/* PRs)"
+        required: false
+        type: string
+
+concurrency:
+  group: ai-pr-mergeability
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      pr_numbers: ${{ steps.list.outputs.pr_numbers }}
+    steps:
+      - name: Ensure labels exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create "ai-merge-conflict" --color "B60205" \
+            --description "AI Factory: PR has unresolvable merge conflict" 2>/dev/null || true
+          gh label create "ai-stale-base" --color "FBCA04" \
+            --description "AI Factory: PR was rebased onto latest main" 2>/dev/null || true
+
+      - name: List PRs to check
+        id: list
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.pr_number }}" ]; then
+            echo "pr_numbers=[${{ inputs.pr_number }}]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Open PRs from ai/* branches that are NOT already flagged blocked.
+          # mergeable is one of: MERGEABLE, CONFLICTING, UNKNOWN.
+          # mergeStateStatus is one of: CLEAN, DIRTY, BLOCKED, BEHIND, UNSTABLE, HAS_HOOKS, UNKNOWN.
+          PRS=$(gh pr list --repo "$REPO" --state open --limit 100 \
+            --search "head:ai/" \
+            --json number,headRefName,mergeable,mergeStateStatus,labels \
+            --jq '[.[] | select(
+                    (.headRefName | startswith("ai/")) and
+                    ([.labels[].name] | any(. == "no-ai") | not) and
+                    (
+                      .mergeable == "CONFLICTING" or
+                      .mergeStateStatus == "DIRTY"  or
+                      .mergeStateStatus == "BEHIND"
+                    )
+                  ) | .number]')
+          echo "PRs needing attention: $PRS"
+          echo "pr_numbers=$PRS" >> "$GITHUB_OUTPUT"
+
+  remediate:
+    needs: scan
+    if: needs.scan.outputs.pr_numbers != '[]' && needs.scan.outputs.pr_numbers != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        pr_number: ${{ fromJSON(needs.scan.outputs.pr_numbers) }}
+    env:
+      PR_NUMBER: ${{ matrix.pr_number }}
+      REPO: ${{ github.repository }}
+      OWNER_HANDLE: alvarolobato
+    steps:
+      - name: Read PR metadata
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          DATA=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+            --json number,headRefName,baseRefName,mergeable,mergeStateStatus,headRepositoryOwner,headRefOid)
+          echo "data=$DATA"
+          BRANCH=$(echo "$DATA" | jq -r .headRefName)
+          BASE=$(echo "$DATA" | jq -r .baseRefName)
+          MERGEABLE=$(echo "$DATA" | jq -r .mergeable)
+          STATUS=$(echo "$DATA" | jq -r .mergeStateStatus)
+          HEAD_OWNER=$(echo "$DATA" | jq -r .headRepositoryOwner.login)
+          {
+            echo "branch=$BRANCH"
+            echo "base=$BASE"
+            echo "mergeable=$MERGEABLE"
+            echo "status=$STATUS"
+            echo "head_owner=$HEAD_OWNER"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Skip cross-fork PRs
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Only rebase same-repo PRs — pushing to a fork from this workflow
+          # is not authorized and would fail anyway.
+          if [ "${{ steps.pr.outputs.head_owner }}" != "${{ github.repository_owner }}" ]; then
+            echo "Cross-fork PR — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.pr.outputs.branch }}
+          persist-credentials: true
+
+      - name: Configure git
+        if: steps.gate.outputs.skip != 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Skip if a remediation comment was already posted for this head SHA
+        id: dedup
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          HEAD_SHA=$(git rev-parse HEAD)
+          MARKER="<!-- ai-pr-mergeability head=$HEAD_SHA -->"
+          if gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+              --jq -r '.[].body' | grep -Fq "$MARKER"; then
+            echo "Already remediated this head SHA. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "marker=$MARKER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Attempt rebase onto base branch
+        id: rebase
+        if: steps.gate.outputs.skip != 'true' && steps.dedup.outputs.skip != 'true'
+        env:
+          BASE: ${{ steps.pr.outputs.base }}
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE" --depth=0
+          BEFORE=$(git rev-parse HEAD)
+
+          # Try a clean rebase. We DO NOT pass --strategy-option=theirs/ours —
+          # silent conflict resolution can lose review-resolved changes.
+          # If a real conflict exists, surface it as ai-merge-conflict so a
+          # human (or address-feedback) can resolve it.
+          if git rebase "origin/$BASE"; then
+            AFTER=$(git rev-parse HEAD)
+            if [ "$BEFORE" = "$AFTER" ]; then
+              echo "outcome=noop" >> "$GITHUB_OUTPUT"
+            else
+              echo "outcome=rebased" >> "$GITHUB_OUTPUT"
+              echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
+              echo "after=$AFTER" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            git rebase --abort || true
+            echo "outcome=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push rebased branch
+        id: push
+        if: steps.rebase.outputs.outcome == 'rebased'
+        env:
+          BRANCH: ${{ steps.pr.outputs.branch }}
+        run: |
+          set -euo pipefail
+          # force-with-lease guards against clobbering a concurrent push.
+          # Retry up to 4 times on transient network failure (per repo guideline).
+          for attempt in 1 2 3 4; do
+            if git push --force-with-lease origin "HEAD:$BRANCH"; then
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep_for=$(( 2 ** attempt ))
+            echo "Push attempt $attempt failed. Sleeping ${sleep_for}s..."
+            sleep "$sleep_for"
+          done
+          echo "pushed=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      - name: Comment + label on successful rebase
+        if: steps.rebase.outputs.outcome == 'rebased' && steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MARKER: ${{ steps.dedup.outputs.marker }}
+          HEAD_SHA: ${{ steps.dedup.outputs.head_sha }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-stale-base" || true
+          # Clear ai-merge-conflict if it was previously set — we just resolved it.
+          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "ai-merge-conflict" || true
+          BEFORE="${{ steps.rebase.outputs.before }}"
+          AFTER="${{ steps.rebase.outputs.after }}"
+          BASE="${{ steps.pr.outputs.base }}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "🔁 **AI Mergeability**: rebased \`${{ steps.pr.outputs.branch }}\` onto \`origin/$BASE\` (\`${BEFORE:0:7}\` → \`${AFTER:0:7}\`). CI will re-run on the new head. $MARKER" || true
+
+      - name: Mark unresolvable conflict
+        if: steps.rebase.outputs.outcome == 'conflict'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MARKER: ${{ steps.dedup.outputs.marker }}
+        run: |
+          gh pr edit "$PR_NUMBER" --repo "$REPO" \
+            --add-label "ai-blocked" --add-label "ai-merge-conflict" \
+            --remove-label "ai-awaiting-owner" || true
+          BASE="${{ steps.pr.outputs.base }}"
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: cannot auto-rebase \`${{ steps.pr.outputs.branch }}\` onto \`origin/$BASE\` — there is a real conflict. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally or run \`/plan\` on this PR for a fix proposal. $MARKER" || true
+
+      - name: Push failure
+        if: steps.rebase.outputs.outcome == 'rebased' && steps.push.outputs.pushed != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MARKER: ${{ steps.dedup.outputs.marker }}
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: rebased the branch locally but \`git push --force-with-lease\` failed (likely a concurrent push). Will retry next cycle. $MARKER" || true
