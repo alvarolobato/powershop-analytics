@@ -11,6 +11,7 @@ import * as stock from "./stock";
 import * as mayorista from "./mayorista";
 import * as general from "./general";
 import * as compras from "./compras";
+import * as cobertura from "./cobertura";
 
 export interface DashboardTemplate {
   /** Unique slug derived from the file name. */
@@ -29,4 +30,5 @@ export const TEMPLATES: DashboardTemplate[] = [
   { slug: "mayorista", name: mayorista.name, description: mayorista.description, spec: mayorista.spec },
   { slug: "general", name: general.name, description: general.description, spec: general.spec },
   { slug: "compras", name: compras.name, description: compras.description, spec: compras.spec },
+  { slug: "cobertura", name: cobertura.name, description: cobertura.description, spec: cobertura.spec },
 ];

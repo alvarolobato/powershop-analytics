@@ -274,3 +274,17 @@ export const templateGlobalFiltersStock: GlobalFilter[] = [
 export const templateGlobalFiltersCompras: GlobalFilter[] = [
   PROVEEDOR_COMPRAS,
 ];
+
+/**
+ * Coverage dashboards. Combines stock-scoped tienda filter (binds to
+ * ps_stock_tienda via alias `s`) with catalog filters for familia, temporada,
+ * marca, and supplier (all bind to ps_articulos via alias `p` / ps_familias
+ * via alias `fm`). No date-based options: coverage is point-in-time.
+ */
+export const templateGlobalFiltersCobertura: GlobalFilter[] = [
+  TIENDA_STOCK,
+  FAMILIA_CATALOG,
+  TEMPORADA,
+  MARCA,
+  PROVEEDOR_ARTICULO,
+];
