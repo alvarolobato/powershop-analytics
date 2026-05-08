@@ -95,6 +95,9 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
         if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && !/CURRENT_DATE/.test(sql)) {
           expect(sql).toMatch(/:curr_from/);
           expect(sql).toMatch(/:curr_to/);
+        } else if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && /CURRENT_DATE/.test(sql)) {
+          expect(sql).not.toMatch(/:curr_from/);
+          expect(sql).not.toMatch(/:curr_to/);
         }
       }
     });
@@ -143,10 +146,14 @@ describe("SQL rule compliance across all templates", () => {
 
   it("all time-filtered SQL contains both :curr_from and :curr_to tokens (unless point-in-time with CURRENT_DATE)", () => {
     for (const sql of allSql) {
-      // Point-in-time coverage widgets use CURRENT_DATE and are exempt.
+      // Point-in-time coverage widgets use CURRENT_DATE and are exempt from the
+      // :curr_from/:curr_to requirement — but they must not mix in those tokens.
       if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && !/CURRENT_DATE/.test(sql)) {
         expect(sql).toMatch(/:curr_from/);
         expect(sql).toMatch(/:curr_to/);
+      } else if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && /CURRENT_DATE/.test(sql)) {
+        expect(sql).not.toMatch(/:curr_from/);
+        expect(sql).not.toMatch(/:curr_to/);
       }
     }
   });
