@@ -261,32 +261,41 @@ ORDER BY s."talla" ASC`,
       id: "stock-roturas-por-talla",
       type: "table",
       title: "Tallas en Rotura (referencias sin stock)",
-      // Counts distinct articles with stock <= 0 (Sin Stock) vs stock > 0 (Con Stock)
-      // per (Familia, Talla) combination. HAVING filters to rows with at least one
-      // article without stock. Only detects stockouts for size/family combos that
-      // have appeared in ps_stock_tienda — sizes never stocked are not surfaced.
-      sql: `SELECT
-       COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia",
-       s."talla" AS "Talla",
-       COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END) AS "Sin Stock",
-       COUNT(DISTINCT CASE WHEN s."stock" > 0 THEN s."codigo" END) AS "Con Stock",
-       COUNT(DISTINCT s."codigo") AS "Total Refs",
-       ROUND(
-         COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END)::NUMERIC
-         / NULLIF(COUNT(DISTINCT s."codigo"), 0) * 100,
-         1
-       ) AS "% Rotura"
-FROM "public"."ps_stock_tienda" s
-JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
-LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE s."tienda" <> '99'
-  AND p."anulado" = false
-  AND __gf_tienda__
-  AND __gf_familia__
-  AND __gf_temporada__
-  AND __gf_marca__
-GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla"
-HAVING COUNT(DISTINCT CASE WHEN s."stock" <= 0 THEN s."codigo" END) > 0
+      // Aggregates stock per (codigo, talla) in the CTE so each reference falls in
+      // exactly one bucket (Sin Stock or Con Stock) regardless of how many tiendas it
+      // has rows for. Only detects stockouts for size/family combos that have appeared
+      // in ps_stock_tienda — sizes never stocked are not surfaced.
+      sql: `WITH stock_por_codigo AS (
+  SELECT
+    COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS familia,
+    s."talla",
+    s."codigo",
+    SUM(s."stock") AS stock_total
+  FROM "public"."ps_stock_tienda" s
+  JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+  LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+  WHERE s."tienda" <> '99'
+    AND p."anulado" = false
+    AND __gf_tienda__
+    AND __gf_familia__
+    AND __gf_temporada__
+    AND __gf_marca__
+  GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", s."codigo"
+)
+SELECT
+  familia AS "Familia",
+  "talla" AS "Talla",
+  COUNT(CASE WHEN stock_total <= 0 THEN 1 END) AS "Sin Stock",
+  COUNT(CASE WHEN stock_total > 0 THEN 1 END) AS "Con Stock",
+  COUNT(*) AS "Total Refs",
+  ROUND(
+    COUNT(CASE WHEN stock_total <= 0 THEN 1 END)::NUMERIC
+    / NULLIF(COUNT(*), 0) * 100,
+    1
+  ) AS "% Rotura"
+FROM stock_por_codigo
+GROUP BY familia, "talla"
+HAVING COUNT(CASE WHEN stock_total <= 0 THEN 1 END) > 0
 ORDER BY "% Rotura" DESC`,
     },
     {
@@ -309,7 +318,7 @@ WHERE s."stock" > 0
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
-GROUP BY fm."fami_grup_marc", s."talla", p."ccrefejofacm", p."descripcion"
+GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", p."ccrefejofacm", p."descripcion"
 ORDER BY "Stock" DESC
 LIMIT 50`,
     },
