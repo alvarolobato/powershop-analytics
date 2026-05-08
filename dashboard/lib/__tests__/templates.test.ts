@@ -77,7 +77,7 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
       }
     });
 
-    it("every widget SQL with a date filter uses :curr_from / :curr_to tokens (no hardcoded CURRENT_DATE)", () => {
+    it("every widget SQL with a date filter uses :curr_from / :curr_to tokens, unless explicitly point-in-time (CURRENT_DATE)", () => {
       const allSql: string[] = [];
       for (const widget of template.spec.widgets) {
         if (widget.type === "kpi_row") {
@@ -89,11 +89,15 @@ describe.each(TEMPLATES.map((t) => [t.slug, t] as [string, DashboardTemplate]))(
         }
       }
       for (const sql of allSql) {
-        // If the SQL contains a date filter, it must use :curr_from/:curr_to, never CURRENT_DATE
-        if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
+        // Point-in-time widgets (e.g. coverage/stock-cobertura-critica) anchor on
+        // CURRENT_DATE by design — they must NOT use :curr_from/:curr_to. All
+        // other date-filtered widgets must use the parameterised tokens.
+        if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && !/CURRENT_DATE/.test(sql)) {
           expect(sql).toMatch(/:curr_from/);
           expect(sql).toMatch(/:curr_to/);
-          expect(sql).not.toMatch(/CURRENT_DATE/);
+        } else if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && /CURRENT_DATE/.test(sql)) {
+          expect(sql).not.toMatch(/:curr_from/);
+          expect(sql).not.toMatch(/:curr_to/);
         }
       }
     });
@@ -140,11 +144,16 @@ describe("SQL rule compliance across all templates", () => {
     }
   });
 
-  it("all time-filtered SQL contains both :curr_from and :curr_to tokens", () => {
+  it("all time-filtered SQL contains both :curr_from and :curr_to tokens (unless point-in-time with CURRENT_DATE)", () => {
     for (const sql of allSql) {
-      if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql)) {
+      // Point-in-time coverage widgets use CURRENT_DATE and are exempt from the
+      // :curr_from/:curr_to requirement — but they must not mix in those tokens.
+      if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && !/CURRENT_DATE/.test(sql)) {
         expect(sql).toMatch(/:curr_from/);
         expect(sql).toMatch(/:curr_to/);
+      } else if (/>=|<=|BETWEEN/.test(sql) && /date|fecha/i.test(sql) && /CURRENT_DATE/.test(sql)) {
+        expect(sql).not.toMatch(/:curr_from/);
+        expect(sql).not.toMatch(/:curr_to/);
       }
     }
   });

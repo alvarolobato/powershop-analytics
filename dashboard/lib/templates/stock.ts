@@ -182,6 +182,62 @@ LIMIT 10`,
       y: "value",
     },
     {
+      id: "stock-cobertura-critica",
+      type: "table",
+      title: "Cobertura Crítica (< 7 días de venta)",
+      // Coverage = stock / (units_sold_last_30d / 30.0).
+      // Threshold: 7 days — references with coverage below this are ordered by
+      // urgency (ascending cobertura). Articles with 0 sales in the last 30
+      // days are excluded (no velocity → coverage undefined, not critical).
+      // No :curr_from / :curr_to — uses CURRENT_DATE window for the 30-day
+      // sales slice so the alert is always point-in-time regardless of the
+      // date picker setting (design rule 1 in the template header).
+      sql: `WITH ventas_diarias AS (
+  SELECT
+    lv."tienda",
+    lv."codigo",
+    SUM(lv."unidades") / 30.0 AS ventas_dia
+  FROM "public"."ps_lineas_ventas" lv
+  JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+  WHERE v."entrada" = true
+    AND lv."tienda" <> '99'
+    AND lv."fecha_creacion" >= CURRENT_DATE - INTERVAL '30 days'
+    AND lv."fecha_creacion" < CURRENT_DATE
+  GROUP BY lv."tienda", lv."codigo"
+  HAVING SUM(lv."unidades") > 0
+),
+stock_por_articulo AS (
+  SELECT
+    s."tienda",
+    s."codigo",
+    SUM(s."stock") AS stock_total
+  FROM "public"."ps_stock_tienda" s
+  WHERE s."stock" > 0
+    AND s."tienda" <> '99'
+    AND __gf_tienda__
+  GROUP BY s."tienda", s."codigo"
+)
+SELECT
+  sa."tienda" AS "Tienda",
+  COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia",
+  COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción",
+  COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), '—') AS "Familia",
+  sa.stock_total AS "Stock",
+  ROUND(vd.ventas_dia::numeric, 2) AS "Ventas/día",
+  ROUND((sa.stock_total / vd.ventas_dia)::numeric, 1) AS "Cobertura (días)"
+FROM stock_por_articulo sa
+JOIN ventas_diarias vd ON vd."tienda" = sa."tienda" AND vd."codigo" = sa."codigo"
+JOIN "public"."ps_articulos" p ON p."codigo" = sa."codigo"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE p."anulado" = false
+  AND __gf_familia__
+  AND __gf_temporada__
+  AND __gf_marca__
+  AND (sa.stock_total / vd.ventas_dia) < 7
+ORDER BY "Cobertura (días)" ASC
+LIMIT 50`,
+    },
+    {
       id: "stock-bajo",
       type: "table",
       title: "Artículos con Stock Bajo (< 5 unidades en alguna tienda)",
