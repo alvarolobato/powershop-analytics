@@ -258,4 +258,56 @@ describe("GET /api/home", () => {
     const body = await res.json();
     expect(body.asOfDate).toBe("2026-05-03");
   });
+
+  it("computes non-null opsRetail deltas and 'vs ayer' labels when prev data is present", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    const NULL_ROW = Array(20).fill(null);
+    queryMock.mockImplementation(async (sql: string) => {
+      // Prev-day retail ops: 10 tickets, 1000 gross, 40 devolu → ticketMedioPrev=100
+      if (sql.includes("tickets_prev")) {
+        return { rows: [[10, 1000, 40]] };
+      }
+      // Prev-month margin: rev=8000, cost=6400 → prevMargenPct=0.2
+      if (sql.includes("fecha_creacion < DATE_TRUNC")) {
+        return { rows: [[8000, 6400]] };
+      }
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return {
+          rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]],
+        };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_watermarks")) {
+        return { rows: [[null]] };
+      }
+      return { rows: [NULL_ROW] };
+    });
+
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    expect(opsRetail).toHaveLength(4);
+    // All deltas must be non-null — safeRatio wiring verified end-to-end
+    for (const m of opsRetail) {
+      expect(m.delta).not.toBeNull();
+      expect(typeof m.delta).toBe("number");
+    }
+    // Day-comparison metrics show "vs ayer" (cutoff inactive for past as-of date)
+    for (const m of opsRetail.filter((m: { id: string }) => m.id !== "margen")) {
+      expect(m.sub).toBe("vs ayer");
+    }
+    expect(opsRetail.find((m: { id: string }) => m.id === "margen").sub).toBe("vs mes ant");
+  });
 });

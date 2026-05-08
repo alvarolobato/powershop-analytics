@@ -893,7 +893,7 @@ export async function GET(req: NextRequest) {
         label: "Margen mes",
         value: margenPct,
         format: "pct",
-        delta: prevMonthRev > 0 ? safeRatio(margenPct, prevMargenPct) : null,
+        delta: prevMargenPct !== 0 ? safeRatio(margenPct, prevMargenPct) : null,
         sub: "vs mes ant",
       },
       {
