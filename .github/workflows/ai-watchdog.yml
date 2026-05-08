@@ -193,8 +193,14 @@ jobs:
                && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
               echo "PR #$NUM: D-021 converged (both ai-cp-after-1 + ai-o-after-1) — clearing stale ai-ready-for-review and skipping"
               gh pr edit "$NUM" --repo "$REPO_FULL" \
-                --remove-label "ai-ready-for-review" \
-                --add-label "ai-awaiting-owner" || true
+                --remove-label "ai-ready-for-review" || true
+              # Owner-handoff label is CI-gated to match owner_handoff_or_ci_gate
+              # in ai-address-feedback.yml: don't claim merge-ready when CI is
+              # failing. If `ai-ci-failing` is set, leave label state alone.
+              if ! echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+                gh pr edit "$NUM" --repo "$REPO_FULL" \
+                  --add-label "ai-awaiting-owner" || true
+              fi
               continue
             fi
 
@@ -302,12 +308,15 @@ jobs:
             # stripped ai-awaiting-owner, leaving the PR exposed to a fresh
             # cold-dispatch (PRs #493 / #495 hit this — 4 cold-dispatches across
             # 8 hours despite both rounds being addressed). Re-add awaiting-owner
-            # so the PR's state is consistent.
+            # only when CI is not failing so we don't claim merge-ready in front
+            # of a red CI (mirrors owner_handoff_or_ci_gate).
             if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
                && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
               echo "PR #$NUM has both ai-cp-after-1 + ai-o-after-1 — D-021 converged, skipping cold-dispatch."
-              gh pr edit "$NUM" --repo "$REPO_FULL" \
-                --add-label "ai-awaiting-owner" || true
+              if ! echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+                gh pr edit "$NUM" --repo "$REPO_FULL" \
+                  --add-label "ai-awaiting-owner" || true
+              fi
               continue
             fi
 

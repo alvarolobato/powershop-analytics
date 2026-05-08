@@ -168,15 +168,31 @@ jobs:
           if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
              && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
             echo "PR #$PR has both rounds addressed — D-021 converged."
+            # Cosmetic-only label cleanup (always safe).
             gh pr edit "$PR" --repo "$REPO" \
-              --add-label "ai-awaiting-owner" \
               --remove-label "ai-ready-for-review" \
               --remove-label "ai-phase-copilot" \
               --remove-label "ai-phase-opus" \
               --remove-label "ai-blocked" \
               --remove-label "ai-auto-retry" || true
-            gh pr comment "$PR" --repo "$REPO" \
-              --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed. Skipping address-feedback to break review-loop. Awaiting owner merge decision." || true
+            # Owner handoff is CI-gated to match the rest of this file
+            # (see `owner_handoff_or_ci_gate` below). Don't claim merge-ready
+            # if CI is failing or still running.
+            HEAD_SHA=$(gh pr view "$PR" --repo "$REPO" --json headRefOid --jq .headRefOid)
+            CI_STATE=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+              --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
+              2>/dev/null || echo "unknown")
+            if echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+              CI_STATE="failing"
+            fi
+            if [ "$CI_STATE" = "ready" ]; then
+              gh pr edit "$PR" --repo "$REPO" --add-label "ai-awaiting-owner" || true
+              gh pr comment "$PR" --repo "$REPO" \
+                --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed. Skipping address-feedback. Awaiting owner merge decision." || true
+            else
+              gh pr comment "$PR" --repo "$REPO" \
+                --body "ℹ️ **AI Factory**: D-021 — both rounds already addressed. Skipping address-feedback. **Not marking \`ai-awaiting-owner\`** because CI is \`$CI_STATE\`." || true
+            fi
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
