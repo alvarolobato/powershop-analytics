@@ -104,11 +104,35 @@ jobs:
             - Independently implementable (own branch + PR)
             - Small enough to complete in a single focused session
             - Clearly scoped (specific files, specific behaviour)
+            - **A genuinely independent code change** — see "What is NOT a sub-task" below.
 
             | # | Title | Files | Acceptance |
             |---|-------|-------|------------|
             | 1 | ... | ... | ... |
             | 2 | ... | ... | ... |
+
+            ### What is NOT a sub-task — DO NOT create sub-issues for these
+            The AGENTS.md issue template lists lifecycle steps (`Run all checks`,
+            `Copilot review`, `Opus review`, `Create commit`) as numbered tasks
+            inside ONE feature's lifecycle — they are **not** independent code
+            changes and **must never** become separate `ai-task` sub-issues.
+            Creating one `ai-task` per lifecycle step produces N parallel PRs
+            that all implement the same feature (this happened with #481 →
+            #482..#487 → PRs #490, #491, #494, #496).
+
+            Specifically, do NOT create a sub-issue for any of these:
+            - "Run checks / fix lint / fix tests" — the feature sub-task already
+              owns this. The implementer runs checks before pushing.
+            - "Copilot review" — the worker requests Copilot automatically once
+              the feature PR exists (`Handle success` step in `ai-worker.yml`).
+            - "Opus review" — handled by `ai-pr-review.yml` on the feature PR.
+            - "Create commit / merge" — the implementer commits as part of the
+              feature sub-task; merge is a human decision.
+
+            Only create sub-issues for **distinct code changes** that touch
+            different files / different concerns and could legitimately be
+            reviewed and merged independently. If the parent issue produces
+            only one logical change, output **one** sub-issue, not five.
 
             ### Dependency order
             [Which tasks must be done before others, and why]
@@ -356,10 +380,40 @@ jobs:
             2. Read the PARENT issue (linked in the body) for full context and architecture decisions
             3. Read CLAUDE.md and AGENTS.md
             4. Read relevant skill docs in docs/skills/ for the affected domain
-            5. Before starting, check whether another PR has already implemented part or all of this
-               task (the planner sometimes bundles work): `gh pr list --state all --search "issue-${{ env.ISSUE_NUMBER }}"`.
-               If the work is already done in a merged or open PR, post a comment on the issue
-               explaining which PR covers it, close the issue with `--reason completed`, and exit.
+            5. Before starting, run the **sibling-PR pre-flight check** — this is
+               critical to prevent the duplicate-PR fan-out (#481 → 4 PRs problem).
+               a. Check for a PR already opened against THIS sub-issue:
+                  ```
+                  gh pr list --state all --search "head:ai/issue-${{ env.ISSUE_NUMBER }}-"
+                  gh pr list --state all --search "Closes #${{ env.ISSUE_NUMBER }} in:body"
+                  ```
+               b. **Also** look at SIBLING sub-issues of the same parent. The planner
+                  may have created multiple sub-issues whose work overlaps. Find the
+                  parent from the issue body (line `Closes #PARENT`) and list all
+                  open PRs that close any sibling:
+                  ```
+                  PARENT=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body \
+                    | grep -oE 'Closes #[0-9]+' | head -1 | tr -d '#A-Za-z ')
+                  if [ -n "$PARENT" ]; then
+                    SIBLINGS=$(gh issue list --state open --search "Closes #${PARENT} in:body" \
+                      --json number --jq '.[].number')
+                    for SIB in $SIBLINGS; do
+                      gh pr list --state all --search "Closes #${SIB} in:body" \
+                        --json number,title,state,headRefName,body
+                    done
+                  fi
+                  ```
+               c. If ANY existing PR already implements the same change (same files,
+                  same intent), do NOT open a duplicate. Instead:
+                  - Comment on this issue explaining which PR (#NNN) already covers it
+                    and listing the sibling sub-issues that map to the same lifecycle.
+                  - Close this issue with `gh issue close ${{ env.ISSUE_NUMBER }} --reason "not planned"`.
+                  - Exit normally (don't push an empty branch, don't create a PR).
+               d. Lifecycle-style sub-issues — anything titled "Run all checks", "Copilot
+                  review", "Opus review", or "Create commit" — should ALWAYS be closed
+                  here without a PR: those are steps inside the feature PR's lifecycle,
+                  not independent code changes. See the planner section in this same
+                  workflow for context on why these no longer get sub-issues.
             6. Create branch: `ai/issue-${{ env.ISSUE_NUMBER }}-{short-slug}`
             7. Implement the changes:
                - Follow existing code style and patterns
