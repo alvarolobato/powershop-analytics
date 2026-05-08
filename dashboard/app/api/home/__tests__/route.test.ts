@@ -235,4 +235,20 @@ describe("GET /api/home", () => {
     const body = await res.json();
     expect(body.asOfDate).toBe("2026-05-03");
   });
+
+  it("returns 200 with asOfDate=today_madrid when ps_ventas is empty (fresh install)", async () => {
+    // Simulates a fresh install where MAX(fecha_creacion) IS NULL and today
+    // has zero mirrored rows. Before the fix, asOfDate resolved to "" causing
+    // a 500; after the fix it falls back to today_madrid.
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementationOnce(async () => ({
+      rows: [[null, null, "2026-05-03", "2026-05-03T07:00:00Z", null, 0]],
+    }));
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.asOfDate).toBe("2026-05-03");
+  });
 });

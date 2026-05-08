@@ -148,7 +148,7 @@ export async function GET(req: NextRequest) {
     // The navigator cap (`maxAvailableDate`) still goes up to today_madrid
     // so the user can scroll forward and back regardless of the default.
     let asOfDate =
-      todayMadrid && todayRowCount > 0 ? todayMadrid : maxSyncedStr;
+      todayMadrid && todayRowCount > 0 ? todayMadrid : (maxSyncedStr || todayMadrid);
     if (requestedClean) {
       if (minAvailStr && requestedClean < minAvailStr) asOfDate = minAvailStr;
       else if (todayMadrid && requestedClean > todayMadrid) asOfDate = todayMadrid;
