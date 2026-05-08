@@ -19,6 +19,7 @@
  * Response codes:
  *   202 { trigger_id: number }                                — trigger inserted
  *   202 { trigger_id: number, already_queued: true }          — pending trigger already existed
+ *   202 { trigger_id: null,   already_queued: true }          — trigger consumed by ETL between INSERT conflict and fallback SELECT
  *   400 { error: "invalid_body", detail: string }             — body rejected (unknown table, bad type)
  *   409 { error: "already_running", run_id: number }          — sync already active
  *   503 { error: "db_error" }                                 — database unreachable
@@ -189,7 +190,16 @@ export async function POST(request: Request): Promise<NextResponse> {
       const existing = await query(
         `SELECT id FROM etl_manual_trigger WHERE status = 'pending' LIMIT 1`,
       );
-      triggerId = Number(existing.rows[0][0]);
+      if (existing.rows.length > 0) {
+        triggerId = Number(existing.rows[0][0]);
+      } else {
+        // The trigger was consumed between our INSERT conflict and this SELECT.
+        // Treat it as already queued (the ETL already picked it up).
+        return NextResponse.json(
+          { trigger_id: null, already_queued: true },
+          { status: 202 },
+        );
+      }
     }
     return NextResponse.json({ trigger_id: triggerId }, { status: 202 });
   } catch (err) {

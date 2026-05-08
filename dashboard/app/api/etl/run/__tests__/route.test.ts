@@ -137,6 +137,21 @@ describe("POST /api/etl/run", () => {
     expect(body).toEqual({ trigger_id: 77 });
   });
 
+  it("returns 202 with already_queued:true when the trigger is consumed between INSERT conflict and fallback SELECT (race condition)", async () => {
+    // INSERT conflicts (DO NOTHING, rows=[]), then the ETL picks up the trigger
+    // before the fallback SELECT runs → rows=[] → must not throw TypeError.
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // active run check
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // pending trigger check
+    mockSql.mockResolvedValueOnce([]); // INSERT ON CONFLICT DO NOTHING → no rows
+    mockQuery.mockResolvedValueOnce({ rows: [], columns: [] }); // fallback SELECT → consumed
+
+    const res = await POST(makeRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(202);
+    expect(body).toEqual({ trigger_id: null, already_queued: true });
+  });
+
   // ─── Force-resync body parsing (issue #398) ────────────────────────────────
 
   it("accepts { force_full: true } and passes true to the INSERT", async () => {
