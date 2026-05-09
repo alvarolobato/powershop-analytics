@@ -10,22 +10,33 @@ export interface AgenticStepToolCall {
   function: { name: string; arguments: string };
 }
 
+/** Shared usage shape for all AgenticStepResult variants. */
+type AgenticStepUsage = {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  /** Tokens written to the Anthropic prompt cache (charged at 25% premium). */
+  cache_creation_input_tokens?: number | null;
+  /** Tokens read from the Anthropic prompt cache (90% discount). */
+  cache_read_input_tokens?: number | null;
+} | null;
+
 export type AgenticStepResult =
   | {
       kind: "final";
       content: string;
-      usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+      usage: AgenticStepUsage;
     }
   | {
       kind: "tools";
       tool_calls: AgenticStepToolCall[];
-      usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+      usage: AgenticStepUsage;
     }
   | {
       kind: "error";
       code: string;
       message: string;
-      usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+      usage: AgenticStepUsage;
     };
 
 export interface AgenticRunStepInput {

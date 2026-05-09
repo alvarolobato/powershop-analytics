@@ -89,6 +89,9 @@ describe("logUsage", () => {
     expect(params[6]).toBe("cli");
     expect(params[7]).toBe("claude_code");
     expect(params[8]).toBe(null);
+    // CLI rows with no cache fields: both cache columns must be NULL
+    expect(params[9]).toBeNull();
+    expect(params[10]).toBeNull();
   });
 
   it("persists request_id when provided in options", async () => {
@@ -104,6 +107,93 @@ describe("logUsage", () => {
 
     const params = mockSql.mock.calls[0][1];
     expect(params[8]).toBe("req_corr_1");
+  });
+
+  it("applies cache write premium rate for cache_creation_input_tokens", async () => {
+    // 1000 prompt @ $3/1M + 500 completion @ $15/1M + 2000 cache_creation @ $3.75/1M
+    // = 0.003 + 0.0075 + 0.0075 = 0.018
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      {
+        prompt_tokens: 1000,
+        completion_tokens: 500,
+        total_tokens: 1500,
+        cache_creation_input_tokens: 2000,
+        cache_read_input_tokens: null,
+      },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.018000");
+    expect(params[9]).toBe(2000);   // cache_creation
+    expect(params[10]).toBeNull();  // cache_read
+  });
+
+  it("applies cache read discount rate for cache_read_input_tokens", async () => {
+    // 200 prompt @ $3/1M + 100 completion @ $15/1M + 50000 cache_read @ $0.30/1M
+    // = 0.0006 + 0.0015 + 0.015 = 0.0171
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      {
+        prompt_tokens: 200,
+        completion_tokens: 100,
+        total_tokens: 300,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: 50000,
+      },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.017100");
+    expect(params[9]).toBeNull();   // cache_creation
+    expect(params[10]).toBe(50000); // cache_read
+  });
+
+  it("accumulates both cache creation and cache read costs", async () => {
+    // 500 prompt @ $3/1M + 300 completion @ $15/1M + 1000 cache_creation @ $3.75/1M + 4000 cache_read @ $0.30/1M
+    // = 0.0015 + 0.0045 + 0.00375 + 0.0012 = 0.01095
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      {
+        prompt_tokens: 500,
+        completion_tokens: 300,
+        total_tokens: 800,
+        cache_creation_input_tokens: 1000,
+        cache_read_input_tokens: 4000,
+      },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.010950");
+    expect(params[9]).toBe(1000);
+    expect(params[10]).toBe(4000);
+  });
+
+  it("CLI provider stores NULL cache columns when no cache data is provided", async () => {
+    // In practice the CLI driver never provides cache token data — callers pass EMPTY_USAGE.
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "cli", driver: "claude_code" },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.000000");
+    // NULL means "not supported", not "zero cache hits"
+    expect(params[9]).toBeNull();
+    expect(params[10]).toBeNull();
   });
 
   it("does not throw when sql rejects (fire-and-forget)", async () => {

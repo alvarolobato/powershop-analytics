@@ -12,6 +12,7 @@ import {
   getOpenRouterClient,
   resetOpenRouterClient,
   openRouterChatCompletion,
+  buildCachedSystemMessage,
 } from "./llm-provider/openrouter";
 import { claudeCliSingleShot } from "./llm-provider/cli/claude-code";
 import { CliRunnerError } from "./llm-provider/cli/errors";
@@ -115,7 +116,29 @@ function assembleSystemPrompt(req: LlmRequest): string {
   return volatile ? `${stable}\n\n${volatile}` : stable;
 }
 
-function buildMessages(req: LlmRequest): ChatCompletionMessageParam[] {
+/**
+ * Build messages for OpenRouter, applying `cache_control: ephemeral` to the
+ * stable portion of the system prompt when non-empty. The volatile portion is
+ * appended as a separate uncached text block so it does not bust the cache.
+ */
+function buildMessagesOpenRouter(req: LlmRequest): ChatCompletionMessageParam[] {
+  const { stable, volatile } = req.systemPrompt;
+  const userMessages = req.messages.map(
+    (m) => ({ role: m.role, content: m.content }) as ChatCompletionMessageParam,
+  );
+  if (!stable && !volatile) return userMessages;
+  if (!stable) {
+    return [{ role: "system", content: volatile ?? "" }, ...userMessages];
+  }
+  const cachedSystemMessage = buildCachedSystemMessage(stable, volatile);
+  return [cachedSystemMessage, ...userMessages];
+}
+
+/**
+ * Build messages for the CLI provider, where caching markers are not supported.
+ * The stable + volatile portions are concatenated into a single system prompt.
+ */
+function buildMessagesPlain(req: LlmRequest): ChatCompletionMessageParam[] {
   const systemContent = assembleSystemPrompt(req);
   const userMessages = req.messages.map(
     (m) => ({ role: m.role, content: m.content }) as ChatCompletionMessageParam,
@@ -146,10 +169,9 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
   const temperature = req.temperature ?? 0.2;
   const maxOutputTokens = req.maxOutputTokens ?? 8192;
 
-  const messages = buildMessages(req);
-
   // ── CLI provider ────────────────────────────────────────────────────────────
   if (cfg.provider === "cli") {
+    const messages = buildMessagesPlain(req);
     const combined = messages
       .map((m) => {
         const body = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
@@ -181,6 +203,7 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
 
   // ── OpenRouter provider ─────────────────────────────────────────────────────
   const client = getOpenRouterClient();
+  const messages = buildMessagesOpenRouter(req);
 
   if (req.onTextDelta) {
     // Streaming path — used by chatTextWithProgress for live progress events.
@@ -196,7 +219,13 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
 
     let textContent = "";
     let totalCharsEmitted = 0;
-    let rawUsage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
+    let rawUsage: {
+      prompt_tokens?: number;
+      completion_tokens?: number;
+      total_tokens?: number;
+      cache_creation_input_tokens?: number | null;
+      cache_read_input_tokens?: number | null;
+    } | null = null;
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content;
@@ -211,10 +240,18 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
         }
       }
       if (chunk.usage) {
+        // Cast to extended type so Anthropic cache-token fields forwarded by
+        // OpenRouter are captured for telemetry and cost estimation.
+        const u = chunk.usage as typeof chunk.usage & {
+          cache_creation_input_tokens?: number | null;
+          cache_read_input_tokens?: number | null;
+        };
         rawUsage = {
-          prompt_tokens: chunk.usage.prompt_tokens,
-          completion_tokens: chunk.usage.completion_tokens,
-          total_tokens: chunk.usage.total_tokens,
+          prompt_tokens: u.prompt_tokens,
+          completion_tokens: u.completion_tokens,
+          total_tokens: u.total_tokens,
+          cache_creation_input_tokens: u.cache_creation_input_tokens ?? null,
+          cache_read_input_tokens: u.cache_read_input_tokens ?? null,
         };
       }
     }
@@ -224,6 +261,8 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
       prompt_tokens: u.prompt_tokens ?? 0,
       completion_tokens: u.completion_tokens ?? 0,
       total_tokens: u.total_tokens ?? 0,
+      cache_creation_input_tokens: u.cache_creation_input_tokens ?? null,
+      cache_read_input_tokens: u.cache_read_input_tokens ?? null,
     };
 
     logUsage(endpoint, model, usage, meta, { requestId });
@@ -246,6 +285,8 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
     prompt_tokens: u.prompt_tokens ?? 0,
     completion_tokens: u.completion_tokens ?? 0,
     total_tokens: u.total_tokens ?? 0,
+    cache_creation_input_tokens: u.cache_creation_input_tokens ?? null,
+    cache_read_input_tokens: u.cache_read_input_tokens ?? null,
   };
 
   logUsage(endpoint, model, usage, meta, { requestId });

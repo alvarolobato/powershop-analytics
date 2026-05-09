@@ -131,6 +131,67 @@ Combobox multi/single select with client-side search, chips, and "Limpiar").
 - SQL validation: run EXPLAIN on all generated SQL
 - E2E: Playwright test for full generate → view → modify flow
 
+## Prompt caching
+
+### OpenRouter (Anthropic backend) — implemented
+
+The dashboard LLM sends every system prompt in two blocks with Anthropic's
+`cache_control: { type: "ephemeral" }` extension forwarded by OpenRouter:
+
+```json
+[
+  { "type": "text", "text": "<stable block>", "cache_control": { "type": "ephemeral" } },
+  { "type": "text", "text": "<volatile block>" }
+]
+```
+
+**Stable block** (`buildStableKnowledgePart()` in `prompts.ts`): widget-type
+reference, output format, SQL rules, schema, relationships, business
+instructions, SQL example pairs.  This block is identical across all requests
+for the same deployment.
+
+**Volatile block**: current dashboard spec (for `modify` flow); absent for
+`generate` (whole prompt is stable).
+
+Cache tokens appear in the OpenRouter usage response as
+`cache_creation_input_tokens` and `cache_read_input_tokens`. The app stores
+them in `llm_usage` and applies Anthropic's pricing:
+
+| Token type | Rate |
+|---|---|
+| Normal input (`prompt_tokens`) | $3.00 / 1 M |
+| Cache write (`cache_creation_input_tokens`) | $3.75 / 1 M (25 % premium) |
+| Cache read (`cache_read_input_tokens`) | $0.30 / 1 M (90 % discount) |
+| Output (`completion_tokens`) | $15.00 / 1 M |
+
+The **Admin → Uso LLM** page shows a "Caché hits" column per provider
+(formula: `cache_read / (prompt + cache_read) × 100 %`).
+
+### CLI path (Claude Code `claude -p`) — not feasible
+
+**Investigation results (issue #510, May 2026):** Two approaches were tested
+to determine whether the Claude CLI benefits from caching:
+
+1. **`--system-prompt` flag** — the `claude -p` invocation uses stdin for the
+   full prompt (to avoid OS `E2BIG` limits on large prompts). The
+   `--output-format stream-json --verbose` output does **not** include a
+   `usage` object with cache token fields. The binary provides no signal
+   whether caching occurred.
+
+2. **`--resume <session-id>`** — would require maintaining a session ID per
+   conversation and plumbing it through the agentic runner. The CLI binary
+   exposes no API to query whether the resumed session's context is cached
+   on Anthropic's side, so even if implemented we could not verify cache hits.
+
+**Conclusion**: CLI rows write `NULL` for `cache_creation_input_tokens` and
+`cache_read_input_tokens` in `llm_usage`.  `NULL` means "not supported /
+unknown", distinct from `0` which would mean "zero cache activity reported".
+The admin page shows "N/A" for CLI cache hit rate.
+
+Follow-up issue to revisit: if Anthropic adds cache token reporting to the
+Claude CLI's JSON output format, the runner can be updated to parse and
+persist them.
+
 ## Dependencies
 
 - next: 14+

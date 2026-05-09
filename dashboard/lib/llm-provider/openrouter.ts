@@ -7,6 +7,54 @@ import type { ChatCompletionMessageParam, ChatCompletionTool } from "openai/reso
 import type { AgenticModelAdapter, AgenticStepResult } from "@/lib/llm-tools/runner-types";
 import { getSystemConfig } from "@/lib/system-config/loader";
 
+/**
+ * OpenRouter/Anthropic cache token fields that appear in the usage object
+ * alongside the standard OpenAI-compat fields.
+ */
+export interface OpenRouterCacheUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  /** Tokens written to the Anthropic prompt cache (charged at 25% premium). */
+  cache_creation_input_tokens?: number;
+  /** Tokens read from the Anthropic prompt cache (90% discount). */
+  cache_read_input_tokens?: number;
+}
+
+/**
+ * Content block type that includes Anthropic's cache_control extension.
+ * Used for building cached system prompt arrays passed to OpenRouter.
+ *
+ * OpenRouter forwards these fields to Anthropic verbatim when using
+ * anthropic/* models, enabling server-side prompt caching.
+ */
+type CachedContentBlock =
+  | { type: "text"; text: string; cache_control: { type: "ephemeral" } }
+  | { type: "text"; text: string };
+
+/**
+ * Build a system message that places `stable` under Anthropic's
+ * `cache_control: { type: "ephemeral" }` marker.  OpenRouter forwards the
+ * marker to Anthropic when the model supports caching (e.g. claude-sonnet-4).
+ *
+ * The `volatile` block (e.g. the current dashboard spec) is appended as a
+ * second un-cached text block so it does not bust the cached prefix.
+ *
+ * When `volatile` is omitted the message has a single cached block.
+ */
+export function buildCachedSystemMessage(
+  stable: string,
+  volatile?: string,
+): ChatCompletionMessageParam {
+  const blocks: CachedContentBlock[] = [
+    { type: "text", text: stable, cache_control: { type: "ephemeral" } },
+    ...(volatile ? [{ type: "text" as const, text: volatile }] : []),
+  ];
+  // The OpenAI SDK types don't include cache_control — cast to pass the
+  // extra field through to OpenRouter's JSON body verbatim.
+  return { role: "system", content: blocks as any };
+}
+
 const MAX_ATTEMPTS = 3;
 const BASE_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 30_000;
@@ -137,7 +185,7 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
         number,
         { id: string; type: "function"; function: { name: string; arguments: string } }
       > = {};
-      let usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
+      let usage: OpenRouterCacheUsage | null = null;
 
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta;
@@ -171,12 +219,16 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
             }
           }
         }
-        // Usage is typically in the last chunk.
+        // Usage is typically in the last chunk. Cast to extended type to
+        // capture Anthropic cache token fields forwarded by OpenRouter.
         if (chunk.usage) {
+          const u = chunk.usage as OpenRouterCacheUsage;
           usage = {
-            prompt_tokens: chunk.usage.prompt_tokens,
-            completion_tokens: chunk.usage.completion_tokens,
-            total_tokens: chunk.usage.total_tokens,
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            total_tokens: u.total_tokens,
+            cache_creation_input_tokens: u.cache_creation_input_tokens,
+            cache_read_input_tokens: u.cache_read_input_tokens,
           };
         }
       }
@@ -222,7 +274,7 @@ export async function openRouterChatCompletion(params: {
   maxTokens: number;
 }): Promise<{
   content: string;
-  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null;
+  usage: OpenRouterCacheUsage | null;
 }> {
   const response = await withOpenRouterRetry(() =>
     params.client.chat.completions.create({
@@ -236,7 +288,9 @@ export async function openRouterChatCompletion(params: {
   if (!content) {
     throw new Error("LLM returned an empty response");
   }
-  const u = response.usage;
+  // Cast usage to our extended type so cache fields are accessible without
+  // the SDK's strict type complaining about unknown properties.
+  const u = response.usage as OpenRouterCacheUsage | undefined;
   return {
     content,
     usage:
@@ -246,6 +300,8 @@ export async function openRouterChatCompletion(params: {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
+            cache_creation_input_tokens: u.cache_creation_input_tokens,
+            cache_read_input_tokens: u.cache_read_input_tokens,
           },
   };
 }

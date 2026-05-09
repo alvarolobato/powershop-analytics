@@ -120,12 +120,19 @@ describe("llmComplete", () => {
       messages: [{ role: "user", content: "q" }],
     });
 
-    const callArgs = mockOpenRouterCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
-    const sysMsg = callArgs.messages.find((m: { role: string }) => m.role === "system");
-    expect(sysMsg?.content).toBe("STABLE_PART");
+    // The OpenRouter path wraps the stable portion in a cache_control block
+    // (Task 4: prompt caching) so the system message content is an array of
+    // content blocks, not a plain string.
+    const callArgs = mockOpenRouterCreate.mock.calls[0][0] as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const sysMsg = callArgs.messages.find((m) => m.role === "system");
+    expect(sysMsg?.content).toEqual([
+      { type: "text", text: "STABLE_PART", cache_control: { type: "ephemeral" } },
+    ]);
   });
 
-  it("concatenates stable and volatile with blank line separator", async () => {
+  it("emits stable as cached block and volatile as separate uncached block", async () => {
     stubOpenRouter("ok");
 
     await llmComplete({
@@ -134,9 +141,16 @@ describe("llmComplete", () => {
       messages: [{ role: "user", content: "q" }],
     });
 
-    const callArgs = mockOpenRouterCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
-    const sysMsg = callArgs.messages.find((m: { role: string }) => m.role === "system");
-    expect(sysMsg?.content).toBe("STABLE\n\nVOLATILE");
+    // The stable portion is wrapped in cache_control; volatile is appended as
+    // a second un-cached text block so it does not bust the cached prefix.
+    const callArgs = mockOpenRouterCreate.mock.calls[0][0] as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const sysMsg = callArgs.messages.find((m) => m.role === "system");
+    expect(sysMsg?.content).toEqual([
+      { type: "text", text: "STABLE", cache_control: { type: "ephemeral" } },
+      { type: "text", text: "VOLATILE" },
+    ]);
   });
 
   it("places user messages after the system message", async () => {

@@ -31,6 +31,15 @@ export interface ProviderStats {
   calls: number;
   total_tokens: number;
   estimated_cost_usd: string;
+  /** Sum of cache_creation_input_tokens; null when all rows have NULL (e.g. CLI provider). */
+  cache_creation_tokens: number | null;
+  /** Sum of cache_read_input_tokens; null when all rows have NULL (e.g. CLI provider). */
+  cache_read_tokens: number | null;
+  /**
+   * Cache hit rate as a number in [0, 100], or null when cache data is unavailable.
+   * Formula: cache_read / (prompt_tokens + cache_read) * 100.
+   */
+  cache_hit_rate_pct: number | null;
 }
 
 export interface LlmUsageAggregates {
@@ -93,10 +102,13 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
       `),
       sql<Record<string, unknown>>(`
         SELECT
-          COALESCE(llm_provider, 'openrouter') AS llm_provider,
-          COUNT(*)::integer             AS calls,
-          SUM(total_tokens)::float8    AS total_tokens,
-          SUM(estimated_cost_usd)      AS estimated_cost_usd
+          COALESCE(llm_provider, 'openrouter')               AS llm_provider,
+          COUNT(*)::integer                                   AS calls,
+          SUM(total_tokens)::float8                          AS total_tokens,
+          SUM(estimated_cost_usd)                            AS estimated_cost_usd,
+          SUM(prompt_tokens)::bigint                         AS prompt_tokens_sum,
+          SUM(cache_creation_input_tokens)::bigint           AS cache_creation_sum,
+          SUM(cache_read_input_tokens)::bigint               AS cache_read_sum
         FROM llm_usage
         GROUP BY COALESCE(llm_provider, 'openrouter')
         ORDER BY calls DESC
@@ -139,12 +151,26 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
       };
     });
 
-    const by_provider: ProviderStats[] = providerRows.map((row) => ({
-      llm_provider: String(row.llm_provider),
-      calls: Number(row.calls) || 0,
-      total_tokens: Number(row.total_tokens) || 0,
-      estimated_cost_usd: (Number(row.estimated_cost_usd) || 0).toFixed(6),
-    }));
+    const by_provider: ProviderStats[] = providerRows.map((row) => {
+      const cacheCreation = row.cache_creation_sum != null ? Number(row.cache_creation_sum) : null;
+      const cacheRead = row.cache_read_sum != null ? Number(row.cache_read_sum) : null;
+      const promptSum = Number(row.prompt_tokens_sum) || 0;
+      // Cache hit rate = cache_read / (non-cached prompt + cache_creation + cache_read) * 100
+      const hitDenominator = promptSum + (cacheCreation ?? 0) + (cacheRead ?? 0);
+      const cacheHitRatePct =
+        cacheRead != null && hitDenominator > 0
+          ? (cacheRead / hitDenominator) * 100
+          : null;
+      return {
+        llm_provider: String(row.llm_provider),
+        calls: Number(row.calls) || 0,
+        total_tokens: Number(row.total_tokens) || 0,
+        estimated_cost_usd: (Number(row.estimated_cost_usd) || 0).toFixed(6),
+        cache_creation_tokens: cacheCreation,
+        cache_read_tokens: cacheRead,
+        cache_hit_rate_pct: cacheHitRatePct,
+      };
+    });
 
     return { today, week, month, by_endpoint, by_provider };
   } catch (err) {

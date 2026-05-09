@@ -103,6 +103,12 @@ export interface AgenticRunParams {
   adapter: AgenticModelAdapter;
   model: string;
   systemPrompt: string;
+  /**
+   * Optional pre-built system message with provider-specific extensions (e.g.
+   * Anthropic cache_control blocks for prompt caching via OpenRouter).
+   * When provided this replaces `{ role: "system", content: systemPrompt }`.
+   */
+  cachedSystemMessage?: ChatCompletionMessageParam;
   userContent: string;
   ctx: LlmAgenticContext;
   temperature: number;
@@ -196,14 +202,27 @@ function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent
 }
 
 export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticRunResult> {
-  const { adapter, model, systemPrompt, userContent, ctx, temperature, maxTokens, priorMessages } = params;
+  const {
+    adapter,
+    model,
+    systemPrompt,
+    cachedSystemMessage,
+    userContent,
+    ctx,
+    temperature,
+    maxTokens,
+    priorMessages,
+  } = params;
 
   const cfg = getAgenticConfig();
   const tools: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS;
   const usage = emptyUsage();
 
+  const systemMessage: ChatCompletionMessageParam =
+    cachedSystemMessage ?? { role: "system", content: systemPrompt };
+
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: systemPrompt },
+    systemMessage,
     ...(priorMessages ?? []),
     { role: "user", content: userContent },
   ];

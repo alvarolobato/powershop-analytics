@@ -11,6 +11,8 @@ import {
   buildGeneratePrompt,
   buildModifyPrompt,
   buildAgenticToolPreamble,
+  buildGeneratePromptSplit,
+  buildModifyPromptSplit,
 } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
@@ -31,6 +33,8 @@ import {
   resetClient,
 } from "./llm-client";
 import type { ChatTurn } from "./llm-client";
+import { buildCachedSystemMessage } from "./llm-provider/openrouter";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
@@ -55,18 +59,29 @@ function attachTelemetry(ctx: LlmAgenticContext, cfg: DashboardLlmConfig): LlmAg
   };
 }
 
-function extractSystem(messages: Array<{ role: string; content: unknown }>): string {
+type ChatLikeMessage = { role: string; content?: unknown };
+
+function extractSystem(messages: ReadonlyArray<ChatLikeMessage>): string {
   const sys = messages.find((m) => m.role === "system");
   if (!sys) return "";
-  return typeof sys.content === "string" ? sys.content : JSON.stringify(sys.content);
+  return typeof sys.content === "string"
+    ? sys.content
+    : sys.content == null
+      ? ""
+      : JSON.stringify(sys.content);
 }
 
-function extractUserMsgs(messages: Array<{ role: string; content: unknown }>): ChatTurn[] {
+function extractUserMsgs(messages: ReadonlyArray<ChatLikeMessage>): ChatTurn[] {
   return messages
     .filter((m) => m.role !== "system")
     .map((m) => ({
       role: m.role as "user" | "assistant",
-      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      content:
+        typeof m.content === "string"
+          ? m.content
+          : m.content == null
+            ? ""
+            : JSON.stringify(m.content),
     }));
 }
 
@@ -75,7 +90,7 @@ function extractUserMsgs(messages: Array<{ role: string; content: unknown }>): C
  * Internal — used by the non-agentic paths in the public functions below.
  */
 async function chatText(
-  messages: Array<{ role: string; content: unknown }>,
+  messages: ReadonlyArray<ChatLikeMessage>,
   temperature: number,
   maxTokens: number,
   endpoint: string,
@@ -99,7 +114,7 @@ async function chatText(
  * Emits `model_step_start` before the call and `model_text_delta` per chunk.
  */
 async function chatTextWithProgress(
-  messages: Array<{ role: string; content: unknown }>,
+  messages: ReadonlyArray<ChatLikeMessage>,
   temperature: number,
   maxTokens: number,
   endpoint: string,
@@ -170,11 +185,19 @@ export async function generateDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "generate");
+    const agenticPreamble = buildAgenticToolPreamble();
+    const promptSplit = buildGeneratePromptSplit();
+    const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
+    const cachedMsg =
+      cfg.provider === "openrouter"
+        ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
+        : undefined;
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
         model,
-        systemPrompt: `${buildGeneratePrompt()}\n\n${buildAgenticToolPreamble()}`,
+        systemPrompt: stableWithPreamble,
+        cachedSystemMessage: cachedMsg,
         userContent: userPrompt,
         ctx: requestCtx,
         temperature: 0.2,
@@ -185,6 +208,22 @@ export async function generateDashboard(
       requestId: requestCtx.requestId,
     });
     return content;
+  }
+
+  if (cfg.provider === "openrouter") {
+    // Use the stable/volatile split so llm-client.ts can apply
+    // cache_control to the stable prefix via buildCachedSystemMessage.
+    const promptSplit = buildGeneratePromptSplit();
+    const resp = await llmComplete({
+      flow: "generate",
+      systemPrompt: { stable: promptSplit.stable, volatile: promptSplit.volatile },
+      messages: [{ role: "user", content: userPrompt }],
+      temperature: 0.2,
+      maxOutputTokens: 8192,
+      requestId: requestCtx.requestId,
+      endpoint: "generateDashboard",
+    });
+    return resp.text;
   }
 
   const systemPrompt = buildGeneratePrompt();
@@ -227,11 +266,19 @@ export async function modifyDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "modify");
+    const agenticPreamble = buildAgenticToolPreamble();
+    const promptSplit = buildModifyPromptSplit(currentSpec, true);
+    const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
+    const cachedMsg =
+      cfg.provider === "openrouter"
+        ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
+        : undefined;
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
         model,
-        systemPrompt: `${buildModifyPrompt(currentSpec, true)}\n\n${buildAgenticToolPreamble()}`,
+        systemPrompt: `${promptSplit.stable}\n\n${agenticPreamble}\n\n${promptSplit.volatile}`,
+        cachedSystemMessage: cachedMsg,
         userContent: userPrompt,
         ctx: requestCtx,
         temperature: 0.2,
@@ -246,6 +293,25 @@ export async function modifyDashboard(
   }
 
   // Non-agentic path: use legacy prompt (no publish-tool instructions).
+  if (cfg.provider === "openrouter") {
+    // Use the stable/volatile split so llm-client.ts can apply
+    // cache_control to the stable prefix via buildCachedSystemMessage.
+    const promptSplit = buildModifyPromptSplit(currentSpec, false);
+    const resp = await llmComplete({
+      flow: "modify",
+      systemPrompt: { stable: promptSplit.stable, volatile: promptSplit.volatile },
+      messages: [
+        ...(priorTurns ?? []).map((t) => ({ role: t.role, content: t.content })),
+        { role: "user", content: userPrompt },
+      ],
+      temperature: 0.2,
+      maxOutputTokens: 8192,
+      requestId: requestCtx.requestId,
+      endpoint: "modifyDashboard",
+    });
+    return resp.text;
+  }
+
   const systemPrompt = buildModifyPrompt(currentSpec, false);
   return chatText(
     [

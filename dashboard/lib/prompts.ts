@@ -293,16 +293,18 @@ function formatSqlPairs(pairs: SqlPair[]): string {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Build the system prompt for generating a new dashboard from scratch.
+ * The stable, cacheable knowledge block shared across all prompt types.
+ *
+ * Contains: widget-type reference, output format, SQL rules, schema,
+ * relationships, instructions, and SQL example pairs. This content never
+ * changes between requests for the same deployment, making it ideal for
+ * Anthropic prompt caching (cache_control: ephemeral).
+ *
+ * The volatile portion (e.g. current dashboard spec) is kept separate so
+ * callers can attach cache_control only to this stable block.
  */
-export function buildGeneratePrompt(): string {
+export function buildStableKnowledgePart(): string {
   return [
-    "# Role",
-    "",
-    "You are an expert AI dashboard generator for a Spanish retail and wholesale fashion business (PowerShop).",
-    "The user describes a dashboard they need in Spanish. You produce a JSON dashboard specification.",
-    "Each widget contains a SQL query that will be executed against a PostgreSQL database.",
-    "",
     WIDGET_TYPES,
     OUTPUT_FORMAT,
     SQL_RULES,
@@ -314,6 +316,105 @@ export function buildGeneratePrompt(): string {
     "",
     formatSqlPairs(SQL_PAIRS),
   ].join("\n");
+}
+
+/**
+ * Build the system prompt for generating a new dashboard from scratch.
+ */
+export function buildGeneratePrompt(): string {
+  return buildGeneratePromptSplit().stable;
+}
+
+/**
+ * Structured generate prompt: stable vs volatile split for prompt caching.
+ *
+ * The `stable` portion can be wrapped in a `cache_control: ephemeral` block
+ * by the provider layer. The `volatile` portion (empty for generate) is sent
+ * as a separate un-cached block so it does not bust the cache.
+ */
+export function buildGeneratePromptSplit(): { stable: string; volatile?: string } {
+  const roleHeader = [
+    "# Role",
+    "",
+    "You are an expert AI dashboard generator for a Spanish retail and wholesale fashion business (PowerShop).",
+    "The user describes a dashboard they need in Spanish. You produce a JSON dashboard specification.",
+    "Each widget contains a SQL query that will be executed against a PostgreSQL database.",
+    "",
+  ].join("\n");
+
+  return { stable: roleHeader + buildStableKnowledgePart() };
+}
+
+/**
+ * Structured modify prompt: stable vs volatile split for prompt caching.
+ *
+ * The stable block contains role instructions + widget reference + rules + knowledge.
+ * The volatile block contains the current dashboard spec (changes every request).
+ */
+export function buildModifyPromptSplit(
+  currentSpec: string,
+  agenticMode = true,
+): { stable: string; volatile: string } {
+  const workflowSection = agenticMode
+    ? [
+        "## Required workflow (MANDATORY)",
+        "",
+        "1. Inspect the current spec and understand what the user wants to change.",
+        "2. Draft the updated spec in your reasoning (with all existing widgets preserved + changes applied).",
+        "3. Call `validate_dashboard_spec` with your candidate spec until `ok=true`.",
+        "4. Call `apply_dashboard_modification` with the validated spec and a 2–4 sentence Spanish",
+        "   `change_summary` describing what you changed.",
+        "5. After `apply_dashboard_modification` returns `{ ok: true, applied: true }`, write your final",
+        "   assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing what changed.",
+        "",
+        "**Never emit the JSON spec as your final answer.** The spec MUST go through",
+        "`apply_dashboard_modification`. If you emit raw JSON as your final message, the route will",
+        "fail with an error because ctx.modifyResult will be null.",
+      ]
+    : [
+        "## Output",
+        "",
+        "Return the COMPLETE updated dashboard as raw JSON — no markdown fences, no explanation.",
+        "Do not wrap your response in markdown fences; return only the complete updated dashboard as raw JSON.",
+      ];
+
+  const stableHeader = [
+    "# Role",
+    "",
+    "You are an expert AI dashboard modifier for a Spanish retail and wholesale fashion business (PowerShop).",
+    "The user wants to modify an existing dashboard. They will describe the changes they want.",
+    "You must produce the COMPLETE updated dashboard JSON — not just the changed parts.",
+    "Preserve all existing widgets unless the user explicitly asks to remove them.",
+    "When adding new widgets, continue the id sequence (e.g. if the last widget is w6, the new one is w7).",
+    "",
+    "## Global filters preservation rule",
+    "",
+    "The existing dashboard may contain a **filters** array and __gf_<id>__ tokens in widget SQL. You MUST:",
+    "1. Preserve all existing filter definitions unless the user explicitly asks to change them.",
+    "2. When adding retail widgets that use **ps_ventas**, keep **alias v** and include AND __gf_tienda__ (and other relevant __gf_<id>__ slots) in WHERE clauses.",
+    "",
+    "## Glossary preservation rule",
+    "",
+    "The existing dashboard may contain a 'glossary' array. You MUST:",
+    "1. Preserve all existing glossary entries unchanged.",
+    "2. Add new entries for any new business terms introduced by new widgets.",
+    "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
+    "4. The 'glossary' field MUST always be present in your response.",
+    "",
+    ...workflowSection,
+    "",
+    buildStableKnowledgePart(),
+  ].join("\n");
+
+  const volatile = [
+    "## Current Dashboard Spec",
+    "",
+    "The following is the existing dashboard JSON provided as input context.",
+    "",
+    currentSpec,
+  ].join("\n");
+
+  return { stable: stableHeader, volatile };
 }
 
 /**
@@ -362,69 +463,6 @@ export function buildAgenticToolPreamble(): string {
  *   falls back to the legacy "return raw JSON" contract.
  */
 export function buildModifyPrompt(currentSpec: string, agenticMode = true): string {
-  const workflowSection = agenticMode
-    ? [
-        "## Required workflow (MANDATORY)",
-        "",
-        "1. Inspect the current spec and understand what the user wants to change.",
-        "2. Draft the updated spec in your reasoning (with all existing widgets preserved + changes applied).",
-        "3. Call `validate_dashboard_spec` with your candidate spec until `ok=true`.",
-        "4. Call `apply_dashboard_modification` with the validated spec and a 2–4 sentence Spanish",
-        "   `change_summary` describing what you changed.",
-        "5. After `apply_dashboard_modification` returns `{ ok: true, applied: true }`, write your final",
-        "   assistant message as a friendly Spanish reply to the user (≤ 4 sentences) describing what changed.",
-        "",
-        "**Never emit the JSON spec as your final answer.** The spec MUST go through",
-        "`apply_dashboard_modification`. If you emit raw JSON as your final message, the route will",
-        "fail with an error because ctx.modifyResult will be null.",
-      ]
-    : [
-        "## Output",
-        "",
-        "Return the COMPLETE updated dashboard as raw JSON — no markdown fences, no explanation.",
-        "Do not wrap your response in markdown fences; return only the complete updated dashboard as raw JSON.",
-      ];
-
-  return [
-    "# Role",
-    "",
-    "You are an expert AI dashboard modifier for a Spanish retail and wholesale fashion business (PowerShop).",
-    "The user wants to modify an existing dashboard. They will describe the changes they want.",
-    "You must produce the COMPLETE updated dashboard JSON — not just the changed parts.",
-    "Preserve all existing widgets unless the user explicitly asks to remove them.",
-    "When adding new widgets, continue the id sequence (e.g. if the last widget is w6, the new one is w7).",
-    "",
-    "## Global filters preservation rule",
-    "",
-    "The existing dashboard may contain a **filters** array and __gf_<id>__ tokens in widget SQL. You MUST:",
-    "1. Preserve all existing filter definitions unless the user explicitly asks to change them.",
-    "2. When adding retail widgets that use **ps_ventas**, keep **alias v** and include AND __gf_tienda__ (and other relevant __gf_<id>__ slots) in WHERE clauses.",
-    "",
-    "## Glossary preservation rule",
-    "",
-    "The existing dashboard may contain a 'glossary' array. You MUST:",
-    "1. Preserve all existing glossary entries unchanged.",
-    "2. Add new entries for any new business terms introduced by new widgets.",
-    "3. If the existing spec has no glossary, create one with 5-10 key terms for the full updated dashboard.",
-    "4. The 'glossary' field MUST always be present in your response.",
-    "",
-    ...workflowSection,
-    "",
-    "## Current Dashboard Spec",
-    "",
-    "The following is the existing dashboard JSON provided as input context.",
-    "",
-    currentSpec,
-    "",
-    WIDGET_TYPES,
-    OUTPUT_FORMAT,
-    SQL_RULES,
-    formatSchema(SCHEMA),
-    "",
-    formatRelationships(RELATIONSHIPS),
-    "",
-    formatInstructions(INSTRUCTIONS),
-    "",
-    formatSqlPairs(SQL_PAIRS),
-  ].join("\n");
+  const { stable, volatile } = buildModifyPromptSplit(currentSpec, agenticMode);
+  return [stable, "", volatile].join("\n");
 }
