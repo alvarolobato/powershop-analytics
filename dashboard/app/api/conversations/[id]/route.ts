@@ -104,6 +104,12 @@ export async function PATCH(
         { status: 400 },
       );
     }
+    if (b.title.length > 500) {
+      return NextResponse.json(
+        formatApiError("El campo 'title' no puede superar los 500 caracteres.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
     updates.title = b.title;
   }
 

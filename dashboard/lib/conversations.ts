@@ -230,12 +230,12 @@ export async function listConversations(
      LEFT JOIN LATERAL (
        SELECT
          COUNT(*)::INT AS message_count,
-         COUNT(*) FILTER (
-           WHERE role = 'assistant'
-             AND (content->'tool_calls') IS NOT NULL
+         COALESCE(SUM(
+           CASE WHEN role = 'assistant'
              AND jsonb_typeof(content->'tool_calls') = 'array'
-             AND jsonb_array_length(content->'tool_calls') > 0
-         )::INT AS tool_calls_count,
+           THEN jsonb_array_length(content->'tool_calls')
+           ELSE 0 END
+         ), 0)::INT AS tool_calls_count,
          COUNT(*) FILTER (
            WHERE role = 'assistant'
              AND (content->'tool_calls') IS NOT NULL

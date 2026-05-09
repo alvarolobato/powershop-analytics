@@ -20,6 +20,8 @@ import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-pr
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 
+const VALID_LLM_FLOWS: ReadonlySet<string> = new Set<DashboardLlmFlow>(["generate", "modify", "analyze", "weekly"]);
+
 type RouteContext = { params: Promise<{ id: string }> };
 
 function validateId(raw: string): string | null {
@@ -80,7 +82,10 @@ export async function POST(
   }
 
   const callLlm = b.callLlm === true;
-  const flow = typeof b.flow === "string" ? b.flow : "summary";
+  const rawFlow = typeof b.flow === "string" ? b.flow : "summary";
+  const flow: DashboardLlmFlow | undefined = VALID_LLM_FLOWS.has(rawFlow)
+    ? (rawFlow as DashboardLlmFlow)
+    : undefined;
 
   try {
     const conversation = await getConversationWithMessages(id);
@@ -107,7 +112,7 @@ export async function POST(
     if (isFirstUserMessage && conversation.initial_context === null) {
       try {
         const cfg = loadDashboardLlmConfig();
-        const model = getEffectiveDashboardModel(cfg, flow as DashboardLlmFlow);
+        const model = getEffectiveDashboardModel(cfg, flow);
         await setInitialContext(id, {
           model,
           provider: cfg.provider,
@@ -156,7 +161,7 @@ export async function POST(
     let llmResponse;
     try {
       llmResponse = await llmComplete({
-        flow,
+        flow: rawFlow,
         systemPrompt: { stable: "" },
         messages: priorMessages,
         requestId,

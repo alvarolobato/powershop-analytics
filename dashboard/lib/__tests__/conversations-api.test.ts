@@ -118,7 +118,7 @@ const SAMPLE_CONVERSATION = {
 const SAMPLE_LIST_ROW = {
   ...SAMPLE_CONVERSATION,
   message_count: 4,
-  tool_calls_count: 2,
+  tool_calls_count: 5,
   rounds_count: 2,
   duration_seconds: 3600,
   last_message_preview: "Here is my answer...",
@@ -140,7 +140,7 @@ describe("GET /api/conversations", () => {
     const data = await res.json();
     expect(Array.isArray(data)).toBe(true);
     expect(data[0].id).toBe(VALID_ID);
-    expect(data[0].tool_calls_count).toBe(2);
+    expect(data[0].tool_calls_count).toBe(5);
     expect(data[0].rounds_count).toBe(2);
   });
 
@@ -628,17 +628,18 @@ describe("DELETE /api/conversations/:id/archive (unarchive)", () => {
 // ── tool_calls_count correctness test ────────────────────────────────────────
 
 describe("tool_calls_count computation (via list response)", () => {
-  it("reports correct count for a conversation with 2 agentic rounds", async () => {
+  it("tool_calls_count and rounds_count are distinct (total calls vs agentic round count)", async () => {
+    // 2 agentic rounds but 5 individual tool calls (e.g. round 1 had 3 calls, round 2 had 2)
     const convWith2Rounds = {
       ...SAMPLE_LIST_ROW,
-      tool_calls_count: 2,
+      tool_calls_count: 5,
       rounds_count: 2,
     };
     mockListConversations.mockResolvedValue([convWith2Rounds]);
     const req = makeRequest("http://localhost/api/conversations");
     const res = await listGet(req as unknown as import("next/server").NextRequest);
     const data = await res.json();
-    expect(data[0].tool_calls_count).toBe(2);
+    expect(data[0].tool_calls_count).toBe(5);
     expect(data[0].rounds_count).toBe(2);
   });
 });
