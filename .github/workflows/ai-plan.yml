@@ -158,7 +158,11 @@ jobs:
             rm -f "$TMP_BODY"
 
             # Verify the body is intact — fail loudly if mangled.
-            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -q '``'; then
+            # PCRE lookaround excludes triple-backtick fences (```sql, ```bash, …);
+            # only flag truly empty inline code spans (`` `` ``). False-positive
+            # observed on issue #536 (2026-05-09) which had ```sql fences and
+            # was falsely flagged by the naive `grep -q '``'`.
+            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -qP '(?<!`)``(?!`)'; then
               echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans — JSX/generics likely stripped."
               gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
               exit 1

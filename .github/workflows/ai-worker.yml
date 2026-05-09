@@ -210,7 +210,12 @@ jobs:
             rm -f "$TMP_BODY"
 
             # 3. Verify the body is intact — fail loudly if anything was mangled.
-            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -q '``'; then
+            # Detect EMPTY inline code spans (`` `` ``) that signal stripped
+            # JSX/generics. Use PCRE lookaround to exclude triple-backtick
+            # fenced code blocks (` ``` `), which would otherwise match any
+            # ```sql/```bash/```json fence opener and false-positive every
+            # body that uses code blocks.
+            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -qP '(?<!`)``(?!`)'; then
               echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans (\`\`) — likely JSX/generics were stripped. Investigate before continuing."
               gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
               exit 1
@@ -309,12 +314,20 @@ jobs:
           # — the signature of stripped JSX/generics. Flag them with
           # `ai-needs-rewrite` so a human (or a follow-up worker) can repair
           # the body before the implementation phase tries to act on it.
+          #
+          # The detection regex uses Oniguruma lookaround `(?<!`)``(?!`)`
+          # to match exactly two adjacent backticks NOT inside a triple-
+          # backtick fence. Without the lookaround, every fenced code
+          # block opener (```sql, ```bash, ```json, …) false-positives
+          # the check — observed on issue #536 (2026-05-09) which had a
+          # perfectly intact body but ```sql/``` fences and got falsely
+          # flagged + locked behind ai-needs-rewrite.
           SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
             --state open --limit 50 \
             --search "Closes #${ISSUE_NUMBER} in:body" \
             --json number,body --jq '.[]' || true)
 
-          echo "$SUB_ISSUES" | jq -c 'select(.body | test("``"))' 2>/dev/null | while read -r row; do
+          echo "$SUB_ISSUES" | jq -c 'select(.body | test("(?<!`)``(?!`)"))' 2>/dev/null | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
             echo "Sub-issue #$NUM body contains empty backticks — flagging."
             gh issue edit "$NUM" --add-label "ai-needs-rewrite" || true
