@@ -117,7 +117,7 @@ def _build_expo_where(since: datetime | None, *, include_nulls: bool = False) ->
 
     Only the date portion of *since* is used — 4D SQL date literals have no
     time component.  Pass a midnight-aligned datetime to avoid confusion.
-    Raises ValueError if *since* has a non-zero time component.
+    Logs a debug warning if *since* has a non-zero time component (does not raise).
 
     - since=None: no filter (full load).
     - since=<datetime>: filter by FechaModifica >= {d 'YYYY-MM-DD'}.
@@ -371,7 +371,7 @@ def _build_traspasos_where(since: datetime | None) -> str:
     """Return a WHERE clause fragment for Traspasos delta filtering.
 
     Only the date portion of *since* is used — 4D SQL date literals have no
-    time component.  Raises ValueError if *since* has a non-zero time component.
+    time component.  Logs a debug warning if *since* has a non-zero time component (does not raise).
 
     Uses `>=` (not strict `>`): FechaS is date-only, so once the watermark
     advances to today, strict `>` would silently skip same-day transfers.
