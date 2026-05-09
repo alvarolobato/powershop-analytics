@@ -235,10 +235,14 @@ def parse_relationships_from_mds(
     Handles both JSON arrays and single-object forms defensively.
     Skips files that are missing or have no ## LLM:relationships section.
     """
+    _REQUIRED_KEYS = {"from", "fromColumn", "to", "toColumn", "type"}
     result: list[tuple[str, str, str, str, str]] = []
     for rel_path in mds:
         full_path = _REPO_ROOT / rel_path
         if not full_path.exists():
+            print(
+                f"  WARNING: source MD not found, skipped: {rel_path}", file=sys.stderr
+            )
             continue
         content = full_path.read_text(encoding="utf-8")
         for section in parse_marker_sections(content):
@@ -258,6 +262,11 @@ def parse_relationships_from_mds(
             for item in items:
                 if not isinstance(item, dict):
                     continue
+                missing_keys = _REQUIRED_KEYS - item.keys()
+                if missing_keys:
+                    raise ValueError(
+                        f"Relationship entry in {rel_path} missing keys {missing_keys}: {item!r}"
+                    )
                 result.append(
                     (
                         item["from"],

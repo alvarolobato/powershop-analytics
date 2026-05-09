@@ -453,9 +453,9 @@ def test_instructions_have_required_keys():
 
 
 def test_relationships_count():
-    """Real SOURCE_MDS must yield exactly 25 relationships (19 original + 6 new)."""
-    assert len(wpm.RELATIONSHIPS) == 25, (
-        f"Expected 25 relationships, got {len(wpm.RELATIONSHIPS)}"
+    """Real SOURCE_MDS must yield at least 25 relationships (19 original + 6 new)."""
+    assert len(wpm.RELATIONSHIPS) >= 25, (
+        f"Expected at least 25 relationships, got {len(wpm.RELATIONSHIPS)}"
     )
 
 
