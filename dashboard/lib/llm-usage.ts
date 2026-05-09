@@ -11,7 +11,7 @@ import { getSystemConfig } from "@/lib/system-config/loader";
  * - OpenRouter may apply discounts, caching, or rounding; this app does **not** read
  *   OpenRouter’s billing API, so displayed costs are **indicative**, not invoice-accurate.
  * - Unknown models fall back to `DEFAULT_RATE` (same as Sonnet 4) with a console warning.
- * - Rows with `llm_provider = ‘cli’` store **zero** estimated cost (flat-rate / unknown).
+ * - Rows with `llm_provider = 'cli'` store **zero** estimated cost (flat-rate / unknown).
  * - Cache rates: Anthropic charges cache-write tokens at a 25% premium ($3.75/1M) and
  *   cache-read tokens at a 90% discount ($0.30/1M) vs the normal $3.00/1M input rate.
  */
@@ -70,6 +70,11 @@ export function logUsage(
       console.warn(`[llm-usage] Unknown model "${model}", using default rate`);
       rate = DEFAULT_RATE;
     }
+    // NOTE: OpenRouter normalises `prompt_tokens` to exclude cache tokens (they are
+    // reported separately in `cache_creation_input_tokens` / `cache_read_input_tokens`).
+    // This differs from the raw Anthropic API where `input_tokens` is an inclusive sum.
+    // The formula below is correct under the OpenRouter normalisation: cache tokens are
+    // billed at their specific rates and NOT again at the base prompt rate.
     estimatedCost =
       usage.prompt_tokens * rate.prompt +
       usage.completion_tokens * rate.completion +
