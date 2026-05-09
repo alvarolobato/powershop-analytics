@@ -228,24 +228,13 @@ jobs:
 
             Follow the review guidelines below. Post a review with inline comments on the PR.
 
-            ## Copilot follow-up (read carefully)
-            Run `gh pr view ${{ env.PR_NUMBER }} --json labels -q '.labels[].name'` before you finish.
-            - If the PR has label `ai-phase-opus`, do **NOT** request a Copilot review (Opus-only passes; address-feedback is dispatched by CI).
-            - Otherwise, after reviewing, request a Copilot review **and verify the request landed**.
-              GITHUB_TOKEN cannot assign Copilot — prefix the POST with the PAT exposed via `$COPILOT_PAT`:
-            ```bash
-            POST_OUT=$(GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" gh api \
-              repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/requested_reviewers \
-              --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
-            COPILOT_ADDED=$(printf '%s' "$POST_OUT" \
-              | jq -r '[.requested_reviewers[]?.login] | map(select(. == "Copilot" or . == "copilot-pull-request-reviewer")) | length' 2>/dev/null || echo "0")
-            if [ "${COPILOT_ADDED:-0}" -eq 0 ]; then
-              # PAT missing or lacks pull_requests: write — surface it loudly.
-              gh pr comment ${{ env.PR_NUMBER }} \
-                --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer. Check that \`secrets.COPILOT_PAT\` is set with \`pull_requests: write\`. cc @alvarolobato."
-            fi
-            ```
-            Do NOT claim Copilot has reviewed the PR unless you can see an actual review from `Copilot` / `copilot-pull-request-reviewer[bot]` in `gh api repos/{owner}/{repo}/pulls/{PR}/reviews`.
+            **Do NOT request a Copilot review from this step.** D-021 caps the
+            automated review cycle at exactly one Copilot pass and one Opus
+            pass — no more. Copilot is requested once by `ai-worker.yml`'s
+            success path when the PR is first created; the address-feedback
+            workflow handles the Copilot → Opus transition. From here, just
+            review and exit. Do NOT call `requested_reviewers` for any
+            reviewer.
 
             ---
 

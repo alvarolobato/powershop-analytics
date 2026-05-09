@@ -549,12 +549,44 @@ jobs:
         run: |
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
-          gh issue comment "$ISSUE_NUMBER" \
-            --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
-          # Automated review: Copilot first (cheaper), then Opus. One pass each.
-          # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
           PR_NUM="${{ steps.verify.outputs.pr_number }}"
           REPO_NAME="${{ github.repository }}"
+
+          # D-021 idempotency guard. The verify step matches PR-by-branch and
+          # PR-by-body, so this success path also fires when a worker re-runs
+          # on a sub-task that already has a PR (e.g. the planner re-added
+          # `ai-work`, the worker re-fired, it found the existing PR via the
+          # verify search). Without this guard we'd re-add `ai-phase-copilot`
+          # and re-POST `requested_reviewers`, producing a SECOND Copilot
+          # review on the same PR — directly violating the "1 Copilot + 1
+          # Opus, no more" policy. Symptom in production: 2026-05-09 burst
+          # of duplicate Copilot reviews on PRs #512–#516.
+          PR_LABELS=$(gh pr view "$PR_NUM" --json labels --jq '[.labels[].name] | join(",")' || echo "")
+          for marker in "ai-phase-copilot" "ai-phase-opus" "ai-cp-after-1" "ai-o-after-1"; do
+            if echo ",$PR_LABELS," | grep -q ",$marker,"; then
+              echo "PR #$PR_NUM already has '$marker' — review cycle already in progress or done. Not re-requesting Copilot."
+              gh issue comment "$ISSUE_NUMBER" \
+                --body "♻️ AI Worker re-ran and found existing PR #$PR_NUM with review-cycle label \`$marker\`. Not re-requesting Copilot (D-021: 1 Copilot + 1 Opus, no more)." || true
+              exit 0
+            fi
+          done
+
+          # Existing Copilot review on file (e.g. label was wiped manually but
+          # Copilot already weighed in)? Don't request again.
+          COPILOT_REVIEWS=$(gh api "repos/$REPO_NAME/pulls/$PR_NUM/reviews" --paginate \
+            --jq '[.[] | select(.user.login == "Copilot" or .user.login == "copilot-pull-request-reviewer" or .user.login == "copilot-pull-request-reviewer[bot]")] | length' 2>/dev/null || echo "0")
+          if [ "${COPILOT_REVIEWS:-0}" -gt 0 ]; then
+            echo "PR #$PR_NUM already has $COPILOT_REVIEWS Copilot review(s) — not re-requesting."
+            gh issue comment "$ISSUE_NUMBER" \
+              --body "♻️ AI Worker re-ran and found existing PR #$PR_NUM with $COPILOT_REVIEWS Copilot review(s) on file. Not re-requesting Copilot (D-021: 1 Copilot + 1 Opus, no more)." || true
+            exit 0
+          fi
+
+          # Fresh PR — kick off the review cycle.
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "✅ AI Worker completed. See PR #$PR_NUM."
+          # Automated review: Copilot first (cheaper), then Opus. One pass each.
+          # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
 
           # Self-heal: phase labels must exist in the repo for the state machine to advance.
           gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
