@@ -58,25 +58,41 @@ export interface CreateConversationResult {
 export async function createConversation(
   params: CreateConversationParams,
 ): Promise<CreateConversationResult> {
-  const id = crypto.randomBytes(6).toString("hex");
   const firstUserPrompt =
     params.first_user_prompt ?? params.seed_prompt ?? null;
 
-  await sql(
-    `INSERT INTO conversations
-       (id, mode, first_user_prompt, context_url, context_kind, context_ref)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [
-      id,
-      params.mode,
-      firstUserPrompt,
-      params.context_url ?? null,
-      params.context_kind ?? null,
-      params.context_ref ?? null,
-    ],
-  );
-
-  return { id, c_url: `/c/${id}`, k_url: `/k/${id}` };
+  // One retry on the (astronomically unlikely) PK collision so the caller
+  // never sees a raw unique-violation 500.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const id = crypto.randomBytes(6).toString("hex");
+    try {
+      await sql(
+        `INSERT INTO conversations
+           (id, mode, first_user_prompt, context_url, context_kind, context_ref)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          id,
+          params.mode,
+          firstUserPrompt,
+          params.context_url ?? null,
+          params.context_kind ?? null,
+          params.context_ref ?? null,
+        ],
+      );
+      return { id, c_url: `/c/${id}`, k_url: `/k/${id}` };
+    } catch (err: unknown) {
+      const isUniqueViolation =
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code: string }).code === "23505";
+      if (!isUniqueViolation || attempt === 1) throw err;
+      // Retry with a fresh id
+    }
+  }
+  // Unreachable — loop always returns or throws, but TypeScript needs this.
+  /* c8 ignore next */
+  throw new Error("createConversation: exhausted retries");
 }
 
 /**
@@ -91,8 +107,8 @@ export async function getConversation(id: string): Promise<Conversation | null> 
 }
 
 /**
- * Update the user-visible title of a conversation.
- * Safe to call from both the PATCH route and maybeGenerateTitle.
+ * Update the user-visible title of a conversation unconditionally.
+ * Used by the PATCH route for user-initiated renames.
  */
 export async function updateConversationTitle(
   id: string,
@@ -106,7 +122,7 @@ export async function updateConversationTitle(
 
 /**
  * Archive or unarchive a conversation.
- * Archiving sets `archived_at = NOW()`; unarchiving clears it to NULL.
+ * Archiving sets `archived_at` to the current application timestamp; unarchiving clears it to NULL.
  */
 export async function setConversationArchived(
   id: string,
@@ -236,7 +252,12 @@ export async function maybeGenerateTitle(
 
     const title = resp.text.trim().replace(/^["']|["']$/g, "").trim();
     if (title) {
-      await updateConversationTitle(conversationId, title);
+      // Use WHERE title IS NULL to avoid overwriting a user's manual rename
+      // that may have arrived while the LLM call was in flight.
+      await sql(
+        `UPDATE conversations SET title = $2 WHERE id = $1 AND title IS NULL`,
+        [conversationId, title],
+      );
     }
   } catch {
     // Non-blocking: silently swallow; title stays null

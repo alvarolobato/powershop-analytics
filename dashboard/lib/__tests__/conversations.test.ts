@@ -129,12 +129,12 @@ describe("updateConversationTitle", () => {
 describe("setConversationArchived", () => {
   beforeEach(() => mockSql.mockReset());
 
-  it("sets archived_at to a timestamp when archiving", async () => {
+  it("sets archived_at to a non-null value when archiving", async () => {
     mockSql.mockResolvedValue([]);
     await setConversationArchived("abc123", true);
     const [sql, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("archived_at");
-    expect(typeof params[1]).toBe("string"); // ISO timestamp
+    expect(params[1]).not.toBeNull(); // application timestamp
   });
 
   it("sets archived_at to null when unarchiving", async () => {
@@ -200,10 +200,11 @@ describe("maybeGenerateTitle", () => {
     expect(req.flow).toBe("title");
     expect(req.maxOutputTokens).toBe(30);
 
-    // Should have called UPDATE to persist the title
+    // Should have called conditional UPDATE (WHERE title IS NULL) to persist the title
     expect(mockSql).toHaveBeenCalledTimes(2);
     const [updateSql, updateParams] = mockSql.mock.calls[1] as [string, unknown[]];
     expect(updateSql).toContain("UPDATE conversations");
+    expect(updateSql).toContain("title IS NULL");
     expect(updateParams[1]).toBe("Ventas de ayer análisis");
   });
 
@@ -232,7 +233,8 @@ describe("maybeGenerateTitle", () => {
 
     await maybeGenerateTitle("conv1", messages);
 
-    const [, updateParams] = mockSql.mock.calls[1] as [string, unknown[]];
+    const [updateSql, updateParams] = mockSql.mock.calls[1] as [string, unknown[]];
+    expect(updateSql).toContain("title IS NULL");
     expect(updateParams[1]).toBe("Ventas ayer");
   });
 

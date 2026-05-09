@@ -20,6 +20,8 @@ import { NextResponse } from "next/server";
 import { createConversation } from "@/lib/conversations";
 import { generateRequestId } from "@/lib/errors";
 
+const VALID_MODES = ["analyze", "modify", "generate", "chat"] as const;
+
 export async function POST(req: Request) {
   const requestId = generateRequestId();
 
@@ -37,6 +39,17 @@ export async function POST(req: Request) {
   if (typeof mode !== "string" || !mode) {
     return NextResponse.json(
       { error: "`mode` is required", code: "MISSING_MODE", requestId },
+      { status: 400 },
+    );
+  }
+
+  if (!(VALID_MODES as readonly string[]).includes(mode)) {
+    return NextResponse.json(
+      {
+        error: `Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(", ")}`,
+        code: "INVALID_MODE",
+        requestId,
+      },
       { status: 400 },
     );
   }

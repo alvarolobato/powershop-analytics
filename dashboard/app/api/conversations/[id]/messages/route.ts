@@ -12,7 +12,7 @@
  *   callLlm?: boolean,     // default false — fire the LLM if true
  * }
  *
- * Response (callLlm=true): { message: string }
+ * Response (callLlm=true): { message: string, requestId: string }
  * Response (callLlm=false): { ok: true }
  */
 
@@ -20,7 +20,6 @@ import { NextResponse } from "next/server";
 import {
   getConversation,
   appendMessage,
-  countMessages,
   loadMessages,
   maybeGenerateTitle,
   touchConversation,
@@ -59,6 +58,17 @@ export async function POST(
     );
   }
 
+  if (content.length > 10_000) {
+    return NextResponse.json(
+      {
+        error: "`content` exceeds max length (10 000 chars)",
+        code: "CONTENT_TOO_LONG",
+        requestId,
+      },
+      { status: 400 },
+    );
+  }
+
   const callLlm = body.callLlm === true;
 
   try {
@@ -70,6 +80,17 @@ export async function POST(
       );
     }
 
+    if (conv.archived_at) {
+      return NextResponse.json(
+        {
+          error: "Conversation is archived and cannot receive new messages",
+          code: "CONVERSATION_ARCHIVED",
+          requestId,
+        },
+        { status: 409 },
+      );
+    }
+
     // Persist user message
     await appendMessage(id, "user", { text: content });
 
@@ -78,7 +99,8 @@ export async function POST(
       return NextResponse.json({ ok: true });
     }
 
-    // Load conversation history for the LLM context
+    // Load conversation history for the LLM context.
+    // TODO(#541-followup): cap to the most recent N messages to bound token usage.
     const allMessages = await loadMessages(id);
     const turns: ChatTurn[] = allMessages
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -110,15 +132,12 @@ export async function POST(
 
     await touchConversation(id, "ok");
 
-    // Check if this was the first assistant reply — fire title generation
-    // non-blocking (do not await; errors swallowed inside maybeGenerateTitle)
-    const msgCount = await countMessages(id);
-    if (msgCount <= 3) {
-      // First exchange (1 user + 1 assistant, plus the one we just appended ≤ 3)
-      void maybeGenerateTitle(id, turns.concat([
-        { role: "assistant", content: assistantText },
-      ]));
-    }
+    // Fire title generation non-blocking. maybeGenerateTitle guards internally
+    // on conv.title !== null, so calling it unconditionally is safe — it is a
+    // no-op once the title has been set (avoids the fragile msgCount heuristic).
+    void maybeGenerateTitle(id, turns.concat([
+      { role: "assistant", content: assistantText },
+    ]));
 
     return NextResponse.json({ message: assistantText, requestId });
   } catch (err) {
