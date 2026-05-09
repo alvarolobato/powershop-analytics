@@ -68,7 +68,7 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps sql query "<SQL>"` | Run a read-only SQL query |
 | `ps sql sample <table> [n]` | Show n sample rows |
 | `ps sql count <table>` | Row count for a table |
-| `ps wren push` | Push source knowledge to WrenAI (40+ instructions, 50+ SQL pairs) |
+| `ps wren push` | Push source knowledge to WrenAI (47 instructions, 56 SQL pairs — loaded from source MDs) |
 | `ps wren validate` | Validate all SQL pairs against PostgreSQL mirror |
 | `ps wren status` | Show instruction and SQL pair counts |
 | `ps dashboard open` | Open Dashboard App in browser |
@@ -192,7 +192,8 @@ The script:
 `mutation { deploy(force: true) }` only re-indexes the schema (table/column embeddings). Instructions and SQL pairs require separate POST calls to the AI service at port 5555.
 
 #### Adding new knowledge
-To add new instructions or SQL pairs: add entries to `INSTRUCTIONS` or `SQL_PAIRS` in `scripts/wren-push-metadata.py`, then run `ps wren push`. All SQL in `SQL_PAIRS` must be valid PostgreSQL against `ps_*` mirror tables.
+To add new instructions: add a JSON entry to the `## LLM:rules` array in `docs/etl-sync-strategy.md` (or the relevant architecture / skill MD), then run `npm run build:knowledge` (dashboard) and `ps wren push` (WrenAI).
+To add new SQL pairs: add a `### question\n```sql\n...\n``` ` block to `docs/dashboard/sql-pairs.md` under `## LLM:sql-pairs`, then run both commands above. All SQL must be valid PostgreSQL against `ps_*` mirror tables; date placeholders (`:curr_from`, `:curr_to`, etc.) are automatically expanded for WrenAI.
 
 ---
 
@@ -341,11 +342,19 @@ If you discover something during a session — a null field, an unexpected table
 
 ## Knowledge file maintenance — data-decisions.md and source MDs
 
-> **Target architecture (issue #502):** `docs/dashboard/sql-pairs.md`, the `npm run build:knowledge` script, and the CI drift guard do not exist yet — they are implemented in issue #502. Until that lands, `dashboard/lib/knowledge.ts` is maintained manually. The instructions below describe the intended target state.
+**Both LLM consumers draw from the same source MDs:**
+- **Dashboard runtime LLM** (`dashboard/lib/knowledge.ts`) — compiled by `npm run build:knowledge` from the `## LLM:*` marker sections.
+- **WrenAI** (instructions + SQL pairs in SQLite + qdrant) — loaded by `scripts/wren-push-metadata.py` from the same `## LLM:rules` / `## LLM:sql-pairs` marker sections.
 
-The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/data-decisions.md`, `docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
+When you change anything that affects what either LLM consumer should know about the data platform, **both commands are required**:
+```bash
+npm run build:knowledge   # update dashboard/lib/knowledge.ts
+ps wren push              # update WrenAI's SQLite + qdrant index
+```
 
-When you change anything that affects what the LLM should know about the data platform — adding a decision in `DECISIONS-AND-CHANGES.md` with data semantics; updating an architecture file with a new gotcha; finding a new SQL pattern — also update the relevant marker section of the source MD and run `npm run build:knowledge` (issue #502). Once the drift guard is live, the CI check will fail the PR if `dashboard/lib/knowledge.ts` is out of sync with the sources.
+The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
+
+WrenAI reads `## LLM:rules` (JSON instruction arrays) and `## LLM:sql-pairs` (### heading + ```sql``` blocks) from the same list of source MDs. Date placeholders (`:curr_from`, `:curr_to`, `:comp_from`, `:comp_to`) in SQL pairs are automatically transformed to native PostgreSQL `CURRENT_DATE` / `DATE_TRUNC` expressions before insertion, so both consumers see syntactically valid SQL for their respective execution contexts.
 
 Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — keep them in `DECISIONS-AND-CHANGES.md` only.
 
@@ -353,7 +362,7 @@ Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome,
 
 | Type of change | Source MD to update |
 |----------------|---------------------|
-| New data semantics decision (table, field, type, join) | `docs/data-decisions.md` under `## LLM:rules` |
+| New data semantics decision (table, field, type, join) | `docs/etl-sync-strategy.md` under `## LLM:rules` (or the relevant `docs/architecture/<domain>.md`) |
 | New table relationship or ER diagram finding | `docs/architecture/<domain>.md` under `## LLM:relationships` |
 | New SQL query pattern or validated example | `docs/dashboard/sql-pairs.md` under `## LLM:sql-pairs` |
 | Schema / column gotcha | `docs/skills/data-access.md` under `## LLM:rules` |

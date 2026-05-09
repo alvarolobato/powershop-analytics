@@ -377,6 +377,18 @@ Business rules and field conventions the dashboard LLM must follow when generati
   {
     "instruction": "Cuando el usuario pida un cuadro de mandos, dashboard, o resumen ejecutivo, genera una especificación JSON de dashboard estructurada con múltiples widgets, cada uno con su propia consulta SQL. No respondas con texto explicativo libre ni con una única consulta SQL; incluye SQL solo dentro de los campos correspondientes de cada widget.",
     "questions": ["¿Cuadro de mandos?", "¿Dashboard de ventas?", "¿Resumen ejecutivo?", "¿KPIs del mes?"]
+  },
+  {
+    "instruction": "NUNCA generar consultas sin filtro de fecha sobre tablas grandes: ps_ventas (900K filas), ps_lineas_ventas (1.7M filas), ps_stock_tienda (12M filas). Siempre incluir un rango de fechas explícito. Si el usuario no especifica período, usar 'este mes' (fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE)). Para análisis histórico máximo, limitar a los últimos 2 años.",
+    "questions": ["¿Ventas totales históricas?", "¿Todo el historial de ventas?", "¿Ventas de siempre?", "¿Consulta sin filtro de fecha?"]
+  },
+  {
+    "instruction": "Al hacer JOIN entre ps_ventas y ps_lineas_ventas (o cualquier JOIN cabecera→líneas), usar COUNT(DISTINCT v.reg_ventas) para contar tickets — NUNCA COUNT(*) sin DISTINCT. COUNT(*) cuenta una fila por artículo en el ticket (un ticket con 3 artículos = 3 filas en ps_lineas_ventas). Para totales monetarios de cabecera (total_si, descuento), usar ps_ventas directamente SIN JOIN con líneas — evita multiplicar la cabecera.",
+    "questions": ["¿Cuántos tickets hay?", "¿Por qué se duplican los totales al hacer JOIN?", "¿Número de transacciones únicas?"]
+  },
+  {
+    "instruction": "GUARDIA DE MAGNITUD — solo aplicar cuando el resultado parece imposible, no cuando es simplemente bajo o alto. Los rangos siguientes son para TODA LA CADENA y PERÍODO MENSUAL: ventas netas retail €200K–€3M; ticket medio €30–€250; stock total en unidades 20K–400K; valor del stock al coste €500K–€15M. Escalar proporcionalmente si la consulta es más estrecha: una tienda ÷ ~50, un día ÷ ~30, una familia de producto ÷ ~20. NO añadir advertencias de magnitud en consultas acotadas a una tienda, un artículo, un día o un departamento — el resultado bajo es correcto. Solo revisar filtros si el resultado es > 10x el rango esperado (probable JOIN sin DISTINCT o falta de entrada=true) o exactamente 0 en un período con ventas conocidas.",
+    "questions": ["¿El resultado parece correcto?", "¿Por qué el stock vale €1.000 millones?", "¿Cuál es el rango esperado de ventas?", "¿Los números parecen razonables?"]
   }
 ]
 ```
