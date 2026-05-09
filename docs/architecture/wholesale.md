@@ -413,11 +413,13 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
 
 ```json
 [
-  {"from": "ps_gc_lin_albarane", "fromColumn": "n_albaran", "to": "ps_gc_albaranes", "toColumn": "n_albaran", "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas", "toColumn": "n_factura", "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_albaranes", "fromColumn": "num_cliente", "to": "ps_clientes", "toColumn": "reg_cliente", "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_facturas", "fromColumn": "num_cliente", "to": "ps_clientes", "toColumn": "reg_cliente", "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_albaranes", "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_facturas", "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"}
+  {"from": "ps_gc_lin_albarane", "fromColumn": "n_albaran",   "to": "ps_gc_albaranes",   "toColumn": "n_albaran",    "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas",    "toColumn": "n_factura",    "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_albaranes",    "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_facturas",     "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_albaranes",    "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_facturas",     "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_pedidos",      "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_pedidos",  "fromColumn": "num_pedido",  "to": "ps_gc_pedidos",     "toColumn": "n_pedido",     "type": "MANY_TO_ONE"}
 ]
 ```

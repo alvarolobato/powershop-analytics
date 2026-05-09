@@ -260,6 +260,7 @@ All confirmed `DATA_TYPE=6` (Real) or `DATA_TYPE=10` (text):
 
 ```json
 [
-  {"from": "ps_lineas_compras", "fromColumn": "num_pedido", "to": "ps_compras", "toColumn": "reg_pedido", "type": "MANY_TO_ONE"}
+  {"from": "ps_lineas_compras", "fromColumn": "num_pedido",    "to": "ps_compras",      "toColumn": "reg_pedido",     "type": "MANY_TO_ONE"},
+  {"from": "ps_compras",        "fromColumn": "num_proveedor", "to": "ps_proveedores",  "toColumn": "reg_proveedor",  "type": "MANY_TO_ONE"}
 ]
 ```

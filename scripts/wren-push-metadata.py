@@ -16,6 +16,11 @@ This script is idempotent — safe to re-run. Steps:
   5. Deploy (re-index embeddings in qdrant)
   6. Index instructions + SQL pairs in qdrant via AI service
 
+All three WrenAI knowledge surfaces are MD-driven (post-#532/#550):
+  ## LLM:rules        → INSTRUCTIONS  (JSON instruction arrays)
+  ## LLM:sql-pairs    → SQL_PAIRS     (### heading + ```sql``` blocks)
+  ## LLM:relationships → RELATIONSHIPS (JSON FK-relationship arrays)
+
 Requires: the wren-ui container to be running (for GraphQL API + SQLite copy).
 """
 
@@ -217,9 +222,58 @@ def load_knowledge_from_mds() -> tuple[list[dict], list[tuple[str, str]]]:
     return all_instructions, all_sql_pairs
 
 
-# Load at import time so INSTRUCTIONS / SQL_PAIRS are available as module-level
-# names (same interface as before, consumed by main() and validate_sql_pairs()).
+def parse_relationships_from_mds(
+    mds: list[str],
+) -> list[tuple[str, str, str, str, str]]:
+    """Load FK relationships from ## LLM:relationships sections in source MDs.
+
+    Each section's content must be a JSON array of objects with keys:
+      "from", "fromColumn", "to", "toColumn", "type"
+
+    Returns a list of (from_model, from_col, to_model, to_col, rel_type) tuples —
+    the same shape that the GraphQL relationship-push loop expects.
+    Handles both JSON arrays and single-object forms defensively.
+    Skips files that are missing or have no ## LLM:relationships section.
+    """
+    result: list[tuple[str, str, str, str, str]] = []
+    for rel_path in mds:
+        full_path = _REPO_ROOT / rel_path
+        if not full_path.exists():
+            continue
+        content = full_path.read_text(encoding="utf-8")
+        for section in parse_marker_sections(content):
+            if section["marker"] != "relationships":
+                continue
+            json_m = re.search(r"```json\s*\n(.*?)\n```", section["content"], re.DOTALL)
+            if not json_m:
+                continue
+            try:
+                items = json.loads(json_m.group(1))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Invalid JSON in ## LLM:relationships ({rel_path}): {exc}"
+                ) from exc
+            if isinstance(items, dict):
+                items = [items]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                result.append(
+                    (
+                        item["from"],
+                        item["fromColumn"],
+                        item["to"],
+                        item["toColumn"],
+                        item["type"],
+                    )
+                )
+    return result
+
+
+# Load at import time so INSTRUCTIONS / SQL_PAIRS / RELATIONSHIPS are available
+# as module-level names (consumed by main() and validate_sql_pairs()).
 INSTRUCTIONS, SQL_PAIRS = load_knowledge_from_mds()
+RELATIONSHIPS = parse_relationships_from_mds(SOURCE_MDS)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -308,50 +362,6 @@ MODEL_METADATA = {
         "desc": "Facturas de compra a proveedores",
     },
 }
-
-# ═══════════════════════════════════════════════════════════════════════
-# RELATIONSHIPS — pushed via GraphQL
-# ═══════════════════════════════════════════════════════════════════════
-
-RELATIONSHIPS = [
-    ("ps_lineas_ventas", "num_ventas", "ps_ventas", "reg_ventas", "MANY_TO_ONE"),
-    ("ps_pagos_ventas", "num_ventas", "ps_ventas", "reg_ventas", "MANY_TO_ONE"),
-    ("ps_ventas", "tienda", "ps_tiendas", "codigo", "MANY_TO_ONE"),
-    ("ps_ventas", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
-    ("ps_lineas_ventas", "codigo", "ps_articulos", "codigo", "MANY_TO_ONE"),
-    ("ps_articulos", "num_familia", "ps_familias", "reg_familia", "MANY_TO_ONE"),
-    (
-        "ps_articulos",
-        "num_departament",
-        "ps_departamentos",
-        "reg_departament",
-        "MANY_TO_ONE",
-    ),
-    ("ps_articulos", "num_color", "ps_colores", "reg_color", "MANY_TO_ONE"),
-    ("ps_articulos", "num_temporada", "ps_temporadas", "reg_temporada", "MANY_TO_ONE"),
-    ("ps_articulos", "num_marca", "ps_marcas", "reg_marca", "MANY_TO_ONE"),
-    ("ps_stock_tienda", "codigo", "ps_articulos", "codigo", "MANY_TO_ONE"),
-    ("ps_stock_tienda", "tienda", "ps_tiendas", "codigo", "MANY_TO_ONE"),
-    ("ps_gc_lin_albarane", "n_albaran", "ps_gc_albaranes", "n_albaran", "MANY_TO_ONE"),
-    ("ps_gc_lin_facturas", "num_factura", "ps_gc_facturas", "n_factura", "MANY_TO_ONE"),
-    ("ps_gc_albaranes", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
-    ("ps_gc_facturas", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
-    (
-        "ps_gc_albaranes",
-        "num_comercial",
-        "ps_gc_comerciales",
-        "reg_comercial",
-        "MANY_TO_ONE",
-    ),
-    (
-        "ps_gc_facturas",
-        "num_comercial",
-        "ps_gc_comerciales",
-        "reg_comercial",
-        "MANY_TO_ONE",
-    ),
-    ("ps_lineas_compras", "num_pedido", "ps_compras", "reg_pedido", "MANY_TO_ONE"),
-]
 
 # ═══════════════════════════════════════════════════════════════════════
 # COLUMN DISPLAY NAMES + DESCRIPTIONS — pushed via SQLite
@@ -728,6 +738,7 @@ def main():
         print("═══ Dry run — knowledge loaded from source MDs ═══")
         print(f"  Instructions : {len(INSTRUCTIONS)}")
         print(f"  SQL pairs    : {len(SQL_PAIRS)}")
+        print(f"  Relationships: {len(RELATIONSHIPS)}")
         if INSTRUCTIONS:
             sample = INSTRUCTIONS[0]
             print("\nSample instruction:")
