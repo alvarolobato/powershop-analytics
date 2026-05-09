@@ -949,7 +949,7 @@ CREATE INDEX IF NOT EXISTS conversations_all_recent
 
 CREATE TABLE IF NOT EXISTS conversation_messages (
   id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id   TEXT        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  conversation_id   TEXT        NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT,
   role              TEXT        NOT NULL,
   content           JSONB       NOT NULL,
   tokens_input      INT,

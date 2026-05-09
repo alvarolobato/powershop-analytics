@@ -58,7 +58,7 @@ export async function POST(req: Request) {
           : null,
     });
 
-    return NextResponse.json(result, { status: 200 });
+    return NextResponse.json(result, { status: 201 });
   } catch (err) {
     console.error("[POST /api/conversations] error:", err);
     return NextResponse.json(
