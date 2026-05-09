@@ -25,7 +25,8 @@ Key mirror tables and approximate sizes:
 | `ps_articulos` | Product catalog (379 columns — always specify columns, never `SELECT *`) | — |
 | `ps_clientes` | Customers | — |
 | `ps_tiendas` | Stores (`reg_tienda`, `codigo`, `fecha_modifica` — no `activa`/`anulada` field) | — |
-| `ps_gc_facturas`, `ps_gc_lin_facturas`, `ps_gc_pedidos` | Wholesale (mayorista) | — |
+| `ps_gc_facturas`, `ps_gc_lin_facturas`, `ps_gc_pedidos` | Wholesale invoices, lines, and orders (mayorista) | — |
+| `ps_gc_lin_albarane` | Wholesale delivery lines (mayorista) | ~1M |
 | `ps_compras`, `ps_lineas_compras`, `ps_albaranes` | Purchasing | — |
 | `ps_stock_central` | Central warehouse stock per article (from CCStock) | ~41.5K |
 

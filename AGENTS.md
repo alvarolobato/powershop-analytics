@@ -345,7 +345,7 @@ If you discover something during a session — a null field, an unexpected table
 
 The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/data-decisions.md`, `docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
 
-When you change anything that affects what the LLM should know about the data platform — adding a decision in `DECISIONS-AND-CHANGES.md` with data semantics; updating an architecture file with a new gotcha; finding a new SQL pattern — also update the relevant marker section of the source MD and run `npm run build:knowledge`. The CI drift guard fails the PR if `dashboard/lib/knowledge.ts` is out of sync with the sources.
+When you change anything that affects what the LLM should know about the data platform — adding a decision in `DECISIONS-AND-CHANGES.md` with data semantics; updating an architecture file with a new gotcha; finding a new SQL pattern — also update the relevant marker section of the source MD and run `npm run build:knowledge` (issue #502). Once the drift guard is live, the CI check will fail the PR if `dashboard/lib/knowledge.ts` is out of sync with the sources.
 
 Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — keep them in `DECISIONS-AND-CHANGES.md` only.
 
@@ -370,9 +370,9 @@ npm run build:knowledge
 git diff --exit-code dashboard/lib/knowledge.ts
 ```
 
-The CI drift guard runs `npm run build:knowledge` and fails if `dashboard/lib/knowledge.ts`
-differs from what the sources produce. Never hand-edit `dashboard/lib/knowledge.ts` —
-edit the source MDs and regenerate.
+Once implemented (issue #502), the CI drift guard runs `npm run build:knowledge` and fails
+if `dashboard/lib/knowledge.ts` differs from what the sources produce.
+Never hand-edit `dashboard/lib/knowledge.ts` — edit the source MDs and regenerate.
 
 ---
 
