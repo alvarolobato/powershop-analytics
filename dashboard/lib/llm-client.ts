@@ -117,10 +117,12 @@ function assembleSystemPrompt(req: LlmRequest): string {
 
 function buildMessages(req: LlmRequest): ChatCompletionMessageParam[] {
   const systemContent = assembleSystemPrompt(req);
-  return [
-    { role: "system", content: systemContent },
-    ...req.messages.map((m) => ({ role: m.role, content: m.content }) as ChatCompletionMessageParam),
-  ];
+  const userMessages = req.messages.map(
+    (m) => ({ role: m.role, content: m.content }) as ChatCompletionMessageParam,
+  );
+  return systemContent
+    ? [{ role: "system", content: systemContent }, ...userMessages]
+    : userMessages;
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
