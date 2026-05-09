@@ -179,15 +179,25 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          set -euo pipefail
-          # Without this step, `ai-ci-failing` lingers on PRs whose CI was
-          # successfully remediated, blocking the address-feedback workflow's
-          # CI-gated owner handoff (see ai-address-feedback.yml ~line 187,
-          # which treats ai-ci-failing presence as CI_STATE='failing').
-          # Watchdog also cleans it but only every 15 min; clear eagerly
-          # here so the converge → ai-awaiting-owner can advance immediately
-          # on the next address-feedback dispatch.
-          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          # Best-effort cleanup. Without this step, `ai-ci-failing` lingers on
+          # PRs whose CI was successfully remediated, blocking the
+          # address-feedback workflow's CI-gated owner handoff (see
+          # ai-address-feedback.yml ~line 187, which treats ai-ci-failing
+          # presence as CI_STATE='failing'). Watchdog also cleans it but only
+          # every 15 min; clear eagerly here so the converge →
+          # ai-awaiting-owner can advance immediately on the next
+          # address-feedback dispatch.
+          #
+          # Deliberately NOT using `set -euo pipefail` and explicit `|| true`
+          # on every API call: this step runs on `if: always()`, so a transient
+          # GitHub API failure must not flip the whole `ai-ci-remediation`
+          # job to failed when the underlying remediation succeeded. Watchdog
+          # is the catch-all if we couldn't clear here.
+          HEAD_SHA=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha' 2>/dev/null || echo "")
+          if [ -z "$HEAD_SHA" ]; then
+            echo "Could not resolve head SHA for PR #$PR_NUMBER — leaving label cleanup to watchdog."
+            exit 0
+          fi
           # Wait briefly for any pending check-runs from the remediation push
           # to register; otherwise we'll see "running" and hold the label.
           sleep 30
@@ -196,9 +206,12 @@ jobs:
             2>/dev/null || echo "unknown")
           echo "PR #$PR_NUMBER head=$HEAD_SHA CI_STATE=$CI_STATE"
           if [ "$CI_STATE" = "ready" ]; then
-            gh api "repos/$REPO/issues/$PR_NUMBER/labels/ai-ci-failing" -X DELETE 2>/dev/null \
-              && echo "Cleared ai-ci-failing on PR #$PR_NUMBER (CI now green)." \
-              || echo "ai-ci-failing was not present on PR #$PR_NUMBER (no-op)."
+            if gh api "repos/$REPO/issues/$PR_NUMBER/labels/ai-ci-failing" -X DELETE >/dev/null 2>&1; then
+              echo "Cleared ai-ci-failing on PR #$PR_NUMBER (CI now green)."
+            else
+              echo "ai-ci-failing was not present on PR #$PR_NUMBER (or API hiccup) — no-op."
+            fi
           else
-            echo "CI is $CI_STATE — leaving ai-ci-failing in place."
+            echo "CI is $CI_STATE — leaving ai-ci-failing in place; watchdog will revisit."
           fi
+          exit 0
