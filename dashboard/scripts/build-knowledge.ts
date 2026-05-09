@@ -44,6 +44,9 @@ interface TableSchema {
   keyColumns: string[];
 }
 
+// All current WrenAI relationships are MANY_TO_ONE; type is kept as string
+// (not a union literal) so future ONE_TO_ONE or MANY_TO_MANY entries in source
+// MDs emit correctly without requiring interface changes.
 interface Relationship {
   from: string;
   fromColumn: string;
@@ -55,6 +58,8 @@ interface Relationship {
 // ─── Parser ───────────────────────────────────────────────────────────────────
 
 const LLM_HEADING = /^## LLM:(\w[\w-]*)$/;
+// Any ## heading (including non-LLM) terminates the current LLM section.
+const ANY_H2 = /^## /;
 
 interface ParsedSection {
   marker: string;
@@ -76,7 +81,13 @@ function parseMarkdownSections(source: string): ParsedSection[] {
       currentMarker = m[1];
       currentLines = [];
     } else if (currentMarker !== null) {
-      currentLines.push(line);
+      if (ANY_H2.test(line)) {
+        sections.push({ marker: currentMarker, content: currentLines.join("\n").trim() });
+        currentMarker = null;
+        currentLines = [];
+      } else {
+        currentLines.push(line);
+      }
     }
   }
 
