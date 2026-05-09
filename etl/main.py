@@ -19,7 +19,7 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 logging.basicConfig(
@@ -59,6 +59,21 @@ def _parse_cron_minute(raw: str | None) -> int:
     if not (0 <= value <= 59):
         logger.warning("ETL_DELTA_CRON_MINUTE=%d out of range; defaulting to 0", value)
         return 0
+    return value
+
+
+def _parse_lookback_days(raw: str | None) -> int:
+    """Validate ETL_DELTA_LOOKBACK_DAYS string; default to 1 when non-integer or negative."""
+    try:
+        value = int(raw or "1")
+    except ValueError:
+        logger.warning(
+            "ETL_DELTA_LOOKBACK_DAYS=%r is not an integer; defaulting to 1", raw
+        )
+        return 1
+    if value < 0:
+        logger.warning("ETL_DELTA_LOOKBACK_DAYS=%d is negative; defaulting to 1", value)
+        return 1
     return value
 
 
@@ -123,6 +138,7 @@ def _run_sync(
     *,
     kind: str = "full",
     target_table: str | None = None,
+    lookback_days: int = 1,
 ) -> tuple[int, bool]:
     """Run a single sync function with timing, watermark management, and error handling.
 
@@ -154,6 +170,8 @@ def _run_sync(
     try:
         if uses_watermark:
             since = None if kind == "full" else get_watermark(conn_pg, name)
+            if since is not None and kind == "delta" and lookback_days > 0:
+                since = since - timedelta(days=lookback_days)
             wm_from = since
             rows = sync_fn(conn_4d, conn_pg, since)
         else:
@@ -432,6 +450,7 @@ def run_full_sync(
     kind: str = "full",
     *,
     force_flags: tuple[bool, list[str], str | None] | None = None,
+    lookback_days: int = 1,
 ) -> None:
     """Execute all sync tasks in topological order.
 
@@ -627,6 +646,7 @@ def run_full_sync(
                 run_id=run_id,
                 kind=kind,
                 target_table=SYNC_TARGET_TABLE.get(name),
+                lookback_days=lookback_days,
             )
             results.append(ok)
             # Accumulate row counts for etl_sync_runs.total_rows_synced so the
@@ -865,7 +885,13 @@ def _record_connection_failure(
 
 
 def _run_scheduler_loop(
-    config, conn_pg, conn_4d, cron_hour: int, *, delta_minute: int = 0
+    config,
+    conn_pg,
+    conn_4d,
+    cron_hour: int,
+    *,
+    delta_minute: int = 0,
+    lookback_days: int = 1,
 ) -> None:
     """Blocking scheduler loop: registers the hourly delta + nightly full
     jobs, runs an initial sync on startup, then polls every 10 s for manual
@@ -922,7 +948,13 @@ def _run_scheduler_loop(
             )
             return
         try:
-            run_full_sync(conn_4d, conn_pg, trigger="scheduled", kind=kind)
+            run_full_sync(
+                conn_4d,
+                conn_pg,
+                trigger="scheduled",
+                kind=kind,
+                lookback_days=lookback_days,
+            )
         except Exception:
             logger.exception(
                 "Scheduled %s run_full_sync raised; dropping 4D connection for retry",
@@ -1020,6 +1052,7 @@ def _run_scheduler_loop(
                             trigger_id=trigger_id,
                             kind=manual_kind,
                             force_flags=flags,
+                            lookback_days=lookback_days,
                         )
                     except Exception:
                         logger.exception(
@@ -1061,6 +1094,9 @@ def main() -> None:
     # (and also the minute the nightly full fires on cron_hour).
     cron_hour = _parse_cron_hour(os.environ.get("ETL_CRON_HOUR"))
     delta_cron_minute = _parse_cron_minute(os.environ.get("ETL_DELTA_CRON_MINUTE"))
+    delta_lookback_days = _parse_lookback_days(
+        os.environ.get("ETL_DELTA_LOOKBACK_DAYS")
+    )
 
     from etl.db import postgres
 
@@ -1123,10 +1159,11 @@ def main() -> None:
             run_full_sync(conn_4d, conn_pg, trigger="cli", kind="full")
         else:
             logger.info(
-                "Scheduler mode: hourly delta at :%02d, nightly full at %02d:%02d",
+                "Scheduler mode: hourly delta at :%02d, nightly full at %02d:%02d, lookback_days=%d",
                 delta_cron_minute,
                 cron_hour,
                 delta_cron_minute,
+                delta_lookback_days,
             )
             _run_scheduler_loop(
                 config,
@@ -1134,6 +1171,7 @@ def main() -> None:
                 conn_4d,
                 cron_hour,
                 delta_minute=delta_cron_minute,
+                lookback_days=delta_lookback_days,
             )
     finally:
         if conn_4d is not None:
