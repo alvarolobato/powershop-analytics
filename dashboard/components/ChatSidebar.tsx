@@ -1534,7 +1534,9 @@ export default function ChatSidebar({
   // Gracefully falls through if the API is not yet available (Task 2 / #537).
   const conversationAutoLoadedRef = useRef(false);
   useEffect(() => {
-    if (dashboardId === undefined || conversationAutoLoadedRef.current) return;
+    // Reset on dashboardId change so swapping dashboards re-triggers auto-load.
+    conversationAutoLoadedRef.current = false;
+    if (dashboardId === undefined) return;
     conversationAutoLoadedRef.current = true;
 
     const controller = new AbortController();
@@ -1791,6 +1793,7 @@ export default function ChatSidebar({
             <button
               type="button"
               onClick={() => setShowPreviousConversations((v) => !v)}
+              onMouseDown={(e) => e.stopPropagation()}
               aria-label="Ver conversaciones anteriores"
               aria-expanded={showPreviousConversations}
               data-testid="previous-conversations-btn"

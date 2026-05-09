@@ -343,6 +343,7 @@ describe("PreviousConversations", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining("mode=modify"),
+        expect.objectContaining({ signal: expect.anything() }),
       );
     });
   });
@@ -361,6 +362,7 @@ describe("PreviousConversations", () => {
     await waitFor(() => {
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining("mode=analyze"),
+        expect.objectContaining({ signal: expect.anything() }),
       );
     });
   });

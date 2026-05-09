@@ -60,38 +60,43 @@ export default function PreviousConversations({
   const [error, setError] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const modeParam = mode === "modify" ? "modify" : "analyze";
-
-  const fetchConversations = useCallback(() => {
-    setLoading(true);
-    setError(false);
-    fetch(
-      `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${modeParam}&include_archived=true`,
-    )
-      .then(async (res) => {
-        if (res.status === 404) {
-          // Route not yet available (Task 2 / #537) — treat as empty list
-          setConversations([]);
+  const fetchConversations = useCallback(
+    (signal?: AbortSignal) => {
+      setLoading(true);
+      setError(false);
+      fetch(
+        `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${mode}&include_archived=true`,
+        signal ? { signal } : undefined,
+      )
+        .then(async (res) => {
+          if (res.status === 404) {
+            // Route not yet available (Task 2 / #537) — treat as empty list
+            setConversations([]);
+            setLoading(false);
+            return;
+          }
+          if (!res.ok) {
+            setError(true);
+            setLoading(false);
+            return;
+          }
+          const data = (await res.json()) as { conversations: ConversationSummary[] };
+          setConversations(data.conversations ?? []);
           setLoading(false);
-          return;
-        }
-        if (!res.ok) {
+        })
+        .catch((err: unknown) => {
+          if (err instanceof DOMException && err.name === "AbortError") return;
           setError(true);
           setLoading(false);
-          return;
-        }
-        const data = (await res.json()) as { conversations: ConversationSummary[] };
-        setConversations(data.conversations ?? []);
-        setLoading(false);
-      })
-      .catch(() => {
-        setError(true);
-        setLoading(false);
-      });
-  }, [dashboardId, modeParam]);
+        });
+    },
+    [dashboardId, mode],
+  );
 
   useEffect(() => {
-    fetchConversations();
+    const controller = new AbortController();
+    fetchConversations(controller.signal);
+    return () => controller.abort();
   }, [fetchConversations]);
 
   // Close on outside click
@@ -227,7 +232,7 @@ export default function PreviousConversations({
             No se pudo cargar el historial.{" "}
             <button
               type="button"
-              onClick={fetchConversations}
+              onClick={() => fetchConversations()}
               style={{
                 background: "none",
                 border: "none",
