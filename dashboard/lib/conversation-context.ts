@@ -11,6 +11,7 @@ import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-pr
 import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
 import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
 import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
+import { logUsage } from "@/lib/llm-usage";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -31,8 +32,11 @@ export async function loadPriorTurns(
   channel: "modify" | "analyze",
   maxTurns = DEFAULT_MAX_TURNS,
 ): Promise<ChatTurn[]> {
-  const column =
-    channel === "modify" ? "chat_messages_modify" : "chat_messages_analyze";
+  const COLUMN_MAP = {
+    modify: "chat_messages_modify",
+    analyze: "chat_messages_analyze",
+  } as const;
+  const column = COLUMN_MAP[channel];
 
   let rows: { messages: unknown }[];
   try {
@@ -59,7 +63,7 @@ export async function loadPriorTurns(
 
   if (turns.length <= maxTurns) return turns;
 
-  return summariseOldTurns(turns, maxTurns);
+  return summariseOldTurns(turns, maxTurns, channel);
 }
 
 /**
@@ -71,6 +75,7 @@ export async function loadPriorTurns(
 export async function summariseOldTurns(
   turns: ChatTurn[],
   maxTurns: number,
+  channel: "modify" | "analyze" = "modify",
 ): Promise<ChatTurn[]> {
   if (turns.length <= maxTurns) return turns;
 
@@ -78,7 +83,7 @@ export async function summariseOldTurns(
   const oldTurns = turns.slice(0, turns.length - recentCount);
   const recentTurns = turns.slice(turns.length - recentCount);
 
-  const summary = await buildSummary(oldTurns);
+  const summary = await buildSummary(oldTurns, channel);
   return [
     {
       role: "assistant",
@@ -88,7 +93,10 @@ export async function summariseOldTurns(
   ];
 }
 
-async function buildSummary(turns: ChatTurn[]): Promise<string> {
+async function buildSummary(
+  turns: ChatTurn[],
+  channel: "modify" | "analyze",
+): Promise<string> {
   const userPrompts = turns
     .filter((t) => t.role === "user")
     .map((t) => `- ${t.content.slice(0, 200)}`)
@@ -97,7 +105,7 @@ async function buildSummary(turns: ChatTurn[]): Promise<string> {
   const prompt = `Summarise the following prior user requests in a short bulleted list (one line each, max 300 chars total). Respond with only the bullet list, no preamble.\n\n${userPrompts}`;
 
   const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg, "modify");
+  const model = getEffectiveDashboardModel(cfg, channel);
 
   if (cfg.provider === "cli") {
     try {
@@ -111,7 +119,7 @@ async function buildSummary(turns: ChatTurn[]): Promise<string> {
 
   try {
     const client = getOpenRouterClient();
-    const { content } = await callWithCircuitBreaker(() =>
+    const { content, usage } = await callWithCircuitBreaker(() =>
       openRouterChatCompletion({
         client,
         model,
@@ -120,6 +128,13 @@ async function buildSummary(turns: ChatTurn[]): Promise<string> {
         maxTokens: 200,
       }),
     );
+    if (usage) {
+      logUsage(`dashboard/${channel}/summarise`, model, {
+        prompt_tokens: usage.prompt_tokens ?? 0,
+        completion_tokens: usage.completion_tokens ?? 0,
+        total_tokens: usage.total_tokens ?? 0,
+      });
+    }
     return content || userPrompts;
   } catch {
     return userPrompts;

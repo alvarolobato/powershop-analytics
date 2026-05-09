@@ -28,6 +28,10 @@ vi.mock("@/lib/llm-provider/config", () => ({
   getEffectiveDashboardModel: vi.fn(() => "anthropic/claude-sonnet-4"),
 }));
 
+vi.mock("@/lib/llm-usage", () => ({
+  logUsage: vi.fn(),
+}));
+
 import { loadPriorTurns, summariseOldTurns, type ChatTurn } from "../conversation-context";
 
 describe("loadPriorTurns", () => {
