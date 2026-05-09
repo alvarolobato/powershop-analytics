@@ -4,6 +4,76 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 // ---------------------------------------------------------------------------
+// HomeSurface
+// ---------------------------------------------------------------------------
+
+import HomeSurface from "../surfaces/HomeSurface";
+
+describe("HomeSurface", () => {
+  it("renders an iframe pointing to /inicio", () => {
+    const { container } = render(<HomeSurface />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe).toBeTruthy();
+    expect(iframe?.getAttribute("src")).toBe("/inicio");
+  });
+
+  it("shows 'Ver solo el panel' link when contextUrl is a relative path", () => {
+    render(<HomeSurface contextUrl="/dashboard/42" />);
+    const link = screen.getByTestId("ver-solo-panel");
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toBe("/dashboard/42");
+  });
+
+  it("does not show link when contextUrl is an absolute external URL", () => {
+    render(<HomeSurface contextUrl="https://evil.com" />);
+    expect(screen.queryByTestId("ver-solo-panel")).not.toBeInTheDocument();
+  });
+
+  it("does not show link when contextUrl is null", () => {
+    render(<HomeSurface contextUrl={null} />);
+    expect(screen.queryByTestId("ver-solo-panel")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AdminSurface
+// ---------------------------------------------------------------------------
+
+import AdminSurface from "../surfaces/AdminSurface";
+
+describe("AdminSurface", () => {
+  it("renders an iframe defaulting to /admin when contextUrl is null", () => {
+    const { container } = render(<AdminSurface contextUrl={null} />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("/admin");
+  });
+
+  it("renders iframe with relative contextUrl", () => {
+    const { container } = render(<AdminSurface contextUrl="/admin/config" />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("/admin/config");
+  });
+
+  it("shows 'Ver solo el panel' link for a valid relative path", () => {
+    render(<AdminSurface contextUrl="/admin/config" />);
+    const link = screen.getByTestId("ver-solo-panel");
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("href")).toBe("/admin/config");
+  });
+
+  it("falls back to /admin iframe src when contextUrl is external", () => {
+    const { container } = render(<AdminSurface contextUrl="https://evil.com" />);
+    const iframe = container.querySelector("iframe");
+    expect(iframe?.getAttribute("src")).toBe("/admin");
+  });
+
+  it("does not show link when contextUrl is external", () => {
+    render(<AdminSurface contextUrl="https://evil.com" />);
+    expect(screen.queryByTestId("ver-solo-panel")).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // RoundDivider
 // ---------------------------------------------------------------------------
 
@@ -217,11 +287,11 @@ describe("conversation-types helpers", () => {
       expect(isAssistantContent({ text: "hello" })).toBe(true);
     });
 
-    it("returns true for tool-only assistant message (no text field)", () => {
+    it("returns true for tool-only assistant message (tool_calls present, no text)", () => {
       expect(isAssistantContent({ tool_calls: [{ id: "t1", name: "x", arguments: {} }] })).toBe(true);
     });
 
-    it("returns true for error assistant message", () => {
+    it("returns true for error assistant message (is_error present, no text)", () => {
       expect(isAssistantContent({ is_error: true })).toBe(true);
     });
 

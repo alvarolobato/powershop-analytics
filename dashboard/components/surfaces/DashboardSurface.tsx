@@ -463,13 +463,6 @@ export default function DashboardSurface({
     setChatOpen(true);
   }, []);
 
-  const handleOpenAnalyze = useCallback(() => {
-    setGlossaryOpen(false);
-    setHistoryOpen(false);
-    setChatInitialMode("analizar");
-    setChatOpen(true);
-  }, []);
-
   const handleSpecUpdate = useCallback(
     (newSpec: DashboardSpec, prompt: string) => {
       setDashboard((prev) => (prev ? { ...prev, spec: newSpec } : prev));
@@ -705,8 +698,8 @@ export default function DashboardSurface({
         </div>
       )}
 
-      {/* kMode banner: "Ver solo el panel" */}
-      {kMode && contextUrl && (
+      {/* kMode banner: "Ver solo el panel" — only relative paths allowed to prevent open redirect */}
+      {kMode && contextUrl && contextUrl.startsWith("/") && (
         <div
           style={{
             padding: "6px 20px",
@@ -987,7 +980,7 @@ export default function DashboardSurface({
         onDataPointClick={handleDataPointClick}
       />
 
-      <AnalyzeLauncher onOpen={handleOpenAnalyze} hidden={chatOpen} />
+      <AnalyzeLauncher dashboardId={dashboard.id} hidden={chatOpen} />
 
       <ChatSidebar
         spec={dashboard.spec}
