@@ -128,13 +128,39 @@ jobs:
             SHOULD_RUN="false"
             REASON="PR #$PR labelled no-address-feedback"
           fi
-          # D-021: don't even kick off the address job for converged PRs.
-          # The address job has its own d021 step as a defence in depth, but
-          # short-circuiting here saves a runner and avoids touching labels.
+          # D-021: don't kick off the address job for converged PRs.
+          # The address job has its own d021 step as defence in depth, but
+          # that step lives INSIDE the address job — which is gated by
+          # `should_run=true`. So if we set should_run=false here without
+          # cleaning up first, any stale phase / blocked / auto-retry labels
+          # stay stuck forever (the address-job d021 cleanup is unreachable).
+          # That's how PRs #513 and #516 ended up with `ai-phase-copilot` set
+          # on top of an already-converged `ai-cp-after-1 + ai-o-after-1`
+          # after the pre-#519 duplicate-Copilot-request bug fired the
+          # worker's `Handle success` a second time.
+          # Fix: do the same cleanup the address-job d021 step would have
+          # done, then short-circuit. Idempotent: removing absent labels and
+          # adding present ones via the REST endpoint is a no-op.
           if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
              && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
             SHOULD_RUN="false"
             REASON="PR #$PR already has ai-cp-after-1 + ai-o-after-1 (D-021 converged)"
+            # Clear stale phase / blocked / auto-retry labels.
+            for stale in ai-ready-for-review ai-phase-copilot ai-phase-opus ai-blocked ai-auto-retry; do
+              gh api "repos/${{ github.repository }}/issues/$PR/labels/$stale" -X DELETE 2>/dev/null || true
+            done
+            # CI-gated owner handoff (matches the address-job d021 step).
+            HEAD_SHA=$(echo "$PR_JSON" | jq -r '.head.sha')
+            CI_STATE=$(gh api "repos/${{ github.repository }}/commits/$HEAD_SHA/check-runs" \
+              --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
+              2>/dev/null || echo "unknown")
+            if echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+              CI_STATE="failing"
+            fi
+            if [ "$CI_STATE" = "ready" ]; then
+              gh api "repos/${{ github.repository }}/issues/$PR/labels" -X POST \
+                -f 'labels[]=ai-awaiting-owner' 2>/dev/null || true
+            fi
           fi
 
           echo "pr_number=$PR" >> "$GITHUB_OUTPUT"
