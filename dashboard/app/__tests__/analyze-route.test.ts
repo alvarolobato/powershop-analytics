@@ -4,6 +4,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Mock LLM module before importing the route
 // ---------------------------------------------------------------------------
 
+const { mockLoadPriorTurns } = vi.hoisted(() => ({
+  mockLoadPriorTurns: vi.fn(),
+}));
+
+vi.mock("@/lib/conversation-context", () => ({
+  loadPriorTurns: mockLoadPriorTurns,
+}));
+
 vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
@@ -72,6 +80,7 @@ function makeAnalyzeMock(
 describe("POST /api/dashboard/analyze", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockLoadPriorTurns.mockResolvedValue([]);
     vi.mocked(llm.generateSuggestions).mockResolvedValue([
       "¿Cuál es la tienda con más ventas?",
       "¿Qué productos tienen mayor margen?",
@@ -320,5 +329,30 @@ describe("POST /api/dashboard/analyze", () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(400);
+  });
+
+  // -----------------------------------------------------------------------
+  // Prior turns
+  // -----------------------------------------------------------------------
+
+  it("loads and passes prior turns when dashboardId is present", async () => {
+    const storedTurns = [
+      { role: "user" as const, content: "Analiza las ventas" },
+      { role: "assistant" as const, content: "Las ventas han crecido un 12%." },
+    ];
+    mockLoadPriorTurns.mockResolvedValue(storedTurns);
+    vi.mocked(llm.analyzeDashboard).mockImplementation(makeAnalyzeMock("Análisis correcto."));
+
+    const req = makeRequest({ spec: baseSpec, widgetData: {}, prompt: "¿Qué más ves?", dashboardId: 42 });
+    await POST(req);
+
+    expect(mockLoadPriorTurns).toHaveBeenCalledWith(42, "analyze");
+    expect(llm.analyzeDashboard).toHaveBeenCalledWith(
+      expect.any(String),
+      "¿Qué más ves?",
+      undefined,
+      expect.objectContaining({ endpoint: "analyzeDashboard" }),
+      storedTurns,
+    );
   });
 });

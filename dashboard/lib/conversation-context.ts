@@ -44,7 +44,13 @@ export async function loadPriorTurns(
       `SELECT ${column} AS messages FROM dashboards WHERE id = $1`,
       [dashboardId],
     );
-  } catch {
+  } catch (e) {
+    console.error(
+      "[conversation-context] loadPriorTurns DB error (id=%s, channel=%s):",
+      dashboardId,
+      channel,
+      e,
+    );
     return [];
   }
 
@@ -78,6 +84,7 @@ export async function summariseOldTurns(
   channel: "modify" | "analyze" = "modify",
 ): Promise<ChatTurn[]> {
   if (turns.length <= maxTurns) return turns;
+  if (maxTurns < 2) return maxTurns <= 0 ? [] : turns.slice(-1);
 
   const recentCount = maxTurns - 1;
   const oldTurns = turns.slice(0, turns.length - recentCount);

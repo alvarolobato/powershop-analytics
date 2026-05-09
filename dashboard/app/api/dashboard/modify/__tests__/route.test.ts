@@ -2,8 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // --- Mock the LLM module before importing the route -------------------------
 
-const { mockModifyDashboard } = vi.hoisted(() => ({
+const { mockModifyDashboard, mockLoadPriorTurns } = vi.hoisted(() => ({
   mockModifyDashboard: vi.fn(),
+  mockLoadPriorTurns: vi.fn(),
+}));
+
+vi.mock("@/lib/conversation-context", () => ({
+  loadPriorTurns: mockLoadPriorTurns,
 }));
 
 vi.mock("@/lib/llm", async () => {
@@ -118,6 +123,8 @@ describe("POST /api/dashboard/modify", () => {
     mockCreateInteraction.mockResolvedValue("mock-interaction-id");
     mockFinishInteraction.mockReset();
     mockFinishInteraction.mockResolvedValue(undefined);
+    mockLoadPriorTurns.mockReset();
+    mockLoadPriorTurns.mockResolvedValue([]);
   });
 
   it("returns updated spec + message + summary on valid modification", async () => {
@@ -338,6 +345,25 @@ describe("POST /api/dashboard/modify", () => {
       expect(res.status).toBe(400);
       const json = await res.json();
       expect(json.code).toBe("VALIDATION");
+    });
+
+    it("loads and passes prior turns when dashboardId is present", async () => {
+      const storedTurns = [
+        { role: "user" as const, content: "Añade el margen" },
+        { role: "assistant" as const, content: "He añadido el margen." },
+      ];
+      mockLoadPriorTurns.mockResolvedValue(storedTurns);
+      mockModifyDashboard.mockImplementation(makeModifyMock(updatedSpec));
+
+      await POST(makeRequest({ spec: validSpec, prompt: "Añade algo más", dashboardId: 99 }));
+
+      expect(mockLoadPriorTurns).toHaveBeenCalledWith(99, "modify");
+      expect(mockModifyDashboard).toHaveBeenCalledWith(
+        JSON.stringify(validSpec),
+        "Añade algo más",
+        expect.objectContaining({ endpoint: "modifyDashboard" }),
+        storedTurns,
+      );
     });
   });
 });
