@@ -9,16 +9,20 @@ claude:
 
 # Label system
 labels:
-  # Execution control
+  # Execution control (issue-level)
   trigger: "ai-work"          # AI should implement this issue
   blocked: "ai-blocked"       # AI is blocked, needs human input
   planned: "ai-planned"       # AI has posted a plan
   in_progress: "ai-in-progress" # AI is currently working
+  task: "ai-task"             # Sub-task created by planner (with ai-work, triggers implement phase)
+  needs_rewrite: "ai-needs-rewrite"  # Sub-issue body mangled (JSX/generics stripped) — repair before acting
+  auto_retry: "ai-auto-retry" # Watchdog retries automatically; pairs with ai-blocked
   no_ai: "no-ai"              # Human-only
-  no_review: "no-pr-review"   # Skip AI PR review
-  auto_merge: "auto-merge"    # Auto-merge when CI + review pass
+  no_review: "no-pr-review"   # Skip AI PR review on this PR
+  auto_merge: "auto-merge"    # Auto-merge when CI + review pass (reserved for future)
   awaiting_owner: "ai-awaiting-owner"  # Automated review cycle done — owner merges when ready
   ci_failing: "ai-ci-failing"            # CI workflow red; AI CI remediation may run
+  ready_for_review: "ai-ready-for-review"  # Address-feedback finished; trigger next PR review
 
   # Priority (highest first)
   priorities:
@@ -27,14 +31,10 @@ labels:
     - "p2-medium"
     - "p3-low"
 
-  # Categories (AI-discovered issues)
+  # Categories (only labels emitted by an active discovery agent today)
   categories:
-    - "ai-bug"
-    - "ai-security"
-    - "ai-perf"
-    - "ai-docs"
-    - "ai-idea"
-    - "ai-quality"
+    - "ai-bug"     # ai-bug-hunter.yml
+    - "ai-idea"    # ai-feature-ideas.yml
 
   # Components
   components:
@@ -53,6 +53,11 @@ labels:
     - "ai-o-after-1"       # Addressed after Opus review (terminal for AI review)
     - "ai-legacy-opus-1"   # Legacy PRs: first Opus pass recorded
     - "ai-legacy-opus-2"   # Legacy PRs: second Opus pass — further Opus runs skipped
+
+  # Auto-managed by ai-pr-mergeability.yml (created on demand)
+  mergeability:
+    - "ai-merge-conflict"  # PR has unresolvable merge conflict
+    - "ai-stale-base"      # PR was rebased onto latest main
 
   # PR size
   sizes:
