@@ -447,13 +447,6 @@ export default function ViewDashboard() {
     setChatOpen(true);
   }, []);
 
-  /** Opens the sidebar in analizar mode — called by AnalyzeLauncher */
-  const handleOpenAnalyze = useCallback(() => {
-    setGlossaryOpen(false);
-    setHistoryOpen(false);
-    setChatInitialMode("analizar");
-    setChatOpen(true);
-  }, []);
 
   const handleSpecUpdate = useCallback(
     (newSpec: DashboardSpec, prompt: string) => {
@@ -1066,7 +1059,7 @@ export default function ViewDashboard() {
 
       {/* Floating rail launcher — hidden when sidebar is open */}
       <AnalyzeLauncher
-        onOpen={handleOpenAnalyze}
+        dashboardId={dashboard.id}
         hidden={chatOpen}
       />
 
