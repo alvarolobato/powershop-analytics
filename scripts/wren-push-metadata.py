@@ -276,7 +276,15 @@ def parse_relationships_from_mds(
                         item["type"],
                     )
                 )
-    return result
+    # Deduplicate while preserving source order (defensive guard against duplicate
+    # entries across source MDs — the GraphQL push loop also handles duplicates).
+    seen: set[tuple[str, str, str, str, str]] = set()
+    deduped = []
+    for rel in result:
+        if rel not in seen:
+            seen.add(rel)
+            deduped.append(rel)
+    return deduped
 
 
 # Load at import time so INSTRUCTIONS / SQL_PAIRS / RELATIONSHIPS are available
