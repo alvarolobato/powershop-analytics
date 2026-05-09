@@ -5,7 +5,7 @@ PostgreSQL connection.  They are skipped automatically when either is
 unavailable so CI without external access passes cleanly.
 
 What is tested:
-- TestMayoristaGtefix: Unit tests asserting all delta SQL templates use >= (issue #459).
+- TestMayoristaGteFix: Unit tests asserting all delta SQL templates use >= (issue #459).
 - test_gc_albaranes_count: Row count in ps_gc_albaranes matches 4D source.
 - test_gc_facturas_count:  Row count in ps_gc_facturas matches 4D source.
 - test_gc_lin_albarane_fk: All n_albaran values in ps_gc_lin_albarane exist

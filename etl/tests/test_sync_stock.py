@@ -300,7 +300,7 @@ class TestBuildExpoWhere:
         assert result.startswith("WHERE ")
 
 
-class TestBuildTrpassosWhere:
+class TestBuildTraspasosWhere:
     """Unit tests for _build_traspasos_where — ensures >= boundary fix (issue #459)."""
 
     def test_since_uses_gte_not_gt(self):
