@@ -5,6 +5,7 @@ PostgreSQL connection.  They are skipped automatically when either is
 unavailable so CI without external access passes cleanly.
 
 What is tested:
+- TestMayoristaGteFix: Unit tests asserting all delta SQL templates use >= (issue #459).
 - test_gc_albaranes_count: Row count in ps_gc_albaranes matches 4D source.
 - test_gc_facturas_count:  Row count in ps_gc_facturas matches 4D source.
 - test_gc_lin_albarane_fk: All n_albaran values in ps_gc_lin_albarane exist
@@ -17,6 +18,44 @@ from __future__ import annotations
 import os
 
 import pytest
+
+
+# ---------------------------------------------------------------------------
+# Unit tests (no external connections required)
+# ---------------------------------------------------------------------------
+
+
+class TestMayoristaGteFix:
+    """Ensure all mayorista delta SQL templates use >= not > (issue #459).
+
+    Strict `>` silently skips rows with Modifica == today once the watermark
+    advances to today. `>=` re-fetches those rows; upsert/delete-reinsert is
+    idempotent so there is no correctness risk.
+    """
+
+    def test_albaranes_delta_uses_gte(self):
+        from etl.sync.mayorista import _SQL_ALBARANES_DELTA
+
+        assert "Modifica >= {since}" in _SQL_ALBARANES_DELTA
+        assert "Modifica > {since}" not in _SQL_ALBARANES_DELTA
+
+    def test_lin_albarane_parent_ids_uses_gte(self):
+        from etl.sync.mayorista import _SQL_LIN_ALBARANE_PARENT_IDS
+
+        assert "Modifica >= {since}" in _SQL_LIN_ALBARANE_PARENT_IDS
+        assert "Modifica > {since}" not in _SQL_LIN_ALBARANE_PARENT_IDS
+
+    def test_facturas_delta_uses_gte(self):
+        from etl.sync.mayorista import _SQL_FACTURAS_DELTA
+
+        assert "Modifica >= {since}" in _SQL_FACTURAS_DELTA
+        assert "Modifica > {since}" not in _SQL_FACTURAS_DELTA
+
+    def test_lin_facturas_parent_ids_uses_gte(self):
+        from etl.sync.mayorista import _SQL_LIN_FACTURAS_PARENT_IDS
+
+        assert "Modifica >= {since}" in _SQL_LIN_FACTURAS_PARENT_IDS
+        assert "Modifica > {since}" not in _SQL_LIN_FACTURAS_PARENT_IDS
 
 
 # ---------------------------------------------------------------------------

@@ -18,6 +18,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from etl.sync.stock import (
+    _build_expo_where,
+    _build_traspasos_where,
     _count_expo,
     _count_traspasos,
     _normalize_expo_row,
@@ -274,6 +276,45 @@ class TestValidateSince:
         """The name parameter is accepted without error."""
         dt = datetime(2026, 3, 15, 10, 0, 0, tzinfo=timezone.utc)
         _validate_since(dt, name="my_param")  # should not raise
+
+
+class TestBuildExpoWhere:
+    """Unit tests for _build_expo_where — ensures >= boundary fix (issue #459)."""
+
+    def test_since_uses_gte_not_gt(self):
+        """Delta WHERE clause must use >= so same-day FechaModifica rows are included."""
+        result = _build_expo_where(datetime(2026, 4, 30))
+        assert "FechaModifica >= {d '2026-04-30'}" in result
+        assert "FechaModifica > {d '2026-04-30'}" not in result
+
+    def test_since_none_returns_empty(self):
+        assert _build_expo_where(None) == ""
+
+    def test_since_with_include_nulls(self):
+        result = _build_expo_where(datetime(2026, 4, 30), include_nulls=True)
+        assert "FechaModifica >= {d '2026-04-30'}" in result
+        assert "FechaModifica IS NULL" in result
+
+    def test_where_keyword_present(self):
+        result = _build_expo_where(datetime(2026, 1, 15))
+        assert result.startswith("WHERE ")
+
+
+class TestBuildTraspasosWhere:
+    """Unit tests for _build_traspasos_where — ensures >= boundary fix (issue #459)."""
+
+    def test_since_uses_gte_not_gt(self):
+        """Delta WHERE clause must use >= so same-day FechaS rows are included."""
+        result = _build_traspasos_where(datetime(2026, 4, 30))
+        assert "FechaS >= {d '2026-04-30'}" in result
+        assert "FechaS > {d '2026-04-30'}" not in result
+
+    def test_since_none_returns_empty(self):
+        assert _build_traspasos_where(None) == ""
+
+    def test_where_keyword_present(self):
+        result = _build_traspasos_where(datetime(2026, 3, 1))
+        assert result.startswith("WHERE ")
 
 
 class TestCountHelpers:
