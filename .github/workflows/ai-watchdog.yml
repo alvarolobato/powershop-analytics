@@ -584,7 +584,42 @@ jobs:
             LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=20" \
               --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD\" and .conclusion == \"success\")] | first | .updated_at // empty" 2>/dev/null || echo "")
             if [ -z "$LAST_OPUS_AT" ]; then
-              echo "PR #$NUM: no successful ai-pr-review on head $HEAD yet (or API hiccup) — skipping."
+              # Opus has NEVER run on this PR head, but `ai-phase-opus` is set —
+              # address-feedback transitioned the labels but its
+              # `gh workflow run ai-pr-review.yml` dispatch was lost (observed
+              # 2026-05-09 on PRs #542/#543/#546). Dispatch directly. Use the
+              # PR's own updatedAt as the age proxy since we have no Opus
+              # timestamp to anchor against.
+              UPDATED_AT=$(echo "$pr" | jq -r '.updatedAt')
+              UPDATED_TS=$(date -u -d "$UPDATED_AT" +%s 2>/dev/null || echo 0)
+              AGE=$(( NOW - UPDATED_TS ))
+              if [ "$AGE" -lt "$STUCK_AGE_SECS" ]; then
+                echo "PR #$NUM: ai-phase-opus + no Opus run, but PR updated ${AGE}s ago — give the post-Copilot dispatch more time."
+                continue
+              fi
+              if [ "$AGE" -gt "$STUCK_MAX_AGE_SECS" ]; then
+                echo "PR #$NUM: ai-phase-opus + no Opus run, PR updated ${AGE}s ago (>${STUCK_MAX_AGE_SECS}s) — too old, owner problem."
+                continue
+              fi
+
+              RETRY_COUNT_OPUS=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
+                --jq "[.[] | select(.body | contains(\"AI Watchdog\") and contains(\"Opus never ran\"))] | length" 2>/dev/null || echo "0")
+              if ! [[ "$RETRY_COUNT_OPUS" =~ ^[0-9]+$ ]]; then
+                RETRY_COUNT_OPUS=0
+              fi
+              if [ "${RETRY_COUNT_OPUS:-0}" -ge "$MAX_OPUS_STALL_RETRIES" ]; then
+                echo "PR #$NUM: hit $RETRY_COUNT_OPUS Opus-dispatch retries (cap=$MAX_OPUS_STALL_RETRIES) — escalating to ai-blocked."
+                gh pr edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" 2>/dev/null || true
+                gh pr comment "$NUM" --repo "$REPO_FULL" --body \
+                  "🚨 **AI Watchdog**: \`ai-phase-opus\` is set but Opus never ran (after $RETRY_COUNT_OPUS direct dispatches of \`ai-pr-review.yml\`). Adding \`ai-blocked\` and handing off — please dispatch manually or merge as-is. cc @${OWNER_HANDLE:-alvarolobato}" 2>/dev/null || true
+                continue
+              fi
+
+              echo "PR #$NUM: dispatching ai-pr-review.yml directly (Opus never ran, retry $((RETRY_COUNT_OPUS + 1))/$MAX_OPUS_STALL_RETRIES)."
+              gh workflow run ai-pr-review.yml --repo "$REPO_FULL" \
+                --field pr_number="$NUM" 2>/dev/null || true
+              gh pr comment "$NUM" --repo "$REPO_FULL" --body \
+                "🔁 **AI Watchdog**: \`ai-phase-opus\` is set but Opus never ran on head SHA \`${HEAD:0:7}\`. Dispatching \`ai-pr-review.yml\` directly (retry $((RETRY_COUNT_OPUS + 1))/$MAX_OPUS_STALL_RETRIES)." 2>/dev/null || true
               continue
             fi
             LAST_OPUS_TS=$(date -u -d "$LAST_OPUS_AT" +%s 2>/dev/null || echo 0)
