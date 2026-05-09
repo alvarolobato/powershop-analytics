@@ -359,7 +359,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Margen estimado de un artículo?", "¿PVP sin IVA?", "¿Precio de coste de un artículo?"]
   },
   {
-    "instruction": "En ps_lineas_ventas, el precio de venta unitario sin IVA está en precio_neto_si. El descuento aplicado en el campo p_desc_g (porcentaje) o importe_descuento (importe). Para calcular el descuento medio: AVG(p_desc_g) FROM ps_lineas_ventas WHERE entrada=true. Un descuento alto indica outlet o rebajas.",
+    "instruction": "En ps_lineas_ventas, el precio de venta unitario sin IVA está en precio_neto_si. El descuento aplicado en el campo p_desc_g (porcentaje) o importe_descuento (importe). Para calcular el descuento medio solo en ventas (no devoluciones): AVG(lv.p_desc_g) FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas WHERE v.entrada=true. Un descuento alto indica outlet o rebajas.",
     "questions": ["¿Descuento medio aplicado?", "¿Precio de venta vs PVP?", "¿Nivel de descuentos?"]
   },
   {

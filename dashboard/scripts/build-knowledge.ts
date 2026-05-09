@@ -1,17 +1,15 @@
 #!/usr/bin/env tsx
-// Auto-generated. Run with: npm run build:knowledge
+// Build script — run with: npm run build:knowledge
 // Compiles LLM:* marker sections from source MDs into dashboard/lib/knowledge.ts.
 
 import fs from "fs";
 import path from "path";
-import os from "os";
 
 // ─── Source MD list ───────────────────────────────────────────────────────────
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
 const SOURCE_MDS: string[] = [
-  "docs/data-decisions.md",
   "docs/etl-sync-strategy.md",
   "docs/architecture/sales.md",
   "docs/architecture/wholesale.md",
@@ -20,7 +18,6 @@ const SOURCE_MDS: string[] = [
   "docs/architecture/products.md",
   "docs/architecture/customers.md",
   "docs/architecture/stores-hr.md",
-  "docs/architecture/finance.md",
   "docs/skills/4d-sql-dialect.md",
   "docs/skills/data-access.md",
   "docs/dashboard/sql-pairs.md",
@@ -186,7 +183,7 @@ function emitRelationships(rels: Relationship[]): string {
   return rels
     .map(
       (r) =>
-        `  { from: ${JSON.stringify(r.from)}, fromColumn: ${JSON.stringify(r.fromColumn)}, to: ${JSON.stringify(r.to)}, toColumn: ${JSON.stringify(r.toColumn)}, type: "MANY_TO_ONE" }`
+        `  { from: ${JSON.stringify(r.from)}, fromColumn: ${JSON.stringify(r.fromColumn)}, to: ${JSON.stringify(r.to)}, toColumn: ${JSON.stringify(r.toColumn)}, type: ${JSON.stringify(r.type)} }`
     )
     .join(",\n");
 }
@@ -194,7 +191,12 @@ function emitRelationships(rels: Relationship[]): string {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 function main() {
-  const isDryRun = process.argv.includes("--dry-run") || process.argv.includes("--help");
+  if (process.argv.includes("--help")) {
+    console.log("Usage: npm run build:knowledge [-- --dry-run]");
+    console.log("  --dry-run  Parse source MDs and report counts; do not write knowledge.ts");
+    return;
+  }
+  const isDryRun = process.argv.includes("--dry-run");
 
   const instructions: Instruction[] = [];
   const sqlPairs: SqlPair[] = [];
@@ -313,8 +315,17 @@ ${emitRelationships(relationships)}
 
   // Atomic write via temp file + rename
   const tmpFile = OUTPUT_FILE + ".tmp." + process.pid;
-  fs.writeFileSync(tmpFile, ts, "utf8");
-  fs.renameSync(tmpFile, OUTPUT_FILE);
+  try {
+    fs.writeFileSync(tmpFile, ts, "utf8");
+    fs.renameSync(tmpFile, OUTPUT_FILE);
+  } catch (err) {
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      // ignore cleanup errors
+    }
+    throw err;
+  }
 
   console.log(`[build-knowledge] Generated ${OUTPUT_FILE}`);
   console.log(`  SCHEMA:        ${schema.length} tables`);

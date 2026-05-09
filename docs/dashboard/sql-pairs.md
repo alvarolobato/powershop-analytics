@@ -9,7 +9,7 @@ into correct PostgreSQL queries against the `ps_*` mirror tables.
 - Always use `:curr_from` / `:curr_to` for current-period date ranges (never `CURRENT_DATE` or bare `INTERVAL`).
 - Use `:comp_from` / `:comp_to` only for explicitly comparative questions (YoY, año anterior, etc.).
 - Always use `total_si` (not `total`) for sales amounts.
-- Always filter `entrada = true` for sales, `entrada = false` for returns.
+- Always filter `entrada = true` for sales, `entrada = false` for returns. **`entrada` exists only on `ps_ventas`, NOT on `ps_lineas_ventas`** — when querying `ps_lineas_ventas`, JOIN `ps_ventas v ON lv.num_ventas = v.reg_ventas` and filter `v.entrada`.
 - Exclude tienda `'99'` from retail store rankings.
 - Test new SQL against the local mirror with `ps sql query "..."`.
 
@@ -19,7 +19,7 @@ into correct PostgreSQL queries against the `ps_*` mirror tables.
 
 ### ¿Cuáles son los 10 artículos más vendidos por cantidad?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 10
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE v."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 10
 ```
 
 ### ¿Cuáles son las ventas netas por tienda este mes?
@@ -74,27 +74,27 @@ SELECT TO_CHAR(v."fecha_creacion", 'Day') AS "Día", EXTRACT(DOW FROM v."fecha_c
 
 ### ¿Cuáles son los 10 artículos más vendidos por importe?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Importe Neto", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Importe Neto" DESC LIMIT 10
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Importe Neto", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE v."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Importe Neto" DESC LIMIT 10
 ```
 
 ### ¿Qué familias de producto venden más?
 ```sql
-SELECT fm."fami_grup_marc" AS "Familia", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE lv."entrada" = true GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC
+SELECT fm."fami_grup_marc" AS "Familia", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE v."entrada" = true GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC
 ```
 
 ### ¿Ventas por departamento?
 ```sql
-SELECT d."depa_secc_fabr" AS "Departamento", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" WHERE lv."entrada" = true GROUP BY d."depa_secc_fabr" ORDER BY "Ventas Netas" DESC
+SELECT d."depa_secc_fabr" AS "Departamento", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" WHERE v."entrada" = true GROUP BY d."depa_secc_fabr" ORDER BY "Ventas Netas" DESC
 ```
 
 ### ¿Ventas por temporada de la colección?
 ```sql
-SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades", COUNT(DISTINCT p."ccrefejofacm") AS "Artículos" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC
+SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades", COUNT(DISTINCT p."ccrefejofacm") AS "Artículos" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE v."entrada" = true GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC
 ```
 
 ### ¿Ventas por marca?
 ```sql
-SELECT m."marca" AS "Marca", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_marcas" m ON p."num_marca" = m."reg_marca" WHERE lv."entrada" = true GROUP BY m."marca" ORDER BY "Ventas Netas" DESC
+SELECT m."marca" AS "Marca", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_marcas" m ON p."num_marca" = m."reg_marca" WHERE v."entrada" = true GROUP BY m."marca" ORDER BY "Ventas Netas" DESC
 ```
 
 ### ¿Cuántos artículos activos hay en el catálogo?
@@ -134,12 +134,12 @@ SELECT fm."fami_grup_marc" AS "Familia", SUM(s."stock") AS "Unidades", ROUND(SUM
 
 ### ¿Artículos con stock pero sin ventas recientes (dead stock)?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock", p."clave_temporada" AS "Temporada" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 10 AND p."anulado" = false AND p."codigo" NOT IN (SELECT DISTINCT lv."codigo" FROM "public"."ps_lineas_ventas" lv WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."entrada" = true) GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada" ORDER BY "Stock" DESC LIMIT 30
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock", p."clave_temporada" AS "Temporada" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 10 AND p."anulado" = false AND p."codigo" NOT IN (SELECT DISTINCT lv."codigo" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true) GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada" ORDER BY "Stock" DESC LIMIT 30
 ```
 
 ### ¿Top artículos vendidos con su stock actual?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."unidades") AS "Unidades Vendidas", COALESCE(SUM(s."stock"), 0) AS "Stock Actual" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" LEFT JOIN "public"."ps_stock_tienda" s ON lv."codigo" = s."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND v."entrada" = true GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 20
 ```
 
 ### ¿Distribución de stock por talla?
@@ -229,22 +229,22 @@ SELECT p."fecha_creacion" AS "Fecha", p."forma" AS "Forma de Pago", SUM(p."impor
 
 ### ¿Margen bruto por familia de producto?
 ```sql
-SELECT fm."fami_grup_marc" AS "Familia", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE lv."entrada" = true AND lv."total_si" > 0 GROUP BY fm."fami_grup_marc" ORDER BY "Margen %" DESC
+SELECT fm."fami_grup_marc" AS "Familia", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE v."entrada" = true AND lv."total_si" > 0 GROUP BY fm."fami_grup_marc" ORDER BY "Margen %" DESC
 ```
 
 ### ¿Margen bruto por tienda?
 ```sql
-SELECT lv."tienda" AS "Tienda", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv WHERE lv."entrada" = true AND lv."total_si" > 0 AND lv."tienda" <> '99' GROUP BY lv."tienda" ORDER BY "Margen %" DESC
+SELECT lv."tienda" AS "Tienda", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" WHERE v."entrada" = true AND lv."total_si" > 0 AND lv."tienda" <> '99' GROUP BY lv."tienda" ORDER BY "Margen %" DESC
 ```
 
 ### ¿Productos con bajo margen (menos del 30%)?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Ventas Netas", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."total_si" > 0 GROUP BY p."ccrefejofacm", p."descripcion" HAVING (SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) < 0.30 ORDER BY "Margen %" ASC LIMIT 30
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lv."total_si") AS "Ventas Netas", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE v."entrada" = true AND lv."total_si" > 0 GROUP BY p."ccrefejofacm", p."descripcion" HAVING (SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) < 0.30 ORDER BY "Margen %" ASC LIMIT 30
 ```
 
 ### ¿Margen bruto por departamento?
 ```sql
-SELECT d."depa_secc_fabr" AS "Departamento", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" WHERE lv."entrada" = true AND lv."total_si" > 0 GROUP BY d."depa_secc_fabr" ORDER BY "Margen %" DESC
+SELECT d."depa_secc_fabr" AS "Departamento", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."total_coste_si") AS "Coste Total", ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si")) / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" WHERE v."entrada" = true AND lv."total_si" > 0 GROUP BY d."depa_secc_fabr" ORDER BY "Margen %" DESC
 ```
 
 ### ¿Margen mayorista por comercial?
@@ -279,7 +279,7 @@ SELECT p."clave_temporada" AS "Temporada", COUNT(DISTINCT p."ccrefejofacm") AS "
 
 ### ¿Ventas por temporada de origen del artículo?
 ```sql
-SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."entrada" = true AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC
+SELECT p."clave_temporada" AS "Temporada", SUM(lv."total_si") AS "Ventas Netas", SUM(lv."unidades") AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE v."entrada" = true AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY p."clave_temporada" ORDER BY "Ventas Netas" DESC
 ```
 
 ### ¿Rendimiento YTD por tienda con comparativa año anterior?
