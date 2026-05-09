@@ -162,7 +162,10 @@ export async function PATCH(
 
 export async function DELETE(): Promise<NextResponse> {
   return NextResponse.json(
-    { error: "Las conversaciones no pueden eliminarse. Usa archive para archivarlas.", code: "METHOD_NOT_ALLOWED" },
+    formatApiError(
+      "Las conversaciones no pueden eliminarse. Usa archive para archivarlas.",
+      "METHOD_NOT_ALLOWED",
+    ),
     { status: 405, headers: { Allow: "GET, PATCH" } },
   );
 }

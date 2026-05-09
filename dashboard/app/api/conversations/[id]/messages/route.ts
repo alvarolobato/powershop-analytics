@@ -74,18 +74,39 @@ export async function POST(
     );
   }
 
-  if (!("content" in b)) {
+  if (!("content" in b) || b.content === null || b.content === undefined) {
     return NextResponse.json(
-      formatApiError("El campo 'content' es obligatorio.", "VALIDATION", undefined, requestId),
+      formatApiError("El campo 'content' es obligatorio y no puede ser nulo.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const MAX_CONTENT_BYTES = 256 * 1024;
+  if (Buffer.byteLength(JSON.stringify(b.content), "utf8") > MAX_CONTENT_BYTES) {
+    return NextResponse.json(
+      formatApiError("El campo 'content' supera el límite de 256 KB.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   const callLlm = b.callLlm === true;
-  const rawFlow = typeof b.flow === "string" ? b.flow : "summary";
-  const flow: DashboardLlmFlow | undefined = VALID_LLM_FLOWS.has(rawFlow)
-    ? (rawFlow as DashboardLlmFlow)
-    : undefined;
+  if (callLlm && role !== "user") {
+    return NextResponse.json(
+      formatApiError(
+        "callLlm solo puede ser true cuando role es 'user'.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+
+  const rawFlow = typeof b.flow === "string" ? b.flow : undefined;
+  const flow: DashboardLlmFlow | undefined =
+    rawFlow !== undefined && VALID_LLM_FLOWS.has(rawFlow)
+      ? (rawFlow as DashboardLlmFlow)
+      : undefined;
 
   try {
     const conversation = await getConversationWithMessages(id);
@@ -161,7 +182,7 @@ export async function POST(
     let llmResponse;
     try {
       llmResponse = await llmComplete({
-        flow: rawFlow,
+        flow: flow ?? "summary",
         systemPrompt: { stable: "" },
         messages: priorMessages,
         requestId,
@@ -193,9 +214,9 @@ export async function POST(
     await updateLastStatus(id, "ok");
 
     return NextResponse.json({
-      message: assistantMessage,
-      conversationId: id,
+      userMessage,
       assistantMessage,
+      conversationId: id,
     });
   } catch (err) {
     console.error(`[${requestId}] POST /api/conversations/${rawId}/messages error:`, err);

@@ -88,7 +88,6 @@ export interface CreateConversationOptions {
   context_kind?: string;
   context_ref?: string;
   first_user_prompt?: string;
-  seed_prompt?: string;
   llm_provider?: string;
   llm_driver?: string;
 }

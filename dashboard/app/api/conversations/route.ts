@@ -20,7 +20,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const context_kind = searchParams.get("context_kind") ?? undefined;
   const context_ref = searchParams.get("context_ref") ?? undefined;
   const mode = searchParams.get("mode") ?? undefined;
-  const since = searchParams.get("since") ?? undefined;
+  const sinceRaw = searchParams.get("since") ?? undefined;
+  if (sinceRaw !== undefined && isNaN(Date.parse(sinceRaw))) {
+    return NextResponse.json(
+      formatApiError(
+        "El parámetro 'since' debe ser una fecha válida (ISO 8601).",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+  const since = sinceRaw;
   const q = searchParams.get("q") ?? undefined;
   const page = parseInt(searchParams.get("page") ?? "1", 10);
   const limit = parseInt(searchParams.get("limit") ?? "50", 10);

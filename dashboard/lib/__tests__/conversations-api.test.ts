@@ -643,3 +643,138 @@ describe("tool_calls_count computation (via list response)", () => {
     expect(data[0].rounds_count).toBe(2);
   });
 });
+
+// ── GET /api/conversations — since validation ─────────────────────────────────
+
+describe("GET /api/conversations — since validation", () => {
+  beforeEach(() => {
+    mockListConversations.mockReset();
+  });
+
+  it("returns 400 for invalid since value", async () => {
+    const req = makeRequest("http://localhost/api/conversations", {
+      searchParams: { since: "not-a-date" },
+    });
+    const res = await listGet(req as unknown as import("next/server").NextRequest);
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.code).toBe("VALIDATION");
+  });
+
+  it("accepts a valid ISO 8601 since value", async () => {
+    mockListConversations.mockResolvedValue([]);
+    const req = makeRequest("http://localhost/api/conversations", {
+      searchParams: { since: "2026-05-01T00:00:00Z" },
+    });
+    const res = await listGet(req as unknown as import("next/server").NextRequest);
+    expect(res.status).toBe(200);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ since: "2026-05-01T00:00:00Z" }),
+    );
+  });
+});
+
+// ── POST /api/conversations/:id/messages — new validations ────────────────────
+
+describe("POST /api/conversations/:id/messages — additional validations", () => {
+  beforeEach(() => {
+    mockGetConversationWithMessages.mockReset();
+    mockAppendMessage.mockReset();
+    mockLoadDashboardLlmConfig.mockReset();
+    mockGetEffectiveDashboardModel.mockReset();
+    mockLlmComplete.mockReset();
+    mockUpdateLastStatus.mockReset();
+  });
+
+  it("returns 400 when content is null", async () => {
+    const req = makeRequest(`http://localhost/api/conversations/${VALID_ID}/messages`, {
+      method: "POST",
+      body: { role: "user", content: null },
+    });
+    const res = await postMessage(
+      req as unknown as import("next/server").NextRequest,
+      makeContext(VALID_ID),
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.code).toBe("VALIDATION");
+  });
+
+  it("returns 400 when callLlm=true and role is assistant", async () => {
+    const req = makeRequest(`http://localhost/api/conversations/${VALID_ID}/messages`, {
+      method: "POST",
+      body: { role: "assistant", content: "some text", callLlm: true },
+    });
+    const res = await postMessage(
+      req as unknown as import("next/server").NextRequest,
+      makeContext(VALID_ID),
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.code).toBe("VALIDATION");
+  });
+
+  it("callLlm=true response includes userMessage and assistantMessage", async () => {
+    const conv = { ...SAMPLE_CONVERSATION, messages: [], initial_context: null };
+    mockGetConversationWithMessages.mockResolvedValue(conv);
+    const userMsg = {
+      id: "uuid-msg-1",
+      conversation_id: VALID_ID,
+      role: "user",
+      content: "Hello",
+      tokens_input: null,
+      tokens_output: null,
+      tokens_cache_read: null,
+      tokens_cache_creation: null,
+      created_at: "2026-05-09T00:00:00Z",
+    };
+    const assistantMsg = {
+      id: "uuid-msg-2",
+      conversation_id: VALID_ID,
+      role: "assistant",
+      content: "Hi!",
+      tokens_input: 10,
+      tokens_output: 5,
+      tokens_cache_read: null,
+      tokens_cache_creation: null,
+      created_at: "2026-05-09T00:00:01Z",
+    };
+    mockAppendMessage.mockResolvedValueOnce(userMsg).mockResolvedValueOnce(assistantMsg);
+    mockLoadDashboardLlmConfig.mockReturnValue({ provider: "openrouter", cliDriver: null });
+    mockGetEffectiveDashboardModel.mockReturnValue("claude-sonnet-4");
+    mockLlmComplete.mockResolvedValue({
+      text: "Hi!",
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+      provider: "openrouter",
+    });
+
+    const req = makeRequest(`http://localhost/api/conversations/${VALID_ID}/messages`, {
+      method: "POST",
+      body: { role: "user", content: "Hello", callLlm: true },
+    });
+    const res = await postMessage(
+      req as unknown as import("next/server").NextRequest,
+      makeContext(VALID_ID),
+    );
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.userMessage.role).toBe("user");
+    expect(data.assistantMessage.role).toBe("assistant");
+    expect(data.conversationId).toBe(VALID_ID);
+  });
+
+  it("returns 400 when content is an oversized object", async () => {
+    const bigPayload = { text: "x".repeat(300 * 1024) };
+    const req = makeRequest(`http://localhost/api/conversations/${VALID_ID}/messages`, {
+      method: "POST",
+      body: { role: "user", content: bigPayload },
+    });
+    const res = await postMessage(
+      req as unknown as import("next/server").NextRequest,
+      makeContext(VALID_ID),
+    );
+    expect(res.status).toBe(400);
+    const data = await res.json();
+    expect(data.code).toBe("VALIDATION");
+  });
+});
