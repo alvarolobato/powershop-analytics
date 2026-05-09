@@ -11,6 +11,8 @@
 
 import { randomBytes } from "crypto";
 import { sql } from "@/lib/db-write";
+import { llmComplete } from "@/lib/llm-client";
+import { generateRequestId } from "@/lib/errors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -365,4 +367,71 @@ export async function updateLastStatus(
     `UPDATE conversations SET last_status = $2, last_interaction_at = NOW() WHERE id = $1`,
     [conversationId, status],
   );
+}
+
+// ── Dedicated simple helpers (used by data-layer tests + title generation) ────
+
+export async function updateConversationTitle(id: string, title: string): Promise<void> {
+  await sql(`UPDATE conversations SET title = $2 WHERE id = $1`, [id, title]);
+}
+
+/** Sets or clears archived_at. Passes timestamp as a param so callers can verify it. */
+export async function setConversationArchived(id: string, archived: boolean): Promise<void> {
+  const archivedAt = archived ? new Date().toISOString() : null;
+  await sql(`UPDATE conversations SET archived_at = $2 WHERE id = $1`, [id, archivedAt]);
+}
+
+export async function countMessages(conversationId: string): Promise<number> {
+  const rows = await sql<{ n: string }>(
+    `SELECT COUNT(*) AS n FROM conversation_messages WHERE conversation_id = $1`,
+    [conversationId],
+  );
+  return rows[0] ? parseInt(rows[0].n, 10) : 0;
+}
+
+// ── Title generation ──────────────────────────────────────────────────────────
+
+/**
+ * After the first assistant reply, fire a small LLM call to generate a short
+ * Spanish title for the conversation. Non-blocking — errors are swallowed.
+ * Only runs when the conversation has no title yet.
+ */
+export async function maybeGenerateTitle(
+  conversationId: string,
+  messages: Array<{ role: string; content: string }>,
+): Promise<void> {
+  const hasContent = messages.some(
+    (m) => m.role === "user" || m.role === "assistant",
+  );
+  if (!hasContent) return;
+
+  const conv = await getConversation(conversationId);
+  if (!conv || conv.title !== null) return;
+
+  try {
+    const response = await llmComplete({
+      flow: "title",
+      maxOutputTokens: 30,
+      systemPrompt: {
+        stable:
+          "Genera un título conciso de 5-7 palabras en español para esta conversación. Devuelve solo el título, sin comillas.",
+      },
+      messages: messages
+        .filter((m): m is { role: "user" | "assistant"; content: string } =>
+          m.role === "user" || m.role === "assistant",
+        )
+        .map((m) => ({ role: m.role, content: m.content })),
+      requestId: generateRequestId(),
+    });
+
+    const title = response.text.trim().replace(/^["']|["']$/g, "");
+    if (!title) return;
+
+    await sql(
+      `UPDATE conversations SET title = $2 WHERE id = $1 AND title IS NULL`,
+      [conversationId, title],
+    );
+  } catch {
+    // Non-blocking: title is cosmetic — swallow errors silently
+  }
 }

@@ -72,9 +72,9 @@ describe("createConversation", () => {
       context_url: "/dashboards/42",
     });
     const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
-    expect(params[3]).toBe("/dashboards/42");
-    expect(params[4]).toBe("dashboard");
-    expect(params[5]).toBe("42");
+    expect(params[2]).toBe("/dashboards/42");
+    expect(params[3]).toBe("dashboard");
+    expect(params[4]).toBe("42");
   });
 });
 
@@ -132,7 +132,7 @@ describe("appendMessage", () => {
 
   it("inserts with the correct role and serialized content", async () => {
     mockSql.mockResolvedValue([]);
-    await appendMessage("conv1", "user", { text: "Hola" });
+    await appendMessage("conv1", { role: "user", content: { text: "Hola" } });
     const [sql, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("INSERT INTO conversation_messages");
     expect(params[0]).toBe("conv1");
