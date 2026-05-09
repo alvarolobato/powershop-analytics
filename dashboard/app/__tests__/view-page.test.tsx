@@ -320,10 +320,23 @@ describe("ViewDashboard page", () => {
     expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
   });
 
-  it("toggles chat sidebar via AnalyzeLauncher", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(dashboardRecord),
+  it("AnalyzeLauncher creates a conversation and navigates to /k/<id>", async () => {
+    // First call: dashboard load; second call: POST /api/conversations
+    let callCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(dashboardRecord),
+        });
+      }
+      // POST /api/conversations
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({ id: "abc123def456", c_url: "/c/abc123def456", k_url: "/k/abc123def456" }),
+      });
     });
 
     render(<ViewDashboard />);
@@ -332,16 +345,24 @@ describe("ViewDashboard page", () => {
       expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
     });
 
-    // Chat should not be visible initially (hideWhenClosed=true)
+    // Chat sidebar should not be visible initially
     expect(screen.queryByTestId("chat-sidebar")).not.toBeInTheDocument();
 
     // AnalyzeLauncher is visible when sidebar is closed
     const launcher = screen.getByLabelText("Analizar con IA");
     expect(launcher).toBeInTheDocument();
 
-    // Click launcher to open
-    fireEvent.click(launcher);
-    expect(screen.getByTestId("chat-sidebar")).toBeInTheDocument();
+    // Click launcher — action-to-chat: creates conversation, navigates
+    await act(async () => {
+      fireEvent.click(launcher);
+    });
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/k/abc123def456");
+    });
+
+    // Chat sidebar does NOT open directly — navigation takes the user to /k/<id>
+    expect(screen.queryByTestId("chat-sidebar")).not.toBeInTheDocument();
   });
 
   it("shows error state on fetch failure", async () => {
