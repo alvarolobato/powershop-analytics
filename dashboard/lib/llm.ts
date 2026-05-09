@@ -1,5 +1,10 @@
 /**
- * Dashboard LLM entry points: OpenRouter API or CLI drivers (configurable).
+ * Dashboard LLM entry points: thin wrappers around llm-client.ts.
+ *
+ * Single-shot paths delegate to `llmComplete` (which owns provider selection,
+ * telemetry, and circuit-breaker). Agentic paths call `runAgenticChat` directly,
+ * wrapped in `callWithCircuitBreaker`, and write telemetry here.
+ * This file owns prompt construction and public API contracts only.
  */
 
 import {
@@ -11,7 +16,6 @@ import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import { ReviewLlmOutputSchema, type ReviewLlmOutput } from "./review-schema";
 import { logUsage, checkDailyBudget } from "./llm-usage";
-import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import {
   loadDashboardLlmConfig,
   getEffectiveDashboardModel,
@@ -19,32 +23,24 @@ import {
 import type { DashboardLlmConfig, DashboardLlmFlow } from "./llm-provider/types";
 import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
 import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
+import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
-import type { LlmUsageProviderMeta } from "./llm-provider/types";
 import {
-  getOpenRouterClient,
-  resetOpenRouterClient,
-  openRouterChatCompletion,
-} from "./llm-provider/openrouter";
-import { createDashboardAgenticAdapter } from "./llm-provider/registry";
-import { claudeCliSingleShot } from "./llm-provider/cli/claude-code";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+  llmComplete,
+  createDashboardAgenticAdapter,
+  resetClient,
+} from "./llm-client";
+import type { ChatTurn } from "./llm-client";
 
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
 export { AgenticRunnerError };
 export type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
+export { resetClient };
 
-const EMPTY_USAGE = {
-  prompt_tokens: 0,
-  completion_tokens: 0,
-  total_tokens: 0,
-};
+// ── Internal helpers ──────────────────────────────────────────────────────────
 
-export { resetOpenRouterClient as resetClient };
-
-/** Usage row metadata: always align with the configured backend, not caller-supplied ctx (avoids stale ctx). */
-function usageMetaFromCfg(cfg: DashboardLlmConfig): LlmUsageProviderMeta {
+function usageMetaFromCfg(cfg: DashboardLlmConfig) {
   return {
     provider: cfg.provider,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
@@ -59,16 +55,51 @@ function attachTelemetry(ctx: LlmAgenticContext, cfg: DashboardLlmConfig): LlmAg
   };
 }
 
+function extractSystem(messages: Array<{ role: string; content: unknown }>): string {
+  const sys = messages.find((m) => m.role === "system");
+  if (!sys) return "";
+  return typeof sys.content === "string" ? sys.content : JSON.stringify(sys.content);
+}
+
+function extractUserMsgs(messages: Array<{ role: string; content: unknown }>): ChatTurn[] {
+  return messages
+    .filter((m) => m.role !== "system")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    }));
+}
+
 /**
- * Single-shot text completion that emits model_step_start / model_text_delta progress
- * events via the ctx.onAgenticProgress hook. Used by review generation and other flows
- * that want live streaming without the full agentic tool loop.
- *
- * Emits `model_step_start` before the call and `model_text_delta` for each chunk
- * (CLI: per streaming line; OpenRouter: per streaming delta).
+ * Single-shot text completion delegating to llmComplete.
+ * Internal — used by the non-agentic paths in the public functions below.
+ */
+async function chatText(
+  messages: Array<{ role: string; content: unknown }>,
+  temperature: number,
+  maxTokens: number,
+  endpoint: string,
+  requestId?: string | null,
+  flow?: DashboardLlmFlow,
+): Promise<string> {
+  const resp = await llmComplete({
+    flow: flow ?? endpoint,
+    systemPrompt: { stable: extractSystem(messages) },
+    messages: extractUserMsgs(messages),
+    temperature,
+    maxOutputTokens: maxTokens,
+    requestId: requestId ?? null,
+    endpoint,
+  });
+  return resp.text;
+}
+
+/**
+ * Single-shot text completion with streaming progress events via ctx.
+ * Emits `model_step_start` before the call and `model_text_delta` per chunk.
  */
 async function chatTextWithProgress(
-  messages: ChatCompletionMessageParam[],
+  messages: Array<{ role: string; content: unknown }>,
   temperature: number,
   maxTokens: number,
   endpoint: string,
@@ -76,11 +107,7 @@ async function chatTextWithProgress(
   flow?: DashboardLlmFlow,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg, flow);
-  const meta = usageMetaFromCfg(cfg);
-  const requestId = ctx.requestId ?? null;
 
-  // Emit model_step_start before we call the model.
   if (ctx.onAgenticProgress) {
     try {
       ctx.onAgenticProgress({
@@ -94,142 +121,34 @@ async function chatTextWithProgress(
     }
   }
 
-  if (cfg.provider === "cli") {
-    // For CLI single-shot we don't have per-chunk streaming, so emit a single delta after completion.
-    const combined = messages
-      .map((m) => {
-        const body = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-        return `## ${m.role}\n${body}`;
-      })
-      .join("\n\n");
-    const text = await callWithCircuitBreaker(() => claudeCliSingleShot({ cfg, prompt: combined }));
-    void logUsage(endpoint, model, EMPTY_USAGE, meta, { requestId });
-    if (ctx.onAgenticProgress && text) {
-      try {
-        ctx.onAgenticProgress({
-          type: "model_text_delta",
-          round: 1,
-          chars: text.length,
-          totalChars: text.length,
-        });
-      } catch {
-        /* ignore */
-      }
-    }
-    return text;
-  }
-
-  // OpenRouter streaming path — accumulate content and emit delta per chunk.
-  const client = getOpenRouterClient();
-  const stream = await callWithCircuitBreaker(() =>
-    client.chat.completions.create({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: true,
-    }),
-  );
-
-  let textContent = "";
-  let totalCharsEmitted = 0;
-  let usageOut: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
-
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) {
-      textContent += delta;
-      const deltaChars = delta.length;
-      totalCharsEmitted += deltaChars;
+  const resp = await llmComplete({
+    flow: flow ?? endpoint,
+    systemPrompt: { stable: extractSystem(messages) },
+    messages: extractUserMsgs(messages),
+    temperature,
+    maxOutputTokens: maxTokens,
+    requestId: ctx.requestId ?? null,
+    endpoint,
+    onTextDelta: (chars, totalChars) => {
       if (ctx.onAgenticProgress) {
         try {
           ctx.onAgenticProgress({
             type: "model_text_delta",
             round: 1,
-            chars: deltaChars,
-            totalChars: totalCharsEmitted,
+            chars,
+            totalChars,
           });
         } catch {
           /* ignore */
         }
       }
-    }
-    if (chunk.usage) {
-      usageOut = {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
-      };
-    }
-  }
-
-  const u = usageOut ?? EMPTY_USAGE;
-  void logUsage(
-    endpoint,
-    model,
-    {
-      prompt_tokens: u.prompt_tokens ?? 0,
-      completion_tokens: u.completion_tokens ?? 0,
-      total_tokens: u.total_tokens ?? 0,
     },
-    meta,
-    { requestId },
-  );
-  return textContent;
+  });
+
+  return resp.text;
 }
 
-async function chatText(
-  messages: ChatCompletionMessageParam[],
-  temperature: number,
-  maxTokens: number,
-  endpoint: string,
-  requestId?: string | null,
-  flow?: DashboardLlmFlow,
-): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg, flow);
-  const meta = usageMetaFromCfg(cfg);
-  const usageOpts = { requestId: requestId ?? null };
-
-  if (cfg.provider === "cli") {
-    const combined = messages
-      .map((m) => {
-        const body =
-          typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-        return `## ${m.role}\n${body}`;
-      })
-      .join("\n\n");
-    const text = await callWithCircuitBreaker(() =>
-      claudeCliSingleShot({ cfg, prompt: combined }),
-    );
-    void logUsage(endpoint, model, EMPTY_USAGE, meta, usageOpts);
-    return text;
-  }
-
-  const client = getOpenRouterClient();
-  const { content, usage } = await callWithCircuitBreaker(() =>
-    openRouterChatCompletion({
-      client,
-      model,
-      messages,
-      temperature,
-      maxTokens,
-    }),
-  );
-  const u = usage ?? EMPTY_USAGE;
-  void logUsage(
-    endpoint,
-    model,
-    {
-      prompt_tokens: u.prompt_tokens ?? 0,
-      completion_tokens: u.completion_tokens ?? 0,
-      total_tokens: u.total_tokens ?? 0,
-    },
-    meta,
-    usageOpts,
-  );
-  return content;
-}
+// ── Public API ─────────────────────────────────────────────────────────────────
 
 /**
  * Generate a new dashboard from a user prompt (in Spanish).
@@ -471,15 +390,7 @@ export async function analyzeDashboard(
 
 /**
  * Generate a weekly business review using the agentic runner so that the
- * `submit_weekly_review` tool is reachable. The model calls the tool to stage
- * the review JSON, then emits freeform Spanish prose as its final message.
- *
- * Returns `{ content: ReviewLlmOutput; message: string }` where `content` is
- * the validated review JSON (from ctx.reviewResult) and `message` is the
- * model's freeform chat reply.
- *
- * Throws AgenticRunnerError("AGENTIC_RUNNER", phase "final") if the model
- * returned final text without calling submit_weekly_review.
+ * `submit_weekly_review` tool is reachable.
  */
 export async function generateReviewAgentic(
   systemPrompt: string,
@@ -490,7 +401,6 @@ export async function generateReviewAgentic(
   await checkDailyBudget();
 
   const cfg = loadDashboardLlmConfig();
-  // Build a mutable ctx — the side-channel slots start null.
   const ctx: LlmAgenticContext = attachTelemetry(
     {
       requestId,
@@ -518,7 +428,6 @@ export async function generateReviewAgentic(
 
   void logUsage("generateReview", model, usage, usageMetaFromCfg(cfg), { requestId });
 
-  // If the model did not call submit_weekly_review, fail loudly.
   if (!ctx.reviewResult) {
     const agenticCfg = getAgenticConfig();
     throw new AgenticRunnerError(
@@ -545,15 +454,7 @@ export async function generateReviewAgentic(
 }
 
 /**
- * Generate a weekly business review from query results (in Spanish), with optional
- * agentic progress callbacks for streaming.
- *
- * When agentic tools are enabled, delegates to `generateReviewAgentic` so that
- * `submit_weekly_review` is reachable. When tools are disabled, falls back to the
- * single-shot chatText path.
- *
- * Returns the parsed LLM output (validated with Zod). Uses max_tokens: 4096
- * (reviews are shorter than full dashboard specs).
+ * Generate a weekly business review with optional agentic progress callbacks.
  */
 export async function generateReviewWithProgress(
   systemPrompt: string,
@@ -577,7 +478,6 @@ export async function generateReviewWithProgress(
     cfg,
   );
 
-  // Use chatText-with-delta path so model_text_delta events fire.
   const rawContent = await chatTextWithProgress(
     [{ role: "system", content: systemPrompt }],
     0.2,
@@ -610,9 +510,6 @@ export async function generateReviewWithProgress(
 
 /**
  * Generate a weekly business review from query results (in Spanish).
- *
- * Returns the parsed LLM output (validated with Zod). Uses max_tokens: 4096
- * (reviews are shorter than full dashboard specs).
  */
 export async function generateReview(
   systemPrompt: string,

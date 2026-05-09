@@ -40,7 +40,7 @@ import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
 import {
   formatCliRunnerError,
   isCliRunnerError,
-} from "@/lib/llm-provider/cli/format-error";
+} from "@/lib/llm-client";
 import {
   getLatestReviewIdForWeek,
   getMaxRevisionForWeek,

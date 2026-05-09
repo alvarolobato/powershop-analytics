@@ -1,9 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
-import {
-  formatCliRunnerError,
-  isCliRunnerError,
-} from "@/lib/llm-provider/cli/format-error";
+import { CliRunnerError, formatCliRunnerError, isCliRunnerError } from "@/lib/llm-client";
 
 describe("formatCliRunnerError", () => {
   it("LLM_CLI_AUTH includes the sync-claude-token.sh remediation", () => {

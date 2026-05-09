@@ -37,7 +37,7 @@ import {
   handleSubmitWeeklyReview,
 } from "./handlers/dashboards";
 import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
-import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
+import { CliRunnerError } from "@/lib/llm-client";
 import { sanitize } from "@/lib/llm-provider/sanitize";
 
 const ARGS_PREVIEW_MAX = 120;

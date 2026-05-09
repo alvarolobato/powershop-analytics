@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { assertCliSuccess } from "@/lib/llm-provider/cli/process";
 import type { RunProcessResult } from "@/lib/llm-provider/cli/types";
-import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
+import { CliRunnerError } from "@/lib/llm-client";
 
 function makeResult(partial: Partial<RunProcessResult>): RunProcessResult {
   return {
