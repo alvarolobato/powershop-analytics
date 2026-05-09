@@ -15,6 +15,11 @@ export interface ModeStyle {
   fg: string;
 }
 
+export interface ModePillStyle {
+  bg: string;
+  fg: string;
+}
+
 const MODE_STYLES: Record<string, ModeStyle> = {
   generate: { label: "Generar", bg: "#e0e7ff", fg: "#3730a3" },
   modify: { label: "Modificar", bg: "#fef3c7", fg: "#92400e" },
@@ -44,4 +49,20 @@ export function getModeStyle(mode: string): ModeStyle {
 
 export function getModeLabel(mode: string): string {
   return getModeStyle(mode).label;
+}
+
+const MODE_PILL_STYLES: Record<string, ModePillStyle> = {
+  generate: { bg: "bg-indigo-100", fg: "text-indigo-800" },
+  modify: { bg: "bg-amber-100", fg: "text-amber-800" },
+  analyze: { bg: "bg-violet-100", fg: "text-violet-800" },
+  suggest: { bg: "bg-emerald-100", fg: "text-emerald-800" },
+  gap: { bg: "bg-rose-100", fg: "text-rose-800" },
+  summary: { bg: "bg-teal-100", fg: "text-teal-800" },
+  title: { bg: "bg-slate-100", fg: "text-slate-700" },
+};
+
+const FALLBACK: ModePillStyle = { bg: "bg-slate-100", fg: "text-slate-600" };
+
+export function getModePillStyle(mode: string): ModePillStyle {
+  return MODE_PILL_STYLES[mode] ?? FALLBACK;
 }
