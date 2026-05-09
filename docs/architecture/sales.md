@@ -358,3 +358,42 @@ Daily volume: ~454 Ventas + ~897 LineasVentas new/modified per day.
 - PKs (`RegVentas`, `RegLineas`, `RegPagos`) are REAL floats — store as `NUMERIC` in PostgreSQL to avoid precision loss.
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_ventas",
+    "alias": "Venta",
+    "description": "Tickets de venta retail. total_si=sin IVA (usar siempre). entrada=true para ventas, false para devoluciones.",
+    "keyColumns": ["reg_ventas (PK)", "n_documento", "tienda", "fecha_creacion", "total_si (SIN IVA - usar siempre)", "total (CON IVA - NO usar)", "num_cliente (0=anónimo)", "entrada (true=venta, false=devolución)", "tipo_documento", "cajero_nombre"]
+  },
+  {
+    "table": "ps_lineas_ventas",
+    "alias": "LineaVenta",
+    "description": "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas.",
+    "keyColumns": ["reg_lineas (PK)", "num_ventas (FK -> ps_ventas.reg_ventas)", "mes (YYYYMM)", "tienda", "codigo (FK -> ps_articulos.codigo)", "descripcion", "unidades", "precio_neto_si", "total_si", "total_coste_si", "fecha_creacion"]
+  },
+  {
+    "table": "ps_pagos_ventas",
+    "alias": "PagoVenta",
+    "description": "Pagos por ticket. importe_cob=importe cobrado.",
+    "keyColumns": ["reg_pagos (PK)", "num_ventas (FK)", "forma", "codigo_forma", "importe_cob", "tienda", "entrada", "fecha_creacion"]
+  }
+]
+```
+
+## LLM:relationships
+
+```json
+[
+  {"from": "ps_lineas_ventas", "fromColumn": "num_ventas", "to": "ps_ventas", "toColumn": "reg_ventas", "type": "MANY_TO_ONE"},
+  {"from": "ps_pagos_ventas", "fromColumn": "num_ventas", "to": "ps_ventas", "toColumn": "reg_ventas", "type": "MANY_TO_ONE"},
+  {"from": "ps_ventas", "fromColumn": "tienda", "to": "ps_tiendas", "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_ventas", "fromColumn": "num_cliente", "to": "ps_clientes", "toColumn": "reg_cliente", "type": "MANY_TO_ONE"},
+  {"from": "ps_lineas_ventas", "fromColumn": "codigo", "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"}
+]
+```

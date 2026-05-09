@@ -220,3 +220,33 @@ The actual series definitions are in `CCOPSeriCali` (47 rows — e.g., "S/M/L", 
 **Mirror**: `ps_stock_central` columns: `num_articulo NUMERIC(20,3) PK`, `stock INTEGER` (SUM of 34 decoded slots), `fecha_modifica DATE`. Full-refresh nightly; ~41 500 rows; no watermark needed.
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_stock_tienda",
+    "alias": "StockTienda",
+    "description": "Stock por tienda y talla. tienda=99 es almacén central.",
+    "keyColumns": ["codigo (FK)", "tienda", "talla", "stock", "fecha_modifica"]
+  },
+  {
+    "table": "ps_traspasos",
+    "alias": "Traspaso",
+    "description": "Traspasos de stock. Cada movimiento = 2 filas (salida + entrada).",
+    "keyColumns": ["codigo (FK)", "tienda_salida", "tienda_entrada", "entrada", "unidades_s", "unidades_e", "fecha_s", "talla"]
+  }
+]
+```
+
+## LLM:relationships
+
+```json
+[
+  {"from": "ps_stock_tienda", "fromColumn": "codigo", "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_stock_tienda", "fromColumn": "tienda", "to": "ps_tiendas", "toColumn": "codigo", "type": "MANY_TO_ONE"}
+]
+```

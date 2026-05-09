@@ -357,3 +357,67 @@ WHERE NAlbaran IN (SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync)
 - `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_gc_albaranes",
+    "alias": "AlbaranMayorista",
+    "description": "Albaranes mayorista. Importe neto = base1 + base2 + base3.",
+    "keyColumns": ["reg_albaran (PK)", "n_albaran", "num_cliente (FK)", "num_comercial (FK)", "fecha_envio", "base1", "base2", "base3", "entregadas", "abono", "temporada"]
+  },
+  {
+    "table": "ps_gc_lin_albarane",
+    "alias": "LineaAlbaranMayorista",
+    "description": "Líneas de albarán mayorista.",
+    "keyColumns": ["n_albaran (FK)", "codigo", "unidades", "total"]
+  },
+  {
+    "table": "ps_gc_facturas",
+    "alias": "FacturaMayorista",
+    "description": "Facturas mayorista. Importe neto = base1 + base2 + base3.",
+    "keyColumns": ["reg_factura (PK)", "n_factura", "fecha_factura", "num_cliente (FK)", "num_comercial (FK)", "base1", "base2", "base3", "abono", "total_factura (CON IVA)"]
+  },
+  {
+    "table": "ps_gc_lin_facturas",
+    "alias": "LineaFacturaMayorista",
+    "description": "Líneas de factura mayorista.",
+    "keyColumns": ["num_factura (FK)", "codigo", "unidades", "total", "total_coste"]
+  },
+  {
+    "table": "ps_gc_pedidos",
+    "alias": "PedidoMayorista",
+    "description": "Pedidos mayorista.",
+    "keyColumns": ["reg_pedido (PK)", "num_cliente (FK)"]
+  },
+  {
+    "table": "ps_gc_lin_pedidos",
+    "alias": "LineaPedidoMayorista",
+    "description": "Líneas de pedido mayorista.",
+    "keyColumns": ["num_pedido (FK)", "codigo", "unidades"]
+  },
+  {
+    "table": "ps_gc_comerciales",
+    "alias": "Comercial",
+    "description": "Comerciales/agentes de ventas mayorista.",
+    "keyColumns": ["reg_comercial (PK)", "comercial"]
+  }
+]
+```
+
+## LLM:relationships
+
+```json
+[
+  {"from": "ps_gc_lin_albarane", "fromColumn": "n_albaran", "to": "ps_gc_albaranes", "toColumn": "n_albaran", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas", "toColumn": "n_factura", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_albaranes", "fromColumn": "num_cliente", "to": "ps_clientes", "toColumn": "reg_cliente", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_facturas", "fromColumn": "num_cliente", "to": "ps_clientes", "toColumn": "reg_cliente", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_albaranes", "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_facturas", "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"}
+]
+```
