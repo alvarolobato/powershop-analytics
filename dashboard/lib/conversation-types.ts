@@ -113,7 +113,13 @@ export function getConversationDisplayTitle(conv: Pick<Conversation, "title" | "
 }
 
 export function isAssistantContent(content: MessageContent): content is AssistantMessageContent {
-  return typeof content === "object" && content !== null && ("text" in content || "tool_calls" in content || "is_error" in content);
+  // Must not have tool_call_id (that marks a tool-result message, not an assistant turn).
+  return (
+    typeof content === "object" &&
+    content !== null &&
+    !("tool_call_id" in content) &&
+    ("text" in content || "tool_calls" in content || "is_error" in content)
+  );
 }
 
 export function isToolResultContent(

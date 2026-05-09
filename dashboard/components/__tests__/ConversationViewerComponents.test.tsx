@@ -217,6 +217,14 @@ describe("conversation-types helpers", () => {
       expect(isAssistantContent({ text: "hello" })).toBe(true);
     });
 
+    it("returns true for tool-only assistant message (no text field)", () => {
+      expect(isAssistantContent({ tool_calls: [{ id: "t1", name: "x", arguments: {} }] })).toBe(true);
+    });
+
+    it("returns true for error assistant message", () => {
+      expect(isAssistantContent({ is_error: true })).toBe(true);
+    });
+
     it("returns false for string", () => {
       expect(isAssistantContent("hello")).toBe(false);
     });
