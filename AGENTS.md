@@ -361,6 +361,20 @@ Use the [GitHub CLI](https://cli.github.com/) (`gh`) for all GitHub operations.
 
 ---
 
+## AI Factory lifecycle
+
+The full lifecycle of an issue (planner → sub-issues → implementer → PR → Copilot → Opus → human merge), the labels that signal each state, the recovery paths for failures, and **every point where a human is expected to step in** are documented in **[docs/ai-factory.md § Lifecycle in detail](docs/ai-factory.md#lifecycle-in-detail)**.
+
+Read it before:
+- modifying any workflow under `.github/workflows/ai-*.yml` — the state machine is enforced across multiple files (`ai-worker.yml`, `ai-pr-review.yml`, `ai-address-feedback.yml`, `ai-watchdog.yml`) and changes in one need to be reasoned about against the others.
+- adding a new label that participates in the AI lifecycle.
+- changing the review policy (caps, rounds, who-requests-whom). See also [D-021](DECISIONS-AND-CHANGES.md#d-021).
+- diagnosing a stalled / duplicated / mis-labelled issue or PR.
+
+The diagrams in that section reflect the post-#517/#518/#519 behaviour: implementers read parent comments, planner self-heals missing `ai-work` labels, job-level concurrency cancels duplicates, and the worker's `Handle success` is idempotent against re-fires (no duplicate Copilot reviews).
+
+---
+
 ## Issue and PR format
 
 All GitHub issues in this project follow a single standard format. When creating issues, always use this template exactly.
