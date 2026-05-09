@@ -30,10 +30,18 @@ vi.mock("crypto", () => ({
 }));
 
 import {
+  generateConversationId,
   createConversation,
   getConversation,
+  getConversationWithMessages,
+  listConversations,
   updateConversationTitle,
   setConversationArchived,
+  archiveConversation,
+  unarchiveConversation,
+  updateTitle,
+  updateLastStatus,
+  syncLegacyCache,
   appendMessage,
   countMessages,
   maybeGenerateTitle,
@@ -247,7 +255,232 @@ describe("maybeGenerateTitle", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Structural contract: no DELETE FROM conversations
+// generateConversationId
+// ---------------------------------------------------------------------------
+
+describe("generateConversationId", () => {
+  it("returns 12 hex characters", () => {
+    const id = generateConversationId();
+    expect(id).toMatch(/^[a-f0-9]{12}$/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getConversationWithMessages
+// ---------------------------------------------------------------------------
+
+describe("getConversationWithMessages", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("returns conversation with messages array", async () => {
+    const conv = { id: "abc123", mode: "modify", title: null };
+    const msg = { id: "msg-1", conversation_id: "abc123", role: "user", content: { text: "Hola" }, created_at: "2026-01-01" };
+    mockSql
+      .mockResolvedValueOnce([conv])  // getConversation
+      .mockResolvedValueOnce([msg]);  // messages query
+
+    const result = await getConversationWithMessages("abc123");
+    expect(result).not.toBeNull();
+    expect(result!.messages).toHaveLength(1);
+    expect(result!.messages[0].role).toBe("user");
+  });
+
+  it("returns null when conversation not found", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    const result = await getConversationWithMessages("notexist");
+    expect(result).toBeNull();
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listConversations
+// ---------------------------------------------------------------------------
+
+describe("listConversations", () => {
+  beforeEach(() => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValue([]);
+  });
+
+  it("defaults to hiding archived (WHERE archived_at IS NULL)", async () => {
+    await listConversations();
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("archived_at IS NULL");
+  });
+
+  it("includes archived rows when include_archived=true", async () => {
+    await listConversations({ include_archived: true });
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).not.toContain("archived_at IS NULL");
+  });
+
+  it("filters by context_kind and context_ref", async () => {
+    await listConversations({ context_kind: "dashboard", context_ref: "42" });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("context_kind");
+    expect(query).toContain("context_ref");
+    expect(params).toContain("dashboard");
+    expect(params).toContain("42");
+  });
+
+  it("filters by mode", async () => {
+    await listConversations({ mode: "modify" });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("c.mode = ");
+    expect(params).toContain("modify");
+  });
+
+  it("filters by q (search) with ILIKE and escaped wildcards", async () => {
+    await listConversations({ q: "100%" });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ILIKE");
+    expect(params.some((p) => typeof p === "string" && p.includes("100\\%"))).toBe(true);
+  });
+
+  it("ignores empty q", async () => {
+    await listConversations({ q: "   " });
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).not.toContain("ILIKE");
+  });
+
+  it("passes limit as a SQL parameter", async () => {
+    await listConversations({ limit: 5 });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("LIMIT $");
+    expect(params).toContain(5);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// archiveConversation / unarchiveConversation
+// ---------------------------------------------------------------------------
+
+describe("archiveConversation", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("delegates to setConversationArchived(true) — sets archived_at to non-null", async () => {
+    mockSql.mockResolvedValue([]);
+    await archiveConversation("abc123");
+    const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(params[0]).toBe("abc123");
+    expect(params[1]).not.toBeNull();
+  });
+});
+
+describe("unarchiveConversation", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("delegates to setConversationArchived(false) — clears archived_at", async () => {
+    mockSql.mockResolvedValue([]);
+    await unarchiveConversation("abc123");
+    const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(params[0]).toBe("abc123");
+    expect(params[1]).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// updateTitle / updateLastStatus
+// ---------------------------------------------------------------------------
+
+describe("updateTitle", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("updates the title column", async () => {
+    mockSql.mockResolvedValue([]);
+    await updateTitle("abc123", "Nuevo título");
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("title");
+    expect(params[0]).toBe("abc123");
+    expect(params[1]).toBe("Nuevo título");
+  });
+});
+
+describe("updateLastStatus", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("updates last_interaction_at and last_status", async () => {
+    mockSql.mockResolvedValue([]);
+    await updateLastStatus("abc123", "ok");
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("last_interaction_at");
+    expect(params[0]).toBe("abc123");
+    expect(params[1]).toBe("ok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// syncLegacyCache
+// ---------------------------------------------------------------------------
+
+describe("syncLegacyCache", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("does nothing when conversation not found", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await syncLegacyCache("abc123def456");
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when context_kind is not 'dashboard'", async () => {
+    mockSql.mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "home", context_ref: "1", archived_at: null }]);
+    await syncLegacyCache("abc123def456");
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when mode is not modify or analyze", async () => {
+    mockSql.mockResolvedValueOnce([{ id: "abc123def456", mode: "generate", context_kind: "dashboard", context_ref: "1", archived_at: null }]);
+    await syncLegacyCache("abc123def456");
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing when conversation is archived", async () => {
+    mockSql.mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "dashboard", context_ref: "1", archived_at: "2026-01-01" }]);
+    await syncLegacyCache("abc123def456");
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+
+  it("updates chat_messages_modify when mode=modify", async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "dashboard", context_ref: "42", archived_at: null }])
+      .mockResolvedValueOnce([{ role: "user", content: { text: "Hola" }, created_at: "2026-01-01" }])
+      .mockResolvedValueOnce([]);
+
+    await syncLegacyCache("abc123def456");
+
+    expect(mockSql).toHaveBeenCalledTimes(3);
+    const [updateQuery, updateParams] = mockSql.mock.calls[2] as [string, unknown[]];
+    expect(updateQuery).toContain("chat_messages_modify");
+    expect(updateParams[0]).toBe(42);
+    const legacy = JSON.parse(updateParams[1] as string);
+    expect(legacy[0].content).toBe("Hola");
+  });
+
+  it("updates chat_messages_analyze when mode=analyze", async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: "abc123def456", mode: "analyze", context_kind: "dashboard", context_ref: "7", archived_at: null }])
+      .mockResolvedValueOnce([{ role: "user", content: { text: "Info" }, created_at: "2026-01-01" }])
+      .mockResolvedValueOnce([]);
+
+    await syncLegacyCache("abc123def456");
+
+    const [updateQuery] = mockSql.mock.calls[2] as [string, unknown[]];
+    expect(updateQuery).toContain("chat_messages_analyze");
+  });
+
+  it("does nothing when context_ref is not a valid number", async () => {
+    mockSql
+      .mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "dashboard", context_ref: "not-a-number", archived_at: null }])
+      .mockResolvedValueOnce([]);
+
+    await syncLegacyCache("abc123def456");
+    expect(mockSql).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Structural contract: no delete from conversations
 // ---------------------------------------------------------------------------
 
 describe("no-delete contract", () => {
@@ -261,5 +494,10 @@ describe("no-delete contract", () => {
     );
     const src = fs.readFileSync(filePath, "utf-8");
     expect(src).not.toMatch(/DELETE\s+FROM\s+conversations/i);
+  });
+
+  it("does not export deleteConversation", async () => {
+    const mod = await import("../conversations");
+    expect("deleteConversation" in mod).toBe(false);
   });
 });
