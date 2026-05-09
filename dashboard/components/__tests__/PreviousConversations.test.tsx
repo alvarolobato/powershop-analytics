@@ -180,18 +180,8 @@ describe("PreviousConversations", () => {
   });
 
   it("shows archived conversations with badge when 'Mostrar archivadas' is toggled", async () => {
-    // First fetch returns only active (no include_archived param)
-    // Second fetch returns all (with include_archived=true)
-    let callCount = 0;
-    globalThis.fetch = vi.fn().mockImplementation(() => {
-      callCount++;
-      const convs =
-        callCount === 1 ? [makeConv()] : [makeConv(), archivedConv];
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({ conversations: convs }),
-      });
-    });
+    // Single fetch always returns all conversations (include_archived=true); toggle filters client-side
+    globalThis.fetch = mockFetchConversations([makeConv(), archivedConv]);
 
     render(
       <PreviousConversations
@@ -205,13 +195,14 @@ describe("PreviousConversations", () => {
       expect(screen.getByText("Análisis de ventas")).toBeInTheDocument();
     });
 
-    // Toggle "Mostrar archivadas"
+    // Archived conv hidden initially (client-side filter)
+    expect(screen.queryByText("Conversación archivada")).not.toBeInTheDocument();
+
+    // Toggle "Mostrar archivadas" — no new fetch, just client-side reveal
     const toggle = screen.getByTestId("show-archived-toggle");
     fireEvent.click(toggle);
 
-    await waitFor(() => {
-      expect(screen.getByText("Conversación archivada")).toBeInTheDocument();
-    });
+    expect(screen.getByText("Conversación archivada")).toBeInTheDocument();
 
     // Archived badge should appear
     expect(
@@ -230,9 +221,10 @@ describe("PreviousConversations", () => {
     const conv = makeConv({ id: "testid000001" });
     globalThis.fetch = mockFetchConversations([conv]);
 
-    // Capture window.location.href assignment
+    // Capture window.location.href assignment and restore afterwards to avoid leaking state
     let navigatedTo = "";
     const originalHref = window.location.href;
+    const originalDescriptor = Object.getOwnPropertyDescriptor(window, "location");
     Object.defineProperty(window, "location", {
       value: {
         ...window.location,
@@ -247,21 +239,27 @@ describe("PreviousConversations", () => {
       writable: true,
     });
 
-    render(
-      <PreviousConversations
-        dashboardId={42}
-        mode="modify"
-        onClose={onClose}
-      />,
-    );
+    try {
+      render(
+        <PreviousConversations
+          dashboardId={42}
+          mode="modify"
+          onClose={onClose}
+        />,
+      );
 
-    await waitFor(() => {
-      expect(screen.getByTestId(`conversation-row-${conv.id}`)).toBeInTheDocument();
-    });
+      await waitFor(() => {
+        expect(screen.getByTestId(`conversation-row-${conv.id}`)).toBeInTheDocument();
+      });
 
-    fireEvent.click(screen.getByTestId(`conversation-row-${conv.id}`));
+      fireEvent.click(screen.getByTestId(`conversation-row-${conv.id}`));
 
-    expect(navigatedTo).toBe(`/k/${conv.id}`);
+      expect(navigatedTo).toBe(`/k/${conv.id}`);
+    } finally {
+      if (originalDescriptor) {
+        Object.defineProperty(window, "location", originalDescriptor);
+      }
+    }
   });
 
   // -----------------------------------------------------------------------

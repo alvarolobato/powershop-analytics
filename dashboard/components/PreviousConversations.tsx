@@ -65,11 +65,16 @@ export default function PreviousConversations({
   const fetchConversations = useCallback(() => {
     setLoading(true);
     setError(false);
-    const archivedParam = showArchived ? "&include_archived=true" : "";
     fetch(
-      `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${modeParam}${archivedParam}`,
+      `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${modeParam}&include_archived=true`,
     )
       .then(async (res) => {
+        if (res.status === 404) {
+          // Route not yet available (Task 2 / #537) — treat as empty list
+          setConversations([]);
+          setLoading(false);
+          return;
+        }
         if (!res.ok) {
           setError(true);
           setLoading(false);
@@ -83,7 +88,7 @@ export default function PreviousConversations({
         setError(true);
         setLoading(false);
       });
-  }, [dashboardId, modeParam, showArchived]);
+  }, [dashboardId, modeParam]);
 
   useEffect(() => {
     fetchConversations();

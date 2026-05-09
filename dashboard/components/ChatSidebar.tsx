@@ -1528,21 +1528,22 @@ export default function ChatSidebar({
   // Conversation history state
   // -------------------------------------------------------------------------
 
-  const [modifyConversationId, setModifyConversationId] = useState<string | null>(null);
-  const [analyzeConversationId, setAnalyzeConversationId] = useState<string | null>(null);
   const [showPreviousConversations, setShowPreviousConversations] = useState(false);
 
   // Auto-load the latest non-archived conversation for each mode on mount.
   // Gracefully falls through if the API is not yet available (Task 2 / #537).
   const conversationAutoLoadedRef = useRef(false);
   useEffect(() => {
-    if (!dashboardId || conversationAutoLoadedRef.current) return;
+    if (dashboardId === undefined || conversationAutoLoadedRef.current) return;
     conversationAutoLoadedRef.current = true;
+
+    const controller = new AbortController();
 
     const loadLatest = async (apiMode: string) => {
       try {
         const res = await fetch(
           `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${apiMode}&limit=1`,
+          { signal: controller.signal },
         );
         if (!res.ok) return; // API not ready (Task 2 not merged), fall through
         const data = (await res.json()) as ConversationListResponse;
@@ -1551,39 +1552,34 @@ export default function ChatSidebar({
         const conv = data.conversations[0];
         if (conv.archived_at) return; // Only load non-archived
 
-        const msgRes = await fetch(`/api/conversations/${conv.id}`);
+        const msgRes = await fetch(`/api/conversations/${conv.id}`, { signal: controller.signal });
         if (!msgRes.ok) return;
         const msgData = (await msgRes.json()) as ConversationDetailResponse;
+        if (controller.signal.aborted) return;
         const messages = convertConversationMessages(msgData.conversation.messages ?? []);
 
         if (apiMode === "modify") {
-          setModifyConversationId(conv.id);
-          if (messages.length > 0) {
-            setModifyMessages(messages);
-          }
+          setModifyMessages(messages);
         } else {
-          setAnalyzeConversationId(conv.id);
-          if (messages.length > 0) {
-            setAnalyzeMessages(messages);
-          }
+          setAnalyzeMessages(messages);
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
         // Silently ignore — API not available yet
       }
     };
 
     void loadLatest("modify");
     void loadLatest("analyze");
+    return () => controller.abort();
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // "Nueva conversación" — clears messages and conversation ID for the active tab
+  // "Nueva conversación" — clears messages for the active tab
   const handleNewConversation = useCallback(() => {
     if (activeTab === "modificar") {
-      setModifyConversationId(null);
       setModifyMessages([]);
       onModifyMessagesChange?.([]);
     } else {
-      setAnalyzeConversationId(null);
       setAnalyzeMessages([]);
       onAnalyzeMessagesChange?.([]);
     }
