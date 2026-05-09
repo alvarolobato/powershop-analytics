@@ -2,10 +2,11 @@
 
 This document distills the data-relevant platform decisions into facts that the runtime
 dashboard LLM needs to understand when generating SQL queries and dashboard specs.
-It is a curated source input to `dashboard/lib/knowledge.ts`.
+It will be the primary source input to `dashboard/lib/knowledge.ts` once the knowledge
+build pipeline is implemented (issue #502).
 
-Pure plumbing (containers, OAuth, CI pipelines, review policy, dashboard chrome) is **not**
-recorded here — see `DECISIONS-AND-CHANGES.md` for the full decision log.
+Non-data operational and infrastructure decisions are **not** recorded here — see
+`DECISIONS-AND-CHANGES.md` for the full decision log.
 
 ## LLM:rules
 
@@ -88,14 +89,12 @@ In `ps_stock_tienda`, stock is stored in long format (one row per article + stor
 
 ### WrenAI knowledge corpus
 
-WrenAI's RAG pipeline uses two knowledge channels:
+WrenAI uses two knowledge channels to understand business semantics:
 
-- **Instructions** (40+): business rules such as "ventas (retail) = `ps_ventas`; mayorista
-  (wholesale) = `ps_gc_*`". Source instructions carry `is_default=1`; user-created instructions
-  carry `is_default=0` and are never overwritten by automated updates.
-- **SQL pairs** (52+): validated example question → SQL mappings. All SQL in these pairs
-  is tested against the PostgreSQL mirror (`ps wren validate`).
+- **Instructions** (40+): business rules mapping business terms to tables, e.g. "ventas
+  (retail) = `ps_ventas`; mayorista (wholesale) = `ps_gc_*`". Source instructions carry
+  `is_default=1`; user-created instructions carry `is_default=0` and are never overwritten.
+- **SQL pairs** (52+): validated example question → SQL mappings covering all business domains.
 
-Both channels are indexed into Qdrant and retrieved at query time. When business semantics
-change (new table, new join, new KPI definition), update both the relevant instruction and
-add or update a SQL pair.
+When business semantics change (new table, new join, new KPI definition), update both the
+relevant instruction and add or update a SQL pair.

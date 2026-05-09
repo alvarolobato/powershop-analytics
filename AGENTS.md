@@ -341,6 +341,8 @@ If you discover something during a session — a null field, an unexpected table
 
 ## Knowledge file maintenance — data-decisions.md and source MDs
 
+> **Target architecture (issue #502):** `docs/dashboard/sql-pairs.md`, the `npm run build:knowledge` script, and the CI drift guard do not exist yet — they are implemented in issue #502. Until that lands, `dashboard/lib/knowledge.ts` is maintained manually. The instructions below describe the intended target state.
+
 The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/data-decisions.md`, `docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
 
 When you change anything that affects what the LLM should know about the data platform — adding a decision in `DECISIONS-AND-CHANGES.md` with data semantics; updating an architecture file with a new gotcha; finding a new SQL pattern — also update the relevant marker section of the source MD and run `npm run build:knowledge`. The CI drift guard fails the PR if `dashboard/lib/knowledge.ts` is out of sync with the sources.
