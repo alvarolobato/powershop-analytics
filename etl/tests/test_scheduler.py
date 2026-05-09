@@ -393,3 +393,200 @@ def test_delta_cron_minute_none_defaults_to_0():
     from etl.main import _parse_cron_minute
 
     assert _parse_cron_minute(None) == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: ETL_DELTA_LOOKBACK_DAYS validation (_parse_lookback_days helper)
+# ---------------------------------------------------------------------------
+
+
+def test_lookback_days_none_defaults_to_1():
+    """None (env var not set) returns the default of 1."""
+    from etl.main import _parse_lookback_days
+
+    assert _parse_lookback_days(None) == 1
+
+
+def test_lookback_days_valid_values_unchanged():
+    """Valid non-negative integer values are returned as-is."""
+    from etl.main import _parse_lookback_days
+
+    assert _parse_lookback_days("0") == 0
+    assert _parse_lookback_days("1") == 1
+    assert _parse_lookback_days("2") == 2
+    assert _parse_lookback_days("7") == 7
+
+
+def test_lookback_days_negative_defaults_to_1(caplog):
+    """Negative ETL_DELTA_LOOKBACK_DAYS defaults to 1 with a warning."""
+    import logging
+
+    from etl.main import _parse_lookback_days
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_lookback_days("-1")
+
+    assert result == 1
+    assert "is negative" in caplog.text
+
+
+def test_lookback_days_non_integer_defaults_to_1(caplog):
+    """Non-integer ETL_DELTA_LOOKBACK_DAYS defaults to 1 with a warning."""
+    import logging
+
+    from etl.main import _parse_lookback_days
+
+    with caplog.at_level(logging.WARNING, logger="etl"):
+        result = _parse_lookback_days("abc")
+
+    assert result == 1
+    assert "not an integer" in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Tests: lookback window applied in delta runs
+# ---------------------------------------------------------------------------
+
+
+class TestDeltaLookbackWindow:
+    """Integration test: delta runs subtract lookback_days from the watermark.
+
+    Scenario: watermark advanced to 2026-05-03 (past the delayed rows), but
+    ETL_DELTA_LOOKBACK_DAYS=1 means the next delta queries from 2026-05-02,
+    catching rows that arrived with FechaModifica=2026-05-02 (H3 replication
+    delay protection, issue #459).
+    """
+
+    def _run_delta_with_lookback(self, lookback_days: int) -> object:
+        """Run a single delta sync and capture the `since` argument received by
+        the sync function.  Returns the captured `since` value."""
+        from contextlib import ExitStack
+        from datetime import datetime, timezone
+        from unittest.mock import MagicMock, patch
+
+        from etl.main import _run_sync
+
+        watermark = datetime(2026, 5, 3, tzinfo=timezone.utc)
+        captured_since = []
+
+        def fake_sync_fn(conn_4d, conn_pg, since):
+            captured_since.append(since)
+            return 0
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("etl.db.postgres.get_watermark", return_value=watermark)
+            )
+            stack.enter_context(patch("etl.db.postgres.set_watermark"))
+            stack.enter_context(patch("etl.db.postgres.record_table_sync"))
+
+            conn_4d = MagicMock()
+            conn_pg = MagicMock()
+            _run_sync(
+                "ventas",
+                fake_sync_fn,
+                conn_4d,
+                conn_pg,
+                uses_watermark=True,
+                kind="delta",
+                lookback_days=lookback_days,
+            )
+
+        assert len(captured_since) == 1, "sync function was not called exactly once"
+        return captured_since[0]
+
+    def test_lookback_days_1_subtracts_one_day(self):
+        """lookback_days=1: since = watermark - 1 day (2026-05-03 → 2026-05-02)."""
+        from datetime import datetime, timezone
+
+        since = self._run_delta_with_lookback(lookback_days=1)
+        expected = datetime(2026, 5, 2, tzinfo=timezone.utc)
+        assert since == expected, f"Expected {expected!r}, got {since!r}"
+
+    def test_lookback_days_0_passes_exact_watermark(self):
+        """lookback_days=0: since = watermark exactly (no subtraction)."""
+        from datetime import datetime, timezone
+
+        since = self._run_delta_with_lookback(lookback_days=0)
+        expected = datetime(2026, 5, 3, tzinfo=timezone.utc)
+        assert since == expected, f"Expected {expected!r}, got {since!r}"
+
+    def test_lookback_days_2_subtracts_two_days(self):
+        """lookback_days=2: since = watermark - 2 days (2026-05-03 → 2026-05-01)."""
+        from datetime import datetime, timezone
+
+        since = self._run_delta_with_lookback(lookback_days=2)
+        expected = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        assert since == expected, f"Expected {expected!r}, got {since!r}"
+
+    def test_full_run_ignores_lookback(self):
+        """Full runs pass since=None regardless of lookback_days."""
+        from contextlib import ExitStack
+        from unittest.mock import MagicMock, patch
+
+        from etl.main import _run_sync
+
+        captured_since = []
+
+        def fake_sync_fn(conn_4d, conn_pg, since):
+            captured_since.append(since)
+            return 0
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("etl.db.postgres.get_watermark", return_value=None)
+            )
+            stack.enter_context(patch("etl.db.postgres.set_watermark"))
+            stack.enter_context(patch("etl.db.postgres.record_table_sync"))
+
+            conn_4d = MagicMock()
+            conn_pg = MagicMock()
+            _run_sync(
+                "ventas",
+                fake_sync_fn,
+                conn_4d,
+                conn_pg,
+                uses_watermark=True,
+                kind="full",
+                lookback_days=7,
+            )
+
+        assert captured_since[0] is None, (
+            f"Full run should pass since=None, got {captured_since[0]!r}"
+        )
+
+    def test_null_watermark_skips_lookback(self):
+        """When no watermark exists (first run), lookback is not applied and since=None."""
+        from contextlib import ExitStack
+        from unittest.mock import MagicMock, patch
+
+        from etl.main import _run_sync
+
+        captured_since = []
+
+        def fake_sync_fn(conn_4d, conn_pg, since):
+            captured_since.append(since)
+            return 0
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch("etl.db.postgres.get_watermark", return_value=None)
+            )
+            stack.enter_context(patch("etl.db.postgres.set_watermark"))
+            stack.enter_context(patch("etl.db.postgres.record_table_sync"))
+
+            conn_4d = MagicMock()
+            conn_pg = MagicMock()
+            _run_sync(
+                "ventas",
+                fake_sync_fn,
+                conn_4d,
+                conn_pg,
+                uses_watermark=True,
+                kind="delta",
+                lookback_days=1,
+            )
+
+        assert captured_since[0] is None, (
+            f"With no watermark, since should remain None, got {captured_since[0]!r}"
+        )
