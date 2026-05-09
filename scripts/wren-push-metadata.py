@@ -53,19 +53,6 @@ def gql(url, query):
 #   - docs/skills/data-access.md         — ## LLM:rules (JSON instructions)
 #   - docs/dashboard/sql-pairs.md        — ## LLM:sql-pairs (### heading + ```sql```)
 #
-# Topic inference (filename → WrenAI topic string):
-#   architecture/sales.md          → "sales"
-#   architecture/wholesale.md      → "wholesale"
-#   architecture/stock-logistics.md → "stock"
-#   architecture/purchasing.md     → "purchasing"
-#   architecture/products.md       → "products"
-#   architecture/customers.md      → "customers"
-#   architecture/stores-hr.md      → "stores"
-#   etl-sync-strategy.md           → "etl"
-#   skills/4d-sql-dialect.md       → "sql"
-#   skills/data-access.md          → "sql"
-#   dashboard/sql-pairs.md         → "general"
-#
 # Date placeholder transform (dashboard syntax → PostgreSQL native):
 #   :curr_from  → DATE_TRUNC('month', CURRENT_DATE)
 #   :curr_to    → CURRENT_DATE
@@ -97,20 +84,6 @@ _DATE_PLACEHOLDERS = [
     (":comp_from", "DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '1 year'"),
     (":comp_to", "CURRENT_DATE - INTERVAL '1 year'"),
 ]
-
-_TOPIC_MAP = {
-    "sales": "sales",
-    "wholesale": "wholesale",
-    "stock-logistics": "stock",
-    "purchasing": "purchasing",
-    "products": "products",
-    "customers": "customers",
-    "stores-hr": "stores",
-    "etl-sync-strategy": "etl",
-    "4d-sql-dialect": "sql",
-    "data-access": "sql",
-    "sql-pairs": "general",
-}
 
 
 def parse_marker_sections(content: str) -> list[dict]:
@@ -172,9 +145,16 @@ def extract_instructions(content: str) -> list[dict]:
             items = json.loads(json_m.group(1))
         except json.JSONDecodeError as exc:
             raise ValueError(f"Invalid JSON in ## LLM:rules: {exc}") from exc
-        instructions.extend(
-            item for item in items if isinstance(item, dict) and "instruction" in item
-        )
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            if "instruction" not in item:
+                continue
+            if "questions" not in item or not isinstance(item["questions"], list):
+                raise ValueError(
+                    f"Instruction missing 'questions' list: {item.get('instruction', '')!r}"
+                )
+            instructions.append(item)
     return instructions
 
 
@@ -215,12 +195,6 @@ def transform_date_placeholders(sql: str) -> str:
     return sql
 
 
-def infer_topic(md_path: str) -> str:
-    """Infer a WrenAI topic string from the source MD filename."""
-    stem = pathlib.Path(md_path).stem
-    return _TOPIC_MAP.get(stem, "general")
-
-
 def load_knowledge_from_mds() -> tuple[list[dict], list[tuple[str, str]]]:
     """Load all instructions and SQL pairs from SOURCE_MDS.
 
@@ -233,6 +207,9 @@ def load_knowledge_from_mds() -> tuple[list[dict], list[tuple[str, str]]]:
     for rel_path in SOURCE_MDS:
         full_path = _REPO_ROOT / rel_path
         if not full_path.exists():
+            print(
+                f"  WARNING: source MD not found, skipped: {rel_path}", file=sys.stderr
+            )
             continue
         content = full_path.read_text(encoding="utf-8")
         all_instructions.extend(extract_instructions(content))

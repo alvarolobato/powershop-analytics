@@ -352,7 +352,7 @@ npm run build:knowledge   # update dashboard/lib/knowledge.ts
 ps wren push              # update WrenAI's SQLite + qdrant index
 ```
 
-The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/data-decisions.md`, `docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
+The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
 
 WrenAI reads `## LLM:rules` (JSON instruction arrays) and `## LLM:sql-pairs` (### heading + ```sql``` blocks) from the same list of source MDs. Date placeholders (`:curr_from`, `:curr_to`, `:comp_from`, `:comp_to`) in SQL pairs are automatically transformed to native PostgreSQL `CURRENT_DATE` / `DATE_TRUNC` expressions before insertion, so both consumers see syntactically valid SQL for their respective execution contexts.
 
@@ -362,7 +362,7 @@ Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome,
 
 | Type of change | Source MD to update |
 |----------------|---------------------|
-| New data semantics decision (table, field, type, join) | `docs/data-decisions.md` under `## LLM:rules` |
+| New data semantics decision (table, field, type, join) | `docs/etl-sync-strategy.md` under `## LLM:rules` (or the relevant `docs/architecture/<domain>.md`) |
 | New table relationship or ER diagram finding | `docs/architecture/<domain>.md` under `## LLM:relationships` |
 | New SQL query pattern or validated example | `docs/dashboard/sql-pairs.md` under `## LLM:sql-pairs` |
 | Schema / column gotcha | `docs/skills/data-access.md` under `## LLM:rules` |

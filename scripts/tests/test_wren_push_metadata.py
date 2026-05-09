@@ -1,6 +1,7 @@
 """Unit tests for the MD parser functions in wren-push-metadata.py.
 
-All tests use fixture Markdown strings — no filesystem access, no network.
+Most tests use fixture Markdown strings (no filesystem access).
+Integration tests at the bottom load from the real SOURCE_MDS files on disk.
 """
 
 import importlib.util
@@ -29,7 +30,6 @@ parse_marker_sections = wpm.parse_marker_sections
 extract_instructions = wpm.extract_instructions
 extract_sql_pairs = wpm.extract_sql_pairs
 transform_date_placeholders = wpm.transform_date_placeholders
-infer_topic = wpm.infer_topic
 
 
 # ── parse_marker_sections ────────────────────────────────────────────────────
@@ -309,57 +309,6 @@ def test_transform_idempotent():
     result1 = transform_date_placeholders(sql)
     result2 = transform_date_placeholders(result1)
     assert result1 == result2
-
-
-# ── infer_topic ──────────────────────────────────────────────────────────────
-
-
-def test_infer_topic_sales():
-    assert infer_topic("docs/architecture/sales.md") == "sales"
-
-
-def test_infer_topic_wholesale():
-    assert infer_topic("docs/architecture/wholesale.md") == "wholesale"
-
-
-def test_infer_topic_stock():
-    assert infer_topic("docs/architecture/stock-logistics.md") == "stock"
-
-
-def test_infer_topic_purchasing():
-    assert infer_topic("docs/architecture/purchasing.md") == "purchasing"
-
-
-def test_infer_topic_products():
-    assert infer_topic("docs/architecture/products.md") == "products"
-
-
-def test_infer_topic_customers():
-    assert infer_topic("docs/architecture/customers.md") == "customers"
-
-
-def test_infer_topic_stores():
-    assert infer_topic("docs/architecture/stores-hr.md") == "stores"
-
-
-def test_infer_topic_etl():
-    assert infer_topic("docs/etl-sync-strategy.md") == "etl"
-
-
-def test_infer_topic_sql_4d():
-    assert infer_topic("docs/skills/4d-sql-dialect.md") == "sql"
-
-
-def test_infer_topic_sql_data_access():
-    assert infer_topic("docs/skills/data-access.md") == "sql"
-
-
-def test_infer_topic_general():
-    assert infer_topic("docs/dashboard/sql-pairs.md") == "general"
-
-
-def test_infer_topic_unknown_defaults_to_general():
-    assert infer_topic("docs/some/unknown-file.md") == "general"
 
 
 # ── integration: load from real source MDs ──────────────────────────────────
