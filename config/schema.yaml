@@ -424,7 +424,7 @@
   sensitive: false
   default: 1
   section: "ETL"
-  description: "Días de solapamiento que aplica la sincronización delta: en lugar de consultar desde el watermark exacto, consulta desde watermark - N días. Protege contra el retraso de replicación H3 (filas presentes en 4D pero no visibles al driver p4d cuando arranca el sync nocturno). El upsert es idempotente; re-obtener los últimos N días solo añade UPDATEs para filas sin cambios. 0 deshabilita el solapamiento. Solo env var. No requiere reiniciar el contenedor (se lee al arrancar)."
+  description: "Días de solapamiento que aplica la sincronización delta: en lugar de consultar desde el watermark exacto, consulta desde watermark - N días. Protege contra el retraso de replicación H3 (filas presentes en 4D pero no visibles al driver p4d cuando arranca el sync nocturno). El upsert es idempotente; re-obtener los últimos N días solo añade UPDATEs para filas sin cambios. 0 deshabilita el solapamiento. Solo env var. Requiere reiniciar el contenedor ETL (se lee una vez al arrancar)."
   requires_restart: [etl]
   components: [etl]
 

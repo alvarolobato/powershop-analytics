@@ -261,6 +261,7 @@ class TestSchedulerLoopTriggerCheck:
                 trigger_id=7,
                 kind="delta",
                 force_flags=(False, [], "dashboard"),
+                lookback_days=1,
             )
 
     def test_second_trigger_while_active_is_not_consumed(self):
