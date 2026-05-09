@@ -38,7 +38,7 @@ export interface Relationship {
   fromColumn: string;
   to: string;
   toColumn: string;
-  type: "MANY_TO_ONE";
+  type: string;
 }
 
 // ─── Instructions (business rules the LLM must follow) ───────────────────────

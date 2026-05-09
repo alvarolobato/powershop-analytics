@@ -49,7 +49,7 @@ interface Relationship {
   fromColumn: string;
   to: string;
   toColumn: string;
-  type: "MANY_TO_ONE";
+  type: string;
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
@@ -192,8 +192,17 @@ function emitRelationships(rels: Relationship[]): string {
 
 function main() {
   if (process.argv.includes("--help")) {
-    console.log("Usage: npm run build:knowledge [-- --dry-run]");
-    console.log("  --dry-run  Parse source MDs and report counts; do not write knowledge.ts");
+    console.log("Usage: tsx scripts/build-knowledge.ts [--dry-run]");
+    console.log("");
+    console.log("Reads ## LLM:* marker sections from source Markdown files and");
+    console.log("compiles them into dashboard/lib/knowledge.ts.");
+    console.log("");
+    console.log("Options:");
+    console.log("  --dry-run   Parse sources and report counts without writing output file.");
+    console.log("  --help      Show this help message.");
+    console.log("");
+    console.log("Source MDs:");
+    for (const rel of SOURCE_MDS) console.log(`  ${rel}`);
     return;
   }
   const isDryRun = process.argv.includes("--dry-run");
@@ -285,7 +294,7 @@ export interface Relationship {
   fromColumn: string;
   to: string;
   toColumn: string;
-  type: "MANY_TO_ONE";
+  type: string;
 }
 
 // ─── Instructions (business rules the LLM must follow) ───────────────────────
@@ -319,11 +328,7 @@ ${emitRelationships(relationships)}
     fs.writeFileSync(tmpFile, ts, "utf8");
     fs.renameSync(tmpFile, OUTPUT_FILE);
   } catch (err) {
-    try {
-      fs.unlinkSync(tmpFile);
-    } catch {
-      // ignore cleanup errors
-    }
+    try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
     throw err;
   }
 
