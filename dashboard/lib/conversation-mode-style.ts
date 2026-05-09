@@ -4,8 +4,9 @@
  * Single source of truth — import this wherever a mode pill renders:
  * index page, viewers, sidebar tabs, per-dashboard panel.
  *
- * Tokens align with the CSS variable system (D-022) — light/dark theme
- * variants resolve via the same theme attributes on `html`.
+ * Colors are static hex values — they do not change with the light/dark
+ * theme. A theme-aware variant (CSS variables / color-mix) can be added
+ * as a follow-up once the full token set for mode pills is defined.
  */
 
 export interface ModeStyle {

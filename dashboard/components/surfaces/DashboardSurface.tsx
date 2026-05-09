@@ -99,6 +99,7 @@ function convMessagesToChatMessages(
   conv: ConversationWithMessages,
 ): ChatMessage[] {
   return conv.messages
+    // Tool messages are intentionally excluded: ChatSidebar only renders user/assistant turns.
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => {
       const ac = m.role === "assistant" && isAssistantContent(m.content) ? m.content : null;

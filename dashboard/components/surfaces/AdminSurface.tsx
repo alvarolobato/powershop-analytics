@@ -15,9 +15,11 @@ export interface AdminSurfaceProps {
 }
 
 export default function AdminSurface({ contextUrl }: AdminSurfaceProps) {
+  // Only allow relative paths to prevent loading arbitrary external URLs in the iframe.
+  const safeSrc = contextUrl && contextUrl.startsWith("/") ? contextUrl : "/admin";
   return (
     <div>
-      {contextUrl && (
+      {safeSrc !== "/admin" && (
         <div
           style={{
             padding: "6px 20px",
@@ -31,7 +33,7 @@ export default function AdminSurface({ contextUrl }: AdminSurfaceProps) {
         >
           <span style={{ color: "var(--fg-muted)" }}>Vista de conversación</span>
           <a
-            href={contextUrl}
+            href={safeSrc}
             style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}
             data-testid="ver-solo-panel"
           >
@@ -40,7 +42,7 @@ export default function AdminSurface({ contextUrl }: AdminSurfaceProps) {
         </div>
       )}
       <iframe
-        src={contextUrl ?? "/admin"}
+        src={safeSrc}
         style={{ width: "100%", height: "calc(100vh - 100px)", border: "none" }}
         title="Admin"
       />

@@ -15,9 +15,11 @@ export interface HomeSurfaceProps {
 }
 
 export default function HomeSurface({ contextUrl }: HomeSurfaceProps) {
+  // Only allow relative paths to prevent open-redirect from a crafted context_url.
+  const safeHref = contextUrl && contextUrl.startsWith("/") ? contextUrl : null;
   return (
     <div>
-      {contextUrl && (
+      {safeHref && (
         <div
           style={{
             padding: "6px 20px",
@@ -31,7 +33,7 @@ export default function HomeSurface({ contextUrl }: HomeSurfaceProps) {
         >
           <span style={{ color: "var(--fg-muted)" }}>Vista de conversación</span>
           <a
-            href={contextUrl}
+            href={safeHref}
             style={{ color: "var(--accent)", textDecoration: "none", fontWeight: 500 }}
             data-testid="ver-solo-panel"
           >
