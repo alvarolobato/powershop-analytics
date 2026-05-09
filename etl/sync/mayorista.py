@@ -232,7 +232,7 @@ _SQL_ALBARANES_DELTA = (
     " Modifica, Base1, Base2, Base3, Unidades, Transportista,"
     " NumComercial, Temporada, Abono"
     " FROM GCAlbaranes"
-    " WHERE Modifica > {since}"
+    " WHERE Modifica >= {since}"
 )
 
 _SQL_ALBARANES_ALL = (
@@ -243,7 +243,7 @@ _SQL_ALBARANES_ALL = (
 )
 
 _SQL_LIN_ALBARANE_PARENT_IDS = (
-    "SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > {since}"
+    "SELECT NAlbaran FROM GCAlbaranes WHERE Modifica >= {since}"
 )
 
 _SQL_LIN_ALBARANE_BY_PARENT = (
@@ -265,7 +265,7 @@ _SQL_FACTURAS_DELTA = (
     "SELECT RegFactura, NFactura, FechaFactura, Modifica, Base1, Base2, Base3,"
     " NumCliente, NumComercial, Abono, TotalFactura"
     " FROM GCFacturas"
-    " WHERE Modifica > {since}"
+    " WHERE Modifica >= {since}"
 )
 
 _SQL_FACTURAS_ALL = (
@@ -275,7 +275,7 @@ _SQL_FACTURAS_ALL = (
 )
 
 _SQL_LIN_FACTURAS_PARENT_IDS = (
-    "SELECT NFactura FROM GCFacturas WHERE Modifica > {since}"
+    "SELECT NFactura FROM GCFacturas WHERE Modifica >= {since}"
 )
 
 _SQL_LIN_FACTURAS_BY_PARENT = (
@@ -322,7 +322,7 @@ def sync_gc_albaranes(
     Args:
         conn_4d: An open p4d connection.
         conn_pg: An open psycopg2 connection.
-        since:   Only fetch records with Modifica > since.
+        since:   Only fetch records with Modifica >= since.
                  If None, load all records (initial load).
 
     Returns:
@@ -356,7 +356,7 @@ def sync_gc_facturas(
     Args:
         conn_4d: An open p4d connection.
         conn_pg: An open psycopg2 connection.
-        since:   Only fetch records with Modifica > since.
+        since:   Only fetch records with Modifica >= since.
                  If None, load all records (initial load).
 
     Returns:
@@ -389,7 +389,7 @@ def sync_gc_lin_albarane(
 
     GCLinAlbarane has no own modification timestamp.  Delta is derived from
     the parent GCAlbaranes.Modifica field:
-      1. Find NAlbaran values where parent Modifica > since.
+      1. Find NAlbaran values where parent Modifica >= since.
       2. DELETE those lines from ps_gc_lin_albarane.
       3. Re-fetch lines from 4D and INSERT.
 
@@ -400,7 +400,7 @@ def sync_gc_lin_albarane(
     Args:
         conn_4d: An open p4d connection.
         conn_pg: An open psycopg2 connection.
-        since:   Derive changed parents using Modifica > since.
+        since:   Derive changed parents using Modifica >= since.
                  If None, perform full refresh.
 
     Returns:
@@ -480,7 +480,7 @@ def sync_gc_lin_facturas(
 
     GCLinFacturas has no own modification timestamp.  Delta is derived from
     the parent GCFacturas.Modifica field:
-      1. Find NFactura values where parent Modifica > since.
+      1. Find NFactura values where parent Modifica >= since.
       2. DELETE those lines from ps_gc_lin_facturas.
       3. Re-fetch lines from 4D and INSERT.
 
@@ -491,7 +491,7 @@ def sync_gc_lin_facturas(
     Args:
         conn_4d: An open p4d connection.
         conn_pg: An open psycopg2 connection.
-        since:   Derive changed parents using Modifica > since.
+        since:   Derive changed parents using Modifica >= since.
                  If None, perform full refresh.
 
     Returns:

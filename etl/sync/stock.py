@@ -120,15 +120,20 @@ def _build_expo_where(since: datetime | None, *, include_nulls: bool = False) ->
     Raises ValueError if *since* has a non-zero time component.
 
     - since=None: no filter (full load).
-    - since=<datetime>: filter by FechaModifica > {d 'YYYY-MM-DD'}.
+    - since=<datetime>: filter by FechaModifica >= {d 'YYYY-MM-DD'}.
     - include_nulls=True: also include rows where FechaModifica IS NULL
       (zero-stock articles that have never been modified).
+
+    Uses `>=` (not strict `>`): FechaModifica is date-only, so once the
+    watermark advances to today, strict `>` would silently skip same-day
+    updates until tomorrow. `>=` re-fetches those rows; upsert is
+    idempotent. See issue #459 / PR #461 for the same fix in ventas.py.
     """
     if since is None:
         return ""
     _validate_since(since, "since")
     date_str = since.strftime("%Y-%m-%d")
-    cond = f"FechaModifica > {{d '{date_str}'}}"
+    cond = f"FechaModifica >= {{d '{date_str}'}}"
     if include_nulls:
         cond = f"({cond} OR FechaModifica IS NULL)"
     return f"WHERE {cond}"
@@ -235,7 +240,7 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     Args:
         conn_4d: P4D connection object.
         conn_pg: psycopg2 connection object.
-        since: If provided, only fetch rows where FechaModifica > since (date only).
+        since: If provided, only fetch rows where FechaModifica >= since (date only).
                If None, fetch all rows (initial load).
 
     Returns:
@@ -367,12 +372,16 @@ def _build_traspasos_where(since: datetime | None) -> str:
 
     Only the date portion of *since* is used — 4D SQL date literals have no
     time component.  Raises ValueError if *since* has a non-zero time component.
+
+    Uses `>=` (not strict `>`): FechaS is date-only, so once the watermark
+    advances to today, strict `>` would silently skip same-day transfers.
+    `>=` re-fetches those rows; insert-ignore is idempotent. See issue #459.
     """
     if since is None:
         return ""
     _validate_since(since, "since")
     date_str = since.strftime("%Y-%m-%d")
-    return f"WHERE FechaS > {{d '{date_str}'}}"
+    return f"WHERE FechaS >= {{d '{date_str}'}}"
 
 
 def _count_traspasos(conn_4d, where: str) -> int:
@@ -408,7 +417,7 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
     Args:
         conn_4d: P4D connection object.
         conn_pg: psycopg2 connection object.
-        since: If provided, only fetch rows where FechaS > since (date only).
+        since: If provided, only fetch rows where FechaS >= since (date only).
                If None, fetch all rows (initial load).
 
     Returns:
