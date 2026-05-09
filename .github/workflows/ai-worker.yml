@@ -573,8 +573,14 @@ jobs:
 
           # Existing Copilot review on file (e.g. label was wiped manually but
           # Copilot already weighed in)? Don't request again.
+          # `gh api --paginate --jq 'length'` emits one count per page; if the
+          # reviews list crosses a pagination boundary the result becomes
+          # multi-line (e.g. "2\n0") and the numeric `-gt` below errors. Stream
+          # the matching review IDs instead and count lines — always a single
+          # int. Same pattern as ai-address-feedback.yml's WORKFLOW_CHANGES.
           COPILOT_REVIEWS=$(gh api "repos/$REPO_NAME/pulls/$PR_NUM/reviews" --paginate \
-            --jq '[.[] | select(.user.login == "Copilot" or .user.login == "copilot-pull-request-reviewer" or .user.login == "copilot-pull-request-reviewer[bot]")] | length' 2>/dev/null || echo "0")
+            --jq '.[] | select(.user.login == "Copilot" or .user.login == "copilot-pull-request-reviewer" or .user.login == "copilot-pull-request-reviewer[bot]") | .id' 2>/dev/null \
+            | wc -l | tr -d ' ' || echo "0")
           if [ "${COPILOT_REVIEWS:-0}" -gt 0 ]; then
             echo "PR #$PR_NUM already has $COPILOT_REVIEWS Copilot review(s) — not re-requesting."
             gh issue comment "$ISSUE_NUMBER" \
