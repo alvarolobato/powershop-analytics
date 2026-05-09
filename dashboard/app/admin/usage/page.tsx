@@ -116,11 +116,18 @@ export default async function AdminUsagePage() {
                   <th className="px-3 py-2 font-medium">Llamadas</th>
                   <th className="px-3 py-2 font-medium">Tokens</th>
                   <th className="px-3 py-2 font-medium">Coste est.</th>
+                  <th className="px-3 py-2 font-medium" title="cache_read / (prompt + cache_read) × 100">
+                    Caché hits
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {u.by_provider.map((row) => {
                   const tok = formatTokensWithCompact(row.total_tokens);
+                  const hitRate =
+                    row.cache_hit_rate_pct != null
+                      ? `${row.cache_hit_rate_pct.toFixed(1)} %`
+                      : "N/A";
                   return (
                     <tr
                       key={row.llm_provider}
@@ -138,6 +145,9 @@ export default async function AdminUsagePage() {
                       </td>
                       <td className="whitespace-nowrap px-3 py-2">
                         {formatUsdEs(row.estimated_cost_usd)}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2">
+                        {hitRate}
                       </td>
                     </tr>
                   );

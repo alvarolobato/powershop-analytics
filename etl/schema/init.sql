@@ -699,6 +699,8 @@ CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_endpoint_tool ON llm_tool_calls(en
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS llm_provider TEXT NOT NULL DEFAULT 'openrouter';
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS llm_driver TEXT;
 ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS request_id TEXT;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS cache_creation_input_tokens INTEGER;
+ALTER TABLE llm_usage ADD COLUMN IF NOT EXISTS cache_read_input_tokens INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_llm_usage_endpoint_request_id
     ON llm_usage (endpoint, request_id)

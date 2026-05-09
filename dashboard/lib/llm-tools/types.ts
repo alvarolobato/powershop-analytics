@@ -87,18 +87,43 @@ export interface AgenticUsageTotals {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  /** Tokens written to Anthropic prompt cache across all steps. NULL when provider doesn't report caching. */
+  cache_creation_input_tokens: number | null;
+  /** Tokens read from Anthropic prompt cache across all steps. NULL when provider doesn't report caching. */
+  cache_read_input_tokens: number | null;
 }
 
 export function emptyUsage(): AgenticUsageTotals {
-  return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+  return {
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    total_tokens: 0,
+    cache_creation_input_tokens: null,
+    cache_read_input_tokens: null,
+  };
 }
 
 export function addUsage(
   acc: AgenticUsageTotals,
-  u: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null | undefined,
+  u: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  } | null | undefined,
 ): void {
   if (!u) return;
   acc.prompt_tokens += u.prompt_tokens ?? 0;
   acc.completion_tokens += u.completion_tokens ?? 0;
   acc.total_tokens += u.total_tokens ?? 0;
+  // Accumulate cache tokens only when the backend provides them.
+  // Use null (not 0) for "not supported"; once we see a non-null value,
+  // subsequent nulls are treated as zero (the provider reported no activity).
+  if (u.cache_creation_input_tokens != null) {
+    acc.cache_creation_input_tokens = (acc.cache_creation_input_tokens ?? 0) + u.cache_creation_input_tokens;
+  }
+  if (u.cache_read_input_tokens != null) {
+    acc.cache_read_input_tokens = (acc.cache_read_input_tokens ?? 0) + u.cache_read_input_tokens;
+  }
 }

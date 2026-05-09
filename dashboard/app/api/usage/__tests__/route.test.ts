@@ -134,6 +134,9 @@ describe("GET /api/usage", () => {
         calls: 10,
         total_tokens: 5000,
         estimated_cost_usd: "0.050000",
+        cache_creation_tokens: null,
+        cache_read_tokens: null,
+        cache_hit_rate_pct: null,
       },
     ]);
   });

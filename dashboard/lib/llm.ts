@@ -6,6 +6,8 @@ import {
   buildGeneratePrompt,
   buildModifyPrompt,
   buildAgenticToolPreamble,
+  buildGeneratePromptSplit,
+  buildModifyPromptSplit,
 } from "./prompts";
 import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
 import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
@@ -25,6 +27,7 @@ import {
   getOpenRouterClient,
   resetOpenRouterClient,
   openRouterChatCompletion,
+  buildCachedSystemMessage,
 } from "./llm-provider/openrouter";
 import { createDashboardAgenticAdapter } from "./llm-provider/registry";
 import { claudeCliSingleShot } from "./llm-provider/cli/claude-code";
@@ -133,7 +136,13 @@ async function chatTextWithProgress(
 
   let textContent = "";
   let totalCharsEmitted = 0;
-  let usageOut: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null = null;
+  let usageOut: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  } | null = null;
 
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta?.content;
@@ -155,10 +164,17 @@ async function chatTextWithProgress(
       }
     }
     if (chunk.usage) {
+      // Cast to extended type to capture Anthropic cache fields forwarded by OpenRouter.
+      const u = chunk.usage as typeof chunk.usage & {
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
       usageOut = {
-        prompt_tokens: chunk.usage.prompt_tokens,
-        completion_tokens: chunk.usage.completion_tokens,
-        total_tokens: chunk.usage.total_tokens,
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+        cache_creation_input_tokens: u.cache_creation_input_tokens,
+        cache_read_input_tokens: u.cache_read_input_tokens,
       };
     }
   }
@@ -171,6 +187,8 @@ async function chatTextWithProgress(
       prompt_tokens: u.prompt_tokens ?? 0,
       completion_tokens: u.completion_tokens ?? 0,
       total_tokens: u.total_tokens ?? 0,
+      cache_creation_input_tokens: usageOut?.cache_creation_input_tokens ?? null,
+      cache_read_input_tokens: usageOut?.cache_read_input_tokens ?? null,
     },
     meta,
     { requestId },
@@ -224,6 +242,8 @@ async function chatText(
       prompt_tokens: u.prompt_tokens ?? 0,
       completion_tokens: u.completion_tokens ?? 0,
       total_tokens: u.total_tokens ?? 0,
+      cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? null,
+      cache_read_input_tokens: usage?.cache_read_input_tokens ?? null,
     },
     meta,
     usageOpts,
@@ -251,11 +271,19 @@ export async function generateDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "generate");
+    const agenticPreamble = buildAgenticToolPreamble();
+    const promptSplit = buildGeneratePromptSplit();
+    const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
+    const cachedMsg =
+      cfg.provider === "openrouter"
+        ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
+        : undefined;
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
         model,
-        systemPrompt: `${buildGeneratePrompt()}\n\n${buildAgenticToolPreamble()}`,
+        systemPrompt: stableWithPreamble,
+        cachedSystemMessage: cachedMsg,
         userContent: userPrompt,
         ctx: requestCtx,
         temperature: 0.2,
@@ -266,6 +294,19 @@ export async function generateDashboard(
       requestId: requestCtx.requestId,
     });
     return content;
+  }
+
+  if (cfg.provider === "openrouter") {
+    const promptSplit = buildGeneratePromptSplit();
+    const cachedMsg = buildCachedSystemMessage(promptSplit.stable, promptSplit.volatile);
+    return chatText(
+      [cachedMsg, { role: "user", content: userPrompt }],
+      0.2,
+      8192,
+      "generateDashboard",
+      requestCtx.requestId,
+      "generate",
+    );
   }
 
   const systemPrompt = buildGeneratePrompt();
@@ -303,11 +344,19 @@ export async function modifyDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "modify");
+    const agenticPreamble = buildAgenticToolPreamble();
+    const promptSplit = buildModifyPromptSplit(currentSpec, true);
+    const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
+    const cachedMsg =
+      cfg.provider === "openrouter"
+        ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
+        : undefined;
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
         model,
-        systemPrompt: `${buildModifyPrompt(currentSpec, true)}\n\n${buildAgenticToolPreamble()}`,
+        systemPrompt: `${promptSplit.stable}\n\n${agenticPreamble}\n\n${promptSplit.volatile}`,
+        cachedSystemMessage: cachedMsg,
         userContent: userPrompt,
         ctx: requestCtx,
         temperature: 0.2,
@@ -321,6 +370,19 @@ export async function modifyDashboard(
   }
 
   // Non-agentic path: use legacy prompt (no publish-tool instructions).
+  if (cfg.provider === "openrouter") {
+    const promptSplit = buildModifyPromptSplit(currentSpec, false);
+    const cachedMsg = buildCachedSystemMessage(promptSplit.stable, promptSplit.volatile);
+    return chatText(
+      [cachedMsg, { role: "user", content: userPrompt }],
+      0.2,
+      8192,
+      "modifyDashboard",
+      requestCtx.requestId,
+      "modify",
+    );
+  }
+
   const systemPrompt = buildModifyPrompt(currentSpec, false);
   return chatText(
     [

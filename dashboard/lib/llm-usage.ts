@@ -11,15 +11,24 @@ import { getSystemConfig } from "@/lib/system-config/loader";
  * - OpenRouter may apply discounts, caching, or rounding; this app does **not** read
  *   OpenRouter’s billing API, so displayed costs are **indicative**, not invoice-accurate.
  * - Unknown models fall back to `DEFAULT_RATE` (same as Sonnet 4) with a console warning.
- * - Rows with `llm_provider = 'cli'` store **zero** estimated cost (flat-rate / unknown).
+ * - Rows with `llm_provider = ‘cli’` store **zero** estimated cost (flat-rate / unknown).
+ * - Cache rates: Anthropic charges cache-write tokens at a 25% premium ($3.75/1M) and
+ *   cache-read tokens at a 90% discount ($0.30/1M) vs the normal $3.00/1M input rate.
  */
-const RATES: Record<string, { prompt: number; completion: number }> = {
+const RATES: Record<string, { prompt: number; completion: number; cacheWrite: number; cacheRead: number }> = {
   "anthropic/claude-sonnet-4": {
     prompt: 3.0 / 1_000_000,
     completion: 15.0 / 1_000_000,
+    cacheWrite: 3.75 / 1_000_000,
+    cacheRead: 0.30 / 1_000_000,
   },
 };
-const DEFAULT_RATE = { prompt: 3.0 / 1_000_000, completion: 15.0 / 1_000_000 };
+const DEFAULT_RATE = {
+  prompt: 3.0 / 1_000_000,
+  completion: 15.0 / 1_000_000,
+  cacheWrite: 3.75 / 1_000_000,
+  cacheRead: 0.30 / 1_000_000,
+};
 
 export class BudgetExceededError extends Error {
   constructor() {
@@ -40,6 +49,10 @@ export function logUsage(
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    /** Tokens written to Anthropic prompt cache (charged at 25% premium). NULL = not supported. */
+    cache_creation_input_tokens?: number | null;
+    /** Tokens read from Anthropic prompt cache (90% discount). NULL = not supported. */
+    cache_read_input_tokens?: number | null;
   },
   meta?: LlmUsageProviderMeta,
   options?: LogUsageOptions,
@@ -47,6 +60,8 @@ export function logUsage(
   const provider = meta?.provider ?? "openrouter";
   const driver = meta?.driver ?? null;
   const requestId = options?.requestId ?? null;
+  const cacheCreation = usage.cache_creation_input_tokens ?? null;
+  const cacheRead = usage.cache_read_input_tokens ?? null;
 
   let estimatedCost = 0;
   if (provider === "openrouter") {
@@ -56,14 +71,18 @@ export function logUsage(
       rate = DEFAULT_RATE;
     }
     estimatedCost =
-      usage.prompt_tokens * rate.prompt + usage.completion_tokens * rate.completion;
+      usage.prompt_tokens * rate.prompt +
+      usage.completion_tokens * rate.completion +
+      (cacheCreation ?? 0) * rate.cacheWrite +
+      (cacheRead ?? 0) * rate.cacheRead;
   }
 
   void sql(
     `INSERT INTO llm_usage (
        endpoint, model, prompt_tokens, completion_tokens, total_tokens,
-       estimated_cost_usd, llm_provider, llm_driver, request_id
-     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+       estimated_cost_usd, llm_provider, llm_driver, request_id,
+       cache_creation_input_tokens, cache_read_input_tokens
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
     [
       endpoint,
       model,
@@ -74,6 +93,8 @@ export function logUsage(
       provider,
       driver,
       requestId,
+      cacheCreation,
+      cacheRead,
     ],
   ).catch((err) => {
     console.error("[llm-usage] Failed to log usage:", err);

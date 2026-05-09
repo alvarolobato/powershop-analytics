@@ -92,9 +92,12 @@ describe("llm", () => {
 
       await generateDashboard("test");
 
-      const systemContent = mockCreate.mock.calls[0][0].messages.find(
+      const rawContent = mockCreate.mock.calls[0][0].messages.find(
         (m: { role: string }) => m.role === "system"
       )?.content;
+      const systemContent = Array.isArray(rawContent)
+        ? (rawContent as { text?: string }[]).map((b) => b.text ?? "").join("\n")
+        : rawContent;
 
       expect(systemContent).toContain("dashboard generator");
       expect(systemContent).toContain("kpi_row");
@@ -301,9 +304,12 @@ describe("llm", () => {
 
       expect(result).toBe('{"title":"Updated","widgets":[]}');
 
-      const systemContent = mockCreate.mock.calls[0][0].messages.find(
+      const rawContent = mockCreate.mock.calls[0][0].messages.find(
         (m: { role: string }) => m.role === "system"
       )?.content;
+      const systemContent = Array.isArray(rawContent)
+        ? (rawContent as { text?: string }[]).map((b) => b.text ?? "").join("\n")
+        : rawContent;
       expect(systemContent).toContain("Existing");
       expect(systemContent).toContain("dashboard modifier");
     });
@@ -355,7 +361,7 @@ describe("llm", () => {
       expect(mockLogUsage).toHaveBeenLastCalledWith(
         "generateDashboard",
         "anthropic/claude-sonnet-4",
-        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+        { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cache_creation_input_tokens: null, cache_read_input_tokens: null },
         { provider: "openrouter", driver: null },
         { requestId: "req_local" },
       );
@@ -372,7 +378,7 @@ describe("llm", () => {
       expect(mockLogUsage).toHaveBeenLastCalledWith(
         "generateDashboard",
         "anthropic/claude-sonnet-4",
-        { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+        { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cache_creation_input_tokens: null, cache_read_input_tokens: null },
         { provider: "openrouter", driver: null },
         { requestId: "req_local" },
       );
