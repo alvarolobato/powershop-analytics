@@ -37,6 +37,7 @@ import {
   CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
+import { loadPriorTurns } from "@/lib/conversation-context";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
 import type { WidgetStateData } from "@/lib/data-serializer";
@@ -293,6 +294,12 @@ export async function POST(request: Request) {
     console.error(`[${requestId}] createInteraction(analyze) failed:`, e);
   }
 
+  // --- Load prior conversation turns (if this is a saved dashboard) --------
+  const priorTurns =
+    dashboardIdNum !== undefined
+      ? await loadPriorTurns(dashboardIdNum, "analyze")
+      : [];
+
   // --- Run the LLM call, with live event pump once streaming opens ---------
   // See modify/route.ts for design notes — same pattern: events buffer until
   // the streaming controller installs `liveSend`, then bypass the buffer so
@@ -338,6 +345,7 @@ export async function POST(request: Request) {
     prompt.trim(),
     typeof action === "string" ? action : undefined,
     analyzeCtx,
+    priorTurns,
   ).then(
     (response): LlmOutcome => ({ kind: "ok", response }),
     (err): LlmOutcome => ({ kind: "err", err }),

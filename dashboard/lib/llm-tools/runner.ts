@@ -107,6 +107,8 @@ export interface AgenticRunParams {
   ctx: LlmAgenticContext;
   temperature: number;
   maxTokens: number;
+  /** Prior conversation turns injected between the system prompt and the new user message. */
+  priorMessages?: ChatCompletionMessageParam[];
 }
 
 export interface AgenticRunResult {
@@ -194,7 +196,7 @@ function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent
 }
 
 export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticRunResult> {
-  const { adapter, model, systemPrompt, userContent, ctx, temperature, maxTokens } = params;
+  const { adapter, model, systemPrompt, userContent, ctx, temperature, maxTokens, priorMessages } = params;
 
   const cfg = getAgenticConfig();
   const tools: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS;
@@ -202,6 +204,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: systemPrompt },
+    ...(priorMessages ?? []),
     { role: "user", content: userContent },
   ];
 

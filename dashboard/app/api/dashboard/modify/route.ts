@@ -46,6 +46,7 @@ import {
   CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
+import { loadPriorTurns } from "@/lib/conversation-context";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import {
@@ -240,6 +241,12 @@ export async function POST(request: Request) {
     console.error(`[${requestId}] createInteraction(modify) failed:`, e);
   }
 
+  // --- Load prior conversation turns (if this is a saved dashboard) --------
+  const priorTurns =
+    dashboardIdNum !== null
+      ? await loadPriorTurns(dashboardIdNum, "modify")
+      : [];
+
   // --- Run the LLM call, collecting progress events into a buffer ----------
   // See analyze/route.ts for the rationale of the deferred-stream design:
   // race the call's completion against the first progress event so we can
@@ -290,6 +297,7 @@ export async function POST(request: Request) {
     JSON.stringify(specParse.data),
     prompt.trim(),
     modifyCtx,
+    priorTurns,
   ).then(
     (rawResponse): LlmOutcome => ({ kind: "ok", rawResponse }),
     (err): LlmOutcome => ({ kind: "err", err }),

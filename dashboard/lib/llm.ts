@@ -210,6 +210,7 @@ export async function modifyDashboard(
   currentSpec: string,
   userPrompt: string,
   ctx?: LlmAgenticContext,
+  priorTurns?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
   const requestCtx = attachTelemetry(
@@ -218,6 +219,10 @@ export async function modifyDashboard(
   );
 
   await checkDailyBudget();
+
+  const priorMessages: ChatCompletionMessageParam[] = (priorTurns ?? []).map(
+    (t) => ({ role: t.role, content: t.content }),
+  );
 
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
@@ -231,6 +236,7 @@ export async function modifyDashboard(
         ctx: requestCtx,
         temperature: 0.2,
         maxTokens: 8192,
+        priorMessages,
       }),
     );
     void logUsage("modifyDashboard", model, usage, usageMetaFromCfg(cfg), {
@@ -244,6 +250,7 @@ export async function modifyDashboard(
   return chatText(
     [
       { role: "system", content: systemPrompt },
+      ...priorMessages,
       { role: "user", content: userPrompt },
     ],
     0.2,
@@ -336,6 +343,7 @@ export async function analyzeDashboard(
   userPrompt: string,
   action?: string,
   ctx?: LlmAgenticContext,
+  priorTurns?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
   const cfg = loadDashboardLlmConfig();
   const requestCtx = attachTelemetry(
@@ -344,6 +352,10 @@ export async function analyzeDashboard(
   );
 
   await checkDailyBudget();
+
+  const priorMessages: ChatCompletionMessageParam[] = (priorTurns ?? []).map(
+    (t) => ({ role: t.role, content: t.content }),
+  );
 
   if (isAgenticToolsEnabled()) {
     const systemPrompt = `${buildAnalyzePrompt(serializedData, action, {
@@ -361,6 +373,7 @@ export async function analyzeDashboard(
         ctx: requestCtx,
         temperature: 0.3,
         maxTokens: 4096,
+        priorMessages,
       }),
     );
     void logUsage("analyzeDashboard", model, usage, usageMetaFromCfg(cfg), {
@@ -378,6 +391,7 @@ export async function analyzeDashboard(
   return chatText(
     [
       { role: "system", content: systemPrompt },
+      ...priorMessages,
       { role: "user", content: userPrompt },
     ],
     0.3,
