@@ -193,3 +193,190 @@ Key files (to be created):
 - `etl/` — Python ETL package
 - `docker-compose.yml` — Full stack (PostgreSQL + ETL + WrenAI)
 - `wren/mdl/` — WrenAI semantic model definitions
+
+---
+
+## LLM:rules
+
+Business rules and field conventions the dashboard LLM must follow when generating SQL against the `ps_*` mirror tables.
+
+```json
+[
+  {
+    "instruction": "Siempre usar el campo total_si (sin IVA) para análisis económico de ventas retail. NUNCA usar el campo total que incluye IVA. El IVA varía por región (23% Portugal continental, 22% Madeira, 21% España) y distorsiona las comparaciones entre tiendas.",
+    "questions": ["¿Cuánto vendimos?", "¿Cuáles son las ventas netas?", "¿Cuál es la facturación?", "¿Cuántos ingresos tuvimos este mes?"]
+  },
+  {
+    "instruction": "El campo fecha_creacion en Venta y LineaVenta es la fecha de la venta (tipo DATE, formato YYYY-MM-DD). Para filtrar por fecha usar comparaciones simples: fecha_creacion >= '2026-03-24' AND fecha_creacion < '2026-03-31'. NUNCA hacer CAST a TIMESTAMP WITH TIME ZONE — el campo ya es DATE. El campo fecha_documento está vacío (NULL) en todos los registros de Ventas — NUNCA usarlo para filtrar.",
+    "questions": ["¿Ventas de la semana pasada?", "¿Ventas de hoy?", "¿Ventas de este mes?", "¿Cuánto vendimos en marzo?"]
+  },
+  {
+    "instruction": "El campo mes en LineaVenta es un entero con formato YYYYMM (ej: 202603 = marzo 2026). Usar para filtrado rápido por período en vez de funciones de fecha: WHERE mes BETWEEN 202601 AND 202612. Es el filtro más eficiente para consultas de ventas por período.",
+    "questions": ["¿Ventas del primer trimestre?", "¿Ventas de enero a marzo?", "¿Rendimiento del año 2025?"]
+  },
+  {
+    "instruction": "En la tabla Venta, el campo entrada indica si es venta (entrada=true) o devolución (entrada=false). Para ventas brutas filtrar entrada=true. Para devoluciones filtrar entrada=false. Para calcular ventas netas, sumar ventas con entrada=true y restar el importe de devoluciones con entrada=false. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.",
+    "questions": ["¿Cuántas devoluciones hubo?", "¿Ventas netas sin devoluciones?", "¿Cuánto se devolvió este mes?", "¿Tasa de devolución?"]
+  },
+  {
+    "instruction": "Para excluir la tienda 99 (almacén central) del análisis retail, añadir WHERE tienda <> '99' en consultas de ventas por tienda. El almacén central no es una tienda física de venta al público. La tienda 97 es la tienda online con patrones diferentes.",
+    "questions": ["¿Ventas por tienda?", "¿Qué tiendas venden más?", "¿Rendimiento de tiendas retail?", "¿Ranking de tiendas?"]
+  },
+  {
+    "instruction": "El ticket medio se calcula como: SUM(total_si) / COUNT(DISTINCT reg_ventas) de la tabla Venta. Usar siempre total_si (sin IVA). Filtrar entrada=true para excluir devoluciones del cálculo.",
+    "questions": ["¿Cuál es el ticket medio?", "¿Cuánto gasta cada cliente de media?", "¿Valor medio por transacción?"]
+  },
+  {
+    "instruction": "Las ventas YTD (año hasta la fecha) se calculan con: WHERE fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE) AND fecha_creacion <= CURRENT_DATE. Para comparar con el año anterior usar: WHERE fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE) - INTERVAL '1 year' AND fecha_creacion <= CURRENT_DATE - INTERVAL '1 year'.",
+    "questions": ["¿Ventas acumuladas del año?", "¿Comparativa año anterior?", "¿Crecimiento YTD?", "¿Ventas vs el año pasado?"]
+  },
+  {
+    "instruction": "La tendencia semanal se calcula iterando semanas hacia atrás desde hoy: WHERE fecha_creacion >= CURRENT_DATE - INTERVAL '7 days'. Para 12 semanas, usar rangos semanales. Excluir tienda 99 para análisis de retail. Usar total_si para importes.",
+    "questions": ["¿Tendencia de ventas semanal?", "¿Últimas 12 semanas?", "¿Evolución semanal de ventas?"]
+  },
+  {
+    "instruction": "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true.",
+    "questions": ["¿Cuánto facturamos en mayorista?", "¿Cuál es la facturación B2B?", "¿Ventas mayoristas del año?", "¿Ingresos del canal wholesale?"]
+  },
+  {
+    "instruction": "El canal mayorista sigue un flujo de documentos: Pedido (ps_gc_pedidos) → Albarán/nota de entrega (ps_gc_albaranes) → Factura (ps_gc_facturas) → Cobro (tabla cobros_facturas). Para métricas financieras usar facturas. Para métricas logísticas/operativas usar albaranes. Los cobros son deferred (30/60/90 días después de la factura).",
+    "questions": ["¿Cuántos pedidos mayoristas?", "¿Estado de cobros B2B?", "¿Albaranes pendientes de facturar?"]
+  },
+  {
+    "instruction": "Los abonos mayoristas (ps_gc_albaranes con abono=true o ps_gc_facturas con abono=true) son notas de crédito por devoluciones. Para calcular facturación neta mayorista, excluirlos: WHERE abono = false.",
+    "questions": ["¿Devoluciones de clientes mayoristas?", "¿Facturación neta mayorista?", "¿Cuántos abonos mayoristas?"]
+  },
+  {
+    "instruction": "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto. Excluir abono=true.",
+    "questions": ["¿Facturación por comercial?", "¿Qué comercial vende más?", "¿Rendimiento de representantes de ventas?"]
+  },
+  {
+    "instruction": "Stock total de un artículo = stock en almacén central (ps_stock_tienda WHERE tienda='99') + stock en tiendas físicas (ps_stock_tienda WHERE tienda<>'99'). Tienda código 99 = almacén central, código 97 = tienda online, el resto son tiendas físicas. La tabla ps_stock_tienda contiene AMBOS: central y tiendas.",
+    "questions": ["¿Cuánto stock tenemos?", "¿Stock total de un artículo?", "¿Qué stock hay en el almacén?", "¿Inventario total?"]
+  },
+  {
+    "instruction": "El stock puede ser negativo en la base de datos. Causas: timing gaps (venta antes de reponer), modo offline del TPV, ajustes manuales. Para análisis de valoración, filtrar WHERE stock > 0 o usar GREATEST(stock, 0). Para análisis de incidencias, filtrar WHERE stock < 0.",
+    "questions": ["¿Artículos con stock negativo?", "¿Problemas de inventario?", "¿Valor del stock?"]
+  },
+  {
+    "instruction": "El valor del stock al coste se calcula como SUM(s.stock * p.precio_coste) del JOIN entre ps_stock_tienda y ps_articulos. precio_coste ya está sin IVA. Filtrar WHERE s.stock > 0 AND p.anulado = false para excluir negativos y artículos inactivos.",
+    "questions": ["¿Cuál es el valor del inventario?", "¿Valor del stock al coste?", "¿Inversión en stock?"]
+  },
+  {
+    "instruction": "Stock por talla se obtiene de ps_stock_tienda donde cada fila tiene (codigo, tienda, talla, stock). Para ver stock por talla de un artículo: SELECT talla, SUM(stock) FROM ps_stock_tienda WHERE codigo='X' GROUP BY talla. Las tallas son texto libre (ej: 'S', 'M', 'L', '38', '39', 'U').",
+    "questions": ["¿Stock por talla?", "¿Qué tallas quedan?", "¿Distribución de tallas en stock?"]
+  },
+  {
+    "instruction": "Dead stock (stock paralizado): artículos con stock alto pero sin ventas recientes. Identificar con: ps_stock_tienda con stock > X, cruzado con ps_lineas_ventas sin ventas en los últimos N meses. Stock de temporadas antiguas que no rota es el principal riesgo.",
+    "questions": ["¿Stock sin rotación?", "¿Artículos encallados?", "¿Dead stock?", "¿Stock de temporadas pasadas?"]
+  },
+  {
+    "instruction": "En la tabla Venta, num_cliente=0 indica venta anónima (cliente no identificado). Para análisis de clientes identificados, siempre filtrar num_cliente > 0. Para calcular % de ventas anónimas: COUNT(CASE WHEN num_cliente=0 THEN 1 END) / COUNT(*) * 100.",
+    "questions": ["¿Cuántos clientes únicos?", "¿Clientes identificados vs anónimos?", "¿Porcentaje de ventas anónimas?"]
+  },
+  {
+    "instruction": "Los clientes mayoristas tienen mayorista=true en ps_clientes. Los clientes retail tienen mayorista=false. Un mismo cliente puede aparecer en ambos canales. Para clientes activos retail: COUNT(DISTINCT num_cliente) FROM ps_ventas WHERE num_cliente > 0. Para activos mayoristas: COUNT(DISTINCT num_cliente) FROM ps_gc_albaranes.",
+    "questions": ["¿Cuántos clientes mayoristas?", "¿Clientes activos retail?", "¿Cuántos clientes B2B?"]
+  },
+  {
+    "instruction": "Los top clientes retail se obtienen de ps_ventas agrupando por num_cliente y sumando total_si, filtrando num_cliente > 0 y entrada=true. Para identificarlos hacer JOIN con ps_clientes. La frecuencia de compra se calcula como COUNT(DISTINCT reg_ventas) por cliente.",
+    "questions": ["¿Mejores clientes retail?", "¿Top clientes por compras?", "¿Clientes más fieles?", "¿Frecuencia de compra?"]
+  },
+  {
+    "instruction": "En pagos retail (ps_pagos_ventas), usar siempre importe_cob (importe cobrado) para análisis de revenue. NUNCA usar importe_ent (importe entregado/tendido) que representa el efectivo físico entregado por el cliente (puede incluir cambio). Para análisis de método de pago: campo forma o codigo_forma.",
+    "questions": ["¿Ingresos por método de pago?", "¿Cuánto se cobró en efectivo?", "¿Desglose de formas de pago?"]
+  },
+  {
+    "instruction": "Para efectivo vs tarjeta: codigo_forma='01' (o similar) suele ser efectivo/metalico. Para desglose exacto JOIN con la tabla de formas de pago. Un ticket puede tener múltiples filas en ps_pagos_ventas (pagos divididos). SUM(importe_cob) por num_ventas = Venta.total.",
+    "questions": ["¿Efectivo vs tarjeta?", "¿Mix de medios de pago?", "¿Cuánto se pagó con tarjeta?"]
+  },
+  {
+    "instruction": "Margen bruto retail = (total_si - total_coste_si) / total_si * 100. Campos en ps_lineas_ventas: total_si = ingreso sin IVA, total_coste_si = coste sin IVA. Para margen por artículo: GROUP BY codigo. Para margen por familia: JOIN con ps_articulos y ps_familias.",
+    "questions": ["¿Margen bruto retail?", "¿Rentabilidad por familia?", "¿Margen por artículo?", "¿Qué departamento tiene mejor margen?"]
+  },
+  {
+    "instruction": "Para margen mayorista, usar ps_gc_lin_facturas: margen = (total - total_coste) / total * 100. El campo total en líneas de facturas mayoristas es el ingreso, total_coste es el coste. Para resumen por cliente o comercial hacer JOIN con ps_gc_facturas.",
+    "questions": ["¿Margen mayorista?", "¿Rentabilidad canal B2B?", "¿Margen por comercial?"]
+  },
+  {
+    "instruction": "Productos con bajo margen (< 30%): (precio_coste / precio1) > 0.7 en ps_articulos, donde precio1 es PVP con IVA. Para un cálculo más preciso usar el margen realizado de ventas: (total_si - total_coste_si) / total_si en ps_lineas_ventas. Excluir artículos con anulado=true.",
+    "questions": ["¿Productos con bajo margen?", "¿Artículos poco rentables?", "¿Qué artículos vender menos?"]
+  },
+  {
+    "instruction": "El identificador de artículo visible para el usuario es la Referencia (campo ccrefejofacm en ps_articulos, mostrar como 'Referencia'). El campo 'codigo' es un código interno. Siempre incluir la Referencia y Descripción del artículo en los resultados. En ps_lineas_ventas el campo codigo es el código interno — hacer JOIN con ps_articulos para obtener la Referencia.",
+    "questions": ["¿Qué artículos vendimos?", "¿Cuáles son los productos más vendidos?", "¿Top artículos?", "¿Referencia de un producto?"]
+  },
+  {
+    "instruction": "Los artículos cuya Referencia (ccrefejofacm) empieza por 'MA' son materiales (bolsas, perchas, envoltorios) que NO tienen seguimiento de inventario. Estos artículos están EXCLUIDOS A NIVEL DE ETL — no existen en las tablas PostgreSQL (ps_articulos ni en las tablas de líneas). NO es necesario filtrar 'MA%' en ninguna consulta SQL sobre el mirror PostgreSQL. Los que empiezan por 'M' (sin 'MA') son artículos mayoristas.",
+    "questions": ["¿Cuántos artículos tenemos?", "¿Catálogo activo de productos?", "¿Artículos de venta?"]
+  },
+  {
+    "instruction": "Las ventas retail están en ps_ventas y ps_lineas_ventas. El canal mayorista B2B usa tablas separadas: ps_gc_albaranes, ps_gc_facturas y sus líneas. NUNCA mezclar datos retail y mayorista en la misma consulta a menos que se pida explícitamente una comparativa entre canales.",
+    "questions": ["¿Ventas totales?", "¿Compara retail y mayorista?", "¿Cuál canal vende más?"]
+  },
+  {
+    "instruction": "Los artículos con prefijo M en la Referencia (ccrefejofacm LIKE 'M%') son artículos mayoristas. Para análisis de ventas retail puro, excluir estos artículos: JOIN ps_articulos ON lv.codigo = p.codigo WHERE p.ccrefejofacm NOT LIKE 'M%'. Para análisis mayorista puro, usar las tablas GC (ps_gc_albaranes, etc.).",
+    "questions": ["¿Ventas retail puras?", "¿Artículos exclusivamente retail?", "¿Filtrar artículos mayoristas?"]
+  },
+  {
+    "instruction": "Los artículos inactivos tienen anulado=true en ps_articulos. Para análisis de catálogo activo: WHERE anulado = false. Para stock disponible: WHERE anulado = false AND stock > 0. Para historial de ventas incluir también artículos anulados (pueden tener ventas históricas).",
+    "questions": ["¿Artículos activos?", "¿Cuántos productos en catálogo?", "¿Artículos discontinuados?"]
+  },
+  {
+    "instruction": "PKs (claves primarias) en todas las tablas son NUMERIC(20,3) en PostgreSQL, no INTEGER ni FLOAT. Esto incluye reg_ventas, reg_lineas, reg_articulo, reg_cliente, etc. Son números con decimales heredados del sistema 4D (ej: 10028816.641). NO hacer aritmética con ellos — son identificadores opacos.",
+    "questions": ["¿Cómo hacer JOIN entre tablas?", "¿Tipo de datos de IDs?"]
+  },
+  {
+    "instruction": "La tabla Tienda (ps_tiendas) solo tiene codigo, no tiene campo de nombre. Al consultar ventas por tienda, mostrar el código directamente. Códigos especiales: 99=almacén central (excluir de retail), 97=tienda online. El resto son códigos numéricos de tiendas físicas.",
+    "questions": ["¿Nombre de las tiendas?", "¿Qué significa el código de tienda?", "¿Tiendas físicas vs online?"]
+  },
+  {
+    "instruction": "El campo fecha_documento en ps_ventas es NULL para todos los registros. NUNCA usarlo. Usar fecha_creacion para filtrar por fecha de venta. El campo fecha_modifica refleja la última modificación (incluye devoluciones y correcciones fiscales).",
+    "questions": ["¿Qué campo de fecha usar?", "¿Por qué fecha_documento está vacío?"]
+  },
+  {
+    "instruction": "n_albaran y n_factura NO son únicos en las tablas mayoristas. Múltiples documentos pueden compartir el mismo número (series diferentes, correcciones). No asumir unicidad ni hacer filtros de unicidad basados solo en estos campos. En las tablas de líneas del mirror (ps_gc_lin_albarane, ps_gc_lin_facturas), los JOINs líneas→cabecera deben hacerse por n_albaran/num_factura (únicos campos disponibles), pero sin asumir que sean únicos. Para JOINs entre cabeceras, usar reg_albaran y reg_factura (PKs numéricas) donde estén disponibles.",
+    "questions": ["¿Por qué hay duplicados en n_albaran?", "¿Cómo hacer JOIN entre albaranes y líneas?"]
+  },
+  {
+    "instruction": "Las temporadas y colecciones en ps_articulos usan el campo clave_temporada (texto, ej: 'PV26' = Primavera-Verano 2026). Para análisis de temporada, hacer JOIN con ps_temporadas usando num_temporada = reg_temporada. El campo temporada en albaranes mayoristas es texto libre.",
+    "questions": ["¿Ventas por temporada?", "¿Stock de la temporada actual?", "¿Artículos de la colección?"]
+  },
+  {
+    "instruction": "El usuario puede filtrar por temporada (colección) usando el campo clave_temporada de ps_articulos. Claves de temporada: PV = Primavera-Verano, OI = Otoño-Invierno, seguido del año en 2 dígitos (ej: PV26, OI25, PV25). Al generar SQL, filtra por clave_temporada cuando el usuario mencione una temporada o colección específica: JOIN ps_articulos p ON lv.codigo = p.codigo WHERE p.clave_temporada = 'PV26'.",
+    "questions": ["¿Ventas de la colección PV26?", "¿Stock de la temporada actual PV26?", "¿Artículos de primavera-verano 2026?", "¿Rendimiento de la colección OI25?"]
+  },
+  {
+    "instruction": "Cada traspaso físico crea DOS filas en ps_traspasos: una de salida (entrada=false, tienda_salida rellena, unidades_s) y una de entrada (entrada=true, tienda_entrada rellena, unidades_e). Para analizar envíos usar entrada=false con unidades_s. Para analizar recepciones usar entrada=true con unidades_e. Ambas filas comparten el mismo número de documento.",
+    "questions": ["¿Traspasos enviados por tienda?", "¿Cuántas unidades se traspasaron?", "¿Movimientos de stock entre tiendas?"]
+  },
+  {
+    "instruction": "La fórmula VFP (Verificación Física de Producto) para calcular el stock esperado: Entradas = devoluciones_retail + albaranes_compra + traspasos_entrada. Salidas = ventas_retail + traspasos_salida + envíos_mayoristas. Stock_esperado = Stock_inicial + Entradas - Salidas. Si stock_esperado != stock_actual = merma o error de inventario.",
+    "questions": ["¿Cómo calcular el stock esperado?", "¿Merma de inventario?", "¿Movimiento neto de stock?"]
+  },
+  {
+    "instruction": "En ps_articulos, precio_coste es el coste base sin IVA. El PVP con IVA es precio1 (o precio2, precio3 para tarifas alternativas). Para calcular margen estimado al catálogo: (precio1/(1+p_iva/100) - precio_coste) / (precio1/(1+p_iva/100)) * 100. El margen realizado en ventas es más preciso: usar total_si y total_coste_si de ps_lineas_ventas.",
+    "questions": ["¿Margen estimado de un artículo?", "¿PVP sin IVA?", "¿Precio de coste de un artículo?"]
+  },
+  {
+    "instruction": "En ps_lineas_ventas, el precio de venta unitario sin IVA está en precio_neto_si. El descuento aplicado en el campo p_desc_g (porcentaje) o importe_descuento (importe). Para calcular el descuento medio: AVG(p_desc_g) FROM ps_lineas_ventas WHERE entrada=true. Un descuento alto indica outlet o rebajas.",
+    "questions": ["¿Descuento medio aplicado?", "¿Precio de venta vs PVP?", "¿Nivel de descuentos?"]
+  },
+  {
+    "instruction": "Las compras a proveedores están en ps_compras (pedidos) y ps_lineas_compras (líneas). Las recepciones de mercancía están en ps_albaranes. Las facturas de proveedor en ps_facturas_compra. Para análisis de compras por proveedor: JOIN ps_compras con ps_proveedores usando num_proveedor = reg_proveedor.",
+    "questions": ["¿Compras a proveedores?", "¿Pedidos pendientes de recibir?", "¿Cuánto compramos al proveedor X?"]
+  },
+  {
+    "instruction": "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
+    "questions": ["¿Artículos más vendidos?", "¿Unidades vendidas por producto?", "¿Ventas por artículo sin devoluciones?"]
+  },
+  {
+    "instruction": "Cuando el usuario pide datos desglosados por tienda en columnas (tabla pivot/crosstab), NO generar CROSSTAB ni múltiples CASE WHEN por tienda. Generar una tabla plana con columnas (artículo, tienda, valor) agrupada por artículo y tienda. El usuario pivotará después.",
+    "questions": ["¿Ventas por tienda en columnas?", "¿Unidades por artículo y tienda?", "¿Desglose por tienda?", "¿Tabla con código de tienda?"]
+  },
+  {
+    "instruction": "Cuando el usuario pida un cuadro de mandos, dashboard, o resumen ejecutivo, genera una especificación JSON de dashboard estructurada con múltiples widgets, cada uno con su propia consulta SQL. No respondas con texto explicativo libre ni con una única consulta SQL; incluye SQL solo dentro de los campos correspondientes de cada widget.",
+    "questions": ["¿Cuadro de mandos?", "¿Dashboard de ventas?", "¿Resumen ejecutivo?", "¿KPIs del mes?"]
+  }
+]
+```

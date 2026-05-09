@@ -144,3 +144,18 @@ erDiagram
 - **Wapping**: `Wapping_ID` links the customer to the Wapping omnichannel loyalty platform.
 - **GDPR**: `PoliticaPrivacidad` (policy accepted), `FAcceptaComuni` (date accepted communications), `FAcceptaPP` (date accepted privacy policy) are GDPR consent fields — required for marketing.
 - The CRM module (CRMCampañas, CRMVisitados, etc.) exists in the schema but is completely empty.
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_clientes",
+    "alias": "Cliente",
+    "description": "Clientes. num_cliente=0 son ventas anónimas.",
+    "keyColumns": ["reg_cliente (PK)", "num_cliente", "nombre", "nif", "email", "codigo_postal", "poblacion", "pais", "mayorista", "fecha_creacion", "ultima_compra_f"]
+  }
+]
+```

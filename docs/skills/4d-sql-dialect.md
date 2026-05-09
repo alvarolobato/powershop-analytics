@@ -877,3 +877,11 @@ All functions available in 4D SQL:
 **Conversion/Logic**: CAST, COALESCE, NULLIF
 
 **4D-Specific**: DATABASE_PATH, CONCATENATE
+
+---
+
+## LLM:rules
+
+```json
+[]
+```

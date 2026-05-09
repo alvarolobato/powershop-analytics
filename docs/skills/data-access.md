@@ -188,3 +188,11 @@ for art in data:
 - Many methods require a session token as first parameter
 - `WS_JS_StockTiendas` does NOT require auth -- it works without a session token
 - WSDL: `http://YOUR_4D_SERVER_IP:8080/4DWSDL`
+
+---
+
+## LLM:rules
+
+```json
+[]
+```
