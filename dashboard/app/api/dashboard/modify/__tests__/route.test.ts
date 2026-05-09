@@ -250,6 +250,7 @@ describe("POST /api/dashboard/modify", () => {
         endpoint: "modifyDashboard",
         requestId: expect.stringMatching(/^req_/),
       }),
+      [], // priorTurns: empty because no dashboardId in request
     );
   });
 
