@@ -33,6 +33,87 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Stuck `ai-work` issues (labeled but no worker run ever fired)
+        run: |
+          set -uo pipefail
+          # An issue can carry `ai-work` indefinitely without any ai-worker
+          # run firing — observed when the label was applied while the
+          # workflow was disabled, when the `labeled` event was missed under
+          # GHA load, or when the worker is busy on the same concurrency
+          # group and a queued event silently dropped. The worker's first
+          # action on pickup is `remove-label ai-work` + `add-label
+          # ai-in-progress`; an issue with `ai-work` AND no `ai-in-progress`
+          # AND > STUCK_AGE_SECS old is stuck.
+          #
+          # Detection: open issue, has `ai-work`, lacks `ai-in-progress` /
+          # `ai-blocked` / `ai-needs-rewrite` / `needs-human-approval`, the
+          # most recent issue update is older than STUCK_AGE_SECS, and the
+          # comment trail shows fewer than MAX_AI_WORK_KICK_RETRIES prior
+          # kicks from this step. Action: dispatch ai-worker.yml directly
+          # via workflow_dispatch (phase=implement for `ai-task` sub-issues,
+          # phase=plan otherwise).
+          STUCK_AGE_SECS=600   # 10 min — generous buffer for the labeled event
+          MAX_AI_WORK_KICK_RETRIES=3
+          MARKER="🔁 **AI Watchdog**: stuck \`ai-work\` (no run fired)"
+          NOW=$(date -u +%s)
+
+          ISSUES_JSON=$(gh issue list --repo "$REPO_FULL" --state open \
+            --label "ai-work" --limit 100 \
+            --json number,labels,updatedAt,title 2>/dev/null || echo "[]")
+          echo "$ISSUES_JSON" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+            UPDATED=$(echo "$row" | jq -r '.updatedAt')
+
+            # Worker is currently running on this issue — leave it alone.
+            if echo ",$LABELS," | grep -q ",ai-in-progress,"; then
+              continue
+            fi
+            # Already escalated or human-blocked — leave it for the owner.
+            for blocker in ai-blocked ai-needs-rewrite needs-human-approval; do
+              if echo ",$LABELS," | grep -q ",$blocker,"; then
+                echo "PR/issue #$NUM has '$blocker' — skipping."
+                continue 2
+              fi
+            done
+
+            UPDATED_TS=$(date -u -d "$UPDATED" +%s 2>/dev/null || echo 0)
+            AGE=$(( NOW - UPDATED_TS ))
+            if [ "$AGE" -lt "$STUCK_AGE_SECS" ]; then
+              echo "Issue #$NUM (${TITLE:0:50}): ai-work added ${AGE}s ago — give the labeled event more time."
+              continue
+            fi
+
+            # Determine which phase to dispatch.
+            if echo ",$LABELS," | grep -q ",ai-task,"; then
+              PHASE="implement"
+            else
+              PHASE="plan"
+            fi
+
+            # Retry cap via marker comment count.
+            RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
+              --jq "[.[] | select(.body | contains(\"AI Watchdog\") and contains(\"stuck\") and contains(\"ai-work\"))] | length" 2>/dev/null || echo "0")
+            if ! [[ "$RETRY_COUNT" =~ ^[0-9]+$ ]]; then
+              RETRY_COUNT=0
+            fi
+            if [ "${RETRY_COUNT:-0}" -ge "$MAX_AI_WORK_KICK_RETRIES" ]; then
+              echo "Issue #$NUM: hit $RETRY_COUNT kicks (cap=$MAX_AI_WORK_KICK_RETRIES) — escalating to ai-blocked."
+              gh issue edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" 2>/dev/null || true
+              gh issue comment "$NUM" --repo "$REPO_FULL" --body \
+                "🚨 **AI Watchdog**: \`ai-work\` is set but no ai-worker run has fired after $RETRY_COUNT kicks. Escalating to \`ai-blocked\`. cc @${OWNER_HANDLE:-alvarolobato} — please dispatch \`ai-worker.yml\` manually with \`issue_number=$NUM\` \`phase=$PHASE\` to investigate." 2>/dev/null || true
+              continue
+            fi
+
+            echo "Issue #$NUM (${TITLE:0:50}): ai-work added ${AGE}s ago and worker hasn't run — dispatching (phase=$PHASE, retry $((RETRY_COUNT + 1))/$MAX_AI_WORK_KICK_RETRIES)."
+            gh workflow run ai-worker.yml --repo "$REPO_FULL" \
+              --field issue_number="$NUM" \
+              --field phase="$PHASE" 2>/dev/null || true
+            gh issue comment "$NUM" --repo "$REPO_FULL" --body \
+              "$MARKER detected ${AGE}s after \`ai-work\` was applied. Dispatched \`ai-worker.yml\` (phase=\`$PHASE\`, retry $((RETRY_COUNT + 1))/$MAX_AI_WORK_KICK_RETRIES)." 2>/dev/null || true
+          done
+
       - name: Stuck `ai-in-progress` issues
         run: |
           set -euo pipefail
