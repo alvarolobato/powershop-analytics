@@ -1,7 +1,9 @@
 /**
  * Dashboard LLM entry points: thin wrappers around llm-client.ts.
  *
- * All provider selection, telemetry, and sanitization live in llm-client.ts.
+ * Single-shot paths delegate to `llmComplete` (which owns provider selection,
+ * telemetry, and circuit-breaker). Agentic paths call `runAgenticChat` directly,
+ * wrapped in `callWithCircuitBreaker`, and write telemetry here.
  * This file owns prompt construction and public API contracts only.
  */
 
@@ -21,6 +23,7 @@ import {
 import type { DashboardLlmConfig, DashboardLlmFlow } from "./llm-provider/types";
 import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
 import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
+import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
 import {
   llmComplete,
@@ -167,15 +170,17 @@ export async function generateDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "generate");
-    const { content, usage } = await runAgenticChat({
-      adapter,
-      model,
-      systemPrompt: `${buildGeneratePrompt()}\n\n${buildAgenticToolPreamble()}`,
-      userContent: userPrompt,
-      ctx: requestCtx,
-      temperature: 0.2,
-      maxTokens: 8192,
-    });
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      runAgenticChat({
+        adapter,
+        model,
+        systemPrompt: `${buildGeneratePrompt()}\n\n${buildAgenticToolPreamble()}`,
+        userContent: userPrompt,
+        ctx: requestCtx,
+        temperature: 0.2,
+        maxTokens: 8192,
+      }),
+    );
     void logUsage("generateDashboard", model, usage, usageMetaFromCfg(cfg), {
       requestId: requestCtx.requestId,
     });
@@ -217,15 +222,17 @@ export async function modifyDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "modify");
-    const { content, usage } = await runAgenticChat({
-      adapter,
-      model,
-      systemPrompt: `${buildModifyPrompt(currentSpec, true)}\n\n${buildAgenticToolPreamble()}`,
-      userContent: userPrompt,
-      ctx: requestCtx,
-      temperature: 0.2,
-      maxTokens: 8192,
-    });
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      runAgenticChat({
+        adapter,
+        model,
+        systemPrompt: `${buildModifyPrompt(currentSpec, true)}\n\n${buildAgenticToolPreamble()}`,
+        userContent: userPrompt,
+        ctx: requestCtx,
+        temperature: 0.2,
+        maxTokens: 8192,
+      }),
+    );
     void logUsage("modifyDashboard", model, usage, usageMetaFromCfg(cfg), {
       requestId: requestCtx.requestId,
     });
@@ -345,15 +352,17 @@ export async function analyzeDashboard(
     })}\n\n${buildAgenticToolPreamble()}`;
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "analyze");
-    const { content, usage } = await runAgenticChat({
-      adapter,
-      model,
-      systemPrompt,
-      userContent: userPrompt,
-      ctx: requestCtx,
-      temperature: 0.3,
-      maxTokens: 4096,
-    });
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      runAgenticChat({
+        adapter,
+        model,
+        systemPrompt,
+        userContent: userPrompt,
+        ctx: requestCtx,
+        temperature: 0.3,
+        maxTokens: 4096,
+      }),
+    );
     void logUsage("analyzeDashboard", model, usage, usageMetaFromCfg(cfg), {
       requestId: requestCtx.requestId,
     });
@@ -405,15 +414,17 @@ export async function generateReviewAgentic(
   const adapter = createDashboardAgenticAdapter();
   const model = getEffectiveDashboardModel(cfg, "weekly");
 
-  const { content: finalMessage, usage } = await runAgenticChat({
-    adapter,
-    model,
-    systemPrompt,
-    userContent: "Genera la revisión semanal ahora.",
-    ctx,
-    temperature: 0.2,
-    maxTokens: 4096,
-  });
+  const { content: finalMessage, usage } = await callWithCircuitBreaker(() =>
+    runAgenticChat({
+      adapter,
+      model,
+      systemPrompt,
+      userContent: "Genera la revisión semanal ahora.",
+      ctx,
+      temperature: 0.2,
+      maxTokens: 4096,
+    }),
+  );
 
   void logUsage("generateReview", model, usage, usageMetaFromCfg(cfg), { requestId });
 

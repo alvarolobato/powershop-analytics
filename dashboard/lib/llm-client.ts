@@ -1,8 +1,10 @@
 /**
- * Centralized LLM client — the single seam for all LLM calls in the dashboard.
+ * Centralized LLM client — the single seam for all single-shot LLM calls.
  *
- * Every flow (generate, modify, analyze, suggest, gap, review, etc.) goes through
- * `llmComplete`. Provider selection, telemetry, and sanitization are owned here.
+ * Single-shot flows (suggest, gap, non-agentic generate/modify/analyze) go through
+ * `llmComplete`, which owns provider selection, system-prompt assembly, circuit-breaker,
+ * and telemetry. Agentic flows call `runAgenticChat` via llm.ts (also wrapped in
+ * `callWithCircuitBreaker`). Sanitization lives in `llm-provider/sanitize.ts`.
  * Tasks 4 (prompt caching) and 5 (multi-turn replay) will extend this file.
  */
 

@@ -303,4 +303,47 @@ describe("llmComplete", () => {
     expect(deltas).toHaveLength(1);
     expect(deltas[0]).toEqual(["hello world".length, "hello world".length]);
   });
+
+  it("streams OpenRouter response: calls onTextDelta per chunk and extracts usage from final chunk", async () => {
+    // Stub an async-iterable stream simulating OpenRouter SSE chunks.
+    const fakeChunks = [
+      { choices: [{ delta: { content: "Hello" } }], usage: null },
+      { choices: [{ delta: { content: " world" } }], usage: null },
+      {
+        choices: [{ delta: { content: "" } }],
+        usage: { prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 },
+      },
+    ];
+
+    async function* makeStream() {
+      for (const chunk of fakeChunks) yield chunk;
+    }
+
+    mockCallWithCircuitBreaker.mockImplementation((fn: () => unknown) => fn());
+    mockOpenRouterCreate.mockResolvedValue(makeStream());
+
+    const deltas: Array<[number, number]> = [];
+    const resp = await llmComplete({
+      flow: "generate",
+      systemPrompt: { stable: "s" },
+      messages: [{ role: "user", content: "q" }],
+      onTextDelta: (chars, totalChars) => deltas.push([chars, totalChars]),
+    });
+
+    // Accumulated text from chunks with non-empty content.
+    expect(resp.text).toBe("Hello world");
+
+    // onTextDelta called once per chunk that has content.
+    expect(deltas).toHaveLength(2);
+    expect(deltas[0]).toEqual([5, 5]);   // "Hello" (5 chars, running total 5)
+    expect(deltas[1]).toEqual([6, 11]);  // " world" (6 chars, running total 11)
+
+    // Usage extracted from the final chunk.
+    expect(resp.usage).toEqual(
+      expect.objectContaining({ prompt_tokens: 5, completion_tokens: 2, total_tokens: 7 }),
+    );
+
+    // Telemetry written once.
+    expect(mockLogUsage).toHaveBeenCalledOnce();
+  });
 });
