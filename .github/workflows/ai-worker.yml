@@ -630,7 +630,14 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
+          # Re-establish GITHUB_TOKEN-based auth on the remote URL — the
+          # claude-code-action that ran above can leave the credential
+          # helper in a state where the default checkout auth no longer
+          # applies (see ai-pr-mergeability.yml `Push rebased branch` for
+          # the same fix).
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}" || true
           BRANCH=$(git branch --show-current)
           if [ "$BRANCH" != "main" ] && [ "$BRANCH" != "master" ] && [ -n "$BRANCH" ]; then
             git push origin "$BRANCH" || true

@@ -309,8 +309,19 @@ jobs:
           steps.verify_resolve.outputs.resolved == 'true'
         env:
           BRANCH: ${{ steps.pr.outputs.branch }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # claude-code-action runs in the same checkout and can leave the
+          # remote URL or credential helper in a state where the default
+          # actions/checkout `persist-credentials: true` no longer applies
+          # to subsequent pushes (observed on PR #516, run 25601451527 —
+          # `Authentication failed for 'https://github.com/...'` on every
+          # retry). Re-establish GITHUB_TOKEN-based auth on the remote URL
+          # before pushing — `x-access-token` is the canonical username for
+          # token-based git auth on GitHub.
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPO}"
           # force-with-lease guards against clobbering a concurrent push.
           # Retry up to 4 times on transient network failure (per repo guideline).
           for attempt in 1 2 3 4; do
