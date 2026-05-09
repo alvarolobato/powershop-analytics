@@ -449,6 +449,99 @@ jobs:
             fi
           done
 
+      - name: Stuck `ai-phase-opus` PRs (Opus reviewed but address-feedback didn't transition)
+        run: |
+          set -uo pipefail
+          # PRs that received an Opus review but never transitioned to
+          # `ai-cp-after-1 + ai-o-after-1 + ai-awaiting-owner` indicate the
+          # `Dispatch address-feedback` step in `ai-pr-review.yml` succeeded
+          # but the dispatched run was cancelled (the global concurrency
+          # group `ai-address-feedback-global` cancelled it under load — the
+          # `cancel-in-progress: false` setting queues but the GHA scheduler
+          # has been observed to mark queued runs `cancelled` instead).
+          # The cold-dispatch path ABOVE (line ~290) explicitly skips PRs
+          # with `ai-phase-opus`, so without this step a PR can sit in
+          # `ai-phase-opus` forever.
+          #
+          # Detection: PR has `ai-phase-opus` + `ai-cp-after-1` AND the most
+          # recent successful ai-pr-review on its head SHA finished between
+          # STUCK_AGE_SECS and STUCK_MAX_AGE_SECS ago AND the PR has fewer
+          # than MAX_OPUS_STALL_RETRIES re-dispatches from this step
+          # (counted from the marker in the comment body). Re-dispatch
+          # address-feedback. After MAX retries, give up: add `ai-blocked`
+          # and surface to the owner instead of spamming the timeline.
+          STUCK_AGE_SECS=900       # 15 min — give the post-Opus dispatch a chance
+          STUCK_MAX_AGE_SECS=3600  # 60 min — older = human problem, not auto-recoverable
+          MAX_OPUS_STALL_RETRIES=3
+          MARKER="🔁 **AI Watchdog**: stuck \`ai-phase-opus\`"
+          NOW=$(date -u +%s)
+
+          PRS_JSON=$(gh pr list --repo "$REPO_FULL" --state open --label "ai-phase-opus" \
+            --json number,headRefOid,labels,updatedAt 2>/dev/null || echo "[]")
+          echo "$PRS_JSON" | jq -c '.[]' | while read -r pr; do
+            NUM=$(echo "$pr" | jq -r '.number')
+            HEAD=$(echo "$pr" | jq -r '.headRefOid')
+            LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
+
+            # Already converged on Opus pass — address-feedback skipped or finished.
+            if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              continue
+            fi
+            # Still has the in-progress marker — needs ai-cp-after-1 to even be in opus.
+            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+              echo "PR #$NUM: ai-phase-opus without ai-cp-after-1 — unusual, leaving for cold-dispatch."
+              continue
+            fi
+            # Already escalated — owner is on the hook now, don't spam.
+            if echo ",$LABELS," | grep -q ",ai-blocked,"; then
+              echo "PR #$NUM: ai-blocked already set — leaving for the owner."
+              continue
+            fi
+
+            # Look for the most recent successful ai-pr-review on this head SHA.
+            # Best-effort; skip silently on API hiccup.
+            LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=20" \
+              --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD\" and .conclusion == \"success\")] | first | .updated_at // empty" 2>/dev/null || echo "")
+            if [ -z "$LAST_OPUS_AT" ]; then
+              echo "PR #$NUM: no successful ai-pr-review on head $HEAD yet (or API hiccup) — skipping."
+              continue
+            fi
+            LAST_OPUS_TS=$(date -u -d "$LAST_OPUS_AT" +%s 2>/dev/null || echo 0)
+            AGE=$(( NOW - LAST_OPUS_TS ))
+            if [ "$AGE" -lt "$STUCK_AGE_SECS" ]; then
+              echo "PR #$NUM: Opus reviewed ${AGE}s ago — give the post-review dispatch more time."
+              continue
+            fi
+            if [ "$AGE" -gt "$STUCK_MAX_AGE_SECS" ]; then
+              echo "PR #$NUM: Opus reviewed ${AGE}s ago (>${STUCK_MAX_AGE_SECS}s) — too old for auto-recovery, owner problem."
+              continue
+            fi
+
+            # Retry cap: count past marker comments from this step (best-effort).
+            RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
+              --jq "[.comments[]?, .[]? | select(.body? | test(\"$MARKER\"; \"i\"))] | length" 2>/dev/null || echo "0")
+            # `gh api` on issues/comments returns a bare array; the jq above tolerates either shape.
+            # Fallback: simpler query if the above failed.
+            if ! [[ "$RETRY_COUNT" =~ ^[0-9]+$ ]]; then
+              RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
+                --jq "[.[] | select(.body | contains(\"AI Watchdog\") and contains(\"ai-phase-opus\"))] | length" 2>/dev/null || echo "0")
+            fi
+            if [ "${RETRY_COUNT:-0}" -ge "$MAX_OPUS_STALL_RETRIES" ]; then
+              echo "PR #$NUM: hit $RETRY_COUNT retries (cap=$MAX_OPUS_STALL_RETRIES) — escalating to ai-blocked."
+              gh pr edit "$NUM" --repo "$REPO_FULL" --add-label "ai-blocked" 2>/dev/null || true
+              gh pr comment "$NUM" --repo "$REPO_FULL" --body \
+                "🚨 **AI Watchdog**: stuck in \`ai-phase-opus\` after $RETRY_COUNT auto-recovery attempts. Adding \`ai-blocked\` and handing off — please dispatch \`ai-address-feedback.yml\` manually or merge as-is. cc @${OWNER_HANDLE:-alvarolobato}" 2>/dev/null || true
+              continue
+            fi
+
+            echo "PR #$NUM: re-dispatching address-feedback (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES, Opus ${AGE}s ago)."
+            gh workflow run ai-address-feedback.yml --repo "$REPO_FULL" \
+              --field pr_number="$NUM" \
+              --field reason="watchdog: stuck in ai-phase-opus for ${AGE}s after successful Opus review (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES)" 2>/dev/null || true
+            gh pr comment "$NUM" --repo "$REPO_FULL" --body \
+              "$MARKER detected ${AGE}s after Opus success. Re-dispatched \`ai-address-feedback.yml\` (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES)." 2>/dev/null || true
+          done
+
       - name: Auto-retry blocked PRs (address-feedback failures)
         run: |
           set -euo pipefail

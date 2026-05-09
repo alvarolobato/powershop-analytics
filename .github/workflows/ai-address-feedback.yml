@@ -155,7 +155,16 @@ jobs:
               --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
               2>/dev/null || echo "unknown")
             if echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
-              CI_STATE="failing"
+              # If CI is actually green now, the label is stale — drop it
+              # before computing the gate, otherwise the legitimate green
+              # state can't reach `ai-awaiting-owner`. PR #530 hit this on
+              # 2026-05-09: ai-ci-remediation fixed CI but the label
+              # lingered and blocked the converge handoff.
+              if [ "$CI_STATE" = "ready" ]; then
+                gh api "repos/${{ github.repository }}/issues/$PR/labels/ai-ci-failing" -X DELETE 2>/dev/null || true
+              else
+                CI_STATE="failing"
+              fi
             fi
             if [ "$CI_STATE" = "ready" ]; then
               gh api "repos/${{ github.repository }}/issues/$PR/labels" -X POST \
