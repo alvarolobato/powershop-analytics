@@ -1,87 +1,162 @@
 /**
- * GET  /api/conversations/:id  — fetch a single conversation (no messages)
- * PATCH /api/conversations/:id — update title or archived status
- *
- * PATCH body: { title?: string, archived?: boolean }
- *
- * DELETE is intentionally absent — conversations are archive-only per #503.
+ * GET    /api/conversations/:id — fetch single conversation with messages
+ * PATCH  /api/conversations/:id — partial update (title, archived)
+ * DELETE /api/conversations/:id — 405 Method Not Allowed (no hard deletion)
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
-  getConversation,
-  updateConversationTitle,
-  setConversationArchived,
+  getConversationWithMessages,
+  updateConversation,
 } from "@/lib/conversations";
-import { generateRequestId } from "@/lib/errors";
+import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
-export async function GET(
-  _req: Request,
-  { params }: { params: { id: string } },
-) {
-  const { id } = params;
-  try {
-    const conv = await getConversation(id);
-    if (!conv) {
-      return NextResponse.json(
-        { error: "Conversation not found", code: "NOT_FOUND" },
-        { status: 404 },
-      );
-    }
-    return NextResponse.json(conv);
-  } catch (err) {
-    console.error("[GET /api/conversations/:id] error:", err);
-    return NextResponse.json(
-      { error: "Failed to fetch conversation", code: "DB_ERROR" },
-      { status: 500 },
-    );
-  }
+type RouteContext = { params: Promise<{ id: string }> };
+
+function validateId(raw: string): string | null {
+  return /^[a-f0-9]{12}$/.test(raw) ? raw : null;
 }
 
-export async function PATCH(
-  req: Request,
-  { params }: { params: { id: string } },
-) {
-  const requestId = generateRequestId();
-  const { id } = params;
+// ── GET ───────────────────────────────────────────────────────────────────────
 
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
+export async function GET(
+  _request: NextRequest,
+  context: RouteContext,
+): Promise<NextResponse> {
+  const requestId = generateRequestId();
+  const { id: rawId } = await context.params;
+  const id = validateId(rawId);
+  if (!id) {
     return NextResponse.json(
-      { error: "Invalid JSON body", code: "INVALID_BODY", requestId },
+      formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   try {
-    const conv = await getConversation(id);
-    if (!conv) {
+    const conversation = await getConversationWithMessages(id);
+    if (!conversation) {
       return NextResponse.json(
-        { error: "Conversation not found", code: "NOT_FOUND", requestId },
+        formatApiError(
+          "Conversación no encontrada.",
+          "NOT_FOUND",
+          `No existe ninguna conversación con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
-
-    if (typeof body.title === "string" && body.title.trim()) {
-      await updateConversationTitle(id, body.title.trim());
-    }
-
-    if (typeof body.archived === "boolean") {
-      await setConversationArchived(id, body.archived);
-    }
-
-    const updated = await getConversation(id);
-    return NextResponse.json(updated);
+    return NextResponse.json(conversation);
   } catch (err) {
-    console.error("[PATCH /api/conversations/:id] error:", err);
+    console.error(`[${requestId}] GET /api/conversations/${rawId} error:`, err);
     return NextResponse.json(
-      { error: "Failed to update conversation", code: "DB_ERROR", requestId },
+      formatApiError(
+        "No se pudo cargar la conversación.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }
 }
 
-// DELETE is intentionally absent — conversations can only be archived.
-// Attempts to DELETE will return 405 Method Not Allowed (Next.js default).
+// ── PATCH ─────────────────────────────────────────────────────────────────────
+
+export async function PATCH(
+  request: NextRequest,
+  context: RouteContext,
+): Promise<NextResponse> {
+  const requestId = generateRequestId();
+  const { id: rawId } = await context.params;
+  const id = validateId(rawId);
+  if (!id) {
+    return NextResponse.json(
+      formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json(
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return NextResponse.json(
+      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const b = body as Record<string, unknown>;
+  const updates: { title?: string; archived?: boolean } = {};
+
+  if ("title" in b) {
+    if (typeof b.title !== "string") {
+      return NextResponse.json(
+        formatApiError("El campo 'title' debe ser una cadena de texto.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    updates.title = b.title;
+  }
+
+  if ("archived" in b) {
+    if (typeof b.archived !== "boolean") {
+      return NextResponse.json(
+        formatApiError("El campo 'archived' debe ser booleano.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    updates.archived = b.archived;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json(
+      formatApiError("No se proporcionaron campos para actualizar.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  try {
+    const updated = await updateConversation(id, updates);
+    if (!updated) {
+      return NextResponse.json(
+        formatApiError(
+          "Conversación no encontrada.",
+          "NOT_FOUND",
+          `No existe ninguna conversación con ID ${id}.`,
+          requestId,
+        ),
+        { status: 404 },
+      );
+    }
+    return NextResponse.json(updated);
+  } catch (err) {
+    console.error(`[${requestId}] PATCH /api/conversations/${rawId} error:`, err);
+    return NextResponse.json(
+      formatApiError(
+        "No se pudo actualizar la conversación.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
+      { status: 500 },
+    );
+  }
+}
+
+// ── DELETE — intentionally disallowed ─────────────────────────────────────────
+
+export async function DELETE(): Promise<NextResponse> {
+  return NextResponse.json(
+    { error: "Las conversaciones no pueden eliminarse. Usa archive para archivarlas.", code: "METHOD_NOT_ALLOWED" },
+    { status: 405, headers: { Allow: "GET, PATCH" } },
+  );
+}

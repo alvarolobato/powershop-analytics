@@ -1,85 +1,115 @@
 /**
- * POST /api/conversations
- *
- * Creates a conversation row and returns the conversation id plus both
- * viewer URLs: `/c/<id>` (chat-only) and `/k/<id>` (in-context).
- *
- * Body: {
- *   mode: string,
- *   context_kind?: string,
- *   context_ref?: string,
- *   context_url?: string,
- *   seed_prompt?: string,
- *   first_user_prompt?: string,
- * }
- *
- * Response: { id, c_url, k_url }
+ * GET  /api/conversations — list conversations with filters and pagination
+ * POST /api/conversations — create a new conversation
  */
 
-import { NextResponse } from "next/server";
-import { createConversation } from "@/lib/conversations";
-import { generateRequestId } from "@/lib/errors";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  listConversations,
+  createConversation,
+} from "@/lib/conversations";
+import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
-const VALID_MODES = ["analyze", "modify", "generate", "chat"] as const;
+// ── GET ───────────────────────────────────────────────────────────────────────
 
-export async function POST(req: Request) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  const requestId = generateRequestId();
+  const { searchParams } = new URL(request.url);
+
+  const include_archived = searchParams.get("include_archived") === "true";
+  const context_kind = searchParams.get("context_kind") ?? undefined;
+  const context_ref = searchParams.get("context_ref") ?? undefined;
+  const mode = searchParams.get("mode") ?? undefined;
+  const since = searchParams.get("since") ?? undefined;
+  const q = searchParams.get("q") ?? undefined;
+  const page = parseInt(searchParams.get("page") ?? "1", 10);
+  const limit = parseInt(searchParams.get("limit") ?? "50", 10);
+
+  try {
+    const rows = await listConversations({
+      include_archived,
+      context_kind,
+      context_ref,
+      mode,
+      since,
+      q,
+      page: isNaN(page) ? 1 : page,
+      limit: isNaN(limit) ? 50 : limit,
+    });
+    return NextResponse.json(rows);
+  } catch (err) {
+    console.error(`[${requestId}] GET /api/conversations error:`, err);
+    return NextResponse.json(
+      formatApiError(
+        "No se pudieron cargar las conversaciones.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
+      { status: 500 },
+    );
+  }
+}
+
+// ── POST ──────────────────────────────────────────────────────────────────────
+
+export async function POST(request: NextRequest): Promise<NextResponse> {
   const requestId = generateRequestId();
 
-  let body: Record<string, unknown>;
+  let body: unknown;
   try {
-    body = await req.json();
+    body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body", code: "INVALID_BODY", requestId },
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
-  const mode = body.mode;
-  if (typeof mode !== "string" || !mode) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "`mode` is required", code: "MISSING_MODE", requestId },
+      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
-  if (!(VALID_MODES as readonly string[]).includes(mode)) {
+  const b = body as Record<string, unknown>;
+  const mode = b.mode;
+  if (typeof mode !== "string" || !mode.trim()) {
     return NextResponse.json(
-      {
-        error: `Invalid mode "${mode}". Must be one of: ${VALID_MODES.join(", ")}`,
-        code: "INVALID_MODE",
-        requestId,
-      },
+      formatApiError("El campo 'mode' es obligatorio.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
+
+  const context_url = typeof b.context_url === "string" ? b.context_url : undefined;
+  const context_kind = typeof b.context_kind === "string" ? b.context_kind : undefined;
+  const context_ref = typeof b.context_ref === "string" ? b.context_ref : undefined;
+  const first_user_prompt =
+    typeof b.first_user_prompt === "string" ? b.first_user_prompt : undefined;
+  const llm_provider = typeof b.llm_provider === "string" ? b.llm_provider : undefined;
+  const llm_driver = typeof b.llm_driver === "string" ? b.llm_driver : undefined;
 
   try {
     const result = await createConversation({
       mode,
-      context_kind:
-        typeof body.context_kind === "string" ? body.context_kind : null,
-      context_ref:
-        typeof body.context_ref === "string" ? body.context_ref : null,
-      context_url:
-        typeof body.context_url === "string" ? body.context_url : null,
-      seed_prompt:
-        typeof body.seed_prompt === "string" ? body.seed_prompt : null,
-      first_user_prompt:
-        typeof body.first_user_prompt === "string"
-          ? body.first_user_prompt
-          : null,
+      context_url,
+      context_kind,
+      context_ref,
+      first_user_prompt,
+      llm_provider,
+      llm_driver,
     });
-
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
-    console.error("[POST /api/conversations] error:", err);
+    console.error(`[${requestId}] POST /api/conversations error:`, err);
     return NextResponse.json(
-      {
-        error: "Failed to create conversation",
-        code: "DB_ERROR",
+      formatApiError(
+        "No se pudo crear la conversación.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
         requestId,
-      },
+      ),
       { status: 500 },
     );
   }
