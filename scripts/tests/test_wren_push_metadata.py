@@ -30,6 +30,7 @@ parse_marker_sections = wpm.parse_marker_sections
 extract_instructions = wpm.extract_instructions
 extract_sql_pairs = wpm.extract_sql_pairs
 transform_date_placeholders = wpm.transform_date_placeholders
+parse_relationships_from_mds = wpm.parse_relationships_from_mds
 
 
 # ── parse_marker_sections ────────────────────────────────────────────────────
@@ -311,6 +312,117 @@ def test_transform_idempotent():
     assert result1 == result2
 
 
+# ── parse_relationships_from_mds ────────────────────────────────────────────
+
+_RELATIONSHIPS_MD = """\
+## LLM:relationships
+
+```json
+[
+  {"from": "ps_lineas_ventas", "fromColumn": "num_ventas", "to": "ps_ventas", "toColumn": "reg_ventas", "type": "MANY_TO_ONE"},
+  {"from": "ps_ventas", "fromColumn": "tienda", "to": "ps_tiendas", "toColumn": "codigo", "type": "MANY_TO_ONE"}
+]
+```
+"""
+
+
+def test_parse_relationships_basic(tmp_path):
+    md_file = tmp_path / "test.md"
+    md_file.write_text(_RELATIONSHIPS_MD, encoding="utf-8")
+    result = parse_relationships_from_mds([str(md_file)])
+    assert len(result) == 2
+    assert (
+        "ps_lineas_ventas",
+        "num_ventas",
+        "ps_ventas",
+        "reg_ventas",
+        "MANY_TO_ONE",
+    ) in result
+    assert ("ps_ventas", "tienda", "ps_tiendas", "codigo", "MANY_TO_ONE") in result
+
+
+def test_parse_relationships_tuple_shape(tmp_path):
+    md_file = tmp_path / "test.md"
+    md_file.write_text(_RELATIONSHIPS_MD, encoding="utf-8")
+    result = parse_relationships_from_mds([str(md_file)])
+    for item in result:
+        assert isinstance(item, tuple)
+        assert len(item) == 5
+        from_m, from_col, to_m, to_col, rtype = item
+        assert isinstance(from_m, str)
+        assert isinstance(from_col, str)
+        assert isinstance(to_m, str)
+        assert isinstance(to_col, str)
+        assert rtype == "MANY_TO_ONE"
+
+
+def test_parse_relationships_multi_md(tmp_path):
+    md1 = tmp_path / "a.md"
+    md1.write_text(
+        "## LLM:relationships\n\n```json\n"
+        '[{"from": "ps_ventas", "fromColumn": "tienda", "to": "ps_tiendas", "toColumn": "codigo", "type": "MANY_TO_ONE"}]\n'
+        "```\n",
+        encoding="utf-8",
+    )
+    md2 = tmp_path / "b.md"
+    md2.write_text(
+        "## LLM:relationships\n\n```json\n"
+        '[{"from": "ps_articulos", "fromColumn": "num_familia", "to": "ps_familias", "toColumn": "reg_familia", "type": "MANY_TO_ONE"}]\n'
+        "```\n",
+        encoding="utf-8",
+    )
+    result = parse_relationships_from_mds([str(md1), str(md2)])
+    assert len(result) == 2
+    assert ("ps_ventas", "tienda", "ps_tiendas", "codigo", "MANY_TO_ONE") in result
+    assert (
+        "ps_articulos",
+        "num_familia",
+        "ps_familias",
+        "reg_familia",
+        "MANY_TO_ONE",
+    ) in result
+
+
+def test_parse_relationships_no_section(tmp_path):
+    md_file = tmp_path / "test.md"
+    md_file.write_text("## LLM:rules\n\n```json\n[]\n```\n", encoding="utf-8")
+    result = parse_relationships_from_mds([str(md_file)])
+    assert result == []
+
+
+def test_parse_relationships_empty_list(tmp_path):
+    md_file = tmp_path / "test.md"
+    md_file.write_text("## LLM:relationships\n\n```json\n[]\n```\n", encoding="utf-8")
+    result = parse_relationships_from_mds([str(md_file)])
+    assert result == []
+
+
+def test_parse_relationships_missing_file():
+    result = parse_relationships_from_mds(["/nonexistent/path.md"])
+    assert result == []
+
+
+def test_parse_relationships_invalid_json_raises(tmp_path):
+    md_file = tmp_path / "bad.md"
+    md_file.write_text(
+        "## LLM:relationships\n\n```json\n{bad json\n```\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="Invalid JSON"):
+        parse_relationships_from_mds([str(md_file)])
+
+
+def test_parse_relationships_set_equality(tmp_path):
+    """Order of entries doesn't matter — test set-equality."""
+    md_file = tmp_path / "test.md"
+    md_file.write_text(_RELATIONSHIPS_MD, encoding="utf-8")
+    result = parse_relationships_from_mds([str(md_file)])
+    expected = {
+        ("ps_lineas_ventas", "num_ventas", "ps_ventas", "reg_ventas", "MANY_TO_ONE"),
+        ("ps_ventas", "tienda", "ps_tiendas", "codigo", "MANY_TO_ONE"),
+    }
+    assert set(result) == expected
+
+
 # ── integration: load from real source MDs ──────────────────────────────────
 
 
@@ -338,3 +450,39 @@ def test_instructions_have_required_keys():
         assert "instruction" in inst, f"Missing 'instruction' key: {inst!r}"
         assert "questions" in inst, f"Missing 'questions' key: {inst!r}"
         assert isinstance(inst["questions"], list)
+
+
+def test_relationships_count():
+    """Real SOURCE_MDS must yield at least 25 relationships (19 original + 6 new)."""
+    assert len(wpm.RELATIONSHIPS) >= 25, (
+        f"Expected at least 25 relationships, got {len(wpm.RELATIONSHIPS)}"
+    )
+
+
+def test_relationships_are_tuples_of_five():
+    """Every relationship must be a 5-tuple of strings."""
+    for rel in wpm.RELATIONSHIPS:
+        assert isinstance(rel, tuple), f"Expected tuple, got {type(rel)}: {rel!r}"
+        assert len(rel) == 5, f"Expected 5-tuple, got {len(rel)}-tuple: {rel!r}"
+        assert all(isinstance(s, str) for s in rel), f"Non-string in tuple: {rel!r}"
+
+
+def test_relationships_new_entries_present():
+    """The 6 new cross-domain relationships must be in the loaded set."""
+    rels = set(wpm.RELATIONSHIPS)
+    expected_new = {
+        ("ps_traspasos", "tienda_salida", "ps_tiendas", "codigo", "MANY_TO_ONE"),
+        ("ps_traspasos", "tienda_entrada", "ps_tiendas", "codigo", "MANY_TO_ONE"),
+        ("ps_traspasos", "codigo", "ps_articulos", "codigo", "MANY_TO_ONE"),
+        ("ps_gc_pedidos", "num_cliente", "ps_clientes", "reg_cliente", "MANY_TO_ONE"),
+        ("ps_gc_lin_pedidos", "num_pedido", "ps_gc_pedidos", "n_pedido", "MANY_TO_ONE"),
+        (
+            "ps_compras",
+            "num_proveedor",
+            "ps_proveedores",
+            "reg_proveedor",
+            "MANY_TO_ONE",
+        ),
+    }
+    missing = expected_new - rels
+    assert not missing, f"Missing new relationships: {missing}"

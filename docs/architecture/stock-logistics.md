@@ -246,7 +246,10 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
 
 ```json
 [
-  {"from": "ps_stock_tienda", "fromColumn": "codigo", "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"},
-  {"from": "ps_stock_tienda", "fromColumn": "tienda", "to": "ps_tiendas", "toColumn": "codigo", "type": "MANY_TO_ONE"}
+  {"from": "ps_stock_tienda",  "fromColumn": "codigo",         "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_stock_tienda",  "fromColumn": "tienda",         "to": "ps_tiendas",   "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_traspasos",     "fromColumn": "tienda_salida",  "to": "ps_tiendas",   "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_traspasos",     "fromColumn": "tienda_entrada", "to": "ps_tiendas",   "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_traspasos",     "fromColumn": "codigo",         "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"}
 ]
 ```
