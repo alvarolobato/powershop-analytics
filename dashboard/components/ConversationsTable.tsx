@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { getModePillStyle } from "@/lib/conversation-mode-style";
 import { ConversationRowActions } from "@/components/ConversationRowActions";
 import type { ConversationRow } from "@/app/conversations/types";
@@ -22,8 +23,10 @@ function relativeTime(dateStr: string): string {
   if (diffH < 24) return `hace ${diffH} hora${diffH !== 1 ? "s" : ""}`;
   if (diffDays === 1) return "ayer";
   if (diffDays < 7) return `hace ${diffDays} días`;
-  if (diffDays < 30) return `hace ${Math.floor(diffDays / 7)} semanas`;
-  return `hace ${Math.floor(diffDays / 30)} meses`;
+  const weeks = Math.floor(diffDays / 7);
+  if (diffDays < 30) return `hace ${weeks} semana${weeks !== 1 ? "s" : ""}`;
+  const months = Math.floor(diffDays / 30);
+  return `hace ${months} mes${months !== 1 ? "es" : ""}`;
 }
 
 function absoluteDate(dateStr: string): string {
@@ -120,6 +123,7 @@ export function ConversationsTable({
   onArchiveToggle,
   onRename,
 }: ConversationsTableProps) {
+  const router = useRouter();
   const [sort, setSort] = useState<SortState>({
     col: "last_interaction_at",
     dir: "desc",
@@ -194,6 +198,10 @@ export function ConversationsTable({
     setRenamingId(null);
   };
 
+  // Bulk action bar is ~52px tall (8px padding × 2 + 20px content + 8px marginBottom + 8px gap).
+  // When it's visible, shift sticky table headers down so they don't overlap it.
+  const BULK_BAR_HEIGHT = 52;
+
   // Styles
   const thStyle: React.CSSProperties = {
     padding: "8px 10px",
@@ -207,7 +215,7 @@ export function ConversationsTable({
     whiteSpace: "nowrap",
     background: "var(--bg-1)",
     position: "sticky" as const,
-    top: 0,
+    top: selected.size > 0 ? BULK_BAR_HEIGHT : 0,
     zIndex: 1,
   };
 
@@ -487,12 +495,15 @@ export function ConversationsTable({
                   <td style={{ ...tdStyle }}>
                     <span
                       title={contextLabel(row)}
-                      style={{ cursor: "pointer", textDecoration: "none" }}
-                      onClick={() =>
-                        row.context_kind !== "global" &&
-                        typeof window !== "undefined" &&
-                        (window.location.href = `/k/${row.id}`)
-                      }
+                      style={{
+                        cursor: row.context_kind !== "global" ? "pointer" : "default",
+                        textDecoration: "none",
+                      }}
+                      onClick={() => {
+                        if (row.context_kind !== "global") {
+                          router.push(`/k/${row.id}`);
+                        }
+                      }}
                     >
                       {contextLabel(row)}
                     </span>

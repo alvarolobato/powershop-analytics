@@ -6,7 +6,7 @@ import type { ConversationRow } from "@/app/conversations/types";
 interface ConversationRowActionsProps {
   conversation: ConversationRow;
   onArchiveToggle: (id: string, currentlyArchived: boolean) => void;
-  onRenameStart: (id: string) => void;
+  onRenameStart: () => void;
 }
 
 export function ConversationRowActions({
@@ -118,7 +118,7 @@ export function ConversationRowActions({
         type="button"
         title="Renombrar"
         style={btnStyle}
-        onClick={() => onRenameStart(conversation.id)}
+        onClick={() => onRenameStart()}
         onMouseEnter={(e) =>
           ((e.currentTarget as HTMLButtonElement).style.color = "var(--fg)")
         }

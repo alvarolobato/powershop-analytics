@@ -97,7 +97,7 @@ function FilterBar({
         padding: "3px 10px",
         fontSize: 11,
         fontWeight: active ? 600 : 400,
-        color: active ? "#fff" : "var(--fg-muted)",
+        color: active ? "var(--accent-fg, #fff)" : "var(--fg-muted)",
         cursor: "pointer",
         fontFamily: "inherit",
         whiteSpace: "nowrap",
@@ -328,7 +328,7 @@ export default function ConversationsPage() {
           }
         }
       } catch {
-        // Ignore network errors silently — the optimistic update above is enough for now
+        // Ignore network errors — local state was already updated above if res.ok
       }
     },
     [includeArchived]
