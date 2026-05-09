@@ -449,6 +449,76 @@ jobs:
             fi
           done
 
+      - name: Stuck `ai-phase-opus` PRs (Opus reviewed but address-feedback didn't transition)
+        run: |
+          set -euo pipefail
+          # PRs that received an Opus review but never transitioned to
+          # `ai-cp-after-1 + ai-o-after-1 + ai-awaiting-owner` indicate the
+          # `Dispatch address-feedback` step in `ai-pr-review.yml` succeeded
+          # but the dispatched run was cancelled (the global concurrency
+          # group `ai-address-feedback-global` cancelled it under load — the
+          # `cancel-in-progress: false` setting queues but the GHA scheduler
+          # has been observed to mark queued runs `cancelled` instead).
+          # The cold-dispatch path ABOVE (line ~290) explicitly skips PRs
+          # with `ai-phase-opus`, so without this step a PR can sit in
+          # `ai-phase-opus` forever.
+          #
+          # Detection: PR has `ai-phase-opus` AND a recent successful
+          # ai-pr-review run (within 60 min) AND no successful
+          # ai-address-feedback run on the same head SHA after that
+          # ai-pr-review. Re-dispatch address-feedback to advance the cycle.
+          STUCK_AGE_SECS=900   # 15 min — give the post-Opus dispatch a chance
+          NOW=$(date -u +%s)
+
+          gh pr list --repo "$REPO_FULL" --state open --label "ai-phase-opus" \
+            --json number,headRefOid,labels,updatedAt | jq -c '.[]' | while read -r pr; do
+            NUM=$(echo "$pr" | jq -r '.number')
+            HEAD=$(echo "$pr" | jq -r '.headRefOid')
+            LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
+
+            # Already converged on Opus pass — Address-feedback skipped or finished.
+            if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+              continue
+            fi
+            # Still has the in-progress marker — needs ai-cp-after-1 to even be in opus.
+            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
+              echo "PR #$NUM: ai-phase-opus without ai-cp-after-1 — unusual, leaving for cold-dispatch."
+              continue
+            fi
+
+            # Look for the most recent successful ai-pr-review on this head SHA.
+            LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=20" \
+              --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD\" and .conclusion == \"success\")] | first | .updated_at // empty")
+            if [ -z "$LAST_OPUS_AT" ]; then
+              echo "PR #$NUM: no successful ai-pr-review on head $HEAD yet — skipping."
+              continue
+            fi
+            LAST_OPUS_TS=$(date -u -d "$LAST_OPUS_AT" +%s 2>/dev/null || echo 0)
+            AGE=$(( NOW - LAST_OPUS_TS ))
+            if [ "$AGE" -lt "$STUCK_AGE_SECS" ]; then
+              echo "PR #$NUM: Opus reviewed ${AGE}s ago — give the post-review dispatch more time."
+              continue
+            fi
+
+            # Has any address-feedback run completed for this PR after the Opus run?
+            AF_AFTER=$(gh api "repos/$REPO_FULL/actions/workflows/ai-address-feedback.yml/runs?per_page=30" \
+              --jq "[.workflow_runs[] | select(.conclusion == \"success\" and .updated_at > \"$LAST_OPUS_AT\")] | length")
+            if [ "${AF_AFTER:-0}" -gt 0 ]; then
+              # An address-feedback run completed after Opus, but the PR still has
+              # ai-phase-opus and lacks ai-o-after-1. That run was for a different
+              # PR (the global queue serializes them). Re-dispatch for THIS PR.
+              echo "PR #$NUM: address-feedback ran after Opus but didn't progress this PR — re-dispatching."
+            else
+              echo "PR #$NUM: no address-feedback run after Opus — re-dispatching."
+            fi
+
+            gh workflow run ai-address-feedback.yml --repo "$REPO_FULL" \
+              --field pr_number="$NUM" \
+              --field reason="watchdog: stuck in ai-phase-opus for ${AGE}s after successful Opus review" || true
+            gh pr comment "$NUM" --repo "$REPO_FULL" \
+              --body "🔁 **AI Watchdog**: detected stuck \`ai-phase-opus\` after successful Opus review (${AGE}s ago). Re-dispatched \`ai-address-feedback.yml\` to advance the cycle." || true
+          done
+
       - name: Auto-retry blocked PRs (address-feedback failures)
         run: |
           set -euo pipefail
