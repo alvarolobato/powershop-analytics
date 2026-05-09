@@ -96,6 +96,13 @@ jobs:
           echo "Saltando ${{ matrix.role.slug }} porque only_role=${{ github.event.inputs.only_role }}"
           exit 0
 
+      - name: Load knowledge bundle
+        id: load-knowledge
+        if: ${{ github.event.inputs.only_role == '' || github.event.inputs.only_role == matrix.role.slug }}
+        uses: ./.github/actions/load-knowledge
+        with:
+          slices: data-decisions,architecture-sales,architecture-wholesale,architecture-stock,architecture-purchasing,architecture-products
+
       - name: Revisión del rol ${{ matrix.role.slug }}
         if: ${{ github.event.inputs.only_role == '' || github.event.inputs.only_role == matrix.role.slug }}
         uses: anthropics/claude-code-action@v1
@@ -108,6 +115,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 30"
           prompt: |
+            ${{ steps.load-knowledge.outputs.bundle }}
+
+            ---
+
             Eres un consultor de negocio simulando un rol concreto del cliente. Tu trabajo de hoy es proponer **como máximo una** mejora desde el ángulo de tu rol.
 
             ## Variables de entorno disponibles

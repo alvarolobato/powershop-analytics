@@ -421,6 +421,34 @@ Add the `no-ai` label before opening.
 - **Author-association gates**: Sensitive workflows (`/ai` command, worker) only respond to `OWNER` / `MEMBER` / `COLLABORATOR`.
 - **Fork safety**: `pull_request_target` workflows guard against running untrusted PR code with access to secrets.
 
+## Knowledge bundle for workflows
+
+Seven data-touching workflows consume the centralized data-platform knowledge via the composite action `.github/actions/load-knowledge/`. Each workflow opts into the slices it needs — the full bundle is ~14K tokens, far too much for every workflow to swallow blindly. The composite action wraps the requested marker sections (`## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs`) from each source MD into a `## Data Platform Knowledge` block that gets prepended to the workflow's Claude prompt.
+
+The MD files are the single source of truth shared with the dashboard runtime LLM (compiled into `dashboard/lib/knowledge.ts` via `dashboard/scripts/build-knowledge.ts`). When MDs change, both consumers — dashboard at runtime, workflows at next dispatch — see the change without a compile/release cycle.
+
+| Workflow | Slices | Rationale |
+|----------|--------|-----------|
+| `ai-sql-validator` | `data-decisions, etl-sync-strategy` | Validator checks SQL pairs against PostgreSQL. Business rules (`total_si` vs `total`, `entrada=true`, `tienda<>'99'`) and field conventions (NUMERIC PKs, `fecha_creacion`) let Claude flag semantic errors, not just syntax. |
+| `ai-dashboard-audit` | `data-decisions` | Code-quality review primary. Knowing the table structure helps Claude flag data-model mistakes in generated SQL. Minimal context. |
+| `ai-etl-health` | `etl-sync-strategy, architecture-{sales,wholesale,stock}` | Verifies ETL code implements the documented strategy. `etl-sync-strategy` provides delta fields, PKs, sync methods. Architecture slices provide FK relationships and field notes for the most-synced tables. |
+| `ai-bug-hunter` | `data-decisions, etl-sync-strategy` | Data-related bugs (wrong field, incorrect JOIN, missing unsigned-to-signed decode, wrong PK type) require knowing what correct behaviour is. These slices define "correct". |
+| `ai-feature-ideas` | `data-decisions, architecture-{sales,wholesale,stock}` | Ideas should be grounded in what data is actually available. Architecture slices describe table relationships and existing columns so Claude proposes ideas that are buildable, not just conceptual. |
+| `business-review-weekly` | `data-decisions, architecture-{sales,wholesale,stock,purchasing,products}` | The 7 simulated business roles (CEO, Retail, Mayorista, Compras, CFO, Producto, BI Skeptic) reason about whether dashboards serve business decisions. They need to know what data exists in each domain to evaluate dashboard design quality. |
+| `ai-project-summary` | `data-decisions` | Daily summary handles GitHub activity, but when suggesting "easy pickings" issues it benefits from knowing what data-related issues are high-value vs low-value. Minimal context. |
+
+**Pure-plumbing workflows are NOT migrated** — they have no need for data semantics:
+
+- `ai-pr-review` (code review on diffs)
+- `ai-pr-mergeability` (merge conflict resolution)
+- `ai-stale-manager` (issue/PR aging)
+- `ai-issue-triage` (label assignment)
+- `ai-test`, `ai-plan`, `ai-worker`, `ai-command`, `ai-address-feedback`, `ai-ci-remediation` (code-related)
+
+Adding a slice or rewiring an existing one is a single-line YAML edit in the workflow + a row update in this table.
+
+---
+
 ## Related Documentation
 
 - [AGENTS.md](../AGENTS.md) — Project agent guidelines (read by all AI workflows)

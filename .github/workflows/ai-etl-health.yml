@@ -15,12 +15,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Load knowledge bundle
+        id: load-knowledge
+        uses: ./.github/actions/load-knowledge
+        with:
+          slices: etl-sync-strategy,architecture-sales,architecture-wholesale,architecture-stock
+
       - name: ETL Health Check
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-haiku-4-5-20251001 --max-turns 15"
           prompt: |
+            ${{ steps.load-knowledge.outputs.bundle }}
+
+            ---
+
             You are the ETL Health Monitor. Check the health of the data pipeline.
 
             ## Checks to perform
