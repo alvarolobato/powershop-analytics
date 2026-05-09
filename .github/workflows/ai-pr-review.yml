@@ -158,33 +158,24 @@ jobs:
             echo 'PR_REVIEW_EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Check Opus review cap (legacy PRs)
+      - name: Workflow-file gate
         id: cap
         if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          LABELS=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '[.labels[].name] | join(",")')
-          SKIP=false
-          SKIP_REASON=""
-
-          if echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
-            SKIP=true
-            SKIP_REASON="legacy-cap-reached"
-          fi
-
           # Claude Code Action's OIDC app-token exchange validates that workflow
           # files on the PR branch match the default branch. If the PR modifies
           # any `.github/workflows/*` file, the exchange fails with 401 and the
           # Claude step hard-errors. Detect that up front and skip cleanly so
           # PRs that edit workflows don't show a spurious red X.
-          if [ "$SKIP" != "true" ]; then
-            WORKFLOW_CHANGES=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files" --paginate \
-              --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length' 2>/dev/null || echo "0")
-            if [ "${WORKFLOW_CHANGES:-0}" -gt 0 ]; then
-              SKIP=true
-              SKIP_REASON="workflow-file-change"
-            fi
+          SKIP=false
+          SKIP_REASON=""
+          WORKFLOW_CHANGES=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}/files" --paginate \
+            --jq '[.[] | select(.filename | startswith(".github/workflows/"))] | length' 2>/dev/null || echo "0")
+          if [ "${WORKFLOW_CHANGES:-0}" -gt 0 ]; then
+            SKIP=true
+            SKIP_REASON="workflow-file-change"
           fi
 
           echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
@@ -247,53 +238,6 @@ jobs:
         run: |
           gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
             --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
-
-      - name: Max automated Opus reviews reached (legacy)
-        if: success() && steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip == 'true' && steps.cap.outputs.skip_reason == 'legacy-cap-reached'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR: ${{ env.PR_NUMBER }}
-        run: |
-          set -euo pipefail
-          gh pr edit "$PR" --repo "$REPO" \
-            --remove-label "ai-ready-for-review" \
-            --remove-label "ai-auto-retry" || true
-          HS=$(bash .github/scripts/ci-handoff-state.sh "$REPO" "$PR")
-          gh label create "ai-ci-failing" --color D93F0B --description "CI failed; bot may auto-remediate" 2>/dev/null || true
-          if [ "$HS" = "ready" ]; then
-            gh pr edit "$PR" --repo "$REPO" --remove-label "ai-ci-failing" || true
-            gh pr edit "$PR" --repo "$REPO" --add-label "ai-awaiting-owner" || true
-            gh pr comment "$PR" --repo "$REPO" \
-              --body "✅ **AI Factory**: This PR has reached the maximum number of automated Opus review passes (**2**). No further Opus runs will be dispatched. Merge or continue manually."
-          else
-            gh pr edit "$PR" --repo "$REPO" --remove-label "ai-awaiting-owner" || true
-            gh pr edit "$PR" --repo "$REPO" --add-label "ai-ci-failing" || true
-            if [ "$HS" = "failing" ]; then
-              gh pr comment "$PR" --repo "$REPO" \
-                --body "⚠️ **AI Factory**: Max automated Opus passes reached, but **CI is failing** — not marking \`ai-awaiting-owner\`. Added \`ai-ci-failing\`. **AI CI remediation** will be dispatched." || true
-              gh workflow run ai-ci-remediation.yml --repo "$REPO" --field pr_number="$PR" || true
-            else
-              gh pr comment "$PR" --repo "$REPO" \
-                --body "⏳ **AI Factory**: Max automated Opus passes reached, but **CI is still running** — not marking \`ai-awaiting-owner\` yet." || true
-            fi
-          fi
-
-      - name: Record legacy Opus pass
-        if: success() && steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          LABELS=$(gh api "repos/${{ github.repository }}/pulls/${{ env.PR_NUMBER }}" --jq '[.labels[].name] | join(",")')
-          if echo ",$LABELS," | grep -q ",ai-phase-copilot," || echo ",$LABELS," | grep -q ",ai-phase-opus,"; then
-            echo "Phased PR — skip legacy Opus counters."
-            exit 0
-          fi
-          if ! echo ",$LABELS," | grep -q ",ai-legacy-opus-1,"; then
-            gh pr edit "${{ env.PR_NUMBER }}" --add-label "ai-legacy-opus-1" || true
-          elif ! echo ",$LABELS," | grep -q ",ai-legacy-opus-2,"; then
-            gh pr edit "${{ env.PR_NUMBER }}" --add-label "ai-legacy-opus-2" || true
-          fi
 
       - name: Dispatch address-feedback
         if: success() && steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'

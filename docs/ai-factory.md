@@ -65,7 +65,6 @@ When a new issue is opened, the **Issue Triage** workflow runs automatically —
 | `ai-planned` | The `/plan` command has posted an implementation plan (auto-set). |
 | `no-ai` | Human-only. Factory will not touch this issue. |
 | `no-pr-review` | Skip the AI PR review on this PR. |
-| `auto-merge` | Merge automatically when CI passes and review approves *(reserved for future use)*. |
 | `p0-critical` → `p3-low` | Priority — the factory processes higher priorities first. |
 
 ### c) Use slash commands in comments
@@ -417,7 +416,7 @@ Add the `no-ai` label before opening.
 
 - **Read-only SQL policy**: Every AI-generated SQL is validated against the project's read-only rule. `INSERT`/`UPDATE`/`DELETE`/`DROP`/`ALTER`/`CREATE`/`TRUNCATE` are never allowed against the source ERP.
 - **No credentials in code**: The PR Review workflow explicitly checks for leaked secrets.
-- **Human-in-the-loop merges**: Every AI-generated PR requires explicit human approval to merge. There is no auto-merge yet.
+- **Human-in-the-loop merges**: Every AI-generated PR requires explicit human approval to merge.
 - **Author-association gates**: Sensitive workflows (`/ai` command, worker) only respond to `OWNER` / `MEMBER` / `COLLABORATOR`.
 - **Fork safety**: `pull_request_target` workflows guard against running untrusted PR code with access to secrets.
 

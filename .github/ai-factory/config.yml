@@ -19,7 +19,6 @@ labels:
   auto_retry: "ai-auto-retry" # Watchdog retries automatically; pairs with ai-blocked
   no_ai: "no-ai"              # Human-only
   no_review: "no-pr-review"   # Skip AI PR review on this PR
-  auto_merge: "auto-merge"    # Auto-merge when CI + review pass (reserved for future)
   awaiting_owner: "ai-awaiting-owner"  # Automated review cycle done — owner merges when ready
   ci_failing: "ai-ci-failing"            # CI workflow red; AI CI remediation may run
   ready_for_review: "ai-ready-for-review"  # Address-feedback finished; trigger next PR review
@@ -46,13 +45,12 @@ labels:
     - "comp-docs"
 
   # AI Factory — phased PR review (see ai-worker / ai-pr-review / ai-address-feedback)
+  # Per D-021, exactly 1 Copilot pass + 1 Opus pass. No multi-round retries.
   review_phases:
     - "ai-phase-copilot"   # Awaiting / in Copilot review (before Opus)
     - "ai-cp-after-1"      # Addressed feedback after Copilot review
     - "ai-phase-opus"      # In Opus review pass
     - "ai-o-after-1"       # Addressed after Opus review (terminal for AI review)
-    - "ai-legacy-opus-1"   # Legacy PRs: first Opus pass recorded
-    - "ai-legacy-opus-2"   # Legacy PRs: second Opus pass — further Opus runs skipped
 
   # Auto-managed by ai-pr-mergeability.yml (created on demand)
   mergeability:
@@ -84,11 +82,9 @@ schedules:
   weekly_friday: "0 10 * * 5"     # Friday 10:00
   weekly_sunday: "0 20 * * 0"     # Sunday 20:00
 
-# Title prefixes for AI-created issues
+# Title prefixes for AI-created issues (only those still produced by an active agent)
 title_prefixes:
   bug_hunter: "[bug-hunter]"
-  security: "[security]"
-  docs_patrol: "[docs-patrol]"
   dashboard_audit: "[dashboard-audit]"
   etl_health: "[etl-health]"
   sql_validator: "[sql-validator]"
