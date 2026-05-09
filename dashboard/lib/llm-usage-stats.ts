@@ -155,8 +155,8 @@ export async function getLlmUsageAggregates(): Promise<LlmUsageAggregates> {
       const cacheCreation = row.cache_creation_sum != null ? Number(row.cache_creation_sum) : null;
       const cacheRead = row.cache_read_sum != null ? Number(row.cache_read_sum) : null;
       const promptSum = Number(row.prompt_tokens_sum) || 0;
-      // Cache hit rate = cache_read / (non-cached prompt + cache_read) * 100
-      const hitDenominator = promptSum + (cacheRead ?? 0);
+      // Cache hit rate = cache_read / (non-cached prompt + cache_creation + cache_read) * 100
+      const hitDenominator = promptSum + (cacheCreation ?? 0) + (cacheRead ?? 0);
       const cacheHitRatePct =
         cacheRead != null && hitDenominator > 0
           ? (cacheRead / hitDenominator) * 100

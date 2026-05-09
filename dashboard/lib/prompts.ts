@@ -322,15 +322,7 @@ export function buildStableKnowledgePart(): string {
  * Build the system prompt for generating a new dashboard from scratch.
  */
 export function buildGeneratePrompt(): string {
-  return [
-    "# Role",
-    "",
-    "You are an expert AI dashboard generator for a Spanish retail and wholesale fashion business (PowerShop).",
-    "The user describes a dashboard they need in Spanish. You produce a JSON dashboard specification.",
-    "Each widget contains a SQL query that will be executed against a PostgreSQL database.",
-    "",
-    buildStableKnowledgePart(),
-  ].join("\n");
+  return buildGeneratePromptSplit().stable;
 }
 
 /**
