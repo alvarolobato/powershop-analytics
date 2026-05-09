@@ -262,6 +262,36 @@ jobs:
             echo "status=incomplete" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Self-heal sub-issue labels
+        if: always() && steps.verify_plan.outputs.status == 'planned'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Defense-in-depth: ensure every sub-issue carries BOTH `ai-task` AND
+          # `ai-work`. The planner agent has been observed (e.g. on issue #502)
+          # to add `ai-task` but skip `ai-work`, leaving sub-issues stalled
+          # forever — the implement phase only triggers when `ai-work` is
+          # applied. This step audits every sub-issue and adds whichever
+          # required label is missing.
+          SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
+            --state open --limit 50 \
+            --search "Closes #${ISSUE_NUMBER} in:body" \
+            --json number,labels)
+
+          echo "$SUB_ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+            if ! echo ",$LABELS," | grep -q ",ai-task,"; then
+              echo "Sub-issue #$NUM missing 'ai-task' — adding."
+              gh issue edit "$NUM" --add-label "ai-task" || true
+            fi
+            if ! echo ",$LABELS," | grep -q ",ai-work,"; then
+              echo "Sub-issue #$NUM missing 'ai-work' — planner forgot; adding to trigger implementation."
+              gh issue edit "$NUM" --add-label "ai-work" || true
+            fi
+          done
+
       - name: Detect mangled sub-issue bodies
         if: always()
         env:
@@ -377,7 +407,21 @@ jobs:
 
             ## Process
             1. Read sub-task issue #${{ env.ISSUE_NUMBER }}: title, body, acceptance criteria
-            2. Read the PARENT issue (linked in the body) for full context and architecture decisions
+            2. Read the PARENT issue (linked in the body) — **including ALL its comments**.
+               The planner posts the implementation plan (analysis, architecture decisions,
+               dependency order, "what is NOT a sub-task" rules) as a COMMENT, not in the
+               body. Reading just the body misses everything that matters for context.
+               Use this to fetch body + every comment in one shot:
+               ```
+               PARENT=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body \
+                 | grep -oE 'Closes #[0-9]+' | head -1 | tr -d '#A-Za-z ')
+               if [ -n "$PARENT" ]; then
+                 gh issue view "$PARENT" --json title,body,comments \
+                   --jq '"# \(.title)\n\n\(.body)\n\n---\n\n" + (.comments | map("## Comment by \(.author.login) at \(.createdAt)\n\n\(.body)") | join("\n\n---\n\n"))'
+               fi
+               ```
+               Read every comment top to bottom — the architecture rationale, dependency
+               graph, and design discussions live there.
             3. Read CLAUDE.md and AGENTS.md
             4. Read relevant skill docs in docs/skills/ for the affected domain
             5. Before starting, run the **sibling-PR pre-flight check** — this is
