@@ -379,15 +379,10 @@ jobs:
             - If CI was failing, your commit must fix it. Run the same commands CI runs.
 
             ## Completion
-            - If the PR has labels `ai-phase-copilot` or `ai-phase-opus`, do **NOT** call `requested_reviewers` — the workflow decides the next review step after you push.
-            - Otherwise (legacy PRs), after replying to all threads and committing fixes, re-request Copilot review.
-              GITHUB_TOKEN cannot assign Copilot — prefix the POST with the PAT exposed via `$COPILOT_PAT`
-              (fall back to the default token only if the env var is empty, so the warning path still fires):
-              ```bash
-              GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" gh api \
-                repos/${{ github.repository }}/pulls/${{ needs.resolve.outputs.pr_number }}/requested_reviewers \
-                --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'
-              ```
+            - Do **NOT** call `requested_reviewers` from this step. Per D-021 the
+              cycle is exactly 1 Copilot pass + 1 Opus pass; the workflow decides
+              the next review step (transition to `ai-phase-opus` or to
+              `ai-awaiting-owner`) after you push.
             - Post a single summary comment listing: threads addressed (with fix), threads skipped
               (with reason), files touched, tests run.
             - If you could NOT address something and need human input, post a comment tagging
@@ -581,18 +576,12 @@ jobs:
             exit 0
           fi
 
-          # Post-terminal guard: if this PR already finished its automated
-          # cycle (ai-o-after-1 set by the Opus branch above), don't fall
-          # through to the legacy path and re-dispatch Opus review.
-          if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
-            echo "PR #$PR already completed automated review (ai-o-after-1 present) — skipping legacy dispatch."
-            exit 0
-          fi
-
-          # Legacy PRs (no phased labels): same as before — re-dispatch Opus review (capped via ai-legacy-opus-* in ai-pr-review).
-          gh pr edit "$PR" --repo "$REPO" --add-label "ai-ready-for-review" || true
-          gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
-          echo "Dispatched legacy Opus PR review for PR #$PR."
+          # If we got here, the PR has neither phase label nor a round
+          # marker — that's an unexpected state for the post-#519 cycle
+          # (every PR enters review via worker `Handle success` adding
+          # `ai-phase-copilot`). Log and exit; the watchdog cold-dispatch
+          # path will re-enter the flow if appropriate.
+          echo "PR #$PR: no phase label and no round marker — unexpected, leaving for watchdog."
 
       - name: Handle failure
         if: failure()
