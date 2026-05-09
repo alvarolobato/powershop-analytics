@@ -339,6 +339,41 @@ If you discover something during a session — a null field, an unexpected table
 
 ---
 
+## Knowledge file maintenance — data-decisions.md and source MDs
+
+The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/data-decisions.md`, `docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
+
+When you change anything that affects what the LLM should know about the data platform — adding a decision in `DECISIONS-AND-CHANGES.md` with data semantics; updating an architecture file with a new gotcha; finding a new SQL pattern — also update the relevant marker section of the source MD and run `npm run build:knowledge`. The CI drift guard fails the PR if `dashboard/lib/knowledge.ts` is out of sync with the sources.
+
+Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — keep them in `DECISIONS-AND-CHANGES.md` only.
+
+### What goes where
+
+| Type of change | Source MD to update |
+|----------------|---------------------|
+| New data semantics decision (table, field, type, join) | `docs/data-decisions.md` under `## LLM:rules` |
+| New table relationship or ER diagram finding | `docs/architecture/<domain>.md` under `## LLM:relationships` |
+| New SQL query pattern or validated example | `docs/dashboard/sql-pairs.md` under `## LLM:sql-pairs` |
+| Schema / column gotcha | `docs/skills/data-access.md` under `## LLM:rules` |
+| New 4D SQL syntax finding | `docs/skills/4d-sql-dialect.md` under `## LLM:rules` |
+| ETL delta field, PK, sync method for a table | `docs/etl-sync-strategy.md` — follow the existing format |
+
+### Build and drift guard
+
+```bash
+# Regenerate knowledge.ts from source MDs
+npm run build:knowledge
+
+# Verify no drift (run before committing)
+git diff --exit-code dashboard/lib/knowledge.ts
+```
+
+The CI drift guard runs `npm run build:knowledge` and fails if `dashboard/lib/knowledge.ts`
+differs from what the sources produce. Never hand-edit `dashboard/lib/knowledge.ts` —
+edit the source MDs and regenerate.
+
+---
+
 ## AI Assistant Configuration
 
 This project supports **Claude Code** and other AI assistants. All follow the same guideline:
