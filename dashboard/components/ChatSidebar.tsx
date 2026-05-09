@@ -14,6 +14,7 @@ import { appendCoalescedLogLine } from "@/lib/format-agentic-progress";
 import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
 import AgenticErrorDetails from "@/components/AgenticErrorDetails";
+import PreviousConversations from "@/components/PreviousConversations";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -87,6 +88,71 @@ export interface ChatSidebarProps {
    * already handles opening the sidebar.
    */
   hideWhenClosed?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation API types (from /api/conversations — Task 2 #537)
+// ---------------------------------------------------------------------------
+
+interface ConversationApiMessage {
+  id: string;
+  conversation_id: string;
+  role: "user" | "assistant" | "tool";
+  content: unknown; // JSONB: string | { text?: string } | { type: string; text?: string }[]
+  created_at: string;
+}
+
+interface ConversationWithMessages {
+  id: string;
+  mode: string;
+  title: string | null;
+  first_user_prompt: string | null;
+  messages?: ConversationApiMessage[];
+}
+
+interface ConversationListResponse {
+  conversations: {
+    id: string;
+    title: string | null;
+    first_user_prompt: string | null;
+    last_interaction_at: string;
+    archived_at: string | null;
+    message_count: number;
+    last_status: string | null;
+  }[];
+}
+
+interface ConversationDetailResponse {
+  conversation: ConversationWithMessages;
+}
+
+// ---------------------------------------------------------------------------
+// Conversation message converter
+// ---------------------------------------------------------------------------
+
+function extractTextFromContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (content && typeof content === "object") {
+    const c = content as Record<string, unknown>;
+    if (typeof c.text === "string") return c.text;
+    if (Array.isArray(content)) {
+      const arr = content as Array<Record<string, unknown>>;
+      const textBlock = arr.find((b) => b.type === "text" && typeof b.text === "string");
+      if (textBlock && typeof textBlock.text === "string") return textBlock.text;
+    }
+  }
+  return "";
+}
+
+function convertConversationMessages(messages: ConversationApiMessage[]): ChatMessage[] {
+  return messages
+    .filter((msg) => msg.role === "user" || msg.role === "assistant")
+    .map((msg) => ({
+      role: msg.role as "user" | "assistant",
+      content: extractTextFromContent(msg.content),
+      timestamp: new Date(msg.created_at),
+    }))
+    .filter((msg) => msg.content.length > 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1458,6 +1524,72 @@ export default function ChatSidebar({
     }
   }, [initialMode]);
 
+  // -------------------------------------------------------------------------
+  // Conversation history state
+  // -------------------------------------------------------------------------
+
+  const [modifyConversationId, setModifyConversationId] = useState<string | null>(null);
+  const [analyzeConversationId, setAnalyzeConversationId] = useState<string | null>(null);
+  const [showPreviousConversations, setShowPreviousConversations] = useState(false);
+
+  // Auto-load the latest non-archived conversation for each mode on mount.
+  // Gracefully falls through if the API is not yet available (Task 2 / #537).
+  const conversationAutoLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!dashboardId || conversationAutoLoadedRef.current) return;
+    conversationAutoLoadedRef.current = true;
+
+    const loadLatest = async (apiMode: string) => {
+      try {
+        const res = await fetch(
+          `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${apiMode}&limit=1`,
+        );
+        if (!res.ok) return; // API not ready (Task 2 not merged), fall through
+        const data = (await res.json()) as ConversationListResponse;
+        if (!data.conversations?.length) return;
+
+        const conv = data.conversations[0];
+        if (conv.archived_at) return; // Only load non-archived
+
+        const msgRes = await fetch(`/api/conversations/${conv.id}`);
+        if (!msgRes.ok) return;
+        const msgData = (await msgRes.json()) as ConversationDetailResponse;
+        const messages = convertConversationMessages(msgData.conversation.messages ?? []);
+
+        if (apiMode === "modify") {
+          setModifyConversationId(conv.id);
+          if (messages.length > 0) {
+            setModifyMessages(messages);
+          }
+        } else {
+          setAnalyzeConversationId(conv.id);
+          if (messages.length > 0) {
+            setAnalyzeMessages(messages);
+          }
+        }
+      } catch {
+        // Silently ignore — API not available yet
+      }
+    };
+
+    void loadLatest("modify");
+    void loadLatest("analyze");
+  }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // "Nueva conversación" — clears messages and conversation ID for the active tab
+  const handleNewConversation = useCallback(() => {
+    if (activeTab === "modificar") {
+      setModifyConversationId(null);
+      setModifyMessages([]);
+      onModifyMessagesChange?.([]);
+    } else {
+      setAnalyzeConversationId(null);
+      setAnalyzeMessages([]);
+      onAnalyzeMessagesChange?.([]);
+    }
+    setShowPreviousConversations(false);
+  }, [activeTab, onModifyMessagesChange, onAnalyzeMessagesChange]);
+
   // Handle pending modify prefill (opens sidebar in modify tab)
   useEffect(() => {
     if (!pendingModifyInput?.trim() || pendingModifyTriggerId === undefined) return;
@@ -1539,7 +1671,9 @@ export default function ChatSidebar({
       }}
     >
       {/* Header */}
-      <header style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)" }}>
+      <header
+        style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)", position: "relative" }}
+      >
         <div
           style={{
             display: "flex",
@@ -1575,30 +1709,59 @@ export default function ChatSidebar({
               Conectado · claude-sonnet
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-label="Cerrar chat"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "var(--fg-muted)",
-              fontSize: 16,
-              padding: "4px 8px",
-              borderRadius: 6,
-              height: 28,
-              display: "flex",
-              alignItems: "center",
-            }}
-          >
-            ✕
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            {/* "+ Nueva conversación" button — only shown when dashboardId is set */}
+            {dashboardId !== undefined && (
+              <button
+                type="button"
+                onClick={handleNewConversation}
+                aria-label="Nueva conversación"
+                data-testid="new-conversation-btn"
+                title="Nueva conversación"
+                style={{
+                  background: "none",
+                  border: "1px solid var(--border)",
+                  cursor: "pointer",
+                  color: "var(--fg-muted)",
+                  fontSize: 11,
+                  padding: "3px 8px",
+                  borderRadius: 6,
+                  fontFamily: "inherit",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 3,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                <span aria-hidden="true">+</span>
+                <span>Nueva</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-label="Cerrar chat"
+              style={{
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                color: "var(--fg-muted)",
+                fontSize: 16,
+                padding: "4px 8px",
+                borderRadius: 6,
+                height: 28,
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              ✕
+            </button>
+          </div>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar with history icon */}
         <div
-          style={{ display: "flex", gap: 0, marginTop: 6 }}
+          style={{ display: "flex", gap: 0, marginTop: 6, alignItems: "stretch" }}
           role="tablist"
           aria-label="Pestañas del chat"
         >
@@ -1626,7 +1789,56 @@ export default function ChatSidebar({
               {tab === "modificar" ? "Modificar" : "Analizar"}
             </button>
           ))}
+
+          {/* History icon button — only shown when dashboardId is set */}
+          {dashboardId !== undefined && (
+            <button
+              type="button"
+              onClick={() => setShowPreviousConversations((v) => !v)}
+              aria-label="Ver conversaciones anteriores"
+              aria-expanded={showPreviousConversations}
+              data-testid="previous-conversations-btn"
+              title="Conversaciones anteriores"
+              style={{
+                background: "transparent",
+                border: "none",
+                borderBottom: `2px solid ${showPreviousConversations ? "var(--accent)" : "transparent"}`,
+                cursor: "pointer",
+                color: showPreviousConversations ? "var(--accent)" : "var(--fg-muted)",
+                padding: "10px 10px",
+                fontSize: 14,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {/* Clock / history icon */}
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </button>
+          )}
         </div>
+
+        {/* Previous conversations panel */}
+        {showPreviousConversations && dashboardId !== undefined && (
+          <PreviousConversations
+            dashboardId={dashboardId}
+            mode={activeTab === "modificar" ? "modify" : "analyze"}
+            onClose={() => setShowPreviousConversations(false)}
+          />
+        )}
       </header>
 
       {/* Tab content */}
