@@ -19,7 +19,7 @@ import {
   claudeCliAgenticStep,
   parseStreamJsonLine,
 } from "@/lib/llm-provider/cli/claude-code";
-import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
+import { CliRunnerError } from "@/lib/llm-client";
 import type { DashboardLlmConfig } from "@/lib/llm-provider/types";
 
 const cfg: DashboardLlmConfig = {

@@ -339,6 +339,43 @@ If you discover something during a session — a null field, an unexpected table
 
 ---
 
+## Knowledge file maintenance — data-decisions.md and source MDs
+
+> **Target architecture (issue #502):** `docs/dashboard/sql-pairs.md`, the `npm run build:knowledge` script, and the CI drift guard do not exist yet — they are implemented in issue #502. Until that lands, `dashboard/lib/knowledge.ts` is maintained manually. The instructions below describe the intended target state.
+
+The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/data-decisions.md`, `docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
+
+When you change anything that affects what the LLM should know about the data platform — adding a decision in `DECISIONS-AND-CHANGES.md` with data semantics; updating an architecture file with a new gotcha; finding a new SQL pattern — also update the relevant marker section of the source MD and run `npm run build:knowledge` (issue #502). Once the drift guard is live, the CI check will fail the PR if `dashboard/lib/knowledge.ts` is out of sync with the sources.
+
+Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — keep them in `DECISIONS-AND-CHANGES.md` only.
+
+### What goes where
+
+| Type of change | Source MD to update |
+|----------------|---------------------|
+| New data semantics decision (table, field, type, join) | `docs/data-decisions.md` under `## LLM:rules` |
+| New table relationship or ER diagram finding | `docs/architecture/<domain>.md` under `## LLM:relationships` |
+| New SQL query pattern or validated example | `docs/dashboard/sql-pairs.md` under `## LLM:sql-pairs` |
+| Schema / column gotcha | `docs/skills/data-access.md` under `## LLM:rules` |
+| New 4D SQL syntax finding | `docs/skills/4d-sql-dialect.md` under `## LLM:rules` |
+| ETL delta field, PK, sync method for a table | `docs/etl-sync-strategy.md` — follow the existing format |
+
+### Build and drift guard
+
+```bash
+# Regenerate knowledge.ts from source MDs
+npm run build:knowledge
+
+# Verify no drift (run before committing)
+git diff --exit-code dashboard/lib/knowledge.ts
+```
+
+Once implemented (issue #502), the CI drift guard runs `npm run build:knowledge` and fails
+if `dashboard/lib/knowledge.ts` differs from what the sources produce.
+Never hand-edit `dashboard/lib/knowledge.ts` — edit the source MDs and regenerate.
+
+---
+
 ## AI Assistant Configuration
 
 This project supports **Claude Code** and other AI assistants. All follow the same guideline:
@@ -358,6 +395,20 @@ This project supports **Claude Code** and other AI assistants. All follow the sa
 ## GitHub access
 
 Use the [GitHub CLI](https://cli.github.com/) (`gh`) for all GitHub operations.
+
+---
+
+## AI Factory lifecycle
+
+The full lifecycle of an issue (planner → sub-issues → implementer → PR → Copilot → Opus → human merge), the labels that signal each state, the recovery paths for failures, and **every point where a human is expected to step in** are documented in **[docs/ai-factory.md § Lifecycle in detail](docs/ai-factory.md#lifecycle-in-detail)**.
+
+Read it before:
+- modifying any workflow under `.github/workflows/ai-*.yml` — the state machine is enforced across multiple files (`ai-worker.yml`, `ai-pr-review.yml`, `ai-address-feedback.yml`, `ai-watchdog.yml`) and changes in one need to be reasoned about against the others.
+- adding a new label that participates in the AI lifecycle.
+- changing the review policy (caps, rounds, who-requests-whom). See also [D-021](DECISIONS-AND-CHANGES.md#d-021).
+- diagnosing a stalled / duplicated / mis-labelled issue or PR.
+
+The diagrams in that section reflect the post-#517/#518/#519 behaviour: implementers read parent comments, planner self-heals missing `ai-work` labels, job-level concurrency cancels duplicates, and the worker's `Handle success` is idempotent against re-fires (no duplicate Copilot reviews).
 
 ---
 

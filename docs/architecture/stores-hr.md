@@ -401,3 +401,18 @@ Used for data integrity checking between store and central server:
 - **FormasPago** is a shared lookup used by POS, wholesale, and purchasing modules. Has 30 columns including 12 payment installment slots (`VP1..VP12`), bank remittance flags, Datisa ERP integration code (`CodigoDatisa`), and wholesale-specific flags (`GCDPP`, `GCSinImpuestos`). Referenced as `FormaPago` FK from Clientes, Ventas, GCPedidos, GCFacturas.
 - **AENA_* fields** are only populated for stores operating inside airports under AENA concessions — null for all regular stores.
 - The `CON*` accounting fields map store transactions to the chart of accounts in the connected accounting ERP. Each store can have a different account structure.
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_tiendas",
+    "alias": "Tienda",
+    "description": "Tiendas. 99=almacén central, 97=online.",
+    "keyColumns": ["reg_tienda (PK)", "codigo"]
+  }
+]
+```

@@ -30,7 +30,7 @@ vi.mock("@/lib/llm-provider/cli/claude-code", () => ({
 
 import { runAgenticChat, AgenticRunnerError } from "@/lib/llm-tools/runner";
 import { createClaudeCodeAgenticAdapter } from "@/lib/llm-provider/cli/agent-adapter";
-import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
+import { CliRunnerError } from "@/lib/llm-client";
 import type { DashboardLlmConfig } from "@/lib/llm-provider/types";
 
 const cfg: DashboardLlmConfig = {

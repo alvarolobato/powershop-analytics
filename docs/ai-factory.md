@@ -147,25 +147,233 @@ The previous day's summary is closed automatically. Read this, label a few issue
 
 All scheduled workflows support manual triggering via `workflow_dispatch`. All follow the **"silence is golden"** principle — they only create issues when they find something genuinely worth reporting.
 
-## Architecture Overview
+## Lifecycle in detail
 
-```
-Human direction (issues, labels, /plan, /ai)
-  ↓
-Discovery Layer — scheduled audits create issues
-  ↓
-Triage Layer — auto-label, deduplicate, prioritize
-  ↓
-Execution Layer — Claude Code: issue → branch → PR
-  ↓
-PR Lifecycle — AI review → address feedback → CI
-  ↓
-Deployment Layer — auto-release → Docker push → notify
-  ↓
-Loop — discovery finds new work
+> This section traces every state an issue passes through, from creation to merged code. It lists the workflows that drive each transition, the labels that signal state, and — most importantly — every moment a human is expected to step in.
+>
+> If you only read one thing, read **[Where humans intervene](#where-humans-intervene)** below.
+
+### Mental model — three nested loops
+
+1. **Issue loop** — a feature request goes from "open" to "all sub-issues merged" via the **planner** (the `plan` job in `ai-worker.yml`).
+2. **Sub-issue loop** — each sub-issue goes from "queued" to "PR opened" via the **implementer** (the `implement` job in the same workflow).
+3. **PR loop** — each PR goes from "opened" to "merged" via two automated review passes (Copilot, then Opus, per [D-021](../DECISIONS-AND-CHANGES.md#d-021)) plus the human merge.
+
+Failures at any layer route to a recovery path: the failing object gets `ai-blocked` + `ai-auto-retry`, and `ai-watchdog.yml` retries on a schedule (or escalates to the owner if the failure persists).
+
+### State labels at a glance
+
+Only AI-Factory labels are listed. Component / priority / size / risk labels are unrelated to the lifecycle.
+
+| Label | Set by | On | Means |
+|-------|--------|----|-------|
+| `ai-work` | 👤 human (or planner for sub-issues) | issue or PR | "AI: act on this." Trigger label for the worker. Removed as soon as a job picks it up. |
+| `ai-task` | planner | sub-issue | "This is a sub-issue of an `ai-planned` parent." Distinguishes plan target vs implement target. |
+| `ai-in-progress` | worker | issue | The worker is actively running. |
+| `ai-planned` | planner (end of plan job) | parent issue | "Plan committed; sub-issues created." |
+| `ai-blocked` | worker / address-feedback / watchdog | issue or PR | The agent couldn't proceed. The companion comment explains why. |
+| `ai-auto-retry` | worker / address-feedback | issue or PR | "Watchdog: retry this." Pairs with `ai-blocked`. |
+| `ai-needs-rewrite` | planner / verify steps | sub-issue | Sub-issue body got mangled (e.g. JSX/generics stripped). Don't act on it until repaired. |
+| `ai-phase-copilot` | worker `Handle success` (and only there, per #519) | PR | Round 1 (Copilot review) in progress. |
+| `ai-cp-after-1` | address-feedback | PR | Copilot feedback addressed. |
+| `ai-phase-opus` | address-feedback | PR | Round 2 (Opus review) in progress. |
+| `ai-o-after-1` | address-feedback | PR | Opus feedback addressed; cycle done. |
+| `ai-awaiting-owner` | address-feedback | PR | "Both reviews complete. Human merge decision pending." |
+| `ai-ci-failing` | address-feedback / ci-remediation | PR | CI is red; bot may auto-remediate. |
+| `ai-ready-for-review` | address-feedback | PR | "PR is ready for the next review pass." |
+| `no-ai` | 👤 human | issue or PR | Hands off. The factory will not touch this. |
+| `no-pr-review` | 👤 human | PR | Skip the AI PR review on this PR. |
+
+### Phase 1 — Issue → Plan
+
+```mermaid
+flowchart TD
+    A([Issue created]) --> B{Source}
+    B -->|"👤 Human writes issue"| C[Auto-triage workflow:<br/>component / priority / category labels<br/>+ duplicate check + format check]
+    B -->|"Discovery agent<br/>(bug-hunter, feature-ideas,<br/>ETL health, dashboard audit, …)"| C
+    C --> D[Issue in backlog<br/>no ai-work yet]
+    D -->|"👤 Human adds <code>ai-work</code>"| E[ai-worker.yml: plan job triggers]
+
+    E --> F["Plan job<br/>• remove ai-work, add ai-in-progress<br/>• read issue body + ALL comments (#517)<br/>• read CLAUDE.md / AGENTS.md / skills<br/>• explore codebase<br/>• post implementation-plan comment<br/>• create sub-issues with ai-task + ai-work<br/>• update parent body with checklist<br/>• self-heal: ensure each sub-issue carries<br/>  both ai-task AND ai-work (#517)"]
+
+    F --> G{Plan succeeded?}
+    G -->|Yes| H[Parent: ai-planned<br/>N sub-issues exist with ai-task + ai-work]
+    G -->|"Too vague / blocked"| I[Parent: ai-blocked + ai-auto-retry<br/>Comment tags @owner with what is needed]
+
+    I -->|"👤 owner clarifies issue,<br/>removes ai-blocked, re-adds ai-work"| E
+
+    H --> J([Sub-issues run in parallel — see Phase 2])
 ```
 
-The factory is organized as six layers, each with specific workflows. See the [workflow catalog](#what-runs-and-when) above for the complete list.
+**Walkthrough**
+
+1. Issue is created — by a human, or by a discovery agent on a cron. The triage workflow runs first and applies component / priority / category labels.
+2. The issue sits in the backlog until a **human** explicitly adds `ai-work`. Issues from the **business-review** workflow carry `needs-human-approval` and never get `ai-work` until the owner approves — see [D-028](../DECISIONS-AND-CHANGES.md#d-028).
+3. The plan job of `ai-worker.yml` removes `ai-work`, adds `ai-in-progress`, reads the issue body and **all comments**, reads project guidance (`CLAUDE.md`, `AGENTS.md`, relevant skills), explores the codebase, and writes a detailed implementation-plan comment listing every sub-task.
+4. The plan job creates one GitHub sub-issue per sub-task. Each sub-issue inherits `ai-task` (so it routes to the implement job, not the plan job) and `ai-work` (so the implement job fires immediately). A self-heal step audits the sub-issues and adds whichever required label is missing — defense against the planner forgetting one of them.
+5. If the plan job can't proceed (issue too vague, missing context), it tags the human owner in a comment and labels the parent `ai-blocked + ai-auto-retry`. The watchdog will retry on a schedule, or the human can intervene.
+
+**Human checkpoints in Phase 1**
+
+| When | What you do | Why |
+|------|-------------|-----|
+| Issue created by a discovery agent | Skim it; close or label `no-ai` if it's noise | Prevent the factory from chasing low-value work |
+| Issue is well-scoped | Add `ai-work` | Greenlight the planner |
+| Issue is ambiguous | `/plan` first to preview the planner's read; or clarify the body | Cheap "is this clear?" before committing the factory |
+| Parent landed on `ai-blocked` | Read the planner's blocking comment, edit the issue with answers, remove `ai-blocked`, re-add `ai-work` | The planner needs human input |
+
+### Phase 2 — Sub-issue → Implementation → PR
+
+```mermaid
+flowchart TD
+    S([Sub-issue created<br/>with ai-task + ai-work]) --> I[ai-worker.yml: implement job triggers]
+
+    I --> P["Implement job<br/>• remove ai-work, add ai-in-progress<br/>• read sub-issue body + acceptance criteria<br/>• read parent body + ALL comments (#517)<br/>• read CLAUDE.md / AGENTS.md / skills<br/>• run sibling-PR pre-flight check"]
+
+    P --> SC{Existing PR<br/>covers this work?}
+    SC -->|"Yes"| CL([Close sub-issue<br/>'covered by PR #X'])
+    SC -->|"No"| CO[Branch + code + tests + commit + push]
+
+    CO --> V{Verify PR was created}
+    V -->|"PR found"| ID{Idempotency guard #519:<br/>PR already in review cycle?}
+    V -->|"Issue closed by worker"| EX([Exit: deliberate no-op])
+    V -->|"Neither"| BL[ai-blocked + ai-auto-retry<br/>Watchdog will retry]
+
+    ID -->|"Yes — review-cycle labels<br/>or Copilot review present"| RR([Skip Copilot request<br/>'♻️ re-ran' comment on issue])
+    ID -->|"No — fresh PR"| HS[Handle success:<br/>• ai-phase-copilot<br/>• POST requested_reviewers Copilot]
+
+    HS --> RV([PR enters review cycle — see Phase 3])
+    BL -->|"watchdog re-adds ai-work"| I
+```
+
+**Walkthrough**
+
+1. The sub-issue carries both `ai-task` and `ai-work`. The implement job fires (the plan job doesn't, because of the `if:` conditions in the workflow).
+2. The implement agent reads the sub-issue, **then the parent** (body + comments — that's where the architectural rationale lives, per #517). Without this read-comments step, the implementer was missing the planner's analysis.
+3. **Sibling-PR pre-flight check**: if any sibling sub-issue already has a PR that covers the same work (same files, same intent), the agent closes this sub-issue with a "covered by PR #X" comment instead of opening a duplicate.
+4. Otherwise: branch (`ai/issue-<N>-<slug>`), code, test, commit, push, open PR with `Closes #<N>` in the body.
+5. The verify step looks up the PR by branch and by `Closes #` body match. Three outcomes:
+   - **PR found** → continue to the idempotency guard.
+   - **Issue closed by the worker** (sibling-PR pre-flight match) → exit.
+   - **Neither** → `ai-blocked + ai-auto-retry`.
+6. **Idempotency guard** (added in #519): before adding `ai-phase-copilot` and POSTing `requested_reviewers`, check the PR's labels for any of `ai-phase-copilot` / `ai-phase-opus` / `ai-cp-after-1` / `ai-o-after-1`, and check the reviews list for an existing Copilot review. If any are present, this run is a re-fire (the implementer ran twice and found the PR from the first run). Skip the Copilot request, post a `♻️ re-ran` comment on the issue, exit. **Without this guard, re-firing the worker on a sub-task that already has a PR produced a second Copilot review** — the bug fixed by #519.
+7. Fresh PR: add `ai-phase-copilot`, POST `requested_reviewers` for Copilot, comment on the PR explaining the Copilot → Opus cycle. PR enters Phase 3.
+
+**Concurrency safety** (#518): both the plan and implement jobs declare job-level `concurrency: { group: ai-worker-{plan,implement}-<issue>, cancel-in-progress: true }`. A new run on the same issue cancels the previous run for the same job. Skipped jobs (where `if:` evaluates false on unrelated label events like `p1-high`) do **not** enter the concurrency group, so they don't cancel running ai-work jobs.
+
+**Human checkpoints in Phase 2**
+
+| When | What you do | Why |
+|------|-------------|-----|
+| Sub-issue body looks mangled (empty backticks, missing JSX) | Add `ai-needs-rewrite`, fix the body, remove the label | The planner sometimes drops JSX/generics; verify steps catch most cases but not all |
+| Sub-issue stalled with `ai-blocked` after multiple watchdog retries | Read the comment, decide: provide more context (re-add `ai-work`), close the sub-issue, or label `no-ai` | The watchdog retries until you intervene |
+| Implementer closes a sub-issue with "covered by PR #X" | Verify the claim (rare false positive), reopen if wrong | False positives can leave work undone |
+
+### Phase 3 — PR → Reviews → Merge
+
+```mermaid
+flowchart LR
+    PR([PR created<br/>ai-phase-copilot<br/>Copilot requested]) -->|"Copilot reviews"| CR[Copilot review on PR]
+
+    CR -->|"address-feedback fires"| AF1[Address Copilot feedback:<br/>• reply to every thread<br/>• fix code, push<br/>• replies prove every comment was read]
+
+    AF1 --> CP1[ai-cp-after-1<br/>Remove ai-phase-copilot<br/>Add ai-phase-opus<br/>Dispatch ai-pr-review.yml]
+
+    CP1 -->|"Opus reviews — does NOT<br/>request Copilot (#519)"| OR[Opus review on PR]
+
+    OR -->|"address-feedback fires"| AF2[Address Opus feedback]
+
+    AF2 --> OP1[ai-o-after-1<br/>Remove ai-phase-opus<br/>Clear ai-ready-for-review<br/>Add ai-awaiting-owner]
+
+    OP1 -->|"👤 Human reviews + merges"| MR([Merged ✅<br/>Sub-issue closes via 'Closes #N'])
+```
+
+**Walkthrough**
+
+1. **Round 1 — Copilot.** The worker's `Handle success` step requested Copilot when the PR was created. Copilot reviews and posts inline comments. The `address-feedback` workflow detects the new review, dispatches the agent, who replies to every comment (with a code change or an inline reply explaining why it doesn't apply), pushes, and transitions labels: add `ai-cp-after-1`, remove `ai-phase-copilot`, add `ai-phase-opus`. Dispatch `ai-pr-review.yml` for the Opus pass.
+2. **Round 2 — Opus.** `ai-pr-review.yml` runs the Opus review **with no prior conversation context** (a fresh Claude Code session, per D-021), so the review is independent of the implementation history. Opus posts a review with inline comments. **Per #519, the Opus prompt explicitly does NOT request another Copilot review** — `requested_reviewers` is never POSTed from this step. Address-feedback fires again, addresses the Opus comments, lands `ai-o-after-1`.
+3. **Convergence.** Both `ai-cp-after-1` and `ai-o-after-1` are on the PR. Address-feedback removes the phase labels, clears `ai-ready-for-review`, adds `ai-awaiting-owner`. The PR is now waiting for a human merge.
+4. **Human merge.** The owner reviews the PR (the AI's review history is captured inline), checks CI is green, clicks **Merge**. The PR's `Closes #<sub-issue>` body trailer closes the sub-issue automatically. When all sub-issues of a parent are closed, the parent can be closed by the owner (or via a final summary comment).
+
+**Why exactly two reviews and not more** — per [D-021](../DECISIONS-AND-CHANGES.md#d-021), iterating "until there are no comments" produced long loops where late nit-pick rounds blocked merges without meaningfully improving the code. Two independent reviews each run once is the cap. Genuinely blocking issues from a later round are escalated to the human owner rather than triggering a third round.
+
+**Human checkpoints in Phase 3**
+
+| When | What you do | Why |
+|------|-------------|-----|
+| PR landed `ai-awaiting-owner` | Review the PR yourself; the AI review threads are inline | This is the gate before code lands on `main` |
+| You disagree with Copilot or Opus | Comment on the PR; or merge anyway after reading both reviews | The factory respects human override |
+| CI is red on a PR (`ai-ci-failing` label) | Wait for `ai-ci-remediation` to attempt a fix; if it can't, the PR ends up `ai-blocked` and you debug | Most CI failures are auto-fixable; the rest need a human |
+| You want to skip automated review on a PR | Add `no-pr-review` before review fires | E.g. WIP PR that shouldn't burn budget |
+| You want to stop the cycle on a PR | Close the PR | Always allowed |
+| A merge conflict appears | `ai-pr-mergeability.yml` attempts to resolve it; otherwise comment, the agent (or you) rebases | Most conflicts are mechanical |
+
+### Failure modes & recovery
+
+```mermaid
+flowchart TD
+    F([Any agent step fails:<br/>plan, implement, address-feedback,<br/>pr-review, ci-remediation]) --> SH[Failure handler:<br/>• remove ai-in-progress<br/>• add ai-blocked + ai-auto-retry<br/>• comment with workflow run link<br/>• detect rate-limit reset time]
+
+    SH --> WD{Watchdog cron<br/>finds the marker?}
+    WD -->|"Yes — within retry budget"| RT[ai-watchdog.yml:<br/>• remove ai-blocked + ai-auto-retry<br/>• re-fire the right workflow<br/>  via re-adding ai-work / dispatch]
+    WD -->|"Retry budget exhausted /<br/>same error N times"| HD([Watchdog escalates:<br/>tags @owner in comment<br/>removes ai-auto-retry])
+
+    RT -->|"new run cancels any zombie<br/>via job-level concurrency #518"| F
+    HD -->|"👤 human investigates"| OW([Human fixes underlying issue<br/>or labels no-ai])
+```
+
+Recovery is always **automatic-then-human**: transient failures (rate limits, network blips, GHA flakes) are absorbed by the watchdog. Repeated failures on the same step escalate. The owner intervenes only when automation has given up — not on every flake.
+
+### Where humans intervene
+
+This is the canonical list of human touchpoints across the entire lifecycle. **Outside of these, the factory operates autonomously.**
+
+| # | Touchpoint | Action | Frequency |
+|---|------------|--------|-----------|
+| 1 | New issue is well-scoped | Add `ai-work` | Per issue you want the factory to work on |
+| 2 | New issue is ambiguous | `/plan` to preview the planner's read; clarify the body if needed | Per ambiguous issue |
+| 3 | Discovery agent created an issue | Skim, close if noise, or label `ai-work` if real | Daily, in the project summary |
+| 4 | Issue / sub-issue / PR landed `ai-blocked` and watchdog escalated | Read the comment, fix the underlying problem, remove `ai-blocked` | Rare — watchdog absorbs most blocks |
+| 5 | Sub-issue body is mangled | Add `ai-needs-rewrite`, repair the body | Very rare; verify steps catch most cases |
+| 6 | PR is `ai-awaiting-owner` | Review the PR + the inline AI review history; merge or request changes | Per PR |
+| 7 | You disagree with a Copilot or Opus comment | Reply yourself or override at merge | Per disagreement |
+| 8 | A workflow is mis-firing (rare bug in the factory) | Open an issue tagged `ai-factory`; if urgent, add `ai-blocked` + `no-ai` to the affected items | Very rare |
+| 9 | OAuth token actually expired and the host can't refresh through Cloudflare | Run `ps prod login` (or `claude /login` on the relevant host) | Per token-expiry incident — see [D-025](../DECISIONS-AND-CHANGES.md#d-025) |
+| 10 | A `business-review` issue arrives with `needs-human-approval` | Decide whether to authorize: remove `needs-human-approval`, add `ai-work` (or close) | Weekly per [D-028](../DECISIONS-AND-CHANGES.md#d-028) |
+| 11 | You want to fast-merge without review | Add `no-pr-review` before opening, merge yourself | Per exception |
+| 12 | Token refresh required across the launchd-synced container | One-time `claude /login` interactively; agent syncs from the keychain | Per token-expiry incident — see [D-025](../DECISIONS-AND-CHANGES.md#d-025) |
+
+### Three lifecycles, end to end
+
+#### Best case — everything green
+
+1. Owner opens issue: "Add a `/api/health` endpoint to the dashboard." Adds `ai-work`.
+2. Plan job runs (~3 min). Posts a plan comment. Creates 2 sub-issues (route + test) with `ai-task` + `ai-work`.
+3. Two implement jobs run in parallel (~5 min each). Each opens a PR. Each requests Copilot.
+4. Copilot reviews both PRs (~5 min each). Address-feedback dispatches Opus on both.
+5. Opus reviews both PRs (~5 min each). Address-feedback converges both to `ai-awaiting-owner`.
+6. Owner reviews and merges both PRs. Sub-issues close via `Closes #N`. Owner closes the parent.
+7. **Total wall time: ~25–35 minutes. Owner effort: ~5 minutes** (reading + clicking merge).
+
+#### Recovered failure — transient flake
+
+1. Implement job hits an OpenRouter rate limit at the test step. Workflow detects the rate-limit reset time, posts the failure comment with `⏳ Rate limit reset at HH:MM`, sets `ai-blocked + ai-auto-retry`.
+2. Watchdog cron picks up the marker after the reset window. Re-fires the worker.
+3. Job-level `cancel-in-progress` ensures any zombie run is killed before the new attempt starts.
+4. Second attempt succeeds. PR opens normally. Continues through Phase 3.
+5. **Owner effort: zero**. The flake never reached them.
+
+#### Blocked — human intervention required
+
+1. Owner opens issue: "Make the dashboard better." Adds `ai-work`.
+2. Plan job reads the issue, can't extract concrete sub-tasks. Tags `@owner`, asks for specific endpoints / behaviour / acceptance criteria. Sets `ai-blocked + ai-auto-retry`.
+3. Watchdog retries. Same outcome — issue is genuinely too vague.
+4. Watchdog escalates: comment tags `@owner` saying "tried 3 times, same blocker, your turn."
+5. Owner edits the issue with concrete acceptance criteria. Removes `ai-blocked`. Re-adds `ai-work`.
+6. Plan job re-runs successfully. Phase 1 → 3 proceeds normally.
+7. **Owner effort: 2–5 minutes** to add the missing detail.
+
+
 
 ## Common Scenarios
 

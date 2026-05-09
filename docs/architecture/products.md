@@ -181,3 +181,60 @@ All product/catalog tables use **full refresh nightly** (truncate + insert).
 **Articulos column selection:** Do NOT use `SELECT *`. The 379 columns include BLOB/PICTURE types (DATA_TYPE 12 and 18) that slow queries. Select only the ~30–40 business-relevant columns explicitly.
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_articulos",
+    "alias": "Producto",
+    "description": "Catálogo de productos. ccrefejofacm=Referencia, M=mayorista, MA=material (excluido del ETL).",
+    "keyColumns": ["reg_articulo (PK)", "codigo", "ccrefejofacm (Referencia)", "descripcion", "num_familia (FK)", "num_departament (FK)", "num_color (FK)", "num_temporada (FK)", "num_marca (FK)", "precio_coste", "p_iva", "anulado", "fecha_creacion", "clave_temporada", "modelo", "sexo"]
+  },
+  {
+    "table": "ps_familias",
+    "alias": "Familia",
+    "description": "Familias/grupos de productos.",
+    "keyColumns": ["reg_familia (PK)", "fami_grup_marc"]
+  },
+  {
+    "table": "ps_departamentos",
+    "alias": "Departamento",
+    "description": "Departamentos/secciones.",
+    "keyColumns": ["reg_departament (PK)", "depa_secc_fabr"]
+  },
+  {
+    "table": "ps_colores",
+    "alias": "Color",
+    "description": "Catálogo de colores.",
+    "keyColumns": ["reg_color (PK)", "color"]
+  },
+  {
+    "table": "ps_temporadas",
+    "alias": "Temporada",
+    "description": "Temporadas y tipos.",
+    "keyColumns": ["reg_temporada (PK)", "temporada_tipo"]
+  },
+  {
+    "table": "ps_marcas",
+    "alias": "Marca",
+    "description": "Marcas de producto.",
+    "keyColumns": ["reg_marca (PK)", "marca"]
+  }
+]
+```
+
+## LLM:relationships
+
+```json
+[
+  {"from": "ps_articulos", "fromColumn": "num_familia", "to": "ps_familias", "toColumn": "reg_familia", "type": "MANY_TO_ONE"},
+  {"from": "ps_articulos", "fromColumn": "num_departament", "to": "ps_departamentos", "toColumn": "reg_departament", "type": "MANY_TO_ONE"},
+  {"from": "ps_articulos", "fromColumn": "num_color", "to": "ps_colores", "toColumn": "reg_color", "type": "MANY_TO_ONE"},
+  {"from": "ps_articulos", "fromColumn": "num_temporada", "to": "ps_temporadas", "toColumn": "reg_temporada", "type": "MANY_TO_ONE"},
+  {"from": "ps_articulos", "fromColumn": "num_marca", "to": "ps_marcas", "toColumn": "reg_marca", "type": "MANY_TO_ONE"}
+]
+```

@@ -216,3 +216,50 @@ All confirmed `DATA_TYPE=6` (Real) or `DATA_TYPE=10` (text):
 - `Proveedor` (text, 100 chars) — **the actual supplier name**. Maps to `ps_proveedores.nombre`.
 - `NombreComercial` (text, 160 chars) — **empty for all 520 rows** in 4D. Do NOT map this field to `nombre`.
 - `Codigo` (Real) — supplier code (not mapped to mirror currently).
+
+---
+
+## LLM:tables
+
+```json
+[
+  {
+    "table": "ps_compras",
+    "alias": "PedidoCompra",
+    "description": "Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.",
+    "keyColumns": ["reg_pedido (PK)", "num_proveedor (FK)", "fecha_pedido", "fecha_recibido", "modificada"]
+  },
+  {
+    "table": "ps_lineas_compras",
+    "alias": "LineaPedidoCompra",
+    "description": "Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.",
+    "keyColumns": ["reg_linea_compra (PK)", "num_pedido (FK → ps_compras.reg_pedido)", "num_tienda (FK)", "num_articulo (FK)", "fecha"]
+  },
+  {
+    "table": "ps_albaranes",
+    "alias": "AlbaranRecepcion",
+    "description": "Albaranes de recepción de mercancía. La fecha de recepción es fecha_recibido (NO fecha_creacion).",
+    "keyColumns": ["reg_albaran (PK)", "fecha_recibido", "modificada"]
+  },
+  {
+    "table": "ps_facturas_compra",
+    "alias": "FacturaCompra",
+    "description": "Facturas de compra a proveedores.",
+    "keyColumns": ["reg_factura (PK)"]
+  },
+  {
+    "table": "ps_proveedores",
+    "alias": "Proveedor",
+    "description": "Proveedores de mercancía.",
+    "keyColumns": ["reg_proveedor (PK)", "nombre"]
+  }
+]
+```
+
+## LLM:relationships
+
+```json
+[
+  {"from": "ps_lineas_compras", "fromColumn": "num_pedido", "to": "ps_compras", "toColumn": "reg_pedido", "type": "MANY_TO_ONE"}
+]
+```

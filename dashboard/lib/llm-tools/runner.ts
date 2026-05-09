@@ -37,7 +37,7 @@ import {
   handleSubmitWeeklyReview,
 } from "./handlers/dashboards";
 import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
-import { CliRunnerError } from "@/lib/llm-provider/cli/errors";
+import { CliRunnerError } from "@/lib/llm-client";
 import { sanitize } from "@/lib/llm-provider/sanitize";
 
 const ARGS_PREVIEW_MAX = 120;
@@ -113,6 +113,8 @@ export interface AgenticRunParams {
   ctx: LlmAgenticContext;
   temperature: number;
   maxTokens: number;
+  /** Prior conversation turns injected between the system prompt and the new user message. */
+  priorMessages?: ChatCompletionMessageParam[];
 }
 
 export interface AgenticRunResult {
@@ -200,7 +202,17 @@ function emitAgenticProgress(ctx: LlmAgenticContext, event: AgenticProgressEvent
 }
 
 export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticRunResult> {
-  const { adapter, model, systemPrompt, cachedSystemMessage, userContent, ctx, temperature, maxTokens } = params;
+  const {
+    adapter,
+    model,
+    systemPrompt,
+    cachedSystemMessage,
+    userContent,
+    ctx,
+    temperature,
+    maxTokens,
+    priorMessages,
+  } = params;
 
   const cfg = getAgenticConfig();
   const tools: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS;
@@ -211,6 +223,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
 
   const messages: ChatCompletionMessageParam[] = [
     systemMessage,
+    ...(priorMessages ?? []),
     { role: "user", content: userContent },
   ];
 

@@ -183,7 +183,11 @@ jobs:
           BRANCH: ${{ steps.pr.outputs.branch }}
         run: |
           set -euo pipefail
-          git fetch origin "$BASE" --depth=0
+          # `--depth=0` is invalid (`fatal: depth 0 is not a positive number`)
+          # and was preventing the bot from ever rebasing. The intent here is
+          # a full-history fetch so rebase can find the merge base. Use
+          # `--unshallow` (no-op if already unshallow, full fetch if shallow).
+          git fetch origin "$BASE" --unshallow 2>/dev/null || git fetch origin "$BASE"
           BEFORE=$(git rev-parse HEAD)
           echo "before=$BEFORE" >> "$GITHUB_OUTPUT"
 

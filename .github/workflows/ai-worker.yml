@@ -16,14 +16,16 @@ on:
           - plan
           - implement
 
-# Don't cancel in-progress workers. GitHub fires a `labeled` event for each
-# label added in rapid succession (e.g. triage applying component/priority labels),
-# which previously cancelled an already-running plan/implement and left the
-# issue stuck in `ai-in-progress`. We'd rather run duplicates and let the
-# inner steps no-op than leave issues orphaned.
-concurrency:
-  group: ai-worker-${{ github.event.issue.number || inputs.issue_number }}
-  cancel-in-progress: false
+# Concurrency is set per-job (not workflow-level) so that `labeled` events
+# for unrelated labels (e.g. triage applying `p1-high`, `comp-dashboard`)
+# don't grab the slot and cancel a running ai-work job. With job-level
+# concurrency, jobs whose `if:` evaluates false are SKIPPED and don't enter
+# the concurrency group — so only an actual ai-work plan/implement run can
+# cancel a prior in-progress run of the same kind on the same issue.
+#
+# When a real new run fires (manual workflow_dispatch, watchdog retry, or
+# a fresh `ai-work` re-add), it cancels the prior run for the same issue —
+# that's the desired behaviour: the latest intent wins, no duplicate work.
 
 permissions:
   contents: write
@@ -50,6 +52,9 @@ jobs:
         github.event_name == 'workflow_dispatch' &&
         inputs.phase == 'plan'
       )
+    concurrency:
+      group: ai-worker-plan-${{ github.event.issue.number || inputs.issue_number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -262,6 +267,36 @@ jobs:
             echo "status=incomplete" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Self-heal sub-issue labels
+        if: always() && steps.verify_plan.outputs.status == 'planned'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Defense-in-depth: ensure every sub-issue carries BOTH `ai-task` AND
+          # `ai-work`. The planner agent has been observed (e.g. on issue #502)
+          # to add `ai-task` but skip `ai-work`, leaving sub-issues stalled
+          # forever — the implement phase only triggers when `ai-work` is
+          # applied. This step audits every sub-issue and adds whichever
+          # required label is missing.
+          SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
+            --state open --limit 50 \
+            --search "Closes #${ISSUE_NUMBER} in:body" \
+            --json number,labels)
+
+          echo "$SUB_ISSUES" | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+            if ! echo ",$LABELS," | grep -q ",ai-task,"; then
+              echo "Sub-issue #$NUM missing 'ai-task' — adding."
+              gh issue edit "$NUM" --add-label "ai-task" || true
+            fi
+            if ! echo ",$LABELS," | grep -q ",ai-work,"; then
+              echo "Sub-issue #$NUM missing 'ai-work' — planner forgot; adding to trigger implementation."
+              gh issue edit "$NUM" --add-label "ai-work" || true
+            fi
+          done
+
       - name: Detect mangled sub-issue bodies
         if: always()
         env:
@@ -345,6 +380,9 @@ jobs:
         github.event_name == 'workflow_dispatch' &&
         inputs.phase == 'implement'
       )
+    concurrency:
+      group: ai-worker-implement-${{ github.event.issue.number || inputs.issue_number }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
@@ -377,7 +415,21 @@ jobs:
 
             ## Process
             1. Read sub-task issue #${{ env.ISSUE_NUMBER }}: title, body, acceptance criteria
-            2. Read the PARENT issue (linked in the body) for full context and architecture decisions
+            2. Read the PARENT issue (linked in the body) — **including ALL its comments**.
+               The planner posts the implementation plan (analysis, architecture decisions,
+               dependency order, "what is NOT a sub-task" rules) as a COMMENT, not in the
+               body. Reading just the body misses everything that matters for context.
+               Use this to fetch body + every comment in one shot:
+               ```
+               PARENT=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body \
+                 | grep -oE 'Closes #[0-9]+' | head -1 | tr -d '#A-Za-z ')
+               if [ -n "$PARENT" ]; then
+                 gh issue view "$PARENT" --json title,body,comments \
+                   --jq '"# \(.title)\n\n\(.body)\n\n---\n\n" + (.comments | map("## Comment by \(.author.login) at \(.createdAt)\n\n\(.body)") | join("\n\n---\n\n"))'
+               fi
+               ```
+               Read every comment top to bottom — the architecture rationale, dependency
+               graph, and design discussions live there.
             3. Read CLAUDE.md and AGENTS.md
             4. Read relevant skill docs in docs/skills/ for the affected domain
             5. Before starting, run the **sibling-PR pre-flight check** — this is
@@ -497,12 +549,50 @@ jobs:
         run: |
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-in-progress" || true
-          gh issue comment "$ISSUE_NUMBER" \
-            --body "✅ AI Worker completed. See PR #${{ steps.verify.outputs.pr_number }}."
-          # Automated review: Copilot first (cheaper), then Opus. One pass each.
-          # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
           PR_NUM="${{ steps.verify.outputs.pr_number }}"
           REPO_NAME="${{ github.repository }}"
+
+          # D-021 idempotency guard. The verify step matches PR-by-branch and
+          # PR-by-body, so this success path also fires when a worker re-runs
+          # on a sub-task that already has a PR (e.g. the planner re-added
+          # `ai-work`, the worker re-fired, it found the existing PR via the
+          # verify search). Without this guard we'd re-add `ai-phase-copilot`
+          # and re-POST `requested_reviewers`, producing a SECOND Copilot
+          # review on the same PR — directly violating the "1 Copilot + 1
+          # Opus, no more" policy. Symptom in production: 2026-05-09 burst
+          # of duplicate Copilot reviews on PRs #512–#516.
+          PR_LABELS=$(gh pr view "$PR_NUM" --json labels --jq '[.labels[].name] | join(",")' || echo "")
+          for marker in "ai-phase-copilot" "ai-phase-opus" "ai-cp-after-1" "ai-o-after-1"; do
+            if echo ",$PR_LABELS," | grep -q ",$marker,"; then
+              echo "PR #$PR_NUM already has '$marker' — review cycle already in progress or done. Not re-requesting Copilot."
+              gh issue comment "$ISSUE_NUMBER" \
+                --body "♻️ AI Worker re-ran and found existing PR #$PR_NUM with review-cycle label \`$marker\`. Not re-requesting Copilot (D-021: 1 Copilot + 1 Opus, no more)." || true
+              exit 0
+            fi
+          done
+
+          # Existing Copilot review on file (e.g. label was wiped manually but
+          # Copilot already weighed in)? Don't request again.
+          # `gh api --paginate --jq 'length'` emits one count per page; if the
+          # reviews list crosses a pagination boundary the result becomes
+          # multi-line (e.g. "2\n0") and the numeric `-gt` below errors. Stream
+          # the matching review IDs instead and count lines — always a single
+          # int. Same pattern as ai-address-feedback.yml's WORKFLOW_CHANGES.
+          COPILOT_REVIEWS=$(gh api "repos/$REPO_NAME/pulls/$PR_NUM/reviews" --paginate \
+            --jq '.[] | select(.user.login == "Copilot" or .user.login == "copilot-pull-request-reviewer" or .user.login == "copilot-pull-request-reviewer[bot]") | .id' 2>/dev/null \
+            | wc -l | tr -d ' ' || echo "0")
+          if [ "${COPILOT_REVIEWS:-0}" -gt 0 ]; then
+            echo "PR #$PR_NUM already has $COPILOT_REVIEWS Copilot review(s) — not re-requesting."
+            gh issue comment "$ISSUE_NUMBER" \
+              --body "♻️ AI Worker re-ran and found existing PR #$PR_NUM with $COPILOT_REVIEWS Copilot review(s) on file. Not re-requesting Copilot (D-021: 1 Copilot + 1 Opus, no more)." || true
+            exit 0
+          fi
+
+          # Fresh PR — kick off the review cycle.
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "✅ AI Worker completed. See PR #$PR_NUM."
+          # Automated review: Copilot first (cheaper), then Opus. One pass each.
+          # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
 
           # Self-heal: phase labels must exist in the repo for the state machine to advance.
           gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
