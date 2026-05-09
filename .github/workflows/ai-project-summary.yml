@@ -24,6 +24,12 @@ jobs:
           echo "three_days_ago=$(date -d '3 days ago' +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
           echo "thirty_days_ago=$(date -d '30 days ago' +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
 
+      - name: Load knowledge bundle
+        id: load-knowledge
+        uses: ./.github/actions/load-knowledge
+        with:
+          slices: data-decisions
+
       - name: Generate Project Summary
         uses: anthropics/claude-code-action@v1
         env:
@@ -36,6 +42,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-haiku-4-5-20251001 --max-turns 15"
           prompt: |
+            ${{ steps.load-knowledge.outputs.bundle }}
+
+            ---
+
             Generate a daily project summary. Use the GitHub CLI to gather data.
             The following date env vars are pre-calculated and available in your shell:
             - $TODAY (e.g. 2026-04-05)

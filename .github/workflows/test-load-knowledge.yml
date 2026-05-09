@@ -1,0 +1,77 @@
+name: Test load-knowledge action
+
+# Smoke test for the composite load-knowledge action. Required by issue #525
+# acceptance criteria. Runs on changes to the action itself or to source MDs
+# that the action consumes.
+
+on:
+  pull_request:
+    paths:
+      - ".github/actions/load-knowledge/**"
+      - ".github/workflows/test-load-knowledge.yml"
+      - "docs/data-decisions.md"
+      - "docs/etl-sync-strategy.md"
+      - "docs/architecture/**"
+      - "docs/skills/4d-sql-dialect.md"
+      - "docs/skills/data-access.md"
+      - "docs/dashboard/sql-pairs.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load knowledge bundle (data-decisions + etl-sync-strategy)
+        id: load
+        uses: ./.github/actions/load-knowledge
+        with:
+          slices: data-decisions,etl-sync-strategy
+
+      - name: Assert bundle contains expected sentinels
+        env:
+          BUNDLE: ${{ steps.load.outputs.bundle }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUNDLE:-}" ]; then
+            echo "::error::load-knowledge produced an empty bundle for slices=data-decisions,etl-sync-strategy"
+            exit 1
+          fi
+          missing=()
+          # Header that the action wraps every non-empty bundle with.
+          for sentinel in "## Data Platform Knowledge" "data-decisions.md" "etl-sync-strategy.md"; do
+            if ! printf '%s' "$BUNDLE" | grep -q -- "$sentinel"; then
+              missing+=("$sentinel")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "::error::Bundle is missing expected sentinels: ${missing[*]}"
+            printf '%s\n' "$BUNDLE" | head -40
+            exit 1
+          fi
+          echo "✓ bundle contains all expected sentinels ($(printf '%s' "$BUNDLE" | wc -c) bytes)"
+
+      - name: Load knowledge bundle (unknown slice — should warn, not fail)
+        id: load_unknown
+        uses: ./.github/actions/load-knowledge
+        with:
+          slices: data-decisions,this-slice-does-not-exist
+
+      - name: Assert unknown slice is skipped (not a hard failure)
+        env:
+          BUNDLE: ${{ steps.load_unknown.outputs.bundle }}
+        run: |
+          set -euo pipefail
+          if [ -z "${BUNDLE:-}" ]; then
+            echo "::error::Unknown slice caused total bundle to be empty — should have skipped + kept data-decisions"
+            exit 1
+          fi
+          if ! printf '%s' "$BUNDLE" | grep -q "data-decisions.md"; then
+            echo "::error::Bundle no longer contains data-decisions content after unknown slice was passed"
+            exit 1
+          fi
+          echo "✓ unknown slices are skipped without breaking the bundle"

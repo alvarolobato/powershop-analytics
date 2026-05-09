@@ -15,6 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Load knowledge bundle
+        id: load-knowledge
+        uses: ./.github/actions/load-knowledge
+        with:
+          slices: data-decisions,architecture-sales,architecture-wholesale,architecture-stock
+
       - name: Generate Feature Ideas
         uses: anthropics/claude-code-action@v1
         env:
@@ -23,6 +29,10 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 40"
           prompt: |
+            ${{ steps.load-knowledge.outputs.bundle }}
+
+            ---
+
             You are the Feature Ideas Generator. Analyze the project and propose improvements.
 
             ## Research

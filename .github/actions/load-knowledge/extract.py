@@ -98,10 +98,22 @@ def main() -> None:
         bundle = ""
 
     if github_output:
+        # GITHUB_OUTPUT multiline (heredoc) format. The naive form
+        #     bundle<<KNOWLEDGE_EOF
+        #     <bundle>
+        #     KNOWLEDGE_EOF
+        # encodes an empty bundle as `\n` (a single newline) instead of `""`,
+        # because the trailing `\n` before the delimiter belongs to the value.
+        # Skip the value-line entirely when bundle is empty so the output
+        # value is the empty string. Also skip the trailing newline when the
+        # bundle already ends with one to avoid trailing-blank-line drift.
         with open(github_output, "a", encoding="utf-8") as f:
             f.write("bundle<<KNOWLEDGE_EOF\n")
-            f.write(bundle)
-            f.write("\nKNOWLEDGE_EOF\n")
+            if bundle:
+                f.write(bundle)
+                if not bundle.endswith("\n"):
+                    f.write("\n")
+            f.write("KNOWLEDGE_EOF\n")
     else:
         print(bundle)
 
