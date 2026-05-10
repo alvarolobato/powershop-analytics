@@ -19,7 +19,7 @@ export function ConversationRowActions({
   const isGlobal = conversation.context_kind === "global";
 
   const copyToClipboard = (text: string) => {
-    if (typeof navigator !== "undefined" && navigator.clipboard) {
+    if (navigator.clipboard) {
       navigator.clipboard.writeText(text).catch(() => undefined);
     }
   };

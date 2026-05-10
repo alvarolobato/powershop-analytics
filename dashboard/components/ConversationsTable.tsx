@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { getModePillStyle } from "@/lib/conversation-mode-style";
 import { ConversationRowActions } from "@/components/ConversationRowActions";
@@ -133,12 +133,16 @@ export function ConversationsTable({
   const [renameValue, setRenameValue] = useState("");
 
   // Sort
-  const sorted = [...conversations].sort((a, b) => {
-    const aVal = a[sort.col];
-    const bVal = b[sort.col];
-    const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
-    return sort.dir === "desc" ? -cmp : cmp;
-  });
+  const sorted = useMemo(
+    () =>
+      [...conversations].sort((a, b) => {
+        const aVal = a[sort.col];
+        const bVal = b[sort.col];
+        const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0;
+        return sort.dir === "desc" ? -cmp : cmp;
+      }),
+    [conversations, sort.col, sort.dir]
+  );
 
   const toggleSort = (col: SortCol) => {
     setSort((prev) =>

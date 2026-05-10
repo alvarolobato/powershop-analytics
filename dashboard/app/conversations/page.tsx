@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ConversationsTable } from "@/components/ConversationsTable";
 import type { ConversationRow } from "@/app/conversations/types";
@@ -9,7 +9,7 @@ import type { ConversationRow } from "@/app/conversations/types";
 // Constants
 // ---------------------------------------------------------------------------
 
-const MODES = ["generate", "modify", "analyze", "suggest", "gap", "summary"];
+const MODES = ["generate", "modify", "analyze", "suggest", "gap", "summary", "title"];
 const CONTEXT_KINDS = ["dashboard", "home", "admin", "global"];
 
 // ---------------------------------------------------------------------------
@@ -193,12 +193,14 @@ function FilterBar({
 // Main page
 // ---------------------------------------------------------------------------
 
-export default function ConversationsPage() {
+function ConversationsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   // Read filter state from URL
   const [q, setQ] = useState(() => searchParams?.get("q") ?? "");
+  const [debouncedQ, setDebouncedQ] = useState(() => searchParams?.get("q") ?? "");
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const [modes, setModes] = useState<string[]>(() =>
     searchParams?.getAll("mode") ?? []
   );
@@ -239,6 +241,8 @@ export default function ConversationsPage() {
     (v: string) => {
       setQ(v);
       persistFilters({ q: v, modes, contextKinds, since, includeArchived });
+      clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => setDebouncedQ(v), 350);
     },
     [modes, contextKinds, since, includeArchived, persistFilters]
   );
@@ -276,7 +280,7 @@ export default function ConversationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const url = buildApiUrl({ q, modes, contextKinds, since, includeArchived });
+      const url = buildApiUrl({ q: debouncedQ, modes, contextKinds, since, includeArchived });
       const res = await fetch(url);
       if (!res.ok) {
         if (res.status === 404) {
@@ -293,7 +297,7 @@ export default function ConversationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [q, modes, contextKinds, since, includeArchived]);
+  }, [debouncedQ, modes, contextKinds, since, includeArchived]);
 
   useEffect(() => {
     fetchConversations();
@@ -452,5 +456,13 @@ export default function ConversationsPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function ConversationsPage() {
+  return (
+    <Suspense>
+      <ConversationsPageContent />
+    </Suspense>
   );
 }

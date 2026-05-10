@@ -199,7 +199,14 @@ describe("ConversationRowActions", () => {
     });
   });
 
-  it("mouseenter/mouseleave on Continuar button changes color style without error", () => {
+  it.each([
+    ["Continuar"],
+    ["Abrir en contexto"],
+    ["Archivar"],
+    ["Renombrar"],
+    ["Copiar enlace"],
+    ["Copiar enlace en contexto"],
+  ])("mouseenter/mouseleave on %s button does not throw", (label) => {
     render(
       <ConversationRowActions
         conversation={makeConv()}
@@ -207,82 +214,7 @@ describe("ConversationRowActions", () => {
         onRenameStart={noop}
       />
     );
-    const btn = screen.getByLabelText("Continuar");
-    expect(() => {
-      fireEvent.mouseEnter(btn);
-      fireEvent.mouseLeave(btn);
-    }).not.toThrow();
-  });
-
-  it("mouseenter/mouseleave on Abrir en contexto button does not throw", () => {
-    render(
-      <ConversationRowActions
-        conversation={makeConv({ context_kind: "dashboard" })}
-        onArchiveToggle={noop}
-        onRenameStart={noop}
-      />
-    );
-    const btn = screen.getByLabelText("Abrir en contexto");
-    expect(() => {
-      fireEvent.mouseEnter(btn);
-      fireEvent.mouseLeave(btn);
-    }).not.toThrow();
-  });
-
-  it("mouseenter/mouseleave on Archivar button does not throw", () => {
-    render(
-      <ConversationRowActions
-        conversation={makeConv({ archived_at: null })}
-        onArchiveToggle={noop}
-        onRenameStart={noop}
-      />
-    );
-    const btn = screen.getByLabelText("Archivar");
-    expect(() => {
-      fireEvent.mouseEnter(btn);
-      fireEvent.mouseLeave(btn);
-    }).not.toThrow();
-  });
-
-  it("mouseenter/mouseleave on Renombrar button does not throw", () => {
-    render(
-      <ConversationRowActions
-        conversation={makeConv()}
-        onArchiveToggle={noop}
-        onRenameStart={noop}
-      />
-    );
-    const btn = screen.getByLabelText("Renombrar");
-    expect(() => {
-      fireEvent.mouseEnter(btn);
-      fireEvent.mouseLeave(btn);
-    }).not.toThrow();
-  });
-
-  it("mouseenter/mouseleave on Copiar enlace button does not throw", () => {
-    render(
-      <ConversationRowActions
-        conversation={makeConv()}
-        onArchiveToggle={noop}
-        onRenameStart={noop}
-      />
-    );
-    const btn = screen.getByLabelText("Copiar enlace");
-    expect(() => {
-      fireEvent.mouseEnter(btn);
-      fireEvent.mouseLeave(btn);
-    }).not.toThrow();
-  });
-
-  it("mouseenter/mouseleave on Copiar enlace en contexto button does not throw", () => {
-    render(
-      <ConversationRowActions
-        conversation={makeConv()}
-        onArchiveToggle={noop}
-        onRenameStart={noop}
-      />
-    );
-    const btn = screen.getByLabelText("Copiar enlace en contexto");
+    const btn = screen.getByLabelText(label);
     expect(() => {
       fireEvent.mouseEnter(btn);
       fireEvent.mouseLeave(btn);
