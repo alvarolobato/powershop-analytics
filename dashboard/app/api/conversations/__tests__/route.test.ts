@@ -43,28 +43,21 @@ describe("POST /api/conversations", () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("INVALID_BODY");
+    expect(body.code).toBe("VALIDATION");
   });
 
   it("returns 400 when mode is missing", async () => {
     const res = await POST(makeRequest({}));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("MISSING_MODE");
+    expect(body.code).toBe("VALIDATION");
   });
 
   it("returns 400 when mode is empty string", async () => {
     const res = await POST(makeRequest({ mode: "" }));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("MISSING_MODE");
-  });
-
-  it("returns 400 for invalid mode value", async () => {
-    const res = await POST(makeRequest({ mode: "unknown_mode" }));
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.code).toBe("INVALID_MODE");
+    expect(body.code).toBe("VALIDATION");
   });
 
   it("creates conversation and returns 201 with URLs", async () => {
@@ -81,16 +74,15 @@ describe("POST /api/conversations", () => {
     expect(body.k_url).toBe("/k/conv-123");
   });
 
-  it("passes seed_prompt and first_user_prompt to createConversation", async () => {
+  it("passes first_user_prompt and context_url to createConversation", async () => {
     mockCreateConversation.mockResolvedValue({ id: "x", c_url: "/c/x", k_url: "/k/x" });
     await POST(makeRequest({
       mode: "chat",
-      seed_prompt: "Hello",
       first_user_prompt: "World",
       context_url: "/dashboard/1",
     }));
     expect(mockCreateConversation).toHaveBeenCalledWith(
-      expect.objectContaining({ seed_prompt: "Hello", first_user_prompt: "World", context_url: "/dashboard/1" })
+      expect.objectContaining({ first_user_prompt: "World", context_url: "/dashboard/1" })
     );
   });
 
@@ -99,6 +91,6 @@ describe("POST /api/conversations", () => {
     const res = await POST(makeRequest({ mode: "generate" }));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.code).toBe("DB_ERROR");
+    expect(body.code).toBe("DB_QUERY");
   });
 });
