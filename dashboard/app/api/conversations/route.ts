@@ -105,9 +105,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 },
     );
   }
+
   if (!VALID_MODES.has(mode)) {
     return NextResponse.json(
-      formatApiError(`Modo no válido: ${mode}.`, "INVALID_MODE", undefined, requestId),
+      formatApiError(
+        `Modo '${mode}' no válido. Valores permitidos: ${[...VALID_MODES].join(", ")}.`,
+        "INVALID_MODE",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }

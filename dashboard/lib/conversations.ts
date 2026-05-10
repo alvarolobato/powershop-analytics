@@ -484,14 +484,13 @@ export async function maybeGenerateTitle(
   }
 }
 
-// ── Aliases for spec-compliant callers ────────────────────────────────────────
-
 /** Update a conversation's title. Alias for updateConversationTitle. */
 export async function updateTitle(id: string, title: string): Promise<void> {
   return updateConversationTitle(id, title);
 }
 
 // ── Legacy cache sync ─────────────────────────────────────────────────────────
+
 
 /**
  * Write the latest non-archived conversation messages back into the dashboard's
