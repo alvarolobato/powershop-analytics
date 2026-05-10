@@ -29,7 +29,8 @@ export type ErrorCode =
   | "REVIEW_PERSISTENCE"
   | "UNKNOWN"
   | "AGENTIC_RUNNER"
-  | "METHOD_NOT_ALLOWED";
+  | "METHOD_NOT_ALLOWED"
+  | "CONVERSATION_ARCHIVED";
 
 /**
  * Rich diagnostic payload attached to AGENTIC_RUNNER errors so the UI

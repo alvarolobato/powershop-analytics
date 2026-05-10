@@ -122,6 +122,18 @@ export async function POST(
       );
     }
 
+    if (conversation.archived_at) {
+      return NextResponse.json(
+        formatApiError(
+          "La conversación está archivada y no acepta nuevos mensajes.",
+          "CONVERSATION_ARCHIVED",
+          undefined,
+          requestId,
+        ),
+        { status: 409 },
+      );
+    }
+
     const isFirstUserMessage =
       role === "user" && conversation.messages.filter((m) => m.role === "user").length === 0;
 
