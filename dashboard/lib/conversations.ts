@@ -14,13 +14,6 @@ import { sql } from "@/lib/db-write";
 import { llmComplete } from "@/lib/llm-client";
 import { generateRequestId } from "@/lib/errors";
 
-// ── ID generation ─────────────────────────────────────────────────────────────
-
-/** Generate a 12-character hex conversation id (6 random bytes). */
-export function generateConversationId(): string {
-  return crypto.randomBytes(6).toString("hex");
-}
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface ConversationRow {
@@ -97,6 +90,7 @@ export interface CreateConversationOptions {
   context_kind?: string;
   context_ref?: string;
   first_user_prompt?: string;
+  seed_prompt?: string;
   llm_provider?: string;
   llm_driver?: string;
 }
@@ -202,8 +196,8 @@ export async function listConversations(
     conditions.push(`c.last_interaction_at >= $${idx++}`);
     params.push(opts.since);
   }
-  if (opts.q) {
-    const pattern = `%${opts.q.replace(/[%_\\]/g, "\\$&")}%`;
+  if (opts.q && opts.q.trim() !== "") {
+    const pattern = `%${opts.q.trim().replace(/[%_\\]/g, "\\$&")}%`;
     conditions.push(
       `(c.title ILIKE $${idx} OR c.first_user_prompt ILIKE $${idx})`,
     );
@@ -313,19 +307,68 @@ export async function updateConversation(
 }
 
 export async function archiveConversation(id: string): Promise<ConversationRow | null> {
-  return updateConversation(id, { archived: true });
+  await setConversationArchived(id, true);
+  return getConversation(id);
 }
 
 export async function unarchiveConversation(id: string): Promise<ConversationRow | null> {
-  return updateConversation(id, { archived: false });
+  await setConversationArchived(id, false);
+  return getConversation(id);
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────────
 
+export interface AppendMessageTokens {
+  tokens_input?: number | null;
+  tokens_output?: number | null;
+  tokens_cache_read?: number | null;
+  tokens_cache_creation?: number | null;
+}
+
+/**
+ * Append a message to a conversation. Supports two call styles:
+ *   - appendMessage(id, opts) — opts has { role, content, tokens_* }
+ *   - appendMessage(id, role, content, tokens?) — positional form
+ */
 export async function appendMessage(
   conversationId: string,
   opts: AppendMessageOptions,
+): Promise<MessageRow>;
+export async function appendMessage(
+  conversationId: string,
+  role: string,
+  content: unknown,
+  tokens?: AppendMessageTokens,
+): Promise<MessageRow>;
+export async function appendMessage(
+  conversationId: string,
+  roleOrOpts: string | AppendMessageOptions,
+  content?: unknown,
+  tokens?: AppendMessageTokens,
 ): Promise<MessageRow> {
+  let role: string;
+  let actualContent: unknown;
+  let tIn: number | null;
+  let tOut: number | null;
+  let tCacheRead: number | null;
+  let tCacheCreation: number | null;
+
+  if (typeof roleOrOpts === "string") {
+    role = roleOrOpts;
+    actualContent = content;
+    tIn = tokens?.tokens_input ?? null;
+    tOut = tokens?.tokens_output ?? null;
+    tCacheRead = tokens?.tokens_cache_read ?? null;
+    tCacheCreation = tokens?.tokens_cache_creation ?? null;
+  } else {
+    role = roleOrOpts.role;
+    actualContent = roleOrOpts.content;
+    tIn = roleOrOpts.tokens_input ?? null;
+    tOut = roleOrOpts.tokens_output ?? null;
+    tCacheRead = roleOrOpts.tokens_cache_read ?? null;
+    tCacheCreation = roleOrOpts.tokens_cache_creation ?? null;
+  }
+
   const rows = await sql<MessageRow>(
     `INSERT INTO conversation_messages
        (conversation_id, role, content, tokens_input, tokens_output,
@@ -335,12 +378,12 @@ export async function appendMessage(
                tokens_cache_read, tokens_cache_creation, created_at`,
     [
       conversationId,
-      opts.role,
-      JSON.stringify(opts.content),
-      opts.tokens_input ?? null,
-      opts.tokens_output ?? null,
-      opts.tokens_cache_read ?? null,
-      opts.tokens_cache_creation ?? null,
+      role,
+      JSON.stringify(actualContent),
+      tIn,
+      tOut,
+      tCacheRead,
+      tCacheCreation,
     ],
   );
 
@@ -352,6 +395,38 @@ export async function appendMessage(
   );
 
   return rows[0];
+}
+
+/** Load all messages for a conversation, ordered by created_at ASC. */
+export async function loadMessages(conversationId: string): Promise<MessageRow[]> {
+  return sql<MessageRow>(
+    `SELECT id, conversation_id, role, content, tokens_input, tokens_output,
+            tokens_cache_read, tokens_cache_creation, created_at
+       FROM conversation_messages
+      WHERE conversation_id = $1
+      ORDER BY created_at ASC`,
+    [conversationId],
+  );
+}
+
+/**
+ * Touch a conversation's last_interaction_at (and optionally last_status) to NOW().
+ */
+export async function touchConversation(
+  conversationId: string,
+  status?: "ok" | "error",
+): Promise<void> {
+  if (status !== undefined) {
+    await sql(
+      `UPDATE conversations SET last_status = $2, last_interaction_at = NOW() WHERE id = $1`,
+      [conversationId, status],
+    );
+  } else {
+    await sql(
+      `UPDATE conversations SET last_interaction_at = NOW() WHERE id = $1`,
+      [conversationId],
+    );
+  }
 }
 
 export async function setInitialContext(
@@ -443,147 +518,14 @@ export async function maybeGenerateTitle(
   }
 }
 
-// ── Additional types for spec-compliant callers ───────────────────────────────
-
-/** Alias for `Conversation` — both names are exported for compatibility. */
-export type ConversationRow = Conversation;
-
-export interface MessageRow {
-  id: string;
-  conversation_id: string;
-  role: string;
-  content: unknown;
-  tokens_input: number | null;
-  tokens_output: number | null;
-  tokens_cache_read: number | null;
-  tokens_cache_creation: number | null;
-  created_at: string;
-}
-
-export interface ConversationWithMessages extends Conversation {
-  messages: MessageRow[];
-}
-
-export interface ConversationListRow extends Conversation {
-  message_count: number;
-}
-
-export interface AppendMessageParams {
-  role: string;
-  content: unknown;
-  tokens_input?: number | null;
-  tokens_output?: number | null;
-  tokens_cache_read?: number | null;
-  tokens_cache_creation?: number | null;
-}
-
-export interface ListConversationsFilters {
-  context_kind?: string;
-  context_ref?: string;
-  mode?: string;
-  since?: Date | string;
-  include_archived?: boolean;
-  q?: string;
-  limit?: number;
-}
-
-// ── Spec-compliant convenience wrappers ──────────────────────────────────────
-
-/** Fetch a conversation with its full message history. */
-export async function getConversationWithMessages(
-  id: string,
-): Promise<ConversationWithMessages | null> {
-  const conv = await getConversation(id);
-  if (!conv) return null;
-  const messages = await sql<MessageRow>(
-    `SELECT id, conversation_id, role, content,
-            tokens_input, tokens_output, tokens_cache_read, tokens_cache_creation,
-            created_at
-       FROM conversation_messages
-      WHERE conversation_id = $1
-      ORDER BY created_at ASC`,
-    [id],
-  );
-  return { ...conv, messages };
-}
-
-/** List conversations with optional filtering. Hidden from default view when archived. */
-export async function listConversations(
-  filters: ListConversationsFilters = {},
-): Promise<ConversationListRow[]> {
-  const conditions: string[] = [];
-  const params: unknown[] = [];
-  let idx = 1;
-
-  if (!filters.include_archived) {
-    conditions.push(`c.archived_at IS NULL`);
-  }
-  if (filters.context_kind !== undefined) {
-    conditions.push(`c.context_kind = $${idx++}`);
-    params.push(filters.context_kind);
-  }
-  if (filters.context_ref !== undefined) {
-    conditions.push(`c.context_ref = $${idx++}`);
-    params.push(filters.context_ref);
-  }
-  if (filters.mode !== undefined) {
-    conditions.push(`c.mode = $${idx++}`);
-    params.push(filters.mode);
-  }
-  if (filters.since !== undefined) {
-    conditions.push(`c.last_interaction_at >= $${idx++}`);
-    params.push(filters.since);
-  }
-  if (filters.q !== undefined && filters.q.trim() !== "") {
-    const escaped = filters.q.trim().replace(/[%_\\]/g, "\\$&");
-    conditions.push(
-      `(c.title ILIKE $${idx} ESCAPE '\\' OR c.first_user_prompt ILIKE $${idx} ESCAPE '\\')`,
-    );
-    params.push(`%${escaped}%`);
-    idx++;
-  }
-
-  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-  let limitClause = "";
-  if (filters.limit != null) {
-    limitClause = `LIMIT $${idx++}`;
-    params.push(filters.limit);
-  }
-
-  return sql<ConversationListRow>(
-    `SELECT c.*, COUNT(m.id)::int AS message_count
-       FROM conversations c
-       LEFT JOIN conversation_messages m ON m.conversation_id = c.id
-      ${where}
-      GROUP BY c.id
-      ORDER BY c.last_interaction_at DESC
-      ${limitClause}`,
-    params,
-  );
-}
-
-/** Archive a conversation (sets archived_at to now). */
-export async function archiveConversation(id: string): Promise<void> {
-  return setConversationArchived(id, true);
-}
-
-/** Unarchive a conversation (clears archived_at). */
-export async function unarchiveConversation(id: string): Promise<void> {
-  return setConversationArchived(id, false);
-}
+// ── Aliases for spec-compliant callers ────────────────────────────────────────
 
 /** Update a conversation's title. Alias for updateConversationTitle. */
 export async function updateTitle(id: string, title: string): Promise<void> {
   return updateConversationTitle(id, title);
 }
 
-/** Update a conversation's last_status. Alias for touchConversation. */
-export async function updateLastStatus(
-  id: string,
-  status: "ok" | "error",
-): Promise<void> {
-  return touchConversation(id, status);
-}
+// ── Legacy cache sync ─────────────────────────────────────────────────────────
 
 /**
  * Write the latest non-archived conversation messages back into the dashboard's
