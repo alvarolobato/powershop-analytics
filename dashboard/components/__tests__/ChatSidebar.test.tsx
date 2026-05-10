@@ -735,4 +735,303 @@ describe("ChatSidebar", () => {
     const matches = screen.getAllByText("¿Por qué cayeron las ventas?");
     expect(matches.length).toBeGreaterThanOrEqual(1);
   });
+
+  // -----------------------------------------------------------------------
+  // Nueva conversación button (Task 5 / #540)
+  // -----------------------------------------------------------------------
+
+  it("does not render Nueva conversación button when dashboardId is not set", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+    expect(screen.queryByTestId("new-conversation-btn")).not.toBeInTheDocument();
+  });
+
+  it("renders Nueva conversación button when dashboardId is set", () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({}) });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={1}
+      />,
+    );
+    expect(screen.getByTestId("new-conversation-btn")).toBeInTheDocument();
+  });
+
+  it("clears Modificar messages when Nueva conversación is clicked in Modificar tab", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({}) });
+
+    const initialMessages = [
+      { role: "user" as const, content: "Hola", timestamp: new Date() },
+    ];
+    const onModifyMessagesChange = vi.fn();
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={1}
+        initialModifyMessages={initialMessages}
+        onModifyMessagesChange={onModifyMessagesChange}
+      />,
+    );
+
+    // Wait for the initial messages to be shown
+    await waitFor(() => {
+      expect(screen.getByText("Hola")).toBeInTheDocument();
+    });
+
+    // Click "Nueva conversación"
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("new-conversation-btn"));
+    });
+
+    // The "Hola" message should be gone
+    expect(screen.queryByText("Hola")).not.toBeInTheDocument();
+    // The callback should have been called with empty array
+    expect(onModifyMessagesChange).toHaveBeenCalledWith([]);
+  });
+
+  it("clears Analizar messages when Nueva conversación is clicked in Analizar tab", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({}) });
+
+    const initialMessages = [
+      { role: "user" as const, content: "Analiza esto", timestamp: new Date() },
+    ];
+    const onAnalyzeMessagesChange = vi.fn();
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={1}
+        initialAnalyzeMessages={initialMessages}
+        onAnalyzeMessagesChange={onAnalyzeMessagesChange}
+      />,
+    );
+
+    // Switch to Analizar tab first
+    fireEvent.click(screen.getByTestId("tab-analizar"));
+
+    // Wait for the initial messages to be shown
+    await waitFor(() => {
+      expect(screen.getByText("Analiza esto")).toBeInTheDocument();
+    });
+
+    // Click "Nueva conversación"
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("new-conversation-btn"));
+    });
+
+    // The "Analiza esto" message should be gone
+    expect(screen.queryByText("Analiza esto")).not.toBeInTheDocument();
+    // The callback should have been called with empty array
+    expect(onAnalyzeMessagesChange).toHaveBeenCalledWith([]);
+  });
+
+  // -----------------------------------------------------------------------
+  // Previous conversations panel trigger (Task 5 / #540)
+  // -----------------------------------------------------------------------
+
+  it("does not render history button when dashboardId is not set", () => {
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+      />,
+    );
+    expect(screen.queryByTestId("previous-conversations-btn")).not.toBeInTheDocument();
+  });
+
+  it("renders history button when dashboardId is set", () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, json: () => Promise.resolve({}) });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={1}
+      />,
+    );
+    expect(screen.getByTestId("previous-conversations-btn")).toBeInTheDocument();
+  });
+
+  it("opens previous conversations panel when history button is clicked", async () => {
+    // Mock: API returns empty for conversations, 404 for auto-load
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ conversations: [] }),
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={1}
+      />,
+    );
+
+    // Panel should not be visible initially
+    expect(screen.queryByTestId("previous-conversations-panel")).not.toBeInTheDocument();
+
+    // Click the history button
+    fireEvent.click(screen.getByTestId("previous-conversations-btn"));
+
+    // Panel should appear
+    await waitFor(() => {
+      expect(screen.getByTestId("previous-conversations-panel")).toBeInTheDocument();
+    });
+  });
+
+  it("closes previous conversations panel when toggled again", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ conversations: [] }),
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={1}
+      />,
+    );
+
+    // Open the panel
+    fireEvent.click(screen.getByTestId("previous-conversations-btn"));
+    await waitFor(() => {
+      expect(screen.getByTestId("previous-conversations-panel")).toBeInTheDocument();
+    });
+
+    // Click the button again — should close
+    fireEvent.click(screen.getByTestId("previous-conversations-btn"));
+    expect(screen.queryByTestId("previous-conversations-panel")).not.toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------
+  // Auto-load conversation on mount (Task 5 / #540)
+  // -----------------------------------------------------------------------
+
+  it("auto-loads latest conversation messages when API returns them", async () => {
+    const convId = "autoload000001";
+    const conversationMessages = [
+      {
+        id: "msg1",
+        conversation_id: convId,
+        role: "user",
+        content: "Mensaje auto-cargado del usuario",
+        created_at: new Date(Date.now() - 2000).toISOString(),
+      },
+      {
+        id: "msg2",
+        conversation_id: convId,
+        role: "assistant",
+        content: { text: "Respuesta auto-cargada del asistente" },
+        created_at: new Date(Date.now() - 1000).toISOString(),
+      },
+    ];
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/conversations?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              conversations: [
+                {
+                  id: convId,
+                  title: "Conv auto-cargada",
+                  first_user_prompt: null,
+                  last_interaction_at: new Date().toISOString(),
+                  archived_at: null,
+                  message_count: 2,
+                  last_status: "ok",
+                },
+              ],
+            }),
+        });
+      }
+      if (url.includes(`/api/conversations/${convId}`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              conversation: {
+                id: convId,
+                mode: "modify",
+                title: "Conv auto-cargada",
+                first_user_prompt: null,
+                messages: conversationMessages,
+              },
+            }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={5}
+      />,
+    );
+
+    // Wait for auto-loaded messages to appear in Modificar tab
+    await waitFor(() => {
+      expect(screen.getByText("Mensaje auto-cargado del usuario")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Respuesta auto-cargada del asistente")).toBeInTheDocument();
+  });
+
+  it("keeps initial messages from props when conversation API returns 404", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      json: () => Promise.resolve({}),
+    });
+
+    const initialMessages = [
+      { role: "user" as const, content: "Mensaje inicial de props", timestamp: new Date() },
+    ];
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={99}
+        initialModifyMessages={initialMessages}
+      />,
+    );
+
+    // Initial messages should still be visible
+    await waitFor(() => {
+      expect(screen.getByText("Mensaje inicial de props")).toBeInTheDocument();
+    });
+  });
 });
