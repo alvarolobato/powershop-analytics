@@ -527,6 +527,7 @@ export async function updateTitle(id: string, title: string): Promise<void> {
 
 // ── Legacy cache sync ─────────────────────────────────────────────────────────
 
+
 /**
  * Write the latest non-archived conversation messages back into the dashboard's
  * legacy cache columns (chat_messages_modify / chat_messages_analyze) so the

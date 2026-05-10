@@ -16,6 +16,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@/components/WeeklySummaryButton", () => ({
+  default: () => <button data-testid="weekly-summary-btn">✦ Resumen semanal</button>,
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     href,
@@ -218,5 +222,12 @@ describe("InicioPage", () => {
       expect(screen.getByTestId("hero-today")).toBeInTheDocument();
     });
     expect(screen.queryByRole("button", { name: /guardar/i })).not.toBeInTheDocument();
+  });
+
+  it("renders the WeeklySummaryButton in the page header", () => {
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    render(<InicioPage />);
+    expect(screen.getByTestId("weekly-summary-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("weekly-summary-btn")).toHaveTextContent("Resumen semanal");
   });
 });
