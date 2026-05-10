@@ -326,7 +326,7 @@ The two tiers complement, not compete: the watchdog handles per-object stalls fa
 | Stalled `ai-ready-for-review` PRs | ✅ | Rule-based |
 | Open PRs with no AI PR Review run (cancelled/dropped) | ✅ | Rule-based |
 | Open PRs with unaddressed reviewer feedback | ✅ | Rule-based |
-| Stuck `ai-phase-opus` PRs | ✅ | Rule-based |
+| Stuck `ai-phase-opus` PRs (Opus reviewed but address-feedback didn't transition) | ✅ | Rule-based |
 | Auto-retry blocked PRs (address-feedback failures) | ✅ | Rule-based retry |
 | Auto-retry transient failures | ✅ | Rule-based retry |
 | Clear `ai-ci-failing` when CI is green | ✅ | Rule-based |
@@ -416,7 +416,7 @@ The manager's actions are explicitly bounded. Anything not in this table default
 | Modify `.github/workflows/*` in a PR | 🛑 Never | Files a spec issue instead; humans tag `ai-work` if accepted |
 | Force-push to any branch | 🛑 Never | Permissions deny |
 | Override `no-ai` / `needs-human-approval` / `no-ai-manager` | 🛑 Never | Prompt forbids; workflow checks |
-| Touch credentials / secrets | 🛑 Never | Workflow `permissions:` block omits `secrets: read` |
+| Touch credentials / secrets | 🛑 Never | Workflow runs with minimal `GITHUB_TOKEN` scopes; no repo secrets are referenced; prompt forbids passing credentials to the LLM |
 | Close issues marked `needs-human-approval` (D-028) | 🛑 Never | Skipped in the prompt's "stale items" pass |
 
 **Failure mode**: On any error or rate limit, the manager logs partial state in the session report and exits with code 0. The watchdog continues handling per-PR / per-issue stalls independently. The next scheduled run picks up where it left off — idempotency is achieved through marker comments in the session report and label state.
