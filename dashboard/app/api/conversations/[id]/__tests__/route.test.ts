@@ -4,12 +4,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockGetConversationWithMessages = vi.fn();
-const mockUpdateConversation = vi.fn();
+const mockGetConversation = vi.fn();
+const mockUpdateConversationTitle = vi.fn();
+const mockSetConversationArchived = vi.fn();
 
 vi.mock("@/lib/conversations", () => ({
-  getConversationWithMessages: (...args: unknown[]) => mockGetConversationWithMessages(...args),
-  updateConversation: (...args: unknown[]) => mockUpdateConversation(...args),
+  getConversation: (...args: unknown[]) => mockGetConversation(...args),
+  updateConversationTitle: (...args: unknown[]) => mockUpdateConversationTitle(...args),
+  setConversationArchived: (...args: unknown[]) => mockSetConversationArchived(...args),
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
@@ -34,7 +36,6 @@ const MOCK_CONV = {
   last_interaction_at: "2026-01-01T00:01:00Z",
   archived_at: null,
   last_status: "ok",
-  messages: [],
 };
 
 function params(id: string) {
@@ -42,13 +43,14 @@ function params(id: string) {
 }
 
 beforeEach(() => {
-  mockGetConversationWithMessages.mockReset();
-  mockUpdateConversation.mockReset();
+  mockGetConversation.mockReset();
+  mockUpdateConversationTitle.mockReset();
+  mockSetConversationArchived.mockReset();
 });
 
 describe("GET /api/conversations/:id", () => {
   it("returns 404 when conversation not found", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(null);
+    mockGetConversation.mockResolvedValue(null);
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`);
     const res = await GET(req, params(VALID_ID));
     expect(res.status).toBe(404);
@@ -57,7 +59,7 @@ describe("GET /api/conversations/:id", () => {
   });
 
   it("returns conversation JSON when found", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(MOCK_CONV);
+    mockGetConversation.mockResolvedValue(MOCK_CONV);
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`);
     const res = await GET(req, params(VALID_ID));
     expect(res.status).toBe(200);
@@ -66,13 +68,13 @@ describe("GET /api/conversations/:id", () => {
     expect(body.title).toBe("My conversation");
   });
 
-  it("returns 500 when getConversationWithMessages throws", async () => {
-    mockGetConversationWithMessages.mockRejectedValue(new Error("DB error"));
+  it("returns 500 when getConversation throws", async () => {
+    mockGetConversation.mockRejectedValue(new Error("DB error"));
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`);
     const res = await GET(req, params(VALID_ID));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.code).toBe("DB_QUERY");
+    expect(body.code).toBe("DB_ERROR");
   });
 });
 
@@ -86,11 +88,11 @@ describe("PATCH /api/conversations/:id", () => {
     const res = await PATCH(req, params(VALID_ID));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("INVALID_BODY");
   });
 
   it("returns 404 when conversation not found", async () => {
-    mockUpdateConversation.mockResolvedValue(null);
+    mockGetConversation.mockResolvedValue(null);
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -101,7 +103,8 @@ describe("PATCH /api/conversations/:id", () => {
   });
 
   it("updates title when title is provided", async () => {
-    mockUpdateConversation.mockResolvedValue({ ...MOCK_CONV, title: "New Title" });
+    mockGetConversation.mockResolvedValue({ ...MOCK_CONV, title: "New Title" });
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
 
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
       method: "PATCH",
@@ -110,13 +113,14 @@ describe("PATCH /api/conversations/:id", () => {
     });
     const res = await PATCH(req, params(VALID_ID));
     expect(res.status).toBe(200);
-    expect(mockUpdateConversation).toHaveBeenCalledWith(VALID_ID, { title: "New Title" });
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(VALID_ID, "New Title");
     const body = await res.json();
     expect(body.title).toBe("New Title");
   });
 
   it("archives conversation when archived=true", async () => {
-    mockUpdateConversation.mockResolvedValue({ ...MOCK_CONV, archived_at: "2026-01-02T00:00:00Z" });
+    mockGetConversation.mockResolvedValue({ ...MOCK_CONV, archived_at: "2026-01-02T00:00:00Z" });
+    mockSetConversationArchived.mockResolvedValue(undefined);
 
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
       method: "PATCH",
@@ -125,22 +129,22 @@ describe("PATCH /api/conversations/:id", () => {
     });
     const res = await PATCH(req, params(VALID_ID));
     expect(res.status).toBe(200);
-    expect(mockUpdateConversation).toHaveBeenCalledWith(VALID_ID, { archived: true });
+    expect(mockSetConversationArchived).toHaveBeenCalledWith(VALID_ID, true);
   });
 
-  it("passes whitespace-only title to updateConversation", async () => {
-    mockUpdateConversation.mockResolvedValue(MOCK_CONV);
+  it("skips title update for whitespace-only title", async () => {
+    mockGetConversation.mockResolvedValue(MOCK_CONV);
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "   " }),
     });
     await PATCH(req, params(VALID_ID));
-    expect(mockUpdateConversation).toHaveBeenCalledWith(VALID_ID, { title: "   " });
+    expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
   });
 
   it("returns 500 when database throws", async () => {
-    mockUpdateConversation.mockRejectedValue(new Error("DB error"));
+    mockGetConversation.mockRejectedValue(new Error("DB error"));
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -149,6 +153,6 @@ describe("PATCH /api/conversations/:id", () => {
     const res = await PATCH(req, params(VALID_ID));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.code).toBe("DB_QUERY");
+    expect(body.code).toBe("DB_ERROR");
   });
 });

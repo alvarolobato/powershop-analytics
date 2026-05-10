@@ -4,26 +4,23 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockGetConversationWithMessages = vi.fn();
+const mockGetConversation = vi.fn();
 const mockAppendMessage = vi.fn();
-const mockSetInitialContext = vi.fn();
-const mockUpdateLastStatus = vi.fn();
+const mockLoadMessages = vi.fn();
+const mockMaybeGenerateTitle = vi.fn();
+const mockTouchConversation = vi.fn();
 const mockLlmComplete = vi.fn();
 
 vi.mock("@/lib/conversations", () => ({
-  getConversationWithMessages: (...a: unknown[]) => mockGetConversationWithMessages(...a),
+  getConversation: (...a: unknown[]) => mockGetConversation(...a),
   appendMessage: (...a: unknown[]) => mockAppendMessage(...a),
-  setInitialContext: (...a: unknown[]) => mockSetInitialContext(...a),
-  updateLastStatus: (...a: unknown[]) => mockUpdateLastStatus(...a),
+  loadMessages: (...a: unknown[]) => mockLoadMessages(...a),
+  maybeGenerateTitle: (...a: unknown[]) => mockMaybeGenerateTitle(...a),
+  touchConversation: (...a: unknown[]) => mockTouchConversation(...a),
 }));
 
 vi.mock("@/lib/llm-client", () => ({
   llmComplete: (...a: unknown[]) => mockLlmComplete(...a),
-}));
-
-vi.mock("@/lib/llm-provider/config", () => ({
-  loadDashboardLlmConfig: () => ({ provider: "openrouter", model: "test-model", cliDriver: null }),
-  getEffectiveDashboardModel: () => "test-model",
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
@@ -48,11 +45,6 @@ const CONV = {
   last_interaction_at: "2026-01-01T00:01:00Z",
   archived_at: null,
   last_status: "ok",
-  llm_provider: null,
-  llm_driver: null,
-  initial_context: null,
-  created_by: null,
-  messages: [],
 };
 
 function postRequest(
@@ -70,29 +62,15 @@ function postRequest(
 }
 
 beforeEach(() => {
-  mockGetConversationWithMessages.mockReset();
+  mockGetConversation.mockReset();
   mockAppendMessage.mockReset();
-  mockSetInitialContext.mockReset();
-  mockUpdateLastStatus.mockReset();
+  mockLoadMessages.mockReset();
+  mockMaybeGenerateTitle.mockReset();
+  mockTouchConversation.mockReset();
   mockLlmComplete.mockReset();
 });
 
 describe("POST /api/conversations/:id/messages", () => {
-  it("returns 400 for invalid conversation ID", async () => {
-    const req = new NextRequest(
-      "http://localhost:4000/api/conversations/not-hex-id/messages",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "user", content: "Hello" }),
-      },
-    );
-    const res = await POST(req, { params: Promise.resolve({ id: "not-hex-id" }) });
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
-  });
-
   it("returns 400 for invalid JSON body", async () => {
     const req = new NextRequest(
       `http://localhost:4000/api/conversations/${VALID_ID}/messages`,
@@ -105,40 +83,36 @@ describe("POST /api/conversations/:id/messages", () => {
     const res = await POST(req, { params: Promise.resolve({ id: VALID_ID }) });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
-  });
-
-  it("returns 400 when role is missing", async () => {
-    const [req, ctx] = postRequest(VALID_ID, { content: "Hello" });
-    const res = await POST(req, ctx);
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("INVALID_BODY");
   });
 
   it("returns 400 when content is missing", async () => {
-    const [req, ctx] = postRequest(VALID_ID, { role: "user" });
+    const [req, ctx] = postRequest(VALID_ID, {});
     const res = await POST(req, ctx);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_CONTENT");
   });
 
-  it("returns 400 when content exceeds 256 KB", async () => {
-    // 262145 bytes > 256 * 1024 = 262144 bytes
-    const [req, ctx] = postRequest(VALID_ID, {
-      role: "user",
-      content: "x".repeat(262145),
-    });
+  it("returns 400 when content is empty string", async () => {
+    const [req, ctx] = postRequest(VALID_ID, { content: "" });
     const res = await POST(req, ctx);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_CONTENT");
+  });
+
+  it("returns 400 when content exceeds 10000 characters", async () => {
+    const [req, ctx] = postRequest(VALID_ID, { content: "x".repeat(10001) });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("CONTENT_TOO_LONG");
   });
 
   it("returns 404 when conversation not found", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(null);
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello" });
+    mockGetConversation.mockResolvedValue(null);
+    const [req, ctx] = postRequest(VALID_ID, { content: "Hello" });
     const res = await POST(req, ctx);
     expect(res.status).toBe(404);
     const body = await res.json();
@@ -146,74 +120,54 @@ describe("POST /api/conversations/:id/messages", () => {
   });
 
   it("returns 409 when conversation is archived", async () => {
-    mockGetConversationWithMessages.mockResolvedValue({
+    mockGetConversation.mockResolvedValue({
       ...CONV,
       archived_at: "2026-01-02T00:00:00Z",
     });
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello" });
+    const [req, ctx] = postRequest(VALID_ID, { content: "Hello" });
     const res = await POST(req, ctx);
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.code).toBe("CONVERSATION_ARCHIVED");
   });
 
-  it("appends message and returns conversationId when callLlm=false", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(CONV);
-    const mockMsg = { id: "msg-1", role: "user", content: "Hello", created_at: "2026-01-01T00:00:00Z" };
-    mockAppendMessage.mockResolvedValue(mockMsg);
-    mockSetInitialContext.mockResolvedValue(undefined);
+  it("appends message and returns ok:true when callLlm=false", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue(undefined);
+    mockTouchConversation.mockResolvedValue(undefined);
 
-    const [req, ctx] = postRequest(VALID_ID, {
-      role: "user",
-      content: "Hello",
-      callLlm: false,
-    });
+    const [req, ctx] = postRequest(VALID_ID, { content: "Hello", callLlm: false });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.conversationId).toBe(VALID_ID);
-    expect(mockAppendMessage).toHaveBeenCalled();
+    expect(body.ok).toBe(true);
+    expect(mockAppendMessage).toHaveBeenCalledWith(VALID_ID, "user", { text: "Hello" });
   });
 
-  it("calls LLM and returns assistant reply when callLlm=true", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(CONV);
-    const mockUserMsg = { id: "msg-1", role: "user", content: "Hello", created_at: "2026-01-01T00:00:00Z" };
-    const mockAssistantMsg = { id: "msg-2", role: "assistant", content: "Hola, ¿cómo puedo ayudarte?", created_at: "2026-01-01T00:01:00Z" };
-    mockAppendMessage
-      .mockResolvedValueOnce(mockUserMsg)
-      .mockResolvedValueOnce(mockAssistantMsg);
-    mockSetInitialContext.mockResolvedValue(undefined);
-    mockUpdateLastStatus.mockResolvedValue(undefined);
-    mockLlmComplete.mockResolvedValue({
-      text: "Hola, ¿cómo puedo ayudarte?",
-      usage: {
-        prompt_tokens: 10,
-        completion_tokens: 20,
-        cache_read_input_tokens: 5,
-        cache_creation_input_tokens: null,
-      },
-    });
+  it("calls LLM and returns message when callLlm=true", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue(undefined);
+    mockLoadMessages.mockResolvedValue([]);
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockMaybeGenerateTitle.mockResolvedValue(undefined);
+    mockLlmComplete.mockResolvedValue({ text: "Hola, ¿cómo puedo ayudarte?" });
 
-    const [req, ctx] = postRequest(VALID_ID, {
-      role: "user",
-      content: "Hello",
-      callLlm: true,
-    });
+    const [req, ctx] = postRequest(VALID_ID, { content: "Hello", callLlm: true });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.conversationId).toBe(VALID_ID);
-    expect(body.assistantMessage).toEqual(mockAssistantMsg);
+    expect(body.message).toBe("Hola, ¿cómo puedo ayudarte?");
     expect(mockLlmComplete).toHaveBeenCalled();
   });
 
-  it("returns 500 when an unexpected DB error is thrown", async () => {
-    mockGetConversationWithMessages.mockRejectedValue(new Error("DB failure"));
+  it("returns 500 on unexpected error", async () => {
+    mockGetConversation.mockRejectedValue(new Error("DB failure"));
+    mockTouchConversation.mockResolvedValue(undefined);
 
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello" });
+    const [req, ctx] = postRequest(VALID_ID, { content: "Hello" });
     const res = await POST(req, ctx);
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.code).toBe("DB_QUERY");
+    expect(body.code).toBe("LLM_ERROR");
   });
 });

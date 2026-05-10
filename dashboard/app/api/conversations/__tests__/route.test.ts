@@ -43,21 +43,28 @@ describe("POST /api/conversations", () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("INVALID_BODY");
   });
 
   it("returns 400 when mode is missing", async () => {
     const res = await POST(makeRequest({}));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_MODE");
   });
 
   it("returns 400 when mode is empty string", async () => {
     const res = await POST(makeRequest({ mode: "" }));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_MODE");
+  });
+
+  it("returns 400 for unrecognized mode", async () => {
+    const res = await POST(makeRequest({ mode: "unknown-mode" }));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_MODE");
   });
 
   it("creates conversation and returns 201 with URLs", async () => {
@@ -91,6 +98,6 @@ describe("POST /api/conversations", () => {
     const res = await POST(makeRequest({ mode: "generate" }));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.code).toBe("DB_QUERY");
+    expect(body.code).toBe("DB_ERROR");
   });
 });
