@@ -11,6 +11,7 @@ import { OperationsRow } from "@/components/home/OperationsRow";
 import { TopStoresTable } from "@/components/home/TopStoresTable";
 import { HealthFooter } from "@/components/home/HealthFooter";
 import { DateNavigator } from "@/components/home/DateNavigator";
+import WeeklySummaryButton from "@/components/WeeklySummaryButton";
 
 // ---------------------------------------------------------------------------
 // Skeleton shimmer card
@@ -252,6 +253,7 @@ export default function InicioPage() {
           >
             Exportar
           </button>
+          <WeeklySummaryButton style={outlineBtn} />
           <Link
             href="/dashboard/new"
             style={primaryBtn}
