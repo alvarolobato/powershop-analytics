@@ -46,9 +46,10 @@ Identify patterns across multiple objects, not just per-object state. Look for:
 
 For each pattern found:
 
-1. File a new issue describing the pattern, the observed evidence (link specific issues/PRs/workflow runs), and a proposed fix.
-2. Apply labels: `ai-factory` + `agent-efficiency`. **Never** add `ai-work` — that's a decision-request.
-3. Log it in Pass 4 under "Patterns observed".
+1. **Before filing**, check the open-issues table in `MANAGER_CONTEXT.md` for any existing open issue with `ai-factory` label that describes the same pattern. Match by fingerprint comment or title similarity. If a match exists, add a comment on that issue with the new evidence instead of creating a duplicate.
+2. File a new issue describing the pattern, the observed evidence (link specific issues/PRs/workflow runs), and a proposed fix.
+3. Apply labels: `ai-factory` + `agent-efficiency`. **Never** add `ai-work` — that's a decision-request.
+4. Log it in Pass 4 under "Patterns observed".
 
 ### Pass 3 — Boundary check + decision queue
 
@@ -91,13 +92,15 @@ Post a **single** comment on the tracking issue (the issue number is in `MANAGER
 
 The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. Before posting, check if a comment from today (same ISO date) already exists with this marker on the tracking issue. If it does, **do not post a duplicate** — instead, update the existing comment if you took new actions, or skip the report entirely.
 
+> **Scope note:** This marker prevents duplicate session reports. Passes 1–3 actions (closing issues, toggling labels) are naturally idempotent — re-running them on an already-closed issue or an already-labelled PR has no effect. Pass 2 issue-filing requires the deduplication check in step 1 above to stay idempotent.
+
 ## Boundaries — strict
 
 | Action | Authorized? | Mechanism |
 |--------|-------------|-----------|
 | Read any issue / PR / comment / workflow run / file | ✅ Always | `gh` + `git` CLI (read-only) |
 | Post comments on issues / PRs (informational, advisory) | ✅ Always | `gh issue comment` / `gh pr comment` |
-| Close issues that are objectively resolved (work merged, superseded, demonstrably stale) | ✅ Logged prominently | `gh issue close --reason completed/not planned` + reasoning |
+| Close issues that are objectively resolved (work merged, superseded, demonstrably stale) | ✅ Logged prominently | `gh issue close --reason completed` or `--reason "not planned"` + reasoning comment |
 | Add/remove cosmetic labels (`comp-*`, `size-*`, `risk-*`, `p[0-3]-*`) | ✅ Logged | `gh issue edit` |
 | Add/remove state labels (`ai-blocked`, `ai-needs-rewrite`, `ai-stale-base`) | ✅ Logged | Same |
 | Toggle `ai-work` to retrigger a stuck issue | ✅ Logged | Same |
@@ -107,11 +110,11 @@ The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. B
 | File a new issue describing a real product bug | ✅ Logged | `gh issue create` (with `bug` + best-guess `comp-*`, **never** `ai-work`) |
 | Add `ai-work` to an existing issue | 🟡 **Decision-request** | Comment on the target issue tagging `@alvarolobato` with proposed dispatch |
 | Lower a CI threshold | 🟡 **Decision-request** | Same |
-| Merge any PR | 🛑 Never | Workflow doesn't have merge permission; prompt forbids it |
+| Merge any PR | 🛑 Never | Prompt forbids it; the workflow has `pull-requests: write` for posting comments, not for triggering auto-merge |
 | Modify `.github/workflows/*` in a PR | 🛑 Never | File a spec issue instead |
 | Force-push to any branch | 🛑 Never | Permissions deny |
 | Override `no-ai` / `needs-human-approval` / `no-ai-manager` | 🛑 Never | Prompt forbids; workflow pre-flight checks |
-| Touch credentials / secrets | 🛑 Never | Workflow `permissions:` block omits `secrets: read` |
+| Touch credentials / secrets | 🛑 Never | No secret env vars exposed to the manager step; the manager cannot access `.env`, Keychain, or any credential files |
 | Close issues marked `needs-human-approval` (D-028 business-review) | 🛑 Never | Skip in triage pass |
 
 **Anything not in this table** → decision-request, never autonomous.
