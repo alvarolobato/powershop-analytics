@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ConversationsTable } from "@/components/ConversationsTable";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse, type ApiErrorResponse } from "@/lib/errors";
 import type { ConversationRow } from "@/app/conversations/types";
 
 // ---------------------------------------------------------------------------
@@ -214,7 +216,7 @@ function ConversationsPageContent() {
 
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiErrorResponse | string | null>(null);
 
   // Persist filter state to URL
   const persistFilters = useCallback(
@@ -284,11 +286,18 @@ function ConversationsPageContent() {
       const res = await fetch(url);
       if (!res.ok) {
         if (res.status === 404) {
-          // API not yet available (Task 2 not merged)
           setConversations([]);
           return;
         }
-        throw new Error(`HTTP ${res.status}`);
+        // Try to surface the rich error envelope from the API so the user
+        // sees code / requestId / details, not just "HTTP 500".
+        const body = await res.json().catch(() => null);
+        if (isApiErrorResponse(body)) {
+          setError(body);
+        } else {
+          setError(`HTTP ${res.status}`);
+        }
+        return;
       }
       const data = await res.json();
       setConversations(Array.isArray(data) ? data : data.conversations ?? []);
@@ -433,17 +442,12 @@ function ConversationsPageContent() {
         )}
 
         {!loading && error && (
-          <div
-            style={{
-              padding: "24px",
-              color: "var(--down)",
-              fontSize: 13,
-              background: "var(--down-bg)",
-              borderRadius: 6,
-            }}
-            data-testid="error-message"
-          >
-            Error: {error}
+          <div data-testid="error-message">
+            <ErrorDisplay
+              error={error}
+              title="No se pudieron cargar las conversaciones"
+              onRetry={fetchConversations}
+            />
           </div>
         )}
 
