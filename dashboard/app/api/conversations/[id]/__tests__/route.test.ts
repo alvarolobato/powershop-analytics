@@ -142,6 +142,30 @@ describe("PATCH /api/conversations/:id", () => {
     expect(res.status).toBe(404);
   });
 
+  it("returns 400 when title is not a string", async () => {
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: 42 }),
+    });
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_BODY");
+  });
+
+  it("returns 400 when archived is not a boolean", async () => {
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ archived: "yes" }),
+    });
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_BODY");
+  });
+
   it("updates title when title is provided", async () => {
     mockGetConversation
       .mockResolvedValueOnce(MOCK_CONV)

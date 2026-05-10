@@ -11,7 +11,7 @@
  *
  * Returns:
  *   - `{ ok: true, message: MessageRow }` when callLlm=false
- *   - `{ message: MessageRow }` (the assistant row) when callLlm=true
+ *   - `{ ok: true, message: MessageRow }` (the assistant row) when callLlm=true
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -22,8 +22,10 @@ import {
   maybeGenerateTitle,
   setInitialContext,
   touchConversation,
-  type InitialContext,
+  type ConversationRow,
+  type MessageRow,
 } from "@/lib/conversations";
+import type { InitialContext as ApiInitialContext } from "@/lib/conversation-types";
 import { llmComplete } from "@/lib/llm-client";
 import {
   getEffectiveDashboardModel,
@@ -117,11 +119,11 @@ export async function POST(
   }
   const flowRaw = typeof b.flow === "string" ? b.flow : undefined;
 
-  // ── DB phase: load conversation, append user message ─────────────────────────
-  let userMessage;
-  let conversation;
+  // ── DB phase: load conversation, append user message, load history ────────────
+  let userMessage!: MessageRow;
+  let priorMessages: Array<{ role: "user" | "assistant"; content: string }> = [];
   try {
-    conversation = await getConversation(id);
+    const conversation: ConversationRow | null = await getConversation(id);
     if (!conversation) {
       return NextResponse.json(
         formatApiError(
@@ -155,21 +157,44 @@ export async function POST(
       try {
         const cfg = loadDashboardLlmConfig();
         const flow = (flowRaw ?? "summary") as DashboardLlmFlow;
-        const snapshot: InitialContext = {
+        // Use the API InitialContext shape (conversation-types.ts) so the stored
+        // snapshot matches what GET /api/conversations/:id returns to consumers.
+        const snapshot: ApiInitialContext = {
           model: getEffectiveDashboardModel(cfg, flow),
           provider: cfg.provider,
           driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-          systemPrompt: { stable: "" },
+          system_prompt_stable: "",
           tools: [],
-          flow,
+          config: { flow },
         };
-        await setInitialContext(id, snapshot);
+        await setInitialContext(id, snapshot as unknown as Parameters<typeof setInitialContext>[1]);
       } catch (snapshotErr) {
         console.warn(
           `[${requestId}] setInitialContext failed for ${id}:`,
           snapshotErr,
         );
       }
+    }
+
+    // Load message history in the DB phase so a PG failure is reported as
+    // DB_ERROR rather than LLM_ERROR.
+    if (callLlm) {
+      const prior = await loadMessages(id);
+      priorMessages = prior
+        .filter((m) => m.role === "user" || m.role === "assistant")
+        .map((m) => {
+          const c = m.content;
+          const text =
+            typeof c === "string"
+              ? c
+              : c !== null &&
+                  typeof c === "object" &&
+                  !Array.isArray(c) &&
+                  typeof (c as Record<string, unknown>).text === "string"
+                ? ((c as Record<string, unknown>).text as string)
+                : JSON.stringify(c);
+          return { role: m.role as "user" | "assistant", content: text };
+        });
     }
   } catch (err) {
     await touchConversation(id, "error").catch(() => {});
@@ -191,23 +216,8 @@ export async function POST(
   }
 
   // ── LLM phase: call model, append assistant message ──────────────────────────
+  // priorMessages was loaded in the DB phase above.
   try {
-    const prior = await loadMessages(id);
-    const priorMessages = prior
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        const c = m.content;
-        const text =
-          typeof c === "string"
-            ? c
-            : c !== null &&
-                typeof c === "object" &&
-                !Array.isArray(c) &&
-                typeof (c as Record<string, unknown>).text === "string"
-              ? ((c as Record<string, unknown>).text as string)
-              : JSON.stringify(c);
-        return { role: m.role as "user" | "assistant", content: text };
-      });
 
     const llmResponse = await llmComplete({
       flow: flowRaw ?? "summary",
@@ -226,7 +236,7 @@ export async function POST(
       { role: "assistant", content: llmResponse.text },
     ]);
 
-    return NextResponse.json({ message: assistantMessage });
+    return NextResponse.json({ ok: true, message: assistantMessage });
   } catch (err) {
     await touchConversation(id, "error").catch(() => {});
     console.error(`[${requestId}] POST /api/conversations/${id}/messages LLM error:`, err);

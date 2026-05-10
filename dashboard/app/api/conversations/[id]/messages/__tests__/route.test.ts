@@ -232,7 +232,7 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(mockSetInitialContext).not.toHaveBeenCalled();
   });
 
-  it("calls LLM and returns the assistant message row when callLlm=true", async () => {
+  it("calls LLM and returns ok+assistant message row when callLlm=true", async () => {
     mockGetConversation.mockResolvedValue(CONV);
     mockAppendMessage
       .mockResolvedValueOnce(USER_ROW) // user append
@@ -250,6 +250,7 @@ describe("POST /api/conversations/:id/messages", () => {
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
+    expect(body.ok).toBe(true);
     expect(body.message).toEqual(ASSISTANT_ROW);
     expect(mockLlmComplete).toHaveBeenCalled();
   });
@@ -263,6 +264,21 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.code).toBe("DB_ERROR");
+  });
+
+  it("returns 500 with DB_ERROR when loadMessages throws during callLlm=true", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockLoadMessages.mockRejectedValue(new Error("PG timeout"));
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: true });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("DB_ERROR");
+    expect(mockLlmComplete).not.toHaveBeenCalled();
   });
 
   it("returns 500 with LLM_ERROR when LLM call throws", async () => {

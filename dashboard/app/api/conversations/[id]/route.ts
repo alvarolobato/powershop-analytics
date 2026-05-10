@@ -95,6 +95,19 @@ export async function PATCH(
 
   const b = body as Record<string, unknown>;
 
+  if ("title" in b && typeof b.title !== "string") {
+    return NextResponse.json(
+      formatApiError("El campo 'title' debe ser una cadena de texto.", "INVALID_BODY", undefined, requestId),
+      { status: 400 },
+    );
+  }
+  if ("archived" in b && typeof b.archived !== "boolean") {
+    return NextResponse.json(
+      formatApiError("El campo 'archived' debe ser un booleano.", "INVALID_BODY", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
   try {
     const existing = await getConversation(id);
     if (!existing) {
