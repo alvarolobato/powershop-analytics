@@ -94,6 +94,87 @@ The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. B
 
 > **Scope note:** This marker prevents duplicate session reports. Passes 1–3 actions (closing issues, toggling labels) are naturally idempotent — re-running them on an already-closed issue or an already-labelled PR has no effect. Pass 2 issue-filing requires the deduplication check in step 1 above to stay idempotent.
 
+### Pass 5 — Parent-issue verification (rubber stamp)
+
+For every open issue in MANAGER_CONTEXT that meets ALL of:
+  - Has the `ai-planned` label (proves it had a planner pass).
+  - Lacks `ai-parent-verified` AND lacks `ai-parent-incomplete` AND lacks
+    `ai-blocked` AND lacks `needs-human-approval`.
+  - Every sub-issue of it (per the issue's tracked sub-issues OR via
+    `in:body Closes #<parent>` / `in:body Part of #<parent>` search) is
+    in CLOSED state.
+  - The PR for the most recent sub-task merged at least 30 min ago
+    (gives CI/post-merge workflows time to settle).
+
+Run a verification:
+
+  Step A — Read the parent
+    `gh issue view <parent> --json title,body,comments`
+    Pay special attention to the **Definition of done** section, the
+    **Tasks** list, the **Constraints**, and any **Additional context**
+    that adds late requirements.
+
+  Step B — Read every sub-task
+    For each closed sub-issue with body containing `Closes #<parent>` or
+    `Part of #<parent>`:
+      - Read the sub-issue body
+      - Read the linked merged PR diff: `gh pr diff <PR>`
+      - Read the PR conversation: `gh pr view <PR> --comments`
+
+  Step C — Read main at HEAD
+    Inspect specific files mentioned in the parent's "Repo touchpoints"
+    section. Verify the integration of all sub-tasks.
+
+  Step D — Compare and produce a verdict
+    For each Definition-of-Done item, mark:
+      - ✅ MET — landed cleanly, point to PR(s) and file(s)
+      - 🟡 PARTIAL — partly met; what's missing
+      - ❌ MISSING — not delivered by any merged sub-task
+
+    Then evaluate integration: does the SUM compose? Anything that worked
+    in isolation but doesn't fit together?
+
+  Step E — Apply verdict
+    Post a structured comment on the parent issue:
+
+      ## 🔍 Parent Verification — <parent title>
+
+      | DoD item | Status | Evidence |
+      |----------|--------|----------|
+      | <item> | ✅/🟡/❌ | <PR# / file references> |
+
+      ### Integration check
+      <one-paragraph assessment>
+
+      ### Verdict
+      ✅ Verified  |  ❌ Incomplete (N gaps)
+
+      ### Gaps (only if ❌)
+      1. <gap-1>
+      2. <gap-2>
+
+    On ✅: add label `ai-parent-verified`. Do NOT auto-close the parent
+    (verdict comment can recommend closure; owner closes manually).
+
+    On ❌: add label `ai-parent-incomplete`. Also create a single
+    consolidated follow-up issue:
+      Title: `[parent-verify-followup] <parent title> — N gap(s)`
+      Body: gap list as `## Tasks` checklist + link to parent + link to
+      verdict comment.
+      Labels: `agent-efficiency`, `p2-medium`, best-guess `comp-*`.
+      **Never** add `ai-work` (owner reviews and tags if accepted).
+
+  Step F — Idempotency
+    Each parent gets at most ONE verification per Pass 5 invocation.
+    If a verdict label already exists, skip (owner can re-run by
+    removing the label).
+
+  Step G — Uncertainty rule
+    If the verifier is uncertain about a DoD item (typically when it
+    describes runtime behavior the manager can't execute), mark it
+    🟡 PARTIAL with note "needs human verification" rather than ✅.
+    Better to escalate uncertain items than to falsely rubber-stamp.
+
 ## Boundaries — strict
 
 | Action | Authorized? | Mechanism |
@@ -108,6 +189,9 @@ The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. B
 | Resolve obvious supersede / dedupe (close one, point to the other) | ✅ Logged | Comment + close |
 | File a new issue proposing a watchdog rule, prompt change, or factory enhancement | ✅ Logged | `gh issue create` (always `ai-factory + agent-efficiency`, **never** `ai-work`) |
 | File a new issue describing a real product bug | ✅ Logged | `gh issue create` (with `bug` + best-guess `comp-*`, **never** `ai-work`) |
+| Apply `ai-parent-verified` / `ai-parent-incomplete` to a parent whose sub-issues are all closed (Pass 5) | ✅ Logged | `gh issue edit --add-label` + verdict comment |
+| File a consolidated `[parent-verify-followup]` gap-list issue when a verdict is ❌ incomplete | ✅ Logged | `gh issue create` (with `agent-efficiency + p2-medium`, **never** `ai-work`) |
+| Auto-close a parent issue after a ✅ parent-verified verdict | 🛑 Never (logs recommendation) | Verdict comment can recommend closure; owner closes manually |
 | Add `ai-work` to an existing issue | 🟡 **Decision-request** | Comment on the target issue tagging `@alvarolobato` with proposed dispatch |
 | Lower a CI threshold | 🟡 **Decision-request** | Same |
 | Merge any PR | 🛑 Never | Prompt forbids it; the workflow has `pull-requests: write` for posting comments, not for triggering auto-merge |

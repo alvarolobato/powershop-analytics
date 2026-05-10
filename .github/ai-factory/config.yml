@@ -52,6 +52,10 @@ labels:
     - "ai-phase-opus"      # In Opus review pass
     - "ai-o-after-1"       # Addressed after Opus review (terminal for AI review)
 
+  # Parent-issue verification (set by Factory Manager Pass 5)
+  parent_verified: "ai-parent-verified"      # All DoD items met across merged sub-tasks
+  parent_incomplete: "ai-parent-incomplete"  # Gaps found vs parent DoD; follow-up issue filed
+
   # Auto-managed by ai-pr-mergeability.yml (created on demand)
   mergeability:
     - "ai-merge-conflict"  # PR has unresolvable merge conflict
