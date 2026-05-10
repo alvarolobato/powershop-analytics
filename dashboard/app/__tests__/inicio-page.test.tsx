@@ -16,6 +16,10 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+vi.mock("@/components/WeeklySummaryButton", () => ({
+  default: () => <button data-testid="weekly-summary-btn">✦ Resumen semanal</button>,
+}));
+
 vi.mock("next/link", () => ({
   default: ({
     href,

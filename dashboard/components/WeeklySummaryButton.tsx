@@ -25,10 +25,12 @@ interface WeeklySummaryButtonProps {
 export default function WeeklySummaryButton({ style }: WeeklySummaryButtonProps) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   async function handleClick() {
     if (loading) return;
     setLoading(true);
+    setError(false);
     try {
       const res = await fetch("/api/conversations", {
         method: "POST",
@@ -37,13 +39,13 @@ export default function WeeklySummaryButton({ style }: WeeklySummaryButtonProps)
           mode: "summary",
           context_kind: "home",
           context_url: "/inicio",
-          seed_prompt: WEEKLY_SUMMARY_SEED,
           first_user_prompt: WEEKLY_SUMMARY_SEED,
         }),
       });
 
       if (!res.ok) {
         console.error("[WeeklySummaryButton] conversation creation failed", res.status);
+        setError(true);
         return;
       }
 
@@ -51,6 +53,7 @@ export default function WeeklySummaryButton({ style }: WeeklySummaryButtonProps)
       router.push(k_url);
     } catch (err) {
       console.error("[WeeklySummaryButton] error:", err);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -65,7 +68,7 @@ export default function WeeklySummaryButton({ style }: WeeklySummaryButtonProps)
       disabled={loading}
       style={style}
     >
-      {loading ? "…" : "✦ Resumen semanal"}
+      {loading ? "…" : error ? "Error — reintentar" : "✦ Resumen semanal"}
     </button>
   );
 }

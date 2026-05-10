@@ -71,8 +71,7 @@ describe("WeeklySummaryButton", () => {
     expect(body.context_kind).toBe("home");
     expect(body.context_url).toBe("/inicio");
     expect(body.first_user_prompt).toBeTruthy();
-    expect(body.seed_prompt).toBeTruthy();
-    expect(body.first_user_prompt).toBe(body.seed_prompt);
+    expect(body.seed_prompt).toBeUndefined();
   });
 
   it("logs error and does not navigate when conversation creation fails", async () => {
@@ -136,5 +135,17 @@ describe("WeeklySummaryButton", () => {
     await act(async () => {
       resolveFetch({ ok: false, status: 500 });
     });
+  });
+
+  it("shows 'Error — reintentar' text when request fails", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500 }));
+
+    render(<WeeklySummaryButton />);
+    fireEvent.click(screen.getByTestId("weekly-summary-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("weekly-summary-btn")).toHaveTextContent("Error — reintentar");
+    });
+    expect(mockPush).not.toHaveBeenCalled();
   });
 });
