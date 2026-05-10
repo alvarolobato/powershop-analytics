@@ -125,6 +125,12 @@ describe("InicioPage", () => {
     expect(screen.getByTestId("refresh-btn")).toBeInTheDocument();
   });
 
+  it("shows the weekly summary button in the page header", () => {
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    render(<InicioPage />);
+    expect(screen.getByTestId("weekly-summary-btn")).toBeInTheDocument();
+  });
+
   it("shows EN VIVO chip", () => {
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
     render(<InicioPage />);

@@ -6,9 +6,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getConversation,
-  updateConversationTitle,
-  setConversationArchived,
+  getConversationWithMessages,
+  updateConversation,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
@@ -24,7 +23,7 @@ export async function GET(
   const { id } = await context.params;
 
   try {
-    const conversation = await getConversation(id);
+    const conversation = await getConversationWithMessages(id);
     if (!conversation) {
       return NextResponse.json(
         formatApiError(
@@ -78,10 +77,45 @@ export async function PATCH(
   }
 
   const b = body as Record<string, unknown>;
+  const updates: { title?: string; archived?: boolean } = {};
+
+  if ("title" in b) {
+    if (typeof b.title !== "string") {
+      return NextResponse.json(
+        formatApiError("El campo 'title' debe ser una cadena de texto.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    if (b.title.length > 500) {
+      return NextResponse.json(
+        formatApiError("El campo 'title' no puede superar los 500 caracteres.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    const trimmed = b.title.trim();
+    if (trimmed) updates.title = trimmed;
+  }
+
+  if ("archived" in b) {
+    if (typeof b.archived !== "boolean") {
+      return NextResponse.json(
+        formatApiError("El campo 'archived' debe ser booleano.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    updates.archived = b.archived;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json(
+      formatApiError("No se proporcionaron campos para actualizar.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
   try {
-    const existing = await getConversation(id);
-    if (!existing) {
+    const result = await updateConversation(id, updates);
+    if (!result) {
       return NextResponse.json(
         formatApiError(
           "Conversación no encontrada.",
@@ -92,17 +126,7 @@ export async function PATCH(
         { status: 404 },
       );
     }
-
-    if (typeof b.title === "string" && b.title.trim() !== "") {
-      await updateConversationTitle(id, b.title);
-    }
-
-    if (typeof b.archived === "boolean") {
-      await setConversationArchived(id, b.archived);
-    }
-
-    const updated = await getConversation(id);
-    return NextResponse.json(updated);
+    return NextResponse.json(result);
   } catch (err) {
     console.error(`[${requestId}] PATCH /api/conversations/${id} error:`, err);
     return NextResponse.json(

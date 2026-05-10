@@ -105,9 +105,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       { status: 400 },
     );
   }
+
   if (!VALID_MODES.has(mode)) {
     return NextResponse.json(
-      formatApiError(`Modo no válido: ${mode}.`, "INVALID_MODE", undefined, requestId),
+      formatApiError(
+        `Modo '${mode}' no válido. Valores permitidos: ${[...VALID_MODES].join(", ")}.`,
+        "INVALID_MODE",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -117,8 +123,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const context_ref = typeof b.context_ref === "string" ? b.context_ref : undefined;
   const first_user_prompt =
     typeof b.first_user_prompt === "string" ? b.first_user_prompt : undefined;
-  const seed_prompt =
-    typeof b.seed_prompt === "string" ? b.seed_prompt : undefined;
   const llm_provider = typeof b.llm_provider === "string" ? b.llm_provider : undefined;
   const llm_driver = typeof b.llm_driver === "string" ? b.llm_driver : undefined;
 
@@ -129,7 +133,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       context_kind,
       context_ref,
       first_user_prompt,
-      seed_prompt,
       llm_provider,
       llm_driver,
     });

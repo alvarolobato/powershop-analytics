@@ -90,7 +90,6 @@ export interface CreateConversationOptions {
   context_kind?: string;
   context_ref?: string;
   first_user_prompt?: string;
-  seed_prompt?: string;
   llm_provider?: string;
   llm_driver?: string;
 }
@@ -517,8 +516,6 @@ export async function maybeGenerateTitle(
     // Non-blocking: title is cosmetic — swallow errors silently
   }
 }
-
-// ── Aliases for spec-compliant callers ────────────────────────────────────────
 
 /** Update a conversation's title. Alias for updateConversationTitle. */
 export async function updateTitle(id: string, title: string): Promise<void> {

@@ -32,24 +32,24 @@ describe("WeeklySummaryButton", () => {
     expect(screen.getByTestId("weekly-summary-btn")).not.toBeDisabled();
   });
 
-  it("navigates to k_url after successful conversation creation", async () => {
+  it("navigates to c_url after successful conversation creation", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ k_url: "/k/conv-abc" }),
+      json: async () => ({ c_url: "/c/conv-abc", k_url: "/k/conv-abc" }),
     }));
 
     render(<WeeklySummaryButton />);
     fireEvent.click(screen.getByTestId("weekly-summary-btn"));
 
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/k/conv-abc");
+      expect(mockPush).toHaveBeenCalledWith("/c/conv-abc");
     });
   });
 
   it("posts to /api/conversations with correct body", async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: async () => ({ k_url: "/k/conv-abc" }),
+      json: async () => ({ c_url: "/c/conv-abc", k_url: "/k/conv-abc" }),
     });
     vi.stubGlobal("fetch", mockFetch);
 
