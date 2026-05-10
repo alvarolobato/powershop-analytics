@@ -1,159 +1,232 @@
 /**
- * POST /api/conversations/:id/messages
+ * POST /api/conversations/:id/messages — append a message and optionally call the LLM.
  *
- * Append a user message to a conversation. When `callLlm=true` the handler
- * also invokes the LLM and persists the assistant reply.
+ * Body: { role, content, callLlm?: boolean, flow?: string }
  *
- * After the first assistant reply lands, `maybeGenerateTitle` is fired
- * in the background — it is non-blocking and errors are silently swallowed.
- *
- * Body: {
- *   content: string,       // user message text
- *   callLlm?: boolean,     // default false — fire the LLM if true
- * }
- *
- * Response (callLlm=true): { message: string, requestId: string }
- * Response (callLlm=false): { ok: true }
+ * When callLlm=true: calls llmComplete and appends both the user message and
+ * the resulting assistant message. On the first user message in a conversation,
+ * snapshots initial_context (system prompt, tools, model/provider/driver).
  */
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import {
-  getConversation,
+  getConversationWithMessages,
   appendMessage,
-  loadMessages,
-  maybeGenerateTitle,
-  touchConversation,
+  setInitialContext,
+  updateLastStatus,
 } from "@/lib/conversations";
 import { llmComplete } from "@/lib/llm-client";
-import type { ChatTurn } from "@/lib/llm-client";
-import { generateRequestId } from "@/lib/errors";
+import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
+import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
+import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 
-const DEFAULT_SYSTEM_PROMPT =
-  "Eres un asistente analítico de datos para una empresa de retail y mayoreo. " +
-  "Responde en español de manera concisa y orientada a la toma de decisiones. " +
-  "Cuando analices datos, identifica patrones, tendencias y puntos de atención.";
+const VALID_LLM_FLOWS: ReadonlySet<string> = new Set<DashboardLlmFlow>(["generate", "modify", "analyze", "weekly"]);
+
+type RouteContext = { params: Promise<{ id: string }> };
+
+function validateId(raw: string): string | null {
+  return /^[a-f0-9]{12}$/.test(raw) ? raw : null;
+}
 
 export async function POST(
-  req: Request,
-  { params }: { params: { id: string } },
-) {
+  request: NextRequest,
+  context: RouteContext,
+): Promise<NextResponse> {
   const requestId = generateRequestId();
-  const { id } = params;
+  const { id: rawId } = await context.params;
+  const id = validateId(rawId);
+  if (!id) {
+    return NextResponse.json(
+      formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
-  let body: Record<string, unknown>;
+  let body: unknown;
   try {
-    body = await req.json();
+    body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Invalid JSON body", code: "INVALID_BODY", requestId },
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
-  const content = body.content;
-  if (typeof content !== "string" || !content.trim()) {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      { error: "`content` is required", code: "MISSING_CONTENT", requestId },
+      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
-  if (content.length > 10_000) {
+  const b = body as Record<string, unknown>;
+
+  const role = b.role;
+  if (typeof role !== "string" || !["user", "assistant", "tool"].includes(role)) {
     return NextResponse.json(
-      {
-        error: "`content` exceeds max length (10 000 chars)",
-        code: "CONTENT_TOO_LONG",
+      formatApiError(
+        "El campo 'role' debe ser 'user', 'assistant' o 'tool'.",
+        "VALIDATION",
+        undefined,
         requestId,
-      },
+      ),
       { status: 400 },
     );
   }
 
-  const callLlm = body.callLlm === true;
+  if (!("content" in b) || b.content === null || b.content === undefined) {
+    return NextResponse.json(
+      formatApiError("El campo 'content' es obligatorio y no puede ser nulo.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const MAX_CONTENT_BYTES = 256 * 1024;
+  if (Buffer.byteLength(JSON.stringify(b.content), "utf8") > MAX_CONTENT_BYTES) {
+    return NextResponse.json(
+      formatApiError("El campo 'content' supera el límite de 256 KB.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const callLlm = b.callLlm === true;
+  if (callLlm && role !== "user") {
+    return NextResponse.json(
+      formatApiError(
+        "callLlm solo puede ser true cuando role es 'user'.",
+        "VALIDATION",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
+
+  const rawFlow = typeof b.flow === "string" ? b.flow : undefined;
+  const flow: DashboardLlmFlow | undefined =
+    rawFlow !== undefined && VALID_LLM_FLOWS.has(rawFlow)
+      ? (rawFlow as DashboardLlmFlow)
+      : undefined;
 
   try {
-    const conv = await getConversation(id);
-    if (!conv) {
+    const conversation = await getConversationWithMessages(id);
+    if (!conversation) {
       return NextResponse.json(
-        { error: "Conversation not found", code: "NOT_FOUND", requestId },
+        formatApiError(
+          "Conversación no encontrada.",
+          "NOT_FOUND",
+          `No existe ninguna conversación con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
 
-    if (conv.archived_at) {
-      return NextResponse.json(
-        {
-          error: "Conversation is archived and cannot receive new messages",
-          code: "CONVERSATION_ARCHIVED",
-          requestId,
-        },
-        { status: 409 },
-      );
-    }
+    const isFirstUserMessage =
+      role === "user" && conversation.messages.filter((m) => m.role === "user").length === 0;
 
-    // Persist user message
-    await appendMessage(id, "user", { text: content });
+    const userMessage = await appendMessage(id, {
+      role,
+      content: b.content,
+    });
+
+    if (isFirstUserMessage && conversation.initial_context === null) {
+      try {
+        const cfg = loadDashboardLlmConfig();
+        const model = getEffectiveDashboardModel(cfg, flow);
+        await setInitialContext(id, {
+          model,
+          provider: cfg.provider,
+          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+          systemPrompt: { stable: "", volatile: undefined },
+          tools: [],
+        });
+      } catch (ctxErr) {
+        console.warn(`[${requestId}] Could not snapshot initial_context for ${id}:`, ctxErr);
+      }
+    }
 
     if (!callLlm) {
-      await touchConversation(id);
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ message: userMessage, conversationId: id });
     }
 
-    // Load conversation history for the LLM context.
-    // TODO(#541-followup): cap to the most recent N messages to bound token usage.
-    const allMessages = await loadMessages(id);
-    const turns: ChatTurn[] = allMessages
+    // Build prior turns from existing messages (before the one we just added)
+    const priorMessages = conversation.messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => {
-        const c = m.content as { text?: string } | string;
+        const rawContent = m.content;
         const text =
-          typeof c === "string" ? c : (c?.text ?? JSON.stringify(c));
+          typeof rawContent === "string"
+            ? rawContent
+            : typeof rawContent === "object" &&
+                rawContent !== null &&
+                !Array.isArray(rawContent) &&
+                typeof (rawContent as Record<string, unknown>).text === "string"
+              ? (rawContent as Record<string, unknown>).text as string
+              : JSON.stringify(rawContent);
         return { role: m.role as "user" | "assistant", content: text };
       });
 
-    // Call the LLM
-    const resp = await llmComplete({
-      flow: conv.mode as "analyze" | "modify" | "generate" | string,
-      systemPrompt: { stable: DEFAULT_SYSTEM_PROMPT },
-      messages: turns,
-      maxOutputTokens: 4096,
-      requestId,
-    });
+    const userContent =
+      typeof b.content === "string"
+        ? b.content
+        : typeof b.content === "object" &&
+            b.content !== null &&
+            !Array.isArray(b.content) &&
+            typeof (b.content as Record<string, unknown>).text === "string"
+          ? (b.content as Record<string, unknown>).text as string
+          : JSON.stringify(b.content);
 
-    const assistantText = resp.text;
+    priorMessages.push({ role: "user", content: userContent });
 
-    // Persist assistant reply
-    await appendMessage(id, "assistant", { text: assistantText }, {
-      tokens_input: resp.usage.prompt_tokens,
-      tokens_output: resp.usage.completion_tokens,
-      tokens_cache_read: resp.usage.cache_read_input_tokens ?? undefined,
-      tokens_cache_creation: resp.usage.cache_creation_input_tokens ?? undefined,
-    });
-
-    await touchConversation(id, "ok");
-
-    // Fire title generation non-blocking. maybeGenerateTitle guards internally
-    // on conv.title !== null, so calling it unconditionally is safe — it is a
-    // no-op once the title has been set (avoids the fragile msgCount heuristic).
-    void maybeGenerateTitle(id, turns.concat([
-      { role: "assistant", content: assistantText },
-    ]));
-
-    return NextResponse.json({ message: assistantText, requestId });
-  } catch (err) {
-    console.error("[POST /api/conversations/:id/messages] error:", err);
-    // Mark conversation with error status
+    let llmResponse;
     try {
-      await touchConversation(id, "error");
-    } catch {
-      // ignore
-    }
-    return NextResponse.json(
-      {
-        error: "Failed to process message",
-        code: "LLM_ERROR",
+      llmResponse = await llmComplete({
+        flow: flow ?? "summary",
+        systemPrompt: { stable: "" },
+        messages: priorMessages,
         requestId,
-      },
+      });
+    } catch (llmErr) {
+      await updateLastStatus(id, "error");
+      console.error(`[${requestId}] llmComplete error for conversation ${id}:`, llmErr);
+      return NextResponse.json(
+        formatApiError(
+          "Error al llamar al LLM.",
+          "LLM_ERROR",
+          sanitizeErrorMessage(llmErr),
+          requestId,
+        ),
+        { status: 500 },
+      );
+    }
+
+    const { usage } = llmResponse;
+    const assistantMessage = await appendMessage(id, {
+      role: "assistant",
+      content: llmResponse.text,
+      tokens_input: usage.prompt_tokens,
+      tokens_output: usage.completion_tokens,
+      tokens_cache_read: usage.cache_read_input_tokens ?? undefined,
+      tokens_cache_creation: usage.cache_creation_input_tokens ?? undefined,
+    });
+
+    await updateLastStatus(id, "ok");
+
+    return NextResponse.json({
+      userMessage,
+      assistantMessage,
+      conversationId: id,
+    });
+  } catch (err) {
+    console.error(`[${requestId}] POST /api/conversations/${rawId}/messages error:`, err);
+    return NextResponse.json(
+      formatApiError(
+        "No se pudo procesar el mensaje.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }

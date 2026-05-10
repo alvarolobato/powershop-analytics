@@ -71,24 +71,6 @@ describe("createConversation", () => {
     expect(params[1]).toBe("analyze");
   });
 
-  it("stores first_user_prompt from seed_prompt when first_user_prompt is absent", async () => {
-    mockSql.mockResolvedValue([]);
-    await createConversation({ mode: "analyze", seed_prompt: "Analiza esto" });
-    const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
-    expect(params[2]).toBe("Analiza esto");
-  });
-
-  it("prefers first_user_prompt over seed_prompt", async () => {
-    mockSql.mockResolvedValue([]);
-    await createConversation({
-      mode: "analyze",
-      seed_prompt: "seed",
-      first_user_prompt: "explicit",
-    });
-    const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
-    expect(params[2]).toBe("explicit");
-  });
-
   it("stores context fields when provided", async () => {
     mockSql.mockResolvedValue([]);
     await createConversation({
@@ -98,9 +80,9 @@ describe("createConversation", () => {
       context_url: "/dashboards/42",
     });
     const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
-    expect(params[3]).toBe("/dashboards/42");
-    expect(params[4]).toBe("dashboard");
-    expect(params[5]).toBe("42");
+    expect(params[2]).toBe("/dashboards/42");
+    expect(params[3]).toBe("dashboard");
+    expect(params[4]).toBe("42");
   });
 });
 
@@ -158,7 +140,7 @@ describe("appendMessage", () => {
 
   it("inserts with the correct role and serialized content", async () => {
     mockSql.mockResolvedValue([]);
-    await appendMessage("conv1", "user", { text: "Hola" });
+    await appendMessage("conv1", { role: "user", content: { text: "Hola" } });
     const [sql, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(sql).toContain("INSERT INTO conversation_messages");
     expect(params[0]).toBe("conv1");
