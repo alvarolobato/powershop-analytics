@@ -1,18 +1,8 @@
-// ---------------------------------------------------------------------------
 // Seed prompts for action-to-chat flows (issue #504)
-//
-// Each export is a deterministic Spanish prompt that pre-fills the chat input
-// when a user triggers an action-to-chat button. The user can edit before
-// sending. Bulk context (table descriptions, business rules) comes from the
-// cached static knowledge prefix injected server-side, so these prompts stay
-// focused and under ~800 tokens.
-//
-// Tools available to the model: execute_query, list_ps_tables, describe_ps_table
-// ---------------------------------------------------------------------------
 
 export const WEEKLY_SUMMARY_SEED = `Necesito un resumen ejecutivo del rendimiento del negocio de **la semana ISO en curso** comparada con la semana anterior y con la misma semana hace un año.
 
-Usa las herramientas disponibles (execute_query, list_ps_tables, describe_ps_table) para consultar datos en tiempo real. No estimes ni supongas cifras — extráelas directamente de las tablas ps_*.
+Usa las herramientas disponibles (validate_query, execute_query, list_ps_tables, describe_ps_table) para consultar datos en tiempo real. Valida cada consulta antes de ejecutarla. No estimes ni supongas cifras — extráelas directamente de las tablas ps_*.
 
 Estructura el resumen en estas secciones:
 

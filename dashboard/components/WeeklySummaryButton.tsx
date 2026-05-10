@@ -4,19 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { WEEKLY_SUMMARY_SEED } from "@/lib/seed-prompts";
 
-// ---------------------------------------------------------------------------
-// WeeklySummaryButton
-//
-// Action-to-chat pattern (issue #504):
-//   1. User clicks the button.
-//   2. Component POSTs to /api/conversations to create a conversation with the
-//      weekly summary seed prompt and the home page as context.
-//   3. On success, navigates to /k/<id> — the in-context viewer with the seed
-//      pre-filled in chat. No LLM call fires until the user clicks send.
-//
-// Styled as an inline button using the outlineBtn style from /inicio, so it
-// sits naturally alongside the existing header action buttons.
-// ---------------------------------------------------------------------------
+// Action-to-chat: POST /api/conversations → navigate to /k/<id>
 
 interface WeeklySummaryButtonProps {
   style?: React.CSSProperties;
