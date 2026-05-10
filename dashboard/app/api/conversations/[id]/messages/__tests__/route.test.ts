@@ -58,14 +58,14 @@ const CONV = {
 function postRequest(
   id: string,
   body: unknown,
-): [NextRequest, { params: { id: string } }] {
+): [NextRequest, { params: Promise<{ id: string }> }] {
   return [
     new NextRequest(`http://localhost:4000/api/conversations/${id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 
@@ -87,7 +87,7 @@ describe("POST /api/conversations/:id/messages", () => {
         body: JSON.stringify({ role: "user", content: "Hello" }),
       },
     );
-    const res = await POST(req, { params: { id: "not-hex-id" } });
+    const res = await POST(req, { params: Promise.resolve({ id: "not-hex-id" }) });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe("VALIDATION");
@@ -102,7 +102,7 @@ describe("POST /api/conversations/:id/messages", () => {
         body: "not-json",
       },
     );
-    const res = await POST(req, { params: { id: VALID_ID } });
+    const res = await POST(req, { params: Promise.resolve({ id: VALID_ID }) });
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe("VALIDATION");
