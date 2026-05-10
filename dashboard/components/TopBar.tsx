@@ -29,6 +29,7 @@ export function TopBar({
   const navLinks = [
     { href: "/inicio", label: "Inicio" },
     { href: "/paneles", label: "Paneles" },
+    { href: "/conversations", label: "Conversaciones" },
     { href: "/review", label: "Revisión" },
     { href: "http://localhost:3000", label: "Wren", external: true },
   ] as const;

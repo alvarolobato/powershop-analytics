@@ -66,7 +66,14 @@ describe("TopBar", () => {
     const nav = screen.getByRole("navigation");
     const links = Array.from(nav.querySelectorAll("a"));
     const labels = links.map((l) => l.textContent?.trim());
-    expect(labels).toEqual(["Inicio", "Paneles", "Revisión", "Wren"]);
+    expect(labels).toEqual(["Inicio", "Paneles", "Conversaciones", "Revisión", "Wren"]);
+  });
+
+  it("includes 'Conversaciones' link pointing to /conversations after Paneles", () => {
+    render(<TopBar />);
+    const conversacionesLink = screen.getByRole("link", { name: "Conversaciones" });
+    expect(conversacionesLink).toBeInTheDocument();
+    expect(conversacionesLink).toHaveAttribute("href", "/conversations");
   });
 
   it("Paneles link points to /paneles", () => {
