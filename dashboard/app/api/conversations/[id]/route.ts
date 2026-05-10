@@ -78,6 +78,41 @@ export async function PATCH(
   }
 
   const b = body as Record<string, unknown>;
+  const updates: { title?: string; archived?: boolean } = {};
+
+  if ("title" in b) {
+    if (typeof b.title !== "string") {
+      return NextResponse.json(
+        formatApiError("El campo 'title' debe ser una cadena de texto.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    if (b.title.length > 500) {
+      return NextResponse.json(
+        formatApiError("El campo 'title' no puede superar los 500 caracteres.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    const trimmed = b.title.trim();
+    if (trimmed) updates.title = trimmed;
+  }
+
+  if ("archived" in b) {
+    if (typeof b.archived !== "boolean") {
+      return NextResponse.json(
+        formatApiError("El campo 'archived' debe ser booleano.", "VALIDATION", undefined, requestId),
+        { status: 400 },
+      );
+    }
+    updates.archived = b.archived;
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json(
+      formatApiError("No se proporcionaron campos para actualizar.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
   try {
     const existing = await getConversation(id);

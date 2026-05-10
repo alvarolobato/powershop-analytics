@@ -67,7 +67,7 @@ export default function WeeklySummaryButton({ style }: WeeklySummaryButtonProps)
       aria-label="Resumen semanal con IA"
       data-testid="weekly-summary-btn"
       disabled={loading}
-      style={style}
+      style={loading ? { ...style, cursor: "wait", opacity: 0.7 } : style}
     >
       {loading ? "…" : error ? "Error — reintentar" : "✦ Resumen semanal"}
     </button>

@@ -17,7 +17,7 @@ Estructura el resumen en estas secciones:
 - Usar ps_ventas agrupado por tienda, uniendo con ps_tiendas para el nombre
 
 ## 3. Margen
-- Margen bruto % de la semana (precio venta - coste) si disponible en ps_lineas_ventas
+- Margen bruto % de la semana si hay campos de coste disponibles en ps_lineas_ventas (usa describe_ps_table para verificar nombres de columnas antes de calcular)
 - Tendencia: ¿mejora o empeora respecto a la semana anterior?
 
 ## 4. Anomalías

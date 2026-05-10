@@ -408,7 +408,7 @@ describe("ConversationViewer", () => {
   });
 
   it("leaves textarea empty when first_user_prompt is null and no messages", () => {
-    const conv = makeConv({ first_user_prompt: null as unknown as string, messages: [] });
+    const conv = makeConv({ first_user_prompt: null, messages: [] });
     render(<ConversationViewer initial={conv} />);
     const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
     expect(textarea).toHaveValue("");

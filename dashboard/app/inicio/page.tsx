@@ -244,6 +244,7 @@ export default function InicioPage() {
           >
             ⟳ Actualizar
           </button>
+          <WeeklySummaryButton style={outlineBtn} />
           <button
             type="button"
             style={{ ...outlineBtn, opacity: 0.5, cursor: "not-allowed" }}
@@ -253,7 +254,6 @@ export default function InicioPage() {
           >
             Exportar
           </button>
-          <WeeklySummaryButton style={outlineBtn} />
           <Link
             href="/dashboard/new"
             style={primaryBtn}
