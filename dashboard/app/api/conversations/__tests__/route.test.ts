@@ -84,7 +84,6 @@ describe("POST /api/conversations", () => {
     mockCreateConversation.mockResolvedValue({ id: "x", c_url: "/c/x", k_url: "/k/x" });
     await POST(makeRequest({
       mode: "chat",
-      seed_prompt: "Hello",
       first_user_prompt: "World",
       context_url: "/dashboard/1",
     }));

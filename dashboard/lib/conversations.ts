@@ -89,7 +89,6 @@ export interface CreateConversationOptions {
   context_url?: string;
   context_kind?: string;
   context_ref?: string;
-  seed_prompt?: string;
   first_user_prompt?: string;
   llm_provider?: string;
   llm_driver?: string;
@@ -516,27 +515,6 @@ export async function maybeGenerateTitle(
   } catch {
     // Non-blocking: title is cosmetic — swallow errors silently
   }
-}
-
-// ── Spec-compliant extras ─────────────────────────────────────────────────────
-
-export interface AppendMessageParams {
-  role: string;
-  content: unknown;
-  tokens_input?: number | null;
-  tokens_output?: number | null;
-  tokens_cache_read?: number | null;
-  tokens_cache_creation?: number | null;
-}
-
-export interface ListConversationsFilters {
-  context_kind?: string;
-  context_ref?: string;
-  mode?: string;
-  since?: Date | string;
-  include_archived?: boolean;
-  q?: string;
-  limit?: number;
 }
 
 /** Update a conversation's title. Alias for updateConversationTitle. */

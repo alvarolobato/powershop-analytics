@@ -121,7 +121,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const context_url = typeof b.context_url === "string" ? b.context_url : undefined;
   const context_kind = typeof b.context_kind === "string" ? b.context_kind : undefined;
   const context_ref = typeof b.context_ref === "string" ? b.context_ref : undefined;
-  const seed_prompt = typeof b.seed_prompt === "string" ? b.seed_prompt : undefined;
   const first_user_prompt =
     typeof b.first_user_prompt === "string" ? b.first_user_prompt : undefined;
   const llm_provider = typeof b.llm_provider === "string" ? b.llm_provider : undefined;
@@ -133,7 +132,6 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       context_url,
       context_kind,
       context_ref,
-      seed_prompt,
       first_user_prompt,
       llm_provider,
       llm_driver,
