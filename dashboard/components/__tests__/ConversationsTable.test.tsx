@@ -390,4 +390,123 @@ describe("ConversationsTable", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onRename).toHaveBeenCalledWith("rename2", "Nuevo título");
   });
+
+  it("inline rename: pressing Escape cancels rename without calling onRename", () => {
+    const onRename = vi.fn();
+    const row = makeRow({ id: "rename3", title: "Título escape" });
+    render(
+      <ConversationsTable
+        conversations={[row]}
+        onArchiveToggle={noop}
+        onRename={onRename}
+      />
+    );
+    fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
+    const input = screen.getByTestId(`rename-input-${row.id}`);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(onRename).not.toHaveBeenCalled();
+    // Title cell should be visible again after cancel
+    expect(screen.getByTestId(`title-cell-${row.id}`)).toBeInTheDocument();
+  });
+
+  it("inline rename: blur with empty value does not call onRename", () => {
+    const onRename = vi.fn();
+    const row = makeRow({ id: "rename4", title: "Título blur" });
+    render(
+      <ConversationsTable
+        conversations={[row]}
+        onArchiveToggle={noop}
+        onRename={onRename}
+      />
+    );
+    fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
+    const input = screen.getByTestId(`rename-input-${row.id}`);
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(onRename).not.toHaveBeenCalled();
+  });
+
+  it("bulk unarchive calls onArchiveToggle for all selected archived rows", () => {
+    const onArchiveToggle = vi.fn();
+    const archivedAt = new Date().toISOString();
+    const rows = [
+      makeRow({ id: "u1", archived_at: archivedAt }),
+      makeRow({ id: "u2", archived_at: archivedAt }),
+    ];
+    render(
+      <ConversationsTable
+        conversations={rows}
+        onArchiveToggle={onArchiveToggle}
+        onRename={noop}
+      />
+    );
+    fireEvent.click(screen.getByTestId("select-all-checkbox"));
+    fireEvent.click(screen.getByTestId("bulk-unarchive-btn"));
+
+    expect(onArchiveToggle).toHaveBeenCalledTimes(2);
+    expect(onArchiveToggle).toHaveBeenCalledWith("u1", true);
+    expect(onArchiveToggle).toHaveBeenCalledWith("u2", true);
+  });
+
+  it("deselecting a row via its checkbox removes it from selection", () => {
+    render(
+      <ConversationsTable
+        conversations={MOCK_ROWS.slice(0, 2)}
+        onArchiveToggle={noop}
+        onRename={noop}
+      />
+    );
+    const rowCheckboxes = screen.getAllByRole("checkbox");
+    // Select first row
+    fireEvent.click(rowCheckboxes[1]);
+    expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
+    // Deselect it
+    fireEvent.click(rowCheckboxes[1]);
+    expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
+  });
+
+  it("bulk cancel button clears selection", () => {
+    render(
+      <ConversationsTable
+        conversations={MOCK_ROWS.slice(0, 2)}
+        onArchiveToggle={noop}
+        onRename={noop}
+      />
+    );
+    fireEvent.click(screen.getByTestId("select-all-checkbox"));
+    expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Cancelar"));
+    expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
+  });
+
+  it("sort by Creada column toggles direction", () => {
+    render(
+      <ConversationsTable
+        conversations={MOCK_ROWS}
+        onArchiveToggle={noop}
+        onRename={noop}
+      />
+    );
+    const sortBtn = screen.getByRole("button", { name: /Ordenar por Creada/ });
+    fireEvent.click(sortBtn); // → DESC
+    fireEvent.click(sortBtn); // → ASC
+    expect(sortBtn).toBeInTheDocument();
+  });
+
+  it("select-all deselects all rows when all are already selected", () => {
+    const rows = MOCK_ROWS.slice(0, 2);
+    render(
+      <ConversationsTable
+        conversations={rows}
+        onArchiveToggle={noop}
+        onRename={noop}
+      />
+    );
+    // Select all
+    fireEvent.click(screen.getByTestId("select-all-checkbox"));
+    expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
+    // Select all again → deselects
+    fireEvent.click(screen.getByTestId("select-all-checkbox"));
+    expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
+  });
 });
