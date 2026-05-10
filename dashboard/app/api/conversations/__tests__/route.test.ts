@@ -81,17 +81,18 @@ describe("POST /api/conversations", () => {
     expect(body.k_url).toBe("/k/conv-123");
   });
 
-  it("passes seed_prompt and first_user_prompt to createConversation", async () => {
+  it("passes first_user_prompt and context fields to createConversation", async () => {
     mockCreateConversation.mockResolvedValue({ id: "x", c_url: "/c/x", k_url: "/k/x" });
     await POST(makeRequest({
       mode: "chat",
-      seed_prompt: "Hello",
       first_user_prompt: "World",
       context_url: "/dashboard/1",
     }));
     expect(mockCreateConversation).toHaveBeenCalledWith(
-      expect.objectContaining({ seed_prompt: "Hello", first_user_prompt: "World", context_url: "/dashboard/1" })
+      expect.objectContaining({ first_user_prompt: "World", context_url: "/dashboard/1" }),
     );
+    // seed_prompt is not part of the route contract — must not be forwarded.
+    expect(mockCreateConversation.mock.calls[0][0]).not.toHaveProperty("seed_prompt");
   });
 
   it("returns 500 when createConversation throws", async () => {

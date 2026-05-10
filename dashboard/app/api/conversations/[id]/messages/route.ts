@@ -1,7 +1,17 @@
 /**
  * POST /api/conversations/:id/messages — append a message and optionally call the LLM.
  *
- * Body: { content: string, callLlm?: boolean, flow?: string }
+ * Body: { content: string, role?: "user" | "assistant" | "tool",
+ *         callLlm?: boolean, flow?: string }
+ *
+ * - When `callLlm` is true, role defaults to "user", the LLM is invoked with the
+ *   conversation history, and an assistant message is appended automatically.
+ * - When `callLlm` is false (default), the message is appended verbatim with the
+ *   provided role (defaults to "user"). callLlm=true with role≠"user" is rejected.
+ *
+ * Returns:
+ *   - `{ ok: true, message: MessageRow }` when callLlm=false
+ *   - `{ message: MessageRow }` (the assistant row) when callLlm=true
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -10,14 +20,23 @@ import {
   appendMessage,
   loadMessages,
   maybeGenerateTitle,
+  setInitialContext,
   touchConversation,
+  type InitialContext,
 } from "@/lib/conversations";
 import { llmComplete } from "@/lib/llm-client";
+import {
+  getEffectiveDashboardModel,
+  loadDashboardLlmConfig,
+} from "@/lib/llm-provider/config";
+import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
 const MAX_CONTENT_CHARS = 10_000;
+const ID_PATTERN = /^[a-f0-9]{12}$/;
+const VALID_ROLES = new Set(["user", "assistant", "tool"]);
 
 export async function POST(
   request: NextRequest,
@@ -25,6 +44,13 @@ export async function POST(
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
   const { id } = await context.params;
+
+  if (!ID_PATTERN.test(id)) {
+    return NextResponse.json(
+      formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
   let body: unknown;
   try {
@@ -71,10 +97,31 @@ export async function POST(
   }
 
   const callLlm = b.callLlm === true;
+  const role = typeof b.role === "string" ? b.role : "user";
+  if (!VALID_ROLES.has(role)) {
+    return NextResponse.json(
+      formatApiError(`Rol no válido: ${role}.`, "INVALID_ROLE", undefined, requestId),
+      { status: 400 },
+    );
+  }
+  if (callLlm && role !== "user") {
+    return NextResponse.json(
+      formatApiError(
+        "callLlm=true sólo es válido para mensajes con role='user'.",
+        "INVALID_ROLE",
+        undefined,
+        requestId,
+      ),
+      { status: 400 },
+    );
+  }
   const flowRaw = typeof b.flow === "string" ? b.flow : undefined;
 
+  // ── DB phase: load conversation, append user message ─────────────────────────
+  let userMessage;
+  let conversation;
   try {
-    const conversation = await getConversation(id);
+    conversation = await getConversation(id);
     if (!conversation) {
       return NextResponse.json(
         formatApiError(
@@ -99,13 +146,52 @@ export async function POST(
       );
     }
 
-    await appendMessage(id, "user", { text: rawContent });
+    userMessage = await appendMessage(id, role, { text: rawContent });
 
-    if (!callLlm) {
-      await touchConversation(id, "ok");
-      return NextResponse.json({ ok: true });
+    // Snapshot initial_context on the first user message of any conversation
+    // (when it hasn't been set yet). The setter is idempotent — only writes
+    // when initial_context IS NULL.
+    if (role === "user" && conversation.initial_context === null) {
+      try {
+        const cfg = loadDashboardLlmConfig();
+        const flow = (flowRaw ?? "summary") as DashboardLlmFlow;
+        const snapshot: InitialContext = {
+          model: getEffectiveDashboardModel(cfg, flow),
+          provider: cfg.provider,
+          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+          systemPrompt: { stable: "" },
+          tools: [],
+          flow,
+        };
+        await setInitialContext(id, snapshot);
+      } catch (snapshotErr) {
+        console.warn(
+          `[${requestId}] setInitialContext failed for ${id}:`,
+          snapshotErr,
+        );
+      }
     }
+  } catch (err) {
+    await touchConversation(id, "error").catch(() => {});
+    console.error(`[${requestId}] POST /api/conversations/${id}/messages DB error:`, err);
+    return NextResponse.json(
+      formatApiError(
+        "Error de base de datos al procesar el mensaje.",
+        "DB_ERROR",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
+      { status: 500 },
+    );
+  }
 
+  if (!callLlm) {
+    await touchConversation(id, "ok");
+    return NextResponse.json({ ok: true, message: userMessage });
+  }
+
+  // ── LLM phase: call model, append assistant message ──────────────────────────
+  try {
     const prior = await loadMessages(id);
     const priorMessages = prior
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -130,22 +216,23 @@ export async function POST(
       requestId,
     });
 
-    await appendMessage(id, "assistant", { text: llmResponse.text });
+    const assistantMessage = await appendMessage(id, "assistant", {
+      text: llmResponse.text,
+    });
     await touchConversation(id, "ok");
 
-    // Best-effort title generation for newly created conversations
     void maybeGenerateTitle(id, [
       ...priorMessages.map((m) => ({ role: m.role, content: m.content })),
       { role: "assistant", content: llmResponse.text },
     ]);
 
-    return NextResponse.json({ message: llmResponse.text });
+    return NextResponse.json({ message: assistantMessage });
   } catch (err) {
     await touchConversation(id, "error").catch(() => {});
-    console.error(`[${requestId}] POST /api/conversations/${id}/messages error:`, err);
+    console.error(`[${requestId}] POST /api/conversations/${id}/messages LLM error:`, err);
     return NextResponse.json(
       formatApiError(
-        "Error al procesar el mensaje.",
+        "Error al procesar la respuesta del LLM.",
         "LLM_ERROR",
         sanitizeErrorMessage(err),
         requestId,

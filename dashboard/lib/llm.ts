@@ -31,9 +31,9 @@ import {
   llmComplete,
   createDashboardAgenticAdapter,
   resetClient,
+  buildCachedSystemMessage,
 } from "./llm-client";
 import type { ChatTurn } from "./llm-client";
-import { buildCachedSystemMessage } from "./llm-provider/openrouter";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 export { BudgetExceededError } from "./llm-usage";

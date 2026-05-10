@@ -7,12 +7,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getConversation,
+  getConversationWithMessages,
   updateConversationTitle,
   setConversationArchived,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
+
+// Lowercase 12-char hex (6 random bytes). Matches generateConversationId().
+const ID_PATTERN = /^[a-f0-9]{12}$/;
+
+function rejectInvalidId(id: string, requestId: string): NextResponse | null {
+  if (ID_PATTERN.test(id)) return null;
+  return NextResponse.json(
+    formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
+    { status: 400 },
+  );
+}
 
 // ── GET ───────────────────────────────────────────────────────────────────────
 
@@ -22,9 +34,11 @@ export async function GET(
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
   const { id } = await context.params;
+  const invalid = rejectInvalidId(id, requestId);
+  if (invalid) return invalid;
 
   try {
-    const conversation = await getConversation(id);
+    const conversation = await getConversationWithMessages(id);
     if (!conversation) {
       return NextResponse.json(
         formatApiError(
@@ -59,6 +73,8 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
   const { id } = await context.params;
+  const invalid = rejectInvalidId(id, requestId);
+  if (invalid) return invalid;
 
   let body: unknown;
   try {

@@ -90,7 +90,6 @@ export interface CreateConversationOptions {
   context_kind?: string;
   context_ref?: string;
   first_user_prompt?: string;
-  seed_prompt?: string;
   llm_provider?: string;
   llm_driver?: string;
 }
@@ -272,39 +271,6 @@ export async function listConversations(
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
-
-export async function updateConversation(
-  id: string,
-  updates: { title?: string; archived?: boolean },
-): Promise<ConversationRow | null> {
-  const setClauses: string[] = [];
-  const params: unknown[] = [];
-  let idx = 1;
-
-  if (updates.title !== undefined) {
-    setClauses.push(`title = $${idx++}`);
-    params.push(updates.title);
-  }
-  if (updates.archived === true) {
-    setClauses.push(`archived_at = NOW()`);
-  } else if (updates.archived === false) {
-    setClauses.push(`archived_at = NULL`);
-  }
-
-  if (setClauses.length === 0) return getConversation(id);
-
-  params.push(id);
-  const rows = await sql<ConversationRow>(
-    `UPDATE conversations
-     SET ${setClauses.join(", ")}
-     WHERE id = $${idx}
-     RETURNING id, mode, title, first_user_prompt, context_url, context_kind,
-               context_ref, created_at, last_interaction_at, archived_at,
-               last_status, llm_provider, llm_driver, initial_context, created_by`,
-    params,
-  );
-  return rows[0] ?? null;
-}
 
 export async function archiveConversation(id: string): Promise<ConversationRow | null> {
   await setConversationArchived(id, true);

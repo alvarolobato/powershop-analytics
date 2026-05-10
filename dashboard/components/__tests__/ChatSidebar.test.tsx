@@ -975,15 +975,17 @@ describe("ChatSidebar", () => {
       if (url.includes(`/api/conversations/${convId}`)) {
         return Promise.resolve({
           ok: true,
+          // GET /api/conversations/:id now returns the conversation row with
+          // messages inlined as a bare object (no `{ conversation: { ... } }`
+          // wrapper). ChatSidebar accepts both shapes for forward-compatibility,
+          // but the canonical shape is the bare row.
           json: () =>
             Promise.resolve({
-              conversation: {
-                id: convId,
-                mode: "modify",
-                title: "Conv auto-cargada",
-                first_user_prompt: null,
-                messages: conversationMessages,
-              },
+              id: convId,
+              mode: "modify",
+              title: "Conv auto-cargada",
+              first_user_prompt: null,
+              messages: conversationMessages,
             }),
         });
       }
