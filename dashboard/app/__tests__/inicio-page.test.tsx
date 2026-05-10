@@ -219,4 +219,11 @@ describe("InicioPage", () => {
     });
     expect(screen.queryByRole("button", { name: /guardar/i })).not.toBeInTheDocument();
   });
+
+  it("renders the WeeklySummaryButton in the page header", () => {
+    globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
+    render(<InicioPage />);
+    expect(screen.getByTestId("weekly-summary-btn")).toBeInTheDocument();
+    expect(screen.getByTestId("weekly-summary-btn")).toHaveTextContent("Resumen semanal");
+  });
 });

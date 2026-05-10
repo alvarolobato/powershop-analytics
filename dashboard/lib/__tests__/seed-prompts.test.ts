@@ -24,6 +24,18 @@ describe("WEEKLY_SUMMARY_SEED", () => {
     expect(WEEKLY_SUMMARY_SEED).toMatch(/mayorista|wholesale/i);
   });
 
+  it("includes retail business-rule filter for entrada", () => {
+    expect(WEEKLY_SUMMARY_SEED).toContain("entrada");
+  });
+
+  it("includes retail tienda exclusion for store 99", () => {
+    expect(WEEKLY_SUMMARY_SEED).toContain("99");
+  });
+
+  it("includes wholesale abono filter", () => {
+    expect(WEEKLY_SUMMARY_SEED).toContain("abono");
+  });
+
   it("covers margin", () => {
     expect(WEEKLY_SUMMARY_SEED).toContain("Margen");
   });

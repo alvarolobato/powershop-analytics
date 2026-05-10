@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 const mockPush = vi.fn();
@@ -13,6 +13,10 @@ import WeeklySummaryButton from "../WeeklySummaryButton";
 beforeEach(() => {
   mockPush.mockReset();
   vi.resetAllMocks();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("WeeklySummaryButton", () => {
@@ -107,5 +111,30 @@ describe("WeeklySummaryButton", () => {
     render(<WeeklySummaryButton style={customStyle} />);
     const btn = screen.getByTestId("weekly-summary-btn");
     expect(btn).toHaveStyle({ fontSize: "14px" });
+  });
+
+  it("disables button and shows loading indicator while fetching, ignores second click", async () => {
+    let resolveFetch!: (value: unknown) => void;
+    const pendingFetch = new Promise((resolve) => { resolveFetch = resolve; });
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(pendingFetch));
+
+    render(<WeeklySummaryButton />);
+    const btn = screen.getByTestId("weekly-summary-btn");
+
+    fireEvent.click(btn);
+
+    await waitFor(() => {
+      expect(btn).toBeDisabled();
+      expect(btn).toHaveTextContent("…");
+    });
+
+    // Second click while loading must not trigger a second POST
+    fireEvent.click(btn);
+    expect(vi.mocked(globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(1);
+
+    // Resolve the fetch inside act so state updates are flushed
+    await act(async () => {
+      resolveFetch({ ok: false, status: 500 });
+    });
   });
 });
