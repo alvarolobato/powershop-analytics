@@ -963,6 +963,121 @@ CREATE INDEX IF NOT EXISTS conversation_messages_by_conv
   ON conversation_messages (conversation_id, created_at);
 
 -- ============================================================
+-- Backfill migration: chat_messages_modify / chat_messages_analyze
+-- → conversations + conversation_messages
+-- Idempotent: skips dashboards that already have a conversation row.
+-- ============================================================
+
+DO $$
+DECLARE
+    r RECORD;
+    conv_id TEXT;
+    msg JSONB;
+    msg_role TEXT;
+    msg_content TEXT;
+    msg_ts TIMESTAMPTZ;
+BEGIN
+    FOR r IN
+        SELECT id,
+               chat_messages_modify,
+               chat_messages_analyze
+        FROM dashboards
+        WHERE (chat_messages_modify  IS NOT NULL AND jsonb_array_length(chat_messages_modify)  > 0)
+           OR (chat_messages_analyze IS NOT NULL AND jsonb_array_length(chat_messages_analyze) > 0)
+    LOOP
+        -- Backfill modify conversation
+        IF r.chat_messages_modify IS NOT NULL AND jsonb_array_length(r.chat_messages_modify) > 0 THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM conversations
+                WHERE context_kind = 'dashboard'
+                  AND context_ref  = r.id::text
+                  AND mode         = 'modify'
+            ) THEN
+                conv_id := encode(gen_random_bytes(6), 'hex');
+                INSERT INTO conversations
+                    (id, mode, context_kind, context_ref, created_by,
+                     first_user_prompt, created_at, last_interaction_at)
+                VALUES (
+                    conv_id, 'modify', 'dashboard', r.id::text, NULL,
+                    (SELECT elem->>'content'
+                     FROM jsonb_array_elements(r.chat_messages_modify) AS elem
+                     WHERE elem->>'role' = 'user'
+                     LIMIT 1),
+                    NOW(), NOW()
+                );
+                FOR msg IN SELECT * FROM jsonb_array_elements(r.chat_messages_modify)
+                LOOP
+                    msg_role    := msg->>'role';
+                    msg_content := msg->>'content';
+                    BEGIN
+                        msg_ts := COALESCE((msg->>'timestamp')::timestamptz, NOW());
+                    EXCEPTION WHEN others THEN
+                        msg_ts := NOW();
+                    END;
+                    INSERT INTO conversation_messages
+                        (conversation_id, role, content, created_at)
+                    VALUES (
+                        conv_id,
+                        msg_role,
+                        jsonb_build_object('text', msg_content),
+                        msg_ts
+                    );
+                END LOOP;
+                UPDATE conversations
+                   SET created_at          = COALESCE((SELECT MIN(created_at) FROM conversation_messages WHERE conversation_id = conv_id), NOW()),
+                       last_interaction_at = COALESCE((SELECT MAX(created_at) FROM conversation_messages WHERE conversation_id = conv_id), NOW())
+                 WHERE id = conv_id;
+            END IF;
+        END IF;
+
+        -- Backfill analyze conversation
+        IF r.chat_messages_analyze IS NOT NULL AND jsonb_array_length(r.chat_messages_analyze) > 0 THEN
+            IF NOT EXISTS (
+                SELECT 1 FROM conversations
+                WHERE context_kind = 'dashboard'
+                  AND context_ref  = r.id::text
+                  AND mode         = 'analyze'
+            ) THEN
+                conv_id := encode(gen_random_bytes(6), 'hex');
+                INSERT INTO conversations
+                    (id, mode, context_kind, context_ref, created_by,
+                     first_user_prompt, created_at, last_interaction_at)
+                VALUES (
+                    conv_id, 'analyze', 'dashboard', r.id::text, NULL,
+                    (SELECT elem->>'content'
+                     FROM jsonb_array_elements(r.chat_messages_analyze) AS elem
+                     WHERE elem->>'role' = 'user'
+                     LIMIT 1),
+                    NOW(), NOW()
+                );
+                FOR msg IN SELECT * FROM jsonb_array_elements(r.chat_messages_analyze)
+                LOOP
+                    msg_role    := msg->>'role';
+                    msg_content := msg->>'content';
+                    BEGIN
+                        msg_ts := COALESCE((msg->>'timestamp')::timestamptz, NOW());
+                    EXCEPTION WHEN others THEN
+                        msg_ts := NOW();
+                    END;
+                    INSERT INTO conversation_messages
+                        (conversation_id, role, content, created_at)
+                    VALUES (
+                        conv_id,
+                        msg_role,
+                        jsonb_build_object('text', msg_content),
+                        msg_ts
+                    );
+                END LOOP;
+                UPDATE conversations
+                   SET created_at          = COALESCE((SELECT MIN(created_at) FROM conversation_messages WHERE conversation_id = conv_id), NOW()),
+                       last_interaction_at = COALESCE((SELECT MAX(created_at) FROM conversation_messages WHERE conversation_id = conv_id), NOW())
+                 WHERE id = conv_id;
+            END IF;
+        END IF;
+    END LOOP;
+END $$;
+
+-- ============================================================
 -- ANALYZE (update planner statistics after initial load)
 -- ============================================================
 
