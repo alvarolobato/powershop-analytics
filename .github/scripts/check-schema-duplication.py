@@ -12,13 +12,16 @@ def main() -> int:
     sql = SQL_FILE.read_text(encoding="utf-8")
     # Strip single-line comments to avoid false positives from comment lines
     sql_no_comments = re.sub(r"--[^\n]*", "", sql)
-    tables = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", sql_no_comments, re.IGNORECASE)
+    tables = re.findall(
+        r"CREATE TABLE IF NOT EXISTS (\w+)", sql_no_comments, re.IGNORECASE
+    )
     seen: dict[str, int] = {}
     duplicates = []
     for name in tables:
-        if name in seen:
+        key = name.lower()
+        if key in seen:
             duplicates.append(name)
-        seen[name] = seen.get(name, 0) + 1
+        seen[key] = seen.get(key, 0) + 1
     if duplicates:
         for name in duplicates:
             print(
