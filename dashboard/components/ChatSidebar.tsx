@@ -1477,7 +1477,8 @@ const SIDEBAR_STORAGE_KEY = "chat-sidebar-width";
 const SIDEBAR_DEFAULT_WIDTH = 380;
 
 function clampSidebarWidth(w: number): number {
-  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(w, window.innerWidth * SIDEBAR_MAX_WIDTH_VW));
+  const maxW = typeof window !== "undefined" ? window.innerWidth * SIDEBAR_MAX_WIDTH_VW : Infinity;
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(w, maxW));
 }
 
 export default function ChatSidebar({
@@ -1543,7 +1544,8 @@ export default function ChatSidebar({
   const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
     if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
     const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    return stored ? clampSidebarWidth(Number(stored)) : SIDEBAR_DEFAULT_WIDTH;
+    const parsed = stored ? Number(stored) : NaN;
+    return Number.isFinite(parsed) ? clampSidebarWidth(parsed) : SIDEBAR_DEFAULT_WIDTH;
   });
   const isResizingRef = useRef(false);
   const resizeStartXRef = useRef(0);
@@ -1570,6 +1572,11 @@ export default function ChatSidebar({
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
       window.removeEventListener("mouseup", onMouseUp);
+      if (isResizingRef.current) {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        isResizingRef.current = false;
+      }
     };
   }, []);
 
