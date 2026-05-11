@@ -617,7 +617,8 @@ jobs:
           gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
           gh label create "ai-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
 
-          gh pr edit "$PR_NUM" --add-label "ai-phase-copilot" || true
+          # REST API for label adds — see #611 (gh pr edit exits non-zero on projectCards deprecation).
+          gh api -X POST "repos/$REPO_NAME/issues/$PR_NUM/labels" -f "labels[]=ai-phase-copilot" >/dev/null
 
           # Request Copilot with the PAT-capable token and verify the request
           # actually landed. If COPILOT_PAT is unset the fallback GITHUB_TOKEN
@@ -632,7 +633,7 @@ jobs:
               --body "🤖 **AI Factory**: Automated review starts with **Copilot**, then **Opus** (one pass each). Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
           else
             # Silent failure — don't advertise a review cycle that didn't start.
-            gh pr edit "$PR_NUM" --add-label "ai-blocked" || true
+            gh api -X POST "repos/$REPO_NAME/issues/$PR_NUM/labels" -f "labels[]=ai-blocked" >/dev/null
             gh pr comment "$PR_NUM" \
               --body "⚠️ **AI Factory**: Requested Copilot review but the API returned no reviewer. This happens when \`secrets.COPILOT_PAT\` is missing (GITHUB_TOKEN cannot assign Copilot) or the PAT lacks \`pull_requests: write\`. **Copilot review has NOT started.** cc @alvarolobato — set \`COPILOT_PAT\` (fine-grained PAT, Pull requests: Read and write) or request the review manually." || true
             echo "::warning::Copilot reviewer request silently failed on PR #$PR_NUM"

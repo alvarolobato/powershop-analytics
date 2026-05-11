@@ -342,13 +342,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-stale-base" || true
+          # REST API for label ops — see #611 (gh pr edit exits non-zero on
+          # Projects(classic) GraphQL deprecation even on success).
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-stale-base" >/dev/null
           # Also clear ai-blocked + ai-merge-conflict — a prior cycle on this PR
           # may have set them when the LLM step couldn't finish; now that the
           # rebase is clean, both are stale.
-          gh pr edit "$PR_NUMBER" --repo "$REPO" \
-            --remove-label "ai-merge-conflict" \
-            --remove-label "ai-blocked" || true
+          for l in ai-merge-conflict ai-blocked; do
+            gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
+          done
           BEFORE="${{ steps.rebase.outputs.before }}"
           AFTER="${{ steps.rebase.outputs.after }}"
           BASE="${{ steps.pr.outputs.base }}"
@@ -360,8 +362,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-stale-base" || true
-          gh pr edit "$PR_NUMBER" --repo "$REPO" --remove-label "ai-merge-conflict" --remove-label "ai-blocked" || true
+          # REST API — see #611.
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-stale-base" >/dev/null
+          for l in ai-merge-conflict ai-blocked; do
+            gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
+          done
           BEFORE="${{ steps.rebase.outputs.before }}"
           AFTER="${{ steps.verify_resolve.outputs.after }}"
           BASE="${{ steps.pr.outputs.base }}"
@@ -374,9 +379,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
-          gh pr edit "$PR_NUMBER" --repo "$REPO" \
-            --add-label "ai-blocked" --add-label "ai-merge-conflict" \
-            --remove-label "ai-awaiting-owner" || true
+          # REST API — see #611.
+          for l in ai-blocked ai-merge-conflict; do
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=$l" >/dev/null
+          done
+          gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/ai-awaiting-owner" >/dev/null 2>&1 || true
           BASE="${{ steps.pr.outputs.base }}"
           UNMERGED="${{ steps.rebase.outputs.unmerged_files }}"
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: \`${{ steps.pr.outputs.branch }}\` conflicts with \`origin/$BASE\` and the PR modifies files under \`.github/workflows/\` — the Claude Code Action's OIDC app-token exchange would 401 on this branch, so the LLM resolution step is skipped by design. Conflicted files: \`${UNMERGED}\`. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally. $MARKER" || true
@@ -387,9 +394,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           MARKER: ${{ steps.dedup.outputs.marker }}
         run: |
-          gh pr edit "$PR_NUMBER" --repo "$REPO" \
-            --add-label "ai-blocked" --add-label "ai-merge-conflict" \
-            --remove-label "ai-awaiting-owner" || true
+          # REST API — see #611.
+          for l in ai-blocked ai-merge-conflict; do
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=$l" >/dev/null
+          done
+          gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/ai-awaiting-owner" >/dev/null 2>&1 || true
           BASE="${{ steps.pr.outputs.base }}"
           UNMERGED="${{ steps.rebase.outputs.unmerged_files }}"
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "⚠️ **AI Mergeability**: \`${{ steps.pr.outputs.branch }}\` has real conflicts with \`origin/$BASE\` and Claude's auto-resolution attempt didn't complete the rebase (likely an ambiguous semantic conflict). Conflicted files: \`${UNMERGED}\`. Marked \`ai-blocked\` + \`ai-merge-conflict\`. cc @$OWNER_HANDLE — resolve locally. $MARKER" || true

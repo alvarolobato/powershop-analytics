@@ -104,10 +104,10 @@ jobs:
              && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
             echo "PR #$PR_NUMBER already has ai-cp-after-1 + ai-o-after-1 — D-021 converged."
             # Always clean up phase labels (cosmetic; safe).
-            gh pr edit "$PR_NUMBER" --repo "$REPO" \
-              --remove-label "ai-ready-for-review" \
-              --remove-label "ai-phase-copilot" \
-              --remove-label "ai-phase-opus" || true
+            # REST API — see #611.
+            for l in ai-ready-for-review ai-phase-copilot ai-phase-opus; do
+              gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
+            done
             # Owner-handoff label is CI-gated, mirroring `owner_handoff_or_ci_gate`
             # in ai-address-feedback.yml: only mark `ai-awaiting-owner` when CI
             # is green for the head SHA. If `ai-ci-failing` is already set or CI
@@ -121,7 +121,8 @@ jobs:
               CI_STATE="failing"
             fi
             if [ "$CI_STATE" = "ready" ]; then
-              gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "ai-awaiting-owner" || true
+              # REST API — see #611 (gh pr edit exits non-zero on projectCards deprecation).
+              gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
               gh pr comment "$PR_NUMBER" --repo "$REPO" \
                 --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed (\`ai-cp-after-1\` + \`ai-o-after-1\`). Skipping additional review. Awaiting owner merge decision." || true
             else
@@ -143,9 +144,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
-            --remove-label "ai-ready-for-review" \
-            --remove-label "ai-ci-failing" || true
+          # REST API — see #611.
+          for l in ai-ready-for-review ai-ci-failing; do
+            gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
+          done
 
       - name: Resolve PR ref and title
         id: resolve
@@ -223,8 +225,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
-            --remove-label "ai-ready-for-review" || true
+          # REST API — see #611.
+          gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/ai-ready-for-review" >/dev/null 2>&1 || true
           # Don't re-request Copilot here — the dispatcher already did. Just
           # explain why Claude can't review this PR so nobody thinks it failed.
           MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. **Copilot review still runs** (no such restriction). Merge with human + Copilot review."
@@ -272,8 +274,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr edit "$PR_NUMBER" --repo "${{ github.repository }}" \
-            --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+          # REST API — see #611.
+          for l in ai-blocked ai-auto-retry; do
+            gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
+          done
 
       - name: Dispatch address-feedback
         if: success() && steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
@@ -315,5 +319,9 @@ jobs:
           # red so the failure is visible in the Actions UI.
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
             --body "⚠️ AI PR Review failed. Marking \`ai-ready-for-review\` + \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }})."
-          gh pr edit "$PR_NUMBER" --repo "$REPO" \
-            --add-label "ai-ready-for-review" --add-label "ai-blocked" --add-label "ai-auto-retry"
+          # REST API — see #611. Strict (no || true) — if the bot can't even
+          # stamp the retry markers, the watchdog has nothing to recover from
+          # and the failure must be visible in the Actions UI (D-031).
+          for l in ai-ready-for-review ai-blocked ai-auto-retry; do
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=$l" >/dev/null
+          done
