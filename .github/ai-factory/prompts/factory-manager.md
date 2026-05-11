@@ -90,7 +90,39 @@ Post a **single** comment on the tracking issue (the issue number is in `MANAGER
 <!-- manager-run: <ISO date> -->
 ```
 
-The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. Before posting, check if a comment from today (same ISO date) already exists with this marker on the tracking issue. If it does, **do not post a duplicate** — instead, update the existing comment if you took new actions, or skip the report entirely.
+The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. Before posting, check if a comment from today (same ISO date) already exists with this marker on the tracking issue, then apply this three-branch decision:
+
+1. **No same-day marker.** Post a brand-new session report with the marker. Status quo.
+2. **Same-day marker exists AND there is new evidence not already in the existing report.** *Edit the existing comment* by appending a clearly-delimited `### Delta — HH:MM UTC` block with the new findings. Do **not** post a second comment. Leave the original marker in place.
+3. **Same-day marker exists AND there is no new evidence.** Skip silently. Don't comment, don't edit.
+
+**"New evidence" definition** (any of these qualify; the absence of all three is what selects branch 3):
+- A pattern issue you filed in *this* session (not pre-existing).
+- An autonomous action you took in *this* session (label change, issue close, workflow dispatch — anything in your boundary matrix you actually executed this run, not just considered).
+- A new decision-request you raised in *this* session (comment with the "Awaiting your approval to" header).
+
+**Example — branch 2 (delta append):**
+
+```
+## 🏭 Factory Manager — 2026-05-11
+
+[…original report posted at 13:12 by an earlier run on the same date…]
+
+<!-- manager-run: 2026-05-11 -->
+
+### Delta — 17:50 UTC
+
+#### Autonomous actions taken (since last update)
+- Dispatched `ai-pr-review.yml` for #N — head-SHA dedup blocked the prior watchdog dispatch.
+
+#### Patterns observed (new this update)
+- 5 PRs stuck in identical `ai-cp-after-1 + ai-phase-opus + ai-ready-for-review` for 3+ h — filed pattern issue #609.
+
+#### Decisions awaiting owner (new)
+- [ ] (none)
+```
+
+> **Why this matters:** The 2026-05-11 17:49 UTC run completed `success` but posted nothing on the tracking issue, because the 13:06 run had already stamped today's marker and Pass 4 took the "skip the report entirely" branch. The 17:49 run also missed filing a Pass-2 pattern issue (5 PRs simultaneously stuck), the exact class of cross-cutting finding Pass 2 exists for. Branch 2 above forces those new findings to surface.
 
 > **Scope note:** This marker prevents duplicate session reports. Passes 1–3 actions (closing issues, toggling labels) are naturally idempotent — re-running them on an already-closed issue or an already-labelled PR has no effect. Pass 2 issue-filing requires the deduplication check in step 1 above to stay idempotent.
 

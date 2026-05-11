@@ -114,9 +114,9 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh label create "ai-ci-failing" --color D93F0B --description "CI failed; bot may auto-remediate" 2>/dev/null || true
-          gh pr edit "$PR_NUMBER" --repo "$REPO" \
-            --remove-label "ai-awaiting-owner" \
-            --add-label "ai-ci-failing" || true
+          # REST API for label ops — see #611.
+          gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/ai-awaiting-owner" >/dev/null 2>&1 || true
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-ci-failing" >/dev/null
 
       - uses: actions/checkout@v4
         with:
