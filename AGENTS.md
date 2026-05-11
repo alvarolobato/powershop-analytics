@@ -541,3 +541,41 @@ Issues are labelled by phase: `phase-1`, `phase-2`, ..., `phase-6`.
 - Phase 4 (scheduler) wires all sync modules into `main.py` and runs the first full data load. Requires all sync PRs merged.
 - Phase 5 (WrenAI MDL) requires P4 complete (data must be in PostgreSQL).
 - Phase 6 (docs) requires P5 complete.
+
+### Planner phasing rules (mandatory for all decompositions)
+
+These rules apply to **every** planning session, not just the ETL epic above. The planner must apply them before finalising any sub-issue decomposition.
+
+#### Q1 — When to produce phases (trigger conditions)
+
+Phases are **mandatory** when any two sub-issues share any of the following:
+
+1. **Shared source file** — the same path appears in the `Files:` section of two sub-issues (especially `dashboard/lib/*.ts`, `dashboard/components/`, `etl/schema/init.sql`, shared hooks/types).
+2. **Shared DB table** — any two sub-issues `CREATE`, `ALTER`, or heavily write to the same table. Schema DDL is the highest-risk overlap.
+3. **Shared HTTP route family** — any two sub-issues add or modify routes under the same prefix (e.g. `/api/conversations/*`).
+4. **Producer/consumer dependency** — one sub-issue defines a shape that another reads. Classic chain: data layer → API route → UI component. The consumer cannot correctly implement against a shape that isn't merged yet.
+
+When **none** of the above apply, sub-issues may run in parallel.
+
+#### Q2 — Serialisation unit
+
+**Phase = a batch of sub-issues that share no files, tables, or contracts.** Within a phase, sub-issues run concurrently (existing worker behaviour). Between phases: all PRs from phase N must be **merged and `main` must be green** before any phase N+1 sub-issue receives `ai-work`.
+
+Phase N+1 sub-issues are created with the `ai-task` label but **without** `ai-work`. The owner adds `ai-work` once all phase N PRs are merged.
+
+#### Q3 — Enforcement rule for the planner
+
+After listing sub-issues, the planner must:
+
+1. For each pair (A, B) assigned to the same phase: check all four Q1 conditions:
+   - **File overlap**: is `Files(A) ∩ Files(B)` non-empty (string intersection on the `Files:` lines)?
+   - **DB table overlap**: do both touch (CREATE/ALTER/write) the same table?
+   - **Route prefix overlap**: do both add or modify routes under the same HTTP prefix?
+   - **Producer/consumer chain**: does A define a shape or contract that B reads?
+2. If **any** of the above is true: move B to the next phase; document the reason in the plan comment.
+3. Include a **dependency table** in the plan comment showing which sub-issues are in each phase and the reason for any serialisation.
+
+#### Phase labeling
+
+- Use `phase-1`, `phase-2`, ... labels on sub-issues to indicate which batch they belong to.
+- In the plan comment, include a dependency table with columns: Phase | Sub-issue | Files | Reason for phase assignment.
