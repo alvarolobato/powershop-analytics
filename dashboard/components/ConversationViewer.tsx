@@ -263,10 +263,11 @@ interface FooterProps {
   conversationId: string;
   archived: boolean;
   onMessageSent: (msg: ConversationMessage) => void;
+  initialInput?: string;
 }
 
-function ConversationFooter({ conversationId, archived, onMessageSent }: FooterProps) {
-  const [input, setInput] = useState("");
+function ConversationFooter({ conversationId, archived, onMessageSent, initialInput }: FooterProps) {
+  const [input, setInput] = useState(initialInput ?? "");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -681,6 +682,7 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         conversationId={conv.id}
         archived={!!conv.archived_at}
         onMessageSent={handleMessageSent}
+        initialInput={initial.messages.length === 0 ? (initial.first_user_prompt ?? undefined) : undefined}
       />
     </div>
   );

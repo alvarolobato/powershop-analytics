@@ -333,7 +333,12 @@ describe("ConversationViewer", () => {
 
   it("does not send when input is empty", async () => {
     globalThis.fetch = vi.fn();
-    render(<ConversationViewer initial={makeConv()} />);
+    // Use a conversation with existing messages so pre-fill does not apply
+    // (pre-fill only kicks in when messages.length === 0)
+    render(<ConversationViewer initial={makeConv({ messages: [makeUserMsg("msg")] })} />);
+    // Textarea should be empty (no pre-fill for resumed conversations)
+    const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
+    expect(textarea).toHaveValue("");
     fireEvent.click(screen.getByText("Enviar"));
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
@@ -372,5 +377,40 @@ describe("ConversationViewer", () => {
   it("renders colored mode pill for the conversation mode", () => {
     render(<ConversationViewer initial={makeConv({ mode: "analyze" })} />);
     expect(screen.getByText("Analizar")).toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------
+  // Seed prompt pre-fill (issue #557)
+  // -----------------------------------------------------------------------
+
+  it("pre-fills textarea with first_user_prompt when conversation has no messages", () => {
+    const conv = makeConv({ first_user_prompt: "Dame un resumen semanal", messages: [] });
+    render(<ConversationViewer initial={conv} />);
+    const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
+    expect(textarea).toHaveValue("Dame un resumen semanal");
+  });
+
+  it("leaves textarea empty when conversation has messages (resumed conversation)", () => {
+    const conv = makeConv({
+      first_user_prompt: "Dame un resumen semanal",
+      messages: [makeUserMsg("Dame un resumen semanal")],
+    });
+    render(<ConversationViewer initial={conv} />);
+    const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
+    expect(textarea).toHaveValue("");
+  });
+
+  it("send button is enabled when textarea is pre-filled with seed", () => {
+    const conv = makeConv({ first_user_prompt: "Dame un resumen", messages: [] });
+    render(<ConversationViewer initial={conv} />);
+    const sendBtn = screen.getByText("Enviar");
+    expect(sendBtn).not.toBeDisabled();
+  });
+
+  it("leaves textarea empty when first_user_prompt is null and no messages", () => {
+    const conv = makeConv({ first_user_prompt: null, messages: [] });
+    render(<ConversationViewer initial={conv} />);
+    const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
+    expect(textarea).toHaveValue("");
   });
 });

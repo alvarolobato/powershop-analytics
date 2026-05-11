@@ -10,6 +10,18 @@ import {
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
+const VALID_MODES = new Set([
+  "generate",
+  "modify",
+  "analyze",
+  "summary",
+  "title",
+  "weekly",
+  "chat",
+  "suggest",
+  "gap",
+]);
+
 // ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -54,7 +66,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       formatApiError(
         "No se pudieron cargar las conversaciones.",
-        "DB_QUERY",
+        "DB_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),
@@ -73,14 +85,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "INVALID_BODY", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
+      formatApiError("El cuerpo debe ser un objeto JSON.", "INVALID_BODY", undefined, requestId),
       { status: 400 },
     );
   }
@@ -89,7 +101,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const mode = b.mode;
   if (typeof mode !== "string" || !mode.trim()) {
     return NextResponse.json(
-      formatApiError("El campo 'mode' es obligatorio.", "VALIDATION", undefined, requestId),
+      formatApiError("El campo 'mode' es obligatorio.", "MISSING_MODE", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  if (!VALID_MODES.has(mode)) {
+    return NextResponse.json(
+      formatApiError(
+        `Modo '${mode}' no válido. Valores permitidos: ${[...VALID_MODES].join(", ")}.`,
+        "INVALID_MODE",
+        undefined,
+        requestId,
+      ),
       { status: 400 },
     );
   }
@@ -118,7 +142,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(
       formatApiError(
         "No se pudo crear la conversación.",
-        "DB_QUERY",
+        "DB_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),

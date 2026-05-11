@@ -11,6 +11,7 @@ import { OperationsRow } from "@/components/home/OperationsRow";
 import { TopStoresTable } from "@/components/home/TopStoresTable";
 import { HealthFooter } from "@/components/home/HealthFooter";
 import { DateNavigator } from "@/components/home/DateNavigator";
+import WeeklySummaryButton from "@/components/WeeklySummaryButton";
 
 // ---------------------------------------------------------------------------
 // Skeleton shimmer card
@@ -243,6 +244,7 @@ export default function InicioPage() {
           >
             ⟳ Actualizar
           </button>
+          <WeeklySummaryButton style={outlineBtn} />
           <button
             type="button"
             style={{ ...outlineBtn, opacity: 0.5, cursor: "not-allowed" }}
