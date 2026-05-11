@@ -91,3 +91,13 @@ title_prefixes:
   feature_ideas: "[feature-ideas]"
   project_summary: "[project-summary]"
   stale: "[stale]"
+
+# Factory Manager (strategic oversight, every 4 h) — see issue #558 / D-029.
+# The watchdog is fast + rule-per-object (every 15 min, no LLM); the manager is
+# slow + cross-system + LLM-driven, handling what the watchdog structurally cannot.
+manager:
+  schedule: "0 */4 * * *"              # every 4 h UTC
+  model: "claude-opus-4-7"             # latest Opus; was claude-opus-4-6 in #558 spec
+  max_turns: 80
+  kill_switch_label: "no-ai-manager"
+  tracking_label: "factory-manager-tracking"
