@@ -93,6 +93,29 @@ describe("GET /api/conversations", () => {
     );
   });
 
+  it("passes multiple context_kind params as context_kinds array", async () => {
+    const req = makeGetRequest("context_kind=dashboard&context_kind=home");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ context_kinds: ["dashboard", "home"] })
+    );
+  });
+
+  it("passes single context_kind param as a 1-element context_kinds array", async () => {
+    const req = makeGetRequest("context_kind=dashboard");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ context_kinds: ["dashboard"] })
+    );
+  });
+
+  it("passes undefined context_kinds when no context_kind param given", async () => {
+    const req = makeGetRequest("");
+    await GET(req);
+    const opts = mockListConversations.mock.calls[0][0] as Record<string, unknown>;
+    expect(opts.context_kinds).toBeUndefined();
+  });
+
   it("returns 200 with array response", async () => {
     const fakeRows = [{ id: "abc", mode: "generate" }];
     mockListConversations.mockResolvedValue(fakeRows);

@@ -30,7 +30,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const include_archived = searchParams.get("include_archived") === "true";
   const only_archived = searchParams.get("only_archived") === "true";
-  const context_kind = searchParams.get("context_kind") ?? undefined;
+  const context_kindsParam = searchParams.getAll("context_kind");
+  const context_kinds = context_kindsParam.length > 0 ? context_kindsParam : undefined;
   const context_ref = searchParams.get("context_ref") ?? undefined;
   const modesParam = searchParams.getAll("mode");
   const modes = modesParam.length > 0 ? modesParam : undefined;
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const rows = await listConversations({
       include_archived,
       only_archived,
-      context_kind,
+      context_kinds,
       context_ref,
       modes,
       since,

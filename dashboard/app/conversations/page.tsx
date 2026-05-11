@@ -124,25 +124,27 @@ function MultiSelectDropdown({ label, options, selected, onChange, testId }: Mul
         onClick={() => setOpen((v) => !v)}
         style={btnStyle}
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-haspopup="true"
         data-testid={testId ? `${testId}-btn` : undefined}
       >
         {label}{countLabel} ▾
       </button>
       {open && (
-        <div style={panelStyle} role="listbox" aria-multiselectable="true">
+        <div style={panelStyle}>
           {options.map((opt) => {
             const active = selected.includes(opt);
             return (
-              <button
+              <label
                 key={opt}
-                type="button"
-                role="option"
-                aria-selected={active}
-                onClick={() => toggle(opt)}
                 style={optionStyle(active)}
                 data-testid={testId ? `${testId}-opt-${opt}` : undefined}
               >
+                <input
+                  type="checkbox"
+                  checked={active}
+                  onChange={() => toggle(opt)}
+                  style={{ position: "absolute", opacity: 0, width: 1, height: 1, overflow: "hidden" }}
+                />
                 <span
                   aria-hidden="true"
                   style={{
@@ -164,7 +166,7 @@ function MultiSelectDropdown({ label, options, selected, onChange, testId }: Mul
                   )}
                 </span>
                 {opt}
-              </button>
+              </label>
             );
           })}
           {selected.length > 0 && (

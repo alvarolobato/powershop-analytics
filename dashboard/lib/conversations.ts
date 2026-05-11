@@ -75,6 +75,8 @@ export interface ConversationListRow extends ConversationRow {
 
 export interface ListConversationsOptions {
   context_kind?: string;
+  /** Multi-value context_kind filter. When non-empty, applied as `c.context_kind = ANY(...)`. */
+  context_kinds?: string[];
   context_ref?: string;
   /** Single-mode filter (kept for back-compat). Superseded by `modes` when both are set. */
   mode?: string;
@@ -187,9 +189,19 @@ export async function listConversations(
   } else if (!include_archived) {
     conditions.push(`c.archived_at IS NULL`);
   }
-  if (opts.context_kind) {
+  // Resolve context_kind filter: context_kinds[] takes precedence over single context_kind
+  const activeContextKinds =
+    opts.context_kinds && opts.context_kinds.length > 0
+      ? opts.context_kinds
+      : opts.context_kind
+        ? [opts.context_kind]
+        : [];
+  if (activeContextKinds.length === 1) {
     conditions.push(`c.context_kind = $${idx++}`);
-    params.push(opts.context_kind);
+    params.push(activeContextKinds[0]);
+  } else if (activeContextKinds.length > 1) {
+    conditions.push(`c.context_kind = ANY($${idx++}::text[])`);
+    params.push(activeContextKinds);
   }
   if (opts.context_ref) {
     conditions.push(`c.context_ref = $${idx++}`);

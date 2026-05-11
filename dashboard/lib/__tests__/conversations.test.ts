@@ -306,6 +306,29 @@ describe("listConversations", () => {
     expect(params).toContain("42");
   });
 
+  it("filters by context_kinds array (multi-select) using ANY", async () => {
+    await listConversations({ context_kinds: ["dashboard", "home"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ANY(");
+    expect(params.some((p) => Array.isArray(p) && p.includes("dashboard") && p.includes("home"))).toBe(true);
+  });
+
+  it("context_kinds with single item uses equality, not ANY", async () => {
+    await listConversations({ context_kinds: ["dashboard"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("c.context_kind = ");
+    expect(query).not.toContain("ANY(");
+    expect(params).toContain("dashboard");
+  });
+
+  it("context_kinds takes precedence over context_kind", async () => {
+    await listConversations({ context_kind: "global", context_kinds: ["dashboard", "home"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ANY(");
+    expect(params.some((p) => Array.isArray(p) && p.includes("dashboard"))).toBe(true);
+    expect(params).not.toContain("global");
+  });
+
   it("filters by mode (single)", async () => {
     await listConversations({ mode: "modify" });
     const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
