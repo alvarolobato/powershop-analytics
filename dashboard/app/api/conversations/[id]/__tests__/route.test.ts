@@ -200,17 +200,49 @@ describe("PATCH /api/conversations/:id", () => {
     expect(mockSetConversationArchived).toHaveBeenCalledWith(VALID_ID, true);
   });
 
-  it("skips title update when title is empty string", async () => {
-    mockGetConversation
-      .mockResolvedValueOnce(MOCK_CONV)
-      .mockResolvedValueOnce(MOCK_CONV);
+  it("returns 400 when title is empty or whitespace-only", async () => {
+    mockGetConversation.mockResolvedValueOnce(MOCK_CONV);
     const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: "   " }),
     });
-    await PATCH(req, params(VALID_ID));
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_BODY");
     expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when title is empty string", async () => {
+    mockGetConversation.mockResolvedValueOnce(MOCK_CONV);
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "" }),
+    });
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_BODY");
+  });
+
+  it("returns 404 when conversation disappears between update and re-read", async () => {
+    // First getConversation (existence check) returns the conv; second (re-read) returns null.
+    mockGetConversation
+      .mockResolvedValueOnce(MOCK_CONV)
+      .mockResolvedValueOnce(null);
+    mockUpdateConversationTitle.mockResolvedValue(undefined);
+
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "New Title" }),
+    });
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body.code).toBe("NOT_FOUND");
   });
 
   it("returns 500 when database throws", async () => {
