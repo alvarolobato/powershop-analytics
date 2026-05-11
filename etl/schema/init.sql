@@ -667,17 +667,6 @@ CREATE INDEX IF NOT EXISTS idx_etl_manual_trigger_pending_requested_at
 -- LLM usage tracking (Dashboard App)
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS llm_usage (
-    id                  SERIAL        PRIMARY KEY,
-    endpoint            TEXT          NOT NULL,
-    model               TEXT          NOT NULL,
-    prompt_tokens       INTEGER       NOT NULL,
-    completion_tokens   INTEGER       NOT NULL,
-    total_tokens        INTEGER       NOT NULL,
-    estimated_cost_usd  NUMERIC(12,6) NOT NULL,
-    created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-);
-
 CREATE INDEX IF NOT EXISTS idx_llm_usage_created_at ON llm_usage(created_at);
 
 -- Dashboard App — per tool call telemetry (agentic LLM)
@@ -1114,6 +1103,5 @@ ANALYZE llm_usage;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
 ANALYZE etl_manual_trigger;
-ANALYZE llm_usage;
 ANALYZE conversations;
 ANALYZE conversation_messages;
