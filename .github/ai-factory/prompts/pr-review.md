@@ -27,7 +27,7 @@ You are reviewing a pull request for the PowerShop Analytics project.
 
 ### Test deletion warning
 
-Compare deleted vs added lines in test files (`*__tests__*`, `*.test.ts`, `*.test.py`, `*.spec.ts`).
+Compare deleted vs added lines in test files (`*__tests__*`, `*.test.ts`, `*.test.tsx`, `test_*.py`, `*.test.py`, `*.spec.ts`, `*.spec.tsx`).
 
 **If the PR deletes more test lines than it adds**, post this warning block in the review:
 
