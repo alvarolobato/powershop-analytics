@@ -61,13 +61,15 @@ failure, etc.), it logs a warning and allows the implement step to continue.
 
           DEFERRED=false
 
-          # Extract file paths from the "## Files to change" section of an issue body.
+          # Extract file paths from an issue body.
+          # Handles two formats:
+          #   1. "## Files to change" section with bullet-listed backtick-quoted paths
+          #   2. Inline "**Files**: `path`" lines (AGENTS.md task-item format)
           # Reads body text from stdin; outputs one path per line.
-          # File paths are expected in backtick-quoted form: `path/to/file`
           extract_files() {
             awk '
-              /^## Files/{f=1; next}
-              f && /^## /{exit}
+              /^## Files to change/{f=1; next}
+              f && /^## /{f=0}
               f && /^[-*]/{
                 line = $0
                 gsub(/^[-*][ \t]+/, "", line)
@@ -77,6 +79,12 @@ failure, etc.), it logs a warning and allows the implement step to continue.
                   sub(/[ \t].*/, "", line)
                 }
                 if (length(line) > 0) print line
+              }
+              /\*\*Files\*\*:/{
+                n = split($0, parts, /`/)
+                for (i=2; i<=n; i+=2) {
+                  if (length(parts[i]) > 0) print parts[i]
+                }
               }
             '
           }
@@ -88,7 +96,7 @@ failure, etc.), it logs a warning and allows the implement step to continue.
             current_files=$(printf '%s' "$current_body" | extract_files)
 
             if [ -z "$current_files" ]; then
-              echo "Guard: no '## Files to change' section in #$ISSUE_NUMBER — skipping."
+              echo "Guard: no '## Files to change' section or '**Files**:' entries in #$ISSUE_NUMBER — skipping."
               return 0
             fi
 
@@ -184,7 +192,7 @@ Before committing, verify:
 
 | Scenario | Outcome |
 |----------|---------|
-| Issue has no `## Files to change` section | Guard skipped, implementation proceeds |
+| Issue has no `## Files to change` section or `**Files**:` entries | Guard skipped, implementation proceeds |
 | No other `ai-in-progress ai-task` issues | Guard passes, implementation proceeds |
 | Other in-progress issues found, no file overlap | Guard passes, implementation proceeds |
 | Overlap found with issue #N | Comment posted, `ai-blocked`+`ai-auto-retry` added, `deferred=true` output set, implement step skipped |
@@ -202,3 +210,10 @@ this automatically on the next retry cycle; it is not a permanent deadlock.
 **Parent-scope fallback**: When no `Closes #N` reference is found in the issue body,
 the guard falls back to a repo-wide search. This is broader than ideal but safe — the
 file-overlap check is still the deciding factor.
+
+**File path extraction — two formats supported**: The `extract_files()` function handles
+both (a) a `## Files to change` section with bullet-listed backtick-quoted paths, and
+(b) inline `**Files**: \`path\`` lines from the AGENTS.md task-item issue template.
+Both formats yield file paths; the awk split-on-backtick approach for inline lines
+extracts any backtick-quoted token on a `**Files**:` line regardless of surrounding
+punctuation.
