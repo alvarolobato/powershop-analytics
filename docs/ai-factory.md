@@ -448,6 +448,71 @@ flowchart TD
 
 Recovery is always **automatic-then-human**: transient failures (rate limits, network blips, GHA flakes) are absorbed by the watchdog. Repeated failures on the same step escalate. The owner intervenes only when automation has given up — not on every flake.
 
+### Phasing rules
+
+The planner decomposes epics into sub-issues. When those sub-issues share files, DB tables, API route families, or producer/consumer contracts, running them in parallel always risks divergent rewrites of shared code — exactly the pattern that produced the conversations cascade (#536–#540, root-cause analysis in #570).
+
+**Rule: phases are mandatory when any two sub-issues share a source file, a DB table, a route prefix, or a producer/consumer dependency.** See `AGENTS.md § Planner phasing rules` for the complete trigger list.
+
+**Worked example — 5 sub-issues all touching `dashboard/lib/conversations.ts`:**
+
+Without phasing (what went wrong):
+- Sub-issues #536, #537, #538, #539, #540 all listed `dashboard/lib/conversations.ts` in their `Files:` sections.
+- Each branch compiled and tested cleanly in isolation.
+- After all 5 merged to `main`: duplicate exports, broken API shapes, test-coverage collapse, runtime crashes.
+
+With phasing (the correct approach):
+| Phase | Sub-issue | Files | Why this phase |
+|-------|-----------|-------|----------------|
+| 1 | Data layer | `dashboard/lib/conversations.ts`, `etl/schema/init.sql` | Foundational — sets the contract all others read |
+| 2 | API routes | `dashboard/app/api/conversations/*.ts` | Consumes data-layer types; runs after phase 1 merges |
+| 3 | UI components | `dashboard/components/ChatSidebar.tsx`, `dashboard/components/ConversationViewer.tsx` | Consumes API shape; runs after phase 2 merges |
+
+Phase 2 sub-issues are created with `ai-task` but not `ai-work`. The owner adds `ai-work` to phase 2 once all phase 1 PRs are merged and `main` is green.
+
+**The planner's enforcement step** is defined in `AGENTS.md § Q3 — Enforcement rule for the planner`. It checks all four Q1 conditions (file overlap, DB table overlap, route prefix overlap, producer/consumer chain) — not just file names.
+
+### Integration smoke gate
+
+The parallel-sub-issue pattern was invisible to per-PR CI because each branch was internally consistent. The missing gate is a build + route smoke on `main` **after** each merge.
+
+**What the smoke gate does:**
+
+1. **Build check** (`npm run build --prefix dashboard`) — catches duplicate exports, TypeScript errors, ESLint violations, broken imports. Runs `next build` end-to-end; `webpack` errors on duplicate identifier declarations that only appear when two branches merge.
+
+2. **Route smoke** — starts the Next.js server in production mode and curls a fixed set of routes, asserting HTTP 200 or 302:
+   - `/` (home / dashboard list)
+   - `/paneles` (dashboard browser)
+   - `/conversations` (conversation history)
+   - `/inicio` (status home)
+   - `/admin/config` (admin panel)
+
+   Pages that crash on render (e.g. `undefined.messages.length`) return HTTP 500 even without a real DB. Curl catches this without needing a browser.
+
+**What it does NOT catch:**
+
+| Regression class | Caught by build? | Caught by curl? |
+|-----------------|:----------------:|:---------------:|
+| Duplicate export | ✅ | — |
+| Broken import / ESLint violation | ✅ | — |
+| Server crash on page render | — | ✅ |
+| Wrong API response shape | — | — (unit tests) |
+| UI rendering correctness | — | — (unit tests) |
+
+Wrong API response shape is caught by keeping existing unit/integration tests green — not by this smoke gate. Playwright / browser automation is explicitly deferred.
+
+**Trigger _(planned — see issue #585)_:** the smoke will run as a `post-merge-smoke` GitHub Actions workflow on every push to `main`. It runs in < 3 minutes. On failure it comments on the most recently merged PR and applies `ai-ci-failing` so the watchdog picks it up. The `ai-ci-failing` label is created as part of the same issue. Until the workflow is committed, the build check and curl smoke can be run manually.
+
+### Test-deletion guardrail
+
+The conversations cascade (#570) was worsened by PR #569 deleting `dashboard/lib/__tests__/conversations-api.test.ts` (1,144 lines) as collateral during a rewrite. The deletion was not highlighted in the PR, and the replacement tests asserted the new (broken) contract rather than the original one.
+
+**The guardrail is visibility, not a merge block.**
+
+The Opus reviewer prompt (`.github/ai-factory/prompts/pr-review.md`) instructs Opus to count deleted vs added test lines and, if `deleted > added`, post a highlighted warning and require a `## Test deletion rationale` section in the PR body. If the section is absent, Opus marks the comment as blocking. See the prompt file for the exact wording and distinction between rename/move vs delete-with-no-replacement.
+
+**This is not an automatic merge block.** Legitimate test deletions (removing tests for a deleted feature, replacing a brittle integration test with a better unit test) are valid. The guardrail ensures the deletion is **explicit and visible** to the reviewer, not silent collateral. The final merge decision remains human.
+
 ### Where humans intervene
 
 This is the canonical list of human touchpoints across the entire lifecycle. **Outside of these 16, the factory operates autonomously.**

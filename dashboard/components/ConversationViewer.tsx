@@ -427,7 +427,20 @@ interface HeaderProps {
 function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProps) {
   const [editing, setEditing] = useState(false);
   const [titleValue, setTitleValue] = useState(conv.title ?? conv.first_user_prompt ?? "");
-  const [copied, setCopied] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const shareRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!shareOpen) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+        setShareOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [shareOpen]);
 
   const modeStyle = getModeStyle(conv.mode);
   const displayTitle = conv.title || conv.first_user_prompt || "Sin título";
@@ -450,17 +463,16 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProp
     }
   }, [titleValue, conv.id, conv.title, onTitleChange]);
 
-  const copyLink = useCallback(async () => {
+  const copyToClipboard = useCallback(async (text: string, label: string) => {
     try {
-      await navigator.clipboard.writeText(
-        `${window.location.origin}/c/${conv.id}`,
-      );
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
+      await navigator.clipboard.writeText(text);
+      setCopyFeedback(label);
+      setTimeout(() => setCopyFeedback(null), 1500);
     } catch {
       /* clipboard not available */
     }
-  }, [conv.id]);
+    setShareOpen(false);
+  }, []);
 
   return (
     <div
@@ -570,21 +582,111 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProp
         >
           {conv.archived_at ? "Desarchivar" : "Archivar"}
         </button>
-        <button
-          onClick={() => void copyLink()}
-          style={{
-            fontSize: 12,
-            color: "var(--fg-muted)",
-            background: "none",
-            border: "1px solid var(--border-strong)",
-            borderRadius: 5,
-            padding: "4px 8px",
-            cursor: "pointer",
-            fontFamily: "inherit",
-          }}
-        >
-          {copied ? "Copiado" : "Copiar enlace"}
-        </button>
+
+        {/* Share dropdown */}
+        <div ref={shareRef} style={{ position: "relative" }}>
+          <button
+            onClick={() => setShareOpen((o) => !o)}
+            title="Compartir"
+            aria-label="Compartir"
+            style={{
+              fontSize: 14,
+              color: copyFeedback ? "var(--up)" : "var(--fg-muted)",
+              background: "none",
+              border: "1px solid var(--border-strong)",
+              borderRadius: 5,
+              padding: "4px 8px",
+              cursor: "pointer",
+              fontFamily: "inherit",
+              lineHeight: 1,
+            }}
+          >
+            {copyFeedback ?? "⋯"}
+          </button>
+          {shareOpen && (
+            <div
+              style={{
+                position: "absolute",
+                top: "calc(100% + 4px)",
+                right: 0,
+                background: "var(--bg-2)",
+                border: "1px solid var(--border-strong)",
+                borderRadius: 6,
+                boxShadow: "0 4px 16px rgba(0,0,0,0.18)",
+                zIndex: 20,
+                minWidth: 200,
+                overflow: "hidden",
+              }}
+              data-testid="share-dropdown"
+            >
+              <button
+                type="button"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "9px 14px",
+                  fontSize: 13,
+                  color: "var(--fg)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  borderBottom: "1px solid var(--border)",
+                }}
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLButtonElement).style.background =
+                    "var(--bg-3)")
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLButtonElement).style.background =
+                    "none")
+                }
+                onClick={() =>
+                  void copyToClipboard(
+                    `${window.location.origin}/c/${conv.id}`,
+                    "Copiado"
+                  )
+                }
+                data-testid="share-copy-direct"
+              >
+                Copiar enlace directo
+              </button>
+              <button
+                type="button"
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "9px 14px",
+                  fontSize: 13,
+                  color: "var(--fg)",
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+                onMouseEnter={(e) =>
+                  ((e.currentTarget as HTMLButtonElement).style.background =
+                    "var(--bg-3)")
+                }
+                onMouseLeave={(e) =>
+                  ((e.currentTarget as HTMLButtonElement).style.background =
+                    "none")
+                }
+                onClick={() =>
+                  void copyToClipboard(
+                    `${window.location.origin}/k/${conv.id}`,
+                    "Copiado"
+                  )
+                }
+                data-testid="share-copy-context"
+              >
+                Copiar enlace en contexto
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -22,3 +22,30 @@ You are reviewing a pull request for the PowerShop Analytics project.
 - [ ] Tests are included for new functionality
 - [ ] No breaking changes to existing APIs
 - [ ] Docker/compose changes are backward compatible
+
+## Test Coverage
+
+### Test deletion warning
+
+Compare deleted vs added lines in test files (`*__tests__*`, `*.test.ts`, `*.test.tsx`, `test_*.py`, `*.test.py`, `*.spec.ts`, `*.spec.tsx`).
+
+**If the PR deletes more test lines than it adds**, post this warning block in the review:
+
+> ⚠️ This PR deletes more test lines than it adds (−N deleted / +M added). The PR body must include a `## Test deletion rationale` section explaining why.
+
+- If the PR body **already contains** `## Test deletion rationale`: acknowledge it and evaluate whether the rationale is credible. "Tests were rewritten" alone is not sufficient — the rationale must explain what coverage is preserved and how.
+- If the PR body **does NOT contain** `## Test deletion rationale`: request changes and mark this as a **blocking comment**. The PR cannot be merged without this section.
+
+### Coverage direction check (non-blocking)
+
+If a PR adds new functionality (new exported functions, new API routes, new React components) but adds zero new test lines, note it as a non-blocking observation:
+
+> ℹ️ This PR adds `<name>` but includes no new test lines — consider adding coverage.
+
+This is advisory only. Do not block the PR on this check.
+
+### Test file rename vs delete
+
+Distinguish between two cases:
+- **Rename / move**: a test file disappears from one path and reappears (possibly renamed) at another path with equivalent coverage. This is acceptable — note it without warning.
+- **Delete with no replacement**: a test file is removed and no equivalent file appears elsewhere in the diff. This always requires a `## Test deletion rationale` section in the PR body, regardless of the line count delta.
