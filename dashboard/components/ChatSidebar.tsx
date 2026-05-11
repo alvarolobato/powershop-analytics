@@ -150,11 +150,12 @@ function convertConversationMessages(messages: ConversationApiMessage[]): ChatMe
     .map((msg) => {
       const content = msg.content as MessageContent;
       const ac = msg.role === "assistant" && isAssistantContent(content) ? content : null;
+      const isError = ac?.is_error ?? false;
       return {
         role: msg.role as "user" | "assistant",
-        content: getMessageText(content),
+        content: getMessageText(content) || (isError ? "Error en la respuesta del asistente" : ""),
         timestamp: new Date(msg.created_at),
-        isError: ac?.is_error ?? false,
+        isError,
       };
     })
     .filter((msg) => msg.content.length > 0);
@@ -1597,20 +1598,14 @@ export default function ChatSidebar({
         const messages = convertConversationMessages(msgData.messages ?? []);
 
         if (apiMode === "modify") {
-          // Skip overwriting messages that were preloaded by the parent (e.g., from /k/:id).
           if (!hadInitialModifyMessagesRef.current) {
             setModifyMessages(messages);
-          }
-          if (msgData.initial_context) {
-            setModifyInitialContext(msgData.initial_context);
+            setModifyInitialContext(msgData.initial_context ?? null);
           }
         } else {
-          // Skip overwriting messages that were preloaded by the parent.
           if (!hadInitialAnalyzeMessagesRef.current) {
             setAnalyzeMessages(messages);
-          }
-          if (msgData.initial_context) {
-            setAnalyzeInitialContext(msgData.initial_context);
+            setAnalyzeInitialContext(msgData.initial_context ?? null);
           }
         }
       } catch (err) {

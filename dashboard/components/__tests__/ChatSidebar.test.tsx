@@ -1109,8 +1109,11 @@ describe("ChatSidebar", () => {
       expect(screen.getByText("Mensaje pre-cargado de /k/:id")).toBeInTheDocument();
     });
 
-    // The auto-loaded message must NOT appear (was skipped because initialModifyMessages were provided)
-    expect(screen.queryByText(autoLoadedMessage)).not.toBeInTheDocument();
+    // The auto-loaded message must NOT appear (was skipped because initialModifyMessages were provided).
+    // Uses waitFor so the assertion holds after the async auto-load fetches settle.
+    await waitFor(() => {
+      expect(screen.queryByText(autoLoadedMessage)).not.toBeInTheDocument();
+    });
   });
 
   // -----------------------------------------------------------------------
