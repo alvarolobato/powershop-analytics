@@ -345,10 +345,20 @@ jobs:
               # escalation path inside a per-PR loop under `set -euo pipefail`;
               # one PR's label-stamp failure (rate limit, transient) shouldn't
               # abort the loop and skip the escalation comment + remaining PRs.
-              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-ready-for-review" >/dev/null 2>&1 || true
-              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 || true
+              # We capture the exit status so the escalation comment can
+              # accurately report what actually happened (instead of a false
+              # "Added ai-blocked" audit trail when the API call failed).
+              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-ready-for-review" >/dev/null 2>&1 \
+                && RFR_REMOVED=true || RFR_REMOVED=false
+              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 \
+                && BLOCKED_ADDED=true || BLOCKED_ADDED=false
+              if $BLOCKED_ADDED; then
+                LABEL_REPORT="Removed \`ai-ready-for-review\` (success=$RFR_REMOVED), added \`ai-blocked\`."
+              else
+                LABEL_REPORT="**Tried to remove \`ai-ready-for-review\` (success=$RFR_REMOVED) and add \`ai-blocked\` but the API POST failed** — please add the label manually."
+              fi
               gh pr comment "$NUM" --repo "$REPO_FULL" \
-                --body "🚨 @$OWNER_HANDLE — pr-review has been stalled for this PR after $MAX_STALL_RETRIES watchdog re-dispatch attempts. Removed \`ai-ready-for-review\`, added \`ai-blocked\`. Please investigate." || true
+                --body "🚨 @$OWNER_HANDLE — pr-review has been stalled for this PR after $MAX_STALL_RETRIES watchdog re-dispatch attempts. ${LABEL_REPORT} Please investigate." || true
               continue
             fi
 
@@ -459,9 +469,17 @@ jobs:
               # Defensive `|| true` — escalation path in a per-PR loop under
               # set -euo pipefail; a single PR's label-stamp failure shouldn't
               # abort the rest of the loop or skip the escalation comment.
-              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 || true
+              # Capture exit status so the comment accurately reports whether
+              # the label actually landed.
+              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 \
+                && BLOCKED_ADDED=true || BLOCKED_ADDED=false
+              if $BLOCKED_ADDED; then
+                LABEL_REPORT="Added \`ai-blocked\`."
+              else
+                LABEL_REPORT="**Tried to add \`ai-blocked\` but the API POST failed** — please add the label manually."
+              fi
               gh pr comment "$NUM" --repo "$REPO_FULL" \
-                --body "🚨 @$OWNER_HANDLE — pr-review never ran for this PR (likely cancelled by the global concurrency group) and $MAX_COLD_RETRIES watchdog re-dispatches still produced no completed review. Added \`ai-blocked\`. Please investigate." || true
+                --body "🚨 @$OWNER_HANDLE — pr-review never ran for this PR (likely cancelled by the global concurrency group) and $MAX_COLD_RETRIES watchdog re-dispatches still produced no completed review. ${LABEL_REPORT} Please investigate." || true
               continue
             fi
 
