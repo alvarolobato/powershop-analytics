@@ -103,12 +103,12 @@ The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. B
 
 **Example — branch 2 (delta append):**
 
+The delta block goes **before** the marker, keeping `<!-- manager-run: YYYY-MM-DD -->` as the literal last line (so the marker stays findable by `grep` / the idempotency-check substring match in this prompt's branch-1 check):
+
 ```
 ## 🏭 Factory Manager — 2026-05-11
 
 […original report posted at 13:12 by an earlier run on the same date…]
-
-<!-- manager-run: 2026-05-11 -->
 
 ### Delta — 17:50 UTC
 
@@ -120,7 +120,11 @@ The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. B
 
 #### Decisions awaiting owner (new)
 - [ ] (none)
+
+<!-- manager-run: 2026-05-11 -->
 ```
+
+If a third (or later) run on the same day adds another delta, append a new `### Delta — HH:MM UTC` block right above the marker, leaving the marker as the literal last line.
 
 > **Why this matters:** The 2026-05-11 17:49 UTC run completed `success` but posted nothing on the tracking issue, because the 13:06 run had already stamped today's marker and Pass 4 took the "skip the report entirely" branch. The 17:49 run also missed filing a Pass-2 pattern issue (5 PRs simultaneously stuck), the exact class of cross-cutting finding Pass 2 exists for. Branch 2 above forces those new findings to surface.
 

@@ -341,9 +341,12 @@ jobs:
 
             if [ "$STALL_RETRY_COUNT" -ge "$MAX_STALL_RETRIES" ]; then
               echo "PR #$NUM: hit MAX_STALL_RETRIES ($MAX_STALL_RETRIES) — escalating."
-              # REST API — see #611.
+              # REST API — see #611. Defensive `|| true` here because this is an
+              # escalation path inside a per-PR loop under `set -euo pipefail`;
+              # one PR's label-stamp failure (rate limit, transient) shouldn't
+              # abort the loop and skip the escalation comment + remaining PRs.
               gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-ready-for-review" >/dev/null 2>&1 || true
-              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null
+              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 || true
               gh pr comment "$NUM" --repo "$REPO_FULL" \
                 --body "🚨 @$OWNER_HANDLE — pr-review has been stalled for this PR after $MAX_STALL_RETRIES watchdog re-dispatch attempts. Removed \`ai-ready-for-review\`, added \`ai-blocked\`. Please investigate." || true
               continue
@@ -453,7 +456,10 @@ jobs:
 
             if [ "$COLD_RETRY_COUNT" -ge "$MAX_COLD_RETRIES" ]; then
               echo "PR #$NUM hit MAX_COLD_RETRIES ($MAX_COLD_RETRIES) — escalating."
-              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null
+              # Defensive `|| true` — escalation path in a per-PR loop under
+              # set -euo pipefail; a single PR's label-stamp failure shouldn't
+              # abort the rest of the loop or skip the escalation comment.
+              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 || true
               gh pr comment "$NUM" --repo "$REPO_FULL" \
                 --body "🚨 @$OWNER_HANDLE — pr-review never ran for this PR (likely cancelled by the global concurrency group) and $MAX_COLD_RETRIES watchdog re-dispatches still produced no completed review. Added \`ai-blocked\`. Please investigate." || true
               continue
