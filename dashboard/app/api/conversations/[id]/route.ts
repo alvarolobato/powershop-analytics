@@ -122,13 +122,13 @@ export async function PATCH(
       );
     }
 
-    if (typeof b.title === "string" && b.title.trim() === "") {
-      return NextResponse.json(
-        formatApiError("El campo 'title' no puede estar vacío.", "INVALID_BODY", undefined, requestId),
-        { status: 400 },
-      );
-    }
     if (typeof b.title === "string") {
+      if (b.title.trim() === "") {
+        return NextResponse.json(
+          formatApiError("El campo 'title' no puede estar vacío.", "INVALID_BODY", undefined, requestId),
+          { status: 400 },
+        );
+      }
       await updateConversationTitle(id, b.title);
     }
 
