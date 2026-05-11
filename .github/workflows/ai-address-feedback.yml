@@ -21,12 +21,20 @@ on:
         default: "manual dispatch"
 
 concurrency:
-  # Global group: only one address-feedback session runs at a time across all PRs.
-  # Others queue (cancel-in-progress: false). This prevents rate-limit storms when
-  # multiple PRs are unblocked simultaneously (e.g. after a rate-limit recovery).
-  # Trade-off: PRs are processed serially, not in parallel — acceptable because
-  # each session can take many minutes anyway.
-  group: ai-address-feedback-global
+  # Per-PR group: serialise runs for the SAME PR (prevents two address-feedback
+  # sessions racing on a single PR's labels and commits), but allow runs for
+  # different PRs to proceed in parallel.
+  #
+  # Why not global: GitHub Actions with `cancel-in-progress: false` keeps the
+  # in-progress run alive but **cancels older queued runs** when newer ones
+  # arrive in the same group. With a global group, 5 dispatches arriving in
+  # seconds collapsed to 1 effective run (issue #609). Per-PR avoids the
+  # cross-PR cancellation cascade entirely.
+  #
+  # Rate-limit storms (the original motivation for the global group) are bounded
+  # by the worker token's own rate-limit handling and the GitHub Actions
+  # concurrent-jobs-per-repo limit, not by serialisation here.
+  group: ai-address-feedback-${{ github.event.inputs.pr_number || github.event.pull_request.number }}
   cancel-in-progress: false
 
 permissions:
@@ -200,16 +208,29 @@ jobs:
           set -euo pipefail
           LABELS=$(gh pr view "$PR" --repo "$REPO" --json labels \
             --jq '[.labels[].name] | join(",")')
+          # Label-ops helpers — use REST API instead of `gh pr edit` because the
+          # latter exits non-zero on a Projects(classic) GraphQL deprecation
+          # warning even on success, hiding real failures behind `|| true`.
+          # See issue #611. POSTs are strict (real failures fail loud);
+          # DELETEs are idempotent (404 on absent label is OK).
+          labels_add() {
+            local pr="$1"; shift
+            for l in "$@"; do
+              gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=$l" >/dev/null
+            done
+          }
+          labels_remove() {
+            local pr="$1"; shift
+            for l in "$@"; do
+              gh api -X DELETE "repos/$REPO/issues/$pr/labels/$l" >/dev/null 2>&1 || true
+            done
+          }
+
           if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
              && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
             echo "PR #$PR has both rounds addressed — D-021 converged."
             # Cosmetic-only label cleanup (always safe).
-            gh pr edit "$PR" --repo "$REPO" \
-              --remove-label "ai-ready-for-review" \
-              --remove-label "ai-phase-copilot" \
-              --remove-label "ai-phase-opus" \
-              --remove-label "ai-blocked" \
-              --remove-label "ai-auto-retry" || true
+            labels_remove "$PR" ai-ready-for-review ai-phase-copilot ai-phase-opus ai-blocked ai-auto-retry
             # Owner handoff is CI-gated to match the rest of this file
             # (see `owner_handoff_or_ci_gate` below). Don't claim merge-ready
             # if CI is failing or still running.
@@ -221,7 +242,7 @@ jobs:
               CI_STATE="failing"
             fi
             if [ "$CI_STATE" = "ready" ]; then
-              gh pr edit "$PR" --repo "$REPO" --add-label "ai-awaiting-owner" || true
+              labels_add "$PR" ai-awaiting-owner
               gh pr comment "$PR" --repo "$REPO" \
                 --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed. Skipping address-feedback. Awaiting owner merge decision." || true
             else
@@ -253,11 +274,15 @@ jobs:
         if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.resolve.outputs.pr_number }}
         run: |
-          gh pr edit ${{ needs.resolve.outputs.pr_number }} \
-            --remove-label "ai-awaiting-owner" \
-            --remove-label "ai-ci-failing" || true
-          gh pr comment ${{ needs.resolve.outputs.pr_number }} \
+          # Idempotent label removals via REST (avoids gh pr edit's
+          # projectCards deprecation false-failure — see issue #611).
+          for l in ai-awaiting-owner ai-ci-failing; do
+            gh api -X DELETE "repos/$REPO/issues/$PR/labels/$l" >/dev/null 2>&1 || true
+          done
+          gh pr comment "$PR" --repo "$REPO" \
             --body "🤖 Addressing review feedback automatically (${{ needs.resolve.outputs.reason }}). See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       # Claude Code Action's OIDC app-token exchange validates that workflow
@@ -299,9 +324,9 @@ jobs:
           set -euo pipefail
           MSG="ℹ️ **AI Factory**: Skipping automated address-feedback — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`$DEFAULT_BRANCH\`, so Claude can't push fixes from a PR that changes workflows. **Please address Copilot's inline comments manually** (reply + commit + re-request review), then merge."
           gh pr comment "$PR" --repo "$REPO" --body "$MSG" || true
-          gh pr edit "$PR" --repo "$REPO" \
-            --remove-label "ai-ready-for-review" \
-            --add-label "ai-awaiting-owner" || true
+          # Label transition via REST (avoids gh pr edit's projectCards deprecation — see #611).
+          gh api -X DELETE "repos/$REPO/issues/$PR/labels/ai-ready-for-review" >/dev/null 2>&1 || true
+          gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
 
       - name: Address Review Feedback
         id: address
@@ -426,6 +451,25 @@ jobs:
 
           ci_state() { bash .github/scripts/ci-handoff-state.sh "$REPO" "$PR"; }
 
+          # Label-ops helpers — use REST API instead of `gh pr edit` because
+          # the latter exits non-zero on a Projects(classic) GraphQL
+          # deprecation warning even on success, forcing every call to be
+          # `|| true`-swallowed and hiding real failures. See issue #611.
+          # POST is strict (real failures fail loud); DELETE is idempotent
+          # (404 on absent label is OK and silenced).
+          labels_add() {
+            local pr="$1"; shift
+            for l in "$@"; do
+              gh api -X POST "repos/$REPO/issues/$pr/labels" -f "labels[]=$l" >/dev/null
+            done
+          }
+          labels_remove() {
+            local pr="$1"; shift
+            for l in "$@"; do
+              gh api -X DELETE "repos/$REPO/issues/$pr/labels/$l" >/dev/null 2>&1 || true
+            done
+          }
+
           # Did a non-claude, non-github-actions reviewer actually submit a review?
           # Copilot posts as `Copilot` (user) or `copilot-pull-request-reviewer[bot]`.
           # A human is anything else that isn't claude[bot]/github-actions[bot].
@@ -466,34 +510,42 @@ jobs:
               if [ "${copilot_added:-0}" -gt 0 ]; then
                 gh pr comment "$PR" --repo "$REPO" --body "🔁 **AI Factory**: No Copilot/human review found on PR — re-requested **Copilot** review before converging." || true
               else
-                gh pr edit "$PR" --repo "$REPO" --add-label "ai-blocked" || true
+                labels_add "$PR" ai-blocked
                 gh pr comment "$PR" --repo "$REPO" --body "⚠️ **AI Factory**: No Copilot/human review found **and** re-requesting Copilot returned no reviewer. This happens when \`secrets.COPILOT_PAT\` is missing (GITHUB_TOKEN cannot assign Copilot) or the PAT lacks \`pull_requests: write\`. Not marking \`ai-awaiting-owner\`. cc @alvarolobato — set \`COPILOT_PAT\` or request the review manually." || true
               fi
               return 0
             fi
 
+            # Tri-state ci_state returns one of: ready | failing | running | unknown.
+            # Each branch handles its own label state. Crucially, `ai-ci-failing`
+            # is added **only** when state is `failing` — never when it is
+            # `running` or `unknown`. Adding it prematurely while checks are
+            # still in progress makes the PR look broken in dashboards, triggers
+            # the watchdog's CI-failing handler, and forces a later cleanup.
+            # See issue #610.
             if [ "$hs" = "ready" ]; then
-              gh pr edit "$PR" --repo "$REPO" --remove-label "ai-ci-failing" || true
-              gh pr edit "$PR" --repo "$REPO" --add-label "ai-awaiting-owner" || true
+              labels_remove "$PR" ai-ci-failing
+              labels_add "$PR" ai-awaiting-owner
               gh pr comment "$PR" --repo "$REPO" --body "$1" || true
               return 0
             fi
-            gh pr edit "$PR" --repo "$REPO" --remove-label "ai-awaiting-owner" || true
-            gh pr edit "$PR" --repo "$REPO" --add-label "ai-ci-failing" || true
+            labels_remove "$PR" ai-awaiting-owner
             if [ "$hs" = "failing" ]; then
+              labels_add "$PR" ai-ci-failing
               gh pr comment "$PR" --repo "$REPO" \
                 --body "⚠️ **AI Factory**: Automated review is done, but **CI is failing** — not marking \`ai-awaiting-owner\`. Added \`ai-ci-failing\`. An **AI CI remediation** workflow will run (or re-run \`ai-ci-remediation.yml\` manually)." || true
               gh workflow run ai-ci-remediation.yml --repo "$REPO" --field pr_number="$PR" || true
             else
+              # hs is "running" or "unknown" — do NOT add ai-ci-failing.
+              # Leave the label as-is (if previously set by a real failure, it
+              # stays; if not, we don't stamp it speculatively).
               gh pr comment "$PR" --repo "$REPO" \
                 --body "⏳ **AI Factory**: Automated review is done, but **CI is still running or not reported yet** — not marking \`ai-awaiting-owner\`. Re-check after CI finishes." || true
             fi
           }
 
           converge_comment() {
-            gh pr edit "$PR" --repo "$REPO" --remove-label "ai-ready-for-review" || true
-            gh pr edit "$PR" --repo "$REPO" \
-              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+            labels_remove "$PR" ai-ready-for-review ai-blocked ai-auto-retry
             owner_handoff_or_ci_gate "✅ Review cycle converged — no new changes required. PR is ready for human merge decision."
           }
 
@@ -523,12 +575,7 @@ jobs:
           if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
              && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
             echo "Both ai-cp-after-1 + ai-o-after-1 set — D-021 converged."
-            gh pr edit "$PR" --repo "$REPO" \
-              --remove-label "ai-phase-copilot" \
-              --remove-label "ai-phase-opus" \
-              --remove-label "ai-ready-for-review" \
-              --remove-label "ai-blocked" \
-              --remove-label "ai-auto-retry" || true
+            labels_remove "$PR" ai-phase-copilot ai-phase-opus ai-ready-for-review ai-blocked ai-auto-retry
             owner_handoff_or_ci_gate "✅ **AI Factory**: Both review rounds (Copilot + Opus) addressed. PR is ready for human merge decision."
             exit 0
           fi
@@ -537,12 +584,8 @@ jobs:
             if echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
               # Self-heal: a prior transition partially applied (both labels present).
               # Complete the label move without re-dispatching Opus review.
-              gh pr edit "$PR" --repo "$REPO" \
-                --remove-label "ai-phase-copilot" \
-                --add-label "ai-phase-opus" \
-                --add-label "ai-ready-for-review" \
-                --remove-label "ai-blocked" \
-                --remove-label "ai-auto-retry" || true
+              labels_add "$PR" ai-phase-opus ai-ready-for-review
+              labels_remove "$PR" ai-phase-copilot ai-blocked ai-auto-retry
               gh pr comment "$PR" --body "🤖 **AI Factory**: Self-healed partial phase transition — cleared \`ai-phase-copilot\`." || true
               exit 0
             fi
@@ -556,13 +599,8 @@ jobs:
             # clears them; without the same cleanup here the PR moves to
             # ai-phase-opus but still looks "blocked", and the watchdog
             # `Stalled ai-ready-for-review` rule skips it (ai-watchdog.yml:263-265).
-            gh pr edit "$PR" --repo "$REPO" \
-              --add-label "ai-cp-after-1" \
-              --remove-label "ai-phase-copilot" \
-              --add-label "ai-phase-opus" \
-              --add-label "ai-ready-for-review" \
-              --remove-label "ai-blocked" \
-              --remove-label "ai-auto-retry"
+            labels_add "$PR" ai-cp-after-1 ai-phase-opus ai-ready-for-review
+            labels_remove "$PR" ai-phase-copilot ai-blocked ai-auto-retry
             # Belt-and-braces explicit dispatch (the labeled event above
             # already fires ai-pr-review on a healthy repo, but bot-actor
             # label events can be gated by GitHub as `action_required` —
@@ -576,20 +614,12 @@ jobs:
             if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
               # Self-heal: prior handoff partially applied. Finish clearing phase labels
               # and re-run the handoff gate — it's idempotent (label + comment only).
-              gh pr edit "$PR" --repo "$REPO" \
-                --remove-label "ai-phase-opus" \
-                --remove-label "ai-ready-for-review" \
-                --remove-label "ai-blocked" \
-                --remove-label "ai-auto-retry" || true
+              labels_remove "$PR" ai-phase-opus ai-ready-for-review ai-blocked ai-auto-retry
               owner_handoff_or_ci_gate "✅ **AI Factory**: Self-healed partial phase transition — automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
               exit 0
             fi
-            gh pr edit "$PR" --repo "$REPO" \
-              --add-label "ai-o-after-1" \
-              --remove-label "ai-phase-opus" \
-              --remove-label "ai-ready-for-review" \
-              --remove-label "ai-blocked" \
-              --remove-label "ai-auto-retry" || true
+            labels_add "$PR" ai-o-after-1
+            labels_remove "$PR" ai-phase-opus ai-ready-for-review ai-blocked ai-auto-retry
             owner_handoff_or_ci_gate "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). PR is ready for human merge decision."
             exit 0
           fi
@@ -605,15 +635,21 @@ jobs:
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ needs.resolve.outputs.pr_number }}
         run: |
           RESET_LINE=""
-          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "$REPO" 2>/dev/null); then
             RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
             if [ -n "$RESET_ISO" ]; then
               RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
             fi
           fi
-          gh pr comment ${{ needs.resolve.outputs.pr_number }} \
+          gh pr comment "$PR" --repo "$REPO" \
             --body "❌ AI Address Feedback failed (rate limit or transient error). Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
-          gh pr edit ${{ needs.resolve.outputs.pr_number }} \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+          # REST API for label adds (see #611). Strict — if the bot can't even
+          # stamp ai-blocked, the watchdog has nothing to retry; we want the
+          # failure visible in the Actions UI rather than silently swallowed.
+          for l in ai-blocked ai-auto-retry; do
+            gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=$l" >/dev/null
+          done
