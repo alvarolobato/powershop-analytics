@@ -25,6 +25,20 @@
 
 **See**: `.github/workflows/ai-pr-review.yml` (trigger + failure handler), `.github/workflows/ai-address-feedback.yml` (Copilot→Opus transition), PRs #594, #595, #596 (the casualties), #600 (D-030 watchdog cadence companion fix).
 
+### D-030: Watchdog cron bumped to `*/30` + event triggers to compensate for GitHub schedule queue saturation — 2026-05-11
+**Context**: Issue #598. `ai-watchdog.yml` is configured `*/15 * * * *` but actual run history showed it firing every **3–4 hours** — roughly 1/8 of the intended cadence. Concrete impact: PR #597 had all CI green and both review rounds complete at 12:51 UTC; the watchdog's "Clear `ai-ci-failing` when CI is green" rule could not fire because the next watchdog tick was > 30 min away. The Factory Manager removed the label manually at 13:08 UTC; without intervention the PR would have sat with a misleading red label until ~14:43 UTC at earliest.
+**Root cause**: GitHub silently drops scheduled runs when a repo's schedule queue is saturated. This repo has 9+ active cron workflows competing for dispatch slots (watchdog `*/15`, mergeability check `*/30`, factory manager `*/4h`, bug hunter daily, feature ideas weekly, project summary daily, ETL health daily, dashboard audit weekly, SQL validator weekly, business review Monday). GitHub's threshold for queue saturation is undocumented, but the symptom is consistent with the documented behavior: requested cadence vs. observed cadence diverge when the queue cannot keep up, with no visible error or warning.
+**Decision**:
+- **Bump cron from `*/15` to `*/30`** — `ai-pr-mergeability.yml` already uses `*/30` and gets it honored (set deliberately after a similar observation). Halving the requested frequency reduces schedule queue pressure and brings observed cadence closer to configured cadence.
+- **Add `pull_request_review: [submitted]` and `pull_request: [closed]` event triggers** — the two most time-sensitive watchdog paths are: (1) clear `ai-ci-failing` when CI is green, and (2) the `ai-phase-opus` transition after Opus submits a review. With event triggers these rules fire within seconds of the relevant event rather than waiting up to 30 min for the next cron tick. The watchdog is already idempotent (`|| true` on every step, no side effects on no-match), so extra event-triggered runs are cheap (< 2 min each, no LLM).
+- **YAML change requires a human commit** (D-029 constraint). The proposed diff is posted in PR #599's body for the owner to apply.
+**Alternatives rejected**:
+- **Keep `*/15`**: will continue to be dropped by the saturated queue; observed cadence remains 3–4 h.
+- **Split into hot/cold workflows** (hot: 3–4 time-sensitive rules on `*/15`; cold: everything else on `*/60`): creating a new file under `.github/workflows/` is blocked by D-029.
+- **Fan-out from a separate event-driven workflow that calls the watchdog**: same D-029 constraint; would also add concurrency complexity.
+**Files**: `.github/workflows/ai-watchdog.yml` (YAML change pending human commit — see PR #599 body for the exact diff), `docs/ai-factory.md` (cadence references updated in this PR).
+**See**: issue #598, PR #599, `docs/ai-factory.md` "Watchdog vs Manager" section, D-029.
+
 ### D-029: Worker must not write to `.github/workflows/` — 2026-05-11
 **Context**: Issue #558 asked the worker to land `.github/workflows/ai-factory-manager.yml`. PR #564 was rejected by GitHub: *"refusing to allow a GitHub App to create or update workflow ... without 'workflows' permission"*. PR #568 (merged `7fba1c3`, 2026-05-10 13:55 UTC) tried to fix this by adding `workflows: write` to `ai-worker.yml`'s `permissions:` block. The fix was based on a misreading of GitHub's permission model and silently broke the entire factory for ~21 hours.
 **Root cause** (two confused identity systems):
