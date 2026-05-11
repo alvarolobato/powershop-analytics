@@ -274,6 +274,21 @@ Schema metadata (table names, column names, types, row counts) is fine. Actual c
 
 Credentials live in `~/.config/powershop-analytics/` (centralized) so they work across git worktrees. Use `local/` for worktree-specific overrides only.
 
+### No worker writes to `.github/workflows/` (D-029, issue #558)
+
+The AI worker (and any other claude-code-action job in this repo) must **not** create, modify, or delete files under `.github/workflows/`. Two layered constraints make this fail in subtle ways:
+
+1. GitHub Apps need the App-installation-level "Workflows: Read and write" permission to push workflow files. This is **not** configurable from inside the repo — it lives in the GitHub App's installation settings on github.com. The `permissions:` block in a workflow YAML only controls the `GITHUB_TOKEN` scopes, and `workflows` is **not** in the valid scope list (`actions, attestations, checks, contents, deployments, discussions, id-token, issues, models, packages, pages, pull-requests, repository-projects, security-events, statuses`). Adding `workflows: write` to `permissions:` puts the entire workflow into startup-failure — every event for that workflow is silently dropped (this happened from 2026-05-10 13:55 UTC to 2026-05-11 11:00 UTC; see D-029).
+2. Even with a fine-grained PAT carrying `workflow` OAuth scope, granting the worker rights to rewrite the very files that schedule it is a self-modifying-system foot-gun we are choosing not to take.
+
+**What to do instead** when an issue asks for a new or modified workflow file:
+
+- Post the proposed YAML in the PR body (or as a comment on the tracking issue) inside a fenced ```yaml block.
+- Land everything else the issue asks for (prompts, configs, helper scripts, docs, labels) in the PR normally.
+- Tag the human owner in the PR description with "⚠️ Workflow file pending human commit — see YAML below." The owner copies the YAML into `.github/workflows/<name>.yml` in a follow-up commit.
+
+If you (the worker) detect that a planned sub-task would touch `.github/workflows/`, split it out into a separate `ai-blocked + ai-task` sub-issue with the workflow YAML in the body, and proceed with the rest. Do **not** attempt the push and do **not** try to "fix" it by adding permissions to the YAML.
+
 ### Python changes and commits
 
 **Before any commit that touches Python** (`.py` under `etl/`, `scripts/`, or elsewhere in the repo), run **Ruff format** on the paths you changed so CI does not fail on style. From the repo root, typical patterns:

@@ -33,16 +33,12 @@ permissions:
   pull-requests: write
   id-token: write
   actions: read
-  # workflows: write lets the worker create/modify .github/workflows/* files
-  # in PRs (e.g. when implementing a factory enhancement that adds a new
-  # workflow). PR #564 hit this gap when trying to push
-  # ai-factory-manager.yml — the claude-code-action's app token was rejected
-  # with "refusing to allow a GitHub App to create or update workflow ...
-  # without `workflows` permission". Note: standard GITHUB_TOKEN can't push
-  # workflow files even with this permission set; if this still fails after
-  # a real test, the fallback is a fine-grained PAT with `workflow` scope
-  # stored as a secret (see #554's scope-expansion section / decision log).
-  workflows: write
+  # Do NOT add `workflows: write` — it is not a valid GITHUB_TOKEN permission
+  # scope and registering it puts this whole file into startup-failure (every
+  # `issues: labeled` event was silently dropped from 2026-05-10 13:55 UTC to
+  # 2026-05-11 11:00 UTC because of exactly this mistake — see D-029).
+  # The worker must NOT push files under `.github/workflows/`; see AGENTS.md
+  # "No worker writes to .github/workflows/" for the policy and workarounds.
 
 jobs:
   # ─────────────────────────────────────────────────────────────────
