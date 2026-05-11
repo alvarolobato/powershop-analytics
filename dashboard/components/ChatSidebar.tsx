@@ -20,7 +20,7 @@ import {
   getMessageText,
   isAssistantContent,
 } from "@/lib/conversation-types";
-import type { InitialContext } from "@/lib/conversation-types";
+import type { InitialContext, MessageContent } from "@/lib/conversation-types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -148,7 +148,7 @@ function convertConversationMessages(messages: ConversationApiMessage[]): ChatMe
   return messages
     .filter((msg) => msg.role === "user" || msg.role === "assistant")
     .map((msg) => {
-      const content = msg.content as Parameters<typeof getMessageText>[0];
+      const content = msg.content as MessageContent;
       const ac = msg.role === "assistant" && isAssistantContent(content) ? content : null;
       return {
         role: msg.role as "user" | "assistant",
@@ -1629,9 +1629,13 @@ export default function ChatSidebar({
     if (activeTab === "modificar") {
       setModifyMessages([]);
       onModifyMessagesChange?.([]);
+      setModifyInitialContext(null);
+      hadInitialModifyMessagesRef.current = false;
     } else {
       setAnalyzeMessages([]);
       onAnalyzeMessagesChange?.([]);
+      setAnalyzeInitialContext(null);
+      hadInitialAnalyzeMessagesRef.current = false;
     }
     setShowPreviousConversations(false);
   }, [activeTab, onModifyMessagesChange, onAnalyzeMessagesChange]);
