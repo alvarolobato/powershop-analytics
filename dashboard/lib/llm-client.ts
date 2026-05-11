@@ -37,6 +37,7 @@ export { CliRunnerError };
 export { formatCliRunnerError, isCliRunnerError };
 export type { FormattedCliError };
 export { createDashboardAgenticAdapter };
+export { buildCachedSystemMessage };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

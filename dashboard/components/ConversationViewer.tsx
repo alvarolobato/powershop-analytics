@@ -276,6 +276,16 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
     if (!text || sending) return;
     setSending(true);
     setError(null);
+    // Optimistically render the user's message — the server saved it but the
+    // POST response only returns the assistant reply, so the UI would otherwise
+    // skip the user's turn until the next page load.
+    onMessageSent({
+      id: `local-user-${Date.now()}`,
+      conversation_id: conversationId,
+      role: "user",
+      content: { text },
+      created_at: new Date().toISOString(),
+    });
     try {
       const res = await fetch(`/api/conversations/${conversationId}/messages`, {
         method: "POST",
@@ -288,10 +298,21 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
         return;
       }
       const data = await res.json();
-      // data should be the newly created assistant message
       setInput("");
-      if (data?.message) {
-        onMessageSent(data.message as ConversationMessage);
+      // POST /messages returns { message: MessageRow } where MessageRow is the
+      // assistant row when callLlm=true. Older code returned a bare string;
+      // tolerate both shapes so a partial deploy doesn't break the UI.
+      const raw = data?.message;
+      if (raw && typeof raw === "object" && "id" in raw) {
+        onMessageSent(raw as ConversationMessage);
+      } else if (typeof raw === "string" && raw.length > 0) {
+        onMessageSent({
+          id: `local-${Date.now()}`,
+          conversation_id: conversationId,
+          role: "assistant",
+          content: { text: raw },
+          created_at: new Date().toISOString(),
+        });
       }
     } catch {
       setError("Error al enviar el mensaje");

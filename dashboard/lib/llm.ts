@@ -31,9 +31,9 @@ import {
   llmComplete,
   createDashboardAgenticAdapter,
   resetClient,
+  buildCachedSystemMessage,
 } from "./llm-client";
 import type { ChatTurn } from "./llm-client";
-import { buildCachedSystemMessage } from "./llm-provider/openrouter";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 export { BudgetExceededError } from "./llm-usage";
@@ -52,11 +52,17 @@ function usageMetaFromCfg(cfg: DashboardLlmConfig) {
 }
 
 function attachTelemetry(ctx: LlmAgenticContext, cfg: DashboardLlmConfig): LlmAgenticContext {
-  return {
-    ...ctx,
-    llmProvider: cfg.provider,
-    llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
-  };
+  // MUST mutate ctx in place, not return a clone. The agentic tool handlers
+  // write the staged result back to ctx (ctx.analyzeResult, ctx.modifyResult,
+  // ctx.reviewResult — see lib/llm-tools/handlers/dashboards.ts), and the
+  // route reads those fields AFTER the call completes. If we returned a
+  // shallow-clone here, the handlers would write into the clone and the
+  // route would read null from the original — which is exactly the bug that
+  // surfaced as "El modelo no publicó el análisis" even when the log shows
+  // submit_dashboard_analysis was called.
+  ctx.llmProvider = cfg.provider;
+  ctx.llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
+  return ctx;
 }
 
 type ChatLikeMessage = { role: string; content?: unknown };

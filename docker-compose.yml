@@ -252,6 +252,11 @@ services:
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
       # Mount schema so the container can validate/read key definitions
       - ./config/schema.yaml:/app/config/schema.yaml:ro
+      # Mount the canonical PostgreSQL DDL so the dashboard's Next.js
+      # instrumentation hook can apply pending migrations on startup
+      # (idempotent — CREATE TABLE IF NOT EXISTS). Both ETL and Dashboard
+      # apply the same file; init.sql is the single source of schema truth.
+      - ./etl/schema/init.sql:/app/schema/init.sql:ro
       # Mount Claude Code CLI credentials for DASHBOARD_LLM_PROVIDER=cli.
       # The binary is installed in the image via npm install -g @anthropic-ai/claude-code.
       # ~/.claude/ contains .credentials.json (OAuth token) and session state.

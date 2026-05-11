@@ -43,27 +43,28 @@ describe("POST /api/conversations", () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("INVALID_BODY");
   });
 
   it("returns 400 when mode is missing", async () => {
     const res = await POST(makeRequest({}));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_MODE");
   });
 
   it("returns 400 when mode is empty string", async () => {
     const res = await POST(makeRequest({ mode: "" }));
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_MODE");
   });
 
-  it("accepts any non-empty mode value (no mode enumeration validation)", async () => {
-    mockCreateConversation.mockResolvedValue({ id: "x", c_url: "/c/x", k_url: "/k/x" });
+  it("returns 400 for invalid mode value", async () => {
     const res = await POST(makeRequest({ mode: "unknown_mode" }));
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_MODE");
   });
 
   it("creates conversation and returns 201 with URLs", async () => {
@@ -80,7 +81,7 @@ describe("POST /api/conversations", () => {
     expect(body.k_url).toBe("/k/conv-123");
   });
 
-  it("passes first_user_prompt and context fields to createConversation (seed_prompt is not forwarded)", async () => {
+  it("passes first_user_prompt and context fields to createConversation", async () => {
     mockCreateConversation.mockResolvedValue({ id: "x", c_url: "/c/x", k_url: "/k/x" });
     await POST(makeRequest({
       mode: "chat",
@@ -88,8 +89,10 @@ describe("POST /api/conversations", () => {
       context_url: "/dashboard/1",
     }));
     expect(mockCreateConversation).toHaveBeenCalledWith(
-      expect.objectContaining({ first_user_prompt: "World", context_url: "/dashboard/1" })
+      expect.objectContaining({ first_user_prompt: "World", context_url: "/dashboard/1" }),
     );
+    // seed_prompt is not part of the route contract — must not be forwarded.
+    expect(mockCreateConversation.mock.calls[0][0]).not.toHaveProperty("seed_prompt");
   });
 
   it("returns 500 when createConversation throws", async () => {
@@ -97,6 +100,6 @@ describe("POST /api/conversations", () => {
     const res = await POST(makeRequest({ mode: "generate" }));
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.code).toBe("DB_QUERY");
+    expect(body.code).toBe("DB_ERROR");
   });
 });

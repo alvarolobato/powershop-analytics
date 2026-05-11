@@ -4,17 +4,28 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockGetConversationWithMessages = vi.fn();
+const mockGetConversation = vi.fn();
 const mockAppendMessage = vi.fn();
+const mockLoadMessages = vi.fn();
+const mockMaybeGenerateTitle = vi.fn();
+const mockTouchConversation = vi.fn();
 const mockSetInitialContext = vi.fn();
-const mockUpdateLastStatus = vi.fn();
 const mockLlmComplete = vi.fn();
+const mockLoadDashboardLlmConfig = vi.fn(() => ({
+  provider: "cli" as const,
+  cliModel: "claude-sonnet-4-6",
+  cliDriver: "claude_code" as const,
+  openrouterModel: "openrouter/anthropic/claude-sonnet-4",
+  openrouterModelByFlow: {} as Record<string, string>,
+}));
 
 vi.mock("@/lib/conversations", () => ({
-  getConversationWithMessages: (...a: unknown[]) => mockGetConversationWithMessages(...a),
+  getConversation: (...a: unknown[]) => mockGetConversation(...a),
   appendMessage: (...a: unknown[]) => mockAppendMessage(...a),
+  loadMessages: (...a: unknown[]) => mockLoadMessages(...a),
+  maybeGenerateTitle: (...a: unknown[]) => mockMaybeGenerateTitle(...a),
+  touchConversation: (...a: unknown[]) => mockTouchConversation(...a),
   setInitialContext: (...a: unknown[]) => mockSetInitialContext(...a),
-  updateLastStatus: (...a: unknown[]) => mockUpdateLastStatus(...a),
 }));
 
 vi.mock("@/lib/llm-client", () => ({
@@ -22,8 +33,9 @@ vi.mock("@/lib/llm-client", () => ({
 }));
 
 vi.mock("@/lib/llm-provider/config", () => ({
-  loadDashboardLlmConfig: vi.fn(() => ({ provider: "openrouter", cliDriver: null })),
-  getEffectiveDashboardModel: vi.fn(() => "test-model"),
+  loadDashboardLlmConfig: () => mockLoadDashboardLlmConfig(),
+  getEffectiveDashboardModel: (cfg: { cliModel: string; openrouterModel: string; provider: string }) =>
+    cfg.provider === "cli" ? cfg.cliModel : cfg.openrouterModel,
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
@@ -33,36 +45,11 @@ vi.mock("@/lib/errors", async (importOriginal) => {
 
 import { POST } from "../route";
 
-// Valid 12-char hex IDs as produced by generateConversationId()
-const VALID_ID = "abcdef012345";
-const MISSING_ID = "000000000000";
-
-const USER_MSG = {
-  id: "m1",
-  conversation_id: VALID_ID,
-  role: "user",
-  content: "Hello",
-  tokens_input: null,
-  tokens_output: null,
-  tokens_cache_read: null,
-  tokens_cache_creation: null,
-  created_at: "2026-01-01T00:00:00Z",
-};
-
-const ASSISTANT_MSG = {
-  id: "m2",
-  conversation_id: VALID_ID,
-  role: "assistant",
-  content: "Hola, ¿cómo puedo ayudarte?",
-  tokens_input: 10,
-  tokens_output: 20,
-  tokens_cache_read: 5,
-  tokens_cache_creation: null,
-  created_at: "2026-01-01T00:00:01Z",
-};
+// Valid 12-char lowercase hex (matches route ID_PATTERN).
+const ID = "abcdef012345";
 
 const CONV = {
-  id: VALID_ID,
+  id: ID,
   mode: "analyze",
   title: "My conv",
   first_user_prompt: "Hello",
@@ -73,14 +60,28 @@ const CONV = {
   last_interaction_at: "2026-01-01T00:01:00Z",
   archived_at: null,
   last_status: "ok",
-  llm_provider: null,
-  llm_driver: null,
   initial_context: null,
-  created_by: null,
-  messages: [],
 };
 
-function postRequest(id: string, body: unknown): [NextRequest, { params: { id: string } }] {
+const USER_ROW = {
+  id: "m-user-1",
+  conversation_id: ID,
+  role: "user",
+  content: { text: "Hello" },
+  created_at: "2026-01-01T00:00:01Z",
+};
+const ASSISTANT_ROW = {
+  id: "m-asst-1",
+  conversation_id: ID,
+  role: "assistant",
+  content: { text: "Hola, ¿cómo puedo ayudarte?" },
+  created_at: "2026-01-01T00:00:02Z",
+};
+
+function postRequest(
+  id: string,
+  body: unknown,
+): [NextRequest, { params: { id: string } }] {
   return [
     new NextRequest(`http://localhost:4000/api/conversations/${id}/messages`, {
       method: "POST",
@@ -92,121 +93,206 @@ function postRequest(id: string, body: unknown): [NextRequest, { params: { id: s
 }
 
 beforeEach(() => {
-  mockGetConversationWithMessages.mockReset();
+  mockGetConversation.mockReset();
   mockAppendMessage.mockReset();
+  mockLoadMessages.mockReset();
+  mockMaybeGenerateTitle.mockReset();
+  mockTouchConversation.mockReset();
   mockSetInitialContext.mockReset();
-  mockUpdateLastStatus.mockReset();
   mockLlmComplete.mockReset();
 });
 
 describe("POST /api/conversations/:id/messages", () => {
+  it("returns 400 for structurally invalid IDs", async () => {
+    const [req, ctx] = postRequest("not-hex", { content: "Hello" });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("VALIDATION");
+    expect(mockGetConversation).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for invalid JSON body", async () => {
-    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}/messages`, {
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${ID}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: "not-json",
     });
-    const res = await POST(req, { params: { id: VALID_ID } });
+    const res = await POST(req, { params: { id: ID } });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
-  });
-
-  it("returns 400 when role is missing", async () => {
-    const [req, ctx] = postRequest(VALID_ID, { content: "Hello" });
-    const res = await POST(req, ctx);
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("INVALID_BODY");
   });
 
   it("returns 400 when content is missing", async () => {
-    const [req, ctx] = postRequest(VALID_ID, { role: "user" });
+    const [req, ctx] = postRequest(ID, {});
     const res = await POST(req, ctx);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_CONTENT");
   });
 
-  it("returns 400 when content exceeds 256 KB", async () => {
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "x".repeat(256 * 1024 + 1) });
+  it("returns 400 when content is empty string", async () => {
+    const [req, ctx] = postRequest(ID, { content: "   " });
     const res = await POST(req, ctx);
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("MISSING_CONTENT");
+  });
+
+  it("returns 400 when content exceeds 10000 chars", async () => {
+    const [req, ctx] = postRequest(ID, { content: "x".repeat(10_001) });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("CONTENT_TOO_LONG");
+  });
+
+  it("returns 400 when role is invalid", async () => {
+    const [req, ctx] = postRequest(ID, { content: "Hello", role: "bogus" });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_ROLE");
+  });
+
+  it("returns 400 when callLlm=true with role!=user", async () => {
+    const [req, ctx] = postRequest(ID, { content: "Hi", callLlm: true, role: "assistant" });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_ROLE");
   });
 
   it("returns 404 when conversation not found", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(null);
-    const [req, ctx] = postRequest(MISSING_ID, { role: "user", content: "Hello" });
+    mockGetConversation.mockResolvedValue(null);
+    const [req, ctx] = postRequest(ID, { content: "Hello" });
     const res = await POST(req, ctx);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.code).toBe("NOT_FOUND");
   });
 
-  it("returns 400 when callLlm=true and role is not user", async () => {
-    const [req, ctx] = postRequest(VALID_ID, { role: "assistant", content: "response", callLlm: true });
+  it("returns 409 when conversation is archived", async () => {
+    mockGetConversation.mockResolvedValue({ ...CONV, archived_at: "2026-01-02T00:00:00Z" });
+    const [req, ctx] = postRequest(ID, { content: "Hello" });
     const res = await POST(req, ctx);
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.code).toBe("VALIDATION");
+    expect(body.code).toBe("CONVERSATION_ARCHIVED");
   });
 
-  it("appends message and returns ok when callLlm=false", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(CONV);
-    mockAppendMessage.mockResolvedValue(USER_MSG);
+  it("appends message and returns ok+row when callLlm=false", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockTouchConversation.mockResolvedValue(undefined);
     mockSetInitialContext.mockResolvedValue(undefined);
 
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello", callLlm: false });
+    const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: false });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.conversationId).toBe(VALID_ID);
-    expect(mockAppendMessage).toHaveBeenCalledWith(VALID_ID, { role: "user", content: "Hello" });
+    expect(body.ok).toBe(true);
+    expect(body.message).toEqual(USER_ROW);
+    expect(mockAppendMessage).toHaveBeenCalledWith(ID, "user", { text: "Hello" });
   });
 
-  it("calls LLM and returns reply when callLlm=true", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(CONV);
-    mockAppendMessage.mockResolvedValueOnce(USER_MSG).mockResolvedValueOnce(ASSISTANT_MSG);
+  it("snapshots initial_context only when it is null and role=user", async () => {
+    mockGetConversation.mockResolvedValue(CONV); // initial_context: null
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockTouchConversation.mockResolvedValue(undefined);
     mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: false });
+    await POST(req, ctx);
+    expect(mockSetInitialContext).toHaveBeenCalledTimes(1);
+    expect(mockSetInitialContext.mock.calls[0][0]).toBe(ID);
+  });
+
+  it("does NOT snapshot initial_context when already set", async () => {
+    mockGetConversation.mockResolvedValue({ ...CONV, initial_context: { model: "x", provider: "cli", driver: null, systemPrompt: { stable: "" }, tools: [] } });
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockTouchConversation.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "Hello" });
+    await POST(req, ctx);
+    expect(mockSetInitialContext).not.toHaveBeenCalled();
+  });
+
+  it("accepts non-user role when callLlm=false", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue({ ...USER_ROW, role: "assistant" });
+    mockTouchConversation.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "Reply", role: "assistant" });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(200);
+    expect(mockAppendMessage).toHaveBeenCalledWith(ID, "assistant", { text: "Reply" });
+    // Should not snapshot initial_context for non-user appends
+    expect(mockSetInitialContext).not.toHaveBeenCalled();
+  });
+
+  it("calls LLM and returns ok+assistant message row when callLlm=true", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage
+      .mockResolvedValueOnce(USER_ROW) // user append
+      .mockResolvedValueOnce(ASSISTANT_ROW); // assistant append
+    mockLoadMessages.mockResolvedValue([USER_ROW]);
     mockLlmComplete.mockResolvedValue({
       text: "Hola, ¿cómo puedo ayudarte?",
-      usage: { prompt_tokens: 10, completion_tokens: 20, cache_read_input_tokens: 5, cache_creation_input_tokens: null },
+      usage: { prompt_tokens: 10, completion_tokens: 20 },
     });
-    mockUpdateLastStatus.mockResolvedValue(undefined);
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockMaybeGenerateTitle.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
 
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello", callLlm: true });
+    const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: true });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.conversationId).toBe(VALID_ID);
-    expect(body.assistantMessage).toBeDefined();
+    expect(body.ok).toBe(true);
+    expect(body.message).toEqual(ASSISTANT_ROW);
     expect(mockLlmComplete).toHaveBeenCalled();
   });
 
-  it("returns 500 and marks error status when LLM throws", async () => {
-    mockGetConversationWithMessages.mockResolvedValue(CONV);
-    mockAppendMessage.mockResolvedValue(USER_MSG);
-    mockSetInitialContext.mockResolvedValue(undefined);
-    mockLlmComplete.mockRejectedValue(new Error("LLM failure"));
-    mockUpdateLastStatus.mockResolvedValue(undefined);
+  it("returns 500 with DB_ERROR when DB phase throws", async () => {
+    mockGetConversation.mockRejectedValue(new Error("DB failure"));
+    mockTouchConversation.mockResolvedValue(undefined);
 
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello", callLlm: true });
+    const [req, ctx] = postRequest(ID, { content: "Hello" });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("DB_ERROR");
+  });
+
+  it("returns 500 with DB_ERROR when loadMessages throws during callLlm=true", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockLoadMessages.mockRejectedValue(new Error("PG timeout"));
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: true });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("DB_ERROR");
+    expect(mockLlmComplete).not.toHaveBeenCalled();
+  });
+
+  it("returns 500 with LLM_ERROR when LLM call throws", async () => {
+    mockGetConversation.mockResolvedValue(CONV);
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockLoadMessages.mockResolvedValue([USER_ROW]);
+    mockLlmComplete.mockRejectedValue(new Error("LLM auth"));
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: true });
     const res = await POST(req, ctx);
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.code).toBe("LLM_ERROR");
-    expect(mockUpdateLastStatus).toHaveBeenCalledWith(VALID_ID, "error");
-  });
-
-  it("returns 500 when database throws", async () => {
-    mockGetConversationWithMessages.mockRejectedValue(new Error("DB failure"));
-
-    const [req, ctx] = postRequest(VALID_ID, { role: "user", content: "Hello" });
-    const res = await POST(req, ctx);
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.code).toBe("DB_QUERY");
   });
 });

@@ -960,56 +960,11 @@ BEGIN
 END $$;
 
 -- ============================================================
--- Conversations (centralized chat surface — issue #503)
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS conversations (
-  id                  TEXT        PRIMARY KEY,
-  mode                TEXT        NOT NULL,
-  title               TEXT,
-  first_user_prompt   TEXT,
-  context_url         TEXT,
-  context_kind        TEXT,
-  context_ref         TEXT,
-  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  last_interaction_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  archived_at         TIMESTAMPTZ,
-  last_status         TEXT,
-  llm_provider        TEXT,
-  llm_driver          TEXT,
-  initial_context     JSONB,
-  created_by          TEXT
-);
-
-CREATE INDEX IF NOT EXISTS conversations_active_recent
-  ON conversations (last_interaction_at DESC) WHERE archived_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS conversations_context_recent
-  ON conversations (context_kind, context_ref, last_interaction_at DESC)
-  WHERE archived_at IS NULL;
-
-CREATE INDEX IF NOT EXISTS conversations_all_recent
-  ON conversations (last_interaction_at DESC);
-
-CREATE TABLE IF NOT EXISTS conversation_messages (
-  id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-  conversation_id   TEXT        NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT,
-  role              TEXT        NOT NULL,
-  content           JSONB       NOT NULL,
-  tokens_input      INT,
-  tokens_output     INT,
-  tokens_cache_read INT,
-  tokens_cache_creation INT,
-  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS conversation_messages_by_conv
-  ON conversation_messages (conversation_id, created_at);
-
--- ============================================================
 -- Backfill migration: chat_messages_modify / chat_messages_analyze
 -- → conversations + conversation_messages
 -- Idempotent: skips dashboards that already have a conversation row.
+-- (The conversations / conversation_messages tables themselves are
+--  defined once above near line 791 — do not re-declare here.)
 -- ============================================================
 
 DO $$

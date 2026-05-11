@@ -110,21 +110,24 @@ interface ConversationWithMessages {
   messages?: ConversationApiMessage[];
 }
 
-interface ConversationListResponse {
-  conversations: {
-    id: string;
-    title: string | null;
-    first_user_prompt: string | null;
-    last_interaction_at: string;
-    archived_at: string | null;
-    message_count: number;
-    last_status: string | null;
-  }[];
-}
+type ConversationListItem = {
+  id: string;
+  title: string | null;
+  first_user_prompt: string | null;
+  last_interaction_at: string;
+  archived_at: string | null;
+  message_count: number;
+  last_status: string | null;
+};
 
-interface ConversationDetailResponse {
-  conversation: ConversationWithMessages;
-}
+// GET /api/conversations returns a bare array; older callers used { conversations: [...] }.
+// Accept both so we don't fight the server contract from the consumer side.
+type ConversationListResponse =
+  | ConversationListItem[]
+  | { conversations: ConversationListItem[] };
+
+// GET /api/conversations/:id returns the conversation row with messages inlined.
+type ConversationDetailResponse = ConversationWithMessages;
 
 // ---------------------------------------------------------------------------
 // Conversation message converter
@@ -1549,16 +1552,17 @@ export default function ChatSidebar({
         );
         if (!res.ok) return; // API not ready (Task 2 not merged), fall through
         const data = (await res.json()) as ConversationListResponse;
-        if (!data.conversations?.length) return;
+        const list = Array.isArray(data) ? data : data.conversations;
+        if (!list?.length) return;
 
-        const conv = data.conversations[0];
+        const conv = list[0];
         if (conv.archived_at) return; // Only load non-archived
 
         const msgRes = await fetch(`/api/conversations/${conv.id}`, { signal: controller.signal });
         if (!msgRes.ok) return;
         const msgData = (await msgRes.json()) as ConversationDetailResponse;
         if (controller.signal.aborted) return;
-        const messages = convertConversationMessages(msgData.conversation.messages ?? []);
+        const messages = convertConversationMessages(msgData.messages ?? []);
 
         if (apiMode === "modify") {
           setModifyMessages(messages);

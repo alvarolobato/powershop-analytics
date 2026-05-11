@@ -5,6 +5,13 @@ const { execSync } = require("child_process");
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
+  // Required on Next.js 14 to actually run instrumentation.ts at server
+  // start. Without this flag the file is silently ignored, so the
+  // config-bootstrap and init.sql-migration steps in instrumentation.ts
+  // never execute. Default-on from Next 15; explicit until we upgrade.
+  experimental: {
+    instrumentationHook: true,
+  },
   env: {
     NEXT_PUBLIC_APP_PKG_VERSION: (() => {
       const raw = fs.readFileSync(path.join(__dirname, "package.json"), "utf8");

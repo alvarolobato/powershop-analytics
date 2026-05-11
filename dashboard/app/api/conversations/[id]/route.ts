@@ -6,16 +6,27 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import {
+  getConversation,
   getConversationWithMessages,
-  updateConversation,
+  updateConversationTitle,
+  setConversationArchived,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
-// ── GET ───────────────────────────────────────────────────────────────────────
+// Lowercase 12-char hex (6 random bytes). Matches generateConversationId().
+const ID_PATTERN = /^[a-f0-9]{12}$/;
 
-const VALID_ID_RE = /^[0-9a-f]{12}$/;
+function rejectInvalidId(id: string, requestId: string): NextResponse | null {
+  if (ID_PATTERN.test(id)) return null;
+  return NextResponse.json(
+    formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
+    { status: 400 },
+  );
+}
+
+// ── GET ───────────────────────────────────────────────────────────────────────
 
 export async function GET(
   _request: NextRequest,
@@ -23,13 +34,8 @@ export async function GET(
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
   const { id } = await context.params;
-
-  if (!VALID_ID_RE.test(id)) {
-    return NextResponse.json(
-      formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
-      { status: 400 },
-    );
-  }
+  const invalid = rejectInvalidId(id, requestId);
+  if (invalid) return invalid;
 
   try {
     const conversation = await getConversationWithMessages(id);
@@ -50,7 +56,7 @@ export async function GET(
     return NextResponse.json(
       formatApiError(
         "No se pudo cargar la conversación.",
-        "DB_QUERY",
+        "DB_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),
@@ -67,64 +73,44 @@ export async function PATCH(
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
   const { id } = await context.params;
+  const invalid = rejectInvalidId(id, requestId);
+  if (invalid) return invalid;
 
   let body: unknown;
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "INVALID_BODY", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
+      formatApiError("El cuerpo debe ser un objeto JSON.", "INVALID_BODY", undefined, requestId),
       { status: 400 },
     );
   }
 
   const b = body as Record<string, unknown>;
-  const updates: { title?: string; archived?: boolean } = {};
 
-  if ("title" in b) {
-    if (typeof b.title !== "string") {
-      return NextResponse.json(
-        formatApiError("El campo 'title' debe ser una cadena de texto.", "VALIDATION", undefined, requestId),
-        { status: 400 },
-      );
-    }
-    if (b.title.length > 500) {
-      return NextResponse.json(
-        formatApiError("El campo 'title' no puede superar los 500 caracteres.", "VALIDATION", undefined, requestId),
-        { status: 400 },
-      );
-    }
-    const trimmed = b.title.trim();
-    if (trimmed) updates.title = trimmed;
-  }
-
-  if ("archived" in b) {
-    if (typeof b.archived !== "boolean") {
-      return NextResponse.json(
-        formatApiError("El campo 'archived' debe ser booleano.", "VALIDATION", undefined, requestId),
-        { status: 400 },
-      );
-    }
-    updates.archived = b.archived;
-  }
-
-  if (Object.keys(updates).length === 0) {
+  if ("title" in b && typeof b.title !== "string") {
     return NextResponse.json(
-      formatApiError("No se proporcionaron campos para actualizar.", "VALIDATION", undefined, requestId),
+      formatApiError("El campo 'title' debe ser una cadena de texto.", "INVALID_BODY", undefined, requestId),
+      { status: 400 },
+    );
+  }
+  if ("archived" in b && typeof b.archived !== "boolean") {
+    return NextResponse.json(
+      formatApiError("El campo 'archived' debe ser un booleano.", "INVALID_BODY", undefined, requestId),
       { status: 400 },
     );
   }
 
   try {
-    const result = await updateConversation(id, updates);
-    if (!result) {
+    const existing = await getConversation(id);
+    if (!existing) {
       return NextResponse.json(
         formatApiError(
           "Conversación no encontrada.",
@@ -135,13 +121,23 @@ export async function PATCH(
         { status: 404 },
       );
     }
-    return NextResponse.json(result);
+
+    if (typeof b.title === "string" && b.title.trim() !== "") {
+      await updateConversationTitle(id, b.title);
+    }
+
+    if (typeof b.archived === "boolean") {
+      await setConversationArchived(id, b.archived);
+    }
+
+    const updated = await getConversation(id);
+    return NextResponse.json(updated);
   } catch (err) {
     console.error(`[${requestId}] PATCH /api/conversations/${id} error:`, err);
     return NextResponse.json(
       formatApiError(
         "No se pudo actualizar la conversación.",
-        "DB_QUERY",
+        "DB_ERROR",
         sanitizeErrorMessage(err),
         requestId,
       ),
