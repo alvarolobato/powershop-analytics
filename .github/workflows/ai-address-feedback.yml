@@ -540,18 +540,29 @@ jobs:
               gh pr edit "$PR" --repo "$REPO" \
                 --remove-label "ai-phase-copilot" \
                 --add-label "ai-phase-opus" \
-                --add-label "ai-ready-for-review" || true
+                --add-label "ai-ready-for-review" \
+                --remove-label "ai-blocked" \
+                --remove-label "ai-auto-retry" || true
               gh pr comment "$PR" --body "🤖 **AI Factory**: Self-healed partial phase transition — cleared \`ai-phase-copilot\`." || true
               exit 0
             fi
             # The label transition is what gates Opus (ai-pr-review now fires
             # only on `ai-ready-for-review` per D-031). If it fails, the chain
             # is broken — let it fail loudly so the watchdog can re-fire.
+            #
+            # Also strip ai-blocked + ai-auto-retry here: when this runs after
+            # recovering from a transient failure, the previous failure handler
+            # stamped those labels. The Opus-round transition below already
+            # clears them; without the same cleanup here the PR moves to
+            # ai-phase-opus but still looks "blocked", and the watchdog
+            # `Stalled ai-ready-for-review` rule skips it (ai-watchdog.yml:263-265).
             gh pr edit "$PR" --repo "$REPO" \
               --add-label "ai-cp-after-1" \
               --remove-label "ai-phase-copilot" \
               --add-label "ai-phase-opus" \
-              --add-label "ai-ready-for-review"
+              --add-label "ai-ready-for-review" \
+              --remove-label "ai-blocked" \
+              --remove-label "ai-auto-retry"
             # Belt-and-braces explicit dispatch (the labeled event above
             # already fires ai-pr-review on a healthy repo, but bot-actor
             # label events can be gated by GitHub as `action_required` —
