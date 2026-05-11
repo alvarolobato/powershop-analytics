@@ -1036,4 +1036,156 @@ describe("ChatSidebar", () => {
       expect(screen.getByText("Mensaje inicial de props")).toBeInTheDocument();
     });
   });
+
+  // -----------------------------------------------------------------------
+  // Auto-load does NOT overwrite pre-loaded messages (Task 4 / #593)
+  // -----------------------------------------------------------------------
+
+  it("does not overwrite initialModifyMessages when auto-load finds a conversation", async () => {
+    const convId = "autoload-skip-001";
+    const autoLoadedMessage = "Mensaje que no debe sobrescribir";
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/conversations?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              conversations: [
+                {
+                  id: convId,
+                  title: "Conv auto-cargada",
+                  first_user_prompt: null,
+                  last_interaction_at: new Date().toISOString(),
+                  archived_at: null,
+                  message_count: 1,
+                  last_status: "ok",
+                },
+              ],
+            }),
+        });
+      }
+      if (url.includes(`/api/conversations/${convId}`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: convId,
+              mode: "modify",
+              title: "Conv auto-cargada",
+              first_user_prompt: null,
+              messages: [
+                {
+                  id: "msg1",
+                  conversation_id: convId,
+                  role: "user",
+                  content: autoLoadedMessage,
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    });
+
+    const preloadedMessages = [
+      { role: "user" as const, content: "Mensaje pre-cargado de /k/:id", timestamp: new Date() },
+    ];
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={7}
+        initialModifyMessages={preloadedMessages}
+      />,
+    );
+
+    // The preloaded message should be visible
+    await waitFor(() => {
+      expect(screen.getByText("Mensaje pre-cargado de /k/:id")).toBeInTheDocument();
+    });
+
+    // The auto-loaded message must NOT appear (was skipped because initialModifyMessages were provided)
+    expect(screen.queryByText(autoLoadedMessage)).not.toBeInTheDocument();
+  });
+
+  // -----------------------------------------------------------------------
+  // InitialContextPanel shown when auto-load returns initial_context (Task 4 / #593)
+  // -----------------------------------------------------------------------
+
+  it("renders InitialContextPanel when auto-loaded conversation has initial_context", async () => {
+    const convId = "autoload-ctx-001";
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes("/api/conversations?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              conversations: [
+                {
+                  id: convId,
+                  title: "Conv con contexto",
+                  first_user_prompt: "Crea un panel",
+                  last_interaction_at: new Date().toISOString(),
+                  archived_at: null,
+                  message_count: 1,
+                  last_status: "ok",
+                },
+              ],
+            }),
+        });
+      }
+      if (url.includes(`/api/conversations/${convId}`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: convId,
+              mode: "modify",
+              title: "Conv con contexto",
+              first_user_prompt: "Crea un panel",
+              initial_context: {
+                model: "anthropic/claude-sonnet-4",
+                provider: "openrouter",
+                driver: null,
+                seed_prompt: "Crea un panel",
+              },
+              messages: [
+                {
+                  id: "msg1",
+                  conversation_id: convId,
+                  role: "user",
+                  content: "Crea un panel",
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={8}
+      />,
+    );
+
+    // Wait for the auto-loaded message to appear
+    await waitFor(() => {
+      expect(screen.getByText("Crea un panel")).toBeInTheDocument();
+    });
+
+    // InitialContextPanel toggle button should be visible
+    expect(screen.getByTestId("initial-context-toggle")).toBeInTheDocument();
+  });
 });
