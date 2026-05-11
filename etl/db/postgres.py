@@ -490,7 +490,7 @@ def finish_run(
                        tables_failed     = %s,
                        total_tables      = %s,
                        total_rows_synced = %s,
-                       duration_ms       = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER * 1000
+                       duration_ms       = (EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000)::INTEGER
                  WHERE id = %s
                 """,
                 (
