@@ -307,6 +307,131 @@ flowchart LR
 | You want to stop the cycle on a PR | Close the PR | Always allowed |
 | A merge conflict appears | `ai-pr-mergeability.yml` attempts to resolve it; otherwise comment, the agent (or you) rebases | Most conflicts are mechanical |
 
+### Watchdog vs Manager — division of labour
+
+The AI Factory's recovery and oversight layer has two tiers with distinct responsibilities:
+
+**Watchdog** (`ai-watchdog.yml`, every 15 min): fast, stateless, rule-per-object. Each of its 12 steps applies a deterministic if/then rule to a single issue or PR. No LLM involved — just `gh` CLI queries and label/dispatch operations. Designed to recover transient failures within minutes.
+
+**Factory Manager** (`ai-factory-manager.yml`, every 4 h): slow, stateful (reads full context across all objects), LLM reasoning (Opus) over the aggregate factory state. Handles what the watchdog structurally cannot: cross-PR patterns, strategic triage, stale/superseded issue cleanup, and enhancement proposals.
+
+The two tiers complement, not compete: the watchdog handles per-object stalls fast; the manager handles patterns and strategic reasoning that require cross-system awareness. The manager never duplicates watchdog work — it operates at a different time horizon and a different unit of analysis.
+
+| Watchdog step | Stays in watchdog | Reason |
+|---|:---:|---|
+| Stuck `ai-work` issues (labeled but no worker run ever fired) | ✅ | Time-sensitive (< 15 min window needed) — rule is cheap |
+| Stuck `ai-in-progress` issues | ✅ | Same |
+| Sub-tasks with `ai-task` but no PR, no progress | ✅ | Rule-based threshold |
+| Re-enable auto-retry for exhausted `ai-task` issues | ✅ | Rule-based; no judgement needed |
+| Stalled `ai-ready-for-review` PRs | ✅ | Rule-based |
+| Open PRs with no AI PR Review run (cancelled/dropped) | ✅ | Rule-based |
+| Open PRs with unaddressed reviewer feedback | ✅ | Rule-based |
+| Stuck `ai-phase-opus` PRs (Opus reviewed but address-feedback didn't transition) | ✅ | Rule-based |
+| Auto-retry blocked PRs (address-feedback failures) | ✅ | Rule-based retry |
+| Auto-retry transient failures | ✅ | Rule-based retry |
+| Clear `ai-ci-failing` when CI is green | ✅ | Rule-based |
+| Bot-triggered runs gated as `action_required` | ✅ | Rule-based (needs GH investigation) |
+
+All 12 steps stay in the watchdog. The manager's job is **not** to replace these, but to handle what the watchdog structurally cannot:
+
+- **Cross-PR patterns** — e.g. "3 PRs failed with the same coverage gate" is a meta-pattern, not a per-PR bug; the manager files a spec issue for a new watchdog rule.
+- **Strategic triage** — is this issue stale? superseded? does its scope still match the parent intent?
+- **Drift detection** — a sub-task's implementation diverging from the parent's architecture decisions mid-flight.
+- **Enhancement proposals** — recurring failures → file a spec issue (with `ai-factory + agent-efficiency`, never `ai-work`).
+- **Stale/superseded cleanup** — close batches of items that the watchdog doesn't examine.
+
+### Phase 4 — Factory Manager
+
+**Mental model**: The Factory Manager is the strategic layer above worker and watchdog. It runs every 4 hours, reads the full state of the factory (every open issue, every open PR, recent workflow runs, and its own prior session history), and takes bounded autonomous actions — closing stale issues, toggling labels, dispatching stuck workflows, filing enhancement proposals. It emits a session report per run. It never replaces the watchdog (which is faster and rule-based) and never merges PRs (which requires a human).
+
+```mermaid
+flowchart LR
+    CRON([cron every 4h<br/>or workflow_dispatch]) --> KS{Kill-switch check:<br/>no-ai-manager label?}
+    KS -->|Yes| EXIT([Exit cleanly — no actions])
+    KS -->|No| CTX[Context-build step:<br/>open issues, open PRs,<br/>workflow runs, tracking history]
+    CTX --> MGR[Opus Manager:<br/>Pass 1 — Strategic triage<br/>Pass 2 — Cross-cutting patterns<br/>Pass 3 — Boundary check<br/>Pass 4 — Session report]
+    MGR --> RPT([Session report comment<br/>on tracking issue])
+    MGR -->|failure| FH([Failure handler:<br/>post brief comment,<br/>exit 0])
+```
+
+**Pass-by-pass walkthrough**
+
+**Pass 1 — Strategic triage.** Walk every open issue and open PR. Classify each:
+- *PROGRESSING* — work is moving; nothing for the manager to do.
+- *STUCK (transient)* — fix is obvious and within the boundary allow-list; the manager acts.
+- *STUCK (real)* — flag in the session report with a diagnosis for the owner.
+- *SUPERSEDED / STALE* — close it with reason and a reference to the superseding issue/PR.
+- *NEEDS DECISION* — owner sign-off required; queue a decision-request.
+
+**Pass 2 — Cross-cutting patterns.** Identify patterns that span multiple objects:
+- Repeated failure modes (3 PRs failed with the same coverage error → meta-pattern, not a per-PR bug).
+- Drift from parent intent (sub-tasks diverging from the parent DoD before all merge).
+- Watchdog gaps (states that need a recovery rule but have none).
+- Stalled epics (parent issues that haven't progressed in N days).
+
+For each pattern, file an issue with `ai-factory + agent-efficiency`, **never** `ai-work`. The owner tags `ai-work` if they want the next planner cycle to act.
+
+**Pass 3 — Boundary check + decision queue.** Anything the manager considered doing but felt was outside the boundary matrix goes into the "Decisions awaiting owner" section of the session report, with a 1-line summary, exact proposed action, link to evidence, and expected outcome once approved.
+
+**Pass 4 — Session report.** Post a single comment on the tracking issue:
+
+```markdown
+## 🏭 Factory Manager — <ISO date>
+
+### Autonomous actions taken
+- <action — link + rationale>
+
+### Patterns observed
+- <pattern — link to filed issue + 1-line summary>
+
+### Decisions awaiting owner
+- [ ] <proposed action, evidence, expected outcome>
+
+### Factory health snapshot
+- Open PRs: N (M ready, K stuck, L blocked)
+- Open issues: N (M with ai-work, K business-review pending)
+- Last 24 h workflow failure rate: P%
+- Notable: <one paragraph if anything is unusual>
+```
+
+**Boundary matrix**
+
+The manager's actions are explicitly bounded. Anything not in this table defaults to a decision-request.
+
+| Action | Authorized? | Mechanism |
+|---|---|---|
+| Read any issue / PR / comment / workflow run / file | ✅ Always | `gh` + `git` CLI (read-only) |
+| Post comments on issues / PRs (informational, advisory) | ✅ Always | `gh issue comment` / `gh pr comment` |
+| Close issues that are objectively resolved (work merged, superseded, demonstrably stale per quantitative rule) | ✅ Logged prominently | `gh issue close --reason completed/not planned` + reasoning in session report |
+| Add/remove cosmetic labels (`comp-*`, `size-*`, `risk-*`, `p[0-3]-*`) | ✅ Logged | `gh issue edit` |
+| Add/remove state labels (`ai-blocked`, `ai-needs-rewrite`, `ai-stale-base`) | ✅ Logged | Same |
+| Toggle `ai-work` to retrigger a stuck issue | ✅ Logged | Same |
+| Dispatch any AI Factory workflow with `workflow_dispatch` | ✅ Logged | `gh workflow run` |
+| Resolve obvious supersede / dedupe (close one of two duplicates, point one at the other) | ✅ Logged | Comment + close |
+| File a new issue proposing a watchdog rule, prompt change, or factory enhancement | ✅ Logged | `gh issue create` (always with `ai-factory + agent-efficiency`, **never** `ai-work`) |
+| File a new issue describing a real product bug it noticed | ✅ Logged | `gh issue create` (with `bug` + best-guess `comp-*`, **never** `ai-work`) |
+| Add `ai-work` to an existing issue | 🟡 Decision-request | Comment on the target issue tagging `@<owner>` with proposed dispatch; owner adds the label |
+| Lower a CI threshold | 🟡 Decision-request | Same |
+| Merge any PR | 🛑 Never | Workflow doesn't have `pull-requests: write` for merge, and the prompt forbids it |
+| Modify `.github/workflows/*` in a PR | 🛑 Never | Files a spec issue instead; humans tag `ai-work` if accepted |
+| Force-push to any branch | 🛑 Never | Permissions deny |
+| Override `no-ai` / `needs-human-approval` / `no-ai-manager` | 🛑 Never | Prompt forbids; workflow checks |
+| Touch credentials / secrets | 🛑 Never | Workflow runs with minimal `GITHUB_TOKEN` scopes; no repo secrets are referenced; prompt forbids passing credentials to the LLM |
+| Close issues marked `needs-human-approval` (D-028) | 🛑 Never | Skipped in the prompt's "stale items" pass |
+
+**Failure mode**: On any error or rate limit, the manager logs partial state in the session report and exits with code 0. The watchdog continues handling per-PR / per-issue stalls independently. The next scheduled run picks up where it left off — idempotency is achieved through marker comments in the session report and label state.
+
+**Kill switch**: Open an issue and add the `no-ai-manager` label to pause the manager immediately. The next run reads the label and exits cleanly without taking any actions.
+
+**Human checkpoints in Phase 4**
+
+| When | What you do | Why |
+|------|-------------|-----|
+| Session report comment appears on the tracking issue | Skim the "Decisions awaiting owner" section; act on items that need sign-off | This is the manager's primary output — your morning digest for factory health |
+| Manager filed an enhancement proposal (`ai-factory + agent-efficiency` issue) | Review the proposal; add `ai-work` if accepted | The manager proposes, you authorize |
+| Manager filed a product bug issue | Review the filed issue; add `ai-work` or close if noise | Same boundary: manager files, human acts |
+| Manager is taking unwanted autonomous actions | Open an issue, add `no-ai-manager` to pause immediately | Kill switch — effective on the next scheduled run |
+
 ### Failure modes & recovery
 
 ```mermaid
@@ -325,7 +450,7 @@ Recovery is always **automatic-then-human**: transient failures (rate limits, ne
 
 ### Where humans intervene
 
-This is the canonical list of human touchpoints across the entire lifecycle. **Outside of these, the factory operates autonomously.**
+This is the canonical list of human touchpoints across the entire lifecycle. **Outside of these 16, the factory operates autonomously.**
 
 | # | Touchpoint | Action | Frequency |
 |---|------------|--------|-----------|
@@ -341,6 +466,10 @@ This is the canonical list of human touchpoints across the entire lifecycle. **O
 | 10 | A `business-review` issue arrives with `needs-human-approval` | Decide whether to authorize: remove `needs-human-approval`, add `ai-work` (or close) | Weekly per [D-028](../DECISIONS-AND-CHANGES.md#d-028) |
 | 11 | You want to fast-merge without review | Add `no-pr-review` before opening, merge yourself | Per exception |
 | 12 | Token refresh required across the launchd-synced container | One-time `claude /login` interactively; agent syncs from the keychain | Per token-expiry incident — see [D-025](../DECISIONS-AND-CHANGES.md#d-025) |
+| 13 | Manager session report posted on tracking issue | Skim the "Decisions awaiting owner" section; act on items that need sign-off | Every 4 h (or daily digest) |
+| 14 | Manager filed an enhancement proposal (`ai-factory + agent-efficiency` issue) | Review the proposal; add `ai-work` if accepted | Per filed issue |
+| 15 | Manager filed a product bug issue | Review the filed issue; add `ai-work` or close if noise | Per filed issue |
+| 16 | Manager is taking unwanted autonomous actions | Open an issue, add `no-ai-manager` label to pause immediately | As needed |
 
 ### Three lifecycles, end to end
 
