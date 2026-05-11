@@ -15,10 +15,23 @@ for the human owner to commit it.
 
 ### Where to add
 
-In `.github/workflows/ai-worker.yml`, in the `implement` job, add this step
-**immediately after** the `Update labels — implementation started` step
-(after line ~422, before the `Implement sub-task` step that uses
-`anthropics/claude-code-action@v1`).
+In `.github/workflows/ai-worker.yml`, in the `implement` job:
+
+1. Add the guard step **immediately after** the `Update labels — implementation started`
+   step (after line ~422, before the `Implement sub-task` step that uses
+   `anthropics/claude-code-action@v1`).
+
+2. Add an `if:` condition to the **`Implement sub-task`** step so it skips when
+   the guard deferred:
+
+   ```yaml
+         - name: Implement sub-task
+           id: implement
+           if: steps.guard.outputs.deferred != 'true'
+   ```
+
+   Without this `if:` condition the guard detects and labels the overlap but
+   cannot stop the Claude Code action from running.
 
 ### What it does
 
@@ -39,6 +52,7 @@ failure, etc.), it logs a warning and allows the implement step to continue.
 
 ```yaml
       - name: File-overlap dispatch guard
+        id: guard
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -68,23 +82,34 @@ failure, etc.), it logs a warning and allows the implement step to continue.
           }
 
           run_guard() {
-            local current_body="" current_files="" in_progress="" count=0
+            local current_body="" current_files="" parent_num="" search_query="" in_progress="" count=0
 
             current_body=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body') || return 1
             current_files=$(printf '%s' "$current_body" | extract_files)
 
             if [ -z "$current_files" ]; then
-              echo "Guard: no Files: section in #$ISSUE_NUMBER — skipping."
+              echo "Guard: no '## Files to change' section in #$ISSUE_NUMBER — skipping."
               return 0
             fi
 
             echo "Guard: files in this issue:"
             echo "$current_files"
 
+            # Narrow the search to sibling sub-issues sharing the same parent (e.g. "Closes #N").
+            # Falls back to repo-wide scope when no parent reference is found.
+            parent_num=$(printf '%s' "$current_body" | sed -n 's/.*[Cc]loses #\([0-9]*\).*/\1/p' | head -1) || true
+            search_query="label:ai-in-progress label:ai-task"
+            if [ -n "$parent_num" ]; then
+              search_query="$search_query Closes #${parent_num} in:body"
+              echo "Guard: restricting search to siblings of parent #${parent_num}"
+            else
+              echo "Guard: no parent reference found — searching repo-wide"
+            fi
+
             in_progress=$(gh issue list \
               --repo "${{ github.repository }}" \
               --state open \
-              --search "label:ai-in-progress label:ai-task" \
+              --search "$search_query" \
               --limit 50 \
               --json number,body \
               | jq --argjson n "$ISSUE_NUMBER" '[.[] | select(.number != $n)]') || return 1
@@ -137,10 +162,10 @@ failure, etc.), it logs a warning and allows the implement step to continue.
           # Run guard fail-open: if it errors for any reason, warn and proceed.
           run_guard || echo "::warning::File-overlap dispatch guard errored — proceeding (fail-open)."
 
-          # If deferred, exit this step with 0; the watchdog will retry later.
+          # Emit step output so the Implement sub-task step can skip when deferred.
           if [ "$DEFERRED" = "true" ]; then
-            echo "Guard: dispatch deferred — stopping implementation step."
-            exit 0
+            echo "deferred=true" >> "$GITHUB_OUTPUT"
+            echo "Guard: dispatch deferred — Implement sub-task step will be skipped."
           fi
 ```
 
@@ -148,7 +173,9 @@ failure, etc.), it logs a warning and allows the implement step to continue.
 
 Before committing, verify:
 
-- [ ] The step is placed after `Update labels — implementation started` and before `Implement sub-task`
+- [ ] The guard step is placed after `Update labels — implementation started` and before `Implement sub-task`
+- [ ] The guard step has `id: guard` so its outputs are referenceable
+- [ ] The `Implement sub-task` step has `if: steps.guard.outputs.deferred != 'true'` (critical — without this the guard cannot stop the implementation)
 - [ ] The indentation matches the surrounding steps (6 spaces for `- name:`)
 - [ ] `${{ github.repository }}` and `$ISSUE_NUMBER` are used (same as surrounding steps)
 - [ ] YAML is syntactically valid: `yamllint .github/workflows/ai-worker.yml`
@@ -160,5 +187,18 @@ Before committing, verify:
 | Issue has no `## Files to change` section | Guard skipped, implementation proceeds |
 | No other `ai-in-progress ai-task` issues | Guard passes, implementation proceeds |
 | Other in-progress issues found, no file overlap | Guard passes, implementation proceeds |
-| Overlap found with issue #N | Comment posted, `ai-blocked`+`ai-auto-retry` added, step exits 0 |
+| Overlap found with issue #N | Comment posted, `ai-blocked`+`ai-auto-retry` added, `deferred=true` output set, implement step skipped |
 | Guard itself errors (API timeout, parse error) | Warning logged, implementation proceeds (fail-open) |
+
+### Known limitations
+
+**TOCTOU race (mutual deferral)**: The `ai-in-progress` label is added to the current
+issue *before* the guard step runs (by the `Update labels — implementation started` step).
+If a second worker dispatches for a different sub-issue in the narrow window between that
+label addition and the guard query (~5 s), both workers may see each other as
+`ai-in-progress` and mutually defer. The watchdog's `ai-auto-retry` loop will resolve
+this automatically on the next retry cycle; it is not a permanent deadlock.
+
+**Parent-scope fallback**: When no `Closes #N` reference is found in the issue body,
+the guard falls back to a repo-wide search. This is broader than ideal but safe — the
+file-overlap check is still the deciding factor.
