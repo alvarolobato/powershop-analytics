@@ -550,7 +550,7 @@ These rules apply to **every** planning session, not just the ETL epic above. Th
 
 Phases are **mandatory** when any two sub-issues share any of the following:
 
-1. **Shared source file** — the same path appears in the `Files:` section of two sub-issues (especially `lib/*.ts`, `components/`, `etl/schema/init.sql`, shared hooks/types).
+1. **Shared source file** — the same path appears in the `Files:` section of two sub-issues (especially `dashboard/lib/*.ts`, `dashboard/components/`, `etl/schema/init.sql`, shared hooks/types).
 2. **Shared DB table** — any two sub-issues `CREATE`, `ALTER`, or heavily write to the same table. Schema DDL is the highest-risk overlap.
 3. **Shared HTTP route family** — any two sub-issues add or modify routes under the same prefix (e.g. `/api/conversations/*`).
 4. **Producer/consumer dependency** — one sub-issue defines a shape that another reads. Classic chain: data layer → API route → UI component. The consumer cannot correctly implement against a shape that isn't merged yet.
@@ -567,8 +567,12 @@ Phase N+1 sub-issues are created with the `ai-task` label but **without** `ai-wo
 
 After listing sub-issues, the planner must:
 
-1. For each pair (A, B) assigned to the same phase: check whether `Files(A) ∩ Files(B)` is non-empty (string intersection on the `Files:` lines).
-2. If an overlap is found: move B to the next phase; document the reason in the plan comment.
+1. For each pair (A, B) assigned to the same phase: check all four Q1 conditions:
+   - **File overlap**: is `Files(A) ∩ Files(B)` non-empty (string intersection on the `Files:` lines)?
+   - **DB table overlap**: do both touch (CREATE/ALTER/write) the same table?
+   - **Route prefix overlap**: do both add or modify routes under the same HTTP prefix?
+   - **Producer/consumer chain**: does A define a shape or contract that B reads?
+2. If **any** of the above is true: move B to the next phase; document the reason in the plan comment.
 3. Include a **dependency table** in the plan comment showing which sub-issues are in each phase and the reason for any serialisation.
 
 #### Phase labeling
