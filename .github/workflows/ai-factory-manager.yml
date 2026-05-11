@@ -57,6 +57,26 @@ jobs:
           echo "Kill switch not active; proceeding."
           echo "kill=false" >> "$GITHUB_OUTPUT"
 
+      # ── Defensive label pre-create (idempotent) ────────────────────────────
+      # The labels below already exist on this repo (from PR #564's partial
+      # work) and the Pass 5 prompt depends on them — its idempotency check
+      # is keyed off `ai-parent-verified` / `ai-parent-incomplete` being
+      # present on the parent issue. If anyone ever deletes them (or the
+      # workflow runs on a fork without them), `gh issue edit --add-label`
+      # fails 422 and Pass 5 would re-verify the same parent every cron tick,
+      # posting duplicate verdict comments forever. Mirrors the defensive
+      # pattern in ai-address-feedback.yml / ai-worker.yml. `|| true` keeps
+      # the step green when the label already exists (gh returns non-zero in
+      # that case).
+      - name: Ensure manager labels exist
+        if: steps.killswitch.outputs.kill != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create ai-parent-verified   --color 0e8a16 --description "Pass 5: parent DoD verified" 2>/dev/null || true
+          gh label create ai-parent-incomplete --color d93f0b --description "Pass 5: parent has gaps"     2>/dev/null || true
+          gh label create agent-efficiency     --color 1d76db --description "Factory/agent infra improvement (target of manager follow-up issues)" 2>/dev/null || true
+
       # ── Tracking-issue discovery (shared with failure handler) ────────────
       - name: Discover tracking issue
         if: steps.killswitch.outputs.kill != 'true'
@@ -100,7 +120,7 @@ jobs:
             fi
             echo
 
-            echo "## Open issues (actionable filter excludes needs-human-approval / no-ai)"
+            echo "## Open issues (Actionable column = no for needs-human-approval / no-ai — all rows listed per prompt's 'Walk every open issue')"
             echo
             echo "| # | Title | Labels | Age (d) | Last activity (d ago) | Actionable |"
             echo "|---|---|---|---|---|---|"
@@ -155,15 +175,27 @@ jobs:
 
             echo "## business-review + needs-human-approval (read-only — never auto-close)"
             echo
+            # NOTE: jq with `.[] | ...` returns exit 0 on an empty array, so
+            # `cmd || echo "(none)"` does NOT fall through. Handle emptiness
+            # inside jq instead (same pattern used for session-report comments
+            # below).
             gh issue list --state open --label business-review --label needs-human-approval --limit 50 \
               --json number,title \
-              --jq '.[] | "- #\(.number) \(.title)"' || echo "(none)"
+              --jq 'if length == 0 then "(none)" else (map("- #\(.number) \(.title)") | join("\n")) end'
             echo
 
             echo "## docs/ai-factory.md — Lifecycle in detail (verbatim excerpt)"
             echo
-            awk '/^## Lifecycle in detail/{flag=1} flag{print} /^## [^L]/ && flag && !/^## Lifecycle/{flag=0}' \
-              docs/ai-factory.md || echo "(section not found)"
+            # Reorder rules so the section-end cutoff fires BEFORE the print
+            # action on the boundary H2 line. Use any-H2 cutoff with an
+            # explicit Lifecycle-self exclusion (avoids the fragile `[^L]`
+            # heuristic that would silently break if a future `## L*` H2 is
+            # inserted right after Lifecycle, e.g. `## Limits and Safety`).
+            awk '
+              /^## Lifecycle in detail/ { flag = 1; print; next }
+              /^## / && flag            { flag = 0 }
+              flag                      { print }
+            ' docs/ai-factory.md || echo "(section not found)"
             echo
 
             echo "## .github/ai-factory/config.yml (verbatim)"
@@ -176,13 +208,20 @@ jobs:
             echo "## Past 24 h of session-report comments on tracking issue"
             echo
             if [ -n "${TRACKING_ISSUE:-}" ]; then
+              # NOTE: gh's `--jq` is a single-string flag that does NOT accept
+              # jq's `--arg` (the literal string `--arg` would become the
+              # filter and `since`/`$since_24h`/the expression would leak as
+              # positional args to `gh issue view`, which accepts only one).
+              # ai-watchdog.yml documents this exact gotcha (the watchdog
+              # had a silent-failure bug from this antipattern). Pipe to a
+              # standalone `jq` instead — that one DOES support `--arg`.
               gh issue view "$TRACKING_ISSUE" --json comments \
-                --jq --arg since "$since_24h" '
-                  [.comments[] | select(.createdAt > $since)]
-                  | if length == 0 then "(no comments in the last 24 h — first run of the day)"
-                    else (map("---\n\(.createdAt) — @\(.author.login)\n\(.body)\n") | join("\n"))
-                    end
-                '
+                | jq -r --arg since "$since_24h" '
+                    [.comments[] | select(.createdAt > $since)]
+                    | if length == 0 then "(no comments in the last 24 h — first run of the day)"
+                      else (map("---\n\(.createdAt) — @\(.author.login)\n\(.body)\n") | join("\n"))
+                      end
+                  '
             else
               echo "(no tracking issue)"
             fi
