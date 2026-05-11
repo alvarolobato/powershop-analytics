@@ -544,12 +544,19 @@ jobs:
               gh pr comment "$PR" --body "🤖 **AI Factory**: Self-healed partial phase transition — cleared \`ai-phase-copilot\`." || true
               exit 0
             fi
+            # The label transition is what gates Opus (ai-pr-review now fires
+            # only on `ai-ready-for-review` per D-031). If it fails, the chain
+            # is broken — let it fail loudly so the watchdog can re-fire.
             gh pr edit "$PR" --repo "$REPO" \
               --add-label "ai-cp-after-1" \
               --remove-label "ai-phase-copilot" \
               --add-label "ai-phase-opus" \
-              --add-label "ai-ready-for-review" || true
-            gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR" || true
+              --add-label "ai-ready-for-review"
+            # Belt-and-braces explicit dispatch (the labeled event above
+            # already fires ai-pr-review on a healthy repo, but bot-actor
+            # label events can be gated by GitHub as `action_required` —
+            # this dispatch is the deterministic path). Loud on failure.
+            gh workflow run ai-pr-review.yml --repo "$REPO" --field pr_number="$PR"
             gh pr comment "$PR" --body "🤖 **AI Factory**: Copilot review addressed — starting **Opus** review." || true
             exit 0
           fi
