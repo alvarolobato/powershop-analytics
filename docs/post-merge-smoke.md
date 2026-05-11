@@ -11,7 +11,7 @@ A lightweight GitHub Actions workflow that runs on every push to `main` to catch
 
 **Pending human commit** (D-029 constraint — the AI worker cannot write `.github/workflows/` files).
 
-The workflow YAML is provided in PR #585. Once @alvarolobato commits it to `.github/workflows/post-merge-smoke.yml`, the gate activates automatically on the next push to `main`.
+The workflow YAML is provided in PR #605 (closing issue #585). Once @alvarolobato commits it to `.github/workflows/post-merge-smoke.yml`, the gate activates automatically on the next push to `main`.
 
 ## What it covers
 
