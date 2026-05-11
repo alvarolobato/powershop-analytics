@@ -23,17 +23,167 @@ function buildApiUrl(params: {
   modes: string[];
   contextKinds: string[];
   since: string;
-  includeArchived: boolean;
+  onlyArchived: boolean;
 }): string {
   const sp = new URLSearchParams();
   if (params.q) sp.set("q", params.q);
   params.modes.forEach((m) => sp.append("mode", m));
   params.contextKinds.forEach((k) => sp.append("context_kind", k));
   if (params.since) sp.set("since", params.since);
-  if (params.includeArchived) sp.set("include_archived", "true");
+  if (params.onlyArchived) sp.set("only_archived", "true");
   sp.set("limit", "100");
   const qs = sp.toString();
   return `/api/conversations${qs ? `?${qs}` : ""}`;
+}
+
+// ---------------------------------------------------------------------------
+// MultiSelectDropdown — compact button + checkbox panel
+// ---------------------------------------------------------------------------
+
+interface MultiSelectDropdownProps {
+  label: string;
+  options: string[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  testId?: string;
+}
+
+function MultiSelectDropdown({ label, options, selected, onChange, testId }: MultiSelectDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const toggle = (item: string) => {
+    onChange(
+      selected.includes(item) ? selected.filter((x) => x !== item) : [...selected, item]
+    );
+  };
+
+  const btnStyle: React.CSSProperties = {
+    background: selected.length > 0 ? "var(--accent)" : "var(--bg-2)",
+    border: `1px solid ${selected.length > 0 ? "var(--accent)" : "var(--border)"}`,
+    borderRadius: 6,
+    color: selected.length > 0 ? "var(--accent-fg, #fff)" : "var(--fg-muted)",
+    fontSize: 12,
+    padding: "5px 10px",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    height: 30,
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    whiteSpace: "nowrap",
+  };
+
+  const panelStyle: React.CSSProperties = {
+    position: "absolute",
+    top: "calc(100% + 4px)",
+    left: 0,
+    zIndex: 50,
+    background: "var(--bg-2)",
+    border: "1px solid var(--border)",
+    borderRadius: 6,
+    padding: "6px 0",
+    minWidth: 140,
+    boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+  };
+
+  const optionStyle = (active: boolean): React.CSSProperties => ({
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "5px 12px",
+    fontSize: 12,
+    cursor: "pointer",
+    color: active ? "var(--accent)" : "var(--fg)",
+    fontWeight: active ? 600 : 400,
+    background: "transparent",
+    border: "none",
+    width: "100%",
+    textAlign: "left",
+    fontFamily: "inherit",
+  });
+
+  const countLabel = selected.length > 0 ? ` (${selected.length})` : "";
+
+  return (
+    <div ref={ref} style={{ position: "relative" }} data-testid={testId}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={btnStyle}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        data-testid={testId ? `${testId}-btn` : undefined}
+      >
+        {label}{countLabel} ▾
+      </button>
+      {open && (
+        <div style={panelStyle} role="listbox" aria-multiselectable="true">
+          {options.map((opt) => {
+            const active = selected.includes(opt);
+            return (
+              <button
+                key={opt}
+                type="button"
+                role="option"
+                aria-selected={active}
+                onClick={() => toggle(opt)}
+                style={optionStyle(active)}
+                data-testid={testId ? `${testId}-opt-${opt}` : undefined}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: "inline-flex",
+                    width: 12,
+                    height: 12,
+                    borderRadius: 3,
+                    border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
+                    background: active ? "var(--accent)" : "transparent",
+                    flexShrink: 0,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {active && (
+                    <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+                      <path d="M1.5 4L3.5 6L6.5 2" stroke="var(--accent-fg, #fff)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                    </svg>
+                  )}
+                </span>
+                {opt}
+              </button>
+            );
+          })}
+          {selected.length > 0 && (
+            <>
+              <div style={{ height: 1, background: "var(--border)", margin: "4px 0" }} />
+              <button
+                type="button"
+                onClick={() => { onChange([]); setOpen(false); }}
+                style={{ ...optionStyle(false), color: "var(--fg-muted)", fontSize: 11 }}
+                data-testid={testId ? `${testId}-clear` : undefined}
+              >
+                Limpiar filtro
+              </button>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -45,16 +195,12 @@ interface FilterBarProps {
   modes: string[];
   contextKinds: string[];
   since: string;
-  includeArchived: boolean;
+  onlyArchived: boolean;
   onQChange: (v: string) => void;
   onModesChange: (v: string[]) => void;
   onContextKindsChange: (v: string[]) => void;
   onSinceChange: (v: string) => void;
-  onIncludeArchivedChange: (v: boolean) => void;
-}
-
-function toggleArrayItem(arr: string[], item: string): string[] {
-  return arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
+  onOnlyArchivedChange: (v: boolean) => void;
 }
 
 function FilterBar({
@@ -62,12 +208,12 @@ function FilterBar({
   modes,
   contextKinds,
   since,
-  includeArchived,
+  onlyArchived,
   onQChange,
   onModesChange,
   onContextKindsChange,
   onSinceChange,
-  onIncludeArchivedChange,
+  onOnlyArchivedChange,
 }: FilterBarProps) {
   const inputStyle: React.CSSProperties = {
     background: "var(--bg-2)",
@@ -80,34 +226,6 @@ function FilterBar({
     fontFamily: "inherit",
     height: 30,
   };
-
-  const pillBtn = (
-    label: string,
-    active: boolean,
-    onClick: () => void,
-    testId?: string
-  ) => (
-    <button
-      key={label}
-      type="button"
-      onClick={onClick}
-      data-testid={testId}
-      style={{
-        background: active ? "var(--accent)" : "var(--bg-2)",
-        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-        borderRadius: 999,
-        padding: "3px 10px",
-        fontSize: 11,
-        fontWeight: active ? 600 : 400,
-        color: active ? "var(--accent-fg, #fff)" : "var(--fg-muted)",
-        cursor: "pointer",
-        fontFamily: "inherit",
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </button>
-  );
 
   return (
     <div
@@ -136,27 +254,23 @@ function FilterBar({
         aria-label="Buscar conversaciones"
       />
 
-      {/* Mode multi-select */}
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}
-        data-testid="mode-filter"
-      >
-        <span style={{ fontSize: 11, color: "var(--fg-muted)" }}>Tipo:</span>
-        {MODES.map((m) =>
-          pillBtn(m, modes.includes(m), () => onModesChange(toggleArrayItem(modes, m)), `mode-filter-${m}`)
-        )}
-      </div>
+      {/* Mode multi-select dropdown */}
+      <MultiSelectDropdown
+        label="Tipo"
+        options={MODES}
+        selected={modes}
+        onChange={onModesChange}
+        testId="mode-filter"
+      />
 
-      {/* Context kind multi-select */}
-      <div
-        style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}
-        data-testid="context-kind-filter"
-      >
-        <span style={{ fontSize: 11, color: "var(--fg-muted)" }}>Contexto:</span>
-        {CONTEXT_KINDS.map((k) =>
-          pillBtn(k, contextKinds.includes(k), () => onContextKindsChange(toggleArrayItem(contextKinds, k)), `context-kind-filter-${k}`)
-        )}
-      </div>
+      {/* Context kind multi-select dropdown */}
+      <MultiSelectDropdown
+        label="Contexto"
+        options={CONTEXT_KINDS}
+        selected={contextKinds}
+        onChange={onContextKindsChange}
+        testId="context-kind-filter"
+      />
 
       {/* Since date */}
       <label
@@ -173,19 +287,19 @@ function FilterBar({
         />
       </label>
 
-      {/* Mostrar archivadas toggle */}
+      {/* Ver archivadas toggle */}
       <label
         style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", color: "var(--fg-muted)" }}
         data-testid="archived-toggle-label"
       >
         <input
           type="checkbox"
-          checked={includeArchived}
-          onChange={(e) => onIncludeArchivedChange(e.target.checked)}
+          checked={onlyArchived}
+          onChange={(e) => onOnlyArchivedChange(e.target.checked)}
           data-testid="archived-toggle"
           style={{ cursor: "pointer" }}
         />
-        Mostrar archivadas
+        Ver archivadas
       </label>
     </div>
   );
@@ -210,7 +324,7 @@ function ConversationsPageContent() {
     searchParams?.getAll("context_kind") ?? []
   );
   const [since, setSince] = useState(() => searchParams?.get("since") ?? "");
-  const [includeArchived, setIncludeArchived] = useState(
+  const [onlyArchived, setOnlyArchived] = useState(
     () => searchParams?.get("archived") === "1"
   );
 
@@ -225,14 +339,14 @@ function ConversationsPageContent() {
       modes: string[];
       contextKinds: string[];
       since: string;
-      includeArchived: boolean;
+      onlyArchived: boolean;
     }) => {
       const params = new URLSearchParams();
       if (next.q) params.set("q", next.q);
       next.modes.forEach((m) => params.append("mode", m));
       next.contextKinds.forEach((k) => params.append("context_kind", k));
       if (next.since) params.set("since", next.since);
-      if (next.includeArchived) params.set("archived", "1");
+      if (next.onlyArchived) params.set("archived", "1");
       router.replace(`/conversations?${params.toString()}`, { scroll: false });
     },
     [router]
@@ -242,37 +356,37 @@ function ConversationsPageContent() {
   const handleQChange = useCallback(
     (v: string) => {
       setQ(v);
-      persistFilters({ q: v, modes, contextKinds, since, includeArchived });
+      persistFilters({ q: v, modes, contextKinds, since, onlyArchived });
       clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => setDebouncedQ(v), 350);
     },
-    [modes, contextKinds, since, includeArchived, persistFilters]
+    [modes, contextKinds, since, onlyArchived, persistFilters]
   );
   const handleModesChange = useCallback(
     (v: string[]) => {
       setModes(v);
-      persistFilters({ q, modes: v, contextKinds, since, includeArchived });
+      persistFilters({ q, modes: v, contextKinds, since, onlyArchived });
     },
-    [q, contextKinds, since, includeArchived, persistFilters]
+    [q, contextKinds, since, onlyArchived, persistFilters]
   );
   const handleContextKindsChange = useCallback(
     (v: string[]) => {
       setContextKinds(v);
-      persistFilters({ q, modes, contextKinds: v, since, includeArchived });
+      persistFilters({ q, modes, contextKinds: v, since, onlyArchived });
     },
-    [q, modes, since, includeArchived, persistFilters]
+    [q, modes, since, onlyArchived, persistFilters]
   );
   const handleSinceChange = useCallback(
     (v: string) => {
       setSince(v);
-      persistFilters({ q, modes, contextKinds, since: v, includeArchived });
+      persistFilters({ q, modes, contextKinds, since: v, onlyArchived });
     },
-    [q, modes, contextKinds, includeArchived, persistFilters]
+    [q, modes, contextKinds, onlyArchived, persistFilters]
   );
-  const handleIncludeArchivedChange = useCallback(
+  const handleOnlyArchivedChange = useCallback(
     (v: boolean) => {
-      setIncludeArchived(v);
-      persistFilters({ q, modes, contextKinds, since, includeArchived: v });
+      setOnlyArchived(v);
+      persistFilters({ q, modes, contextKinds, since, onlyArchived: v });
     },
     [q, modes, contextKinds, since, persistFilters]
   );
@@ -282,7 +396,7 @@ function ConversationsPageContent() {
     setLoading(true);
     setError(null);
     try {
-      const url = buildApiUrl({ q: debouncedQ, modes, contextKinds, since, includeArchived });
+      const url = buildApiUrl({ q: debouncedQ, modes, contextKinds, since, onlyArchived });
       const res = await fetch(url);
       if (!res.ok) {
         if (res.status === 404) {
@@ -306,7 +420,7 @@ function ConversationsPageContent() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedQ, modes, contextKinds, since, includeArchived]);
+  }, [debouncedQ, modes, contextKinds, since, onlyArchived]);
 
   useEffect(() => {
     fetchConversations();
@@ -322,29 +436,15 @@ function ConversationsPageContent() {
           body: JSON.stringify({ archived: !currentlyArchived }),
         });
         if (res.ok) {
-          // Update local state
-          setConversations((prev) =>
-            prev.map((c) =>
-              c.id === id
-                ? {
-                    ...c,
-                    archived_at: currentlyArchived
-                      ? null
-                      : new Date().toISOString(),
-                  }
-                : c
-            )
-          );
-          // If not showing archived, remove the row from view when archiving
-          if (!includeArchived && !currentlyArchived) {
-            setConversations((prev) => prev.filter((c) => c.id !== id));
-          }
+          // When showing only archived, archiving removes a row; unarchiving also removes it
+          // When showing only active (default), archiving removes the row
+          setConversations((prev) => prev.filter((c) => c.id !== id));
         }
       } catch {
-        // Ignore network errors — local state was already updated above if res.ok
+        // Ignore network errors
       }
     },
-    [includeArchived]
+    []
   );
 
   // Rename
@@ -408,12 +508,12 @@ function ConversationsPageContent() {
         modes={modes}
         contextKinds={contextKinds}
         since={since}
-        includeArchived={includeArchived}
+        onlyArchived={onlyArchived}
         onQChange={handleQChange}
         onModesChange={handleModesChange}
         onContextKindsChange={handleContextKindsChange}
         onSinceChange={handleSinceChange}
-        onIncludeArchivedChange={handleIncludeArchivedChange}
+        onOnlyArchivedChange={handleOnlyArchivedChange}
       />
 
       {/* Content */}
