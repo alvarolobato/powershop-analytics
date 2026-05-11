@@ -7,9 +7,20 @@ name: AI Factory Watchdog
 # owner with `ai-blocked` + a clear explanation.
 on:
   schedule:
-    # Every 15 minutes
-    - cron: "*/15 * * * *"
+    # Every 30 minutes — bumped from */15 because GitHub silently drops runs
+    # when the repo's schedule queue is saturated. With 9+ cron workflows
+    # competing for dispatch slots, */15 was observed firing every 3–4 hours.
+    # See DECISIONS-AND-CHANGES.md D-030.
+    - cron: "*/30 * * * *"
   workflow_dispatch:
+  # Event-driven supplement for the two most time-sensitive rules:
+  # (1) the ai-phase-opus transition after Opus submits a review, and
+  # (2) label/state cleanup on PR close. These rules fire within seconds
+  # of the event rather than waiting for the next cron tick.
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [closed]
 
 permissions:
   contents: read
