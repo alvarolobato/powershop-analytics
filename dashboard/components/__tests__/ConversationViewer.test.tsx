@@ -256,12 +256,19 @@ describe("ConversationViewer", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Copy link
+  // Share dropdown
   // -----------------------------------------------------------------------
 
-  it("copies link to clipboard on 'Copiar enlace' click", async () => {
+  it("opens share dropdown when share button is clicked", () => {
     render(<ConversationViewer initial={makeConv()} />);
-    fireEvent.click(screen.getByText("Copiar enlace"));
+    fireEvent.click(screen.getByTitle("Compartir"));
+    expect(screen.getByTestId("share-dropdown")).toBeInTheDocument();
+  });
+
+  it("copies direct link to clipboard via share dropdown", async () => {
+    render(<ConversationViewer initial={makeConv()} />);
+    fireEvent.click(screen.getByTitle("Compartir"));
+    fireEvent.click(screen.getByTestId("share-copy-direct"));
     await waitFor(() => {
       expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
         expect.stringContaining("/c/conv-1"),
@@ -269,9 +276,21 @@ describe("ConversationViewer", () => {
     });
   });
 
-  it("shows 'Copiado' after copying link", async () => {
+  it("copies context link to clipboard via share dropdown", async () => {
     render(<ConversationViewer initial={makeConv()} />);
-    fireEvent.click(screen.getByText("Copiar enlace"));
+    fireEvent.click(screen.getByTitle("Compartir"));
+    fireEvent.click(screen.getByTestId("share-copy-context"));
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        expect.stringContaining("/k/conv-1"),
+      );
+    });
+  });
+
+  it("shows 'Copiado' feedback after copying link", async () => {
+    render(<ConversationViewer initial={makeConv()} />);
+    fireEvent.click(screen.getByTitle("Compartir"));
+    fireEvent.click(screen.getByTestId("share-copy-direct"));
     await waitFor(() => {
       expect(screen.getByText("Copiado")).toBeInTheDocument();
     });

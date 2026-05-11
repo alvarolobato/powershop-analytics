@@ -71,28 +71,6 @@ function modeLabel(mode: string): string {
   return labels[mode] ?? mode;
 }
 
-function contextLabel(row: ConversationRow): string {
-  const kindLabels: Record<string, string> = {
-    dashboard: "Dashboard",
-    home: "Inicio",
-    admin: "Admin",
-    global: "Global",
-  };
-  const kindStr = kindLabels[row.context_kind ?? ""] ?? row.context_kind ?? "";
-  if (row.context_ref) return `${kindStr} · ${row.context_ref}`;
-  return kindStr;
-}
-
-function statusPill(row: ConversationRow) {
-  if (row.archived_at) {
-    return { label: "Archivada", bg: "var(--bg-3)", fg: "var(--fg-muted)" };
-  }
-  if (row.last_status === "error") {
-    return { label: "Con errores", bg: "var(--down-bg)", fg: "var(--down)" };
-  }
-  return { label: "Activa", bg: "var(--up-bg)", fg: "var(--up)" };
-}
-
 // ---------------------------------------------------------------------------
 // Sort
 // ---------------------------------------------------------------------------
@@ -202,11 +180,8 @@ export function ConversationsTable({
     setRenamingId(null);
   };
 
-  // Bulk action bar is ~52px tall (8px padding × 2 + 20px content + 8px marginBottom + 8px gap).
-  // When it's visible, shift sticky table headers down so they don't overlap it.
-  const BULK_BAR_HEIGHT = 52;
-
-  // Styles
+  // Styles — headers always sticky at top: 0; bulk bar placed outside the
+  // scrollable div with zIndex: 11 so it never covers column headers.
   const thStyle: React.CSSProperties = {
     padding: "8px 10px",
     fontSize: 11,
@@ -219,7 +194,7 @@ export function ConversationsTable({
     whiteSpace: "nowrap",
     background: "var(--bg-1)",
     position: "sticky" as const,
-    top: selected.size > 0 ? BULK_BAR_HEIGHT : 0,
+    top: 0,
     zIndex: 1,
   };
 
@@ -282,13 +257,15 @@ export function ConversationsTable({
 
   return (
     <div style={{ position: "relative" }}>
-      {/* Bulk action bar */}
+      {/* Bulk action bar — placed outside the scrollable div so it never
+          overlaps the sticky column headers (which are at top: 0 inside the
+          scroll container). zIndex 11 keeps it above headers (zIndex 1). */}
       {selected.size > 0 && (
         <div
           style={{
             position: "sticky",
             top: 0,
-            zIndex: 10,
+            zIndex: 11,
             background: "var(--bg-2)",
             border: "1px solid var(--border-strong)",
             borderRadius: 6,
@@ -367,17 +344,14 @@ export function ConversationsTable({
         >
           <colgroup>
             <col style={{ width: 32 }} />
-            <col style={{ width: 200 }} />
+            <col style={{ width: "auto", minWidth: 200 }} />
             <col style={{ width: 100 }} />
-            <col style={{ width: 160 }} />
             <col style={{ width: 130 }} />
             <col style={{ width: 130 }} />
             <col style={{ width: 80 }} />
             <col style={{ width: 150 }} />
             <col style={{ width: 80 }} />
-            <col style={{ width: 220 }} />
             <col style={{ width: 90 }} />
-            <col style={{ width: 180 }} />
           </colgroup>
           <thead>
             <tr>
@@ -394,20 +368,16 @@ export function ConversationsTable({
               </th>
               <th style={thStyle}>Título</th>
               <th style={thStyle}>Tipo</th>
-              <th style={thStyle}>Contexto</th>
               <th style={thStyle}>{sortBtn("last_interaction_at", "Última actividad")}</th>
               <th style={thStyle}>{sortBtn("created_at", "Creada")}</th>
               <th style={thStyle}>Duración</th>
               <th style={thStyle}>Actividad</th>
               <th style={thStyle}>Tokens</th>
-              <th style={thStyle}>Vista previa</th>
-              <th style={thStyle}>Estado</th>
               <th style={{ ...thStyle, textAlign: "right" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((row) => {
-              const pill = statusPill(row);
               const modeStyle = getModePillStyle(row.mode);
               const displayTitle =
                 row.title ??
@@ -438,8 +408,8 @@ export function ConversationsTable({
                     />
                   </td>
 
-                  {/* Título */}
-                  <td style={{ ...tdStyle }}>
+                  {/* Título — click navigates to /c/:id; pencil icon triggers rename */}
+                  <td style={{ ...tdStyle, maxWidth: "none" }}>
                     {renamingId === row.id ? (
                       <input
                         type="text"
@@ -465,14 +435,58 @@ export function ConversationsTable({
                         data-testid={`rename-input-${row.id}`}
                       />
                     ) : (
-                      <span
-                        title={displayTitle}
-                        style={{ cursor: "pointer" }}
-                        onClick={() => startRename(row)}
-                        data-testid={`title-cell-${row.id}`}
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          overflow: "hidden",
+                        }}
                       >
-                        {displayTitle}
-                      </span>
+                        <a
+                          href={`/c/${row.id}`}
+                          title={displayTitle}
+                          style={{
+                            color: "inherit",
+                            textDecoration: "none",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            router.push(`/c/${row.id}`);
+                          }}
+                          data-testid={`title-cell-${row.id}`}
+                        >
+                          {displayTitle}
+                        </a>
+                        <button
+                          type="button"
+                          title="Renombrar"
+                          aria-label="Renombrar"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            startRename(row);
+                          }}
+                          style={{
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            color: "var(--fg-subtle, var(--fg-muted))",
+                            fontSize: 12,
+                            padding: "0 2px",
+                            flexShrink: 0,
+                            lineHeight: 1,
+                            fontFamily: "inherit",
+                          }}
+                          data-testid={`rename-btn-${row.id}`}
+                        >
+                          ✎
+                        </button>
+                      </div>
                     )}
                   </td>
 
@@ -492,24 +506,6 @@ export function ConversationsTable({
                       data-testid={`mode-pill-${row.id}`}
                     >
                       {modeLabel(row.mode)}
-                    </span>
-                  </td>
-
-                  {/* Contexto */}
-                  <td style={{ ...tdStyle }}>
-                    <span
-                      title={contextLabel(row)}
-                      style={{
-                        cursor: row.context_kind !== "global" ? "pointer" : "default",
-                        textDecoration: "none",
-                      }}
-                      onClick={() => {
-                        if (row.context_kind !== "global") {
-                          router.push(`/k/${row.id}`);
-                        }
-                      }}
-                    >
-                      {contextLabel(row)}
                     </span>
                   </td>
 
@@ -555,46 +551,10 @@ export function ConversationsTable({
                     {formatTokens(row.token_total)}
                   </td>
 
-                  {/* Vista previa */}
-                  <td
-                    style={{
-                      ...tdStyle,
-                      color: "var(--fg-muted)",
-                      maxWidth: 220,
-                    }}
-                    title={row.last_message_preview ?? undefined}
-                  >
-                    {row.last_message_preview
-                      ? row.last_message_preview.slice(0, 80) +
-                        (row.last_message_preview.length > 80 ? "…" : "")
-                      : "—"}
-                  </td>
-
-                  {/* Estado */}
-                  <td style={{ ...tdStyle }}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        padding: "2px 7px",
-                        borderRadius: 999,
-                        fontSize: 11,
-                        fontWeight: 500,
-                        background: pill.bg,
-                        color: pill.fg,
-                        whiteSpace: "nowrap",
-                      }}
-                      data-testid={`status-pill-${row.id}`}
-                    >
-                      {pill.label}
-                    </span>
-                  </td>
-
                   {/* Acciones */}
                   <td style={{ ...tdStyle, textAlign: "right", overflow: "visible" }}>
                     <ConversationRowActions
                       conversation={row}
-                      onArchiveToggle={onArchiveToggle}
-                      onRenameStart={() => startRename(row)}
                     />
                   </td>
                 </tr>
