@@ -33,7 +33,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const context_kindsParam = searchParams.getAll("context_kind");
   const context_kinds = context_kindsParam.length > 0 ? context_kindsParam : undefined;
   const context_ref = searchParams.get("context_ref") ?? undefined;
-  const modesParam = searchParams.getAll("mode");
+  const modesParam = searchParams.getAll("mode").filter((m) => VALID_MODES.has(m));
   const modes = modesParam.length > 0 ? modesParam : undefined;
   const sinceRaw = searchParams.get("since") ?? undefined;
   if (sinceRaw !== undefined && isNaN(Date.parse(sinceRaw))) {
