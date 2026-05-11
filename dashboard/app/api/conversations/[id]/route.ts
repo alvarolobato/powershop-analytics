@@ -15,12 +15,21 @@ type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
 // ── GET ───────────────────────────────────────────────────────────────────────
 
+const VALID_ID_RE = /^[0-9a-f]{12}$/;
+
 export async function GET(
   _request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
   const { id } = await context.params;
+
+  if (!VALID_ID_RE.test(id)) {
+    return NextResponse.json(
+      formatApiError("ID de conversación no válido.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
   try {
     const conversation = await getConversationWithMessages(id);
@@ -41,7 +50,7 @@ export async function GET(
     return NextResponse.json(
       formatApiError(
         "No se pudo cargar la conversación.",
-        "DB_ERROR",
+        "DB_QUERY",
         sanitizeErrorMessage(err),
         requestId,
       ),
@@ -64,14 +73,14 @@ export async function PATCH(
     body = await request.json();
   } catch {
     return NextResponse.json(
-      formatApiError("El cuerpo de la solicitud no es JSON válido.", "INVALID_BODY", undefined, requestId),
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      formatApiError("El cuerpo debe ser un objeto JSON.", "INVALID_BODY", undefined, requestId),
+      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
@@ -132,7 +141,7 @@ export async function PATCH(
     return NextResponse.json(
       formatApiError(
         "No se pudo actualizar la conversación.",
-        "DB_ERROR",
+        "DB_QUERY",
         sanitizeErrorMessage(err),
         requestId,
       ),

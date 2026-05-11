@@ -1,23 +1,21 @@
 /**
  * POST /api/conversations/:id/messages — append a message and optionally call the LLM.
  *
- * Body: { content: string, callLlm?: boolean, flow?: string }
+ * Body: { role: string, content: string, callLlm?: boolean }
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import {
-  getConversation,
+  getConversationWithMessages,
   appendMessage,
-  loadMessages,
-  maybeGenerateTitle,
-  touchConversation,
+  updateLastStatus,
 } from "@/lib/conversations";
 import { llmComplete } from "@/lib/llm-client";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
-const MAX_CONTENT_CHARS = 10_000;
+const MAX_CONTENT_CHARS = 256 * 1024;
 
 export async function POST(
   request: NextRequest,
@@ -31,29 +29,32 @@ export async function POST(
     body = await request.json();
   } catch {
     return NextResponse.json(
-      formatApiError("El cuerpo de la solicitud no es JSON válido.", "INVALID_BODY", undefined, requestId),
+      formatApiError("El cuerpo de la solicitud no es JSON válido.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return NextResponse.json(
-      formatApiError("El cuerpo debe ser un objeto JSON.", "INVALID_BODY", undefined, requestId),
+      formatApiError("El cuerpo debe ser un objeto JSON.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
 
   const b = body as Record<string, unknown>;
-  const rawContent = b.content;
 
+  const role = b.role;
+  if (typeof role !== "string" || !role.trim()) {
+    return NextResponse.json(
+      formatApiError("El campo 'role' es obligatorio.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
+
+  const rawContent = b.content;
   if (typeof rawContent !== "string" || rawContent.trim() === "") {
     return NextResponse.json(
-      formatApiError(
-        "El campo 'content' es obligatorio y no puede estar vacío.",
-        "MISSING_CONTENT",
-        undefined,
-        requestId,
-      ),
+      formatApiError("El campo 'content' es obligatorio y no puede estar vacío.", "VALIDATION", undefined, requestId),
       { status: 400 },
     );
   }
@@ -62,7 +63,7 @@ export async function POST(
     return NextResponse.json(
       formatApiError(
         `El campo 'content' no puede superar los ${MAX_CONTENT_CHARS} caracteres.`,
-        "CONTENT_TOO_LONG",
+        "VALIDATION",
         undefined,
         requestId,
       ),
@@ -71,10 +72,16 @@ export async function POST(
   }
 
   const callLlm = b.callLlm === true;
-  const flowRaw = typeof b.flow === "string" ? b.flow : undefined;
+
+  if (callLlm && role !== "user") {
+    return NextResponse.json(
+      formatApiError("Solo los mensajes de usuario pueden disparar al LLM.", "VALIDATION", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
   try {
-    const conversation = await getConversation(id);
+    const conversation = await getConversationWithMessages(id);
     if (!conversation) {
       return NextResponse.json(
         formatApiError(
@@ -87,66 +94,56 @@ export async function POST(
       );
     }
 
-    if (conversation.archived_at !== null) {
-      return NextResponse.json(
-        formatApiError(
-          "La conversación está archivada y no acepta nuevos mensajes.",
-          "CONVERSATION_ARCHIVED",
-          undefined,
-          requestId,
-        ),
-        { status: 409 },
-      );
-    }
-
-    await appendMessage(id, "user", { text: rawContent });
+    await appendMessage(id, { role, content: rawContent });
 
     if (!callLlm) {
-      await touchConversation(id, "ok");
-      return NextResponse.json({ ok: true });
+      return NextResponse.json({ conversationId: id });
     }
 
-    const prior = await loadMessages(id);
-    const priorMessages = prior
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        const c = m.content;
-        const text =
-          typeof c === "string"
-            ? c
-            : c !== null &&
-                typeof c === "object" &&
-                !Array.isArray(c) &&
-                typeof (c as Record<string, unknown>).text === "string"
-              ? ((c as Record<string, unknown>).text as string)
-              : JSON.stringify(c);
-        return { role: m.role as "user" | "assistant", content: text };
+    try {
+      const priorMessages = [
+        ...conversation.messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+          })),
+        { role: "user" as const, content: rawContent },
+      ];
+
+      const llmResponse = await llmComplete({
+        flow: "chat",
+        systemPrompt: { stable: "" },
+        messages: priorMessages,
+        requestId,
       });
 
-    const llmResponse = await llmComplete({
-      flow: flowRaw ?? "summary",
-      systemPrompt: { stable: "" },
-      messages: priorMessages,
-      requestId,
-    });
+      const assistantMessage = await appendMessage(id, {
+        role: "assistant",
+        content: llmResponse.text,
+      });
+      await updateLastStatus(id, "ok");
 
-    await appendMessage(id, "assistant", { text: llmResponse.text });
-    await touchConversation(id, "ok");
-
-    // Best-effort title generation for newly created conversations
-    void maybeGenerateTitle(id, [
-      ...priorMessages.map((m) => ({ role: m.role, content: m.content })),
-      { role: "assistant", content: llmResponse.text },
-    ]);
-
-    return NextResponse.json({ message: llmResponse.text });
+      return NextResponse.json({ conversationId: id, assistantMessage });
+    } catch (llmErr) {
+      await updateLastStatus(id, "error").catch(() => {});
+      console.error(`[${requestId}] POST /api/conversations/${id}/messages LLM error:`, llmErr);
+      return NextResponse.json(
+        formatApiError(
+          "Error al llamar al LLM.",
+          "LLM_ERROR",
+          sanitizeErrorMessage(llmErr),
+          requestId,
+        ),
+        { status: 500 },
+      );
+    }
   } catch (err) {
-    await touchConversation(id, "error").catch(() => {});
     console.error(`[${requestId}] POST /api/conversations/${id}/messages error:`, err);
     return NextResponse.json(
       formatApiError(
         "Error al procesar el mensaje.",
-        "LLM_ERROR",
+        "DB_QUERY",
         sanitizeErrorMessage(err),
         requestId,
       ),
