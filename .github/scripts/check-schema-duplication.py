@@ -9,8 +9,10 @@ SQL_FILE = Path(__file__).parent.parent.parent / "etl" / "schema" / "init.sql"
 
 
 def main() -> int:
-    sql = SQL_FILE.read_text()
-    tables = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", sql)
+    sql = SQL_FILE.read_text(encoding="utf-8")
+    # Strip single-line comments to avoid false positives from comment lines
+    sql_no_comments = re.sub(r"--[^\n]*", "", sql)
+    tables = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", sql_no_comments, re.IGNORECASE)
     seen: dict[str, int] = {}
     duplicates = []
     for name in tables:

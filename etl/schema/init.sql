@@ -1103,6 +1103,5 @@ ANALYZE llm_usage;
 ANALYZE etl_sync_runs;
 ANALYZE etl_sync_run_tables;
 ANALYZE etl_manual_trigger;
-ANALYZE llm_usage;
 ANALYZE conversations;
 ANALYZE conversation_messages;
