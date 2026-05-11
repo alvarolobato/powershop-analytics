@@ -15,6 +15,12 @@ import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
 import AgenticErrorDetails from "@/components/AgenticErrorDetails";
 import PreviousConversations from "@/components/PreviousConversations";
+import { InitialContextPanel } from "@/components/InitialContextPanel";
+import {
+  getMessageText,
+  isAssistantContent,
+} from "@/lib/conversation-types";
+import type { InitialContext, MessageContent } from "@/lib/conversation-types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +94,10 @@ export interface ChatSidebarProps {
    * already handles opening the sidebar.
    */
   hideWhenClosed?: boolean;
+  /** LLM initial context from a preloaded modify conversation (e.g., /k/:id). */
+  initialModifyContext?: InitialContext | null;
+  /** LLM initial context from a preloaded analyze conversation (e.g., /k/:id). */
+  initialAnalyzeContext?: InitialContext | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +118,7 @@ interface ConversationWithMessages {
   title: string | null;
   first_user_prompt: string | null;
   messages?: ConversationApiMessage[];
+  initial_context?: InitialContext | null;
 }
 
 type ConversationListItem = {
@@ -133,28 +144,20 @@ type ConversationDetailResponse = ConversationWithMessages;
 // Conversation message converter
 // ---------------------------------------------------------------------------
 
-function extractTextFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (content && typeof content === "object") {
-    const c = content as Record<string, unknown>;
-    if (typeof c.text === "string") return c.text;
-    if (Array.isArray(content)) {
-      const arr = content as Array<Record<string, unknown>>;
-      const textBlock = arr.find((b) => b.type === "text" && typeof b.text === "string");
-      if (textBlock && typeof textBlock.text === "string") return textBlock.text;
-    }
-  }
-  return "";
-}
-
 function convertConversationMessages(messages: ConversationApiMessage[]): ChatMessage[] {
   return messages
     .filter((msg) => msg.role === "user" || msg.role === "assistant")
-    .map((msg) => ({
-      role: msg.role as "user" | "assistant",
-      content: extractTextFromContent(msg.content),
-      timestamp: new Date(msg.created_at),
-    }))
+    .map((msg) => {
+      const content = msg.content as MessageContent;
+      const ac = msg.role === "assistant" && isAssistantContent(content) ? content : null;
+      const isError = ac?.is_error ?? false;
+      return {
+        role: msg.role as "user" | "assistant",
+        content: getMessageText(content) || (isError ? "Error en la respuesta del asistente" : ""),
+        timestamp: new Date(msg.created_at),
+        isError,
+      };
+    })
     .filter((msg) => msg.content.length > 0);
 }
 
@@ -597,6 +600,7 @@ function ModificarTab({
   prefillRequest,
   onPrefillApplied,
   dashboardId,
+  initialContext,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
@@ -607,6 +611,7 @@ function ModificarTab({
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   dashboardId?: number;
+  initialContext?: InitialContext | null;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -898,6 +903,11 @@ function ModificarTab({
 
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+        {/* Initial context panel — shown at the top when a prior conversation has context */}
+        {initialContext && messages.length > 0 && (
+          <InitialContextPanel context={initialContext} />
+        )}
+
         {messages.length === 0 && (
           <p style={{ fontSize: 12, color: "var(--fg-subtle)", textAlign: "center", marginTop: 32 }}>
             Escribe un mensaje para modificar el dashboard.
@@ -1024,6 +1034,7 @@ function AnalizarTab({
   dashboardId,
   prefillRequest,
   onPrefillApplied,
+  initialContext,
 }: {
   spec: DashboardSpec;
   widgetData?: Map<number, WidgetState>;
@@ -1034,6 +1045,7 @@ function AnalizarTab({
   dashboardId?: number;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
+  initialContext?: InitialContext | null;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1353,6 +1365,11 @@ function AnalizarTab({
           </div>
         )}
 
+        {/* Initial context panel — shown at the top when a prior conversation has context */}
+        {initialContext && messages.length > 0 && (
+          <InitialContextPanel context={initialContext} />
+        )}
+
         {/* Empty state */}
         {messages.length === 0 && (
           <p style={{ fontSize: 12, color: "var(--fg-subtle)", textAlign: "center", marginTop: 16 }}>
@@ -1491,6 +1508,8 @@ export default function ChatSidebar({
   onOpenSidebar,
   initialMode,
   hideWhenClosed = false,
+  initialModifyContext,
+  initialAnalyzeContext,
 }: ChatSidebarProps) {
   const [activeTab, setActiveTab] = useState<"modificar" | "analizar">(
     initialMode ?? "modificar"
@@ -1501,6 +1520,20 @@ export default function ChatSidebar({
   const [analyzeMessages, setAnalyzeMessages] = useState<ChatMessage[]>(
     initialAnalyzeMessages ?? []
   );
+
+  // Track the LLM initial context for each tab (set from preloaded prop or auto-load).
+  const [modifyInitialContext, setModifyInitialContext] = useState<InitialContext | null>(
+    initialModifyContext ?? null
+  );
+  const [analyzeInitialContext, setAnalyzeInitialContext] = useState<InitialContext | null>(
+    initialAnalyzeContext ?? null
+  );
+
+  // Refs to detect whether initial messages were provided by the parent on mount.
+  // Used to skip auto-load when preloaded messages are present, preventing them from being
+  // overwritten by the conversation API (e.g., when arriving from /k/:id).
+  const hadInitialModifyMessagesRef = useRef((initialModifyMessages?.length ?? 0) > 0);
+  const hadInitialAnalyzeMessagesRef = useRef((initialAnalyzeMessages?.length ?? 0) > 0);
 
   // Sync initialAnalyzeMessages on first mount only
   const initializedAnalyzeRef = useRef(false);
@@ -1565,9 +1598,15 @@ export default function ChatSidebar({
         const messages = convertConversationMessages(msgData.messages ?? []);
 
         if (apiMode === "modify") {
-          setModifyMessages(messages);
+          if (!hadInitialModifyMessagesRef.current) {
+            setModifyMessages(messages);
+            setModifyInitialContext(msgData.initial_context ?? null);
+          }
         } else {
-          setAnalyzeMessages(messages);
+          if (!hadInitialAnalyzeMessagesRef.current) {
+            setAnalyzeMessages(messages);
+            setAnalyzeInitialContext(msgData.initial_context ?? null);
+          }
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") return;
@@ -1585,9 +1624,13 @@ export default function ChatSidebar({
     if (activeTab === "modificar") {
       setModifyMessages([]);
       onModifyMessagesChange?.([]);
+      setModifyInitialContext(null);
+      hadInitialModifyMessagesRef.current = false;
     } else {
       setAnalyzeMessages([]);
       onAnalyzeMessagesChange?.([]);
+      setAnalyzeInitialContext(null);
+      hadInitialAnalyzeMessagesRef.current = false;
     }
     setShowPreviousConversations(false);
   }, [activeTab, onModifyMessagesChange, onAnalyzeMessagesChange]);
@@ -1861,6 +1904,7 @@ export default function ChatSidebar({
             }
             onPrefillApplied={onPendingModifyInputConsumed}
             dashboardId={dashboardId}
+            initialContext={modifyInitialContext}
           />
         ) : (
           <AnalizarTab
@@ -1877,6 +1921,7 @@ export default function ChatSidebar({
                 : null
             }
             onPrefillApplied={onPendingAnalyzeInputConsumed}
+            initialContext={analyzeInitialContext}
           />
         )}
       </div>

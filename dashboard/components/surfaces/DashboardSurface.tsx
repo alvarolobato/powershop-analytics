@@ -604,7 +604,7 @@ export default function DashboardSurface({
     return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
-  // Resolve initial messages for the sidebar from preloaded conversation
+  // Resolve initial messages and LLM context for the sidebar from preloaded conversation
   const preloadedAnalyzeMessages =
     preloadedConversation && preloadedConversation.mode === "analyze"
       ? convMessagesToChatMessages(preloadedConversation)
@@ -612,6 +612,14 @@ export default function DashboardSurface({
   const preloadedModifyMessages =
     preloadedConversation && preloadedConversation.mode === "modify"
       ? convMessagesToChatMessages(preloadedConversation)
+      : undefined;
+  const preloadedModifyContext =
+    preloadedConversation && preloadedConversation.mode === "modify"
+      ? preloadedConversation.initial_context
+      : undefined;
+  const preloadedAnalyzeContext =
+    preloadedConversation && preloadedConversation.mode === "analyze"
+      ? preloadedConversation.initial_context
       : undefined;
 
   // ---------------------------------------------------------------------------
@@ -1006,6 +1014,8 @@ export default function DashboardSurface({
         pendingAnalyzeTriggerId={pendingAnalyze?.id}
         onPendingAnalyzeInputConsumed={handlePendingAnalyzeInputConsumed}
         initialMode={chatInitialMode}
+        initialModifyContext={preloadedModifyContext}
+        initialAnalyzeContext={preloadedAnalyzeContext}
       />
 
       {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
