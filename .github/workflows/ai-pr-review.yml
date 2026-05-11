@@ -1,11 +1,17 @@
 name: AI PR Review
 on:
   pull_request:
-    # `synchronize` intentionally omitted — we don't review on every commit.
-    # After address-feedback finishes it adds `ai-ready-for-review`, which
-    # fires the `labeled` event below. This prevents a review storm on every
-    # individual commit pushed during an address-feedback session.
-    types: [opened, reopened, ready_for_review, labeled]
+    # Strict Copilot-then-Opus sequencing (D-031, issue #580 fallout):
+    # this workflow fires ONLY when `ai-ready-for-review` is applied, which
+    # happens at exactly one moment in the lifecycle — when address-feedback
+    # finishes addressing the Copilot review and adds `ai-phase-opus +
+    # ai-ready-for-review`. Previously `opened`/`reopened`/`ready_for_review`
+    # were also in `types:`, which caused Opus to race against Copilot on
+    # fresh PRs (PRs #594, #596 both got an Opus review at PR-open time
+    # before Copilot had even posted, leaving the chain stuck in
+    # `ai-phase-opus` because address-feedback only processed the latest
+    # review). Workflow_dispatch remains for manual re-fires.
+    types: [labeled]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -37,13 +43,12 @@ jobs:
       (
         github.event_name == 'workflow_dispatch'
       ) || (
+        github.event_name == 'pull_request' &&
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'ai-ready-for-review' &&
         github.event.pull_request.draft == false &&
         !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
-        github.event.pull_request.head.repo.full_name == github.repository &&
-        (
-          github.event.action != 'labeled' ||
-          github.event.label.name == 'ai-ready-for-review'
-        )
+        github.event.pull_request.head.repo.full_name == github.repository
       )
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -286,18 +291,29 @@ jobs:
           echo "Dispatched address-feedback for PR #$PR_NUMBER."
 
       - name: Handle failure
+        # Run even if an earlier step (including checkout) failed, so the
+        # watchdog still gets a marker. `--repo` is mandatory here because
+        # `workflow_dispatch` runs don't always have a working git directory
+        # at this point — the prior bug on PR #595 was a GraphQL 504 in the
+        # review step followed by `gh pr edit` failing with "not a git
+        # repository" because there's no `--repo` fallback. Result: no
+        # ai-blocked / ai-auto-retry labels and a silent 5 h stall.
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
           RESET_LINE=""
-          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "${{ github.repository }}" 2>/dev/null); then
+          if out=$(bash .github/scripts/detect-rate-limit.sh "${{ github.run_id }}" "$REPO" 2>/dev/null); then
             RESET_ISO=$(echo "$out" | awk -F= '/^rate_limit_reset_iso=/{print $2}')
             if [ -n "$RESET_ISO" ]; then
               RESET_LINE=" ⏳ Rate limit reset at $RESET_ISO — watchdog will wait until then before retrying."
             fi
           fi
-          gh pr comment "$PR_NUMBER" \
-            --body "⚠️ AI PR Review failed. Marked \`ai-ready-for-review\` + \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
-          gh pr edit "$PR_NUMBER" \
-            --add-label "ai-ready-for-review" --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+          # No `|| true` on the label add — if THIS fails the watchdog won't
+          # see the retry marker and the PR stalls silently. Let the step go
+          # red so the failure is visible in the Actions UI.
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "⚠️ AI PR Review failed. Marking \`ai-ready-for-review\` + \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }})."
+          gh pr edit "$PR_NUMBER" --repo "$REPO" \
+            --add-label "ai-ready-for-review" --add-label "ai-blocked" --add-label "ai-auto-retry"
