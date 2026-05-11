@@ -80,8 +80,9 @@ export default function PreviousConversations({
             setLoading(false);
             return;
           }
-          const data = (await res.json()) as { conversations: ConversationSummary[] };
-          setConversations(data.conversations ?? []);
+          const data = await res.json();
+          const list: ConversationSummary[] = Array.isArray(data) ? data : (data.conversations ?? []);
+          setConversations(list);
           setLoading(false);
         })
         .catch((err: unknown) => {

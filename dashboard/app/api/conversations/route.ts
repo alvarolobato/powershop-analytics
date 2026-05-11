@@ -29,9 +29,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = new URL(request.url);
 
   const include_archived = searchParams.get("include_archived") === "true";
-  const context_kind = searchParams.get("context_kind") ?? undefined;
+  const only_archived = searchParams.get("only_archived") === "true";
+  const context_kindsParam = searchParams.getAll("context_kind");
+  const context_kinds = context_kindsParam.length > 0 ? context_kindsParam : undefined;
   const context_ref = searchParams.get("context_ref") ?? undefined;
-  const mode = searchParams.get("mode") ?? undefined;
+  const modesParam = searchParams.getAll("mode").filter((m) => VALID_MODES.has(m));
+  const modes = modesParam.length > 0 ? modesParam : undefined;
   const sinceRaw = searchParams.get("since") ?? undefined;
   if (sinceRaw !== undefined && isNaN(Date.parse(sinceRaw))) {
     return NextResponse.json(
@@ -52,9 +55,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const rows = await listConversations({
       include_archived,
-      context_kind,
+      only_archived,
+      context_kinds,
       context_ref,
-      mode,
+      modes,
       since,
       q,
       page: isNaN(page) ? 1 : page,

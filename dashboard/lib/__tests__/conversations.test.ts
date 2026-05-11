@@ -306,11 +306,72 @@ describe("listConversations", () => {
     expect(params).toContain("42");
   });
 
-  it("filters by mode", async () => {
+  it("filters by context_kinds array (multi-select) using ANY", async () => {
+    await listConversations({ context_kinds: ["dashboard", "home"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ANY(");
+    expect(params.some((p) => Array.isArray(p) && p.includes("dashboard") && p.includes("home"))).toBe(true);
+  });
+
+  it("context_kinds with single item uses equality, not ANY", async () => {
+    await listConversations({ context_kinds: ["dashboard"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("c.context_kind = ");
+    expect(query).not.toContain("ANY(");
+    expect(params).toContain("dashboard");
+  });
+
+  it("context_kinds takes precedence over context_kind", async () => {
+    await listConversations({ context_kind: "global", context_kinds: ["dashboard", "home"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ANY(");
+    expect(params.some((p) => Array.isArray(p) && p.includes("dashboard"))).toBe(true);
+    expect(params).not.toContain("global");
+  });
+
+  it("filters by mode (single)", async () => {
     await listConversations({ mode: "modify" });
     const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(query).toContain("c.mode = ");
     expect(params).toContain("modify");
+  });
+
+  it("filters by modes array (multi-select) using ANY", async () => {
+    await listConversations({ modes: ["generate", "modify"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ANY(");
+    expect(params.some((p) => Array.isArray(p) && p.includes("generate") && p.includes("modify"))).toBe(true);
+  });
+
+  it("modes array with single item uses equality, not ANY", async () => {
+    await listConversations({ modes: ["analyze"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("c.mode = ");
+    expect(query).not.toContain("ANY(");
+    expect(params).toContain("analyze");
+  });
+
+  it("modes array takes precedence over mode string", async () => {
+    await listConversations({ mode: "title", modes: ["generate", "modify"] });
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("ANY(");
+    expect(params.some((p) => Array.isArray(p) && p.includes("generate"))).toBe(true);
+    // "title" should not appear as a standalone param
+    expect(params).not.toContain("title");
+  });
+
+  it("shows only archived rows when only_archived=true", async () => {
+    await listConversations({ only_archived: true });
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("archived_at IS NOT NULL");
+    expect(query).not.toContain("archived_at IS NULL");
+  });
+
+  it("only_archived overrides include_archived", async () => {
+    await listConversations({ only_archived: true, include_archived: true });
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("archived_at IS NOT NULL");
+    expect(query).not.toContain("archived_at IS NULL");
   });
 
   it("filters by q (search) with ILIKE and escaped wildcards", async () => {

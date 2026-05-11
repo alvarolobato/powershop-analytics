@@ -1,13 +1,15 @@
 /**
- * Tests for POST /api/conversations
+ * Tests for GET and POST /api/conversations
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockCreateConversation = vi.fn();
+const mockListConversations = vi.fn();
 
 vi.mock("@/lib/conversations", () => ({
   createConversation: (...args: unknown[]) => mockCreateConversation(...args),
+  listConversations: (...args: unknown[]) => mockListConversations(...args),
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
@@ -15,7 +17,7 @@ vi.mock("@/lib/errors", async (importOriginal) => {
   return { ...actual, generateRequestId: () => "test-req-id" };
 });
 
-import { POST } from "../route";
+import { GET, POST } from "../route";
 
 function makeRequest(body: unknown): NextRequest {
   return new NextRequest("http://localhost:4000/api/conversations", {
@@ -27,11 +29,122 @@ function makeRequest(body: unknown): NextRequest {
 
 beforeEach(() => {
   mockCreateConversation.mockReset();
+  mockListConversations.mockReset();
+  mockListConversations.mockResolvedValue([]);
 });
 
 afterEach(() => {
   vi.unstubAllEnvs();
 });
+
+// ── GET tests ─────────────────────────────────────────────────────────────────
+
+function makeGetRequest(qs: string): NextRequest {
+  return new NextRequest(`http://localhost:4000/api/conversations${qs ? `?${qs}` : ""}`, {
+    method: "GET",
+  });
+}
+
+describe("GET /api/conversations", () => {
+  it("passes multiple mode params as modes array to listConversations", async () => {
+    const req = makeGetRequest("mode=generate&mode=modify");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ modes: ["generate", "modify"] })
+    );
+  });
+
+  it("passes single mode param as a 1-element modes array", async () => {
+    const req = makeGetRequest("mode=analyze");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ modes: ["analyze"] })
+    );
+  });
+
+  it("passes undefined modes when no mode param given", async () => {
+    const req = makeGetRequest("");
+    await GET(req);
+    const opts = mockListConversations.mock.calls[0][0] as Record<string, unknown>;
+    expect(opts.modes).toBeUndefined();
+  });
+
+  it("passes only_archived=true when only_archived param is 'true'", async () => {
+    const req = makeGetRequest("only_archived=true");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ only_archived: true })
+    );
+  });
+
+  it("passes only_archived=false by default", async () => {
+    const req = makeGetRequest("");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ only_archived: false })
+    );
+  });
+
+  it("preserves include_archived=true for backward compat", async () => {
+    const req = makeGetRequest("include_archived=true");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ include_archived: true })
+    );
+  });
+
+  it("passes multiple context_kind params as context_kinds array", async () => {
+    const req = makeGetRequest("context_kind=dashboard&context_kind=home");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ context_kinds: ["dashboard", "home"] })
+    );
+  });
+
+  it("passes single context_kind param as a 1-element context_kinds array", async () => {
+    const req = makeGetRequest("context_kind=dashboard");
+    await GET(req);
+    expect(mockListConversations).toHaveBeenCalledWith(
+      expect.objectContaining({ context_kinds: ["dashboard"] })
+    );
+  });
+
+  it("passes undefined context_kinds when no context_kind param given", async () => {
+    const req = makeGetRequest("");
+    await GET(req);
+    const opts = mockListConversations.mock.calls[0][0] as Record<string, unknown>;
+    expect(opts.context_kinds).toBeUndefined();
+  });
+
+  it("returns 200 with array response", async () => {
+    const fakeRows = [{ id: "abc", mode: "generate" }];
+    mockListConversations.mockResolvedValue(fakeRows);
+    const req = makeGetRequest("");
+    const res = await GET(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual(fakeRows);
+  });
+
+  it("returns 400 for invalid since date", async () => {
+    const req = makeGetRequest("since=not-a-date");
+    const res = await GET(req);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("VALIDATION");
+  });
+
+  it("returns 500 when listConversations throws", async () => {
+    mockListConversations.mockRejectedValue(new Error("DB down"));
+    const req = makeGetRequest("");
+    const res = await GET(req);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("DB_ERROR");
+  });
+});
+
+// ── POST tests ────────────────────────────────────────────────────────────────
 
 describe("POST /api/conversations", () => {
   it("returns 400 for invalid JSON body", async () => {

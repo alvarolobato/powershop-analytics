@@ -75,10 +75,18 @@ export interface ConversationListRow extends ConversationRow {
 
 export interface ListConversationsOptions {
   context_kind?: string;
+  /** Multi-value context_kind filter. When non-empty, applied as `c.context_kind = ANY(...)`. */
+  context_kinds?: string[];
   context_ref?: string;
+  /** Single-mode filter (kept for back-compat). Superseded by `modes` when both are set. */
   mode?: string;
+  /** Multi-mode filter. When non-empty, applied as `c.mode = ANY(...)`. */
+  modes?: string[];
   since?: string;
+  /** When true, shows both active and archived rows (no archived_at filter). */
   include_archived?: boolean;
+  /** When true, shows ONLY archived rows (archived_at IS NOT NULL). Overrides include_archived. */
+  only_archived?: boolean;
   q?: string;
   page?: number;
   limit?: number;
@@ -168,7 +176,7 @@ export async function getConversationWithMessages(
 export async function listConversations(
   opts: ListConversationsOptions = {},
 ): Promise<ConversationListRow[]> {
-  const { page = 1, limit = 50, include_archived = false } = opts;
+  const { page = 1, limit = 50, include_archived = false, only_archived = false } = opts;
   const offset = (Math.max(1, page) - 1) * Math.min(200, Math.max(1, limit));
   const clampedLimit = Math.min(200, Math.max(1, limit));
 
@@ -176,20 +184,43 @@ export async function listConversations(
   const params: unknown[] = [];
   let idx = 1;
 
-  if (!include_archived) {
+  if (only_archived) {
+    conditions.push(`c.archived_at IS NOT NULL`);
+  } else if (!include_archived) {
     conditions.push(`c.archived_at IS NULL`);
   }
-  if (opts.context_kind) {
+  // Resolve context_kind filter: context_kinds[] takes precedence over single context_kind
+  const activeContextKinds =
+    opts.context_kinds && opts.context_kinds.length > 0
+      ? opts.context_kinds
+      : opts.context_kind
+        ? [opts.context_kind]
+        : [];
+  if (activeContextKinds.length === 1) {
     conditions.push(`c.context_kind = $${idx++}`);
-    params.push(opts.context_kind);
+    params.push(activeContextKinds[0]);
+  } else if (activeContextKinds.length > 1) {
+    conditions.push(`c.context_kind = ANY($${idx++}::text[])`);
+    params.push(activeContextKinds);
   }
   if (opts.context_ref) {
     conditions.push(`c.context_ref = $${idx++}`);
     params.push(opts.context_ref);
   }
-  if (opts.mode) {
+
+  // Resolve mode filter: `modes` array takes precedence over single `mode`
+  const activeModes =
+    opts.modes && opts.modes.length > 0
+      ? opts.modes
+      : opts.mode
+        ? [opts.mode]
+        : [];
+  if (activeModes.length === 1) {
     conditions.push(`c.mode = $${idx++}`);
-    params.push(opts.mode);
+    params.push(activeModes[0]);
+  } else if (activeModes.length > 1) {
+    conditions.push(`c.mode = ANY($${idx++}::text[])`);
+    params.push(activeModes);
   }
   if (opts.since) {
     conditions.push(`c.last_interaction_at >= $${idx++}`);
