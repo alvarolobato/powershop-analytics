@@ -243,6 +243,7 @@ describe("PATCH /api/conversations/:id", () => {
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.code).toBe("NOT_FOUND");
+    expect(body.details).toContain(VALID_ID);
   });
 
   it("returns 500 when database throws", async () => {

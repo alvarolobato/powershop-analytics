@@ -139,7 +139,12 @@ export async function PATCH(
     const updated = await getConversation(id);
     if (!updated) {
       return NextResponse.json(
-        formatApiError("Conversación no encontrada.", "NOT_FOUND", undefined, requestId),
+        formatApiError(
+          "Conversación no encontrada.",
+          "NOT_FOUND",
+          `No existe ninguna conversación con ID ${id}.`,
+          requestId,
+        ),
         { status: 404 },
       );
     }
