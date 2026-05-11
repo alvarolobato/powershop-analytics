@@ -311,9 +311,9 @@ flowchart LR
 
 The AI Factory's recovery and oversight layer has two tiers with distinct responsibilities:
 
-**Watchdog** (`ai-watchdog.yml`, every 30 min + on PR review and PR close events): fast, stateless, rule-per-object. Each of its 12 steps applies a deterministic if/then rule to a single issue or PR. No LLM involved — just `gh` CLI queries and label/dispatch operations. Designed to recover transient failures within minutes.
+**Watchdog** (`ai-watchdog.yml`, intended cadence: every 30 min + on PR review and PR close events — YAML change pending human commit per D-030): fast, stateless, rule-per-object. Each of its 12 steps applies a deterministic if/then rule to a single issue or PR. No LLM involved — just `gh` CLI queries and label/dispatch operations. Designed to recover transient failures within minutes.
 
-> **Schedule queue saturation (D-030):** The watchdog was originally configured `*/15 * * * *` but in practice fired every 3–4 hours — roughly 1/8 of the intended cadence. GitHub silently drops scheduled runs when a repo's cron queue is saturated; with 9+ active cron workflows competing for dispatch slots, the 15-min cadence was being observed as 1–4 h. The cron was bumped to `*/30` (halving schedule pressure) and two event triggers were added — `pull_request_review: [submitted]` and `pull_request: [closed]` — so the two most time-sensitive rules (clear `ai-ci-failing`, `ai-phase-opus` transition) fire within seconds of the relevant event rather than waiting up to 30 min for the next cron tick. See `DECISIONS-AND-CHANGES.md` D-030.
+> **Schedule queue saturation (D-030):** The watchdog was originally configured `*/15 * * * *` but in practice fired every 3–4 hours — roughly 1/8 of the intended cadence. GitHub silently drops scheduled runs when a repo's cron queue is saturated; with 9+ active cron workflows competing for dispatch slots, the 15-min cadence was being observed as 3–4 hours. The cron will be bumped to `*/30` (halving schedule pressure) and two event triggers will be added — `pull_request_review: [submitted]` and `pull_request: [closed]` — so the `ai-phase-opus` transition fires within seconds of Opus submitting a review, and label cleanup runs immediately on PR close. The `ai-ci-failing` clearance rule benefits primarily from the shorter cron cadence rather than from these specific event triggers. Pending: YAML change requires a human commit (D-029). See `DECISIONS-AND-CHANGES.md` D-030.
 
 **Factory Manager** (`ai-factory-manager.yml`, every 4 h): slow, stateful (reads full context across all objects), LLM reasoning (Opus) over the aggregate factory state. Handles what the watchdog structurally cannot: cross-PR patterns, strategic triage, stale/superseded issue cleanup, and enhancement proposals.
 
@@ -321,7 +321,7 @@ The two tiers complement, not compete: the watchdog handles per-object stalls fa
 
 | Watchdog step | Stays in watchdog | Reason |
 |---|:---:|---|
-| Stuck `ai-work` issues (labeled but no worker run ever fired) | ✅ | Time-sensitive (30 min fallback; event-triggered immediately on PR review/close) — rule is cheap |
+| Stuck `ai-work` issues (labeled but no worker run ever fired) | ✅ | Time-sensitive (≤ 30 min via cron) — rule is cheap |
 | Stuck `ai-in-progress` issues | ✅ | Same |
 | Sub-tasks with `ai-task` but no PR, no progress | ✅ | Rule-based threshold |
 | Re-enable auto-retry for exhausted `ai-task` issues | ✅ | Rule-based; no judgement needed |
