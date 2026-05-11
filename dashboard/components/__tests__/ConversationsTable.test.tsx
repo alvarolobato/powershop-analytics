@@ -10,8 +10,10 @@ import type { ConversationRow } from "@/app/conversations/types";
 // Mocks
 // ---------------------------------------------------------------------------
 
+const mockPush = vi.fn();
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: mockPush, replace: vi.fn() }),
   useParams: () => ({}),
 }));
 
@@ -84,6 +86,7 @@ describe("ConversationsTable", () => {
 
   beforeEach(() => {
     noop.mockClear();
+    mockPush.mockClear();
   });
 
   it("renders without crashing with empty list", () => {
@@ -110,7 +113,7 @@ describe("ConversationsTable", () => {
     expect(screen.getByText(/No hay conversaciones/)).toBeInTheDocument();
   });
 
-  it("renders all expected column headers", () => {
+  it("renders expected column headers and NOT removed columns", () => {
     render(
       <ConversationsTable
         conversations={MOCK_ROWS}
@@ -123,17 +126,19 @@ describe("ConversationsTable", () => {
     const headerTexts = Array.from(thead.querySelectorAll("th")).map((th) =>
       th.textContent?.replace(/[↑↓]/, "").trim()
     );
+    // Present columns
     expect(headerTexts).toContain("Título");
     expect(headerTexts).toContain("Tipo");
-    expect(headerTexts).toContain("Contexto");
     expect(headerTexts).toContain("Última actividad");
     expect(headerTexts).toContain("Creada");
     expect(headerTexts).toContain("Duración");
     expect(headerTexts).toContain("Actividad");
     expect(headerTexts).toContain("Tokens");
-    expect(headerTexts).toContain("Vista previa");
-    expect(headerTexts).toContain("Estado");
     expect(headerTexts).toContain("Acciones");
+    // Removed columns must not be present
+    expect(headerTexts).not.toContain("Contexto");
+    expect(headerTexts).not.toContain("Vista previa");
+    expect(headerTexts).not.toContain("Estado");
   });
 
   it("has no delete button or affordance", () => {
@@ -145,7 +150,6 @@ describe("ConversationsTable", () => {
       />
     );
     const container = screen.getByTestId("conversations-table");
-    // No button or link should say "Eliminar" or "Borrar"
     expect(within(container).queryByText(/[Ee]liminar/)).toBeNull();
     expect(within(container).queryByText(/[Bb]orrar/)).toBeNull();
     expect(within(container).queryByText(/[Dd]elete/)).toBeNull();
@@ -186,7 +190,6 @@ describe("ConversationsTable", () => {
       );
 
       MODES_EXPECTED.forEach(({ mode, expectedBg, expectedFg }) => {
-        // Find all pills with this mode
         const pills = document.querySelectorAll(`[data-mode="${mode}"]`);
         expect(pills.length).toBeGreaterThan(0);
         pills.forEach((pill) => {
@@ -225,11 +228,8 @@ describe("ConversationsTable", () => {
     expect(screen.getByText("¿Cuánto vendimos ayer?")).toBeInTheDocument();
   });
 
-  it("shows archived pill for archived conversations", () => {
-    const row = makeRow({
-      id: "a1",
-      archived_at: new Date().toISOString(),
-    });
+  it("clicking title cell navigates to /c/<id>", () => {
+    const row = makeRow({ id: "nav-title-1", title: "Navegar al hacer clic" });
     render(
       <ConversationsTable
         conversations={[row]}
@@ -237,67 +237,8 @@ describe("ConversationsTable", () => {
         onRename={noop}
       />
     );
-    const pill = screen.getByTestId(`status-pill-${row.id}`);
-    expect(pill).toHaveTextContent("Archivada");
-  });
-
-  it("shows 'Con errores' pill for error status", () => {
-    const row = makeRow({ id: "e1", last_status: "error" });
-    render(
-      <ConversationsTable
-        conversations={[row]}
-        onArchiveToggle={noop}
-        onRename={noop}
-      />
-    );
-    const pill = screen.getByTestId(`status-pill-${row.id}`);
-    expect(pill).toHaveTextContent("Con errores");
-  });
-
-  it("shows 'Activa' pill for active conversations", () => {
-    const row = makeRow({ id: "ok1", archived_at: null, last_status: "ok" });
-    render(
-      <ConversationsTable
-        conversations={[row]}
-        onArchiveToggle={noop}
-        onRename={noop}
-      />
-    );
-    const pill = screen.getByTestId(`status-pill-${row.id}`);
-    expect(pill).toHaveTextContent("Activa");
-  });
-
-  it("calls onArchiveToggle with correct args when archive action triggered", () => {
-    const onArchiveToggle = vi.fn();
-    const row = makeRow({ id: "arch1", archived_at: null });
-    render(
-      <ConversationsTable
-        conversations={[row]}
-        onArchiveToggle={onArchiveToggle}
-        onRename={noop}
-      />
-    );
-    const archiveBtn = screen.getByLabelText("Archivar");
-    fireEvent.click(archiveBtn);
-    expect(onArchiveToggle).toHaveBeenCalledWith("arch1", false);
-  });
-
-  it("calls onArchiveToggle with isArchived=true when unarchiving", () => {
-    const onArchiveToggle = vi.fn();
-    const row = makeRow({
-      id: "unarch1",
-      archived_at: new Date().toISOString(),
-    });
-    render(
-      <ConversationsTable
-        conversations={[row]}
-        onArchiveToggle={onArchiveToggle}
-        onRename={noop}
-      />
-    );
-    const unarchiveBtn = screen.getByLabelText("Desarchivar");
-    fireEvent.click(unarchiveBtn);
-    expect(onArchiveToggle).toHaveBeenCalledWith("unarch1", true);
+    fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
+    expect(mockPush).toHaveBeenCalledWith(`/c/${row.id}`);
   });
 
   it("shows bulk action bar when rows are selected", () => {
@@ -308,10 +249,8 @@ describe("ConversationsTable", () => {
         onRename={noop}
       />
     );
-    // No bulk bar initially
     expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
 
-    // Select first row
     const checkboxes = screen.getAllByRole("checkbox");
     fireEvent.click(checkboxes[1]); // index 0 is select-all
     expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
@@ -331,9 +270,7 @@ describe("ConversationsTable", () => {
       />
     );
 
-    // Select all
     fireEvent.click(screen.getByTestId("select-all-checkbox"));
-    // Click bulk archive
     fireEvent.click(screen.getByTestId("bulk-archive-btn"));
 
     expect(onArchiveToggle).toHaveBeenCalledTimes(2);
@@ -350,15 +287,12 @@ describe("ConversationsTable", () => {
       />
     );
     const sortBtn = screen.getByRole("button", { name: /Ordenar por Última actividad/ });
-    // Initially DESC (default) — click to toggle to ASC
     fireEvent.click(sortBtn);
-    // Click again → back to DESC
     fireEvent.click(sortBtn);
-    // Just verify it doesn't throw and the button is present
     expect(sortBtn).toBeInTheDocument();
   });
 
-  it("inline rename: clicking title opens rename input", () => {
+  it("inline rename: pencil button opens rename input", () => {
     const row = makeRow({ id: "rename1", title: "Título original" });
     render(
       <ConversationsTable
@@ -367,8 +301,8 @@ describe("ConversationsTable", () => {
         onRename={noop}
       />
     );
-    const titleCell = screen.getByTestId(`title-cell-${row.id}`);
-    fireEvent.click(titleCell);
+    const pencilBtn = screen.getByTestId(`rename-btn-${row.id}`);
+    fireEvent.click(pencilBtn);
     const input = screen.getByTestId(`rename-input-${row.id}`);
     expect(input).toBeInTheDocument();
     expect(input).toHaveValue("Título original");
@@ -384,7 +318,7 @@ describe("ConversationsTable", () => {
         onRename={onRename}
       />
     );
-    fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
+    fireEvent.click(screen.getByTestId(`rename-btn-${row.id}`));
     const input = screen.getByTestId(`rename-input-${row.id}`);
     fireEvent.change(input, { target: { value: "Nuevo título" } });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -401,11 +335,10 @@ describe("ConversationsTable", () => {
         onRename={onRename}
       />
     );
-    fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
+    fireEvent.click(screen.getByTestId(`rename-btn-${row.id}`));
     const input = screen.getByTestId(`rename-input-${row.id}`);
     fireEvent.keyDown(input, { key: "Escape" });
     expect(onRename).not.toHaveBeenCalled();
-    // Title cell should be visible again after cancel
     expect(screen.getByTestId(`title-cell-${row.id}`)).toBeInTheDocument();
   });
 
@@ -419,7 +352,7 @@ describe("ConversationsTable", () => {
         onRename={onRename}
       />
     );
-    fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
+    fireEvent.click(screen.getByTestId(`rename-btn-${row.id}`));
     const input = screen.getByTestId(`rename-input-${row.id}`);
     fireEvent.change(input, { target: { value: "" } });
     fireEvent.blur(input);
@@ -457,10 +390,8 @@ describe("ConversationsTable", () => {
       />
     );
     const rowCheckboxes = screen.getAllByRole("checkbox");
-    // Select first row
     fireEvent.click(rowCheckboxes[1]);
     expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
-    // Deselect it
     fireEvent.click(rowCheckboxes[1]);
     expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
   });
@@ -488,8 +419,8 @@ describe("ConversationsTable", () => {
       />
     );
     const sortBtn = screen.getByRole("button", { name: /Ordenar por Creada/ });
-    fireEvent.click(sortBtn); // → DESC
-    fireEvent.click(sortBtn); // → ASC
+    fireEvent.click(sortBtn);
+    fireEvent.click(sortBtn);
     expect(sortBtn).toBeInTheDocument();
   });
 
@@ -502,10 +433,8 @@ describe("ConversationsTable", () => {
         onRename={noop}
       />
     );
-    // Select all
     fireEvent.click(screen.getByTestId("select-all-checkbox"));
     expect(screen.getByTestId("bulk-action-bar")).toBeInTheDocument();
-    // Select all again → deselects
     fireEvent.click(screen.getByTestId("select-all-checkbox"));
     expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
   });
