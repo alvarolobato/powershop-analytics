@@ -122,7 +122,13 @@ export async function PATCH(
       );
     }
 
-    if (typeof b.title === "string" && b.title.trim() !== "") {
+    if (typeof b.title === "string") {
+      if (b.title.trim() === "") {
+        return NextResponse.json(
+          formatApiError("El campo 'title' no puede estar vacío.", "INVALID_BODY", undefined, requestId),
+          { status: 400 },
+        );
+      }
       await updateConversationTitle(id, b.title);
     }
 
@@ -131,6 +137,17 @@ export async function PATCH(
     }
 
     const updated = await getConversation(id);
+    if (!updated) {
+      return NextResponse.json(
+        formatApiError(
+          "Conversación no encontrada.",
+          "NOT_FOUND",
+          `No existe ninguna conversación con ID ${id}.`,
+          requestId,
+        ),
+        { status: 404 },
+      );
+    }
     return NextResponse.json(updated);
   } catch (err) {
     console.error(`[${requestId}] PATCH /api/conversations/${id} error:`, err);
