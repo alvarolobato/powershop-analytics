@@ -5,12 +5,10 @@ import type { ConversationRow } from "@/app/conversations/types";
 
 interface ConversationRowActionsProps {
   conversation: ConversationRow;
-  onArchiveToggle: (id: string, currentlyArchived: boolean) => void;
 }
 
 export function ConversationRowActions({
   conversation,
-  onArchiveToggle: _onArchiveToggle,
 }: ConversationRowActionsProps) {
   const router = useRouter();
   const isGlobal = conversation.context_kind === "global";

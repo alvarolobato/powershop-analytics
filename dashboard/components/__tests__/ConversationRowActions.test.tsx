@@ -50,18 +50,14 @@ function makeConv(overrides: Partial<ConversationRow> = {}): ConversationRow {
 // ---------------------------------------------------------------------------
 
 describe("ConversationRowActions", () => {
-  const noop = vi.fn();
-
   beforeEach(() => {
     mockPush.mockClear();
-    noop.mockClear();
   });
 
   it("renders only Continuar and Abrir en contexto buttons", () => {
     render(
       <ConversationRowActions
         conversation={makeConv()}
-        onArchiveToggle={noop}
       />
     );
     expect(screen.getByLabelText("Continuar")).toBeInTheDocument();
@@ -77,7 +73,6 @@ describe("ConversationRowActions", () => {
     render(
       <ConversationRowActions
         conversation={makeConv({ id: "nav-id-001" })}
-        onArchiveToggle={noop}
       />
     );
     fireEvent.click(screen.getByLabelText("Continuar"));
@@ -88,7 +83,6 @@ describe("ConversationRowActions", () => {
     render(
       <ConversationRowActions
         conversation={makeConv({ id: "ctx-id-002", context_kind: "dashboard" })}
-        onArchiveToggle={noop}
       />
     );
     fireEvent.click(screen.getByLabelText("Abrir en contexto"));
@@ -99,7 +93,6 @@ describe("ConversationRowActions", () => {
     render(
       <ConversationRowActions
         conversation={makeConv({ context_kind: "global" })}
-        onArchiveToggle={noop}
       />
     );
     const btn = screen.getByLabelText("Abrir en contexto (no disponible)");
@@ -112,8 +105,7 @@ describe("ConversationRowActions", () => {
       render(
         <ConversationRowActions
           conversation={makeConv()}
-          onArchiveToggle={noop}
-        />
+          />
       );
       const btn = screen.getByLabelText(label);
       expect(() => {
@@ -129,8 +121,7 @@ describe("ConversationRowActions", () => {
       <div role="row" onClick={parentClick}>
         <ConversationRowActions
           conversation={makeConv()}
-          onArchiveToggle={noop}
-        />
+          />
       </div>
     );
     fireEvent.click(screen.getByLabelText("Continuar"));

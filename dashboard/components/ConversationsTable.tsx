@@ -443,21 +443,26 @@ export function ConversationsTable({
                           overflow: "hidden",
                         }}
                       >
-                        <span
+                        <a
+                          href={`/c/${row.id}`}
                           title={displayTitle}
                           style={{
-                            cursor: "pointer",
+                            color: "inherit",
+                            textDecoration: "none",
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                             flex: 1,
                             minWidth: 0,
                           }}
-                          onClick={() => router.push(`/c/${row.id}`)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            router.push(`/c/${row.id}`);
+                          }}
                           data-testid={`title-cell-${row.id}`}
                         >
                           {displayTitle}
-                        </span>
+                        </a>
                         <button
                           type="button"
                           title="Renombrar"
@@ -550,7 +555,6 @@ export function ConversationsTable({
                   <td style={{ ...tdStyle, textAlign: "right", overflow: "visible" }}>
                     <ConversationRowActions
                       conversation={row}
-                      onArchiveToggle={onArchiveToggle}
                     />
                   </td>
                 </tr>

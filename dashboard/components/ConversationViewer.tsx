@@ -429,6 +429,18 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProp
   const [titleValue, setTitleValue] = useState(conv.title ?? conv.first_user_prompt ?? "");
   const [shareOpen, setShareOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
+  const shareRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!shareOpen) return;
+    function handleOutsideClick(e: MouseEvent) {
+      if (shareRef.current && !shareRef.current.contains(e.target as Node)) {
+        setShareOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [shareOpen]);
 
   const modeStyle = getModeStyle(conv.mode);
   const displayTitle = conv.title || conv.first_user_prompt || "Sin título";
@@ -572,7 +584,7 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProp
         </button>
 
         {/* Share dropdown */}
-        <div style={{ position: "relative" }}>
+        <div ref={shareRef} style={{ position: "relative" }}>
           <button
             onClick={() => setShareOpen((o) => !o)}
             title="Compartir"
