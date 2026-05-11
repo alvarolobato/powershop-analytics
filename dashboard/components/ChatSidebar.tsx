@@ -1471,6 +1471,15 @@ function AnalizarTab({
 // ChatSidebar — main component
 // ---------------------------------------------------------------------------
 
+const SIDEBAR_MIN_WIDTH = 280;
+const SIDEBAR_MAX_WIDTH_VW = 0.65;
+const SIDEBAR_STORAGE_KEY = "chat-sidebar-width";
+const SIDEBAR_DEFAULT_WIDTH = 380;
+
+function clampSidebarWidth(w: number): number {
+  return Math.max(SIDEBAR_MIN_WIDTH, Math.min(w, window.innerWidth * SIDEBAR_MAX_WIDTH_VW));
+}
+
 export default function ChatSidebar({
   spec,
   onSpecUpdate,
@@ -1526,6 +1535,52 @@ export default function ChatSidebar({
       setActiveTab(initialMode);
     }
   }, [initialMode]);
+
+  // -------------------------------------------------------------------------
+  // Sidebar resize state
+  // -------------------------------------------------------------------------
+
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    if (typeof window === "undefined") return SIDEBAR_DEFAULT_WIDTH;
+    const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
+    return stored ? clampSidebarWidth(Number(stored)) : SIDEBAR_DEFAULT_WIDTH;
+  });
+  const isResizingRef = useRef(false);
+  const resizeStartXRef = useRef(0);
+  const resizeStartWidthRef = useRef(0);
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      const delta = resizeStartXRef.current - e.clientX;
+      const newWidth = clampSidebarWidth(resizeStartWidthRef.current + delta);
+      setSidebarWidth(newWidth);
+    };
+    const onMouseUp = (e: MouseEvent) => {
+      if (!isResizingRef.current) return;
+      isResizingRef.current = false;
+      const delta = resizeStartXRef.current - e.clientX;
+      const newWidth = clampSidebarWidth(resizeStartWidthRef.current + delta);
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, newWidth.toString());
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRef.current = true;
+    resizeStartXRef.current = e.clientX;
+    resizeStartWidthRef.current = sidebarWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [sidebarWidth]);
 
   // -------------------------------------------------------------------------
   // Conversation history state
@@ -1664,7 +1719,7 @@ export default function ChatSidebar({
         top: 56,
         right: 0,
         bottom: 0,
-        width: 380,
+        width: sidebarWidth,
         background: "var(--bg-1)",
         borderLeft: "1px solid var(--border)",
         display: "flex",
@@ -1672,6 +1727,20 @@ export default function ChatSidebar({
         zIndex: 15,
       }}
     >
+      {/* Drag handle — left edge */}
+      <div
+        onMouseDown={handleResizeMouseDown}
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          width: 6,
+          bottom: 0,
+          cursor: "col-resize",
+          zIndex: 20,
+        }}
+        title="Arrastrar para cambiar el ancho"
+      />
       {/* Header */}
       <header
         style={{ padding: "12px 16px 0", borderBottom: "1px solid var(--border)", position: "relative" }}
