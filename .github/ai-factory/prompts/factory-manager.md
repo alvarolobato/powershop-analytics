@@ -103,7 +103,7 @@ The `<!-- manager-run: <ISO date> -->` HTML comment is the idempotency marker. B
 
 **Example — branch 2 (delta append):**
 
-The delta block goes **before** the marker, keeping `<!-- manager-run: YYYY-MM-DD -->` as the literal last line (so the marker stays findable by `grep` / the idempotency-check substring match in this prompt's branch-1 check):
+The delta block goes **before** the marker, keeping `<!-- manager-run: YYYY-MM-DD -->` as the literal last line. This matches the original session-report template above ("Use exactly this structure" with the marker as the trailing line) so manual readers, future tooling, and any anchor-based diffing stay consistent across single-pass and multi-delta same-day comments:
 
 ```
 ## 🏭 Factory Manager — 2026-05-11
