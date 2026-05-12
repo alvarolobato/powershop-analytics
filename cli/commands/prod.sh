@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # ps prod — Drive the production stack from your local machine.
 #
+# Production uses a flat Docker Hub deployment (no git checkout).
+# The compose file pulls pre-built images from Docker Hub.
+#
 # Configuration (in priority order: env > ~/.config/powershop-analytics/.env > defaults):
-#   PROD_HOST   ssh target. Default: alvarolobato@192.168.1.238
-#   PROD_PATH   Path on prod where the repo lives. Default: /Users/alvarolobato/powershop
-#   PROD_BRANCH Branch to keep prod on. Default: main
+#   PROD_HOST   ssh target (e.g. user@host). No default — must be set in .env.
+#   PROD_PATH   Deployment directory on prod. No default — must be set in .env.
 #
 # Subcommands:
-#   bootstrap          One-time conversion of prod's flat directory to a git checkout
-#   deploy             git pull on prod + docker compose up -d --build
+#   deploy             Pull latest Docker Hub images and restart the stack
+#   update             Full update: download new compose/config from latest release + deploy
 #   restart [svc]      docker compose restart [<service>]
-#   status             docker compose ps + token-state summary
+#   status             docker compose ps + version + health checks + token state
 #   logs [svc]         docker compose logs -f --tail 100 [<service>]
+#   version            Show the version running on prod
+#   health             Run health checks against prod services
 #   token-status       Show the prod Claude OAuth expiry (no ssh shell)
 #   login              Interactive ssh -t for `claude /login` on prod
 #   ssh                Open a shell on prod
@@ -19,14 +23,18 @@ set -e
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 
-PROD_HOST="${PROD_HOST:-alvarolobato@192.168.1.238}"
-PROD_PATH="${PROD_PATH:-/Users/alvarolobato/powershop}"
-PROD_BRANCH="${PROD_BRANCH:-main}"
+PROD_HOST="${PROD_HOST:-}"
+PROD_PATH="${PROD_PATH:-}"
+
+GITHUB_REPO="alvarolobato/powershop-analytics"
+GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}"
+GITHUB_RELEASE_DL="https://github.com/${GITHUB_REPO}/releases/download"
 
 CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+DIM='\033[2m'
 NC='\033[0m'
 
 usage() {
@@ -34,16 +42,20 @@ usage() {
 Usage: ps prod <subcommand> [args]
 
 Configuration (set in ~/.config/powershop-analytics/.env or shell env):
-  PROD_HOST     ssh target (default: alvarolobato@192.168.1.238)
-  PROD_PATH     repo path on prod (default: /Users/alvarolobato/powershop)
-  PROD_BRANCH   branch to track (default: main)
+  PROD_HOST     ssh target (e.g. user@host; required — set in .env)
+  PROD_PATH     deployment dir on prod (required — set in .env)
 
-Subcommands:
-  bootstrap         One-time conversion of prod into a git checkout
-  deploy            Pull latest on prod and rebuild/restart the stack
+Stack operations:
+  deploy            Pull latest Docker Hub images and restart the stack
+  update            Full update: new compose/config from latest GitHub release + deploy
   restart [svc]     Restart all services or a specific one
-  status            Show docker compose ps + token-state summary
+  status            Container status + version + health checks + token state
   logs [svc]        Tail logs (follow); optional service name
+  version           Show prod version (.version file)
+  health            Run health checks against all prod services
+
+Maintenance:
+  push-config       Upload local wren-config.yaml to prod (restarts wren-ai-service)
   token-status      Show prod Claude OAuth expiry hours
   login             Open interactive ssh and run "claude /login" on prod
   ssh               Open a shell on prod
@@ -52,15 +64,20 @@ EOF
 
 require_prod_host() {
     if [ -z "$PROD_HOST" ]; then
-        echo -e "${RED}ps prod: PROD_HOST is empty. Set it in ~/.config/powershop-analytics/.env or the shell.${NC}" >&2
+        echo -e "${RED}ps prod: PROD_HOST is not set. Add it to ~/.config/powershop-analytics/.env${NC}" >&2
+        echo -e "${RED}  Example: PROD_HOST=user@192.168.1.100${NC}" >&2
+        exit 2
+    fi
+    if [ -z "$PROD_PATH" ]; then
+        echo -e "${RED}ps prod: PROD_PATH is not set. Add it to ~/.config/powershop-analytics/.env${NC}" >&2
+        echo -e "${RED}  Example: PROD_PATH=/home/user/powershop${NC}" >&2
         exit 2
     fi
 }
 
-# Compose command with the prod override file. Single-line so it ships well
-# through ssh "..." quoting; the prod override path is relative to PROD_PATH.
+# Compose command for the flat prod deployment (single compose file).
 prod_compose_cmd() {
-    printf 'docker compose -f docker-compose.yml -f prod/docker-compose.override.prod.yml'
+    printf 'docker compose'
 }
 
 # Remote runner. We pass the command through `bash -lc` so the user's PATH
@@ -78,22 +95,69 @@ remote_tty() {
     ssh -t "$PROD_HOST" "bash -lc $(printf '%q' "$*")"
 }
 
-cmd_bootstrap() {
-    require_prod_host
-    echo -e "${CYAN}Bootstrap on $PROD_HOST → $PROD_PATH${NC}"
-    # Copy the bootstrap script in (it may not be on prod yet) and run it.
-    local tmp_remote="/tmp/prod-bootstrap-$(date +%s).sh"
-    scp "${REPO_ROOT}/scripts/prod-bootstrap.sh" "${PROD_HOST}:${tmp_remote}"
-    ssh -t "$PROD_HOST" "bash -lc 'PROD_PATH=$(printf %q "$PROD_PATH") BRANCH=$(printf %q "$PROD_BRANCH") bash $tmp_remote'"
-    ssh "$PROD_HOST" "rm -f $tmp_remote"
-}
-
+# ---------------------------------------------------------------------------
+# deploy — pull latest images from Docker Hub and restart
+# ---------------------------------------------------------------------------
 cmd_deploy() {
-    echo -e "${CYAN}Deploying to $PROD_HOST → $PROD_PATH (branch $PROD_BRANCH)${NC}"
-    remote "cd $(printf %q "$PROD_PATH") && git fetch origin $(printf %q "$PROD_BRANCH") && git checkout $(printf %q "$PROD_BRANCH") && git pull --ff-only origin $(printf %q "$PROD_BRANCH") && $(prod_compose_cmd) up -d --build"
-    echo -e "${GREEN}Deploy complete.${NC}"
+    echo -e "${CYAN}Deploying to $PROD_HOST → $PROD_PATH${NC}"
+    echo -e "${DIM}Pulling latest Docker Hub images...${NC}"
+    remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) pull"
+    echo -e "${DIM}Restarting stack...${NC}"
+    remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) up -d"
+    echo
+    echo -e "${GREEN}Deploy complete.${NC} Run 'ps prod health' to verify."
 }
 
+# ---------------------------------------------------------------------------
+# update — download new compose/config files from latest GitHub release, then deploy
+# ---------------------------------------------------------------------------
+cmd_update() {
+    echo -e "${CYAN}Checking for updates...${NC}"
+
+    # Determine current version on prod
+    local current=""
+    current=$(remote "cat $(printf %q "$PROD_PATH")/.version 2>/dev/null" || true)
+
+    # Resolve latest release from GitHub API
+    local latest=""
+    latest=$(curl -fsSL "${GITHUB_API}/releases/latest" 2>/dev/null \
+        | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+
+    if [ -z "$latest" ]; then
+        # Fall back to latest pre-release (beta channel)
+        latest=$(curl -fsSL "${GITHUB_API}/releases" 2>/dev/null \
+            | python3 -c 'import json,sys; releases=json.load(sys.stdin); print(next((r["tag_name"] for r in releases), ""))' 2>/dev/null || true)
+    fi
+
+    if [ -z "$latest" ]; then
+        echo -e "${RED}Could not determine latest release from GitHub.${NC}" >&2
+        exit 1
+    fi
+
+    if [ "$latest" = "$current" ]; then
+        echo -e "${GREEN}Already on latest version: ${latest}${NC}"
+        echo -e "${DIM}To force a re-pull of images, run: ps prod deploy${NC}"
+        return 0
+    fi
+
+    echo -e "${CYAN}Updating from ${current:-unknown} to ${latest}...${NC}"
+
+    # Download updated compose and config files to prod
+    echo -e "${DIM}Downloading stack files from release ${latest}...${NC}"
+    remote "cd $(printf %q "$PROD_PATH") && \
+        curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/docker-compose.prod.yml' -o docker-compose.yml && \
+        curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/wren-config.yaml' -o wren-config.yaml && \
+        echo '${latest}' > .version"
+
+    echo -e "${GREEN}Stack files updated to ${latest}.${NC}"
+
+    # Now deploy (pull images + restart)
+    cmd_deploy
+}
+
+# ---------------------------------------------------------------------------
+# restart
+# ---------------------------------------------------------------------------
 cmd_restart() {
     local svc="${1:-}"
     if [ -n "$svc" ]; then
@@ -105,13 +169,30 @@ cmd_restart() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# status — containers + version + health + token
+# ---------------------------------------------------------------------------
 cmd_status() {
-    echo -e "${CYAN}Services on $PROD_HOST:${NC}"
+    echo -e "${CYAN}Production: $PROD_HOST → $PROD_PATH${NC}"
+    echo
+
+    # Version
+    local version
+    version=$(remote "cat $(printf %q "$PROD_PATH")/.version 2>/dev/null" || echo "unknown")
+    echo -e "  Version: ${GREEN}${version}${NC}"
+    echo
+
+    # Container status
+    echo -e "${CYAN}Services:${NC}"
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) ps"
     echo
+
     cmd_token_status
 }
 
+# ---------------------------------------------------------------------------
+# logs
+# ---------------------------------------------------------------------------
 cmd_logs() {
     local svc="${1:-}"
     if [ -n "$svc" ]; then
@@ -121,6 +202,91 @@ cmd_logs() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# version
+# ---------------------------------------------------------------------------
+cmd_version() {
+    local version
+    version=$(remote "cat $(printf %q "$PROD_PATH")/.version 2>/dev/null" || echo "unknown")
+    echo "prod: ${version}"
+}
+
+# ---------------------------------------------------------------------------
+# health — check all prod services
+# ---------------------------------------------------------------------------
+cmd_health() {
+    require_prod_host
+    echo -e "${CYAN}Running health checks on $PROD_HOST...${NC}"
+    echo
+
+    local all_ok=true
+    local prod_ip
+    prod_ip=$(echo "$PROD_HOST" | sed 's/.*@//')
+
+    # PostgreSQL — check via docker exec on prod
+    printf "  %-20s" "PostgreSQL:"
+    if remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) exec -T postgres pg_isready -q" 2>/dev/null; then
+        echo -e "${GREEN}healthy${NC}"
+    else
+        echo -e "${RED}unreachable${NC}"
+        all_ok=false
+    fi
+
+    # WrenAI UI — curl from prod localhost
+    printf "  %-20s" "WrenAI UI:"
+    if remote "curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1"; then
+        echo -e "${GREEN}healthy${NC}"
+    else
+        echo -e "${YELLOW}not responding (may still be starting)${NC}"
+        all_ok=false
+    fi
+
+    # WrenAI AI Service
+    printf "  %-20s" "WrenAI AI Service:"
+    if remote "curl -fsSL --max-time 5 http://localhost:5555 >/dev/null 2>&1"; then
+        echo -e "${GREEN}healthy${NC}"
+    else
+        echo -e "${YELLOW}not responding${NC}"
+        all_ok=false
+    fi
+
+    # Dashboard
+    printf "  %-20s" "Dashboard:"
+    if remote "curl -fsSL --max-time 5 http://localhost:4000/api/health >/dev/null 2>&1"; then
+        echo -e "${GREEN}healthy${NC}"
+    else
+        echo -e "${YELLOW}not responding${NC}"
+        all_ok=false
+    fi
+
+    echo
+    if [ "$all_ok" = true ]; then
+        echo -e "${GREEN}All services healthy.${NC}"
+    else
+        echo -e "${YELLOW}Some services are not healthy. Run 'ps prod logs' for details.${NC}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# push-config — upload local wren-config.yaml to prod
+# ---------------------------------------------------------------------------
+cmd_push_config() {
+    require_prod_host
+    local local_config="${REPO_ROOT}/wren-config.yaml"
+    if [ ! -f "$local_config" ]; then
+        echo -e "${RED}Local wren-config.yaml not found at ${local_config}${NC}" >&2
+        exit 1
+    fi
+    echo -e "${CYAN}Uploading wren-config.yaml to prod...${NC}"
+    scp "$local_config" "${PROD_HOST}:${PROD_PATH}/wren-config.yaml"
+    echo -e "${DIM}Restarting wren-ai-service to pick up new config...${NC}"
+    remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) restart wren-ai-service"
+    echo -e "${GREEN}Config pushed and service restarted.${NC}"
+}
+
+# ---------------------------------------------------------------------------
+# token-status
+# ---------------------------------------------------------------------------
 cmd_token_status() {
     require_prod_host
     # Read the credentials snapshot file (managed by the launchd agent on prod).
@@ -150,11 +316,13 @@ print(f"  access_token expires in {hours}h ({state})")
 '
 }
 
+# ---------------------------------------------------------------------------
+# login / ssh
+# ---------------------------------------------------------------------------
 cmd_login() {
     require_prod_host
     echo -e "${CYAN}Opening interactive ssh to run \`claude /login\` on $PROD_HOST.${NC}"
     echo -e "${YELLOW}After /login completes, the next launchd cycle (within 2h) will sync the token.${NC}"
-    echo -e "${YELLOW}For an immediate sync run: ssh $PROD_HOST bash $PROD_PATH/scripts/sync-claude-token.sh${NC}"
     echo
     ssh -t "$PROD_HOST" 'bash -lc "claude /login"'
 }
@@ -164,6 +332,9 @@ cmd_ssh() {
     exec ssh -t "$PROD_HOST"
 }
 
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
 SUBCMD="${1:-}"
 if [ -z "$SUBCMD" ] || [ "$SUBCMD" = "-h" ] || [ "$SUBCMD" = "--help" ] || [ "$SUBCMD" = "help" ]; then
     usage
@@ -172,11 +343,14 @@ fi
 shift || true
 
 case "$SUBCMD" in
-    bootstrap)     cmd_bootstrap "$@" ;;
     deploy)        cmd_deploy "$@" ;;
+    update)        cmd_update "$@" ;;
     restart)       cmd_restart "$@" ;;
     status)        cmd_status "$@" ;;
     logs)          cmd_logs "$@" ;;
+    version)       cmd_version "$@" ;;
+    health)        cmd_health "$@" ;;
+    push-config)   cmd_push_config "$@" ;;
     token-status)  cmd_token_status "$@" ;;
     login)         cmd_login "$@" ;;
     ssh)           cmd_ssh "$@" ;;

@@ -4,8 +4,8 @@
 #   docker compose -f docker-compose.yml -f prod/docker-compose.override.prod.yml up -d --build
 #
 # The base docker-compose.yml already runs cleanly on the prod Mac
-# (alvarolobato@192.168.1.238:/Users/alvarolobato/powershop). Prod-specific
-# environment values come from /Users/alvarolobato/powershop/.env (or the
+# (configured via PROD_HOST / PROD_PATH in .env). Prod-specific
+# environment values come from the deployment directory's .env (or the
 # centralized ~/.config/powershop-analytics/.env) — that's where you put a
 # distinct POSTGRES_PASSWORD, ADMIN_API_KEY, OPENROUTER_API_KEY (only if
 # DASHBOARD_LLM_PROVIDER=openrouter), DASHBOARD_PORT, etc.

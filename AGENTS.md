@@ -75,11 +75,14 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 | `ps dashboard logs` | Show dashboard container logs |
 | `ps dashboard restart` | Restart the dashboard container |
 | `ps dashboard status` | Show dashboard container status |
-| `ps prod bootstrap` | One-time: convert prod's flat directory into a git checkout (preserves `data/`, `.env`, `wren-config.yaml`) |
-| `ps prod deploy` | `git pull` on prod + `docker compose up -d --build` with the prod override |
+| `ps prod deploy` | Pull latest Docker Hub images on prod and restart the stack |
+| `ps prod update` | Full update: download new compose/config from latest GitHub release + deploy |
 | `ps prod restart [svc]` | Restart all services on prod, or a named one |
-| `ps prod status` | `docker compose ps` on prod + Claude token expiry summary |
+| `ps prod status` | Container status + version + health checks + token state |
 | `ps prod logs [svc]` | Tail prod logs (follow); optional service |
+| `ps prod version` | Show the version running on prod |
+| `ps prod health` | Run health checks against all prod services |
+| `ps prod push-config` | Upload local wren-config.yaml to prod and restart wren-ai-service |
 | `ps prod token-status` | Show prod's Claude OAuth access-token expiry hours |
 | `ps prod login` | Interactive `ssh -t` to run `claude /login` on prod |
 | `ps prod ssh` | Open a shell on prod |
