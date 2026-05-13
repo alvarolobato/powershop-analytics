@@ -5,7 +5,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { DashboardSpec } from "@/lib/schema";
-import { isApiErrorResponse } from "@/lib/errors";
+import { isApiErrorResponse, generateRequestId } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { WidgetState } from "@/components/DashboardRenderer";
 import LogBlock from "@/components/LogBlock";
@@ -21,6 +21,47 @@ import {
   isAssistantContent,
 } from "@/lib/conversation-types";
 import type { InitialContext, MessageContent } from "@/lib/conversation-types";
+
+// ---------------------------------------------------------------------------
+// Error helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract a user-facing message and a structured ApiErrorResponse from an
+ * unknown API error body (JSON or raw). When the body isn't a proper
+ * ApiErrorResponse we still surface the raw `.error` / `.message` field and
+ * wrap the whole body in a synthetic ApiErrorResponse so the ErrorBubble
+ * "Detalles técnicos" section shows something meaningful instead of nothing.
+ */
+function parseApiError(
+  errBody: unknown,
+  httpStatus: number,
+  fallbackMsg: string,
+): { userMsg: string; errorDetail: ApiErrorResponse } {
+  if (isApiErrorResponse(errBody)) {
+    return { userMsg: errBody.error, errorDetail: errBody };
+  }
+  // Not a proper ApiErrorResponse — still try to extract a message.
+  const raw = errBody as Record<string, unknown> | null | undefined;
+  const extracted =
+    (typeof raw?.error === "string" && raw.error) ||
+    (typeof raw?.message === "string" && raw.message) ||
+    null;
+  const userMsg = extracted ?? fallbackMsg;
+  // Wrap raw body as `details` so it's visible in the error panel.
+  const details =
+    raw !== null && raw !== undefined
+      ? JSON.stringify(raw, null, 2).slice(0, 1000)
+      : `HTTP ${httpStatus}`;
+  const errorDetail: ApiErrorResponse = {
+    error: userMsg,
+    code: httpStatus >= 500 ? "UNKNOWN" : "UNKNOWN",
+    details,
+    timestamp: new Date().toISOString(),
+    requestId: generateRequestId(),
+  };
+  return { userMsg, errorDetail };
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -732,17 +773,14 @@ function ModificarTab({
 
         if (errorFrame) {
           const httpStatus = errorFrame.httpStatus ?? 500;
-          const errorDetail: ApiErrorResponse | undefined = isApiErrorResponse(errorFrame)
-            ? (errorFrame as unknown as ApiErrorResponse)
-            : undefined;
-          const baseMsg = errorFrame.error
-            ?? (httpStatus >= 500
-              ? "Error interno del servidor. Inténtalo de nuevo."
-              : "No se pudo aplicar la modificación. Revisa tu petición.");
+          const fallback = httpStatus >= 500
+            ? "Error interno del servidor. Inténtalo de nuevo."
+            : "No se pudo aplicar la modificación. Revisa tu petición.";
+          const { userMsg: baseMsg, errorDetail } = parseApiError(errorFrame, httpStatus, fallback);
           const userMsg = httpStatus === 429
             ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
             : baseMsg;
-          console.error("Modify API error (stream):", errorDetail ?? userMsg);
+          console.error("Modify API error (stream):", errorDetail);
           appendAssistant({
             role: "assistant",
             content: userMsg,
@@ -794,32 +832,24 @@ function ModificarTab({
       // Legacy JSON path (fast / single-shot / validation errors).
       // -------------------------------------------------------------------
       if (!res.ok) {
-        let errorDetail: ApiErrorResponse | undefined;
+        const fallback = res.status >= 500
+          ? "Error interno del servidor. Inténtalo de nuevo."
+          : "No se pudo aplicar la modificación. Revisa tu petición.";
+        let errorDetail: ApiErrorResponse;
         let userMsg: string;
 
         try {
           const errBody = await res.json();
-          if (isApiErrorResponse(errBody)) {
-            errorDetail = errBody;
-            userMsg = errBody.error;
-          } else {
-            userMsg =
-              res.status >= 500
-                ? "Error interno del servidor. Inténtalo de nuevo."
-                : "No se pudo aplicar la modificación. Revisa tu petición.";
-          }
+          ({ userMsg, errorDetail } = parseApiError(errBody, res.status, fallback));
         } catch {
-          userMsg =
-            res.status >= 500
-              ? "Error interno del servidor. Inténtalo de nuevo."
-              : "No se pudo aplicar la modificación. Revisa tu petición.";
+          ({ userMsg, errorDetail } = parseApiError(null, res.status, fallback));
         }
 
         if (res.status === 429) {
           userMsg = "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos.";
         }
 
-        console.error("Modify API error:", errorDetail ?? userMsg);
+        console.error("Modify API error:", errorDetail);
 
         appendAssistant({
           role: "assistant",
@@ -1164,17 +1194,14 @@ function AnalizarTab({
 
           if (errorFrame) {
             const httpStatus = errorFrame.httpStatus ?? 500;
-            const errorDetail: ApiErrorResponse | undefined = isApiErrorResponse(errorFrame)
-              ? (errorFrame as unknown as ApiErrorResponse)
-              : undefined;
-            const baseMsg = errorFrame.error
-              ?? (httpStatus >= 500
-                ? "Error interno del servidor. Inténtalo de nuevo."
-                : "No se pudo analizar los datos. Revisa tu petición.");
+            const fallback = httpStatus >= 500
+              ? "Error interno del servidor. Inténtalo de nuevo."
+              : "No se pudo analizar los datos. Revisa tu petición.";
+            const { userMsg: baseMsg, errorDetail } = parseApiError(errorFrame, httpStatus, fallback);
             const userMsg = httpStatus === 429
               ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
               : baseMsg;
-            console.error("Analyze API error (stream):", errorDetail ?? userMsg);
+            console.error("Analyze API error (stream):", errorDetail);
             appendAssistant({
               role: "assistant",
               content: userMsg,
@@ -1215,32 +1242,24 @@ function AnalizarTab({
         // Legacy JSON path (fast / single-shot / validation errors).
         // -----------------------------------------------------------------
         if (!res.ok) {
-          let errorDetail: ApiErrorResponse | undefined;
+          const fallback = res.status >= 500
+            ? "Error interno del servidor. Inténtalo de nuevo."
+            : "No se pudo analizar los datos. Revisa tu petición.";
+          let errorDetail: ApiErrorResponse;
           let userMsg: string;
 
           try {
             const errBody = await res.json();
-            if (isApiErrorResponse(errBody)) {
-              errorDetail = errBody;
-              userMsg = errBody.error;
-            } else {
-              userMsg =
-                res.status >= 500
-                  ? "Error interno del servidor. Inténtalo de nuevo."
-                  : "No se pudo analizar los datos. Revisa tu petición.";
-            }
+            ({ userMsg, errorDetail } = parseApiError(errBody, res.status, fallback));
           } catch {
-            userMsg =
-              res.status >= 500
-                ? "Error interno del servidor. Inténtalo de nuevo."
-                : "No se pudo analizar los datos. Revisa tu petición.";
+            ({ userMsg, errorDetail } = parseApiError(null, res.status, fallback));
           }
 
           if (res.status === 429) {
             userMsg = "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos.";
           }
 
-          console.error("Analyze API error:", errorDetail ?? userMsg);
+          console.error("Analyze API error:", errorDetail);
 
           appendAssistant({
             role: "assistant",

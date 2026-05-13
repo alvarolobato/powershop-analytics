@@ -64,19 +64,26 @@ export type SystemConfig = Record<string, ConfigValue>;
 // ---------------------------------------------------------------------------
 
 function resolveSchemaPath(): string {
-  // In Docker the app lives at /app (Next.js); schema is at /app/../config/schema.yaml
-  // via COPY in Dockerfile. In dev it's relative to the dashboard dir.
+  // Candidates in priority order:
+  //   1. Explicit override via env var (always wins).
+  //   2. /app/config/schema.yaml — the path where Dockerfile COPYs the file
+  //      in the standalone image (process.cwd() inside standalone is
+  //      /app/.next/server, so relative paths from cwd are unreliable).
+  //   3. Relative to cwd for local dev (dashboard/ is cwd when running `next dev`).
+  //   4. Repo-root relative to this source file (tests running in dashboard/).
   const candidates = [
     process.env.CONFIG_SCHEMA_PATH,
-    path.resolve(process.cwd(), "..", "config", "schema.yaml"),
+    "/app/config/schema.yaml",
     path.resolve(process.cwd(), "config", "schema.yaml"),
+    path.resolve(process.cwd(), "..", "config", "schema.yaml"),
+    path.resolve(__dirname, "..", "..", "..", "config", "schema.yaml"),
   ].filter(Boolean) as string[];
 
   for (const c of candidates) {
     if (fs.existsSync(c)) return c;
   }
-  // Fallback: repo root relative to this file (for tests running in dashboard/)
-  return path.resolve(__dirname, "..", "..", "..", "config", "schema.yaml");
+  // Return the Docker path so the error message is unambiguous.
+  return "/app/config/schema.yaml";
 }
 
 function resolveConfigPath(): string {

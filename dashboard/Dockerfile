@@ -32,6 +32,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# Schema file must be at /app/config/schema.yaml at runtime (resolveSchemaPath priority #2).
+COPY --chown=nextjs:nodejs config/schema.yaml /app/config/schema.yaml
 COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
 
 USER nextjs

@@ -1,0 +1,132 @@
+# PowerShop Analytics — Dashboard configuration schema
+# Each entry defines a config key, its env-var mapping, type, default, and metadata.
+# The loader (lib/system-config/loader.ts) reads this file at runtime.
+# Precedence: env vars > config.yaml > defaults defined here.
+
+- key: dashboard.llm_provider
+  env: DASHBOARD_LLM_PROVIDER
+  type: enum
+  enum_values: [cli, openrouter]
+  sensitive: false
+  default: cli
+  section: LLM
+  description: "Proveedor LLM: 'cli' usa Claude Code local (OAuth), 'openrouter' usa la API de OpenRouter."
+  requires_restart: []
+
+- key: dashboard.llm_model_openrouter
+  env: DASHBOARD_LLM_MODEL_OPENROUTER
+  type: string
+  sensitive: false
+  default: "anthropic/claude-sonnet-4"
+  section: LLM
+  description: "Modelo OpenRouter por defecto para todas las operaciones (generate, modify, analyze)."
+  requires_restart: []
+
+- key: dashboard.llm_model_openrouter_generate
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_GENERATE
+  type: string
+  sensitive: false
+  default: null
+  section: LLM
+  description: "Override de modelo OpenRouter para generación de dashboards (vacío = usa llm_model_openrouter)."
+  requires_restart: []
+
+- key: dashboard.llm_model_openrouter_modify
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_MODIFY
+  type: string
+  sensitive: false
+  default: null
+  section: LLM
+  description: "Override de modelo OpenRouter para modificación de dashboards (vacío = usa llm_model_openrouter)."
+  requires_restart: []
+
+- key: dashboard.llm_model_openrouter_analyze
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_ANALYZE
+  type: string
+  sensitive: false
+  default: null
+  section: LLM
+  description: "Override de modelo OpenRouter para análisis (vacío = usa llm_model_openrouter)."
+  requires_restart: []
+
+- key: dashboard.llm_model_openrouter_weekly
+  env: DASHBOARD_LLM_MODEL_OPENROUTER_WEEKLY
+  type: string
+  sensitive: false
+  default: null
+  section: LLM
+  description: "Override de modelo OpenRouter para revisiones semanales (vacío = usa llm_model_openrouter)."
+  requires_restart: []
+
+- key: dashboard.llm_model_cli
+  env: DASHBOARD_LLM_MODEL_CLI
+  type: string
+  sensitive: false
+  default: "claude-sonnet-4-6"
+  section: LLM
+  description: "Modelo Claude para el proveedor CLI (--model flag)."
+  requires_restart: []
+
+- key: dashboard.llm_cli_driver
+  env: DASHBOARD_LLM_CLI_DRIVER
+  type: enum
+  enum_values: [claude_code]
+  sensitive: false
+  default: claude_code
+  section: LLM
+  description: "Driver CLI a usar (actualmente solo 'claude_code')."
+  requires_restart: []
+
+- key: dashboard.llm_cli_bin
+  env: DASHBOARD_LLM_CLI_BIN
+  type: string
+  sensitive: false
+  default: "claude"
+  section: LLM
+  description: "Ruta o nombre del binario Claude CLI."
+  requires_restart: []
+
+- key: dashboard.llm_cli_extra_args
+  env: DASHBOARD_LLM_CLI_EXTRA_ARGS
+  type: string
+  sensitive: false
+  default: null
+  section: LLM
+  description: "Argumentos extra para el CLI de Claude (separados por espacios)."
+  requires_restart: []
+
+- key: dashboard.llm_cli_timeout_ms
+  env: DASHBOARD_LLM_CLI_TIMEOUT_MS
+  type: int
+  sensitive: false
+  default: 120000
+  section: LLM
+  description: "Tiempo máximo de espera para una llamada CLI (milisegundos)."
+  requires_restart: []
+
+- key: dashboard.llm_cli_max_capture_bytes
+  env: DASHBOARD_LLM_CLI_MAX_CAPTURE_BYTES
+  type: int
+  sensitive: false
+  default: 8000000
+  section: LLM
+  description: "Bytes máximos capturados de la salida del CLI antes de truncar."
+  requires_restart: []
+
+- key: dashboard.llm_daily_budget_usd
+  env: DASHBOARD_LLM_DAILY_BUDGET_USD
+  type: string
+  sensitive: false
+  default: null
+  section: LLM
+  description: "Presupuesto diario máximo en USD para llamadas LLM (vacío = sin límite)."
+  requires_restart: []
+
+- key: dashboard.admin_api_key
+  env: ADMIN_API_KEY
+  type: string
+  sensitive: true
+  default: null
+  section: Seguridad
+  description: "Clave API para acceder a los endpoints de administración (/admin/*)."
+  requires_restart: []
