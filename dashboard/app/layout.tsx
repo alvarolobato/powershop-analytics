@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Inter, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import ThemeProvider from "@/components/ThemeProvider";
 import { TweaksPanelProvider } from "@/components/TweaksPanel";
 import { TopBarWithTweaks } from "@/components/TopBarWithTweaks";
@@ -12,16 +12,26 @@ export const metadata: Metadata = {
   description: "Cuadros de mando generados con inteligencia artificial para PowerShop Analytics",
 };
 
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
+// Fonts are self-hosted under public/fonts/ to avoid network fetches at Docker
+// build time (Google Fonts is unreachable inside the build container).
+const inter = localFont({
+  src: [
+    { path: "../public/fonts/inter-400.woff2", weight: "400", style: "normal" },
+    { path: "../public/fonts/inter-500.woff2", weight: "500", style: "normal" },
+    { path: "../public/fonts/inter-600.woff2", weight: "600", style: "normal" },
+    { path: "../public/fonts/inter-700.woff2", weight: "700", style: "normal" },
+    { path: "../public/fonts/inter-800.woff2", weight: "800", style: "normal" },
+  ],
   variable: "--font-inter",
   display: "swap",
 });
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+const jetbrainsMono = localFont({
+  src: [
+    { path: "../public/fonts/jetbrains-mono-400.woff2", weight: "400", style: "normal" },
+    { path: "../public/fonts/jetbrains-mono-500.woff2", weight: "500", style: "normal" },
+    { path: "../public/fonts/jetbrains-mono-600.woff2", weight: "600", style: "normal" },
+  ],
   variable: "--font-jetbrains",
   display: "swap",
 });
