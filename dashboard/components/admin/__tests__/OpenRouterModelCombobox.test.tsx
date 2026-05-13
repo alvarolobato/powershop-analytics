@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 import { OpenRouterModelCombobox } from "../OpenRouterModelCombobox";
@@ -103,7 +103,8 @@ describe("OpenRouterModelCombobox", () => {
     await waitFor(() => {
       expect(screen.getByText("Populares (router automático)")).toBeInTheDocument();
     });
-    expect(screen.getByText("Anthropic: Claude Sonnet 4")).toBeInTheDocument();
+    // Same display name appears on the auto row and the pinned-provider row.
+    expect(screen.getAllByText("Anthropic: Claude Sonnet 4").length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("OpenAI: GPT-4o mini")).toBeInTheDocument();
     expect(screen.getByText("Todos los modelos y proveedores")).toBeInTheDocument();
     expect(screen.getByText("Obscure model")).toBeInTheDocument();
@@ -119,7 +120,7 @@ describe("OpenRouterModelCombobox", () => {
     await waitFor(() => {
       expect(screen.getByText("Obscure model")).toBeInTheDocument();
     });
-    expect(screen.queryByText("Anthropic: Claude Sonnet 4")).not.toBeInTheDocument();
+    expect(screen.queryAllByText("Anthropic: Claude Sonnet 4")).toHaveLength(0);
   });
 
   it("filters by provider label", async () => {
@@ -145,6 +146,8 @@ describe("OpenRouterModelCombobox", () => {
   });
 
   it("falls back to a plain text input when the catalog fetch fails", async () => {
+    cleanup();
+    vi.unstubAllGlobals();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("nope", { status: 502 })),
@@ -152,10 +155,8 @@ describe("OpenRouterModelCombobox", () => {
     const onChange = vi.fn();
     render(<OpenRouterModelCombobox value="claude" onChange={onChange} />);
 
-    await waitFor(() => {
-      expect(screen.getByPlaceholderText("anthropic/claude-sonnet-4")).toBeInTheDocument();
-    });
-    const input = screen.getByPlaceholderText("anthropic/claude-sonnet-4") as HTMLInputElement;
-    expect(input.value).toBe("claude");
+    const input = await screen.findByPlaceholderText("anthropic/claude-sonnet-4", { timeout: 5000 });
+    expect(input).toBeInTheDocument();
+    expect((input as HTMLInputElement).value).toBe("claude");
   });
 });
