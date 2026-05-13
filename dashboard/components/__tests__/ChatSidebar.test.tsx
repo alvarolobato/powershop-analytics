@@ -358,7 +358,9 @@ describe("ChatSidebar", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Error interno del servidor/)).toBeInTheDocument();
+      // parseApiError extracts .error from the response body, so the actual
+      // server message is shown rather than the generic fallback string.
+      expect(screen.getByText(/LLM_MODIFY_FAILED/)).toBeInTheDocument();
     });
 
     // onSpecUpdate should NOT have been called

@@ -17,9 +17,9 @@
   env: DASHBOARD_LLM_MODEL_OPENROUTER
   type: string
   sensitive: false
-  default: "anthropic/claude-sonnet-4"
+  default: null
   section: LLM
-  description: "Modelo OpenRouter por defecto para todas las operaciones (generate, modify, analyze)."
+  description: "Modelo OpenRouter por defecto para todas las operaciones (generate, modify, analyze). Vacío = usa el fallback 'anthropic/claude-sonnet-4'."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_generate
@@ -114,7 +114,7 @@
   requires_restart: []
 
 - key: dashboard.llm_daily_budget_usd
-  env: DASHBOARD_LLM_DAILY_BUDGET_USD
+  env: LLM_DAILY_BUDGET_USD
   type: string
   sensitive: false
   default: null
