@@ -243,18 +243,23 @@ User: "Añade el margen por familia"
 
 ## Production
 
-Production runs the same Docker Compose stack on a separate Mac at
-`alvarolobato@192.168.1.238:/Users/alvarolobato/powershop`. The base
-`docker-compose.yml` is shared; prod-only knobs (restart policies, log
-rotation) live in `prod/docker-compose.override.prod.yml` and are merged
-with `-f docker-compose.yml -f prod/docker-compose.override.prod.yml`.
+Production runs the same Docker Compose stack on a dedicated Mac (configured
+via `PROD_HOST` and `PROD_PATH` in `.env`). It is a flat Docker Hub
+deployment — no git checkout. The directory contains only
+`docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `data/`
+bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub.
 
-### Bootstrap
+### Routine updates
 
-`scripts/prod-bootstrap.sh` (or `ps prod bootstrap` from local) converts the
-existing flat directory into a git checkout while preserving `data/`, `.env`,
-and `wren-config.yaml`. After bootstrap, prod is a normal git checkout and
-all updates are driven from local with `ps prod deploy`.
+All `ps prod` commands run over SSH — no source code needed on prod:
+
+- **`ps prod deploy`** — pulls latest Docker Hub images and restarts the stack.
+- **`ps prod update`** — downloads new compose/config from the latest GitHub
+  release, then deploys. Use when compose or config changes are needed.
+- **`ps prod status`** — container status + version + health checks + token state.
+- **`ps prod health`** — runs health checks against all prod services.
+- **`ps prod push-config`** — uploads local `wren-config.yaml` to prod and
+  restarts `wren-ai-service`.
 
 ### Claude OAuth token sync (D-025)
 
@@ -269,9 +274,10 @@ the next launchd cycle (within 2 h) syncs the new token automatically.
 
 ### CLI commands for prod
 
-`ps prod {bootstrap, deploy, restart, status, logs, token-status, login,
-ssh}` — driven by `PROD_HOST` and `PROD_PATH` env vars (defaults wired in
-`cli/commands/prod.sh`). All routine ops happen from your local machine; no
+`ps prod {deploy, update, restart, status, logs, version, health,
+push-config, token-status, login, ssh}` — driven by `PROD_HOST` and
+`PROD_PATH` env vars (set in `~/.config/powershop-analytics/.env`). All
+routine ops happen from your local machine; no
 manual ssh is needed except for the one-time `claude /login` after a token
 expiry.
 
