@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 
 import { OpenRouterModelCombobox } from "../OpenRouterModelCombobox";
@@ -146,8 +146,6 @@ describe("OpenRouterModelCombobox", () => {
   });
 
   it("falls back to a plain text input when the catalog fetch fails", async () => {
-    cleanup();
-    vi.unstubAllGlobals();
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response("nope", { status: 502 })),

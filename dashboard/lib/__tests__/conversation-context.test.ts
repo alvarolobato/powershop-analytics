@@ -26,6 +26,7 @@ vi.mock("@/lib/llm-circuit-breaker", () => ({
 vi.mock("@/lib/llm-provider/config", () => ({
   loadDashboardLlmConfig: vi.fn(() => ({ provider: "openrouter" })),
   getEffectiveDashboardModel: vi.fn(() => "anthropic/claude-sonnet-4"),
+  getEffectiveOpenRouterProvider: vi.fn(() => undefined),
 }));
 
 vi.mock("@/lib/llm-usage", () => ({
