@@ -290,9 +290,10 @@ export async function openRouterChatCompletion(params: {
       messages: params.messages,
       temperature: params.temperature,
       max_tokens: params.maxTokens,
+      stream: false as const,
       ...openRouterExtras(params.provider),
-    } as Parameters<typeof params.client.chat.completions.create>[0]),
-  );
+    }),
+  ) as import("openai/resources/chat/completions").ChatCompletion;
   const content = response.choices[0]?.message?.content;
   if (!content) {
     throw new Error("LLM returned an empty response");
