@@ -351,7 +351,7 @@
   sensitive: false
   default: "http://localhost:4000"
   section: "Dashboard App"
-  description: "URL pública del Dashboard App (usada en enlaces externos y reverse-proxy). Ej: https://power.lobato.vip"
+  description: "URL pública del Dashboard App (usada en enlaces externos y reverse-proxy). Ej: https://dashboard.example.com"
   requires_restart: []
   components: [dashboard]
 
@@ -361,7 +361,7 @@
   sensitive: false
   default: "http://localhost:3000"
   section: "Dashboard App"
-  description: "URL pública de WrenAI (enlace 'Wren' del menú principal). Ej: https://wren.lobato.vip"
+  description: "URL pública de WrenAI (enlace 'Wren' del menú principal). Ej: https://wren.example.com"
   requires_restart: []
   components: [dashboard]
 

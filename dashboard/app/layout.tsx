@@ -8,6 +8,10 @@ import { FreshnessProvider } from "@/components/FreshnessContext";
 import { getAppPublicUrl, getWrenPublicUrl } from "@/lib/public-urls";
 import "./globals.css";
 
+// Force dynamic rendering so public URL changes in config.yaml take effect
+// on the next page load without requiring a container restart.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "PowerShop Dashboard",
   description: "Cuadros de mando generados con inteligencia artificial para PowerShop Analytics",
