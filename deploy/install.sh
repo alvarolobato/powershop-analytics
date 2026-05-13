@@ -5,13 +5,14 @@
 #   curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install.sh | bash
 #
 # Environment overrides:
-#   PS_ANALYTICS_HOME  — installation directory (default: $HOME/.powershop-analytics)
-#   VERSION            — release tag to install (default: latest)
+#   PS_ANALYTICS_HOME  — installation directory (default: ~/powershop)
+#   VERSION            — release tag to install (default: latest stable)
 #
 set -euo pipefail
 
 REPO="alvarolobato/powershop-analytics"
-PROJECT_DIR="${PS_ANALYTICS_HOME:-$HOME/.powershop-analytics}"
+PROJECT_DIR="${PS_ANALYTICS_HOME:-$HOME/powershop}"
+CONFIG_DIR="${POWERSHOP_CONFIG_DIR:-$HOME/.config/powershop-analytics}"
 RELEASE_BASE="https://github.com/${REPO}/releases/download"
 API_BASE="https://api.github.com/repos/${REPO}"
 
@@ -24,7 +25,7 @@ warn()    { printf '\033[1;33m[WARN]\033[0m  %s\n' "$*"; }
 die()     { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 
 prompt_required() {
-  local label="$1" var_name="$2" value=""
+  local label="$1" value=""
   while [[ -z "$value" ]]; do
     read -rp "  ${label}: " value
   done
@@ -37,8 +38,13 @@ prompt_default() {
   printf '%s' "${value:-$default}"
 }
 
+prompt_optional() {
+  local label="$1" value=""
+  read -rp "  ${label} (press Enter to skip): " value
+  printf '%s' "$value"
+}
+
 random_password() {
-  # Generate a 24-char random password using /dev/urandom or openssl
   if command -v openssl &>/dev/null; then
     openssl rand -base64 18 | tr -dc 'A-Za-z0-9' | head -c 24
   else
@@ -53,22 +59,22 @@ check_prerequisites() {
   info "Checking prerequisites..."
 
   if ! command -v docker &>/dev/null; then
-    die "Docker is not installed. Please install Docker: https://docs.docker.com/get-docker/"
+    die "Docker is not installed. Install it from: https://docs.docker.com/get-docker/"
   fi
 
   if ! docker compose version &>/dev/null 2>&1; then
-    die "'docker compose' (v2) is not available. Please install Docker Compose v2."
+    die "'docker compose' (v2) is required. Install Docker Desktop or Compose plugin."
   fi
 
   if ! command -v curl &>/dev/null; then
-    die "curl is required but not found. Please install curl."
+    die "curl is required but not found."
   fi
 
-  success "Prerequisites OK (docker $(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1), compose $(docker compose version --short 2>/dev/null || echo 'v2'))"
+  success "Prerequisites OK (docker $(docker --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1))"
 }
 
 # ---------------------------------------------------------------------------
-# Resolve version
+# Resolve latest stable version
 # ---------------------------------------------------------------------------
 resolve_version() {
   if [[ -n "${VERSION:-}" ]]; then
@@ -78,9 +84,7 @@ resolve_version() {
   info "Fetching latest release version..."
   local tag
   tag=$(curl -fsSL "${API_BASE}/releases/latest" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
-  if [[ -z "$tag" ]]; then
-    die "Could not determine latest release. Set VERSION=<tag> to override."
-  fi
+  [[ -n "$tag" ]] || die "Could not determine latest release. Set VERSION=<tag> to override."
   echo "$tag"
 }
 
@@ -90,7 +94,7 @@ resolve_version() {
 download_asset() {
   local version="$1" filename="$2" dest="$3"
   local url="${RELEASE_BASE}/${version}/${filename}"
-  info "Downloading ${filename}..."
+  info "Downloading ${filename} (${version})..."
   curl -fsSL "$url" -o "$dest" || die "Failed to download ${url}"
 }
 
@@ -98,61 +102,95 @@ download_asset() {
 # Interactive .env setup
 # ---------------------------------------------------------------------------
 create_env() {
-  local env_file="$1"
-  local pg_pass
+  local env_file="$1" version="$2"
+  local pg_pass admin_key
   pg_pass=$(random_password)
+  admin_key=$(random_password)
 
   echo ""
-  info "Configuring .env — press Enter to accept defaults."
+  info "Configuring .env — press Enter to accept defaults where shown."
   echo ""
 
   local p4d_host p4d_user p4d_password postgres_password openrouter_key
-  p4d_host=$(prompt_required "4D server hostname or IP" "P4D_HOST")
-  p4d_user=$(prompt_required "4D SQL username" "P4D_USER")
-  p4d_password=$(prompt_required "4D SQL password" "P4D_PASSWORD")
+  local dashboard_port wren_port app_url wren_url admin_api_key cookie_secure
+  local dockerhub_ns
+
+  p4d_host=$(prompt_required "4D server hostname or IP (e.g. 10.0.1.35)")
+  p4d_user=$(prompt_required "4D SQL username")
+  p4d_password=$(prompt_required "4D SQL password")
   postgres_password=$(prompt_default "PostgreSQL password" "$pg_pass")
-  openrouter_key=$(prompt_required "OpenRouter API key (for WrenAI LLM)" "OPENROUTER_API_KEY")
+  openrouter_key=$(prompt_required "OpenRouter API key (https://openrouter.ai/keys)")
+  admin_api_key=$(prompt_default "Admin panel password/token" "$admin_key")
+  dashboard_port=$(prompt_default "Dashboard App port" "4000")
+  wren_port=$(prompt_default "WrenAI UI port" "3000")
+  app_url=$(prompt_default "Dashboard public URL (blank = http://localhost:${dashboard_port})" "http://localhost:${dashboard_port}")
+  wren_url=$(prompt_default "WrenAI public URL (blank = http://localhost:${wren_port})" "http://localhost:${wren_port}")
+  cookie_secure=""
+  if [[ "$app_url" == https://* ]]; then
+    cookie_secure="true"
+  fi
+  dockerhub_ns=$(prompt_default "Docker Hub namespace" "alobato")
 
   cat >"$env_file" <<EOF
 # PowerShop Analytics — environment configuration
 # Generated by install.sh on $(date -u +"%Y-%m-%dT%H:%M:%SZ")
-# Edit this file to change settings; re-run install.sh to reconfigure.
+# Version: ${version}
+# Edit this file to change settings; then run: docker compose up -d
 
 # ---------------------------------------------------------------------------
-# 4D source database
+# Release channel (Docker Hub image tags)
+# ---------------------------------------------------------------------------
+ETL_VERSION=${version}
+DASHBOARD_VERSION=${version}
+DOCKERHUB_NAMESPACE=${dockerhub_ns}
+
+# ---------------------------------------------------------------------------
+# 4D source database (read-only access)
 # ---------------------------------------------------------------------------
 P4D_HOST=${p4d_host}
 P4D_PORT=19812
 P4D_USER=${p4d_user}
 P4D_PASSWORD=${p4d_password}
-
-# SOAP endpoint (usually same host, port 8080)
 SOAP_URL=http://${p4d_host}:8080/4DSOAP/
 SOAP_WSDL=http://${p4d_host}:8080/4DSOAP/?wsdl
 
 # ---------------------------------------------------------------------------
-# PostgreSQL (mirror)
+# PostgreSQL (local mirror — destination for ETL)
 # ---------------------------------------------------------------------------
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=${postgres_password}
 POSTGRES_DB=powershop
 
 # ---------------------------------------------------------------------------
-# ETL scheduler
-# ---------------------------------------------------------------------------
-ETL_CRON_HOUR=2
-
-# ---------------------------------------------------------------------------
-# WrenAI / LLM
+# WrenAI LLM (via OpenRouter)
 # ---------------------------------------------------------------------------
 OPENROUTER_API_KEY=${openrouter_key}
 WREN_LLM_MODEL=openrouter/anthropic/claude-sonnet-4-20250514
 
-# WrenAI UI port
-HOST_PORT=3000
+# ---------------------------------------------------------------------------
+# ETL scheduler
+# ---------------------------------------------------------------------------
+ETL_CRON_HOUR=2
+ETL_DELTA_LOOKBACK_DAYS=1
 
 # ---------------------------------------------------------------------------
-# WrenAI service versions (leave as-is unless upgrading manually)
+# Dashboard App
+# ---------------------------------------------------------------------------
+DASHBOARD_PORT=${dashboard_port}
+ADMIN_API_KEY=${admin_api_key}
+APP_PUBLIC_URL=${app_url}
+WREN_PUBLIC_URL=${wren_url}
+$([ -n "$cookie_secure" ] && echo "ADMIN_COOKIE_SECURE=${cookie_secure}" || echo "# ADMIN_COOKIE_SECURE=true  # uncomment when serving over HTTPS")
+
+# ---------------------------------------------------------------------------
+# WrenAI ports
+# ---------------------------------------------------------------------------
+HOST_PORT=${wren_port}
+HOST_BIND=0.0.0.0
+AI_SERVICE_FORWARD_PORT=5555
+
+# ---------------------------------------------------------------------------
+# WrenAI service versions
 # ---------------------------------------------------------------------------
 WREN_BOOTSTRAP_VERSION=0.1.5
 WREN_ENGINE_VERSION=0.22.0
@@ -160,66 +198,21 @@ IBIS_SERVER_VERSION=0.22.0
 WREN_AI_SERVICE_VERSION=0.29.0
 WREN_UI_VERSION=0.32.2
 WREN_PRODUCT_VERSION=0.29.1
-AI_SERVICE_FORWARD_PORT=5555
 WREN_ENGINE_PORT=8080
 WREN_ENGINE_SQL_PORT=7432
-IBIS_SERVER_PORT=8000
 WREN_AI_SERVICE_PORT=5555
+IBIS_SERVER_PORT=8000
 
-# Platform — set to linux/arm64 on Apple Silicon if images support it
+# ---------------------------------------------------------------------------
+# Platform and telemetry
+# ---------------------------------------------------------------------------
 PLATFORM=linux/amd64
-
-# Telemetry (set to false to disable)
 TELEMETRY_ENABLED=true
+EXPERIMENTAL_ENGINE_RUST_VERSION=false
 EOF
-  success ".env created"
-}
 
-# ---------------------------------------------------------------------------
-# Install CLI wrapper
-# ---------------------------------------------------------------------------
-install_cli() {
-  local version="$1"
-  local tmp_cli
-  tmp_cli=$(mktemp)
-  download_asset "$version" "ps-analytics" "$tmp_cli"
-  chmod +x "$tmp_cli"
-
-  # Inject project dir into the wrapper
-  sed -i.bak "s|^PS_ANALYTICS_HOME=.*|PS_ANALYTICS_HOME=\"${PROJECT_DIR}\"|" "$tmp_cli" 2>/dev/null || true
-  rm -f "${tmp_cli}.bak"
-
-  local install_dir
-  if [[ -w "/usr/local/bin" ]]; then
-    install_dir="/usr/local/bin"
-  elif sudo -n true 2>/dev/null; then
-    install_dir="/usr/local/bin"
-    sudo install -m 0755 "$tmp_cli" "${install_dir}/ps-analytics"
-    rm -f "$tmp_cli"
-    success "CLI installed to ${install_dir}/ps-analytics (via sudo)"
-    return
-  else
-    install_dir="$HOME/.local/bin"
-    mkdir -p "$install_dir"
-  fi
-
-  install -m 0755 "$tmp_cli" "${install_dir}/ps-analytics"
-  rm -f "$tmp_cli"
-  success "CLI installed to ${install_dir}/ps-analytics"
-
-  # Warn if ~/.local/bin is not on PATH
-  if [[ "$install_dir" == "$HOME/.local/bin" ]] && ! echo "$PATH" | grep -q "$HOME/.local/bin"; then
-    warn "Add ~/.local/bin to your PATH:"
-    warn "  echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc"
-  fi
-}
-
-# ---------------------------------------------------------------------------
-# Write installed version file
-# ---------------------------------------------------------------------------
-write_version() {
-  local version="$1"
-  echo "$version" >"${PROJECT_DIR}/.version"
+  chmod 600 "$env_file"
+  success ".env created at ${env_file}"
 }
 
 # ---------------------------------------------------------------------------
@@ -245,7 +238,12 @@ main() {
     "${PROJECT_DIR}/data/wren"
   success "Project directory: ${PROJECT_DIR}"
 
-  # Download compose and config files
+  # Create config directory (persists dashboard settings across restarts)
+  mkdir -p "${CONFIG_DIR}"
+  chmod 700 "${CONFIG_DIR}"
+  success "Config directory: ${CONFIG_DIR}"
+
+  # Download compose and Wren config files
   download_asset "$version" "docker-compose.prod.yml" "${PROJECT_DIR}/docker-compose.yml"
   download_asset "$version" "wren-config.yaml"        "${PROJECT_DIR}/wren-config.yaml"
   success "Stack files downloaded"
@@ -254,22 +252,27 @@ main() {
   if [[ -f "${PROJECT_DIR}/.env" ]]; then
     warn ".env already exists — skipping interactive setup (delete it to reconfigure)"
   else
-    create_env "${PROJECT_DIR}/.env"
+    create_env "${PROJECT_DIR}/.env" "$version"
   fi
 
-  # Install CLI
-  install_cli "$version"
-  write_version "$version"
+  # Record installed version
+  echo "$version" >"${PROJECT_DIR}/.version"
 
   echo ""
   echo "=================================================="
   success "Installation complete!"
   echo ""
   echo "  Next steps:"
-  echo "    1. Start the stack:    ps-analytics up"
-  echo "    2. Check status:       ps-analytics status"
-  echo "    3. Open WrenAI UI:     ps-analytics open"
-  echo "    4. Run ETL sync now:   ps-analytics etl run"
+  echo "    1. Review config:        cat ${PROJECT_DIR}/.env"
+  echo "    2. Start the stack:      cd ${PROJECT_DIR} && docker compose up -d"
+  echo "    3. Check status:         docker compose ps"
+  echo "    4. Dashboard:            http://localhost:\${DASHBOARD_PORT:-4000}"
+  echo "    5. WrenAI UI:            http://localhost:\${HOST_PORT:-3000}"
+  echo "    6. Admin config panel:   http://localhost:\${DASHBOARD_PORT:-4000}/admin"
+  echo ""
+  echo "  Dashboard settings (LLM provider, model, etc.) are configured via"
+  echo "  the admin panel at /admin/config — they persist in:"
+  echo "    ${CONFIG_DIR}/config.yaml"
   echo ""
   echo "  Project directory: ${PROJECT_DIR}"
   echo "=================================================="

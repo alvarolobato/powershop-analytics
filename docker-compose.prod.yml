@@ -1,20 +1,25 @@
 # PowerShop Analytics — production stack
-# Uses the pre-built ETL image from Docker Hub instead of building locally.
+# Uses pre-built Docker Hub images. No local build required.
 #
-# This file is intended for end-user deployments. Download via the installer:
+# Quick install:
 #   curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install.sh | bash
 #
-# Or manually:
-#   curl -L https://github.com/alvarolobato/powershop-analytics/releases/latest/download/docker-compose.prod.yml \
-#        -o docker-compose.yml
-#   cp .env.example .env && $EDITOR .env
+# Manual install:
+#   mkdir ~/powershop && cd ~/powershop
+#   curl -LO https://github.com/alvarolobato/powershop-analytics/releases/latest/download/docker-compose.prod.yml
+#   mv docker-compose.prod.yml docker-compose.yml
+#   curl -LO https://github.com/alvarolobato/powershop-analytics/releases/latest/download/wren-config.yaml
+#   cp /path/to/.env.example .env && $EDITOR .env
+#   mkdir -p ~/.config/powershop-analytics
 #   docker compose up -d
-#   open http://localhost:${HOST_PORT:-3000}
 #
-# Data is stored in bind-mount subdirectories under the project dir:
+# Data directories (auto-created, survive restarts):
 #   ./data/postgres   — PostgreSQL data
 #   ./data/qdrant     — Qdrant vector store
-#   ./data/wren       — WrenAI shared config/state
+#   ./data/wren       — WrenAI config/state/SQLite
+#
+# Dashboard config (settings saved via /admin/config UI):
+#   ~/.config/powershop-analytics/config.yaml  — persisted dashboard settings
 
 networks:
   wren:
@@ -24,11 +29,12 @@ services:
 
   # ---------------------------------------------------------------------------
   # PostgreSQL — mirror of the 4D source data
+  # pg_stat_statements required for /admin/slow-queries
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
-    restart: unless-stopped
     command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
@@ -48,9 +54,9 @@ services:
 
   # ---------------------------------------------------------------------------
   # ETL — extracts data from 4D and loads into PostgreSQL
-  # Pre-built image from Docker Hub; updated via `ps-analytics update`.
-  # Runs in scheduler mode by default (daily at ETL_CRON_HOUR, default 02:00).
-  # For a one-off sync: docker compose run --rm etl python -m etl.main --once
+  # Scheduler mode: nightly full sync at ETL_CRON_HOUR (default 02:00 UTC)
+  #                 + hourly delta sync.
+  # One-off sync:   docker compose run --rm etl python -m etl.main --once
   # ---------------------------------------------------------------------------
   etl:
     image: ${DOCKERHUB_NAMESPACE:-alobato}/powershop-etl:${ETL_VERSION:-latest}
@@ -62,12 +68,6 @@ services:
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
       ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
-      # CONFIG_FILE pins the config path to the host-mounted /config directory.
-      CONFIG_FILE: /config/config.yaml
-      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
-    volumes:
-      - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:ro
-      - ./config/schema.yaml:/app/config/schema.yaml:ro
     networks:
       - wren
     depends_on:
@@ -136,19 +136,14 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       CONFIG_PATH: /app/config.yaml
-      # OpenRouter credentials
       OPENAI_API_BASE: https://openrouter.ai/api/v1
       OPENAI_API_KEY: ${OPENROUTER_API_KEY:-}
       LITELLM_API_BASE: https://openrouter.ai/api/v1
       LITELLM_API_KEY: ${OPENROUTER_API_KEY:-}
-      # Qdrant
       QDRANT_HOST: qdrant
       SHOULD_FORCE_DEPLOY: "1"
-      # Port — required by entrypoint.sh for uvicorn --port $WREN_AI_SERVICE_PORT
       WREN_AI_SERVICE_PORT: ${WREN_AI_SERVICE_PORT:-5555}
-      # LLM model — required for ${WREN_LLM_MODEL:-...} substitution in wren-config.yaml
       WREN_LLM_MODEL: ${WREN_LLM_MODEL:-openrouter/anthropic/claude-sonnet-4-20250514}
-      # Telemetry
       WREN_AI_SERVICE_VERSION: ${WREN_AI_SERVICE_VERSION:-0.29.0}
     volumes:
       - ./wren-config.yaml:/app/config.yaml:ro
@@ -173,7 +168,6 @@ services:
       WREN_AI_ENDPOINT: http://wren-ai-service:${WREN_AI_SERVICE_PORT:-5555}
       IBIS_SERVER_ENDPOINT: http://ibis-server:${IBIS_SERVER_PORT:-8000}
       GENERATION_MODEL: ${WREN_LLM_MODEL:-anthropic/claude-sonnet-4-20250514}
-      # Telemetry
       WREN_ENGINE_PORT: ${WREN_ENGINE_PORT:-8080}
       WREN_AI_SERVICE_VERSION: ${WREN_AI_SERVICE_VERSION:-0.29.0}
       WREN_UI_VERSION: ${WREN_UI_VERSION:-0.32.2}
@@ -226,22 +220,21 @@ services:
       POSTGRES_PORT: 5432
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
-      # Set true only behind HTTPS; on plain HTTP (e.g. LAN) leave unset so the admin cookie is stored.
+      # Set true when the dashboard is served over HTTPS (behind TLS termination).
+      # Leave unset on plain HTTP (e.g. LAN access by IP) so the cookie is stored.
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
-      # Public URLs — set these when running behind a reverse proxy.
+      # Public URLs for reverse-proxy / custom domain deployments.
       APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:4000}
       WREN_PUBLIC_URL: ${WREN_PUBLIC_URL:-http://localhost:3000}
-      # CONFIG_FILE pins the config path to the host-mounted /config directory.
+      # config.yaml location — points to the host-mounted persistent directory.
       CONFIG_FILE: /config/config.yaml
-      CONFIG_SCHEMA_PATH: /app/config/schema.yaml
-      # DASHBOARD_LLM_PROVIDER / DASHBOARD_LLM_MODEL_* / DASHBOARD_LLM_CLI_*
-      # intentionally NOT set here — values come from config.yaml so the
-      # admin /config UI can edit them (env-sourced keys render read-only).
+      # LLM settings (provider, model, etc.) intentionally NOT set as env vars
+      # here — configure them via /admin/config so the UI can edit them.
+      # Env-sourced keys render read-only in the config UI.
     volumes:
-      # CRITICAL: must be :rw — the dashboard writes config.yaml when the user
-      # saves settings via /admin/config. Without :rw changes are lost on restart.
+      # CRITICAL: :rw — the dashboard writes config.yaml when settings are saved
+      # via /admin/config. Without :rw all changes are lost on container restart.
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
-      - ./config/schema.yaml:/app/config/schema.yaml:ro
     ports:
       - "${HOST_BIND:-0.0.0.0}:${DASHBOARD_PORT:-4000}:4000"
     networks:

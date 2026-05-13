@@ -192,23 +192,36 @@ create_env() {
   echo ""
   info "Configuring .env — press Enter to accept defaults."
   echo ""
-  local p4d_host p4d_user p4d_password postgres_password openrouter_key pg_pass
+  local p4d_host p4d_user p4d_password postgres_password openrouter_key pg_pass admin_key
   pg_pass=$(random_password)
+  admin_key=$(random_password)
   p4d_host=$(prompt_required "4D server hostname or IP (LAN)")
   p4d_user=$(prompt_required "4D SQL username")
   p4d_password=$(prompt_required_secret "4D SQL password")
   postgres_password=$(prompt_default "PostgreSQL password" "$pg_pass")
   openrouter_key=$(prompt_required_secret "OpenRouter API key")
 
-  # Host interface binding. Default 0.0.0.0 so the LAN can reach this host;
-  # Cloudflare Tunnel handles any public exposure.
+  # Admin panel
+  local admin_api_key
+  admin_api_key=$(prompt_default "Admin panel password/token" "$admin_key")
+
+  # Public URLs (for reverse proxy / custom domain)
+  local dashboard_port wren_port app_public_url wren_public_url
+  dashboard_port=$(prompt_default "Dashboard App port" "4000")
+  wren_port=$(prompt_default "WrenAI UI port" "3000")
+  app_public_url=$(prompt_default "Dashboard public URL (blank = http://localhost:${dashboard_port})" "http://localhost:${dashboard_port}")
+  wren_public_url=$(prompt_default "WrenAI public URL (blank = http://localhost:${wren_port})" "http://localhost:${wren_port}")
+
+  # HTTPS cookie flag (auto-set when URL is https://)
+  local cookie_secure=""
+  [[ "$app_public_url" == https://* ]] && cookie_secure="true"
+
+  # Host interface binding
   local bind_addr
   bind_addr=$(prompt_default "Bind address for host ports" "0.0.0.0")
 
-  # Quote all user-supplied values before writing them into .env — a '#',
-  # space, or other meta-character in a secret would otherwise be mis-parsed
-  # by docker-compose (everything after '#' is treated as a comment).
-  local p4d_host_q p4d_user_q p4d_password_q postgres_password_q openrouter_key_q bind_addr_q soap_url_q soap_wsdl_q
+  # Quote all user-supplied values before writing them into .env
+  local p4d_host_q p4d_user_q p4d_password_q postgres_password_q openrouter_key_q bind_addr_q soap_url_q soap_wsdl_q admin_key_q app_url_q wren_url_q
   p4d_host_q=$(dotenv_quote "P4D_HOST" "$p4d_host")
   p4d_user_q=$(dotenv_quote "P4D_USER" "$p4d_user")
   p4d_password_q=$(dotenv_quote "P4D_PASSWORD" "$p4d_password")
@@ -217,6 +230,9 @@ create_env() {
   bind_addr_q=$(dotenv_quote "HOST_BIND" "$bind_addr")
   soap_url_q=$(dotenv_quote "SOAP_URL" "http://${p4d_host}:8080/4DSOAP/")
   soap_wsdl_q=$(dotenv_quote "SOAP_WSDL" "http://${p4d_host}:8080/4DSOAP/?wsdl")
+  admin_key_q=$(dotenv_quote "ADMIN_API_KEY" "$admin_api_key")
+  app_url_q=$(dotenv_quote "APP_PUBLIC_URL" "$app_public_url")
+  wren_url_q=$(dotenv_quote "WREN_PUBLIC_URL" "$wren_public_url")
 
   # Write to a secure temp file in the invoking user's space (never the
   # project dir — which may be sudo-owned under /opt). Create with 0600
@@ -263,12 +279,19 @@ OPENROUTER_API_KEY=${openrouter_key_q}
 WREN_LLM_MODEL=openrouter/anthropic/claude-sonnet-4-20250514
 
 # --- Host port bindings ---
-# 0.0.0.0 exposes on every interface (LAN-reachable). Use 127.0.0.1 to restrict
-# to loopback and rely entirely on Cloudflare Tunnel / reverse proxy.
 HOST_BIND=${bind_addr_q}
-HOST_PORT=3000
-DASHBOARD_PORT=4000
+HOST_PORT=${wren_port}
+DASHBOARD_PORT=${dashboard_port}
 AI_SERVICE_FORWARD_PORT=5555
+
+# --- Dashboard security and URLs ---
+ADMIN_API_KEY=${admin_key_q}
+$([ -n "$cookie_secure" ] && echo "ADMIN_COOKIE_SECURE=${cookie_secure}" || echo "# ADMIN_COOKIE_SECURE=true  # uncomment when serving over HTTPS")
+APP_PUBLIC_URL=${app_url_q}
+WREN_PUBLIC_URL=${wren_url_q}
+# Dashboard LLM settings (provider, model, etc.) are configured via /admin/config
+# and saved to ~/.config/powershop-analytics/config.yaml — not set as env vars here
+# to keep them editable from the UI.
 
 # --- WrenAI service versions (upstream, change on explicit upgrade) ---
 WREN_BOOTSTRAP_VERSION=0.1.5
@@ -311,6 +334,13 @@ main() {
     "${PROJECT_DIR}/data/postgres" \
     "${PROJECT_DIR}/data/qdrant" \
     "${PROJECT_DIR}/data/wren"
+
+  # Config dir: stores dashboard settings (config.yaml written by /admin/config UI).
+  # Must exist on the host and be :rw-mounted into the dashboard container.
+  local config_dir="${POWERSHOP_CONFIG_DIR:-$HOME/.config/powershop-analytics}"
+  mkdir -p "${config_dir}"
+  chmod 700 "${config_dir}"
+  success "Config directory ready: ${config_dir}"
 
   # Make the project dir tree writable by the invoking user so subsequent
   # `docker compose` commands don't need sudo. This includes data subdirs,
