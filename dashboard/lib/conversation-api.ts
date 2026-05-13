@@ -1,21 +1,29 @@
 import { headers } from "next/headers";
 import type { ConversationWithMessages } from "@/lib/conversation-types";
+import { getAppPublicUrl } from "@/lib/public-urls";
 
 /**
  * Fetches a conversation by ID from the internal API.
  *
- * Derives the base URL from the incoming request headers so it works in any
- * environment (local Docker, preview, production) without relying on a
- * hardcoded NEXT_PUBLIC_APP_URL fallback.
+ * Uses APP_PUBLIC_URL (runtime env) when set, so reverse-proxy deployments
+ * with a custom hostname work without rebuilding the image. Falls back to
+ * deriving the base URL from the incoming request's Host + x-forwarded-proto
+ * headers, which covers local dev and plain Docker without extra config.
  *
  * Returns null for 404 or any fetch error (caller should `notFound()`).
  */
 export async function fetchConversation(id: string): Promise<ConversationWithMessages | null> {
   try {
     const headersList = await headers();
-    const host = headersList.get("host") ?? "localhost:4000";
-    const proto = headersList.get("x-forwarded-proto") ?? "http";
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL ?? `${proto}://${host}`;
+    // Prefer the configured public URL; fall back to host-header derivation.
+    const configuredUrl = process.env.APP_PUBLIC_URL?.trim();
+    const baseUrl = configuredUrl
+      ? configuredUrl.replace(/\/$/, "")
+      : (() => {
+          const host = headersList.get("host") ?? "localhost:4000";
+          const proto = headersList.get("x-forwarded-proto") ?? "http";
+          return `${proto}://${host}`;
+        })();
     const res = await fetch(`${baseUrl}/api/conversations/${id}`, {
       cache: "no-store",
     });
@@ -26,3 +34,7 @@ export async function fetchConversation(id: string): Promise<ConversationWithMes
     return null;
   }
 }
+
+// Re-export for convenience — callers that need the public URL for other
+// purposes can import it from here instead of lib/public-urls directly.
+export { getAppPublicUrl };

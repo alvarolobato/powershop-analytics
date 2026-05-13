@@ -3,6 +3,42 @@
 # The loader (lib/system-config/loader.ts) reads this file at runtime.
 # Precedence: env vars > config.yaml > defaults defined here.
 
+- key: dashboard.app_public_url
+  env: APP_PUBLIC_URL
+  type: string
+  sensitive: false
+  default: "http://localhost:4000"
+  section: URLs
+  description: "URL pública del Dashboard App (usada en enlaces externos y reverse-proxy). Ej: https://power.lobato.vip"
+  requires_restart: []
+
+- key: dashboard.wren_public_url
+  env: WREN_PUBLIC_URL
+  type: string
+  sensitive: false
+  default: "http://localhost:3000"
+  section: URLs
+  description: "URL pública de WrenAI (usada en el enlace 'Wren' del menú principal). Ej: https://wren.lobato.vip"
+  requires_restart: []
+
+- key: dashboard.app_public_url
+  env: APP_PUBLIC_URL
+  type: string
+  sensitive: false
+  default: "http://localhost:4000"
+  section: URLs
+  description: "URL pública del Dashboard App (usada en enlaces externos y reverse-proxy). Ej: https://power.lobato.vip"
+  requires_restart: []
+
+- key: dashboard.wren_public_url
+  env: WREN_PUBLIC_URL
+  type: string
+  sensitive: false
+  default: "http://localhost:3000"
+  section: URLs
+  description: "URL pública de WrenAI (enlace 'Wren' del menú principal). Ej: https://wren.lobato.vip"
+  requires_restart: []
+
 - key: dashboard.llm_provider
   env: DASHBOARD_LLM_PROVIDER
   type: enum

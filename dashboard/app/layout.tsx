@@ -5,6 +5,7 @@ import ThemeProvider from "@/components/ThemeProvider";
 import { TweaksPanelProvider } from "@/components/TweaksPanel";
 import { TopBarWithTweaks } from "@/components/TopBarWithTweaks";
 import { FreshnessProvider } from "@/components/FreshnessContext";
+import { getAppPublicUrl, getWrenPublicUrl } from "@/lib/public-urls";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -71,6 +72,11 @@ export default function RootLayout({
 }: {
   children: ReactNode;
 }) {
+  // Read public URLs at server-render time so the same Docker image works
+  // for any hostname (localhost in dev, custom domain in production).
+  const appPublicUrl = getAppPublicUrl();
+  const wrenPublicUrl = getWrenPublicUrl();
+
   return (
     <html
       lang="es"
@@ -98,7 +104,7 @@ export default function RootLayout({
         <ThemeProvider>
           <FreshnessProvider>
             <TweaksPanelProvider>
-              <TopBarWithTweaks />
+              <TopBarWithTweaks appPublicUrl={appPublicUrl} wrenPublicUrl={wrenPublicUrl} />
               <main style={{ flex: 1, overflow: "auto" }} className="main-content">{children}</main>
             </TweaksPanelProvider>
           </FreshnessProvider>

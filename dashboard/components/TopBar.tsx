@@ -12,6 +12,10 @@ interface TopBarProps {
   freshnessStale?: boolean;
   /** Override freshness tooltip (last-sync timestamp) — falls back to context value */
   freshnessTooltip?: string | null;
+  /** Public URL of this dashboard app (for self-referencing links). */
+  appPublicUrl?: string;
+  /** Public URL of WrenAI — used for the "Wren" nav link. */
+  wrenPublicUrl?: string;
 }
 
 export function TopBar({
@@ -19,6 +23,7 @@ export function TopBar({
   freshnessText: propFreshnessText,
   freshnessStale: propFreshnessStale,
   freshnessTooltip: propFreshnessTooltip,
+  wrenPublicUrl = "http://localhost:3000",
 }: TopBarProps) {
   const pathname = usePathname();
   const ctx = useFreshness();
@@ -31,7 +36,7 @@ export function TopBar({
     { href: "/paneles", label: "Paneles" },
     { href: "/conversations", label: "Conversaciones" },
     { href: "/review", label: "Revisión" },
-    { href: "http://localhost:3000", label: "Wren", external: true },
+    { href: wrenPublicUrl, label: "Wren", external: true },
   ] as const;
 
   return (

@@ -228,6 +228,9 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       # Set true only behind HTTPS; on plain HTTP (e.g. LAN) leave unset so the admin cookie is stored.
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
+      # Public URLs — set these when running behind a reverse proxy.
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:4000}
+      WREN_PUBLIC_URL: ${WREN_PUBLIC_URL:-http://localhost:3000}
       # CONFIG_FILE pins the config path to the host-mounted /config directory.
       CONFIG_FILE: /config/config.yaml
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
