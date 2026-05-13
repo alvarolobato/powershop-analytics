@@ -15,11 +15,14 @@ export type AgenticProgressEvent =
       round: number;
       chars: number;
       totalChars: number;
-      // No `text` field: the streaming UI only renders the running counter for
-      // text deltas (the body is the JSON tool-protocol payload, not human
-      // prose), so emitting the cumulative text on every token would grow each
-      // NDJSON frame quadratically. Readable prose is carried by
-      // `model_thinking_delta` instead.
+      /**
+       * Cumulative text streamed so far this step.
+       * Populated so the UI can show the model's response as it streams.
+       * During tool-calling rounds this is typically JSON tool-call arguments
+       * (not human prose); during the final round it is the actual response.
+       * Consumers that only want the character counter may ignore this field.
+       */
+      text?: string;
     }
   | {
       type: "model_thinking_delta";

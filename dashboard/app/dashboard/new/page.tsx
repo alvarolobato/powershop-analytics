@@ -179,8 +179,16 @@ export default function NewDashboard() {
           setAgenticRequestId(rid);
           setAgenticLines((prev) => [...prev, ...lines]);
         },
-        onLine: (line) => {
-          setAgenticLines((prev) => [...prev, line]);
+        onLine: (line, replace) => {
+          setAgenticLines((prev) => {
+            if (replace && prev.length > 0) {
+              // Coalesce: replace the last line in place so streaming ticks
+              // (e.g. "Modelo respondiendo · N caracteres") show as one
+              // growing entry instead of one per token.
+              return [...prev.slice(0, -1), line];
+            }
+            return [...prev, line];
+          });
         },
       });
 

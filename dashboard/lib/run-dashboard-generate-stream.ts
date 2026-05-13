@@ -1,6 +1,9 @@
 import type { DashboardSpec } from "@/lib/schema";
 import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
-import { formatAgenticProgressLineEs } from "@/lib/format-agentic-progress";
+import {
+  formatAgenticProgressLineEs,
+  COALESCEABLE_LABELS,
+} from "@/lib/format-agentic-progress";
 import {
   isApiErrorResponse,
   type ApiErrorResponse,
@@ -9,7 +12,15 @@ import {
 
 export interface DashboardGenerateStreamHandlers {
   onMeta?: (requestId: string, lines: string[]) => void;
-  onLine?: (line: string) => void;
+  /**
+   * Called with a new progress line to append to the log.
+   * Consecutive "Modelo respondiendo" / "Claude está razonando" ticks are
+   * coalesced — `replace=true` signals that the previous log entry should be
+   * updated in place rather than a new line added. If the caller does not
+   * support in-place replacement, it may ignore the flag and append anyway
+   * (the log will then show the last value rather than a count counter).
+   */
+  onLine?: (line: string, replace?: boolean) => void;
 }
 
 /**
@@ -54,6 +65,17 @@ export async function runDashboardGenerateStream(
   let buffer = "";
   let finalSpec: DashboardSpec | null = null;
 
+  // Coalescing state: track the last label emitted to detect consecutive
+  // coalesceable ticks (model_text_delta / model_thinking_delta).
+  let lastCoalescedLabel: string | null = null;
+
+  const emitLine = (line: string, coalesceable: boolean) => {
+    const label = coalesceable ? line.split(" · ")[0] ?? line : null;
+    const replace = coalesceable && label !== null && label === lastCoalescedLabel;
+    lastCoalescedLabel = coalesceable ? label : null;
+    handlers.onLine?.(line, replace);
+  };
+
   const processLine = (rawLine: string) => {
     const line = rawLine.trim();
     if (!line) return;
@@ -75,11 +97,16 @@ export async function runDashboardGenerateStream(
     }
 
     if (msg.type === "progress" && msg.event) {
-      handlers.onLine?.(formatAgenticProgressLineEs(msg.event as AgenticProgressEvent));
+      const ev = msg.event as AgenticProgressEvent;
+      const formatted = formatAgenticProgressLineEs(ev);
+      // Coalesce consecutive streaming ticks of the same label so the
+      // progress dialog shows one growing line rather than one per token.
+      const coalesceable = COALESCEABLE_LABELS.has(formatted.split(" · ")[0] ?? "");
+      emitLine(formatted, coalesceable);
     }
 
     if (msg.type === "phase" && typeof msg.message === "string") {
-      handlers.onLine?.(String(msg.message));
+      emitLine(String(msg.message), false);
     }
 
     if (msg.type === "result" && msg.spec) {

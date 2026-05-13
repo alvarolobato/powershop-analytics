@@ -11,8 +11,10 @@ export interface TimedEvent {
  * Returns null for event types that don't produce visible log lines
  * (e.g. `round` with round=1, `assistant_tools`, `tool_start`).
  *
- * For `model_text_delta`: returns a special line with kind="default" so the
- * caller can coalesce repeated deltas by replacing the last line of that kind.
+ * For `model_text_delta` and `model_thinking_delta`: returns a line whose
+ * `body` carries the cumulative text so the caller can coalesce repeated
+ * deltas into a single growing log entry (replacing the last line of that
+ * label). The `body` is only populated when the event carries a `text` field.
  */
 export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): LogLine | null {
   const ts = `+${(ms / 1000).toFixed(1)}s`;
@@ -32,16 +34,16 @@ export function agenticEventToLogLine(event: AgenticProgressEvent, ms: number): 
     case "model_step_start":
       return { timestamp: ts, kind: "reason", label: "Modelo pensando…", detail: undefined };
     case "model_text_delta":
-      // The streaming "text" in agentic flows is the JSON tool-protocol payload
-      // (e.g. submit_weekly_review with the full spec inlined) — not human
-      // prose. Showing it as a body floods the log with unreadable JSON, so we
-      // only show the progress count here. Readable reasoning lives in the
-      // thinking block (model_thinking_delta) below.
+      // Show the cumulative text as `body` when available so the user can
+      // read the model's response as it streams. During tool-calling rounds
+      // the text is JSON arguments (not prose) but showing it is still more
+      // informative than just a character count.
       return {
         timestamp: ts,
         kind: "reason",
         label: "Modelo respondiendo",
         detail: `${event.totalChars} caracteres`,
+        body: event.text,
       };
     case "model_thinking_delta":
       return {
@@ -134,14 +136,18 @@ function eventsToLogLines(events: TimedEvent[]): LogLine[] {
     if (!line) continue;
     // Coalesce consecutive streaming ticks of the same eligible label so
     // LogBlock shows one growing line per kind instead of one per chunk.
-    // Reuses COALESCEABLE_LABELS so the post-run collector and the live
-    // streaming helpers stay aligned.
     appendCoalescedLogLine(lines, line);
   }
   return lines;
 }
 
-/** Human-readable line (Spanish) for dashboard generation UI + logs. */
+/**
+ * Human-readable line (Spanish) for dashboard generation UI + logs.
+ * Used by the generate route which streams raw events (not LogLines).
+ * NOTE: This function is called once per event — callers that want coalescing
+ * must deduplicate consecutive identical labels themselves (see
+ * run-dashboard-generate-stream.ts).
+ */
 export function formatAgenticProgressLineEs(event: AgenticProgressEvent): string {
   switch (event.type) {
     case "round":
