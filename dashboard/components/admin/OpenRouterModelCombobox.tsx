@@ -156,6 +156,35 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
     [onChange],
   );
 
+  const displaySummary = useMemo(() => {
+    if (!value) return "";
+    const row = models?.find((m) => m.config_value === value);
+    if (row) {
+      return row.is_auto_row ? row.model_id : `${row.model_id} · ${row.provider_label}`;
+    }
+    const tab = value.indexOf("\t");
+    if (tab === -1) return value;
+    return `${value.slice(0, tab)} · ruta personalizada`;
+  }, [value, models]);
+
+  if (error) {
+    return (
+      <div className="space-y-1">
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
+          placeholder="anthropic/claude-sonnet-4"
+          className="w-full min-w-[min(100%,42rem)] rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+        />
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          No se pudo cargar el catálogo de OpenRouter ({error}). Introduce el id manualmente.
+        </p>
+      </div>
+    );
+  }
+
   function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Escape") {
       setOpen(false);
@@ -177,35 +206,6 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
       if (m) onPick(m.config_value);
     }
   }
-
-  if (error) {
-    return (
-      <div className="space-y-1">
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          disabled={disabled}
-          placeholder="anthropic/claude-sonnet-4"
-          className="w-full min-w-[min(100%,42rem)] rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
-        />
-        <p className="text-xs text-amber-700 dark:text-amber-400">
-          No se pudo cargar el catálogo de OpenRouter ({error}). Introduce el id manualmente.
-        </p>
-      </div>
-    );
-  }
-
-  const displaySummary = useMemo(() => {
-    if (!value) return "";
-    const row = models?.find((m) => m.config_value === value);
-    if (row) {
-      return row.is_auto_row ? row.model_id : `${row.model_id} · ${row.provider_label}`;
-    }
-    const tab = value.indexOf("\t");
-    if (tab === -1) return value;
-    return `${value.slice(0, tab)} · ruta personalizada`;
-  }, [value, models]);
 
   return (
     <div
