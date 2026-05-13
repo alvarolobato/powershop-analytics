@@ -3,6 +3,7 @@ import {
   loadDashboardLlmConfig,
   resetDashboardLlmConfigCache,
   getEffectiveDashboardModel,
+  getEffectiveOpenRouterProvider,
 } from "@/lib/llm-provider/config";
 
 describe("loadDashboardLlmConfig", () => {
@@ -88,6 +89,18 @@ describe("loadDashboardLlmConfig", () => {
       vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER_GENERATE", "claude-sonnet-4");
       const c = loadDashboardLlmConfig();
       expect(getEffectiveDashboardModel(c)).toBe("default-or");
+    });
+
+    it("strips tab-suffixed OpenRouter provider routing from the effective model id", () => {
+      vi.stubEnv("DASHBOARD_LLM_PROVIDER", "openrouter");
+      const suffix = `\t${JSON.stringify({ only: ["deepinfra/fp4"], allow_fallbacks: false })}`;
+      vi.stubEnv("DASHBOARD_LLM_MODEL_OPENROUTER", `deepseek/deepseek-chat${suffix}`);
+      const c = loadDashboardLlmConfig();
+      expect(getEffectiveDashboardModel(c)).toBe("deepseek/deepseek-chat");
+      expect(getEffectiveOpenRouterProvider(c)).toEqual({
+        only: ["deepinfra/fp4"],
+        allow_fallbacks: false,
+      });
     });
   });
 });

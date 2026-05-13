@@ -20,6 +20,7 @@ const SAMPLE_CATALOG = {
       pricing: { prompt: "0.000003", completion: "0.000015" },
       architecture: { modality: "text+image->text" },
       supported_parameters: ["tools", "tool_choice", "temperature"],
+      links: { details: "/api/v1/models/anthropic/claude-sonnet-4/endpoints" },
     },
     {
       id: "obscure/some-model",
@@ -29,6 +30,7 @@ const SAMPLE_CATALOG = {
       pricing: { prompt: "0.0000001", completion: "0.0000002" },
       architecture: { modality: "text->text" },
       supported_parameters: ["temperature"],
+      links: { details: "/api/v1/models/obscure/some-model/endpoints" },
     },
   ],
 };
@@ -40,12 +42,19 @@ describe("GET /api/admin/openrouter-models", () => {
     resetCatalogCache();
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify(SAMPLE_CATALOG), {
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("/endpoints")) {
+          return new Response(JSON.stringify({ data: { endpoints: [] } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify(SAMPLE_CATALOG), {
           status: 200,
           headers: { "content-type": "application/json" },
-        }),
-      ),
+        });
+      }),
     );
   });
 
@@ -56,7 +65,10 @@ describe("GET /api/admin/openrouter-models", () => {
   it("normalises pricing to USD per million tokens", async () => {
     const res = await GET(fakeRequest() as never);
     const body = await res.json();
-    const sonnet = body.models.find((m: { id: string }) => m.id === "anthropic/claude-sonnet-4");
+    const sonnet = body.models.find(
+      (m: { model_id: string; is_auto_row: boolean }) =>
+        m.model_id === "anthropic/claude-sonnet-4" && m.is_auto_row,
+    );
     expect(sonnet.prompt_price_per_1m).toBeCloseTo(3, 5);
     expect(sonnet.completion_price_per_1m).toBeCloseTo(15, 5);
   });
@@ -64,8 +76,14 @@ describe("GET /api/admin/openrouter-models", () => {
   it("flags curated popular models", async () => {
     const res = await GET(fakeRequest() as never);
     const body = await res.json();
-    const sonnet = body.models.find((m: { id: string }) => m.id === "anthropic/claude-sonnet-4");
-    const obscure = body.models.find((m: { id: string }) => m.id === "obscure/some-model");
+    const sonnet = body.models.find(
+      (m: { model_id: string; is_auto_row: boolean }) =>
+        m.model_id === "anthropic/claude-sonnet-4" && m.is_auto_row,
+    );
+    const obscure = body.models.find(
+      (m: { model_id: string; is_auto_row: boolean }) =>
+        m.model_id === "obscure/some-model" && m.is_auto_row,
+    );
     expect(sonnet.popular).toBe(true);
     expect(obscure.popular).toBe(false);
   });
@@ -73,8 +91,14 @@ describe("GET /api/admin/openrouter-models", () => {
   it("derives supports_tools from supported_parameters", async () => {
     const res = await GET(fakeRequest() as never);
     const body = await res.json();
-    const sonnet = body.models.find((m: { id: string }) => m.id === "anthropic/claude-sonnet-4");
-    const obscure = body.models.find((m: { id: string }) => m.id === "obscure/some-model");
+    const sonnet = body.models.find(
+      (m: { model_id: string; is_auto_row: boolean }) =>
+        m.model_id === "anthropic/claude-sonnet-4" && m.is_auto_row,
+    );
+    const obscure = body.models.find(
+      (m: { model_id: string; is_auto_row: boolean }) =>
+        m.model_id === "obscure/some-model" && m.is_auto_row,
+    );
     expect(sonnet.supports_tools).toBe(true);
     expect(obscure.supports_tools).toBe(false);
   });
@@ -82,7 +106,10 @@ describe("GET /api/admin/openrouter-models", () => {
   it("trims long descriptions", async () => {
     const res = await GET(fakeRequest() as never);
     const body = await res.json();
-    const obscure = body.models.find((m: { id: string }) => m.id === "obscure/some-model");
+    const obscure = body.models.find(
+      (m: { model_id: string; is_auto_row: boolean }) =>
+        m.model_id === "obscure/some-model" && m.is_auto_row,
+    );
     expect(obscure.description.length).toBeLessThanOrEqual(220);
     expect(obscure.description.endsWith("…")).toBe(true);
   });
@@ -91,7 +118,7 @@ describe("GET /api/admin/openrouter-models", () => {
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
     await GET(fakeRequest() as never);
     await GET(fakeRequest() as never);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
 
     const res = await GET(fakeRequest() as never);
     const body = await res.json();
@@ -109,9 +136,19 @@ describe("GET /api/admin/openrouter-models", () => {
     // Re-warm so we have a stale cache on the next failure.
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () =>
-        new Response(JSON.stringify(SAMPLE_CATALOG), { status: 200 }),
-      ),
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : (input as Request).url;
+        if (url.includes("/endpoints")) {
+          return new Response(JSON.stringify({ data: { endpoints: [] } }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(JSON.stringify(SAMPLE_CATALOG), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
     );
     await GET(fakeRequest() as never);
 

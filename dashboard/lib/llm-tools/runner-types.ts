@@ -43,6 +43,8 @@ export interface AgenticRunStepInput {
   messages: ChatCompletionMessageParam[];
   tools: ChatCompletionTool[];
   model: string;
+  /** OpenRouter-only: forwarded as the `provider` object on chat completions. */
+  openRouterProvider?: Record<string, unknown>;
   temperature: number;
   maxTokens: number;
   /** Optional callback invoked as the model streams text chunks. `chars` is the

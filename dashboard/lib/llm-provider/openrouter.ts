@@ -161,6 +161,11 @@ export function resetOpenRouterClient(): void {
   _client = null;
 }
 
+export function openRouterExtras(provider?: Record<string, unknown>): { provider?: Record<string, unknown> } {
+  if (!provider || Object.keys(provider).length === 0) return {};
+  return { provider };
+}
+
 export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdapter {
   return {
     async runStep(input): Promise<AgenticStepResult> {
@@ -174,7 +179,8 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
           temperature: input.temperature,
           max_tokens: input.maxTokens,
           stream: true,
-        }),
+          ...openRouterExtras(input.openRouterProvider),
+        } as Parameters<typeof client.chat.completions.create>[0]),
       );
 
       // Accumulate content and tool_call deltas.
@@ -272,6 +278,8 @@ export async function openRouterChatCompletion(params: {
   messages: ChatCompletionMessageParam[];
   temperature: number;
   maxTokens: number;
+  /** Optional OpenRouter `provider` routing object. */
+  provider?: Record<string, unknown>;
 }): Promise<{
   content: string;
   usage: OpenRouterCacheUsage | null;
@@ -282,7 +290,8 @@ export async function openRouterChatCompletion(params: {
       messages: params.messages,
       temperature: params.temperature,
       max_tokens: params.maxTokens,
-    }),
+      ...openRouterExtras(params.provider),
+    } as Parameters<typeof params.client.chat.completions.create>[0]),
   );
   const content = response.choices[0]?.message?.content;
   if (!content) {

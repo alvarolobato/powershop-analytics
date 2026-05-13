@@ -102,6 +102,8 @@ export class AgenticRunnerError extends Error {
 export interface AgenticRunParams {
   adapter: AgenticModelAdapter;
   model: string;
+  /** OpenRouter-only: `provider` routing preferences for this run. */
+  openRouterProvider?: Record<string, unknown>;
   systemPrompt: string;
   /**
    * Optional pre-built system message with provider-specific extensions (e.g.
@@ -205,6 +207,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
   const {
     adapter,
     model,
+    openRouterProvider,
     systemPrompt,
     cachedSystemMessage,
     userContent,
@@ -283,6 +286,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
         messages,
         tools,
         model,
+        openRouterProvider,
         temperature,
         maxTokens,
         onTextDelta: (chars, totalChars) => {

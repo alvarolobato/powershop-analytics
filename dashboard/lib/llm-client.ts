@@ -13,6 +13,7 @@ import {
   resetOpenRouterClient,
   openRouterChatCompletion,
   buildCachedSystemMessage,
+  openRouterExtras,
 } from "./llm-provider/openrouter";
 import { claudeCliSingleShot } from "./llm-provider/cli/claude-code";
 import { CliRunnerError } from "./llm-provider/cli/errors";
@@ -24,6 +25,7 @@ import {
 import {
   loadDashboardLlmConfig,
   getEffectiveDashboardModel,
+  getEffectiveOpenRouterProvider,
 } from "./llm-provider/config";
 import { createDashboardAgenticAdapter } from "./llm-provider/registry";
 import { logUsage } from "./llm-usage";
@@ -112,6 +114,13 @@ const EMPTY_USAGE: NormalizedUsage = {
   total_tokens: 0,
 };
 
+function narrowDashboardLlmFlow(flow: string | undefined): DashboardLlmFlow | undefined {
+  if (flow === "generate" || flow === "modify" || flow === "analyze" || flow === "weekly") {
+    return flow;
+  }
+  return undefined;
+}
+
 function assembleSystemPrompt(req: LlmRequest): string {
   const { stable, volatile } = req.systemPrompt;
   return volatile ? `${stable}\n\n${volatile}` : stable;
@@ -159,8 +168,9 @@ function buildMessagesPlain(req: LlmRequest): ChatCompletionMessageParam[] {
  */
 export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
   const cfg = loadDashboardLlmConfig();
-  const flow = req.flow as DashboardLlmFlow | undefined;
-  const model = getEffectiveDashboardModel(cfg, flow);
+  const dFlow = narrowDashboardLlmFlow(req.flow);
+  const model = getEffectiveDashboardModel(cfg, dFlow);
+  const openRouterProvider = getEffectiveOpenRouterProvider(cfg, dFlow);
   const meta = {
     provider: cfg.provider,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
@@ -215,7 +225,8 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
         temperature,
         max_tokens: maxOutputTokens,
         stream: true,
-      }),
+        ...openRouterExtras(openRouterProvider),
+      } as Parameters<typeof client.chat.completions.create>[0]),
     );
 
     let textContent = "";
@@ -278,6 +289,7 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
       messages,
       temperature,
       maxTokens: maxOutputTokens,
+      provider: openRouterProvider,
     }),
   );
 

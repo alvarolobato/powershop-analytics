@@ -3,8 +3,10 @@
  *
  * Returns the OpenRouter model catalog with normalised pricing
  * (USD per 1M tokens), context windows, modality, and a `popular` flag
- * for the curated "Populares" set. Backed by an in-process cache with a
- * 1 h TTL — see `./catalog.ts`.
+ * for the curated "Populares" set. Each logical model has an **auto** row
+ * (OpenRouter default routing) plus one row per upstream **endpoint** from
+ * OpenRouter's `/models/.../endpoints` API (pinned `provider` routing + that
+ * endpoint's list price). Backed by an in-process cache with a 1 h TTL.
  *
  * Why the helpers live in `catalog.ts`: Next.js App Router rejects any
  * non-handler exports from a route file. Tests need a cache-reset hook,
