@@ -29,6 +29,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger("etl")
 
+# Number of consecutive _is_run_active failures before the process exits so
+# Docker can restart it with a fresh postgres connection. At 10-second poll
+# intervals this equals ~60 seconds of lost connectivity before giving up.
+_IS_RUN_ACTIVE_MAX_FAILURES = 6
+_is_run_active_failures = 0  # module-level counter reset on each success
+
 # ---------------------------------------------------------------------------
 # Cron-setting helpers
 # ---------------------------------------------------------------------------
@@ -423,7 +429,13 @@ def _is_run_active(conn_pg) -> bool:
     """Return True if a recent etl_sync_runs row with status='running' exists.
 
     Rows older than 12 hours are treated as stale (crashed runs) and ignored.
+
+    On repeated connection failures the function increments a module-level
+    counter. After _IS_RUN_ACTIVE_MAX_FAILURES consecutive failures it raises
+    ``RuntimeError`` so the scheduler loop exits, Docker restarts the process,
+    and the connection is re-established cleanly.
     """
+    global _is_run_active_failures
     try:
         with conn_pg.cursor() as cur:
             cur.execute(
@@ -432,13 +444,25 @@ def _is_run_active(conn_pg) -> bool:
             )
             is_active = cur.fetchone() is not None
         conn_pg.rollback()
+        _is_run_active_failures = 0  # reset on success
         return is_active
     except Exception as exc:
-        logger.warning("_is_run_active query failed: %s", exc)
+        _is_run_active_failures += 1
+        logger.warning(
+            "_is_run_active query failed (%d/%d): %s",
+            _is_run_active_failures,
+            _IS_RUN_ACTIVE_MAX_FAILURES,
+            exc,
+        )
         try:
             conn_pg.rollback()
         except Exception:
             pass
+        if _is_run_active_failures >= _IS_RUN_ACTIVE_MAX_FAILURES:
+            raise RuntimeError(
+                f"PostgreSQL connection lost for {_is_run_active_failures} consecutive "
+                f"_is_run_active checks — restarting process to reconnect"
+            ) from exc
         return True  # fail closed: assume active, retry next tick
 
 
