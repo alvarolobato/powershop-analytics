@@ -238,6 +238,8 @@ services:
       # intentionally NOT set here — values come from config.yaml so the
       # admin /config UI can edit them (env-sourced keys render read-only).
     volumes:
+      # CRITICAL: must be :rw — the dashboard writes config.yaml when the user
+      # saves settings via /admin/config. Without :rw changes are lost on restart.
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
       - ./config/schema.yaml:/app/config/schema.yaml:ro
     ports:
