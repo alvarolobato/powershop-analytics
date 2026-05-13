@@ -320,23 +320,10 @@ describe("ViewDashboard page", () => {
     expect(screen.getByTestId("dashboard-renderer")).toBeInTheDocument();
   });
 
-  it("AnalyzeLauncher creates a conversation and navigates to /k/<id>", async () => {
-    // First call: dashboard load; second call: POST /api/conversations
-    let callCount = 0;
-    globalThis.fetch = vi.fn().mockImplementation(() => {
-      callCount++;
-      if (callCount === 1) {
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(dashboardRecord),
-        });
-      }
-      // POST /api/conversations
-      return Promise.resolve({
-        ok: true,
-        json: () =>
-          Promise.resolve({ id: "abc123def456", c_url: "/c/abc123def456", k_url: "/k/abc123def456" }),
-      });
+  it("AnalyzeLauncher opens chat sidebar in analyze mode without creating a conversation", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(dashboardRecord),
     });
 
     render(<ViewDashboard />);
@@ -345,24 +332,30 @@ describe("ViewDashboard page", () => {
       expect(screen.getByText("Mi Dashboard")).toBeInTheDocument();
     });
 
-    // Chat sidebar should not be visible initially
-    expect(screen.queryByTestId("chat-sidebar")).not.toBeInTheDocument();
-
-    // AnalyzeLauncher is visible when sidebar is closed
+    // Chat sidebar should not be open initially
     const launcher = screen.getByLabelText("Analizar con IA");
     expect(launcher).toBeInTheDocument();
 
-    // Click launcher — action-to-chat: creates conversation, navigates
+    // Click launcher — opens the sidebar in analyze mode (no navigation, no
+    // conversation created — that happens lazily when the user sends a message)
     await act(async () => {
       fireEvent.click(launcher);
     });
 
+    // The launcher should no longer be visible once the sidebar opens
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/k/abc123def456");
+      expect(screen.queryByLabelText("Analizar con IA")).not.toBeInTheDocument();
     });
 
-    // Chat sidebar does NOT open directly — navigation takes the user to /k/<id>
-    expect(screen.queryByTestId("chat-sidebar")).not.toBeInTheDocument();
+    // No navigation should have occurred
+    expect(mockPush).not.toHaveBeenCalled();
+
+    // No POST to /api/conversations should have been made
+    const fetchCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const postCalls = fetchCalls.filter(
+      ([, opts]: [unknown, RequestInit]) => opts?.method === "POST",
+    );
+    expect(postCalls).toHaveLength(0);
   });
 
   it("shows error state on fetch failure", async () => {
