@@ -6,38 +6,36 @@
  * without needing to restart the container.
  *
  * Falls back to localhost defaults when the config system is unavailable
- * (e.g. during tests or when schema.yaml is missing).
+ * (e.g. when schema.yaml is missing).
  *
- * NOTE: these functions run server-side only (called from Server Components).
+ * NOTE: server-side only — called from Server Components in layout.tsx.
  */
 
-export function getAppPublicUrl(): string {
-  // Lazy import to avoid pulling the loader into client bundles.
+import { getSystemConfig } from "@/lib/system-config/loader";
+
+function readFromConfig(key: string): string | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getSystemConfig } = require("@/lib/system-config/loader");
     const cfg = getSystemConfig();
-    const val = cfg["dashboard.app_public_url"]?.value;
+    const val = cfg[key]?.value;
     if (val && typeof val === "string" && val.trim()) {
       return val.trim().replace(/\/$/, "");
     }
   } catch {
     // Schema or loader unavailable — fall through to env/default.
   }
-  return (process.env.APP_PUBLIC_URL ?? "http://localhost:4000").replace(/\/$/, "");
+  return null;
+}
+
+export function getAppPublicUrl(): string {
+  return (
+    readFromConfig("dashboard.app_public_url") ??
+    (process.env.APP_PUBLIC_URL ?? "http://localhost:4000").replace(/\/$/, "")
+  );
 }
 
 export function getWrenPublicUrl(): string {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { getSystemConfig } = require("@/lib/system-config/loader");
-    const cfg = getSystemConfig();
-    const val = cfg["dashboard.wren_public_url"]?.value;
-    if (val && typeof val === "string" && val.trim()) {
-      return val.trim().replace(/\/$/, "");
-    }
-  } catch {
-    // Schema or loader unavailable — fall through to env/default.
-  }
-  return (process.env.WREN_PUBLIC_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return (
+    readFromConfig("dashboard.wren_public_url") ??
+    (process.env.WREN_PUBLIC_URL ?? "http://localhost:3000").replace(/\/$/, "")
+  );
 }
