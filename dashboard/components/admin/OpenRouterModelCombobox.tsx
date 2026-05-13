@@ -2,28 +2,24 @@
 
 /**
  * OpenRouterModelCombobox — searchable picker for the OpenRouter model
- * catalog, used by the admin /config form for `dashboard.llm_model_openrouter`.
+ * catalog (including per-endpoint provider + pricing rows), used by the
+ * admin /config form for `dashboard.llm_model_openrouter*`.
  *
- * UX:
- *  - Closed: shows the current model id (or "Selecciona modelo") with a chevron.
- *  - Opens on click → search input + filtered list of model rows.
- *  - "Populares" section is pinned at the top (curated by the API). The
- *    rest are shown alphabetically by id.
- *  - Each row shows: human name (`name`), id, context window, $/M prompt
- *    and completion, modality, and a "Tools" badge when supported (the
- *    agentic dashboard flows require tool calling).
- *  - Keyboard: ArrowUp/ArrowDown move highlight, Enter selects, Esc closes.
- *  - Outside click closes without saving.
+ * Stored value (`config_value`):
+ *  - Auto routing: `vendor/model`
+ *  - Pinned endpoint: `vendor/model\t{"only":["host/quant"],"allow_fallbacks":false}`
  *
- * Catalog data is fetched once per mount from `/api/admin/openrouter-models`
- * (cached server-side for an hour). If the fetch fails, the component
- * degrades to a plain text input so saving still works.
+ * Catalog: `GET /api/admin/openrouter-models` (cached server-side ~1 h).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 interface OpenRouterModel {
-  id: string;
+  row_key: string;
+  config_value: string;
+  model_id: string;
+  provider_label: string;
+  is_auto_row: boolean;
   name: string;
   description: string;
   context_length: number;
@@ -53,7 +49,6 @@ interface Props {
 function fmtUSD(n: number | null): string {
   if (n == null) return "–";
   if (n === 0) return "gratis";
-  // Use enough decimals to show small models meaningfully (e.g. $0.06/M).
   const fixed = n >= 10 ? n.toFixed(1) : n >= 1 ? n.toFixed(2) : n.toFixed(3);
   return `$${fixed}`;
 }
@@ -69,10 +64,19 @@ function matches(model: OpenRouterModel, q: string): boolean {
   if (!q) return true;
   const needle = q.toLowerCase();
   return (
-    model.id.toLowerCase().includes(needle) ||
+    model.model_id.toLowerCase().includes(needle) ||
     model.name.toLowerCase().includes(needle) ||
-    model.description.toLowerCase().includes(needle)
+    model.description.toLowerCase().includes(needle) ||
+    model.provider_label.toLowerCase().includes(needle) ||
+    model.modality.toLowerCase().includes(needle)
   );
+}
+
+function sortRestRows(a: OpenRouterModel, b: OpenRouterModel): number {
+  const byModel = a.model_id.localeCompare(b.model_id);
+  if (byModel !== 0) return byModel;
+  if (a.is_auto_row !== b.is_auto_row) return a.is_auto_row ? -1 : 1;
+  return a.provider_label.localeCompare(b.provider_label);
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +93,6 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
   const searchRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
 
-  // Fetch the catalog on first mount. Keep the result for the page lifetime.
   useEffect(() => {
     if (models !== null || error !== null) return;
     let cancelled = false;
@@ -108,7 +111,6 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
     };
   }, [models, error]);
 
-  // Outside-click closes without saving.
   useEffect(() => {
     if (!open) return;
     function onClick(ev: MouseEvent) {
@@ -119,7 +121,6 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
 
-  // Auto-focus the search input when the panel opens.
   useEffect(() => {
     if (open) searchRef.current?.focus();
   }, [open]);
@@ -130,28 +131,25 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
     const rest: OpenRouterModel[] = [];
     for (const m of models) {
       if (!matches(m, query)) continue;
-      if (m.popular) popular.push(m);
+      if (m.popular && m.is_auto_row) popular.push(m);
       else rest.push(m);
     }
-    // Popular order: keep API order (curated). Rest: alphabetical by id.
-    rest.sort((a, b) => a.id.localeCompare(b.id));
+    rest.sort(sortRestRows);
     return { popular, rest };
   }, [models, query]);
 
-  // Flat list for keyboard navigation (popular first).
   const flat = useMemo(
     () => [...filtered.popular, ...filtered.rest],
     [filtered],
   );
 
-  // Reset highlight when filter changes.
   useEffect(() => {
     setHighlight(0);
   }, [query, models]);
 
   const onPick = useCallback(
-    (id: string) => {
-      onChange(id);
+    (configValue: string) => {
+      onChange(configValue);
       setOpen(false);
       setQuery("");
     },
@@ -176,12 +174,10 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
     if (e.key === "Enter") {
       e.preventDefault();
       const m = flat[highlight];
-      if (m) onPick(m.id);
+      if (m) onPick(m.config_value);
     }
   }
 
-  // If the catalog failed to load, fall back to a plain text input — saving
-  // a custom model id is still possible.
   if (error) {
     return (
       <div className="space-y-1">
@@ -191,7 +187,7 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
           onChange={(e) => onChange(e.target.value)}
           disabled={disabled}
           placeholder="anthropic/claude-sonnet-4"
-          className="w-full rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+          className="w-full min-w-[min(100%,42rem)] rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
         />
         <p className="text-xs text-amber-700 dark:text-amber-400">
           No se pudo cargar el catálogo de OpenRouter ({error}). Introduce el id manualmente.
@@ -200,25 +196,46 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
     );
   }
 
+  const displaySummary = useMemo(() => {
+    if (!value) return "";
+    const row = models?.find((m) => m.config_value === value);
+    if (row) {
+      return row.is_auto_row ? row.model_id : `${row.model_id} · ${row.provider_label}`;
+    }
+    const tab = value.indexOf("\t");
+    if (tab === -1) return value;
+    return `${value.slice(0, tab)} · ruta personalizada`;
+  }, [value, models]);
+
   return (
-    <div ref={containerRef} className="relative" data-testid="or-model-combobox">
+    <div
+      ref={containerRef}
+      className="relative w-full min-w-[min(100%,42rem)] max-w-[56rem]"
+      data-testid="or-model-combobox"
+    >
       <button
         type="button"
         onClick={() => !disabled && setOpen((o) => !o)}
         disabled={disabled}
-        className="flex w-full items-center justify-between gap-2 rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm text-left focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+        className="flex w-full min-h-[2.25rem] items-center justify-between gap-2 rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-3 py-1.5 text-sm text-left focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
-        <span className="truncate font-mono text-xs">
-          {value || <span className="italic text-tremor-content-subtle">Selecciona modelo</span>}
+        <span className="min-w-0 flex-1 break-all font-mono text-xs leading-snug">
+          {value ? (
+            displaySummary
+          ) : (
+            <span className="italic text-tremor-content-subtle">Selecciona modelo y proveedor</span>
+          )}
         </span>
-        <span aria-hidden className="text-tremor-content-subtle">▾</span>
+        <span aria-hidden className="flex-shrink-0 text-tremor-content-subtle">
+          ▾
+        </span>
       </button>
 
       {open && (
         <div
-          className="absolute left-0 right-0 z-30 mt-1 max-h-[420px] overflow-hidden rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background shadow-lg"
+          className="absolute left-0 z-30 mt-1 w-max min-w-full max-w-[min(56rem,calc(100vw-2rem))] max-h-[min(70vh,520px)] overflow-hidden rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background shadow-lg"
           role="listbox"
         >
           <div className="border-b border-tremor-border dark:border-dark-tremor-border p-2">
@@ -228,27 +245,35 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={onKey}
-              placeholder="Buscar por nombre, id o descripción…"
-              className="w-full rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder="Buscar por modelo, proveedor, id o descripción…"
+              className="w-full min-w-[20rem] rounded-md border border-tremor-border dark:border-dark-tremor-border bg-tremor-background dark:bg-dark-tremor-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500"
               data-testid="or-model-combobox-search"
             />
             {models === null && (
-              <p className="mt-1 text-xs text-tremor-content-subtle">Cargando catálogo…</p>
+              <p className="mt-1 text-xs text-tremor-content-subtle">Cargando catálogo (incluye rutas por proveedor)…</p>
             )}
             {models !== null && (
               <p className="mt-1 text-xs text-tremor-content-subtle">
-                {filtered.popular.length + filtered.rest.length} modelos · precios en USD por 1M de tokens
+                {filtered.popular.length + filtered.rest.length} filas · precios USD / 1M tokens (por
+                fila)
               </p>
             )}
           </div>
 
-          <div ref={listRef} className="max-h-[340px] overflow-y-auto">
+          <div ref={listRef} className="max-h-[min(58vh,440px)] overflow-y-auto">
             {filtered.popular.length > 0 && (
-              <Section title="Populares" rows={filtered.popular} indexBase={0} value={value} highlight={highlight} onPick={onPick} />
+              <Section
+                title="Populares (router automático)"
+                rows={filtered.popular}
+                indexBase={0}
+                value={value}
+                highlight={highlight}
+                onPick={onPick}
+              />
             )}
             {filtered.rest.length > 0 && (
               <Section
-                title="Todos"
+                title="Todos los modelos y proveedores"
                 rows={filtered.rest}
                 indexBase={filtered.popular.length}
                 value={value}
@@ -257,9 +282,7 @@ export function OpenRouterModelCombobox({ value, onChange, disabled }: Props) {
               />
             )}
             {models !== null && filtered.popular.length + filtered.rest.length === 0 && (
-              <p className="px-3 py-4 text-sm text-tremor-content-subtle">
-                Ningún modelo coincide con la búsqueda.
-              </p>
+              <p className="px-3 py-4 text-sm text-tremor-content-subtle">Ningún resultado coincide.</p>
             )}
           </div>
         </div>
@@ -285,13 +308,13 @@ function Section({ title, rows, indexBase, value, highlight, onPick }: SectionPr
       </div>
       {rows.map((m, i) => {
         const flatIndex = indexBase + i;
-        const isCurrent = m.id === value;
+        const isCurrent = m.config_value === value;
         const isHighlight = flatIndex === highlight;
         return (
           <button
-            key={m.id}
+            key={m.row_key}
             type="button"
-            onClick={() => onPick(m.id)}
+            onClick={() => onPick(m.config_value)}
             className={
               "block w-full px-3 py-2 text-left text-sm hover:bg-tremor-background-subtle dark:hover:bg-dark-tremor-background-subtle " +
               (isHighlight
@@ -299,11 +322,14 @@ function Section({ title, rows, indexBase, value, highlight, onPick }: SectionPr
                 : "") +
               (isCurrent ? "ring-1 ring-blue-500 ring-inset" : "")
             }
-            data-testid={`or-model-row-${m.id}`}
+            data-testid={`or-model-row-${m.row_key}`}
           >
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <span className="font-medium">{m.name}</span>
-              <span className="font-mono text-xs text-tremor-content-subtle">{m.id}</span>
+              <span className="rounded bg-black/5 px-1.5 py-0 font-mono text-[11px] text-tremor-content-subtle dark:bg-white/10">
+                {m.provider_label}
+              </span>
+              <span className="font-mono text-xs text-tremor-content-subtle">{m.model_id}</span>
               {m.supports_tools && (
                 <span className="rounded-full bg-emerald-100 px-1.5 py-0 text-[10px] text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
                   tools

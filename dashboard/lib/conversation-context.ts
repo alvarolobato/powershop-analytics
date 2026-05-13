@@ -7,7 +7,7 @@
  */
 
 import { sql } from "@/lib/db-write";
-import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
+import { loadDashboardLlmConfig, getEffectiveDashboardModel, getEffectiveOpenRouterProvider } from "@/lib/llm-provider/config";
 import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
 import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
 import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
@@ -113,6 +113,7 @@ async function buildSummary(
 
   const cfg = loadDashboardLlmConfig();
   const model = getEffectiveDashboardModel(cfg, channel);
+  const provider = getEffectiveOpenRouterProvider(cfg, channel);
 
   if (cfg.provider === "cli") {
     try {
@@ -133,6 +134,7 @@ async function buildSummary(
         messages: [{ role: "user" as const, content: prompt }],
         temperature: 0.1,
         maxTokens: 200,
+        provider,
       }),
     );
     if (usage) {

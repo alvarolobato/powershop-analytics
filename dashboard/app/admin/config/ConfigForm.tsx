@@ -263,7 +263,7 @@ function ConfigRow({ item, onSaved, llmProvider }: ConfigRowProps) {
         </div>
 
         {/* Value area */}
-        <div className="w-full sm:w-auto sm:min-w-[300px]">
+        <div className="w-full sm:w-auto sm:min-w-[42rem] sm:max-w-[56rem]">
           {isEditing ? (
             <div className="space-y-1">
               {item.sensitive ? (

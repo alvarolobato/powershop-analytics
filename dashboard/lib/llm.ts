@@ -21,6 +21,7 @@ import { logUsage, checkDailyBudget } from "./llm-usage";
 import {
   loadDashboardLlmConfig,
   getEffectiveDashboardModel,
+  getEffectiveOpenRouterProvider,
 } from "./llm-provider/config";
 import type { DashboardLlmConfig, DashboardLlmFlow } from "./llm-provider/types";
 import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
@@ -191,6 +192,7 @@ export async function generateDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "generate");
+    const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "generate");
     const agenticPreamble = buildAgenticToolPreamble();
     const promptSplit = buildGeneratePromptSplit();
     const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
@@ -202,6 +204,7 @@ export async function generateDashboard(
       runAgenticChat({
         adapter,
         model,
+        openRouterProvider,
         systemPrompt: stableWithPreamble,
         cachedSystemMessage: cachedMsg,
         userContent: userPrompt,
@@ -272,6 +275,7 @@ export async function modifyDashboard(
   if (isAgenticToolsEnabled()) {
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "modify");
+    const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "modify");
     const agenticPreamble = buildAgenticToolPreamble();
     const promptSplit = buildModifyPromptSplit(currentSpec, true);
     const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
@@ -283,6 +287,7 @@ export async function modifyDashboard(
       runAgenticChat({
         adapter,
         model,
+        openRouterProvider,
         systemPrompt: `${promptSplit.stable}\n\n${agenticPreamble}\n\n${promptSplit.volatile}`,
         cachedSystemMessage: cachedMsg,
         userContent: userPrompt,
@@ -436,10 +441,12 @@ export async function analyzeDashboard(
     })}\n\n${buildAgenticToolPreamble()}`;
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "analyze");
+    const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "analyze");
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({
         adapter,
         model,
+        openRouterProvider,
         systemPrompt,
         userContent: userPrompt,
         ctx: requestCtx,
@@ -499,11 +506,13 @@ export async function generateReviewAgentic(
 
   const adapter = createDashboardAgenticAdapter();
   const model = getEffectiveDashboardModel(cfg, "weekly");
+  const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "weekly");
 
   const { content: finalMessage, usage } = await callWithCircuitBreaker(() =>
     runAgenticChat({
       adapter,
       model,
+      openRouterProvider,
       systemPrompt,
       userContent: "Genera la revisión semanal ahora.",
       ctx,

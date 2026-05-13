@@ -1,5 +1,6 @@
 import { getLlmUsageAggregates } from "@/lib/llm-usage-stats";
 import { getDashboardLlmDisplayConfig } from "@/lib/llm-model-config";
+import { getEffectiveDashboardModel } from "@/lib/llm-provider/config";
 import {
   formatIntegerEs,
   formatTokensWithCompact,
@@ -15,6 +16,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminUsagePage() {
   const u = await getLlmUsageAggregates();
   const cfg = getDashboardLlmDisplayConfig();
+  const orModelApi = cfg.provider === "openrouter" ? getEffectiveDashboardModel(cfg) : "";
 
   return (
     <div className="space-y-6">
@@ -93,7 +95,7 @@ export default async function AdminUsagePage() {
         <p className="mt-1 leading-relaxed">
           Las filas con proveedor <code className="rounded bg-black/5 px-1 dark:bg-white/10">openrouter</code>{" "}
           guardan tokens y un importe USD <strong>estimado</strong> (tabla de tarifas en código, alineada con el
-          modelo OpenRouter <code className="rounded bg-black/5 px-1 dark:bg-white/10">{cfg.openrouterModel}</code>
+          modelo OpenRouter <code className="rounded bg-black/5 px-1 dark:bg-white/10">{orModelApi}</code>
           ). <strong>No</strong> se consulta la facturación real de OpenRouter.
         </p>
         <p className="mt-2 leading-relaxed">

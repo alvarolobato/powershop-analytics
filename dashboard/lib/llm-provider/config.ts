@@ -4,6 +4,7 @@
  */
 
 import { getSystemConfig, resetConfigCache } from "@/lib/system-config/loader";
+import { parseOpenRouterModelValue } from "./openrouter-selection";
 import type {
   DashboardCliDriverId,
   DashboardLlmConfig,
@@ -173,21 +174,43 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
 }
 
 /**
- * Effective model id for the configured provider.
+ * Raw stored OpenRouter model value (may include `\t{...}` provider routing).
+ */
+function resolveOpenRouterStoredModel(cfg: DashboardLlmConfig, flow?: DashboardLlmFlow): string {
+  if (flow) {
+    const override = cfg.openrouterModelByFlow[flow];
+    if (override) return override;
+  }
+  return cfg.openrouterModel;
+}
+
+/**
+ * Effective model id for the configured provider (API `model` parameter).
  *
- * For OpenRouter, when `flow` is supplied, a non-empty per-flow override
- * (e.g. `dashboard.llm_model_openrouter_modify`) wins over the default
- * `openrouterModel`. CLI doesn't differentiate by flow — the flat-rate
- * Claude subscription makes per-flow tuning pointless.
+ * For OpenRouter, optional `\t`-suffixed provider JSON is stripped — see
+ * `parseOpenRouterModelValue` / `openrouter-selection.ts`.
+ *
+ * When `flow` is supplied, a non-empty per-flow override wins over the
+ * default `openrouterModel`. CLI doesn't differentiate by flow.
  */
 export function getEffectiveDashboardModel(
   cfg: DashboardLlmConfig,
   flow?: DashboardLlmFlow,
 ): string {
   if (cfg.provider !== "openrouter") return cfg.cliModel;
-  if (flow) {
-    const override = cfg.openrouterModelByFlow[flow];
-    if (override) return override;
-  }
-  return cfg.openrouterModel;
+  const raw = resolveOpenRouterStoredModel(cfg, flow);
+  return parseOpenRouterModelValue(raw).modelId;
+}
+
+/**
+ * OpenRouter `provider` routing object for the active model selection, if any.
+ * Undefined means use OpenRouter's default multi-provider routing.
+ */
+export function getEffectiveOpenRouterProvider(
+  cfg: DashboardLlmConfig,
+  flow?: DashboardLlmFlow,
+): Record<string, unknown> | undefined {
+  if (cfg.provider !== "openrouter") return undefined;
+  const raw = resolveOpenRouterStoredModel(cfg, flow);
+  return parseOpenRouterModelValue(raw).provider;
 }

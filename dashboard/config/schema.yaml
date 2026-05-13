@@ -37,7 +37,7 @@
   sensitive: false
   default: null
   section: LLM
-  description: "Modelo OpenRouter por defecto para todas las operaciones (generate, modify, analyze). Vacío = usa el fallback 'anthropic/claude-sonnet-4'."
+  description: "Modelo OpenRouter (id vendor/modelo). Opcional: tab + JSON del objeto `provider` de la API (ruta por proveedor); el selector en /admin/config lo rellena. Vacío = anthropic/claude-sonnet-4."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_generate
@@ -46,7 +46,7 @@
   sensitive: false
   default: null
   section: LLM
-  description: "Override de modelo OpenRouter para generación de dashboards (vacío = usa llm_model_openrouter)."
+  description: "Override OpenRouter (mismo formato que llm_model_openrouter: id y opcional tab+JSON provider). Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_modify
@@ -55,7 +55,7 @@
   sensitive: false
   default: null
   section: LLM
-  description: "Override de modelo OpenRouter para modificación de dashboards (vacío = usa llm_model_openrouter)."
+  description: "Override OpenRouter para modificación (mismo formato que llm_model_openrouter). Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_analyze
@@ -64,7 +64,7 @@
   sensitive: false
   default: null
   section: LLM
-  description: "Override de modelo OpenRouter para análisis (vacío = usa llm_model_openrouter)."
+  description: "Override OpenRouter para análisis (mismo formato que llm_model_openrouter). Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_weekly
@@ -73,7 +73,7 @@
   sensitive: false
   default: null
   section: LLM
-  description: "Override de modelo OpenRouter para revisiones semanales (vacío = usa llm_model_openrouter)."
+  description: "Override OpenRouter para revisiones semanales (mismo formato que llm_model_openrouter). Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_cli
