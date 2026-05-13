@@ -178,10 +178,10 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
           tool_choice: "auto",
           temperature: input.temperature,
           max_tokens: input.maxTokens,
-          stream: true,
+          stream: true as const,
           ...openRouterExtras(input.openRouterProvider),
-        } as Parameters<typeof client.chat.completions.create>[0]),
-      );
+        }),
+      ) as import("openai/streaming").Stream<import("openai/resources/chat/completions").ChatCompletionChunk>;
 
       // Accumulate content and tool_call deltas.
       let textContent = "";
