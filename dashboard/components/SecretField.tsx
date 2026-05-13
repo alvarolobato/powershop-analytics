@@ -35,6 +35,8 @@ interface SecretFieldProps {
   /** When true, the field is read-only (no onChange) */
   readOnly?: boolean;
   className?: string;
+  /** When provided, the eye icon is grayed out and this text shown as tooltip */
+  title?: string;
 }
 
 export default function SecretField({
@@ -47,6 +49,7 @@ export default function SecretField({
   disabled = false,
   readOnly = false,
   className = "",
+  title,
 }: SecretFieldProps) {
   const [isRevealed, setIsRevealed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -106,11 +109,11 @@ export default function SecretField({
       {/* Eye toggle */}
       <button
         type="button"
-        onClick={handleToggleReveal}
-        disabled={disabled || isLoading}
-        title={isRevealed ? "Ocultar" : "Mostrar valor"}
-        aria-label={isRevealed ? "Ocultar valor" : "Mostrar valor"}
-        className="flex-shrink-0 rounded p-1 text-tremor-content-subtle dark:text-dark-tremor-content-subtle hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis disabled:opacity-50 disabled:cursor-not-allowed"
+        onClick={title ? undefined : handleToggleReveal}
+        disabled={disabled || isLoading || !!title}
+        title={title ?? (isRevealed ? "Ocultar" : "Mostrar valor")}
+        aria-label={title ?? (isRevealed ? "Ocultar valor" : "Mostrar valor")}
+        className={`flex-shrink-0 rounded p-1 disabled:cursor-not-allowed ${title ? "opacity-30 cursor-not-allowed" : "text-tremor-content-subtle dark:text-dark-tremor-content-subtle hover:text-tremor-content-emphasis dark:hover:text-dark-tremor-content-emphasis disabled:opacity-50"}`}
       >
         {isLoading ? (
           <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">

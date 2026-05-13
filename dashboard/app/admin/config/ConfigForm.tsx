@@ -152,7 +152,14 @@ function ConfigRow({ item, onSaved, llmProvider }: ConfigRowProps) {
 
   const canEdit = item.editable && !inertUnderProvider;
 
+  // Keys whose real value can never be returned by the server (intentional
+  // security policy — see REVEAL_BLOCKED_KEYS in the reveal route).
+  // For these we skip the reveal API call and show a tooltip instead.
+  const REVEAL_BLOCKED = new Set(["dashboard.admin_api_key"]);
+  const canReveal = !REVEAL_BLOCKED.has(item.key);
+
   async function handleReveal() {
+    if (!canReveal) return; // blocked — eye button should not be clickable
     try {
       const res = await fetch(`/api/admin/config/reveal?key=${encodeURIComponent(item.key)}`);
       if (!res.ok) {
@@ -343,8 +350,9 @@ function ConfigRow({ item, onSaved, llmProvider }: ConfigRowProps) {
                 <SecretField
                   value={item.value_display}
                   revealed={revealedValue}
-                  onReveal={handleReveal}
+                  onReveal={canReveal ? handleReveal : undefined}
                   readOnly
+                  title={canReveal ? undefined : "Esta clave no puede revelarse por motivos de seguridad"}
                 />
               ) : (
                 <span className="font-mono text-sm text-tremor-content-emphasis dark:text-dark-tremor-content-emphasis">
@@ -401,7 +409,7 @@ function ConfigRow({ item, onSaved, llmProvider }: ConfigRowProps) {
       {/* Admin key env-only notice */}
       {item.key === "dashboard.admin_api_key" && (
         <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-          Solo configurable mediante variable de entorno (<code>ADMIN_API_KEY</code>). Los cambios en config.yaml son ignorados para esta clave por motivos de seguridad.
+          Solo configurable mediante variable de entorno (<code>ADMIN_API_KEY</code>). Los cambios en config.yaml son ignorados para esta clave por motivos de seguridad. El valor no puede revelarse desde la UI.
         </p>
       )}
 

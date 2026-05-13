@@ -3,6 +3,23 @@
 # The loader (lib/system-config/loader.ts) reads this file at runtime.
 # Precedence: env vars > config.yaml > defaults defined here.
 
+# -----------------------------------------------------------------------------
+# OpenRouter
+# -----------------------------------------------------------------------------
+
+- key: openrouter.api_key
+  env: OPENROUTER_API_KEY
+  type: string
+  sensitive: true
+  default: null
+  section: OpenRouter
+  description: "Clave API de OpenRouter para LLM y embeddings (proveedor openrouter)."
+  requires_restart: []
+
+# -----------------------------------------------------------------------------
+# URLs públicas
+# -----------------------------------------------------------------------------
+
 - key: dashboard.app_public_url
   env: APP_PUBLIC_URL
   type: string
@@ -21,13 +38,17 @@
   description: "URL pública de WrenAI (enlace 'Wren' del menú principal)."
   requires_restart: []
 
+# -----------------------------------------------------------------------------
+# Dashboard LLM — proveedor y modelos
+# -----------------------------------------------------------------------------
+
 - key: dashboard.llm_provider
   env: DASHBOARD_LLM_PROVIDER
   type: enum
   enum_values: [cli, openrouter]
   sensitive: false
   default: cli
-  section: LLM
+  section: "Dashboard LLM"
   description: "Proveedor LLM: 'cli' usa Claude Code local (OAuth), 'openrouter' usa la API de OpenRouter."
   requires_restart: []
 
@@ -36,8 +57,8 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
-  description: "Modelo OpenRouter (id vendor/modelo). Opcional: tab + JSON del objeto `provider` de la API (ruta por proveedor); el selector en /admin/config lo rellena. Vacío = anthropic/claude-sonnet-4."
+  section: "Dashboard LLM"
+  description: "Modelo OpenRouter por defecto (id vendor/modelo). Vacío = anthropic/claude-sonnet-4."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_generate
@@ -45,8 +66,8 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
-  description: "Override OpenRouter (mismo formato que llm_model_openrouter: id y opcional tab+JSON provider). Vacío = usa llm_model_openrouter."
+  section: "Dashboard LLM"
+  description: "Override OpenRouter para generación de dashboards. Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_modify
@@ -54,8 +75,8 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
-  description: "Override OpenRouter para modificación (mismo formato que llm_model_openrouter). Vacío = usa llm_model_openrouter."
+  section: "Dashboard LLM"
+  description: "Override OpenRouter para modificación de dashboards. Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_analyze
@@ -63,8 +84,8 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
-  description: "Override OpenRouter para análisis (mismo formato que llm_model_openrouter). Vacío = usa llm_model_openrouter."
+  section: "Dashboard LLM"
+  description: "Override OpenRouter para análisis. Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter_weekly
@@ -72,8 +93,8 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
-  description: "Override OpenRouter para revisiones semanales (mismo formato que llm_model_openrouter). Vacío = usa llm_model_openrouter."
+  section: "Dashboard LLM"
+  description: "Override OpenRouter para revisiones semanales. Vacío = usa llm_model_openrouter."
   requires_restart: []
 
 - key: dashboard.llm_model_cli
@@ -81,8 +102,8 @@
   type: string
   sensitive: false
   default: "claude-sonnet-4-6"
-  section: LLM
-  description: "Modelo Claude para el proveedor CLI (--model flag)."
+  section: "Dashboard LLM"
+  description: "Modelo Claude nativo para el proveedor CLI (--model flag)."
   requires_restart: []
 
 - key: dashboard.llm_cli_driver
@@ -91,8 +112,8 @@
   enum_values: [claude_code]
   sensitive: false
   default: claude_code
-  section: LLM
-  description: "Driver CLI a usar (actualmente solo 'claude_code')."
+  section: "Dashboard LLM"
+  description: "Driver CLI a usar cuando provider=cli (actualmente solo 'claude_code')."
   requires_restart: []
 
 - key: dashboard.llm_cli_bin
@@ -100,7 +121,7 @@
   type: string
   sensitive: false
   default: "claude"
-  section: LLM
+  section: "Dashboard LLM"
   description: "Ruta o nombre del binario Claude CLI."
   requires_restart: []
 
@@ -109,7 +130,7 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
+  section: "Dashboard LLM"
   description: "Argumentos extra para el CLI de Claude (separados por espacios)."
   requires_restart: []
 
@@ -118,7 +139,7 @@
   type: int
   sensitive: false
   default: 120000
-  section: LLM
+  section: "Dashboard LLM"
   description: "Tiempo máximo de espera para una llamada CLI (milisegundos)."
   requires_restart: []
 
@@ -127,7 +148,7 @@
   type: int
   sensitive: false
   default: 8000000
-  section: LLM
+  section: "Dashboard LLM"
   description: "Bytes máximos capturados de la salida del CLI antes de truncar."
   requires_restart: []
 
@@ -136,9 +157,80 @@
   type: string
   sensitive: false
   default: null
-  section: LLM
+  section: "Dashboard LLM"
   description: "Presupuesto diario máximo en USD para llamadas LLM (vacío = sin límite)."
   requires_restart: []
+
+# -----------------------------------------------------------------------------
+# Dashboard LLM — configuración agentic
+# -----------------------------------------------------------------------------
+
+- key: dashboard.agentic_tools_enabled
+  env: DASHBOARD_AGENTIC_TOOLS_ENABLED
+  type: bool
+  sensitive: false
+  default: true
+  section: Agentic
+  description: "Habilita el loop de herramientas agentic para generate/modify/analyze."
+  requires_restart: []
+
+- key: dashboard.agentic_max_tool_rounds
+  env: DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS
+  type: int
+  sensitive: false
+  default: 8
+  section: Agentic
+  description: "Máximo de rondas de herramientas por petición."
+  requires_restart: []
+
+- key: dashboard.agentic_max_tool_calls
+  env: DASHBOARD_AGENTIC_MAX_TOOL_CALLS
+  type: int
+  sensitive: false
+  default: 24
+  section: Agentic
+  description: "Máximo de llamadas totales a herramientas por petición."
+  requires_restart: []
+
+- key: dashboard.agentic_tool_timeout_ms
+  env: DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS
+  type: int
+  sensitive: false
+  default: 15000
+  section: Agentic
+  description: "Timeout en ms por llamada a herramienta."
+  requires_restart: []
+
+- key: dashboard.agentic_max_rows
+  env: DASHBOARD_AGENTIC_MAX_ROWS
+  type: int
+  sensitive: false
+  default: 200
+  section: Agentic
+  description: "Máximo de filas devueltas por execute_query."
+  requires_restart: []
+
+- key: dashboard.agentic_max_columns
+  env: DASHBOARD_AGENTIC_MAX_COLUMNS
+  type: int
+  sensitive: false
+  default: 30
+  section: Agentic
+  description: "Máximo de columnas devueltas por execute_query."
+  requires_restart: []
+
+- key: dashboard.agentic_max_result_chars
+  env: DASHBOARD_AGENTIC_MAX_RESULT_CHARS
+  type: int
+  sensitive: false
+  default: 20000
+  section: Agentic
+  description: "Máximo de caracteres del resultado de herramienta enviado al modelo."
+  requires_restart: []
+
+# -----------------------------------------------------------------------------
+# Seguridad
+# -----------------------------------------------------------------------------
 
 - key: dashboard.admin_api_key
   env: ADMIN_API_KEY
@@ -146,5 +238,23 @@
   sensitive: true
   default: null
   section: Seguridad
-  description: "Clave API para acceder a los endpoints de administración (/admin/*)."
+  description: "Contraseña/token de acceso al panel de administración (/admin/*). Solo configurable por variable de entorno — los cambios en config.yaml se ignoran para evitar escalada de privilegios a través de la UI."
+  requires_restart: []
+
+- key: dashboard.admin_cookie_secure
+  env: ADMIN_COOKIE_SECURE
+  type: bool
+  sensitive: false
+  default: false
+  section: Seguridad
+  description: "Fija la cookie de admin como Secure (solo HTTPS). Activar cuando el dashboard está detrás de TLS."
+  requires_restart: []
+
+- key: dashboard.query_cost_limit
+  env: QUERY_COST_LIMIT
+  type: string
+  sensitive: false
+  default: null
+  section: Seguridad
+  description: "Rechaza consultas SQL cuando el coste EXPLAIN supera este umbral. Vacío = sin límite."
   requires_restart: []
