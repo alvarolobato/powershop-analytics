@@ -2,6 +2,9 @@ import { notFound } from "next/navigation";
 import { ConversationViewer } from "@/components/ConversationViewer";
 import { fetchConversation } from "@/lib/conversation-api";
 
+// Must be dynamic: fetchConversation calls the internal API at render time.
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }

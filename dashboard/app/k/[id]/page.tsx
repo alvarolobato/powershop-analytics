@@ -6,6 +6,11 @@ import HomeSurface from "@/components/surfaces/HomeSurface";
 import AdminSurface from "@/components/surfaces/AdminSurface";
 import { fetchConversation } from "@/lib/conversation-api";
 
+// Must be dynamic: fetchConversation calls the internal API at render time.
+// Without this, Next.js tries to statically generate the page at build time
+// when no real conversation exists, fetches null, and bakes in a 404.
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   params: Promise<{ id: string }>;
 }

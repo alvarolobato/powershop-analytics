@@ -463,6 +463,18 @@ export default function DashboardSurface({
     setChatOpen(true);
   }, []);
 
+  // Called by AnalyzeLauncher when the user clicks the rail button.
+  // Opens the sidebar in analyze mode with the seed prompt pre-filled.
+  // No conversation is created here — the sidebar handles that lazily.
+  const handleAnalyzeLauncherOpen = useCallback((seedPrompt: string) => {
+    setGlossaryOpen(false);
+    setHistoryOpen(false);
+    drillDownIdRef.current += 1;
+    setPendingAnalyze({ prompt: seedPrompt, id: drillDownIdRef.current });
+    setChatInitialMode("analizar");
+    setChatOpen(true);
+  }, []);
+
   const handleSpecUpdate = useCallback(
     (newSpec: DashboardSpec, prompt: string) => {
       setDashboard((prev) => (prev ? { ...prev, spec: newSpec } : prev));
@@ -988,7 +1000,7 @@ export default function DashboardSurface({
         onDataPointClick={handleDataPointClick}
       />
 
-      <AnalyzeLauncher dashboardId={dashboard.id} hidden={chatOpen} />
+      <AnalyzeLauncher dashboardId={dashboard.id} hidden={chatOpen} onOpen={handleAnalyzeLauncherOpen} />
 
       <ChatSidebar
         spec={dashboard.spec}
