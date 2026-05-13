@@ -218,16 +218,19 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
 
   if (req.onTextDelta) {
     // Streaming path — used by chatTextWithProgress for live progress events.
+    // Cast explicitly to Stream<ChatCompletionChunk> so TypeScript knows the
+    // for-await loop is valid (the openai overload is lost after wrapping in
+    // callWithCircuitBreaker<T> which returns Promise<T> not the overloaded type).
     const stream = await callWithCircuitBreaker(() =>
       client.chat.completions.create({
         model,
         messages,
         temperature,
         max_tokens: maxOutputTokens,
-        stream: true,
+        stream: true as const,
         ...openRouterExtras(openRouterProvider),
-      } as Parameters<typeof client.chat.completions.create>[0]),
-    );
+      }),
+    ) as import("openai/streaming").Stream<import("openai/resources/chat/completions").ChatCompletionChunk>;
 
     let textContent = "";
     let totalCharsEmitted = 0;
