@@ -180,7 +180,7 @@ export function ConversationsTable({
     setRenamingId(null);
   };
 
-  // Styles — headers always sticky at top: 0; bulk bar placed outside the
+   // Styles — headers always sticky at top: 0; bulk bar placed outside the
   // scrollable div with zIndex: 11 so it never covers column headers.
   const thStyle: React.CSSProperties = {
     padding: "8px 10px",
@@ -198,13 +198,19 @@ export function ConversationsTable({
     zIndex: 1,
   };
 
+  // Base cell style — NO overflow/truncation here so the checkbox and
+  // action columns don't get clipped. Apply truncation per-column below.
   const tdStyle: React.CSSProperties = {
     padding: "8px 10px",
     fontSize: 12,
     color: "var(--fg)",
     borderBottom: "1px solid var(--border)",
     verticalAlign: "middle",
-    maxWidth: 200,
+  };
+
+  // Truncating cell style for fixed-width columns (mode, duration, tokens, activity).
+  const tdTrunc: React.CSSProperties = {
+    ...tdStyle,
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -343,15 +349,15 @@ export function ConversationsTable({
           data-testid="conversations-table"
         >
           <colgroup>
-            <col style={{ width: 32 }} />
-            <col style={{ width: "auto", minWidth: 200 }} />
-            <col style={{ width: 100 }} />
-            <col style={{ width: 130 }} />
-            <col style={{ width: 130 }} />
-            <col style={{ width: 80 }} />
-            <col style={{ width: 150 }} />
-            <col style={{ width: 80 }} />
-            <col style={{ width: 90 }} />
+            <col style={{ width: 36 }} />           {/* checkbox */}
+            <col />                                  {/* title — takes all remaining space */}
+            <col style={{ width: 90 }} />            {/* tipo/mode */}
+            <col style={{ width: 150 }} />           {/* última actividad */}
+            <col style={{ width: 155 }} />           {/* creada — needs room for "14/05/2026, 06:40" */}
+            <col style={{ width: 75 }} />            {/* duración */}
+            <col style={{ width: 145 }} />           {/* actividad */}
+            <col style={{ width: 75 }} />            {/* tokens */}
+            <col style={{ width: 90 }} />            {/* acciones */}
           </colgroup>
           <thead>
             <tr>
@@ -398,7 +404,7 @@ export function ConversationsTable({
                   data-testid={`conversation-row-${row.id}`}
                 >
                   {/* Checkbox */}
-                  <td style={{ ...tdStyle, width: 32 }}>
+                  <td style={{ ...tdStyle, width: 36 }}>
                     <input
                       type="checkbox"
                       checked={selected.has(row.id)}
@@ -409,7 +415,7 @@ export function ConversationsTable({
                   </td>
 
                   {/* Título — click navigates to /c/:id; pencil icon triggers rename */}
-                  <td style={{ ...tdStyle, maxWidth: "none" }}>
+                  <td style={{ ...tdStyle, maxWidth: 0 }}>
                     {renamingId === row.id ? (
                       <input
                         type="text"
@@ -491,7 +497,7 @@ export function ConversationsTable({
                   </td>
 
                   {/* Tipo — mode pill */}
-                  <td style={{ ...tdStyle }}>
+                  <td style={{ ...tdTrunc }}>
                     <span
                       className={`${modeStyle.bg} ${modeStyle.fg}`}
                       style={{
@@ -510,14 +516,14 @@ export function ConversationsTable({
                   </td>
 
                   {/* Última actividad */}
-                  <td style={{ ...tdStyle, fontWeight: 500 }}>
+                  <td style={{ ...tdTrunc, fontWeight: 500 }}>
                     {relativeTime(row.last_interaction_at)}
                   </td>
 
                   {/* Creada */}
                   <td
                     style={{
-                      ...tdStyle,
+                      ...tdTrunc,
                       color: "var(--fg-muted)",
                       fontFamily: "var(--font-jetbrains, monospace)",
                       fontSize: 11,
@@ -527,12 +533,12 @@ export function ConversationsTable({
                   </td>
 
                   {/* Duración */}
-                  <td style={{ ...tdStyle, color: "var(--fg-muted)" }}>
+                  <td style={{ ...tdTrunc, color: "var(--fg-muted)" }}>
                     {formatDuration(row.duration_seconds)}
                   </td>
 
                   {/* Actividad */}
-                  <td style={{ ...tdStyle, color: "var(--fg-muted)" }}>
+                  <td style={{ ...tdTrunc, color: "var(--fg-muted)" }}>
                     {row.message_count} msg
                     {row.tool_calls_count > 0 &&
                       ` · ${row.tool_calls_count} herr`}
@@ -542,7 +548,7 @@ export function ConversationsTable({
                   {/* Tokens */}
                   <td
                     style={{
-                      ...tdStyle,
+                      ...tdTrunc,
                       color: "var(--fg-muted)",
                       fontFamily: "var(--font-jetbrains, monospace)",
                       fontSize: 11,
