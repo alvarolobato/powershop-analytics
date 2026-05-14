@@ -101,6 +101,8 @@ export default function NewDashboard() {
   const [agenticRequestId, setAgenticRequestId] = useState<string | null>(null);
   const [agenticPhase, setAgenticPhase] = useState<"running" | "error" | "success">("running");
   const [agenticErrorSummary, setAgenticErrorSummary] = useState<ReactNode>(null);
+  const [agenticPrompt, setAgenticPrompt] = useState<string | null>(null);
+  const [agenticConversationUrl, setAgenticConversationUrl] = useState<string | null>(null);
 
   const dismissAgenticDialog = () => {
     setAgenticOpen(false);
@@ -108,6 +110,8 @@ export default function NewDashboard() {
     setAgenticRequestId(null);
     setAgenticPhase("running");
     setAgenticErrorSummary(null);
+    setAgenticPrompt(null);
+    setAgenticConversationUrl(null);
   };
 
   const getDashboardList = async (): Promise<DashboardListItem[]> => {
@@ -170,14 +174,20 @@ export default function NewDashboard() {
     setAgenticRequestId(null);
     setAgenticPhase("running");
     setAgenticErrorSummary(null);
+    setAgenticPrompt(trimmed);
+    setAgenticConversationUrl(null);
 
     let capturedRequestId: string | null = null;
     try {
       const spec = await runDashboardGenerateStream(trimmed, {
-        onMeta: (rid, lines) => {
+        onMeta: (rid, lines, fullPrompt) => {
           capturedRequestId = rid;
           setAgenticRequestId(rid);
+          if (fullPrompt) setAgenticPrompt(fullPrompt);
           setAgenticLines((prev) => [...prev, ...lines.map((text) => ({ text, kind: inferKind(text) as ProgressLine["kind"] }))]);
+        },
+        onConversation: (_convId, cUrl) => {
+          setAgenticConversationUrl(cUrl);
         },
         onLine: (line: GenerateProgressLine, replace) => {
           const progressLine: ProgressLine = { text: line.text, body: line.body, kind: inferKind(line.text) as ProgressLine["kind"] };
@@ -754,6 +764,8 @@ export default function NewDashboard() {
         lines={agenticLines}
         phase={agenticPhase}
         errorSummary={agenticErrorSummary}
+        fullPrompt={agenticPrompt ?? undefined}
+        conversationUrl={agenticConversationUrl ?? undefined}
         onDismiss={dismissAgenticDialog}
       />
     </div>
