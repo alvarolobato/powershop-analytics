@@ -156,6 +156,8 @@ export function formatAgenticProgressLineEs(event: AgenticProgressEvent): string
       return `Modelo pensando… (${event.provider}${event.driver ? `/${event.driver}` : ""})`;
     case "model_text_delta":
       return `Modelo respondiendo · ${event.totalChars} caracteres`;
+    case "model_thinking_delta":
+      return `Claude está razonando · ${event.totalChars} caracteres`;
     case "assistant_tools":
       return `Herramientas solicitadas: ${event.tools.join(", ")}`;
     case "tool_start": {

@@ -117,6 +117,13 @@ export interface AgenticRunParams {
   maxTokens: number;
   /** Prior conversation turns injected between the system prompt and the new user message. */
   priorMessages?: ChatCompletionMessageParam[];
+  /**
+   * OpenRouter adapter only: when true, adds `reasoning: { effort: "medium" }`
+   * to each API request, enabling extended thinking for capable models
+   * (Claude 3.7+, o3, DeepSeek R1, Gemini 3, etc.).
+   * Defaults to false — opt in explicitly to avoid unexpected cost/latency.
+   */
+  enableReasoning?: boolean;
 }
 
 export interface AgenticRunResult {
@@ -215,6 +222,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
     temperature,
     maxTokens,
     priorMessages,
+    enableReasoning,
   } = params;
 
   const cfg = getAgenticConfig();
@@ -289,6 +297,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
         openRouterProvider,
         temperature,
         maxTokens,
+        enableReasoning,
         onTextDelta: (chars, totalChars, accumulatedText) => {
           emitAgenticProgress(ctx, {
             type: "model_text_delta",

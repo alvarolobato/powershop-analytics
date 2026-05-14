@@ -172,12 +172,12 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
       // Use streaming so we can emit model_text_delta and model_thinking_delta
       // events while tokens arrive.
       //
-      // We merge `reasoning: { effort: "medium" }` via Object.assign so
-      // OpenRouter enables extended thinking for capable models (Claude 3.7+,
-      // o3, Gemini 3, DeepSeek R1, etc.). Models that don't support reasoning
-      // silently ignore the parameter. We avoid TypeScript type assertions here
-      // because some build tools (OXC) fail to parse `as X` or `: Type<>` in
-      // certain positions inside .ts files.
+      // Merge `reasoning: { effort: "medium" }` only when the caller opts in
+      // via input.enableReasoning. This activates extended thinking for capable
+      // models (Claude 3.7+, o3, DeepSeek R1, Gemini 3, etc.) but causes extra
+      // token spend and latency, so it should not be forced on every request.
+      // We use Object.assign to avoid TypeScript type assertions that some build
+      // tools (OXC) fail to parse in certain positions inside .ts files.
       const baseParams = {
         model: input.model,
         messages: input.messages,
@@ -188,10 +188,11 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
         stream: true,
         ...openRouterExtras(input.openRouterProvider),
       };
+      const finalParams = input.enableReasoning
+        ? Object.assign(baseParams, { reasoning: { effort: "medium" } })
+        : baseParams;
       const stream = await withOpenRouterRetry(() =>
-        client.chat.completions.create(
-          Object.assign(baseParams, { reasoning: { effort: "medium" } }),
-        ),
+        client.chat.completions.create(finalParams),
       ) as import("openai/streaming").Stream<import("openai/resources/chat/completions").ChatCompletionChunk>;
 
       // Accumulate content, tool_call, and reasoning/thinking deltas.
