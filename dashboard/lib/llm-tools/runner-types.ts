@@ -54,10 +54,24 @@ export interface AgenticRunStepInput {
   onTextDelta?: (chars: number, totalChars: number, accumulatedText: string) => void;
   /** Optional callback invoked while the model is in extended-thinking mode.
    *  Same contract as `onTextDelta` but for the chain-of-thought block. Fires
-   *  *before* the final answer text starts streaming (Claude only — OpenRouter
-   *  text streaming has no extended-thinking phase, so this is never invoked
-   *  for that adapter). */
+   *  *before* the final answer text starts streaming.
+   *
+   *  For the CLI (claude_code) adapter: fires when the Claude CLI emits
+   *  `thinking_delta` events in its native NDJSON stream.
+   *
+   *  For the OpenRouter adapter: fires when `enableReasoning=true` and the
+   *  model returns reasoning tokens (via `delta.reasoning_details` or
+   *  `delta.reasoning`). Supported by claude-3-7-sonnet, o3, deepseek-r1, etc. */
   onThinkingDelta?: (chars: number, totalChars: number, accumulatedThinking: string) => void;
+  /**
+   * OpenRouter adapter only: when true, adds `reasoning: { effort: "medium" }`
+   * to the API request, activating extended thinking for capable models
+   * (Claude 3.7+, o3, DeepSeek R1, Gemini 3, etc.).
+   *
+   * Defaults to false. Enable explicitly when using a known thinking-capable
+   * model to avoid unexpected cost/latency increases on standard models.
+   */
+  enableReasoning?: boolean;
 }
 
 export interface AgenticModelAdapter {
