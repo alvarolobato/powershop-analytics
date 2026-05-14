@@ -9,8 +9,10 @@ import { interactionLineClass } from "@/lib/interaction-line-class";
 
 /**
  * Infer a line `kind` from its raw text when no explicit kind is provided.
+ * Exported so callers can set kind when constructing ProgressLine objects,
+ * preserving tool-call / tool-result / error styling.
  */
-function inferKind(text: string): InteractionLine["kind"] {
+export function inferKind(text: string): InteractionLine["kind"] {
   const t = text.trim();
   if (t.startsWith("  →") || t.startsWith("→") || t.includes("Herramientas solicitadas")) {
     return "tool_call";
@@ -27,10 +29,12 @@ function inferKind(text: string): InteractionLine["kind"] {
 
 // ─── Component types ─────────────────────────────────────────────────────────
 
-/** A typed line with optional kind + text. Accepts plain string or typed object. */
+/** A typed line with optional kind + text + body. Accepts plain string or typed object. */
 export interface ProgressLine {
   kind?: InteractionLine["kind"];
   text: string;
+  /** Optional expanded body text (e.g. model reasoning/thinking content). */
+  body?: string;
 }
 
 export interface DashboardGenerateProgressDialogProps {
@@ -58,13 +62,23 @@ export function DashboardGenerateProgressDialog({
   const logRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
 
-  // Auto-scroll to bottom on each new line, unless user has scrolled up manually.
+  // Normalise lines so we always have ProgressLine[] — done before effects
+  // so lastLine is available for the auto-scroll dependency.
+  const normalised: ProgressLine[] = (lines as (string | ProgressLine)[]).map((l) =>
+    typeof l === "string" ? { kind: inferKind(l), text: l } : l,
+  );
+
+  // Auto-scroll to bottom on each new line or coalesced update, unless the
+  // user has scrolled up manually. The dependency on the last line's text and
+  // body ensures coalescing (same array length, content replaced) also
+  // triggers the scroll.
+  const lastLine = normalised[normalised.length - 1];
   useEffect(() => {
     const el = logRef.current;
     if (!el) return;
     if (userScrolledRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [lines.length]);
+  }, [lines.length, lastLine?.text, lastLine?.body]);
 
   // Reset userScrolled when dialog opens.
   useEffect(() => {
@@ -79,11 +93,6 @@ export function DashboardGenerateProgressDialog({
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
     userScrolledRef.current = !atBottom;
   };
-
-  // Normalise lines so we always have ProgressLine[]
-  const normalised: ProgressLine[] = (lines as (string | ProgressLine)[]).map((l) =>
-    typeof l === "string" ? { kind: inferKind(l), text: l } : l,
-  );
 
   return (
     <Dialog
@@ -135,6 +144,26 @@ export function DashboardGenerateProgressDialog({
                   className={`whitespace-pre-wrap break-words ${interactionLineClass(line.kind)}`}
                 >
                   {line.text}
+                  {line.body && (
+                    <pre
+                      style={{
+                        marginTop: 4,
+                        marginLeft: 12,
+                        padding: "6px 8px",
+                        fontSize: 11,
+                        lineHeight: 1.5,
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        background: "var(--bg-2, rgba(0,0,0,0.15))",
+                        borderRadius: 4,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        color: "var(--fg-muted)",
+                        borderLeft: "2px solid var(--border)",
+                      }}
+                    >
+                      {line.body}
+                    </pre>
+                  )}
                 </div>
               ))
             )}

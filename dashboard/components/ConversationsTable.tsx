@@ -387,10 +387,8 @@ export function ConversationsTable({
               const modeStyle = getModePillStyle(row.mode);
               const displayTitle =
                 row.title ??
-                (row.first_user_prompt
-                  ? row.first_user_prompt.slice(0, 60) +
-                    (row.first_user_prompt.length > 60 ? "…" : "")
-                  : "(sin título)");
+                row.first_user_prompt ??
+                "(sin título)";
 
               return (
                 <tr

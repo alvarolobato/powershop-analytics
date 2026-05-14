@@ -7,11 +7,11 @@ import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { TASK_PROMPTS } from "@/lib/task-prompts";
 import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
-import { DashboardGenerateProgressDialog } from "@/components/DashboardGenerateProgressDialog";
+import { DashboardGenerateProgressDialog, type ProgressLine, inferKind } from "@/components/DashboardGenerateProgressDialog";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
-import { runDashboardGenerateStream } from "@/lib/run-dashboard-generate-stream";
+import { runDashboardGenerateStream, type GenerateProgressLine } from "@/lib/run-dashboard-generate-stream";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ export default function NewDashboard() {
   const [gapsError, setGapsError] = useState<string | null>(null);
 
   const [agenticOpen, setAgenticOpen] = useState(false);
-  const [agenticLines, setAgenticLines] = useState<string[]>([]);
+  const [agenticLines, setAgenticLines] = useState<ProgressLine[]>([]);
   const [agenticRequestId, setAgenticRequestId] = useState<string | null>(null);
   const [agenticPhase, setAgenticPhase] = useState<"running" | "error" | "success">("running");
   const [agenticErrorSummary, setAgenticErrorSummary] = useState<ReactNode>(null);
@@ -177,17 +177,15 @@ export default function NewDashboard() {
         onMeta: (rid, lines) => {
           capturedRequestId = rid;
           setAgenticRequestId(rid);
-          setAgenticLines((prev) => [...prev, ...lines]);
+          setAgenticLines((prev) => [...prev, ...lines.map((text) => ({ text, kind: inferKind(text) as ProgressLine["kind"] }))]);
         },
-        onLine: (line, replace) => {
+        onLine: (line: GenerateProgressLine, replace) => {
+          const progressLine: ProgressLine = { text: line.text, body: line.body, kind: inferKind(line.text) as ProgressLine["kind"] };
           setAgenticLines((prev) => {
             if (replace && prev.length > 0) {
-              // Coalesce: replace the last line in place so streaming ticks
-              // (e.g. "Modelo respondiendo · N caracteres") show as one
-              // growing entry instead of one per token.
-              return [...prev.slice(0, -1), line];
+              return [...prev.slice(0, -1), progressLine];
             }
-            return [...prev, line];
+            return [...prev, progressLine];
           });
         },
       });
