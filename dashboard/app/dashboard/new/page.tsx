@@ -7,7 +7,7 @@ import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { TASK_PROMPTS } from "@/lib/task-prompts";
 import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
-import { DashboardGenerateProgressDialog, type ProgressLine } from "@/components/DashboardGenerateProgressDialog";
+import { DashboardGenerateProgressDialog, type ProgressLine, inferKind } from "@/components/DashboardGenerateProgressDialog";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
 import { isApiErrorResponse } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -177,10 +177,10 @@ export default function NewDashboard() {
         onMeta: (rid, lines) => {
           capturedRequestId = rid;
           setAgenticRequestId(rid);
-          setAgenticLines((prev) => [...prev, ...lines.map((text) => ({ text }))]);
+          setAgenticLines((prev) => [...prev, ...lines.map((text) => ({ text, kind: inferKind(text) as ProgressLine["kind"] }))]);
         },
         onLine: (line: GenerateProgressLine, replace) => {
-          const progressLine: ProgressLine = { text: line.text, body: line.body };
+          const progressLine: ProgressLine = { text: line.text, body: line.body, kind: inferKind(line.text) as ProgressLine["kind"] };
           setAgenticLines((prev) => {
             if (replace && prev.length > 0) {
               return [...prev.slice(0, -1), progressLine];
