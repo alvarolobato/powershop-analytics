@@ -69,6 +69,13 @@ export function DashboardGenerateProgressDialog({
   const userScrolledRef = useRef(false);
   const [promptExpanded, setPromptExpanded] = useState(false);
 
+  // Reset expand state whenever the dialog opens so the prompt starts collapsed.
+  useEffect(() => {
+    if (open) {
+      setPromptExpanded(false);
+    }
+  }, [open]);
+
   // Normalise lines so we always have ProgressLine[] — done before effects
   // so lastLine is available for the auto-scroll dependency.
   const normalised: ProgressLine[] = (lines as (string | ProgressLine)[]).map((l) =>

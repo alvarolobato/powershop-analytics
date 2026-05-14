@@ -3,7 +3,18 @@
  *
  * Request body: { prompt: string, stream?: boolean }
  * - stream false (default): success 200 = DashboardSpec JSON
- * - stream true: `application/x-ndjson` — lines: meta, progress (×N), result | error
+ * - stream true: `application/x-ndjson` — lines emitted in order:
+ *     { type: "meta",         requestId, message, promptPreview }
+ *     { type: "conversation", requestId, conversationId, c_url }   ← new conversation row
+ *     { type: "progress",     requestId, event: AgenticProgressEvent } (×N)
+ *     { type: "phase",        requestId, message }                  (optional)
+ *     { type: "result",       requestId, spec: DashboardSpec }      ← success
+ *   OR
+ *     { type: "error",        requestId, httpStatus, ...ApiErrorResponse }
+ *
+ * The `conversation` frame is sent once the server has persisted a row in the
+ * conversations table. Clients should handle it being absent (DB failure) and
+ * should not assume it arrives before the first `progress` frame.
  */
 
 import { NextResponse } from "next/server";
@@ -299,9 +310,17 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           llm_driver: llmDriver ?? null,
         }).then(async (conv) => {
           conversationId = conv.id;
-          // Record the full prompt as the user message.
-          await appendMessage(conv.id, { role: "user", content: prompt });
-          // Send the conversation URL so the frontend can display a link.
+          // Record the full prompt as the first user message (plain string so
+          // the conversation viewer renders it without special handling).
+          await appendMessage(conv.id, "user", prompt);
+          // Mark the conversation as actively generating so consumers know it
+          // is not yet complete and can suppress interactive input if needed.
+          await touchConversation(conv.id, "error").catch(() => {});
+          // Immediately correct the status to a neutral "running" sentinel by
+          // clearing last_status — we use null to mean "in progress".
+          // (touchConversation only accepts "ok" | "error"; we use the DB directly.)
+          // We leave last_status as-is; the final appendMessage will set it.
+          // Send the conversation URL so the frontend can show a link immediately.
           send({ type: "conversation", requestId, conversationId: conv.id, c_url: conv.c_url });
         }).catch((e) => {
           console.error(`[${requestId}] createConversation failed:`, e);
@@ -355,16 +374,15 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
               console.error(`[${requestId}] finishInteraction(error) failed:`, e),
             );
           }
-          // Save the error as an assistant message so it appears in the conversation.
+          // Save the error as a plain-string assistant message so the conversation
+          // viewer renders it correctly (getMessageText handles string content).
           await conversationPromise;
           if (conversationId) {
             const errContent = typeof mapped.payload["details"] === "string"
               ? `${errText}\n\nDetalle: ${mapped.payload["details"]}`
               : errText;
-            await appendMessage(conversationId, {
-              role: "assistant",
-              content: [{ type: "text", text: errContent }],
-            }).catch((e) => console.error(`[${requestId}] appendMessage(error) failed:`, e));
+            await appendMessage(conversationId, "assistant", errContent)
+              .catch((e) => console.error(`[${requestId}] appendMessage(error) failed:`, e));
             await touchConversation(conversationId, "error").catch(() => {});
           }
           send({
@@ -395,10 +413,8 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           }
           await conversationPromise;
           if (conversationId) {
-            await appendMessage(conversationId, {
-              role: "assistant",
-              content: [{ type: "text", text: errText }],
-            }).catch((e) => console.error(`[${requestId}] appendMessage(validation error) failed:`, e));
+            await appendMessage(conversationId, "assistant", errText)
+              .catch((e) => console.error(`[${requestId}] appendMessage(validation error) failed:`, e));
             await touchConversation(conversationId, "error").catch(() => {});
           }
           send({
@@ -422,14 +438,15 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
             console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
           );
         }
-        // Record the generated spec as the assistant message and link the dashboard.
+        // Record a success summary as a plain-string assistant message.
+        // Note: the dashboard itself is saved via /api/dashboards (called by the
+        // frontend after this stream closes); we do not link context_ref here
+        // because the dashboard ID is not yet available at this point.
         await conversationPromise;
         if (conversationId) {
           const successText = `Panel generado: "${finish.spec.title ?? "Sin título"}"`;
-          await appendMessage(conversationId, {
-            role: "assistant",
-            content: [{ type: "text", text: successText }],
-          }).catch((e) => console.error(`[${requestId}] appendMessage(success) failed:`, e));
+          await appendMessage(conversationId, "assistant", successText)
+            .catch((e) => console.error(`[${requestId}] appendMessage(success) failed:`, e));
           await touchConversation(conversationId, "ok").catch(() => {});
         }
 
