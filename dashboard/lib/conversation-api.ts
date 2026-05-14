@@ -15,8 +15,9 @@ import { getAppPublicUrl } from "@/lib/public-urls";
  *   through the proxy, and fails (TLS mismatch, routing, or DNS inside Docker).
  *   The result is a null response → notFound() → 404 for every /c/ and /k/ page.
  *
- * Fix: always fetch via http://127.0.0.1:{PORT}. The PORT env var is set by
- * Next.js standalone to the port the server is actually listening on (4000).
+ * Fix: always fetch via http://127.0.0.1:{DASHBOARD_PORT|PORT|4000}. The
+ * loopback address always resolves inside the container. Port resolution:
+ * DASHBOARD_PORT (docker-compose env) → PORT (Next.js standalone) → 4000.
  *
  * Returns null for 404 or any fetch error (caller should `notFound()`).
  */
@@ -24,7 +25,9 @@ export async function fetchConversation(id: string): Promise<ConversationWithMes
   try {
     // Use the loopback address so the fetch always stays inside the container
     // regardless of how the request arrived (direct LAN access or reverse proxy).
-    const port = process.env.PORT ?? "4000";
+    // Port resolution order: DASHBOARD_PORT (docker-compose), PORT (Next.js
+    // standalone default), fallback 4000.
+    const port = process.env.DASHBOARD_PORT ?? process.env.PORT ?? "4000";
     const baseUrl = `http://127.0.0.1:${port}`;
     const res = await fetch(`${baseUrl}/api/conversations/${id}`, {
       cache: "no-store",

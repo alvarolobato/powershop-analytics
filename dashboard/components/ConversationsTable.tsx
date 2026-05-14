@@ -180,7 +180,7 @@ export function ConversationsTable({
     setRenamingId(null);
   };
 
-   // Styles — headers always sticky at top: 0; bulk bar placed outside the
+  // Styles — headers always sticky at top: 0; bulk bar placed outside the
   // scrollable div with zIndex: 11 so it never covers column headers.
   const thStyle: React.CSSProperties = {
     padding: "8px 10px",
@@ -361,8 +361,8 @@ export function ConversationsTable({
           </colgroup>
           <thead>
             <tr>
-              {/* Checkbox header */}
-              <th style={{ ...thStyle, width: 32 }}>
+              {/* Checkbox header — width matches the colgroup col (36px) */}
+              <th style={{ ...thStyle, width: 36 }}>
                 <input
                   type="checkbox"
                   checked={allSelected}
