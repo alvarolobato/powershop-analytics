@@ -188,8 +188,10 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
       // Enable reasoning/thinking for capable models.
       // OpenRouter normalizes this across Anthropic, OpenAI, Google, etc.
       // For models that don't support reasoning it is silently ignored.
+      // Cast via unknown to avoid TypeScript complaining about the non-standard
+      // `reasoning` field not being in the OpenAI SDK's type definitions.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const reasoningParam: Record<string, unknown> = { reasoning: { effort: "medium" } };
+      const reasoningParam = { reasoning: { effort: "medium" } } as any;
       const stream = await withOpenRouterRetry(() =>
         client.chat.completions.create({
           model: input.model,
