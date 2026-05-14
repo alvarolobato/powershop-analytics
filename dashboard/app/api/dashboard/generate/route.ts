@@ -27,6 +27,11 @@ import {
   finishInteraction,
   type InteractionLine,
 } from "@/lib/db-write";
+import {
+  createConversation,
+  appendMessage,
+  touchConversation,
+} from "@/lib/conversations";
 import { formatAgenticProgressLineEs } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
@@ -258,6 +263,9 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
         const ts = () => new Date().toISOString();
 
         // Send the first meta line immediately — do NOT await DB before this.
+        // We fire both createInteraction and createConversation concurrently so
+        // the conversation appears in the list right away, even before the LLM
+        // returns. The conversation ID is sent back so the frontend can link to it.
         send({
           type: "meta",
           requestId,
@@ -265,8 +273,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           promptPreview: prompt.slice(0, 200),
         });
 
-        // Start persisting the interaction concurrently — the first meta NDJSON line
-        // was already sent above so the DB insert does not block the stream start.
+        // Start persisting the interaction concurrently.
         const interactionLines: InteractionLine[] = [];
         let interactionId: string | null = null;
         const interactionIdPromise = createInteraction({
@@ -279,6 +286,25 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           interactionId = id;
         }).catch((e) => {
           console.error(`[${requestId}] createInteraction failed:`, e);
+        });
+
+        // Create a conversations row immediately so this generation is visible
+        // in the conversations list and the user can find it even if it fails.
+        let conversationId: string | null = null;
+        const conversationPromise = createConversation({
+          mode: "generate",
+          context_kind: "dashboard",
+          first_user_prompt: prompt,
+          llm_provider: llmProvider,
+          llm_driver: llmDriver ?? null,
+        }).then(async (conv) => {
+          conversationId = conv.id;
+          // Record the full prompt as the user message.
+          await appendMessage(conv.id, { role: "user", content: prompt });
+          // Send the conversation URL so the frontend can display a link.
+          send({ type: "conversation", requestId, conversationId: conv.id, c_url: conv.c_url });
+        }).catch((e) => {
+          console.error(`[${requestId}] createConversation failed:`, e);
         });
 
         const pushLine = (line: InteractionLine) => {
@@ -329,6 +355,18 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
               console.error(`[${requestId}] finishInteraction(error) failed:`, e),
             );
           }
+          // Save the error as an assistant message so it appears in the conversation.
+          await conversationPromise;
+          if (conversationId) {
+            const errContent = typeof mapped.payload["details"] === "string"
+              ? `${errText}\n\nDetalle: ${mapped.payload["details"]}`
+              : errText;
+            await appendMessage(conversationId, {
+              role: "assistant",
+              content: [{ type: "text", text: errContent }],
+            }).catch((e) => console.error(`[${requestId}] appendMessage(error) failed:`, e));
+            await touchConversation(conversationId, "error").catch(() => {});
+          }
           send({
             type: "error",
             requestId,
@@ -355,6 +393,14 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
               console.error(`[${requestId}] finishInteraction(error) failed:`, e),
             );
           }
+          await conversationPromise;
+          if (conversationId) {
+            await appendMessage(conversationId, {
+              role: "assistant",
+              content: [{ type: "text", text: errText }],
+            }).catch((e) => console.error(`[${requestId}] appendMessage(validation error) failed:`, e));
+            await touchConversation(conversationId, "error").catch(() => {});
+          }
           send({
             type: "error",
             requestId,
@@ -375,6 +421,16 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           ).catch((e) =>
             console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
           );
+        }
+        // Record the generated spec as the assistant message and link the dashboard.
+        await conversationPromise;
+        if (conversationId) {
+          const successText = `Panel generado: "${finish.spec.title ?? "Sin título"}"`;
+          await appendMessage(conversationId, {
+            role: "assistant",
+            content: [{ type: "text", text: successText }],
+          }).catch((e) => console.error(`[${requestId}] appendMessage(success) failed:`, e));
+          await touchConversation(conversationId, "ok").catch(() => {});
         }
 
         send({ type: "result", requestId, spec: finish.spec });

@@ -18,7 +18,9 @@ export interface GenerateProgressLine {
 }
 
 export interface DashboardGenerateStreamHandlers {
-  onMeta?: (requestId: string, lines: string[]) => void;
+  onMeta?: (requestId: string, lines: string[], fullPrompt?: string) => void;
+  /** Called when the server creates a conversation for this generation. */
+  onConversation?: (conversationId: string, cUrl: string) => void;
   /**
    * Called with a progress line to append or update in the log.
    * `replace=true` means update the last line in-place (coalescing).
@@ -68,6 +70,9 @@ export async function runDashboardGenerateStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let finalSpec: DashboardSpec | null = null;
+  // Capture the prompt so the meta handler can pass it to onMeta for the
+  // expandable full-prompt section in DashboardGenerateProgressDialog.
+  const currentPrompt = prompt;
 
   // Coalescing state: track the last label emitted to detect consecutive
   // coalesceable ticks (model_text_delta / model_thinking_delta).
@@ -97,7 +102,16 @@ export async function runDashboardGenerateStream(
       if (typeof msg.promptPreview === "string") {
         lines.push(`Resumen del prompt: ${msg.promptPreview}`);
       }
-      handlers.onMeta?.(msg.requestId, lines);
+      // Pass the full prompt text so the dialog can show it in an expandable section.
+      handlers.onMeta?.(msg.requestId, lines, currentPrompt);
+    }
+
+    if (msg.type === "conversation" && typeof msg.conversationId === "string") {
+      // Server created a conversation row — notify so the UI can show a link.
+      handlers.onConversation?.(
+        msg.conversationId as string,
+        typeof msg.c_url === "string" ? msg.c_url : `/c/${msg.conversationId}`,
+      );
     }
 
     if (msg.type === "progress" && msg.event) {

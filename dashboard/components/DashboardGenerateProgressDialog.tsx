@@ -1,7 +1,7 @@
 "use client";
 
 import { Dialog, DialogBackdrop, DialogPanel, DialogTitle } from "@headlessui/react";
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
 
@@ -45,6 +45,10 @@ export interface DashboardGenerateProgressDialogProps {
   lines: string[] | ProgressLine[];
   phase: "running" | "error" | "success";
   errorSummary?: ReactNode | null;
+  /** The full user prompt — shown collapsed at the top. */
+  fullPrompt?: string;
+  /** URL of the conversation created for this generation (/c/:id). */
+  conversationUrl?: string;
   onDismiss: () => void;
 }
 
@@ -57,10 +61,13 @@ export function DashboardGenerateProgressDialog({
   lines,
   phase,
   errorSummary = null,
+  fullPrompt,
+  conversationUrl,
   onDismiss,
 }: DashboardGenerateProgressDialogProps) {
   const logRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
+  const [promptExpanded, setPromptExpanded] = useState(false);
 
   // Normalise lines so we always have ProgressLine[] — done before effects
   // so lastLine is available for the auto-scroll dependency.
@@ -112,14 +119,53 @@ export function DashboardGenerateProgressDialog({
         >
           {/* Header */}
           <div className="flex-none px-5 pt-5 pb-2">
-            <DialogTitle className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-              {title}
-            </DialogTitle>
+            <div className="flex items-start justify-between gap-3">
+              <DialogTitle className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+                {title}
+              </DialogTitle>
+              {conversationUrl && (
+                <a
+                  href={conversationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="shrink-0 text-xs text-tremor-brand dark:text-dark-tremor-brand hover:underline mt-1"
+                >
+                  Ver conversación →
+                </a>
+              )}
+            </div>
             {requestId ? (
               <p className="mt-1 font-mono text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle">
                 ID: {requestId}
               </p>
             ) : null}
+            {/* Expandable full prompt */}
+            {fullPrompt && (
+              <div className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => setPromptExpanded((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-tremor-content-subtle dark:text-dark-tremor-content-subtle hover:text-tremor-content dark:hover:text-dark-tremor-content"
+                  aria-expanded={promptExpanded}
+                >
+                  <span
+                    style={{ display: "inline-block", transition: "transform 150ms", transform: promptExpanded ? "rotate(90deg)" : "rotate(0deg)" }}
+                    aria-hidden="true"
+                  >
+                    ▶
+                  </span>
+                  Prompt completo
+                </button>
+                {promptExpanded && (
+                  <pre
+                    className="mt-1 rounded border border-tremor-border dark:border-dark-tremor-border bg-tremor-background-muted/80 dark:bg-dark-tremor-background-muted/50 p-2 text-xs text-tremor-content dark:text-dark-tremor-content overflow-auto max-h-40"
+                    style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: "var(--font-jetbrains, monospace)" }}
+                  >
+                    {fullPrompt}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Log panel — fills remaining space, scrolls independently */}
