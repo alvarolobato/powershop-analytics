@@ -172,49 +172,33 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
       // Use streaming so we can emit model_text_delta and model_thinking_delta
       // events while tokens arrive.
       //
-      // `reasoning: { effort: "medium" }` activates extended thinking for
-      // models that support it (Claude 3.7+, o3, Gemini 3, DeepSeek R1, etc.)
-      // via OpenRouter's unified reasoning parameter. For models that don't
-      // support reasoning this parameter is silently ignored by OpenRouter.
-      const stream = await withOpenRouterRetry(() =>
-        client.chat.completions.create({
-          model: input.model,
-          messages: input.messages,
-          tools: input.tools,
-          tool_choice: "auto",
-          temperature: input.temperature,
-          max_tokens: input.maxTokens,
-          stream: true as const,
-      // Enable reasoning/thinking for capable models.
-      // OpenRouter normalizes this across Anthropic, OpenAI, Google, etc.
-      // For models that don't support reasoning it is silently ignored.
-      // We spread via a plain JS object to avoid TypeScript complaining about
-      // the non-standard `reasoning` field not being in the OpenAI SDK types.
-      const extraParams = Object.assign({}, { reasoning: { effort: "medium" } });
+      // We merge `reasoning: { effort: "medium" }` via Object.assign so
+      // OpenRouter enables extended thinking for capable models (Claude 3.7+,
+      // o3, Gemini 3, DeepSeek R1, etc.). Models that don't support reasoning
+      // silently ignore the parameter. We avoid TypeScript type assertions here
+      // because some build tools (OXC) fail to parse `as X` or `: Type<>` in
+      // certain positions inside .ts files.
+      const baseParams = {
+        model: input.model,
+        messages: input.messages,
+        tools: input.tools,
+        tool_choice: "auto",
+        temperature: input.temperature,
+        max_tokens: input.maxTokens,
+        stream: true,
+        ...openRouterExtras(input.openRouterProvider),
+      };
       const stream = await withOpenRouterRetry(() =>
         client.chat.completions.create(
-          Object.assign(
-            {
-              model: input.model,
-              messages: input.messages,
-              tools: input.tools,
-              tool_choice: "auto",
-              temperature: input.temperature,
-              max_tokens: input.maxTokens,
-              stream: true,
-              ...openRouterExtras(input.openRouterProvider),
-            },
-            extraParams,
-          ),
+          Object.assign(baseParams, { reasoning: { effort: "medium" } }),
         ),
       ) as import("openai/streaming").Stream<import("openai/resources/chat/completions").ChatCompletionChunk>;
 
-      // Accumulate content, tool_call, and reasoning deltas.
+      // Accumulate content, tool_call, and reasoning/thinking deltas.
       let textContent = "";
       let totalCharsEmitted = 0;
-      let thinkingContent = "";    // cumulative reasoning/thinking text
+      let thinkingContent = "";
       let totalThinkingChars = 0;
-      // tool_calls deltas: indexed by delta.index
       const toolCallAccum: Record<
         number,
         { id: string; type: "function"; function: { name: string; arguments: string } }
@@ -222,17 +206,18 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
       let usage: OpenRouterCacheUsage | null = null;
 
       for await (const chunk of stream) {
-        const delta = chunk.choices[0]?.delta as Record<string, unknown> | undefined;
+        // Cast delta to a plain object so we can read non-standard fields
+        // (reasoning, reasoning_details) without TypeScript errors.
+        const delta = (chunk.choices[0]?.delta ?? {}) as Record<string, unknown>;
 
         // ── Reasoning / thinking tokens ─────────────────────────────────────
-        // OpenRouter surfaces reasoning in two ways depending on the model:
+        // OpenRouter surfaces reasoning in two ways:
         //   1. delta.reasoning (string) — legacy field (DeepSeek R1, some others)
-        //   2. delta.reasoning_details (array) — structured form with type:
-        //      "reasoning.text" | "reasoning.summary" | "reasoning.encrypted"
-        // We coalesce both into the cumulative thinkingContent string.
-        const reasoningStr = typeof delta?.reasoning === "string" ? delta.reasoning : "";
-        const reasoningDetails = Array.isArray(delta?.reasoning_details)
-          ? (delta!.reasoning_details as Array<{ type?: string; text?: string; summary?: string }>)
+        //   2. delta.reasoning_details (array of {type, text?, summary?}) —
+        //      structured form for Anthropic / OpenAI / Gemini reasoning models
+        const reasoningStr = typeof delta.reasoning === "string" ? delta.reasoning : "";
+        const reasoningDetails = Array.isArray(delta.reasoning_details)
+          ? (delta.reasoning_details as Array<{ type?: string; text?: string; summary?: string }>)
           : [];
 
         let thinkingChunk = reasoningStr;
@@ -242,7 +227,7 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
           } else if (detail.type === "reasoning.summary" && typeof detail.summary === "string") {
             thinkingChunk += detail.summary;
           }
-          // reasoning.encrypted: skip — content is [REDACTED] or opaque bytes
+          // reasoning.encrypted: skip — opaque bytes / [REDACTED]
         }
 
         if (thinkingChunk) {
@@ -258,7 +243,7 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
         }
 
         // ── Text content ─────────────────────────────────────────────────────
-        const contentStr = typeof delta?.content === "string" ? delta.content : null;
+        const contentStr = typeof delta.content === "string" ? delta.content : null;
         if (contentStr) {
           textContent += contentStr;
           const deltaChars = contentStr.length;
@@ -271,10 +256,10 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
             }
           }
         }
+
         // ── Tool call deltas ──────────────────────────────────────────────────
-        // Accumulate tool_call chunks (OpenAI streaming tool call pattern).
-        const toolCallsArr = Array.isArray(delta?.tool_calls)
-          ? (delta!.tool_calls as Array<{
+        const toolCallsArr = Array.isArray(delta.tool_calls)
+          ? (delta.tool_calls as Array<{
               index?: number;
               id?: string;
               function?: { name?: string; arguments?: string };
@@ -295,9 +280,8 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
             if (tc.function?.arguments) acc.function.arguments += tc.function.arguments;
           }
         }
+
         // ── Usage (last chunk) ────────────────────────────────────────────────
-        // Usage is typically in the last chunk. Cast to extended type to
-        // capture Anthropic cache token fields forwarded by OpenRouter.
         if (chunk.usage) {
           const u = chunk.usage as OpenRouterCacheUsage;
           usage = {
