@@ -214,23 +214,29 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
         const delta = (chunk.choices[0]?.delta ?? {}) as Record<string, unknown>;
 
         // ── Reasoning / thinking tokens ─────────────────────────────────────
-        // OpenRouter surfaces reasoning in two ways:
-        //   1. delta.reasoning (string) — legacy field (DeepSeek R1, some others)
-        //   2. delta.reasoning_details (array of {type, text?, summary?}) —
-        //      structured form for Anthropic / OpenAI / Gemini reasoning models
-        const reasoningStr = typeof delta.reasoning === "string" ? delta.reasoning : "";
+        // OpenRouter surfaces reasoning in two formats. IMPORTANT: some models
+        // (e.g. claude-3-7-sonnet via OpenRouter) include BOTH fields on the
+        // same chunk, which would double the text. Always prefer one source:
+        //   • reasoning_details (structured array) when present — use it exclusively
+        //   • reasoning (legacy string) only as fallback when reasoning_details absent
         const reasoningDetails = Array.isArray(delta.reasoning_details)
           ? (delta.reasoning_details as Array<{ type?: string; text?: string; summary?: string }>)
           : [];
 
-        let thinkingChunk = reasoningStr;
-        for (const detail of reasoningDetails) {
-          if (detail.type === "reasoning.text" && typeof detail.text === "string") {
-            thinkingChunk += detail.text;
-          } else if (detail.type === "reasoning.summary" && typeof detail.summary === "string") {
-            thinkingChunk += detail.summary;
+        let thinkingChunk = "";
+        if (reasoningDetails.length > 0) {
+          // Structured form — extract text from each detail object
+          for (const detail of reasoningDetails) {
+            if (detail.type === "reasoning.text" && typeof detail.text === "string") {
+              thinkingChunk += detail.text;
+            } else if (detail.type === "reasoning.summary" && typeof detail.summary === "string") {
+              thinkingChunk += detail.summary;
+            }
+            // reasoning.encrypted: skip — opaque bytes / [REDACTED]
           }
-          // reasoning.encrypted: skip — opaque bytes / [REDACTED]
+        } else if (typeof delta.reasoning === "string" && delta.reasoning) {
+          // Legacy string field — only used when reasoning_details is absent
+          thinkingChunk = delta.reasoning;
         }
 
         if (thinkingChunk) {

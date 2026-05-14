@@ -27,10 +27,12 @@ function inferKind(text: string): InteractionLine["kind"] {
 
 // ─── Component types ─────────────────────────────────────────────────────────
 
-/** A typed line with optional kind + text. Accepts plain string or typed object. */
+/** A typed line with optional kind + text + body. Accepts plain string or typed object. */
 export interface ProgressLine {
   kind?: InteractionLine["kind"];
   text: string;
+  /** Optional expanded body text (e.g. model reasoning/thinking content). */
+  body?: string;
 }
 
 export interface DashboardGenerateProgressDialogProps {
@@ -135,6 +137,26 @@ export function DashboardGenerateProgressDialog({
                   className={`whitespace-pre-wrap break-words ${interactionLineClass(line.kind)}`}
                 >
                   {line.text}
+                  {line.body && (
+                    <pre
+                      style={{
+                        marginTop: 4,
+                        marginLeft: 12,
+                        padding: "6px 8px",
+                        fontSize: 11,
+                        lineHeight: 1.5,
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        background: "var(--bg-2, rgba(0,0,0,0.15))",
+                        borderRadius: 4,
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-word",
+                        color: "var(--fg-muted)",
+                        borderLeft: "2px solid var(--border)",
+                      }}
+                    >
+                      {line.body}
+                    </pre>
+                  )}
                 </div>
               ))
             )}
