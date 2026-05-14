@@ -307,7 +307,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           context_kind: "dashboard",
           first_user_prompt: prompt,
           llm_provider: llmProvider,
-          llm_driver: llmDriver ?? null,
+          llm_driver: llmDriver ?? undefined,
         }).then(async (conv) => {
           conversationId = conv.id;
           // Record the full prompt as the first user message (plain string so
