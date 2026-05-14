@@ -188,22 +188,25 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
       // Enable reasoning/thinking for capable models.
       // OpenRouter normalizes this across Anthropic, OpenAI, Google, etc.
       // For models that don't support reasoning it is silently ignored.
-      // Cast via unknown to avoid TypeScript complaining about the non-standard
-      // `reasoning` field not being in the OpenAI SDK's type definitions.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const reasoningParam = { reasoning: { effort: "medium" } } as any;
+      // We spread via a plain JS object to avoid TypeScript complaining about
+      // the non-standard `reasoning` field not being in the OpenAI SDK types.
+      const extraParams = Object.assign({}, { reasoning: { effort: "medium" } });
       const stream = await withOpenRouterRetry(() =>
-        client.chat.completions.create({
-          model: input.model,
-          messages: input.messages,
-          tools: input.tools,
-          tool_choice: "auto",
-          temperature: input.temperature,
-          max_tokens: input.maxTokens,
-          stream: true as const,
-          ...reasoningParam,
-          ...openRouterExtras(input.openRouterProvider),
-        } as Parameters<typeof client.chat.completions.create>[0]),
+        client.chat.completions.create(
+          Object.assign(
+            {
+              model: input.model,
+              messages: input.messages,
+              tools: input.tools,
+              tool_choice: "auto",
+              temperature: input.temperature,
+              max_tokens: input.maxTokens,
+              stream: true,
+              ...openRouterExtras(input.openRouterProvider),
+            },
+            extraParams,
+          ),
+        ),
       ) as import("openai/streaming").Stream<import("openai/resources/chat/completions").ChatCompletionChunk>;
 
       // Accumulate content, tool_call, and reasoning deltas.
