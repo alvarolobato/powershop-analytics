@@ -176,20 +176,22 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
       // via input.enableReasoning. This activates extended thinking for capable
       // models (Claude 3.7+, o3, DeepSeek R1, Gemini 3, etc.) but causes extra
       // token spend and latency, so it should not be forced on every request.
-      // We use Object.assign to avoid TypeScript type assertions that some build
-      // tools (OXC) fail to parse in certain positions inside .ts files.
+      // Build streaming params. `tool_choice` needs "auto" as const to match
+      // the OpenAI union type. Object.assign merges the optional reasoning param
+      // without TypeScript type assertions that OXC parsers reject in .ts files.
+      const toolChoice = "auto" as const;
       const baseParams = {
         model: input.model,
         messages: input.messages,
         tools: input.tools,
-        tool_choice: "auto",
+        tool_choice: toolChoice,
         temperature: input.temperature,
         max_tokens: input.maxTokens,
-        stream: true,
+        stream: true as const,
         ...openRouterExtras(input.openRouterProvider),
       };
       const finalParams = input.enableReasoning
-        ? Object.assign(baseParams, { reasoning: { effort: "medium" } })
+        ? Object.assign({}, baseParams, { reasoning: { effort: "medium" } })
         : baseParams;
       const stream = await withOpenRouterRetry(() =>
         client.chat.completions.create(finalParams),
