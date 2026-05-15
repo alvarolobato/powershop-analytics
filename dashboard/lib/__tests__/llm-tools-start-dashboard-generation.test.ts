@@ -12,6 +12,10 @@ vi.mock("@/lib/db-write", () => ({
   sql: vi.fn(),
 }));
 
+vi.mock("@/lib/conversations", () => ({
+  linkConversationToDashboard: vi.fn(),
+}));
+
 // Minimal valid spec returned by the mocked generateDashboard
 const VALID_SPEC_JSON = JSON.stringify({
   title: "Panel de ventas",
@@ -42,8 +46,6 @@ const ctxWithConv: LlmAgenticContext = {
 describe("handleStartDashboardGeneration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset fetch mock
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, status: 200 }));
   });
 
   it("returns INVALID_ARGS for non-JSON rawArgs", async () => {
@@ -177,37 +179,34 @@ describe("handleStartDashboardGeneration", () => {
     }
   });
 
-  it("calls handoff endpoint when conversationId is present", async () => {
+  it("calls linkConversationToDashboard when conversationId is present", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
 
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 77 }]);
 
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-    vi.stubGlobal("fetch", fetchMock);
+    const { linkConversationToDashboard } = await import("@/lib/conversations");
+    vi.mocked(linkConversationToDashboard).mockResolvedValueOnce(undefined);
 
     await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
       ctxWithConv,
     );
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, opts] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain("/api/conversations/conv-abc123/handoff-to-dashboard");
-    expect(opts.method).toBe("POST");
-    const body = JSON.parse(opts.body as string) as { dashboard_id: number };
-    expect(body.dashboard_id).toBe(77);
+    expect(linkConversationToDashboard).toHaveBeenCalledOnce();
+    expect(linkConversationToDashboard).toHaveBeenCalledWith("conv-abc123", 77);
   });
 
-  it("still returns success when handoff endpoint fails", async () => {
+  it("still returns success when linkConversationToDashboard fails", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
 
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 55 }]);
 
-    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
+    const { linkConversationToDashboard } = await import("@/lib/conversations");
+    vi.mocked(linkConversationToDashboard).mockRejectedValueOnce(new Error("DB error"));
 
     const result = await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
@@ -220,35 +219,20 @@ describe("handleStartDashboardGeneration", () => {
     }
   });
 
-  it("does not call handoff endpoint when no conversationId", async () => {
+  it("does not call linkConversationToDashboard when no conversationId", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
 
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 10 }]);
 
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+    const { linkConversationToDashboard } = await import("@/lib/conversations");
 
     await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
       ctx, // no conversationId
     );
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("accepts optional template parameter without error", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
-
-    const { sql } = await import("@/lib/db-write");
-    vi.mocked(sql).mockResolvedValueOnce([{ id: 20 }]);
-
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Panel de ventas", template: "ventas" }),
-      ctx,
-    );
-    expect(result.ok).toBe(true);
+    expect(linkConversationToDashboard).not.toHaveBeenCalled();
   });
 
   it("unwraps JSON fenced in markdown code block", async () => {

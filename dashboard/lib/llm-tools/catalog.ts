@@ -274,10 +274,6 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
             type: "string",
             description: "Natural-language description of the dashboard to generate (Spanish).",
           },
-          template: {
-            type: "string",
-            description: "Optional template name to use as a starting point (e.g. 'ventas', 'stock'). Leave empty for a fully custom dashboard.",
-          },
         },
         required: ["prompt"],
       },

@@ -2,8 +2,8 @@
  * Handler for the `start_dashboard_generation` tool.
  *
  * Generates a new dashboard from a natural-language prompt, saves it to the
- * database, and (if a conversation is active) calls the handoff endpoint so
- * the conversation is linked to the new dashboard.
+ * database, and (if a conversation is active) links the conversation to the
+ * new dashboard via a direct DB update.
  *
  * Returns { dashboard_id, redirect_url, summary } on success.
  */
@@ -13,12 +13,12 @@ import { validateSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import { sql } from "@/lib/db-write";
+import { linkConversationToDashboard } from "@/lib/conversations";
 import { toolOk, toolError, type ToolResponseBody } from "@/lib/llm-tools/tool-payload";
 import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
 interface StartDashboardGenerationArgs {
   prompt: string;
-  template?: string;
 }
 
 function extractJson(raw: string): string {
@@ -90,7 +90,7 @@ export async function handleStartDashboardGeneration(
   }
 
   // Persist to the database
-  const title = spec.title ?? "Nuevo panel";
+  const title = spec.title;
   const description = spec.description ?? null;
   let dashboardId: number;
   try {
@@ -112,33 +112,19 @@ export async function handleStartDashboardGeneration(
     ? `/dashboards/${dashboardId}?tab=modify&continue=${ctx.conversationId}`
     : `/dashboards/${dashboardId}?tab=modify`;
 
-  // Call the handoff endpoint to link the conversation to the new dashboard.
-  // This is a best-effort call — if it fails (e.g. Task 3 not yet deployed)
-  // we still return success so the dashboard was at least created.
+  // Link the conversation to the new dashboard via a direct DB update.
+  // Best-effort: if it fails the dashboard was still created successfully.
   if (ctx.conversationId) {
     try {
-      const baseUrl = process.env.NEXTAUTH_URL ?? process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:4000";
-      const handoffRes = await fetch(
-        `${baseUrl}/api/conversations/${ctx.conversationId}/handoff-to-dashboard`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dashboard_id: dashboardId }),
-        },
-      );
-      if (!handoffRes.ok) {
-        console.warn(
-          `[${ctx.requestId}] start_dashboard_generation: handoff returned ${handoffRes.status}`,
-        );
-      }
+      await linkConversationToDashboard(ctx.conversationId, dashboardId);
     } catch (err) {
-      console.warn(`[${ctx.requestId}] start_dashboard_generation: handoff call failed:`, err);
+      console.warn(`[${ctx.requestId}] start_dashboard_generation: linkConversationToDashboard failed:`, err);
     }
   }
 
   return toolOk({
     dashboard_id: String(dashboardId),
     redirect_url: redirectUrl,
-    summary: `Dashboard "${title}" created with ${spec.widgets?.length ?? 0} widget(s). Navigate to ${redirectUrl} to view and modify it.`,
+    summary: `Panel "${title}" creado con ${spec.widgets?.length ?? 0} widget(s). Visita ${redirectUrl} para revisarlo y modificarlo.`,
   });
 }

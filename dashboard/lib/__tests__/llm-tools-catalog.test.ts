@@ -101,9 +101,10 @@ describe("llm-tools catalog", () => {
       expect(required).toContain("prompt");
     });
 
-    it("has optional 'template' parameter", () => {
+    it("only exposes 'prompt' in parameters (template was removed)", () => {
       const props = tool?.function.parameters?.properties as Record<string, unknown> | undefined;
-      expect(props).toHaveProperty("template");
+      expect(props).toHaveProperty("prompt");
+      expect(props).not.toHaveProperty("template");
     });
   });
 });
