@@ -1607,6 +1607,7 @@ export default function ChatSidebar({
   const loadedConvIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!initialConversationId) return;
+    if (!/^[a-f0-9]{12}$/.test(initialConversationId)) return;
     if (loadedConvIdRef.current === initialConversationId) return;
     loadedConvIdRef.current = initialConversationId;
 
@@ -1622,7 +1623,12 @@ export default function ChatSidebar({
           dashboardId !== undefined &&
           data.context_kind === "dashboard" &&
           data.context_ref !== String(dashboardId)
-        ) return;
+        ) {
+          console.warn(
+            `[ChatSidebar] Handoff rejected: conversation ${initialConversationId} belongs to dashboard ${data.context_ref}, not ${dashboardId}.`,
+          );
+          return;
+        }
 
         const msgs = convertConversationMessages(data.messages ?? []);
         setModifyMessages(msgs);

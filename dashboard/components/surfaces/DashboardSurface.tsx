@@ -170,15 +170,6 @@ export default function DashboardSurface({
     initialChatTabMode ?? (continueConvId || tabParam === "modify" ? "modificar" : undefined),
   );
 
-  // Sync chatOpen/chatInitialMode when ?continue or ?tab params change via client-side navigation.
-  const prevContinueConvIdRef = useRef(continueConvId);
-  useEffect(() => {
-    if (continueConvId && continueConvId !== prevContinueConvIdRef.current) {
-      setChatOpen(true);
-      setChatInitialMode("modificar");
-    }
-    prevContinueConvIdRef.current = continueConvId;
-  }, [continueConvId]);
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
   const [pendingAnalyze, setPendingAnalyze] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
