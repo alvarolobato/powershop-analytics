@@ -31,7 +31,7 @@
 | [D-016](docs/decisions/D-016-etl-manual-trigger-table.md) | Dashboard signals manual ETL syncs via the PostgreSQL `etl_manual_trigger` table — never via an HTTP endpoint on the ETL container. |
 | [D-020](docs/decisions/D-020-force-resync.md) | Force-resync writes `force_full` / `force_tables` to `etl_manual_trigger`; scheduler resets watermarks (from a single allow-list) before the run. |
 | [D-023](docs/decisions/D-023-central-config-yaml.md) | All settings live in `~/.config/powershop-analytics/config.yaml`. Precedence: env var > config.yaml > default. Schema is `config/schema.yaml`. |
-| [D-024](docs/decisions/D-024-surface-cli-errors.md) | CLI/agentic failures must surface a sanitized `diagnostic` (provider/driver/model/phase/duration/tool/CLI tail). All free-form strings pass through `lib/llm-provider/sanitize.ts`. |
+| [D-024](docs/decisions/D-024-surface-cli-errors.md) | CLI/agentic failures must surface a sanitized `diagnostic` (provider/driver/model/phase/duration/tool/CLI tail). All free-form strings pass through `dashboard/lib/llm-provider/sanitize.ts`. |
 | [D-025](docs/decisions/D-025-oauth-single-refresher.md) | Only the host `claude` CLI ever refreshes the OAuth token. The launchd agent only mirrors the macOS Keychain into `~/.claude/.credentials.json`. Never POST to the OAuth endpoint from code. |
 
 ## Data / ETL

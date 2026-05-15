@@ -17,4 +17,4 @@ date: 2026-04-23
 - **Extensibility**: new CLI drivers implement the same `AgenticModelAdapter` + single-shot helpers without touching API route business logic.
 **Alternatives rejected**: Shell-string CLI invocation (injection risk); dropping agentic support on CLI (would regress generate/modify/analyze).
 **Rationale**: Read-only SQL policy remains in tool handlers; argv-array spawning + timeouts + stdout caps bound operational risk.
-**See**: `dashboard/lib/llm-provider/*`, `dashboard/lib/llm.ts`, `dashboard/lib/llm-tools/runner.ts`, `.env.example`, [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md).
+**See**: `dashboard/lib/llm-provider/*`, `dashboard/lib/llm.ts`, `dashboard/lib/llm-tools/runner.ts`, `.env.example`, [dashboard-agentic-tools.md](../dashboard-agentic-tools.md).

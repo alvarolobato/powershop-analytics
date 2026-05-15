@@ -15,4 +15,4 @@ The button needs to signal the ETL container (a pure Python scheduler with no HT
 - ETL HTTP endpoint: requires adding Flask/aiohttp, exposing a new port in docker-compose, and handling concurrency in a single-threaded scheduler process.
 - Shared filesystem flag file: fragile across container restarts, no atomicity.
 **Rationale**: PG is already the shared state store for both containers. No new deps, no new ports, idempotent polling, single source of truth.
-**Status**: Not yet implemented. The `etl_manual_trigger` table/DDL is not present in `etl/schema/init.sql`; the dashboard write and ETL polling flow are planned work tracked in issue #271.
+**Status**: Implemented. `etl_manual_trigger` is in `etl/schema/init.sql`; the dashboard writes via `dashboard/app/api/etl/run/route.ts` and the ETL polls via `etl/db/postgres.py`. D-020 extended the table with `force_full` / `force_tables`.

@@ -20,4 +20,4 @@ date: 2026-04-05
 - `FamiGrupMarc.SERIETALLAS` maps product family to size series — key for interpreting the 34-slot matrix
 - 10 new business modules discovered: airport/Aena, B2B/B2C e-commerce, jewelry/couture manufacturing, RFID, TicketBAI, corners/concessions, ADIDAS data feeds, SAF-T, CRM/marketing
 **Rationale**: String extraction from compiled binaries is non-destructive and yields the same schema information as `EXPORT STRUCTURE` XML without vendor cooperation. SQL views are readable via the standard p4d SQL driver.
-**See**: [sql-views.md](docs/sql-views.md), [schema-discovery.md](docs/schema-discovery.md), GitHub issue #142.
+**See**: [sql-views.md](../sql-views.md), [schema-discovery.md](../schema-discovery.md), GitHub issue #142.
