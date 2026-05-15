@@ -283,4 +283,4 @@ expiry.
 
 ## Technology Decisions
 
-See [DECISIONS-AND-CHANGES.md](DECISIONS-AND-CHANGES.md) for the rationale behind each choice.
+See [DECISIONS.md](DECISIONS.md) for the binding rules; full rationale for each decision lives in `docs/decisions/D-NN-<slug>.md`.

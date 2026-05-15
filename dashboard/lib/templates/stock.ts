@@ -19,8 +19,8 @@
  *    and reflects the signed-int16-decoded total per article summed across
  *    all 34 size slots. `ps_stock_central` has no tienda column — it is the
  *    central warehouse; the global Tienda filter does not apply. (See
- *    `docs/architecture/stock-logistics.md` and `DECISIONS-AND-CHANGES.md`
- *    D-017 for the int16 decoder details.)
+ *    `docs/architecture/stock-logistics.md` and
+ *    `docs/decisions/D-017-signed-int16-stock.md` for the int16 decoder details.)
  *
  * 3. **Signed-int16 stock (D-017).** `ps_stock_tienda.stock` already passes
  *    through the ETL `decode_signed_int16_word()` decoder, so negatives from

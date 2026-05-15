@@ -1,5 +1,5 @@
 @AGENTS.md
 @ARCHITECTURE.md
-@DECISIONS-AND-CHANGES.md
+@DECISIONS.md
 @docs/skills/skills.md
 @docs/skills/agent-efficiency.md
