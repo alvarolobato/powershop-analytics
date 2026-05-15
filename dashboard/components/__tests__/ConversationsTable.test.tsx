@@ -6,6 +6,7 @@ import { ConversationsTable } from "../ConversationsTable";
 import { getModePillStyle } from "@/lib/conversation-mode-style";
 import type { ConversationRow } from "@/app/conversations/types";
 
+
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
@@ -129,6 +130,7 @@ describe("ConversationsTable", () => {
     // Present columns
     expect(headerTexts).toContain("Título");
     expect(headerTexts).toContain("Tipo");
+    expect(headerTexts).toContain("Contexto");
     expect(headerTexts).toContain("Última actividad");
     expect(headerTexts).toContain("Creada");
     expect(headerTexts).toContain("Duración");
@@ -136,7 +138,6 @@ describe("ConversationsTable", () => {
     expect(headerTexts).toContain("Tokens");
     expect(headerTexts).toContain("Acciones");
     // Removed columns must not be present
-    expect(headerTexts).not.toContain("Contexto");
     expect(headerTexts).not.toContain("Vista previa");
     expect(headerTexts).not.toContain("Estado");
   });
@@ -422,6 +423,173 @@ describe("ConversationsTable", () => {
     fireEvent.click(sortBtn);
     fireEvent.click(sortBtn);
     expect(sortBtn).toBeInTheDocument();
+  });
+
+  describe("Contexto column", () => {
+    it("renders a link for dashboard context with a known name", () => {
+      const row = makeRow({
+        id: "ctx-dash-named",
+        context_kind: "dashboard",
+        context_ref: "42",
+        context_dashboard_name: "Ventas",
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      const link = screen.getByTestId("context-link-ctx-dash-named");
+      expect(link).toBeInTheDocument();
+      expect(link).toHaveAttribute("href", "/dashboards/42");
+      expect(link).toHaveTextContent("Ventas");
+    });
+
+    it("renders 'Dashboard #N (eliminado)' without a link when context_dashboard_name is null", () => {
+      const row = makeRow({
+        id: "ctx-dash-deleted",
+        context_kind: "dashboard",
+        context_ref: "42",
+        context_dashboard_name: null,
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      const cell = screen.getByTestId("context-cell-ctx-dash-deleted");
+      expect(cell).toHaveTextContent("Dashboard #42 (eliminado)");
+      expect(within(cell).queryByRole("link")).toBeNull();
+    });
+
+    it("renders 'Libre' for global context_kind", () => {
+      const row = makeRow({
+        id: "ctx-global",
+        context_kind: "global",
+        context_ref: null,
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      const cell = screen.getByTestId("context-cell-ctx-global");
+      expect(cell).toHaveTextContent("Libre");
+      expect(within(cell).queryByRole("link")).toBeNull();
+    });
+
+    it("renders 'Libre' when context_kind is null", () => {
+      const row = makeRow({
+        id: "ctx-null",
+        context_kind: null,
+        context_ref: null,
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      const cell = screen.getByTestId("context-cell-ctx-null");
+      expect(cell).toHaveTextContent("Libre");
+    });
+
+    it("renders 'Inicio' for home context_kind", () => {
+      const row = makeRow({
+        id: "ctx-home",
+        context_kind: "home",
+        context_ref: null,
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      const cell = screen.getByTestId("context-cell-ctx-home");
+      expect(cell).toHaveTextContent("Inicio");
+    });
+
+    it("renders 'Admin' for admin context_kind", () => {
+      const row = makeRow({
+        id: "ctx-admin",
+        context_kind: "admin",
+        context_ref: null,
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      const cell = screen.getByTestId("context-cell-ctx-admin");
+      expect(cell).toHaveTextContent("Admin");
+    });
+  });
+
+  describe("Rename prefill uses getConversationDisplayTitle", () => {
+    it("prefills with first_user_prompt when title is null", () => {
+      const row = makeRow({
+        id: "prefill-null-title",
+        title: null,
+        first_user_prompt: "¿Cuánto vendimos?",
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      fireEvent.click(screen.getByTestId("rename-btn-prefill-null-title"));
+      const input = screen.getByTestId("rename-input-prefill-null-title");
+      expect(input).toHaveValue("¿Cuánto vendimos?");
+    });
+
+    it("prefills with title when title is set", () => {
+      const row = makeRow({
+        id: "prefill-with-title",
+        title: "Mi panel",
+        first_user_prompt: "¿Cuánto vendimos?",
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      fireEvent.click(screen.getByTestId("rename-btn-prefill-with-title"));
+      const input = screen.getByTestId("rename-input-prefill-with-title");
+      expect(input).toHaveValue("Mi panel");
+    });
+
+    it("prefills with truncated first_user_prompt (60 chars) when title is null and prompt is long", () => {
+      const longPrompt = "A".repeat(70);
+      const row = makeRow({
+        id: "prefill-long-prompt",
+        title: null,
+        first_user_prompt: longPrompt,
+      });
+      render(
+        <ConversationsTable
+          conversations={[row]}
+          onArchiveToggle={noop}
+          onRename={noop}
+        />
+      );
+      fireEvent.click(screen.getByTestId("rename-btn-prefill-long-prompt"));
+      const input = screen.getByTestId("rename-input-prefill-long-prompt");
+      expect(input).toHaveValue("A".repeat(60));
+    });
   });
 
   it("select-all deselects all rows when all are already selected", () => {

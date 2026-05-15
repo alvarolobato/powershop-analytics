@@ -18,4 +18,5 @@ export interface ConversationRow {
   duration_seconds: number;
   last_message_preview: string | null;
   token_total: number;
+  context_dashboard_name?: string | null;
 }
