@@ -166,6 +166,8 @@ interface ConversationWithMessages {
   first_user_prompt: string | null;
   messages?: ConversationApiMessage[];
   initial_context?: InitialContext | null;
+  context_kind?: string | null;
+  context_ref?: string | null;
 }
 
 type ConversationListItem = {
@@ -1614,6 +1616,13 @@ export default function ChatSidebar({
         if (!res.ok || controller.signal.aborted) return;
         const data = (await res.json()) as ConversationDetailResponse;
         if (controller.signal.aborted) return;
+        // Reject conversations that explicitly belong to a different dashboard to prevent
+        // cross-dashboard history injection via a crafted ?continue= param.
+        if (
+          dashboardId !== undefined &&
+          data.context_kind === "dashboard" &&
+          data.context_ref !== String(dashboardId)
+        ) return;
         const msgs = convertConversationMessages(data.messages ?? []);
         setModifyMessages(msgs);
         setModifyInitialContext(data.initial_context ?? null);
@@ -1731,7 +1740,7 @@ export default function ChatSidebar({
       }
     };
 
-    void loadLatest("modify");
+    if (!initialConversationId) void loadLatest("modify");
     void loadLatest("analyze");
     return () => controller.abort();
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps

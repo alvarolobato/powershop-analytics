@@ -198,6 +198,16 @@ export default function DashboardSurface({
   const [globalFilterValues, setGlobalFilterValues] = useState<GlobalFilterValues>({});
   const appliedUrlRange = useRef(false);
 
+  // Sync chatOpen and chatInitialMode when handoff URL params change via client-side navigation.
+  // useState initializers only run on first mount, so without this effect a subsequent
+  // navigation to ?continue=:id would leave the sidebar closed on the previous tab.
+  useEffect(() => {
+    if (continueConvId || tabParam === "modify") {
+      setChatOpen(true);
+      setChatInitialMode((prev) => prev ?? "modificar");
+    }
+  }, [continueConvId, tabParam]);
+
   const handleDateRangeChange = useCallback(
     ({ primary, comparison }: { primary: DateRange; comparison?: ComparisonRange }) => {
       setDateRange(primary);
@@ -1033,7 +1043,7 @@ export default function DashboardSurface({
         pendingAnalyzeTriggerId={pendingAnalyze?.id}
         onPendingAnalyzeInputConsumed={handlePendingAnalyzeInputConsumed}
         initialMode={chatInitialMode}
-        initialModifyContext={preloadedModifyContext}
+        initialModifyContext={continueConvId ? undefined : preloadedModifyContext}
         initialAnalyzeContext={preloadedAnalyzeContext}
         initialConversationId={continueConvId}
       />

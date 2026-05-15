@@ -1199,7 +1199,7 @@ describe("ChatSidebar", () => {
   // -----------------------------------------------------------------------
 
   it("loads conversation messages into Modificar tab when initialConversationId is set", async () => {
-    const convId = "handoff-abc123";
+    const convId = "ab1234567890";
 
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (url.includes(`/api/conversations/${convId}`)) {
@@ -1212,6 +1212,8 @@ describe("ChatSidebar", () => {
               title: null,
               first_user_prompt: "lista las tablas",
               initial_context: null,
+              context_kind: "global",
+              context_ref: null,
               messages: [
                 {
                   id: "m1",
@@ -1264,11 +1266,13 @@ describe("ChatSidebar", () => {
       ok: true,
       json: () =>
         Promise.resolve({
-          id: "conv-hide-test",
+          id: "cd1234567890",
           mode: "modify",
           title: null,
           first_user_prompt: null,
           initial_context: null,
+          context_kind: "global",
+          context_ref: null,
           messages: [],
         }),
     });
@@ -1280,7 +1284,7 @@ describe("ChatSidebar", () => {
         isOpen={true}
         onToggle={onToggle}
         dashboardId={42}
-        initialConversationId="conv-hide-test"
+        initialConversationId="cd1234567890"
       />,
     );
 
@@ -1308,8 +1312,8 @@ describe("ChatSidebar", () => {
   });
 
   it("does not overwrite handoff conversation with auto-loaded latest conversation", async () => {
-    const handoffConvId = "handoff-xyz789";
-    const autoConvId = "auto-latest-111";
+    const handoffConvId = "ef1234567890";
+    const autoConvId = "aa1234567890";
     const autoMessage = "Mensaje cargado automáticamente";
 
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
@@ -1323,6 +1327,8 @@ describe("ChatSidebar", () => {
               title: null,
               first_user_prompt: "consulta libre",
               initial_context: null,
+              context_kind: "global",
+              context_ref: null,
               messages: [
                 {
                   id: "h1",
