@@ -258,4 +258,59 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "start_dashboard_generation",
+      description:
+        "Generate a new dashboard from a natural-language prompt and hand off the current conversation to it. " +
+        "Call this when the user asks to create a new dashboard. " +
+        "The tool creates the dashboard, saves it, and returns a redirect URL that takes the user to the new dashboard with the current conversation continued in the Modify tab. " +
+        "Returns { dashboard_id, redirect_url, summary } on success.",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "Natural-language description of the dashboard to generate (Spanish).",
+          },
+          template: {
+            type: "string",
+            description: "Optional template name to use as a starting point (e.g. 'ventas', 'stock'). Leave empty for a fully custom dashboard.",
+          },
+        },
+        required: ["prompt"],
+      },
+    },
+  },
 ];
+
+// ── Inspection tools (no side-effects, read-only) ─────────────────────────────
+const INSPECTION_TOOL_NAMES = new Set([
+  "list_ps_tables",
+  "describe_ps_table",
+  "validate_query",
+  "execute_query",
+  "explain_query",
+  "list_dashboards",
+  "get_dashboard_spec",
+  "get_dashboard_queries",
+  "get_dashboard_widget_raw_values",
+  "get_dashboard_all_widget_status",
+]);
+
+/**
+ * Tools available in the free-chat flow: 10 inspection tools + start_dashboard_generation.
+ * Does NOT include modification/analysis/review publish tools.
+ */
+export const FREE_CHAT_TOOLS: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS.filter(
+  (t): t is Extract<ChatCompletionTool, { type: "function" }> =>
+    t.type === "function" &&
+    (INSPECTION_TOOL_NAMES.has(t.function.name) || t.function.name === "start_dashboard_generation"),
+);
+
+/**
+ * All tools, including modification, analysis, review, and generation tools.
+ * Use for flows that need full access or for future catalog expansion.
+ */
+export const FULL_DASHBOARD_TOOLS: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS;

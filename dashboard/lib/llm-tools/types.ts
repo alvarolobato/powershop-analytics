@@ -53,6 +53,8 @@ export interface LlmAgenticContext {
   endpoint: string;
   /** Optional saved dashboard id (analyze flow) for dashboard-scoped tools. */
   dashboardId?: number;
+  /** Optional conversation id (free-chat flow) for the start_dashboard_generation tool. */
+  conversationId?: string;
   /** Optional hook for NDJSON streaming UI and diagnostics. */
   onAgenticProgress?: (event: AgenticProgressEvent) => void;
   /** Telemetry: active LLM transport (OpenRouter HTTP vs local CLI). */
