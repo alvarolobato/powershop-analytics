@@ -10,7 +10,7 @@ on:
     # Every 30 minutes — bumped from */15 because GitHub silently drops runs
     # when the repo's schedule queue is saturated. With 9+ cron workflows
     # competing for dispatch slots, */15 was observed firing every 3–4 hours.
-    # See DECISIONS-AND-CHANGES.md D-030.
+    # See docs/decisions/D-030-watchdog-cadence.md.
     - cron: "*/30 * * * *"
   workflow_dispatch:
   # Event-driven supplement for the two most time-sensitive rules:
