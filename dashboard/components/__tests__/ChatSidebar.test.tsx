@@ -1193,4 +1193,209 @@ describe("ChatSidebar", () => {
     // InitialContextPanel toggle button should be visible
     expect(screen.getByTestId("initial-context-toggle")).toBeInTheDocument();
   });
+
+  // -----------------------------------------------------------------------
+  // initialConversationId — free-chat handoff via ?continue= (Task 8 / #641)
+  // -----------------------------------------------------------------------
+
+  it("loads conversation messages into Modificar tab when initialConversationId is set", async () => {
+    const convId = "handoff-abc123";
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes(`/api/conversations/${convId}`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: convId,
+              mode: "modify",
+              title: null,
+              first_user_prompt: "lista las tablas",
+              initial_context: null,
+              messages: [
+                {
+                  id: "m1",
+                  conversation_id: convId,
+                  role: "user",
+                  content: "lista las tablas",
+                  created_at: new Date().toISOString(),
+                },
+                {
+                  id: "m2",
+                  conversation_id: convId,
+                  role: "assistant",
+                  content: "Aquí tienes las tablas ps_*",
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+        });
+      }
+      // Auto-load should be blocked; return empty to catch unexpected calls
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve([]),
+      });
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={42}
+        initialConversationId={convId}
+      />,
+    );
+
+    // Messages from the handoff conversation should appear in the Modify tab
+    await waitFor(() => {
+      expect(screen.getByText("lista las tablas")).toBeInTheDocument();
+      expect(screen.getByText("Aquí tienes las tablas ps_*")).toBeInTheDocument();
+    });
+
+    // Modificar tab must be active
+    expect(screen.getByTestId("tab-modificar")).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("hides 'Nueva conversación' button when initialConversationId is set", () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          id: "conv-hide-test",
+          mode: "modify",
+          title: null,
+          first_user_prompt: null,
+          initial_context: null,
+          messages: [],
+        }),
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={42}
+        initialConversationId="conv-hide-test"
+      />,
+    );
+
+    // "Nueva conversación" button must not be shown when a handoff conv is loaded
+    expect(screen.queryByTestId("new-conversation-btn")).not.toBeInTheDocument();
+  });
+
+  it("shows 'Nueva conversación' button when initialConversationId is NOT set", () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve([]),
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={42}
+      />,
+    );
+
+    expect(screen.getByTestId("new-conversation-btn")).toBeInTheDocument();
+  });
+
+  it("does not overwrite handoff conversation with auto-loaded latest conversation", async () => {
+    const handoffConvId = "handoff-xyz789";
+    const autoConvId = "auto-latest-111";
+    const autoMessage = "Mensaje cargado automáticamente";
+
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes(`/api/conversations/${handoffConvId}`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: handoffConvId,
+              mode: "chat",
+              title: null,
+              first_user_prompt: "consulta libre",
+              initial_context: null,
+              messages: [
+                {
+                  id: "h1",
+                  conversation_id: handoffConvId,
+                  role: "user",
+                  content: "consulta libre",
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+        });
+      }
+      if (url.includes("/api/conversations?")) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve([
+              {
+                id: autoConvId,
+                title: null,
+                first_user_prompt: autoMessage,
+                last_interaction_at: new Date().toISOString(),
+                archived_at: null,
+                message_count: 1,
+                last_status: "ok",
+              },
+            ]),
+        });
+      }
+      if (url.includes(`/api/conversations/${autoConvId}`)) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              id: autoConvId,
+              mode: "modify",
+              title: null,
+              first_user_prompt: autoMessage,
+              initial_context: null,
+              messages: [
+                {
+                  id: "a1",
+                  conversation_id: autoConvId,
+                  role: "user",
+                  content: autoMessage,
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }),
+        });
+      }
+      return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({}) });
+    });
+
+    render(
+      <ChatSidebar
+        spec={baseSpec}
+        onSpecUpdate={onSpecUpdate}
+        isOpen={true}
+        onToggle={onToggle}
+        dashboardId={42}
+        initialConversationId={handoffConvId}
+      />,
+    );
+
+    // Handoff message should appear
+    await waitFor(() => {
+      expect(screen.getByText("consulta libre")).toBeInTheDocument();
+    });
+
+    // Auto-loaded message from a different conversation must NOT appear
+    await waitFor(() => {
+      expect(screen.queryByText(autoMessage)).not.toBeInTheDocument();
+    });
+  });
 });

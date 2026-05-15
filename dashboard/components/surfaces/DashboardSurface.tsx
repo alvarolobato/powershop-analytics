@@ -154,13 +154,20 @@ export default function DashboardSurface({
   const searchParams = useSearchParams();
   const id = dashboardId;
 
+  // ?continue=:convId — conversation ID to load into the Modify tab (free-chat handoff).
+  // ?tab=modify — open the Modify tab explicitly (sent together with ?continue).
+  const continueConvId = searchParams.get("continue") ?? undefined;
+  const tabParam = searchParams.get("tab");
+
   const [dashboard, setDashboard] = useState<DashboardRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [chatOpen, setChatOpen] = useState(() => !!preloadedConversation || !!kMode);
+  const [chatOpen, setChatOpen] = useState(
+    () => !!preloadedConversation || !!kMode || !!continueConvId
+  );
   const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(
-    initialChatTabMode,
+    initialChatTabMode ?? (continueConvId || tabParam === "modify" ? "modificar" : undefined),
   );
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
   const [pendingAnalyze, setPendingAnalyze] = useState<{ prompt: string; id: number } | null>(null);
@@ -1028,6 +1035,7 @@ export default function DashboardSurface({
         initialMode={chatInitialMode}
         initialModifyContext={preloadedModifyContext}
         initialAnalyzeContext={preloadedAnalyzeContext}
+        initialConversationId={continueConvId}
       />
 
       {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
