@@ -164,10 +164,10 @@ interface ConversationWithMessages {
   mode: string;
   title: string | null;
   first_user_prompt: string | null;
-  messages?: ConversationApiMessage[];
-  initial_context?: InitialContext | null;
   context_kind?: string | null;
   context_ref?: string | null;
+  messages?: ConversationApiMessage[];
+  initial_context?: InitialContext | null;
 }
 
 type ConversationListItem = {
@@ -1623,10 +1623,14 @@ export default function ChatSidebar({
           data.context_kind === "dashboard" &&
           data.context_ref !== String(dashboardId)
         ) return;
+
         const msgs = convertConversationMessages(data.messages ?? []);
         setModifyMessages(msgs);
         setModifyInitialContext(data.initial_context ?? null);
         setActiveTab("modificar");
+        // Persist handoff messages so the modify API loads them as prior context
+        // on the user's next turn (loadPriorTurns reads chat_messages_modify).
+        onModifyMessagesChange?.(msgs);
       })
       .catch(() => {
         // Non-critical — if the fetch fails, the tab starts empty

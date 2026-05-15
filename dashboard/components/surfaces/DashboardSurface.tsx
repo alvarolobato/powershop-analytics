@@ -169,6 +169,16 @@ export default function DashboardSurface({
   const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(
     initialChatTabMode ?? (continueConvId || tabParam === "modify" ? "modificar" : undefined),
   );
+
+  // Sync chatOpen/chatInitialMode when ?continue or ?tab params change via client-side navigation.
+  const prevContinueConvIdRef = useRef(continueConvId);
+  useEffect(() => {
+    if (continueConvId && continueConvId !== prevContinueConvIdRef.current) {
+      setChatOpen(true);
+      setChatInitialMode("modificar");
+    }
+    prevContinueConvIdRef.current = continueConvId;
+  }, [continueConvId]);
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
   const [pendingAnalyze, setPendingAnalyze] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
@@ -1033,7 +1043,7 @@ export default function DashboardSurface({
         }
         onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
         initialModifyMessages={
-          preloadedModifyMessages ?? (dashboard.chat_messages_modify ?? [])
+          continueConvId ? [] : (preloadedModifyMessages ?? (dashboard.chat_messages_modify ?? []))
         }
         onModifyMessagesChange={handleModifyMessagesChange}
         pendingModifyInput={pendingModify?.prompt}
