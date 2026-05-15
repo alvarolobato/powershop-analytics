@@ -167,7 +167,7 @@ export async function POST(
           tools: [],
           config: { flow },
         };
-        await setInitialContext(id, snapshot as unknown as Parameters<typeof setInitialContext>[1]);
+        await setInitialContext(id, snapshot);
       } catch (snapshotErr) {
         console.warn(
           `[${requestId}] setInitialContext failed for ${id}:`,

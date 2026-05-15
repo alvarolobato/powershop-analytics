@@ -393,6 +393,41 @@ describe("listConversations", () => {
     expect(query).toContain("LIMIT $");
     expect(params).toContain(5);
   });
+
+  it("includes LEFT JOIN to dashboards and selects context_dashboard_name", async () => {
+    const fixture = {
+      id: "conv1", mode: "modify", title: null, first_user_prompt: null,
+      context_url: "/dashboards/42", context_kind: "dashboard", context_ref: "42",
+      created_at: "2026-05-01", last_interaction_at: "2026-05-01", archived_at: null,
+      last_status: null, llm_provider: null, llm_driver: null, initial_context: null,
+      created_by: null, message_count: 0, tool_calls_count: 0, rounds_count: 0,
+      duration_seconds: 0, last_message_preview: null, token_total: 0,
+      context_dashboard_name: "Mi panel de ventas",
+    };
+    mockSql.mockResolvedValue([fixture]);
+    const rows = await listConversations({ context_kind: "dashboard" });
+
+    expect(rows[0].context_dashboard_name).toBe("Mi panel de ventas");
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("LEFT JOIN dashboards");
+    expect(query).toContain("context_dashboard_name");
+  });
+
+  it("returns null context_dashboard_name for non-dashboard conversations", async () => {
+    const fixture = {
+      id: "conv2", mode: "chat", title: null, first_user_prompt: null,
+      context_url: null, context_kind: "global", context_ref: null,
+      created_at: "2026-05-01", last_interaction_at: "2026-05-01", archived_at: null,
+      last_status: null, llm_provider: null, llm_driver: null, initial_context: null,
+      created_by: null, message_count: 0, tool_calls_count: 0, rounds_count: 0,
+      duration_seconds: 0, last_message_preview: null, token_total: 0,
+      context_dashboard_name: null,
+    };
+    mockSql.mockResolvedValue([fixture]);
+    const rows = await listConversations({ context_kind: "global" });
+
+    expect(rows[0].context_dashboard_name).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
