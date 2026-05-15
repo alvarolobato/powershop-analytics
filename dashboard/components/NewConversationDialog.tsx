@@ -8,31 +8,73 @@ interface NewConversationDialogProps {
   onClose: () => void;
 }
 
+const FOCUSABLE_SELECTORS =
+  'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function NewConversationDialog({ open, onClose }: NewConversationDialogProps) {
   const router = useRouter();
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Track the element that had focus before the dialog opened so we can restore it on close.
+  const previousFocusRef = useRef<Element | null>(null);
 
-  // Focus textarea when dialog opens; reset state on close
+  // Reset state on open; save and restore focus around the dialog lifecycle.
   useEffect(() => {
     if (open) {
+      previousFocusRef.current = document.activeElement;
       setPrompt("");
       setError(null);
       setLoading(false);
-      setTimeout(() => textareaRef.current?.focus(), 50);
+      // rAF defers focus until after the browser has painted the newly opened dialog.
+      const raf = requestAnimationFrame(() => {
+        const first = dialogRef.current?.querySelector<HTMLElement>(FOCUSABLE_SELECTORS);
+        first?.focus();
+      });
+      return () => cancelAnimationFrame(raf);
+    } else {
+      // Restore focus to the previously focused element when dialog closes.
+      if (
+        previousFocusRef.current instanceof HTMLElement ||
+        previousFocusRef.current instanceof SVGElement
+      ) {
+        previousFocusRef.current.focus();
+      }
     }
   }, [open]);
 
-  // Close on Escape
+  // Escape to close + focus trap (Tab/Shift+Tab stays inside the dialog).
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && !loading) onClose();
+      if (e.key === "Escape" && !loading) {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab" && dialogRef.current) {
+        const focusable = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTORS),
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+          }
+        } else {
+          if (document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+          }
+        }
+      }
     };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
   }, [open, loading, onClose]);
 
   const handleSubmit = async () => {
@@ -112,6 +154,7 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
 
       {/* Panel */}
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="new-conv-title"
@@ -147,36 +190,49 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
           Nueva conversación
         </h2>
 
-        {/* Textarea */}
-        <textarea
-          ref={textareaRef}
-          data-testid="new-conversation-prompt"
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="Escribe tu primera pregunta o déjalo en blanco…"
-          disabled={loading}
-          rows={4}
+        {/* Textarea with accessible label */}
+        <label
+          htmlFor="new-conv-prompt"
           style={{
-            background: "var(--bg)",
-            border: "1px solid var(--border)",
-            borderRadius: 6,
-            color: "var(--fg)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
             fontSize: 13,
-            padding: "10px 12px",
-            resize: "vertical",
-            fontFamily: "inherit",
-            outline: "none",
-            width: "100%",
-            boxSizing: "border-box",
-            opacity: loading ? 0.6 : 1,
+            color: "var(--fg-muted)",
           }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !loading) {
-              e.preventDefault();
-              handleSubmit();
-            }
-          }}
-        />
+        >
+          Primera pregunta (opcional)
+          <textarea
+            id="new-conv-prompt"
+            ref={textareaRef}
+            data-testid="new-conversation-prompt"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="Escribe tu primera pregunta o déjalo en blanco…"
+            disabled={loading}
+            rows={4}
+            style={{
+              background: "var(--bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--fg)",
+              fontSize: 13,
+              padding: "10px 12px",
+              resize: "vertical",
+              fontFamily: "inherit",
+              outline: "none",
+              width: "100%",
+              boxSizing: "border-box",
+              opacity: loading ? 0.6 : 1,
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !loading) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+          />
+        </label>
 
         {/* Inline error */}
         {error && (
