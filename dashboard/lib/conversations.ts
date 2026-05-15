@@ -303,6 +303,34 @@ export async function listConversations(
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
+/**
+ * Migrate a free-chat conversation to dashboard context.
+ * Sets mode='modify', context_kind='dashboard', context_ref=dashboardId,
+ * context_url='/dashboards/:dashboardId'. Does NOT touch initial_context or messages.
+ * Throws if the conversation is not found or is archived.
+ */
+export async function migrateConversationToDashboard(
+  convId: string,
+  dashboardId: string,
+): Promise<ConversationRow> {
+  const rows = await sql<{ id: string }>(
+    `UPDATE conversations
+     SET mode = 'modify', context_kind = 'dashboard',
+         context_ref = $2, context_url = '/dashboards/' || $2
+     WHERE id = $1 AND archived_at IS NULL
+     RETURNING id`,
+    [convId, dashboardId],
+  );
+  if (rows.length === 0) {
+    throw new Error(`Conversation ${convId} not found or is archived.`);
+  }
+  const updated = await getConversation(convId);
+  if (!updated) {
+    throw new Error(`Conversation ${convId} disappeared after update.`);
+  }
+  return updated;
+}
+
 export async function archiveConversation(id: string): Promise<ConversationRow | null> {
   await setConversationArchived(id, true);
   return getConversation(id);
