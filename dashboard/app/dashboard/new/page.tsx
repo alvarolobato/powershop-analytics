@@ -582,10 +582,7 @@ export default function NewDashboard() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          setPrompt(g.suggestedPrompt);
-                          requestAnimationFrame(() => textareaRef.current?.focus());
-                        }}
+                        onClick={() => handleChipClick(g.suggestedPrompt)}
                         disabled={isDisabled}
                         className="shrink-0 self-center rounded-md border border-violet-500/30 bg-tremor-background-subtle px-3 py-1.5 text-xs font-medium text-violet-700 hover:border-violet-500/60 hover:bg-violet-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-violet-400/25 dark:bg-dark-tremor-background-subtle dark:text-violet-300 dark:hover:bg-violet-950/30"
                       >

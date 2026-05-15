@@ -3,7 +3,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import NewDashboard from "../dashboard/new/page";
-import { mockNdjsonGenerateSuccess } from "./helpers/stream-generate-mock";
 
 // ---------------------------------------------------------------------------
 // Mock next/navigation
@@ -29,11 +28,6 @@ const mockDashboardList = [
   { id: 2, name: "Panel de Stock", description: null, updated_at: "2026-04-02T15:30:00Z" },
 ];
 
-const mockSuggestions = [
-  { name: "Panel de Márgenes", description: "Márgenes por familia", prompt: "Crea un dashboard de márgenes..." },
-  { name: "Panel de KPIs Diarios", description: "KPIs del día", prompt: "Crea un dashboard de KPIs diarios..." },
-];
-
 const mockGaps = [
   { area: "Análisis de Compras", description: "No tienes un panel de compras.", suggestedPrompt: "Crea un dashboard de compras..." },
 ];
@@ -54,21 +48,21 @@ describe("NewDashboard page — smart creation sections", () => {
     globalThis.fetch = originalFetch;
   });
 
-  // ── Tabs & task cards section ───────────────────────────────────────────
+  // ── Tabs & keyboard nav ─────────────────────────────────────────────────
 
-  it("renders creation mode tabs", () => {
+  it("renders exactly 2 creation mode tabs: Plantillas and Crear con IA", () => {
     render(<NewDashboard />);
     expect(screen.getByTestId("creation-tab-templates")).toBeInTheDocument();
-    expect(screen.getByTestId("creation-tab-assistant")).toBeInTheDocument();
     expect(screen.getByTestId("creation-tab-free")).toBeInTheDocument();
+    expect(screen.queryByTestId("creation-tab-assistant")).not.toBeInTheDocument();
   });
 
   it("moves tab selection with Arrow keys (roving tabindex)", async () => {
     render(<NewDashboard />);
-    const assistantBtn = screen.getByTestId("creation-tab-assistant");
-    assistantBtn.focus();
+    const templatesBtn = screen.getByTestId("creation-tab-templates");
+    templatesBtn.focus();
     await act(async () => {
-      fireEvent.keyDown(assistantBtn, { key: "ArrowRight" });
+      fireEvent.keyDown(templatesBtn, { key: "ArrowRight" });
     });
     await waitFor(() => {
       expect(document.activeElement).toBe(screen.getByTestId("creation-tab-free"));
@@ -79,195 +73,21 @@ describe("NewDashboard page — smart creation sections", () => {
       fireEvent.keyDown(freeBtn, { key: "ArrowLeft" });
     });
     await waitFor(() => {
-      expect(document.activeElement).toBe(assistantBtn);
-    });
-  });
-
-  it("renders the task cards section heading", () => {
-    render(<NewDashboard />);
-    expect(screen.getByText("¿Qué necesitas hacer?")).toBeInTheDocument();
-  });
-
-  it("renders all 6 task cards", () => {
-    render(<NewDashboard />);
-    expect(screen.getAllByText("Crear panel").length).toBeGreaterThanOrEqual(6);
-  });
-
-  it("renders the weekly sales meeting task card", () => {
-    render(<NewDashboard />);
-    expect(
-      screen.getByText("Preparar la reunión semanal de ventas")
-    ).toBeInTheDocument();
-  });
-
-  it("renders the replenishment task card", () => {
-    render(<NewDashboard />);
-    expect(
-      screen.getByText("Decidir qué reponer esta semana")
-    ).toBeInTheDocument();
-  });
-
-  it("renders the wholesale analysis task card", () => {
-    render(<NewDashboard />);
-    expect(
-      screen.getByText("Analizar el canal mayorista")
-    ).toBeInTheDocument();
-  });
-
-  it("clicking a task card generates a dashboard and redirects", async () => {
-    const generatedSpec = {
-      title: "Reunión Semanal de Ventas",
-      description: "Panel para la reunión semanal",
-      widgets: [{ type: "number", title: "Ventas", sql: "SELECT 1", format: "number" }],
-    };
-
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec))
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ id: 99, ...generatedSpec }),
-      });
-    globalThis.fetch = fetchMock;
-
-    render(<NewDashboard />);
-
-    const taskCard = screen.getByTestId("task-card-weekly-sales-meeting");
-
-    await act(async () => {
-      fireEvent.click(taskCard);
-    });
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/dashboard/99");
-    });
-
-    // Verify it called generate (not free-form with textarea content)
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/dashboard/generate",
-      expect.objectContaining({ method: "POST" }),
-    );
-  });
-
-  // ── Role suggestions section ────────────────────────────────────────────
-
-  it("renders the role suggestions section heading", () => {
-    render(<NewDashboard />);
-    expect(screen.getByText("Recomendado para ti")).toBeInTheDocument();
-  });
-
-  it("renders all role pills", () => {
-    render(<NewDashboard />);
-    expect(screen.getByTestId("role-pill-Director de ventas")).toBeInTheDocument();
-    expect(screen.getByTestId("role-pill-Responsable de tienda")).toBeInTheDocument();
-    expect(screen.getByTestId("role-pill-Comprador")).toBeInTheDocument();
-    expect(screen.getByTestId("role-pill-Director general")).toBeInTheDocument();
-    expect(screen.getByTestId("role-pill-Responsable de stock")).toBeInTheDocument();
-    expect(screen.getByTestId("role-pill-Controller financiero")).toBeInTheDocument();
-  });
-
-  it("clicking a role pill fetches suggestions and shows results", async () => {
-    const fetchMock = vi.fn()
-      // GET /api/dashboards
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockDashboardList),
-      })
-      // POST /api/dashboard/suggest
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ suggestions: mockSuggestions }),
-      });
-    globalThis.fetch = fetchMock;
-
-    render(<NewDashboard />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("role-pill-Director de ventas"));
-    });
-
-    // Should show suggestions after loading
-    await waitFor(() => {
-      expect(screen.getByText("Panel de Márgenes")).toBeInTheDocument();
-    });
-    expect(screen.getByText("Panel de KPIs Diarios")).toBeInTheDocument();
-  });
-
-  it("shows loading spinner while fetching suggestions", async () => {
-    // Return a never-resolving promise to hold the loading state
-    const fetchMock = vi.fn().mockReturnValue(new Promise(() => {}));
-    globalThis.fetch = fetchMock;
-
-    render(<NewDashboard />);
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("role-pill-Comprador"));
-    });
-
-    // Should show loading spinner
-    expect(screen.getByLabelText("Cargando sugerencias")).toBeInTheDocument();
-    expect(screen.getByText("Analizando tu perfil...")).toBeInTheDocument();
-  });
-
-  it("clicking Crear on a suggestion triggers generation (default tab is templates; assistant must be activated)", async () => {
-    const generatedSpec = {
-      title: "Panel de Márgenes",
-      description: "Márgenes por familia",
-      widgets: [{ type: "number", title: "Margen", sql: "SELECT 1", format: "number" }],
-    };
-
-    const fetchMock = vi.fn()
-      // GET /api/dashboards
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve(mockDashboardList),
-      })
-      // POST /api/dashboard/suggest
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ suggestions: mockSuggestions }),
-      })
-      // POST /api/dashboard/generate
-      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec))
-      // POST /api/dashboards (save)
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ id: 55, ...generatedSpec }),
-      });
-    globalThis.fetch = fetchMock;
-
-    render(<NewDashboard />);
-    fireEvent.click(screen.getByTestId("creation-tab-assistant"));
-
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("role-pill-Comprador"));
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText("Panel de Márgenes")).toBeInTheDocument();
-    });
-
-    // Find and click the "Crear" button for the first suggestion
-    const crearButtons = screen.getAllByRole("button", { name: "Crear" });
-    await act(async () => {
-      fireEvent.click(crearButtons[0]);
-    });
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/dashboard/55");
+      expect(document.activeElement).toBe(templatesBtn);
     });
   });
 
   // ── Gap analysis section ────────────────────────────────────────────────
 
-  it("renders the gap analysis section heading", () => {
+  it("renders the gap analysis section heading inside the Crear con IA tab", () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
     expect(screen.getByText("¿Qué me falta?")).toBeInTheDocument();
   });
 
   it("renders the Analizar cobertura button", () => {
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
     expect(screen.getByTestId("analyze-gaps-button")).toBeInTheDocument();
     expect(screen.getByText("Analizar cobertura")).toBeInTheDocument();
   });
@@ -318,6 +138,7 @@ describe("NewDashboard page — smart creation sections", () => {
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("analyze-gaps-button"));
@@ -336,6 +157,7 @@ describe("NewDashboard page — smart creation sections", () => {
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("analyze-gaps-button"));
@@ -346,13 +168,7 @@ describe("NewDashboard page — smart creation sections", () => {
     expect(screen.getByText("Analizando...")).toBeInTheDocument();
   });
 
-  it("clicking Crear panel on a gap triggers generation (default tab is templates; assistant must be activated)", async () => {
-    const generatedSpec = {
-      title: "Panel de Compras",
-      description: "Gestión de compras",
-      widgets: [{ type: "number", title: "Compras", sql: "SELECT 1", format: "number" }],
-    };
-
+  it("clicking 'Usar este prompt' on a gap pre-fills the textarea and does not auto-generate", async () => {
     const fetchMock = vi.fn()
       // GET /api/dashboards
       .mockResolvedValueOnce({
@@ -363,19 +179,11 @@ describe("NewDashboard page — smart creation sections", () => {
       .mockResolvedValueOnce({
         ok: true,
         json: () => Promise.resolve({ gaps: mockGaps }),
-      })
-      // POST /api/dashboard/generate
-      .mockResolvedValueOnce(mockNdjsonGenerateSuccess(generatedSpec))
-      // POST /api/dashboards (save)
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: () => Promise.resolve({ id: 77, ...generatedSpec }),
       });
     globalThis.fetch = fetchMock;
 
     render(<NewDashboard />);
-    fireEvent.click(screen.getByTestId("creation-tab-assistant"));
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("analyze-gaps-button"));
@@ -385,15 +193,19 @@ describe("NewDashboard page — smart creation sections", () => {
       expect(screen.getByText("Análisis de Compras")).toBeInTheDocument();
     });
 
-    const crearPanelButtons = screen.getAllByRole("button", { name: "Crear panel" });
-
+    const usarBtn = screen.getByRole("button", { name: "Usar este prompt" });
     await act(async () => {
-      fireEvent.click(crearPanelButtons[crearPanelButtons.length - 1]);
+      fireEvent.click(usarBtn);
     });
 
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/dashboard/77");
-    });
+    const textarea = screen.getByPlaceholderText("Describe el dashboard que necesitas...");
+    expect(textarea).toHaveValue(mockGaps[0]!.suggestedPrompt);
+
+    // No generate call should have been made
+    const generateCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/api/dashboard/generate"),
+    );
+    expect(generateCall).toBeUndefined();
   });
 
   // ── Existing sections still work ────────────────────────────────────────
@@ -413,20 +225,23 @@ describe("NewDashboard page — smart creation sections", () => {
     expect(screen.getByText("Plantillas predefinidas")).toBeInTheDocument();
   });
 
-  it("disables interactive elements while generation is in progress", async () => {
+  it("disables gap analysis button while generation is in progress", async () => {
     // Hang the fetch so loading state is captured
     globalThis.fetch = vi.fn().mockReturnValue(new Promise(() => {}));
 
     render(<NewDashboard />);
+    fireEvent.click(screen.getByTestId("creation-tab-free"));
 
-    const taskCard = screen.getByTestId("task-card-replenishment");
-
+    const textarea = screen.getByPlaceholderText("Describe el dashboard que necesitas...");
     await act(async () => {
-      fireEvent.click(taskCard);
+      fireEvent.change(textarea, { target: { value: "Dashboard de ventas" } });
     });
 
-    // While loading, task cards should be disabled
-    expect(screen.getByTestId("task-card-replenishment")).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByText("Generar Dashboard"));
+    });
+
+    // While loading, gap analysis button should be disabled
     expect(screen.getByTestId("analyze-gaps-button")).toBeDisabled();
   });
 });
