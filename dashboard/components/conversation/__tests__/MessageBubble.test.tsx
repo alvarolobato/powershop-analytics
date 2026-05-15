@@ -77,7 +77,9 @@ describe("MessageBubble", () => {
       };
       render(<MessageBubble msg={msgWithLogs} />);
       // Log block should not appear for user messages
-      expect(screen.queryByTestId("log-block")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("logblock-collapsed")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("logblock-lines")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("logblock-streaming")).not.toBeInTheDocument();
     });
   });
 

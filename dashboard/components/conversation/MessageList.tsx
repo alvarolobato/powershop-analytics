@@ -13,7 +13,7 @@ interface MessageListProps {
   expandedLogs?: Record<number, boolean>;
   /** Called when a log toggle button is clicked, with the message index. */
   onLogToggle?: (index: number) => void;
-  /** When true, assistant messages are rendered as Markdown. */
+  /** When true, all non-user messages are rendered as Markdown. */
   isMarkdown?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function MessageList({
         <MessageBubble
           key={idx}
           msg={msg}
-          isMarkdown={isMarkdown || msg.role === "assistant"}
+          isMarkdown={isMarkdown}
           logExpanded={expandedLogs[idx] ?? false}
           onLogToggle={onLogToggle ? () => onLogToggle(idx) : undefined}
         />
