@@ -329,7 +329,13 @@ jobs:
           gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
 
       - name: Use role-specific CLAUDE.md
-        run: cp .claude-contexts/feedback.md CLAUDE.md
+        run: |
+          cp .claude-contexts/feedback.md CLAUDE.md
+          # Hide the swap from git so workflows that commit/push
+          # (worker, address-feedback, ci-remediation) don't sweep
+          # it into commits, and `git rebase` (mergeability) isn't
+          # blocked by an uncommitted tracked-file change.
+          git update-index --skip-worktree CLAUDE.md
 
       - name: Address Review Feedback
         id: address

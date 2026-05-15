@@ -80,7 +80,13 @@ jobs:
             --body "🔍 AI Worker — planning phase started. Analyzing the issue and codebase. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
       - name: Use role-specific CLAUDE.md
-        run: cp .claude-contexts/worker-plan.md CLAUDE.md
+        run: |
+          cp .claude-contexts/worker-plan.md CLAUDE.md
+          # Hide the swap from git so workflows that commit/push
+          # (worker, address-feedback, ci-remediation) don't sweep
+          # it into commits, and `git rebase` (mergeability) isn't
+          # blocked by an uncommitted tracked-file change.
+          git update-index --skip-worktree CLAUDE.md
 
       - name: Plan and decompose
         id: plan
@@ -424,7 +430,13 @@ jobs:
             --body "🤖 AI Worker — implementation started. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
       - name: Use role-specific CLAUDE.md
-        run: cp .claude-contexts/worker-impl.md CLAUDE.md
+        run: |
+          cp .claude-contexts/worker-impl.md CLAUDE.md
+          # Hide the swap from git so workflows that commit/push
+          # (worker, address-feedback, ci-remediation) don't sweep
+          # it into commits, and `git rebase` (mergeability) isn't
+          # blocked by an uncommitted tracked-file change.
+          git update-index --skip-worktree CLAUDE.md
 
       - name: Implement sub-task
         id: implement

@@ -8,7 +8,7 @@ You are running an audit or discovery pass over the repo (bug-hunter, feature-id
 
 - **D-014** — issues you file go in the backlog. **Do not** add `ai-work` yourself; a human (or a downstream workflow) decides what gets implemented.
 - **D-028** — `business-review` roles add `needs-human-approval` and never `ai-work`. Other audit workflows add the relevant tag (e.g. `bug`, `feature-idea`, `agent-efficiency`).
-- **D-029** — never propose creating or editing `.github/workflows/` files in an issue; if a workflow change is the right answer, post the proposed YAML in the issue body for a human commit.
+- **D-029** — the worker can't push files under `.github/workflows/`. If your audit's recommendation requires a workflow change, propose the YAML inside a fenced ```yaml block in the issue body for a human to commit — do not file an issue asking the worker to make the workflow change itself.
 
 ## How to run
 

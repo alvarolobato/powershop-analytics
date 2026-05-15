@@ -14,7 +14,7 @@ You are labeling and routing an issue (ai-issue-triage) or sweeping stale items 
 1. Read the issue title + body.
 2. Apply phase / component / priority labels per the patterns in `AGENTS.md` (read on demand if unsure).
 3. **Don't** add `ai-work` during triage. That's a deliberate human decision; triage stops at categorization.
-4. For stale-manager: an issue stale for > 14 days with no activity gets a comment asking the owner to confirm scope; > 30 days without a response gets closed with `stale`.
+4. For stale-manager: follow the rules in `ai-stale-manager.yml`'s own prompt — they distinguish AI-created issues (close after 21 days, never auto-close `p0`/`p1`), human-created issues (label `stale` + comment after 30 days, close 14 days later), and PRs (ping after 14 days; close after 7 days of CI failure; close draft PRs > 30 days). Don't apply a single 14/30-day rule to everything.
 
 ## What NOT to do
 

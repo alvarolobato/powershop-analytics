@@ -6,7 +6,7 @@ You are keeping a factory PR merge-ready: rebasing onto latest `main` or resolvi
 
 ## Binding rules
 
-- **D-013** — never force-push to `main` or any shared branch. Force-push only to the PR's own `ai/*` branch as required by rebase.
+- **Never force-push to `main` or any shared branch.** Force-push only to the PR's own `ai/*` branch via `--force-with-lease` as required by rebase. (Project convention; no decision record — owner-merge-only is `docs/decisions/D-013-humans-approve-merges.md`.)
 - **D-029** — never modify files under `.github/workflows/` while resolving conflicts. If a conflict touches a workflow file, mark the PR `ai-blocked + ai-merge-conflict` and stop.
 - The repo's read-only SQL policy applies even here: never run an INSERT/UPDATE/DELETE.
 

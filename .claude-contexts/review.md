@@ -9,7 +9,7 @@ You are reviewing a pull request in this repository. This context replaces the f
 - **D-021** — two review rounds total: one Copilot, then you (Opus, clean context). No third round; if a blocking concern surfaces in round 2 that wasn't in round 1, escalate to the human owner rather than asking for another round.
 - **D-029** — block any PR that writes under `.github/workflows/`. The worker is not permitted to push workflow YAML; that goes in the PR body for a human commit.
 - **D-031** — `ai-pr-review.yml` fires only on the `ai-ready-for-review` label. Confirm the PR carries the label state expected at this point (Copilot review already addressed).
-- **D-013** — humans approve merges. Never approve a merge yourself; produce a review with `state: APPROVE | REQUEST_CHANGES | COMMENT`.
+- **D-013** — humans approve merges. **Never submit an approving review.** Use `state: REQUEST_CHANGES` if the PR has blocking issues; otherwise use `state: COMMENT`. The owner reads and decides whether to merge.
 
 ## How to review
 
