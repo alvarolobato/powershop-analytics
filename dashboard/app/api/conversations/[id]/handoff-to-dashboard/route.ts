@@ -85,6 +85,8 @@ export async function POST(
       { status: 400 },
     );
   }
+  // Normalize to canonical integer string so "042" and "42.0" both store as "42".
+  const canonicalDashboardId = String(dashboardIdNum);
 
   try {
     const conversation = await getConversation(rawId);
@@ -121,15 +123,15 @@ export async function POST(
         formatApiError(
           "Dashboard no encontrado.",
           "NOT_FOUND",
-          `No existe ningún dashboard con ID ${dashboardId}.`,
+          `No existe ningún dashboard con ID ${canonicalDashboardId}.`,
           requestId,
         ),
         { status: 404 },
       );
     }
 
-    const updated = await migrateConversationToDashboard(rawId, dashboardId);
-    const redirect_url = `/dashboards/${dashboardId}`;
+    const updated = await migrateConversationToDashboard(rawId, canonicalDashboardId);
+    const redirect_url = `/dashboards/${canonicalDashboardId}`;
 
     return NextResponse.json({ ok: true, conversation: updated, redirect_url });
   } catch (err) {

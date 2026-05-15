@@ -45,6 +45,7 @@ import {
   appendMessage,
   countMessages,
   maybeGenerateTitle,
+  migrateConversationToDashboard,
 } from "../conversations";
 
 // ---------------------------------------------------------------------------
@@ -519,6 +520,54 @@ describe("syncLegacyCache", () => {
 
     await syncLegacyCache("abc123def456");
     expect(mockSql).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// migrateConversationToDashboard
+// ---------------------------------------------------------------------------
+
+describe("migrateConversationToDashboard", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("issues UPDATE with mode/context_kind/context_ref/context_url and archived_at guard", async () => {
+    const conv = {
+      id: "abc123def456",
+      mode: "modify",
+      context_kind: "dashboard",
+      context_ref: "42",
+      context_url: "/dashboards/42",
+      archived_at: null,
+      title: null,
+    };
+    mockSql
+      .mockResolvedValueOnce([{ id: "abc123def456" }]) // UPDATE … RETURNING id
+      .mockResolvedValueOnce([conv]);                  // getConversation
+
+    const result = await migrateConversationToDashboard("abc123def456", "42");
+
+    const [updateSql, updateParams] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(updateSql).toContain("UPDATE conversations");
+    expect(updateSql).toContain("mode");
+    expect(updateSql).toContain("context_kind");
+    expect(updateSql).toContain("context_ref");
+    expect(updateSql).toContain("context_url");
+    expect(updateSql).toContain("archived_at IS NULL");
+    expect(updateParams[0]).toBe("abc123def456");
+    expect(updateParams[1]).toBe("42");
+
+    expect(result.mode).toBe("modify");
+    expect(result.context_kind).toBe("dashboard");
+    expect(result.context_ref).toBe("42");
+    expect(result.context_url).toBe("/dashboards/42");
+  });
+
+  it("throws when conversation not found or archived (UPDATE returns 0 rows)", async () => {
+    mockSql.mockResolvedValueOnce([]); // UPDATE RETURNING → zero rows
+    await expect(migrateConversationToDashboard("abc123def456", "42")).rejects.toThrow(
+      /not found or is archived/i,
+    );
+    expect(mockSql).toHaveBeenCalledTimes(1);
   });
 });
 
