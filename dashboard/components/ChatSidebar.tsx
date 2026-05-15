@@ -2,8 +2,6 @@
 
 import type { KeyboardEvent } from "react";
 import { useState, useRef, useEffect, useCallback } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type { DashboardSpec } from "@/lib/schema";
 import { isApiErrorResponse, generateRequestId } from "@/lib/errors";
 import type { ApiErrorResponse } from "@/lib/errors";
@@ -13,14 +11,12 @@ import type { LogLine } from "@/components/LogBlock";
 import { appendCoalescedLogLine } from "@/lib/format-agentic-progress";
 import type { InteractionLine } from "@/lib/db-write";
 import { interactionLineClass } from "@/lib/interaction-line-class";
-import AgenticErrorDetails from "@/components/AgenticErrorDetails";
 import PreviousConversations from "@/components/PreviousConversations";
 import { InitialContextPanel } from "@/components/InitialContextPanel";
-import {
-  getMessageText,
-  isAssistantContent,
-} from "@/lib/conversation-types";
-import type { InitialContext, MessageContent } from "@/lib/conversation-types";
+import type { InitialContext } from "@/lib/conversation-types";
+import type { ChatMessage, ConversationApiMessage } from "./conversation/types";
+import { MessageBubble } from "./conversation/MessageBubble";
+import { convertConversationMessages } from "./conversation/convertConversationMessages";
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -64,31 +60,11 @@ function parseApiError(
 }
 
 // ---------------------------------------------------------------------------
-// Types
+// Re-export ChatMessage so existing consumers (e.g. DashboardSurface) keep
+// working without changing their import paths.
 // ---------------------------------------------------------------------------
 
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  timestamp: Date;
-  /** Structured error detail attached to an assistant error message. */
-  errorDetail?: ApiErrorResponse;
-  /** True when this assistant message is an error (even without structured details). */
-  isError?: boolean;
-  /** Log lines captured during the API call that produced this message. */
-  logs?: LogLine[];
-  /**
-   * Short summary from the publish tool (apply_dashboard_modification or
-   * submit_dashboard_analysis). When present, a compact "Cambios aplicados"
-   * chip is rendered below the chat bubble.
-   */
-  appliedSummary?: string;
-  /**
-   * Label for the chip shown when appliedSummary is set.
-   * Defaults to "Cambios aplicados" for modify, "Análisis publicado" for analyze.
-   */
-  appliedChipLabel?: string;
-}
+export type { ChatMessage };
 
 export interface ChatSidebarProps {
   spec: DashboardSpec;
@@ -145,13 +121,7 @@ export interface ChatSidebarProps {
 // Conversation API types (from /api/conversations — Task 2 #537)
 // ---------------------------------------------------------------------------
 
-interface ConversationApiMessage {
-  id: string;
-  conversation_id: string;
-  role: "user" | "assistant" | "tool";
-  content: unknown; // JSONB: string | { text?: string } | { type: string; text?: string }[]
-  created_at: string;
-}
+// ConversationApiMessage is imported from ./conversation/types
 
 interface ConversationWithMessages {
   id: string;
@@ -180,27 +150,6 @@ type ConversationListResponse =
 
 // GET /api/conversations/:id returns the conversation row with messages inlined.
 type ConversationDetailResponse = ConversationWithMessages;
-
-// ---------------------------------------------------------------------------
-// Conversation message converter
-// ---------------------------------------------------------------------------
-
-function convertConversationMessages(messages: ConversationApiMessage[]): ChatMessage[] {
-  return messages
-    .filter((msg) => msg.role === "user" || msg.role === "assistant")
-    .map((msg) => {
-      const content = msg.content as MessageContent;
-      const ac = msg.role === "assistant" && isAssistantContent(content) ? content : null;
-      const isError = ac?.is_error ?? false;
-      return {
-        role: msg.role as "user" | "assistant",
-        content: getMessageText(content) || (isError ? "Error en la respuesta del asistente" : ""),
-        timestamp: new Date(msg.created_at),
-        isError,
-      };
-    })
-    .filter((msg) => msg.content.length > 0);
-}
 
 // ---------------------------------------------------------------------------
 // Simulated log sequences
@@ -323,187 +272,6 @@ function serializeWidgetDataForApi(
     };
   }
   return result;
-}
-
-// ---------------------------------------------------------------------------
-// ErrorBubble — expandable error detail inside a chat message
-// ---------------------------------------------------------------------------
-
-function ErrorBubble({ message, errorDetail }: { message: string; errorDetail?: ApiErrorResponse }) {
-  const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (copyTimeoutRef.current !== null) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(errorDetail, null, 2));
-      setCopied(true);
-      if (copyTimeoutRef.current !== null) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-      copyTimeoutRef.current = setTimeout(() => {
-        setCopied(false);
-        copyTimeoutRef.current = null;
-      }, 2000);
-    } catch {
-      // ignore
-    }
-  };
-
-  return (
-    <div className="text-sm text-red-400">
-      <p>{message}</p>
-      {errorDetail && (
-        <div className="mt-1">
-          <button
-            type="button"
-            onClick={() => setExpanded((p) => !p)}
-            className="flex items-center gap-1 text-xs text-red-400 hover:text-red-300"
-            aria-expanded={expanded}
-            data-testid="chat-toggle-details"
-          >
-            <span
-              style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
-              className="inline-block transition-transform"
-              aria-hidden="true"
-            >
-              &#9656;
-            </span>
-            Detalles técnicos
-          </button>
-          {expanded && (
-            <div data-testid="chat-error-details">
-              <AgenticErrorDetails errorDetail={errorDetail} />
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="mt-1 text-xs text-red-400 hover:text-red-300 underline"
-                data-testid="copy-as-json"
-              >
-                {copied ? "Copiado!" : "Copiar como JSON"}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// MessageBubble — renders a single chat message with optional log block
-// ---------------------------------------------------------------------------
-
-function MessageBubble({
-  msg,
-  isMarkdown = false,
-  logExpanded,
-  onLogToggle,
-}: {
-  msg: ChatMessage;
-  isMarkdown?: boolean;
-  logExpanded?: boolean;
-  onLogToggle?: () => void;
-}) {
-  const isError = msg.role === "assistant" && (msg.isError === true || msg.errorDetail !== undefined);
-  const isUser = msg.role === "user";
-
-  return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: isUser ? "flex-end" : "flex-start",
-        gap: 4,
-      }}
-    >
-      {/* Log block above AI messages that have logs */}
-      {!isUser && msg.logs && msg.logs.length > 0 && (
-        <LogBlock
-          lines={msg.logs}
-          expanded={logExpanded}
-          onToggle={onLogToggle}
-          streaming={false}
-        />
-      )}
-
-      {isError ? (
-        <div
-          style={{
-            maxWidth: "86%",
-            borderRadius: 10,
-            padding: "10px 12px",
-            background: "rgba(220,38,38,0.1)",
-            border: "1px solid rgba(220,38,38,0.3)",
-          }}
-        >
-          <ErrorBubble message={msg.content} errorDetail={msg.errorDetail} />
-        </div>
-      ) : (
-        <div
-          style={{
-            maxWidth: "86%",
-            background: isUser ? "var(--accent)" : "var(--bg-2)",
-            color: isUser ? "#fff" : "var(--fg)",
-            padding: "10px 12px",
-            borderRadius: 10,
-            fontSize: 12.5,
-            lineHeight: 1.5,
-          }}
-        >
-          {isMarkdown && !isUser ? (
-            <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                allowedElements={[
-                  "p", "br", "strong", "em",
-                  "ul", "ol", "li",
-                  "code", "pre", "blockquote",
-                  "a", "h1", "h2", "h3", "h4", "h5", "h6",
-                  "table", "thead", "tbody", "tr", "th", "td",
-                ]}
-                components={{
-                  a: ({ ...props }) => (
-                    <a {...props} target="_blank" rel="noopener noreferrer" />
-                  ),
-                }}
-              >
-                {msg.content}
-              </ReactMarkdown>
-            </div>
-          ) : (
-            msg.content
-          )}
-        </div>
-      )}
-
-      {/* "Cambios aplicados" / "Análisis publicado" chip — shown for successful publish-tool responses */}
-      {!isUser && !isError && msg.appliedSummary && (
-        <div
-          data-testid="applied-chip"
-          style={{
-            fontSize: 10,
-            padding: "3px 8px",
-            borderRadius: 10,
-            background: "rgba(var(--accent-rgb,99,102,241),0.12)",
-            border: "1px solid rgba(var(--accent-rgb,99,102,241),0.25)",
-            color: "var(--accent)",
-            maxWidth: "86%",
-          }}
-        >
-          ✓ {msg.appliedChipLabel ?? "Cambios aplicados"}
-        </div>
-      )}
-    </div>
-  );
 }
 
 // ---------------------------------------------------------------------------
