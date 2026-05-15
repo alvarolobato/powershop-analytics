@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import "@testing-library/jest-dom/vitest";
 import NewDashboard from "../dashboard/new/page";
 import type { DashboardSpec } from "@/lib/schema";
+import { TASK_PROMPTS } from "@/lib/task-prompts";
 import {
   mockJsonFetchOk,
   mockNdjsonGenerateSuccess,
@@ -53,6 +54,13 @@ describe("NewDashboard page", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("renders exactly 2 tabs: Plantillas and Crear con IA", () => {
+    render(<NewDashboard />);
+    expect(screen.getByTestId("creation-tab-templates")).toBeInTheDocument();
+    expect(screen.getByTestId("creation-tab-free")).toBeInTheDocument();
+    expect(screen.queryByTestId("creation-tab-assistant")).not.toBeInTheDocument();
+  });
+
   it("renders prompt textarea and generate button", () => {
     render(<NewDashboard />);
     fireEvent.click(screen.getByTestId("creation-tab-free"));
@@ -85,6 +93,69 @@ describe("NewDashboard page", () => {
     });
 
     expect(screen.getByText("Generar Dashboard")).not.toBeDisabled();
+  });
+
+  it("clicking a task chip pre-fills the textarea and does not trigger generation", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: RequestInfo) => {
+      const u = typeof url === "string" ? url : String(url);
+      if (u.includes("data-health")) {
+        return Promise.resolve(
+          mockJsonFetchOk({ tables: [], overallStale: false, stalestTable: null }),
+        );
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
+    globalThis.fetch = fetchMock;
+
+    render(<NewDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("creation-tab-free"));
+    });
+
+    const firstTask = TASK_PROMPTS[0]!;
+    const chip = screen.getByTestId(`task-chip-${firstTask.id}`);
+    await act(async () => {
+      fireEvent.click(chip);
+    });
+
+    const textarea = screen.getByPlaceholderText("Describe el dashboard que necesitas...");
+    expect(textarea).toHaveValue(firstTask.prompt);
+
+    // No generate call should have been made
+    const generateCall = fetchMock.mock.calls.find(
+      (call) => String(call[0]).includes("/api/dashboard/generate"),
+    );
+    expect(generateCall).toBeUndefined();
+  });
+
+  it("all task chips are rendered in the free-form tab", async () => {
+    render(<NewDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("creation-tab-free"));
+    });
+
+    for (const task of TASK_PROMPTS) {
+      expect(screen.getByTestId(`task-chip-${task.id}`)).toBeInTheDocument();
+    }
+  });
+
+  it("chip-prefilled prompt can be edited before generating", async () => {
+    render(<NewDashboard />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("creation-tab-free"));
+    });
+
+    const firstTask = TASK_PROMPTS[0]!;
+    await act(async () => {
+      fireEvent.click(screen.getByTestId(`task-chip-${firstTask.id}`));
+    });
+
+    const textarea = screen.getByPlaceholderText("Describe el dashboard que necesitas...");
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: "Prompt editado por el usuario" } });
+    });
+
+    expect(textarea).toHaveValue("Prompt editado por el usuario");
   });
 
   it("generates and saves dashboard, then redirects", async () => {
