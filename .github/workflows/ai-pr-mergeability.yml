@@ -221,6 +221,9 @@ jobs:
       # real conflict AND the PR doesn't touch workflow files. Cap budget
       # tightly: --max-turns 60, single resolution attempt per head SHA
       # (the dedup step earlier guarantees we won't loop on the same SHA).
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/mergeability.md CLAUDE.md
+
       - name: Auto-resolve conflicts with Claude
         id: claude_resolve
         if: steps.rebase.outputs.outcome == 'conflict' && steps.workflow_files.outputs.skip_llm != 'true'

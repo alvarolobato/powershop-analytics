@@ -79,6 +79,9 @@ jobs:
           gh issue comment "$ISSUE_NUMBER" \
             --body "🔍 AI Worker — planning phase started. Analyzing the issue and codebase. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/worker-plan.md CLAUDE.md
+
       - name: Plan and decompose
         id: plan
         uses: anthropics/claude-code-action@v1
@@ -419,6 +422,9 @@ jobs:
             --add-label "ai-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "🤖 AI Worker — implementation started. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/worker-impl.md CLAUDE.md
 
       - name: Implement sub-task
         id: implement

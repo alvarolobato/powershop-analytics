@@ -232,6 +232,9 @@ jobs:
           MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. **Copilot review still runs** (no such restriction). Merge with human + Copilot review."
           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$MSG" || true
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/review.md CLAUDE.md
+
       - name: Claude PR Review
         if: steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1

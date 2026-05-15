@@ -136,6 +136,9 @@ jobs:
           fi
           head -c 120000 /tmp/ci-failed.log > /tmp/ci-failed-truncated.log || true
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/worker-impl.md CLAUDE.md
+
       - name: Auto-fix with Claude
         uses: anthropics/claude-code-action@v1
         env:

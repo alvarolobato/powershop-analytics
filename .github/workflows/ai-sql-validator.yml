@@ -21,6 +21,9 @@ jobs:
         with:
           slices: data-decisions,etl-sync-strategy
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/audit.md CLAUDE.md
+
       - name: Validate SQL Pairs
         uses: anthropics/claude-code-action@v1
         with:

@@ -21,6 +21,9 @@ jobs:
         with:
           slices: etl-sync-strategy,architecture-sales,architecture-wholesale,architecture-stock
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/audit.md CLAUDE.md
+
       - name: ETL Health Check
         uses: anthropics/claude-code-action@v1
         with:

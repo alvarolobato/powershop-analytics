@@ -328,6 +328,9 @@ jobs:
           gh api -X DELETE "repos/$REPO/issues/$PR/labels/ai-ready-for-review" >/dev/null 2>&1 || true
           gh api -X POST "repos/$REPO/issues/$PR/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/feedback.md CLAUDE.md
+
       - name: Address Review Feedback
         id: address
         if: steps.d021.outputs.skip != 'true' && steps.workflow_change.outputs.skip != 'true'

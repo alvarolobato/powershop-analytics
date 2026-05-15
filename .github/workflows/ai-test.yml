@@ -18,6 +18,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/audit.md CLAUDE.md
+
       - name: Run Claude Code Action
         uses: anthropics/claude-code-action@v1
         with:

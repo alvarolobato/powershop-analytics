@@ -21,6 +21,9 @@ jobs:
         with:
           slices: data-decisions,architecture-sales,architecture-wholesale,architecture-stock
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/audit.md CLAUDE.md
+
       - name: Generate Feature Ideas
         uses: anthropics/claude-code-action@v1
         env:

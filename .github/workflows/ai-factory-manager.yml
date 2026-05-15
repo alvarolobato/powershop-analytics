@@ -241,6 +241,9 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # ── Manager step (Opus) ────────────────────────────────────────────────
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/command.md CLAUDE.md
+
       - name: Run Factory Manager (Opus)
         if: steps.killswitch.outputs.kill != 'true'
         uses: anthropics/claude-code-action@v1

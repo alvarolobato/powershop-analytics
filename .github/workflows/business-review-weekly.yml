@@ -103,6 +103,9 @@ jobs:
         with:
           slices: data-decisions,architecture-sales,architecture-wholesale,architecture-stock,architecture-purchasing,architecture-products
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/audit.md CLAUDE.md
+
       - name: Revisión del rol ${{ matrix.role.slug }}
         if: ${{ github.event.inputs.only_role == '' || github.event.inputs.only_role == matrix.role.slug }}
         uses: anthropics/claude-code-action@v1

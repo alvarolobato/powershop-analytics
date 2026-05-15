@@ -16,6 +16,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use role-specific CLAUDE.md
+        run: cp .claude-contexts/triage.md CLAUDE.md
+
       - name: Manage Stale Items
         uses: anthropics/claude-code-action@v1
         env:
