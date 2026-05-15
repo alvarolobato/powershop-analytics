@@ -151,20 +151,23 @@ export async function runDashboardGenerateStream(
     }
   };
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let nl: number;
-    while ((nl = buffer.indexOf("\n")) >= 0) {
-      const line = buffer.slice(0, nl);
-      buffer = buffer.slice(nl + 1);
-      processLine(line);
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nl: number;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl);
+        buffer = buffer.slice(nl + 1);
+        processLine(line);
+      }
     }
+    buffer += decoder.decode();
+    processLine(buffer);
+  } finally {
+    reader.cancel().catch(() => {});
   }
-
-  buffer += decoder.decode();
-  processLine(buffer);
 
   if (!finalSpec) {
     throw new Error("La generación terminó sin resultado del panel");
