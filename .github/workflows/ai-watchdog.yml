@@ -304,17 +304,22 @@ jobs:
             # detail endpoint). That filter always returned empty, so the
             # watchdog never recognised a recent run and re-dispatched every
             # cycle (root cause of the #629/#640/#644-650 stall cascade).
+            #
+            # `--paginate` + a server-side `created` filter is required: under
+            # burst load (the failure mode this whole PR addresses) the repo
+            # easily generates >100 runs/hour and the target PR's run can be
+            # pushed off the first page. The `created` query parameter
+            # short-circuits pagination once we cross the 30-minute boundary
+            # so we don't walk the entire history.
             NOW=$(date -u +%s)
+            SINCE_ISO=$(date -u -d "@$((NOW - 1800))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
             RECENT_RUNS=$(gh api \
-              "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=20" \
-              --jq "[.workflow_runs[] |
-                select((.created_at | fromdateiso8601) > ($NOW - 1800)) |
-                .display_title]" 2>/dev/null || echo "[]")
+              "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=100&created=%3E${SINCE_ISO}" \
+              --paginate \
+              --jq '.workflow_runs[] | .display_title' 2>/dev/null || true)
 
             # Match "PR #<NUM>" with a non-digit boundary so #64 doesn't match #647.
-            if echo "$RECENT_RUNS" | jq -e --arg num "$NUM" '
-              any(.[]; test("PR #" + $num + "(\\D|$)"))
-            ' >/dev/null 2>&1; then
+            if echo "$RECENT_RUNS" | grep -E "PR #${NUM}([^0-9]|$)" >/dev/null 2>&1; then
               echo "PR #$NUM: pr-review already dispatched recently — skipping"
               continue
             fi
@@ -634,17 +639,25 @@ jobs:
             # PR head SHA (non-empty body, see D-033 / ai-pr-review.yml
             # head-SHA idempotency). A successful workflow run that
             # short-circuited via idempotency doesn't count as "Opus ran".
-            REAL_OPUS_ON_HEAD=$(gh api "repos/$REPO_FULL/pulls/$NUM/reviews?per_page=100" \
-              --jq "[.[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD\" and (.body | length) > 0)] | length" 2>/dev/null || echo "0")
+            #
+            # `--paginate` mirrors the pr-review.yml idempotency: high-review
+            # PRs can push a real Opus review onto a later page. Missing it
+            # here would send us down the "Opus never ran" retry path even
+            # though Opus already reviewed.
+            REAL_OPUS_ON_HEAD=$(gh api "repos/$REPO_FULL/pulls/$NUM/reviews?per_page=100" --paginate \
+              --jq ".[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD\" and (.body | length) > 0) | .id" 2>/dev/null | wc -l | tr -d ' ' || echo "0")
             if ! [[ "$REAL_OPUS_ON_HEAD" =~ ^[0-9]+$ ]]; then
               REAL_OPUS_ON_HEAD=0
             fi
             if [ "$REAL_OPUS_ON_HEAD" -gt 0 ]; then
               # Opus genuinely reviewed this head — but address-feedback
               # didn't transition. Look up the workflow run anyway as the
-              # age anchor for retry.
-              LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=30" \
-                --jq "[.workflow_runs[] | select((.display_title // \"\") | test(\"PR #${NUM}(\\\\D|\$)\")) | select(.conclusion == \"success\")] | first | .updated_at // empty" 2>/dev/null || echo "")
+              # age anchor for retry. Use `created` to bound the search
+              # within STUCK_MAX_AGE_SECS and `--paginate` to be robust to
+              # bursty run histories.
+              SINCE_ISO_OPUS=$(date -u -d "@$((NOW - STUCK_MAX_AGE_SECS))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+              LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=100&created=%3E${SINCE_ISO_OPUS}" --paginate \
+                --jq ".workflow_runs[] | select((.display_title // \"\") | test(\"PR #${NUM}(\\\\D|\$)\")) | select(.conclusion == \"success\") | .updated_at" 2>/dev/null | head -1 || echo "")
             else
               LAST_OPUS_AT=""
             fi

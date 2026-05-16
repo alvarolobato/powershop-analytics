@@ -108,8 +108,14 @@ jobs:
           # Real Opus reviews have a non-empty body (the claude-code-action
           # always posts a "## Review summary" header via use_sticky_comment).
           # `(.body | length) > 0` cleanly discriminates.
-          EXISTING_CLAUDE_REVIEWS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
-            --jq "[.[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\" and (.body | length) > 0)] | length" 2>/dev/null || echo "0")
+          #
+          # `--paginate` is required: address-feedback can add 3-10 empty-body
+          # review submissions per Copilot round, and PRs that go through
+          # several rounds easily exceed one page (100 reviews). Without
+          # pagination, a real Opus review on a later page would be missed
+          # and we'd post a duplicate.
+          EXISTING_CLAUDE_REVIEWS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --paginate \
+            --jq ".[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\" and (.body | length) > 0) | .id" 2>/dev/null | wc -l | tr -d ' ')
           if ! [[ "$EXISTING_CLAUDE_REVIEWS" =~ ^[0-9]+$ ]]; then
             EXISTING_CLAUDE_REVIEWS=0
           fi
