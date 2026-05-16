@@ -9,41 +9,9 @@ PowerShop Analytics is a platform that extracts data from a vendor-managed Power
 1. **WrenAI** — Ad-hoc single-question text-to-SQL (e.g., "¿Cuánto vendimos ayer?")
 2. **Dashboard App** — AI-generated multi-widget dashboards from natural language (e.g., "Créame un cuadro de mandos para el responsable de ventas")
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│ Data Source                                                             │
-│   4D Server (10.0.1.35)                                                 │
-│     ├── P4D SQL :19812  ─┐                                              │
-│     └── SOAP :8080       │                                              │
-└──────────────────────────┼──────────────────────────────────────────────┘
-                           │ ETL (nightly)
-┌──────────────────────────▼──────────────────────────────────────────────┐
-│ Docker Compose Stack                                                    │
-│                                                                         │
-│  ┌─────────────┐     ┌──────────────────┐     ┌─────────────────────┐  │
-│  │  ETL Python  │────▶│  PostgreSQL       │◄────│  Dashboard App      │  │
-│  │  (nightly)  │     │  18M+ rows        │     │  (Next.js+Tremor)   │  │
-│  └─────────────┘     │  ps_* tables      │     │  :4000              │  │
-│                      │  dashboard_* tbls │     └────────┬────────────┘  │
-│                      └────────┬─────────┘              │               │
-│                               │                         │               │
-│  ┌────────────────────────────┼─────────────────────────┼────────────┐  │
-│  │  WrenAI Stack              │                         │            │  │
-│  │   ├── wren-ui :3000 ───────┘                         │            │  │
-│  │   ├── wren-ai-service :5555                          │            │  │
-│  │   ├── wren-engine                         OpenRouter │            │  │
-│  │   ├── ibis-server                         (Claude)   │            │  │
-│  │   └── qdrant                                  ▲      │            │  │
-│  └───────────────────────────────────────────────┼──────┘            │  │
-│                                                  │                    │  │
-└──────────────────────────────────────────────────┼────────────────────┘  │
-                                                   │                       │
-                                        ┌──────────▼───────────┐          │
-                                        │  OpenRouter API       │          │
-                                        │  Claude Sonnet 4      │          │
-                                        │  text-embedding-3-lg  │          │
-                                        └──────────────────────┘          │
-```
+**Flow at a glance:** 4D Server (SQL `:19812` / SOAP `:8080`) → ETL (Python, nightly) → PostgreSQL mirror (`ps_*` tables, 18M+ rows) → consumed by both the WrenAI stack (wren-ui `:3000`, wren-ai-service `:5555`, wren-engine, ibis-server, qdrant) and the Dashboard App (Next.js + Tremor on `:4000`). Both LLM paths call OpenRouter (Claude Sonnet 4 + text-embedding-3-large).
+
+Full ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview.md).
 
 ## Components
 
@@ -79,101 +47,15 @@ PowerShop Analytics is a platform that extracts data from a vendor-managed Power
 
 #### Dashboard App Architecture
 
-```
-┌───────────────────────────────────────────────────────┐
-│  Browser                                              │
-│                                                       │
-│  ┌─────────────────┐  ┌───────────────────────────┐  │
-│  │  Dashboard View  │  │  Chat Sidebar             │  │
-│  │                  │  │                            │  │
-│  │  ┌──────────┐   │  │  User: "Créame un cuadro  │  │
-│  │  │ KPI Row  │   │  │   de mandos para ventas"  │  │
-│  │  ├──────────┤   │  │                            │  │
-│  │  │ Bar Chart│   │  │  AI: "He creado un panel   │  │
-│  │  ├──────────┤   │  │   con 6 widgets..."        │  │
-│  │  │ Table    │   │  │                            │  │
-│  │  └──────────┘   │  │  User: "Añade el margen"  │  │
-│  │                  │  │                            │  │
-│  └─────────────────┘  └───────────────────────────┘  │
-└───────────────────────────┬───────────────────────────┘
-                            │ REST API
-┌───────────────────────────▼───────────────────────────┐
-│  Next.js API Routes                                   │
-│                                                       │
-│  POST /api/dashboard/generate  ← prompt → LLM (+ tools) → spec │
-│  POST /api/dashboard/modify    ← prompt + spec → LLM (+ tools) │
-│  POST /api/dashboard/analyze   ← spec + widget data → LLM (+ tools) │
-│  POST /api/query               ← SQL → PG → data     │
-│  GET  /api/dashboard/:id       ← load saved spec      │
-│  POST /api/dashboard/:id/save  ← persist spec         │
-│  GET  /api/dashboards          ← list all             │
-└───────────────────────────────────────────────────────┘
-```
+**Flow:** Browser (Dashboard view + Chat sidebar) → Next.js API routes. The agentic flows (`generate`, `modify`, `analyze`) call the LLM with read-only SQL tools and return a JSON spec; the frontend renders it via Tremor. Saved specs persist in `dashboards` / `dashboard_versions` tables. Full route map + ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview.md).
 
-#### Dashboard JSON Spec Format
+#### Dashboard JSON spec
 
-The LLM generates a JSON specification that the frontend renders:
+The LLM emits a JSON spec with `title`, `description`, and a `widgets` array. Each widget has a `type` (see catalog below), per-widget SQL, and rendering hints (format, prefix, axes, etc.). Full example in [docs/architecture/overview.md](docs/architecture/overview.md).
 
-```json
-{
-  "title": "Cuadro de Mandos — Ventas Marzo 2026",
-  "description": "Panel para el responsable de ventas",
-  "widgets": [
-    {
-      "id": "w1",
-      "type": "kpi_row",
-      "items": [
-        {"label": "Ventas Netas", "sql": "SELECT SUM(total_si) ...", "format": "currency", "prefix": "€"},
-        {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) ...", "format": "number"},
-        {"label": "Ticket Medio", "sql": "SELECT SUM(total_si)/COUNT(...) ...", "format": "currency", "prefix": "€"}
-      ]
-    },
-    {
-      "type": "bar_chart",
-      "title": "Ventas por Tienda",
-      "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas ...",
-      "x": "label", "y": "value"
-    },
-    {
-      "type": "line_chart",
-      "title": "Tendencia Semanal",
-      "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas ..."
-    },
-    {
-      "type": "table",
-      "title": "Top 10 Artículos",
-      "sql": "SELECT p.ccrefejofacm AS \"Referencia\", p.descripcion AS \"Descripción\", ..."
-    }
-  ]
-}
-```
+#### Widget catalog
 
-#### Widget Types
-
-| Type | Tremor Component | Purpose |
-|------|-----------------|---------|
-| `kpi_row` | Card + Metric | Row of KPI numbers (ventas, tickets, ticket medio) |
-| `bar_chart` | BarChart | Category comparison (ventas por tienda) |
-| `line_chart` | LineChart | Time series (tendencia semanal) |
-| `area_chart` | AreaChart | Stacked time series |
-| `donut_chart` | DonutChart | Proportions (mix por familia) |
-| `table` | Table | Detailed data (top artículos) |
-| `number` | Metric | Single big number |
-| `insights_strip` | Custom panels | 3-card narrative strip with up/down/warn icons |
-| `ranked_bars` | Custom bars | Horizontal bar chart with heat-cell values |
-
-#### UI Shell Components (redesign, Phase A+)
-
-| Component | Purpose |
-|-----------|---------|
-| `TopBar` | Sticky 56px header — logo, nav, live-data status, cog button, admin link, avatar |
-| `TweaksPanel` | Floating panel for theme/accent/density/kpiStyle — opened by TopBar cog |
-| `AnalyzeLauncher` | Fixed right-rail button "✦ Analizar con IA" — hidden when chat sidebar open |
-| `LogBlock` | Streaming + post-delivery collapsed LLM process log in ChatSidebar |
-| `Panel` | Shared widget chrome (title, subtitle, right actions, padded content) |
-| `InsightsStrip` | Narrative insight cards — up/down/warn |
-| `RankedBarsWidget` | Horizontal bars with heat cells |
-| `Sparkline` | 90×24 SVG inline sparkline in KPI editorial cards |
+`kpi_row`, `bar_chart`, `line_chart`, `area_chart`, `donut_chart`, `table`, `number`, `insights_strip`, `ranked_bars`. Tremor-component mapping and shell components (`TopBar`, `TweaksPanel`, `AnalyzeLauncher`, `LogBlock`, `Panel`, `InsightsStrip`, `RankedBarsWidget`, `Sparkline`) documented in [docs/architecture/overview.md](docs/architecture/overview.md). Token-driven theming per [D-022](docs/decisions/D-022-dashboard-redesign.md).
 
 ## Data Flow
 
