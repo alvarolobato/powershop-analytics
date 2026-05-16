@@ -71,7 +71,7 @@ export default function NewDashboard() {
   const [loading, setLoading] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
-  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "task" | "template" | null>(
+  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "template" | null>(
     null,
   );
 
@@ -146,7 +146,7 @@ export default function NewDashboard() {
 
   const generateFromPrompt = async (
     promptText: string,
-    source: "generate" | "task" = "task",
+    source: "generate" | "template" = "generate",
   ) => {
     const trimmed = promptText.trim();
     if (!trimmed || loading) return;
@@ -346,7 +346,7 @@ export default function NewDashboard() {
         </p>
       </div>
 
-      {error && (lastErrorSource === "task" || lastErrorSource === "template") && (
+      {error && lastErrorSource === "template" && (
         <ErrorDisplay error={error} />
       )}
 
