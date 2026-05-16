@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import "@testing-library/jest-dom/vitest";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { DashboardSpec } from "@/lib/schema";
+import { _resetCacheForTesting } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,6 +49,7 @@ describe("ChatSidebar — Analizar tab", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    _resetCacheForTesting();
   });
 
   afterEach(() => {

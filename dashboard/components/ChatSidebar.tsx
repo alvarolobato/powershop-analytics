@@ -17,7 +17,7 @@ import type { InitialContext } from "@/lib/conversation-types";
 import type { ChatMessage, ConversationApiMessage } from "./conversation/types";
 import { MessageList } from "./conversation/MessageList";
 import { convertConversationMessages } from "./conversation/convertConversationMessages";
-import { useConfiguredModel } from "@/lib/useConfiguredModel";
+import { useConfiguredModel, displayModelName } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -1665,7 +1665,7 @@ export default function ChatSidebar({
                   flexShrink: 0,
                 }}
               />
-              {`Conectado · ${configuredModel ? configuredModel.split("/").pop() : "..."}`}
+              {`Conectado · ${configuredModel ? displayModelName(configuredModel) : "..."}`}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>

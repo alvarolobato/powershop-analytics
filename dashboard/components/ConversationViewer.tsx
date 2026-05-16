@@ -5,7 +5,7 @@ import type { ConversationWithMessages, ConversationMessage } from "@/lib/conver
 import { isApiErrorResponse } from "@/lib/errors";
 import { getModeStyle } from "@/lib/conversation-mode-style";
 import { ConversationThread } from "./conversation/ConversationThread";
-import { useConfiguredModel } from "@/lib/useConfiguredModel";
+import { useConfiguredModel, displayModelName } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Footer input
@@ -309,7 +309,7 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackMode
       {(() => {
         const rawModel = conv.initial_context?.model ?? fallbackModel;
         if (!rawModel) return null;
-        const displayModel = rawModel.split("/").pop() ?? rawModel;
+        const displayModel = displayModelName(rawModel);
         return (
           <span
             style={{
