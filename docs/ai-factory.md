@@ -596,6 +596,37 @@ Cancel the workflow run in the Actions tab. The `ai-in-progress` label won't be 
 ### "I don't want the AI touching this issue at all"
 Add the `no-ai` label before opening.
 
+### Label migration (one-time)
+
+Renames the 14 internal state labels from `ai-*` to `fact-*`, migrates open issues off obsolete labels, and creates the two new owner-facing labels (`ai-plan`, `ai-decompose`). Run this exactly once, after Phase 2 YAML diffs are committed.
+
+**Required order — the script enforces this and aborts if violated:**
+
+1. **Merge Phase 1 PR** (#661 — docs + agent prompts).
+2. **Commit Phase 2 YAML diffs** from Phase 1's PR body into `.github/workflows/`. All 9 workflow files must reference `fact-*` label names before the labels are renamed — if you rename first, live workflows break immediately.
+3. **Merge Phase 2 PR** (this PR — migration script).
+4. **Dry-run first** — verify the full plan without touching anything:
+   ```bash
+   bash scripts/migrate-labels.sh --dry-run
+   ```
+   Review the output: 14 renames, 3 label migrations (with open-issue counts), 4 deletions, 2 creations.
+5. **Execute the migration**:
+   ```bash
+   bash scripts/migrate-labels.sh
+   ```
+   The script is idempotent — if it fails partway through, re-run and it will skip already-completed steps.
+6. **Verify** with `gh label list`:
+   ```bash
+   gh label list --json name,color | jq '.[] | select(.name | test("^fact-")) | "\(.name)  #\(.color)"' | sort
+   ```
+   Expected: 14 `fact-*` labels all with colour `#ededed`. No `ai-task`, `ai-planned`, etc. Labels `dashboard-app`, `deployment`, `documentation`, `phase-2` gone. Labels `ai-plan` and `ai-decompose` present.
+
+To target a different repo:
+```bash
+bash scripts/migrate-labels.sh --dry-run --repo owner/repo
+bash scripts/migrate-labels.sh --repo owner/repo
+```
+
 ## Troubleshooting
 
 **The AI Worker created a PR but it's wrong.** Close the PR, add more detail to the issue (acceptance criteria, file paths, examples), remove `ai-in-progress`/`ai-blocked`, and re-label `ai-work`.
