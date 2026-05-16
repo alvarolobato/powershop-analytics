@@ -95,7 +95,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--permission-mode bypassPermissions --max-turns 80"
+          claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 80"
           prompt: |
             You are the AI Planner. Your job is to deeply analyse issue #${{ env.ISSUE_NUMBER }},
             produce a comprehensive implementation plan, and break it into actionable sub-tasks.
@@ -445,7 +445,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--permission-mode bypassPermissions --max-turns 120"
+          claude_args: "--model claude-sonnet-4-6 --permission-mode bypassPermissions --max-turns 120"
           allowed_bots: "claude[bot],github-actions[bot]"
           prompt: |
             You are the AI Worker. Implement exactly what sub-task issue #${{ env.ISSUE_NUMBER }} describes — nothing more.

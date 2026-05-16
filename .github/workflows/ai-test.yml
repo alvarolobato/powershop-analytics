@@ -32,4 +32,4 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: ${{ github.event.inputs.test_prompt }}
-          claude_args: "--max-turns 5"
+          claude_args: "--model claude-haiku-4-5-20251001 --max-turns 5"
