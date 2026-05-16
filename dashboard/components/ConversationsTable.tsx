@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { getModePillStyle } from "@/lib/conversation-mode-style";
 import { ConversationRowActions } from "@/components/ConversationRowActions";
+import { getConversationDisplayTitle } from "@/lib/conversation-types";
 import type { ConversationRow } from "@/app/conversations/types";
 
 // ---------------------------------------------------------------------------
@@ -170,7 +171,7 @@ export function ConversationsTable({
   // Inline rename
   const startRename = (row: ConversationRow) => {
     setRenamingId(row.id);
-    setRenameValue(row.title ?? "");
+    setRenameValue(getConversationDisplayTitle(row));
   };
 
   const commitRename = (id: string) => {
@@ -352,6 +353,7 @@ export function ConversationsTable({
             <col style={{ width: 36 }} />           {/* checkbox */}
             <col />                                  {/* title — takes all remaining space */}
             <col style={{ width: 90 }} />            {/* tipo/mode */}
+            <col style={{ width: 160 }} />           {/* contexto */}
             <col style={{ width: 150 }} />           {/* última actividad */}
             <col style={{ width: 155 }} />           {/* creada — needs room for "14/05/2026, 06:40" */}
             <col style={{ width: 75 }} />            {/* duración */}
@@ -374,6 +376,7 @@ export function ConversationsTable({
               </th>
               <th style={thStyle}>Título</th>
               <th style={thStyle}>Tipo</th>
+              <th style={thStyle}>Contexto</th>
               <th style={thStyle}>{sortBtn("last_interaction_at", "Última actividad")}</th>
               <th style={thStyle}>{sortBtn("created_at", "Creada")}</th>
               <th style={thStyle}>Duración</th>
@@ -511,6 +514,41 @@ export function ConversationsTable({
                     >
                       {modeLabel(row.mode)}
                     </span>
+                  </td>
+
+                  {/* Contexto */}
+                  <td style={{ ...tdTrunc }} data-testid={`context-cell-${row.id}`}>
+                    {row.context_kind === "dashboard" ? (
+                      row.context_dashboard_name != null ? (
+                        <a
+                          href={`/dashboards/${row.context_ref}`}
+                          style={{
+                            color: "var(--accent)",
+                            textDecoration: "none",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            display: "block",
+                          }}
+                          data-testid={`context-link-${row.id}`}
+                        >
+                          {row.context_dashboard_name}
+                        </a>
+                      ) : (
+                        <span
+                          style={{ color: "var(--fg-muted)" }}
+                          data-testid={`context-deleted-${row.id}`}
+                        >
+                          {`Dashboard #${row.context_ref} (eliminado)`}
+                        </span>
+                      )
+                    ) : row.context_kind === "home" ? (
+                      <span style={{ color: "var(--fg-muted)" }}>Inicio</span>
+                    ) : row.context_kind === "admin" ? (
+                      <span style={{ color: "var(--fg-muted)" }}>Admin</span>
+                    ) : (
+                      <span style={{ color: "var(--fg-muted)" }}>Libre</span>
+                    )}
                   </td>
 
                   {/* Última actividad */}
