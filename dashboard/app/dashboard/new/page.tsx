@@ -1,11 +1,10 @@
 "use client";
 
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useState, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { DashboardSpec } from "@/lib/schema";
 import { TEMPLATES, type DashboardTemplate } from "@/lib/templates";
 import { TASK_PROMPTS } from "@/lib/task-prompts";
-import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import { DashboardGenerateProgressDialog, type ProgressLine, inferKind } from "@/components/DashboardGenerateProgressDialog";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
@@ -26,31 +25,21 @@ interface DashboardWithSpec extends DashboardListItem {
   spec: DashboardSpec;
 }
 
-interface Suggestion {
-  name: string;
-  description: string;
-  prompt: string;
-}
-
 interface Gap {
   area: string;
   description: string;
   suggestedPrompt: string;
 }
 
-type CreationTab = "templates" | "assistant" | "free";
+type CreationTab = "templates" | "free";
 
-const CREATION_TAB_ORDER: CreationTab[] = ["templates", "assistant", "free"];
+const CREATION_TAB_ORDER: CreationTab[] = ["templates", "free"];
 
 function focusCreationTabButton(id: CreationTab) {
   requestAnimationFrame(() => {
     document.getElementById(`creation-tab-${id}-btn`)?.focus();
   });
 }
-
-// ─── Role options ─────────────────────────────────────────────────────────────
-
-const ROLES = DASHBOARD_ROLES;
 
 // ─── Badges (IA vs plantilla) ───────────────────────────────────────────────
 
@@ -75,22 +64,18 @@ function BadgeNoAi() {
 export default function NewDashboard() {
   const router = useRouter();
   const [tab, setTab] = useState<CreationTab>("templates");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Free-form generation state
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingTemplate, setLoadingTemplate] = useState<string | null>(null);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
-  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "task" | "template" | null>(
+  const [lastErrorSource, setLastErrorSource] = useState<"generate" | "template" | null>(
     null,
   );
 
   const [cachedDashboardList, setCachedDashboardList] = useState<DashboardListItem[] | null>(null);
-
-  const [selectedRole, setSelectedRole] = useState<string | null>(null);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
-  const [suggestions, setSuggestions] = useState<Suggestion[] | null>(null);
-  const [suggestError, setSuggestError] = useState<string | null>(null);
 
   const [loadingGaps, setLoadingGaps] = useState(false);
   const [gaps, setGaps] = useState<Gap[] | null>(null);
@@ -161,7 +146,7 @@ export default function NewDashboard() {
 
   const generateFromPrompt = async (
     promptText: string,
-    source: "generate" | "task" = "task",
+    source: "generate" | "template" = "generate",
   ) => {
     const trimmed = promptText.trim();
     if (!trimmed || loading) return;
@@ -250,44 +235,9 @@ export default function NewDashboard() {
     }
   };
 
-  const handleRoleSelect = async (role: string) => {
-    if (isDisabled) return;
-
-    setSelectedRole(role);
-    setSuggestions(null);
-    setSuggestError(null);
-    setLoadingSuggestions(true);
-
-    try {
-      const listData = await getDashboardList();
-
-      const existingDashboards = listData.map((d) => ({
-        title: d.name,
-        description: d.description || "",
-      }));
-
-      const suggestRes = await fetch("/api/dashboard/suggest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, existingDashboards }),
-      });
-
-      if (!suggestRes.ok) {
-        const errBody = await suggestRes.json().catch(() => null);
-        throw new Error(
-          (errBody?.error as string) || "Error al obtener sugerencias",
-        );
-      }
-
-      const data = await suggestRes.json();
-      setSuggestions((data.suggestions as Suggestion[]) || []);
-    } catch (err) {
-      setSuggestError(
-        err instanceof Error ? err.message : "Error inesperado al obtener sugerencias",
-      );
-    } finally {
-      setLoadingSuggestions(false);
-    }
+  const handleChipClick = (chipPrompt: string) => {
+    setPrompt(chipPrompt);
+    requestAnimationFrame(() => textareaRef.current?.focus());
   };
 
   const handleAnalyzeGaps = async () => {
@@ -350,7 +300,7 @@ export default function NewDashboard() {
     }
   };
 
-  const isDisabled = loading || loadingTemplate !== null || loadingSuggestions || loadingGaps;
+  const isDisabled = loading || loadingTemplate !== null || loadingGaps;
 
   const handleCreationTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, current: CreationTab) => {
     const idx = CREATION_TAB_ORDER.indexOf(current);
@@ -380,8 +330,7 @@ export default function NewDashboard() {
 
   const tabDefs: { id: CreationTab; label: string; hint: string }[] = [
     { id: "templates", label: "Plantillas", hint: "Sin IA, inmediato" },
-    { id: "assistant", label: "Asistente IA", hint: "Tareas, rol y cobertura" },
-    { id: "free", label: "Descripción libre", hint: "Prompt a medida" },
+    { id: "free", label: "Crear con IA", hint: "Atajos + prompt libre" },
   ];
 
   return (
@@ -397,7 +346,7 @@ export default function NewDashboard() {
         </p>
       </div>
 
-      {error && (lastErrorSource === "task" || lastErrorSource === "template") && (
+      {error && lastErrorSource === "template" && (
         <ErrorDisplay error={error} />
       )}
 
@@ -410,7 +359,7 @@ export default function NewDashboard() {
           id="new-dash-how-heading"
           className="font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong"
         >
-          Tres formas de crear tu cuadro de mando
+          Dos formas de crear tu cuadro de mando
         </h2>
         <ul className="mt-2 list-disc space-y-1.5 pl-5 leading-relaxed">
           <li>
@@ -418,13 +367,9 @@ export default function NewDashboard() {
             <em>sin</em> llamar al modelo de IA.
           </li>
           <li>
-            <strong>Asistente IA</strong>: tareas de negocio listas, sugerencias según tu rol y
-            análisis de huecos en tus paneles actuales. Todo usa el modelo (puede tardar unos
-            segundos y consume presupuesto de uso).
-          </li>
-          <li>
-            <strong>Descripción libre</strong>: escribes lo que necesitas y generamos el panel con
-            IA.
+            <strong>Crear con IA</strong>: usa los atajos de negocio para pre-rellenar el prompt o
+            escribe lo que necesitas; el modelo genera el panel con IA (puede tardar unos segundos y
+            consume presupuesto de uso).
           </li>
         </ul>
       </section>
@@ -519,129 +464,77 @@ export default function NewDashboard() {
             </div>
         </div>
 
-        {/* ─── Asistente IA ───────────────────────────────────────────────── */}
+        {/* ─── Crear con IA ────────────────────────────────────────────────── */}
         <div
-          id="creation-tab-panel-assistant"
+          id="creation-tab-panel-free"
           role="tabpanel"
-          aria-labelledby="creation-tab-assistant-btn"
-          hidden={tab !== "assistant"}
-          className="space-y-10 pt-8"
+          aria-labelledby="creation-tab-free-btn"
+          hidden={tab !== "free"}
+          className="pt-8"
         >
-            <div>
-              <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                ¿Qué necesitas hacer?
-              </h2>
-              <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
-                Atajos de negocio: al pulsar, el modelo genera el panel y lo guardamos automáticamente.
-              </p>
+            <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+              Crear con IA
+            </h2>
+            <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
+              Describe el cuadro de mando con tus propias palabras o usa un atajo de negocio para
+              pre-rellenar el prompt; generamos el panel con IA.
+            </p>
 
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {TASK_PROMPTS.map((task) => (
-                  <button
-                    key={task.id}
-                    type="button"
-                    onClick={() => generateFromPrompt(task.prompt)}
-                    disabled={isDisabled}
-                    data-testid={`task-card-${task.id}`}
-                    className="flex flex-col items-start rounded-lg border border-violet-500/20 bg-tremor-background-subtle p-5 text-left shadow-sm hover:border-violet-500/45 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed dark:border-violet-400/15 dark:bg-dark-tremor-background-subtle dark:hover:border-violet-400/35"
-                  >
-                    <BadgeUsesAi />
-                    <span className="text-2xl" aria-hidden="true">
-                      {task.icon}
-                    </span>
-                    <h3 className="mt-2 text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                      {task.title}
-                    </h3>
-                    <p className="mt-1 text-xs text-tremor-content dark:text-dark-tremor-content line-clamp-2">
-                      {task.description}
-                    </p>
-                    <span className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-violet-700 dark:text-violet-300">
-                      Crear panel
-                    </span>
-                  </button>
-                ))}
-              </div>
+            {/* Shortcut chips */}
+            <div className="mt-4 flex flex-wrap gap-2" aria-label="Atajos de negocio">
+              {TASK_PROMPTS.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => handleChipClick(task.prompt)}
+                  disabled={isDisabled}
+                  data-testid={`task-chip-${task.id}`}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-violet-500/25 bg-tremor-background-subtle px-3 py-1.5 text-xs font-medium text-tremor-content-strong hover:border-violet-500/50 hover:text-violet-700 disabled:opacity-50 disabled:cursor-not-allowed dark:border-violet-400/20 dark:bg-dark-tremor-background-subtle dark:text-dark-tremor-content-strong dark:hover:border-violet-400/40 dark:hover:text-violet-300"
+                >
+                  <span aria-hidden="true">{task.icon}</span>
+                  {task.title}
+                </button>
+              ))}
             </div>
 
-            <div>
-              <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                Recomendado para ti
-              </h2>
-              <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
-                Selecciona tu rol y te sugerimos paneles útiles evitando solaparse con los que ya
-                tienes.
-              </p>
+            <div className="mt-4 max-w-2xl space-y-4">
+              <BadgeUsesAi />
+              <textarea
+                ref={textareaRef}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={isDisabled}
+                placeholder="Describe el dashboard que necesitas..."
+                rows={6}
+                className="w-full resize-none rounded-lg border border-tremor-border bg-tremor-background px-4 py-3 text-sm text-tremor-content-emphasis placeholder:text-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 dark:border-dark-tremor-border dark:bg-dark-tremor-background dark:text-dark-tremor-content-emphasis dark:placeholder:text-dark-tremor-content-subtle"
+              />
 
-              <div className="mt-3 flex flex-wrap gap-2">
-                {ROLES.map((role) => (
-                  <button
-                    key={role}
-                    type="button"
-                    onClick={() => handleRoleSelect(role)}
-                    disabled={isDisabled || loadingSuggestions}
-                    data-testid={`role-pill-${role}`}
-                    className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
-                      selectedRole === role
-                        ? "border-violet-600 bg-violet-600 text-white dark:border-violet-500 dark:bg-violet-600"
-                        : "border-tremor-border text-tremor-content hover:border-violet-400 hover:text-violet-600 dark:border-dark-tremor-border dark:text-dark-tremor-content dark:hover:border-violet-400 dark:hover:text-violet-300"
-                    }`}
-                  >
-                    {role}
-                  </button>
-                ))}
-              </div>
+              {error && lastErrorSource === "generate" && !agenticOpen && (
+                <ErrorDisplay error={error} onRetry={handleGenerate} />
+              )}
 
-              {loadingSuggestions && (
-                <div className="mt-4 flex items-center gap-2 text-sm text-tremor-content dark:text-dark-tremor-content">
+              <button
+                type="button"
+                onClick={handleGenerate}
+                disabled={isDisabled || prompt.trim() === ""}
+                style={{ borderRadius: 6, background: "var(--accent)", padding: "10px 24px", fontSize: 13, fontWeight: 500, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, opacity: (isDisabled || prompt.trim() === "") ? 0.5 : 1 }}
+              >
+                {loading && (
                   <span
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-violet-500 border-t-transparent"
+                    className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
                     role="status"
-                    aria-label="Cargando sugerencias"
+                    aria-label="Generando"
                   />
-                  Analizando tu perfil...
-                </div>
-              )}
-
-              {suggestError && <p className="mt-4 text-sm text-red-400">{suggestError}</p>}
-
-              {suggestions && suggestions.length > 0 && (
-                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                  {suggestions.map((s, i) => (
-                    <div
-                      key={`${s.name}-${i}`}
-                      className="flex flex-col items-start rounded-lg border border-violet-500/20 bg-tremor-background-subtle p-5 shadow-sm dark:border-violet-400/15 dark:bg-dark-tremor-background-subtle"
-                    >
-                      <BadgeUsesAi />
-                      <h3 className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-                        {s.name}
-                      </h3>
-                      <p className="mt-1 text-xs text-tremor-content dark:text-dark-tremor-content line-clamp-3">
-                        {s.description}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => generateFromPrompt(s.prompt)}
-                        disabled={isDisabled}
-                        className="mt-3 inline-flex items-center gap-1 rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-violet-600 dark:hover:bg-violet-500"
-                      >
-                        Crear
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {suggestions && suggestions.length === 0 && (
-                <p className="mt-4 text-sm text-tremor-content dark:text-dark-tremor-content">
-                  No se encontraron sugerencias para este rol.
-                </p>
-              )}
+                )}
+                {loading ? "Generando..." : "Generar Dashboard"}
+              </button>
             </div>
 
-            <div>
-              <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+            {/* Gap analysis section */}
+            <div className="mt-8 border-t border-tremor-border pt-6 dark:border-dark-tremor-border">
+              <h3 className="text-base font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                 ¿Qué me falta?
-              </h2>
+              </h3>
               <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
                 Analiza tus paneles actuales y descubre áreas de negocio poco cubiertas.
               </p>
@@ -680,20 +573,20 @@ export default function NewDashboard() {
                     >
                       <div className="flex-1">
                         <BadgeUsesAi />
-                        <h3 className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
+                        <h4 className="text-sm font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
                           {g.area}
-                        </h3>
+                        </h4>
                         <p className="mt-1 text-xs text-tremor-content dark:text-dark-tremor-content">
                           {g.description}
                         </p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => generateFromPrompt(g.suggestedPrompt)}
+                        onClick={() => handleChipClick(g.suggestedPrompt)}
                         disabled={isDisabled}
-                        className="shrink-0 self-center rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-violet-600 dark:hover:bg-violet-500"
+                        className="shrink-0 self-center rounded-md border border-violet-500/30 bg-tremor-background-subtle px-3 py-1.5 text-xs font-medium text-violet-700 hover:border-violet-500/60 hover:bg-violet-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-violet-400/25 dark:bg-dark-tremor-background-subtle dark:text-violet-300 dark:hover:bg-violet-950/30"
                       >
-                        Crear panel
+                        Usar este prompt
                       </button>
                     </div>
                   ))}
@@ -705,54 +598,6 @@ export default function NewDashboard() {
                   ¡Excelente! Tu cobertura de dashboards parece completa.
                 </p>
               )}
-            </div>
-        </div>
-
-        {/* ─── Descripción libre ───────────────────────────────────────────── */}
-        <div
-          id="creation-tab-panel-free"
-          role="tabpanel"
-          aria-labelledby="creation-tab-free-btn"
-          hidden={tab !== "free"}
-          className="pt-8"
-        >
-            <h2 className="text-lg font-semibold text-tremor-content-strong dark:text-dark-tremor-content-strong">
-              Descripción libre
-            </h2>
-            <p className="mt-1 text-sm text-tremor-content dark:text-dark-tremor-content">
-              Describe el cuadro de mando con tus propias palabras; generamos el panel con IA.
-            </p>
-
-            <div className="mt-4 max-w-2xl space-y-4">
-              <BadgeUsesAi />
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                disabled={isDisabled}
-                placeholder="Describe el dashboard que necesitas..."
-                rows={6}
-                className="w-full resize-none rounded-lg border border-tremor-border bg-tremor-background px-4 py-3 text-sm text-tremor-content-emphasis placeholder:text-tremor-content-subtle focus:outline-none focus:ring-2 focus:ring-violet-500 disabled:opacity-50 dark:border-dark-tremor-border dark:bg-dark-tremor-background dark:text-dark-tremor-content-emphasis dark:placeholder:text-dark-tremor-content-subtle"
-              />
-
-              {error && lastErrorSource === "generate" && !agenticOpen && (
-                <ErrorDisplay error={error} onRetry={handleGenerate} />
-              )}
-
-              <button
-                type="button"
-                onClick={handleGenerate}
-                disabled={isDisabled || prompt.trim() === ""}
-                style={{ borderRadius: 6, background: "var(--accent)", padding: "10px 24px", fontSize: 13, fontWeight: 500, color: "#fff", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, opacity: (isDisabled || prompt.trim() === "") ? 0.5 : 1 }}
-              >
-                {loading && (
-                  <span
-                    className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"
-                    role="status"
-                    aria-label="Generando"
-                  />
-                )}
-                {loading ? "Generando..." : "Generar Dashboard"}
-              </button>
             </div>
         </div>
       </div>
