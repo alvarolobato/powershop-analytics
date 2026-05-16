@@ -283,8 +283,10 @@ describe("ChatSidebar — Analizar tab", () => {
     });
 
     await waitFor(() => {
-      // 1 model-config call on mount + 2 analyze calls = 3
-      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const analyzeCalls = fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/dashboard/analyze",
+      );
+      expect(analyzeCalls).toHaveLength(2);
     });
 
     // Second user message shown
