@@ -602,9 +602,9 @@ Renames the 14 internal state labels from `ai-*` to `fact-*`, migrates open issu
 
 **Required order — the script enforces this and aborts if violated:**
 
-1. **Merge Phase 1 PR** (#661 — docs + agent prompts).
+1. **Merge Phase 1 PR** (#663 — docs + agent prompts).
 2. **Commit Phase 2 YAML diffs** from Phase 1's PR body into `.github/workflows/`. All 9 workflow files must reference `fact-*` label names before the labels are renamed — if you rename first, live workflows break immediately.
-3. **Merge Phase 2 PR** (this PR — migration script).
+3. **Merge Phase 3 PR** (this PR — migration script).
 4. **Dry-run first** — verify the full plan without touching anything:
    ```bash
    bash scripts/migrate-labels.sh --dry-run
@@ -617,7 +617,7 @@ Renames the 14 internal state labels from `ai-*` to `fact-*`, migrates open issu
    The script is idempotent — if it fails partway through, re-run and it will skip already-completed steps.
 6. **Verify** with `gh label list`:
    ```bash
-   gh label list --json name,color | jq '.[] | select(.name | test("^fact-")) | "\(.name)  #\(.color)"' | sort
+   gh label list --limit 1000 --json name,color | jq '.[] | select(.name | test("^fact-")) | "\(.name)  #\(.color)"' | sort
    ```
    Expected: 14 `fact-*` labels all with colour `#ededed`. No `ai-task`, `ai-planned`, etc. Labels `dashboard-app`, `deployment`, `documentation`, `phase-2` gone. Labels `ai-plan` and `ai-decompose` present.
 

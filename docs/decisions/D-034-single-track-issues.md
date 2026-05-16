@@ -63,7 +63,7 @@ The phased-in-body model matches the format the owner already uses for large iss
 
 The `ai-decompose` escape hatch means no existing capability is removed — it's opt-in for the rare genuinely huge case. Existing in-flight issues with sub-issues finish under the old model without disruption.
 
-The `fact-*` label rename requires a three-step migration: (1) update workflow YAML to reference `fact-*` names, (2) run `scripts/migrate-labels.sh` to rename the labels in GitHub. These steps must happen in order — renaming labels before the YAML is updated breaks live workflows.
+The `fact-*` label rename requires a two-step migration: (1) update workflow YAML to reference `fact-*` names, (2) run `scripts/migrate-labels.sh` to rename the labels in GitHub. These steps must happen in order — renaming labels before the YAML is updated breaks live workflows.
 
 **See**: #631 (parent issue), #616 (the issue that motivated this), #654 (AGENTS.md trim), #658 (.claude-contexts/), [D-021](D-021-two-review-rounds.md), [D-029](D-029-no-worker-workflows.md), [D-031](D-031-copilot-opus-sequencing.md), [D-033](D-033-opus-review-marker.md).
 

@@ -26,6 +26,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --repo)
+      if [[ $# -lt 2 || -z "${2-}" ]]; then
+        echo "Error: --repo requires an argument (e.g. --repo owner/repo)" >&2
+        echo "Usage: $0 [--dry-run] [--repo owner/repo]" >&2
+        exit 1
+      fi
       REPO="$2"
       shift 2
       ;;
@@ -56,7 +61,7 @@ dry_or_run() {
 
 label_exists() {
   local name="$1"
-  gh label list "${GH_REPO_ARGS[@]}" --json name --jq '.[].name' 2>/dev/null \
+  gh label list "${GH_REPO_ARGS[@]}" --limit 1000 --json name --jq '.[].name' 2>/dev/null \
     | grep -qx "$name"
 }
 
@@ -80,9 +85,11 @@ OLD_STATE_LABELS=(
 )
 
 WORKFLOWS_DIR="$REPO_ROOT/.github/workflows"
+PREFLIGHT_RAN=false
 if [[ ! -d "$WORKFLOWS_DIR" ]]; then
-  echo "WARNING: .github/workflows/ not found at $WORKFLOWS_DIR — skipping preflight check." >&2
+  echo "WARNING: .github/workflows/ not found at $WORKFLOWS_DIR — preflight check skipped." >&2
 else
+  PREFLIGHT_RAN=true
   FOUND_OLD_REFS=false
   for label in "${OLD_STATE_LABELS[@]}"; do
     # Search non-comment lines for the label name
@@ -90,9 +97,9 @@ else
       if grep -q "^[^#]*$label" "$filepath" 2>/dev/null; then
         if ! $FOUND_OLD_REFS; then
           echo "" >&2
-          echo "ERROR: Phase 2 YAML not yet committed." >&2
+          echo "ERROR: Workflow YAML files still reference old label names." >&2
           echo "" >&2
-          echo "The following workflow files still reference old state-label names:" >&2
+          echo "The following workflow files must be updated to use fact-* names before running this script:" >&2
           FOUND_OLD_REFS=true
         fi
         grep -n "^[^#]*$label" "$filepath" | while IFS=: read -r lineno _rest; do
@@ -105,14 +112,18 @@ else
   if $FOUND_OLD_REFS; then
     echo "" >&2
     echo "Renaming labels before the YAML is updated would break live workflows." >&2
-    echo "Commit the YAML diffs from Phase 2's PR body into .github/workflows/ first," >&2
-    echo "then re-run this script." >&2
+    echo "Update .github/workflows/ to use fact-* label names first, then re-run this script." >&2
+    echo "See docs/ai-factory.md \"Label migration (one-time)\" for the full runbook." >&2
     echo "" >&2
     exit 1
   fi
 fi
 
-info "Preflight check passed — no old state-label names found in workflow YAML."
+if $PREFLIGHT_RAN; then
+  info "Preflight check passed — no old label names found in workflow YAML."
+else
+  info "Preflight check skipped — .github/workflows/ directory not found."
+fi
 
 if $DRY_RUN; then
   echo ""
@@ -167,7 +178,11 @@ for old_name in "${RENAME_ORDER[@]}"; do
       --name "$new_name" \
       --color "ededed" \
       --description "state label — workflows toggle, owner ignores"
-    info "  RENAMED $old_name → $new_name"
+    if $DRY_RUN; then
+      info "  WOULD RENAME $old_name → $new_name"
+    else
+      info "  RENAMED $old_name → $new_name"
+    fi
   else
     info "  SKIP $old_name → $new_name (source label not found)"
   fi
@@ -185,23 +200,36 @@ migrate_label() {
     return
   fi
 
-  # Migrate open issues
+  # Migrate open issues — fail fast if listing fails to avoid deleting label with missed issues
   local count=0
+  local issue_list
+  if ! issue_list=$(gh issue list "${GH_REPO_ARGS[@]}" \
+    --label "$old_label" --state open --limit 1000 \
+    --json number --jq '.[].number' 2>&1); then
+    echo "ERROR: Failed to list issues for label '$old_label': $issue_list" >&2
+    exit 1
+  fi
   while IFS= read -r issue_number; do
     [[ -z "$issue_number" ]] && continue
     dry_or_run gh issue edit "$issue_number" "${GH_REPO_ARGS[@]}" \
       --add-label "$new_label" \
       --remove-label "$old_label"
     count=$((count + 1))
-  done < <(gh issue list "${GH_REPO_ARGS[@]}" \
-    --label "$old_label" --state open \
-    --json number --jq '.[].number' 2>/dev/null || true)
+  done <<< "$issue_list"
 
-  info "  MIGRATED $count open issues: $old_label → $new_label"
+  if $DRY_RUN; then
+    info "  WOULD MIGRATE $count open issues: $old_label → $new_label"
+  else
+    info "  MIGRATED $count open issues: $old_label → $new_label"
+  fi
 
   # Delete the old label
   dry_or_run gh label delete "$old_label" "${GH_REPO_ARGS[@]}" --yes
-  info "  DELETED label $old_label"
+  if $DRY_RUN; then
+    info "  WOULD DELETE label $old_label"
+  else
+    info "  DELETED label $old_label"
+  fi
 }
 
 migrate_label "dashboard-app" "comp-dashboard"
@@ -212,7 +240,11 @@ migrate_label "documentation" "comp-docs"
 info "=== Deleting retired labels ==="
 if label_exists "phase-2"; then
   dry_or_run gh label delete "phase-2" "${GH_REPO_ARGS[@]}" --yes
-  info "  DELETED label phase-2"
+  if $DRY_RUN; then
+    info "  WOULD DELETE label phase-2"
+  else
+    info "  DELETED label phase-2"
+  fi
 else
   info "  SKIP phase-2 (already deleted)"
 fi
@@ -226,7 +258,7 @@ else
   dry_or_run gh label create "ai-plan" "${GH_REPO_ARGS[@]}" \
     --color "0E8A16" \
     --description "Owner trigger — run planner only"
-  info "  CREATED ai-plan"
+  if $DRY_RUN; then info "  WOULD CREATE ai-plan"; else info "  CREATED ai-plan"; fi
 fi
 
 if label_exists "ai-decompose"; then
@@ -235,7 +267,7 @@ else
   dry_or_run gh label create "ai-decompose" "${GH_REPO_ARGS[@]}" \
     --color "D93F0B" \
     --description "Owner opt-in — legacy parent→sub-issues planner"
-  info "  CREATED ai-decompose"
+  if $DRY_RUN; then info "  WOULD CREATE ai-decompose"; else info "  CREATED ai-decompose"; fi
 fi
 
 # --- Postflight verify ---
@@ -243,7 +275,7 @@ if ! $DRY_RUN; then
   info "=== Postflight verification ==="
   echo ""
   echo "Current fact-* and new owner labels:"
-  gh label list "${GH_REPO_ARGS[@]}" --json name,color,description \
+  gh label list "${GH_REPO_ARGS[@]}" --limit 1000 --json name,color,description \
     --jq '.[] | select(.name | test("^fact-|^ai-plan$|^ai-decompose$")) | "\(.name)  #\(.color)  \(.description)"' \
     | sort
 
