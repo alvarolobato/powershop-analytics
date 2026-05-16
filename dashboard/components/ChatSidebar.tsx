@@ -139,6 +139,12 @@ export interface ChatSidebarProps {
   initialModifyContext?: InitialContext | null;
   /** LLM initial context from a preloaded analyze conversation (e.g., /k/:id). */
   initialAnalyzeContext?: InitialContext | null;
+  /**
+   * Conversation ID to load on mount into the Modify tab.
+   * Used when arriving from a free-chat handoff via `?continue=:convId`.
+   * Disables the "Nueva conversación" button and skips the auto-load.
+   */
+  initialConversationId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +164,8 @@ interface ConversationWithMessages {
   mode: string;
   title: string | null;
   first_user_prompt: string | null;
+  context_kind?: string | null;
+  context_ref?: string | null;
   messages?: ConversationApiMessage[];
   initial_context?: InitialContext | null;
 }
@@ -1539,6 +1547,7 @@ export default function ChatSidebar({
   hideWhenClosed = false,
   initialModifyContext,
   initialAnalyzeContext,
+  initialConversationId,
 }: ChatSidebarProps) {
   const [activeTab, setActiveTab] = useState<"modificar" | "analizar">(
     initialMode ?? "modificar"
@@ -1560,8 +1569,12 @@ export default function ChatSidebar({
 
   // Refs to detect whether initial messages were provided by the parent on mount.
   // Used to skip auto-load when preloaded messages are present, preventing them from being
-  // overwritten by the conversation API (e.g., when arriving from /k/:id).
-  const hadInitialModifyMessagesRef = useRef((initialModifyMessages?.length ?? 0) > 0);
+  // overwritten by the conversation API (e.g., when arriving from /k/:id or via ?continue=).
+  // When initialConversationId is set, we block the auto-load here so the dedicated
+  // initialConversationId effect can load the specific conversation without racing.
+  const hadInitialModifyMessagesRef = useRef(
+    (initialModifyMessages?.length ?? 0) > 0 || !!initialConversationId
+  );
   const hadInitialAnalyzeMessagesRef = useRef((initialAnalyzeMessages?.length ?? 0) > 0);
 
   // Sync initialAnalyzeMessages on first mount only
@@ -1588,6 +1601,48 @@ export default function ChatSidebar({
       setActiveTab(initialMode);
     }
   }, [initialMode]);
+
+  // Load a specific conversation by ID into the Modify tab on mount.
+  // Used when arriving via ?continue=:convId from a free-chat handoff.
+  const loadedConvIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialConversationId) return;
+    if (!/^[a-f0-9]{12}$/.test(initialConversationId)) return;
+    if (loadedConvIdRef.current === initialConversationId) return;
+    loadedConvIdRef.current = initialConversationId;
+
+    const controller = new AbortController();
+    fetch(`/api/conversations/${initialConversationId}`, { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok || controller.signal.aborted) return;
+        const data = (await res.json()) as ConversationDetailResponse;
+        if (controller.signal.aborted) return;
+        // Reject conversations that explicitly belong to a different dashboard to prevent
+        // cross-dashboard history injection via a crafted ?continue= param.
+        if (
+          dashboardId !== undefined &&
+          data.context_kind === "dashboard" &&
+          data.context_ref !== String(dashboardId)
+        ) {
+          console.warn(
+            `[ChatSidebar] Handoff rejected: conversation ${initialConversationId} belongs to dashboard ${data.context_ref}, not ${dashboardId}.`,
+          );
+          return;
+        }
+
+        const msgs = convertConversationMessages(data.messages ?? []);
+        setModifyMessages(msgs);
+        setModifyInitialContext(data.initial_context ?? null);
+        setActiveTab("modificar");
+        // Persist handoff messages so the modify API loads them as prior context
+        // on the user's next turn (loadPriorTurns reads chat_messages_modify).
+        onModifyMessagesChange?.(msgs);
+      })
+      .catch(() => {
+        // Non-critical — if the fetch fails, the tab starts empty
+      });
+    return () => controller.abort();
+  }, [initialConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------------
   // Sidebar resize state
@@ -1695,7 +1750,7 @@ export default function ChatSidebar({
       }
     };
 
-    void loadLatest("modify");
+    if (!initialConversationId) void loadLatest("modify");
     void loadLatest("analyze");
     return () => controller.abort();
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1850,8 +1905,8 @@ export default function ChatSidebar({
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            {/* "+ Nueva conversación" button — only shown when dashboardId is set */}
-            {dashboardId !== undefined && (
+            {/* "+ Nueva conversación" button — shown when dashboardId is set, hidden when continuing a handoff conversation */}
+            {dashboardId !== undefined && !initialConversationId && (
               <button
                 type="button"
                 onClick={handleNewConversation}

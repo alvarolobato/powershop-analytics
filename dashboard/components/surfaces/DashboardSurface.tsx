@@ -154,14 +154,22 @@ export default function DashboardSurface({
   const searchParams = useSearchParams();
   const id = dashboardId;
 
+  // ?continue=:convId — conversation ID to load into the Modify tab (free-chat handoff).
+  // ?tab=modify — open the Modify tab explicitly (sent together with ?continue).
+  const continueConvId = searchParams.get("continue") ?? undefined;
+  const tabParam = searchParams.get("tab");
+
   const [dashboard, setDashboard] = useState<DashboardRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [chatOpen, setChatOpen] = useState(() => !!preloadedConversation || !!kMode);
-  const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(
-    initialChatTabMode,
+  const [chatOpen, setChatOpen] = useState(
+    () => !!preloadedConversation || !!kMode || !!continueConvId
   );
+  const [chatInitialMode, setChatInitialMode] = useState<"modificar" | "analizar" | undefined>(
+    initialChatTabMode ?? (continueConvId || tabParam === "modify" ? "modificar" : undefined),
+  );
+
   const [pendingModify, setPendingModify] = useState<{ prompt: string; id: number } | null>(null);
   const [pendingAnalyze, setPendingAnalyze] = useState<{ prompt: string; id: number } | null>(null);
   const drillDownIdRef = useRef(0);
@@ -190,6 +198,16 @@ export default function DashboardSurface({
   );
   const [globalFilterValues, setGlobalFilterValues] = useState<GlobalFilterValues>({});
   const appliedUrlRange = useRef(false);
+
+  // Sync chatOpen and chatInitialMode when handoff URL params change via client-side navigation.
+  // useState initializers only run on first mount, so without this effect a subsequent
+  // navigation to ?continue=:id would leave the sidebar closed on the previous tab.
+  useEffect(() => {
+    if (continueConvId || tabParam === "modify") {
+      setChatOpen(true);
+      setChatInitialMode((prev) => prev ?? "modificar");
+    }
+  }, [continueConvId, tabParam]);
 
   const handleDateRangeChange = useCallback(
     ({ primary, comparison }: { primary: DateRange; comparison?: ComparisonRange }) => {
@@ -1016,7 +1034,7 @@ export default function DashboardSurface({
         }
         onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
         initialModifyMessages={
-          preloadedModifyMessages ?? (dashboard.chat_messages_modify ?? [])
+          continueConvId ? [] : (preloadedModifyMessages ?? (dashboard.chat_messages_modify ?? []))
         }
         onModifyMessagesChange={handleModifyMessagesChange}
         pendingModifyInput={pendingModify?.prompt}
@@ -1026,8 +1044,9 @@ export default function DashboardSurface({
         pendingAnalyzeTriggerId={pendingAnalyze?.id}
         onPendingAnalyzeInputConsumed={handlePendingAnalyzeInputConsumed}
         initialMode={chatInitialMode}
-        initialModifyContext={preloadedModifyContext}
+        initialModifyContext={continueConvId ? undefined : preloadedModifyContext}
         initialAnalyzeContext={preloadedAnalyzeContext}
+        initialConversationId={continueConvId}
       />
 
       {dashboard.spec.glossary && dashboard.spec.glossary.length > 0 && (
