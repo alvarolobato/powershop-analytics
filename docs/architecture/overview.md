@@ -40,6 +40,8 @@ This file extracts the ASCII diagrams, dashboard JSON example, and widget tables
                                         └──────────────────────┘          │
 ```
 
+> **Dashboard App LLM backend is configurable.** `DASHBOARD_LLM_PROVIDER=openrouter` (default, shown above) calls OpenRouter; `=cli` invokes a local Claude Code CLI via argv-array spawn instead. WrenAI always uses OpenRouter. See [D-019](decisions/D-019-pluggable-llm-providers.md).
+
 ## Dashboard App browser ↔ API
 
 ```

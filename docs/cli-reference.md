@@ -26,6 +26,8 @@ All automation should delegate work to the CLI. This ensures every operation is 
 | `ps stack logs [svc]` | Show logs (follow); optional service name |
 | `ps stack open` | Open WrenAI UI in browser |
 | `ps stack destroy` | Stop containers and remove volumes (with confirmation) |
+| `ps stack migrate` | Apply pending schema migrations |
+| `ps stack setup-wren` | Bootstrap WrenAI on first run (semantic model + knowledge push) |
 | `ps etl run` | Run ETL sync once (also triggerable via the Dashboard ETL Monitor "Sincronizar ahora" button → `POST /api/etl/run`) |
 | `ps etl status` | Show watermark table (last sync per table) |
 | `ps etl tables` | Show row counts for synced tables |
@@ -35,8 +37,10 @@ All automation should delegate work to the CLI. This ensures every operation is 
 | `ps sql query "<SQL>"` | Run a read-only SQL query |
 | `ps sql sample <table> [n]` | Show n sample rows |
 | `ps sql count <table>` | Row count for a table |
-| `ps wren push` | Push source knowledge to WrenAI (47 instructions, 56 SQL pairs — loaded from source MDs) |
+| `ps sql schema` | Generate the full 4D schema dump locally (git-ignored; contains real data) |
+| `ps wren push` | Push source knowledge to WrenAI (instructions + SQL pairs — counts loaded dynamically from source MDs; `ps wren status` shows current numbers) |
 | `ps wren validate` | Validate all SQL pairs against PostgreSQL mirror |
+| `ps wren crosscheck` | Cross-check WrenAI knowledge against the schema in PostgreSQL (find drift) |
 | `ps wren status` | Show instruction and SQL pair counts |
 | `ps dashboard open` | Open Dashboard App in browser |
 | `ps dashboard logs` | Show dashboard container logs |
