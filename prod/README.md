@@ -66,8 +66,8 @@ On a Mac (local or prod) the launchd agent in
 `scripts/launchd/com.powershop.claude-token-sync.plist.template` runs every
 2 hours and copies the macOS Keychain entry into
 `~/.claude/.credentials.json`. The container reads the file but never writes
-it — see `dashboard/docker-entrypoint.sh` and D-025 in
-`DECISIONS-AND-CHANGES.md`.
+it — see `dashboard/docker-entrypoint.sh` and
+[`docs/decisions/D-025-oauth-single-refresher.md`](../docs/decisions/D-025-oauth-single-refresher.md).
 
 When the access token actually expires (~8 h after issuance) and host
 `claude` cannot refresh through Cloudflare, run `ps prod login` from local

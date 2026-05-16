@@ -91,7 +91,7 @@ Revisión del comportamiento del LLM dentro de la propia plataforma — qué pid
 Revisión del drift entre lo que dicen las docs y lo que el negocio realmente necesita o ve hoy.
 
 **Fuentes**:
-- `AGENTS.md`, `ARCHITECTURE.md`, `DECISIONS-AND-CHANGES.md`.
+- `AGENTS.md`, `ARCHITECTURE.md`, `DECISIONS.md` (+ `docs/decisions/`).
 - `docs/skills/*.md` (skills relevantes para el negocio).
 - `docs/architecture/*.md` (ER por dominio).
 

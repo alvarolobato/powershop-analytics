@@ -171,7 +171,7 @@ Stop immediately if you catch yourself thinking:
 
 - Stop patching
 - Document what you've found
-- Update DECISIONS-AND-CHANGES.md with the finding
+- Record a binding rule in `DECISIONS.md` + a `docs/decisions/D-NN-<slug>.md` file with the finding
 - Create a GitHub issue with label `agent-efficiency`
 - Consider if the design needs rethinking
 
@@ -188,7 +188,7 @@ Before claiming a bug is fixed:
 - [ ] No "quick fix" rationalization used
 - [ ] Fix is minimal and focused
 - [ ] Gotcha documented in relevant skill file (data-access.md, dashboard-app.md)
-- [ ] DECISIONS-AND-CHANGES.md updated if architectural
+- [ ] `DECISIONS.md` + `docs/decisions/D-NN-*.md` updated if architectural
 
 ## Integration with Other Skills
 

@@ -1,6 +1,6 @@
 # Dashboard App — Agentic LLM tools
 
-This document describes the **native tool-calling** path for the Dashboard App LLM (`generate`, `modify`, `analyze`). Decision record: **D-018** in [DECISIONS-AND-CHANGES.md](../DECISIONS-AND-CHANGES.md).
+This document describes the **native tool-calling** path for the Dashboard App LLM (`generate`, `modify`, `analyze`). Decision record: [D-018](decisions/D-018-agentic-tools.md).
 
 ## Overview
 

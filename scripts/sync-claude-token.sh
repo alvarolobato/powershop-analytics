@@ -10,7 +10,7 @@
 # token rotation internally during normal use; we only mirror its output.
 #
 # The dashboard container also never refreshes — see
-# DECISIONS-AND-CHANGES.md D-025 and the Apr 2026 incident in
+# docs/decisions/D-025-oauth-single-refresher.md and the Apr 2026 incident in
 # memory/project_dashboard_claude_cli_auth.md (rotating refresh_tokens from
 # the container invalidated the Keychain copy and forced the host user to
 # `claude /login`).

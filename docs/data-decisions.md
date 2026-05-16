@@ -6,7 +6,7 @@ It will be the primary source input to `dashboard/lib/knowledge.ts` once the kno
 build pipeline is implemented (issue #502).
 
 Non-data operational and infrastructure decisions are **not** recorded here — see
-`DECISIONS-AND-CHANGES.md` for the full decision log.
+[DECISIONS.md](../DECISIONS.md) (one-line index) and `docs/decisions/D-NN-<slug>.md` for full rationale.
 
 ## LLM:rules
 

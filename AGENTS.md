@@ -15,7 +15,7 @@ Guidance for AI assistants. Use the **skills** ([docs/skills/skills.md](docs/ski
 **Target:** PostgreSQL (mirror) → WrenAI + Dashboard App. LLM via OpenRouter (Claude Sonnet 4).
 
 **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagrams and component details.
-**Decisions**: See [DECISIONS-AND-CHANGES.md](DECISIONS-AND-CHANGES.md) for rationale and changelog.
+**Decisions**: See [DECISIONS.md](DECISIONS.md) for binding one-line rules; `docs/decisions/D-NN-<slug>.md` for full rationale per decision.
 
 This is a **public repository** -- no credentials, customer data, or business-specific data in committed files.
 
@@ -39,7 +39,7 @@ This is a **public repository** -- no credentials, customer data, or business-sp
 | `docker-compose.yml` | Full stack: PostgreSQL + ETL + WrenAI + Dashboard App |
 | `.env.example` | Environment variable template (no real secrets) |
 | `ARCHITECTURE.md` | System architecture, component diagrams, data flow |
-| `DECISIONS-AND-CHANGES.md` | Decision log + changelog (always up to date) |
+| `DECISIONS.md` | Decision index — one-line binding rules; full rationale in `docs/decisions/D-NN-<slug>.md` |
 
 ---
 
@@ -210,7 +210,7 @@ To add new SQL pairs: add a `### question\n```sql\n...\n``` ` block to `docs/das
 - **Authoritative field types:** Query **`_USER_COLUMNS`** on the live 4D server (`ps sql query "SELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH FROM _USER_COLUMNS WHERE TABLE_NAME = 'Exportaciones' AND COLUMN_NAME LIKE 'Stock%'"`). Type IDs are documented in [docs/skills/4d-sql-dialect.md](docs/skills/4d-sql-dialect.md). A local **PowerShop Server / PSClient** directory tree (install or backup files) is mainly **binaries and resources** — it does **not** replace structure discovery; use SQL system tables or vendor `*_SQL` views.
 - Primary keys use Real (float) fields with a `.99` suffix pattern — store as `NUMERIC` in PostgreSQL, never `FLOAT8`
 - CCStock has 582 columns (wide-format stock matrix); prefer `Exportaciones` for ETL (has FechaModifica, simpler structure)
-- **`Exportaciones.Stock1..Stock34`:** **`_USER_COLUMNS`** declares **every** slot as **`DATA_TYPE = 3`**, **`DATA_LENGTH = 2`** (16-bit integer). The **4D SQL + p4d** path can return **unsigned widened** values for negatives (`65535` = `−1`). The ETL applies **`decode_signed_int16_word()`** (subtract 65536 when `32768 ≤ n ≤ 65535` — exact int16 bit reinterpretation) **only** on these columns before `ps_stock_tienda.stock`. **`CCStock`** is **Real** (type 6) and is not passed through that decoder. See [docs/skills/data-access.md](docs/skills/data-access.md), `DECISIONS-AND-CHANGES.md` D-017.
+- **Type-3/length-2 stock-slot columns:** `_USER_COLUMNS` declares **both** `Exportaciones.Stock1..Stock34` **and** `CCStock.Stock1..Stock34` as **`DATA_TYPE = 3`**, **`DATA_LENGTH = 2`** (16-bit integer). The 4D SQL + p4d path can return **unsigned widened** values for negatives (`65535` = `−1`). The ETL applies **`decode_signed_int16_word()`** (subtract 65536 when `32768 ≤ n ≤ 65535` — exact int16 bit reinterpretation) **on both tables' slot columns** before writing to `ps_stock_tienda.stock` / `ps_stock_central.stock`. The **root-level** `CCStock.Stock` is **Real** (type 6) and is **not** passed through that decoder; `etl/sync/ccstock.py` only decodes the 34 slot columns. See [docs/skills/data-access.md](docs/skills/data-access.md), [`docs/decisions/D-017-signed-int16-stock.md`](docs/decisions/D-017-signed-int16-stock.md).
 - Articulos has 379 columns (prices, sizes, multilingual descriptions) — never `SELECT *`, always specify columns
 - **ETL sync strategy:** See [docs/etl-sync-strategy.md](docs/etl-sync-strategy.md) for validated delta fields, PKs, and sync method per table
 
@@ -312,6 +312,42 @@ When you fix a non-obvious bug or discover a gotcha, document it. Procedure: [ag
 
 ---
 
+## Recording decisions
+
+`DECISIONS.md` is loaded into every Claude session in this repo (CLI + AI Factory). It must stay terse — one line per binding rule. **Never expand entries in the index.** All rationale, context, alternatives rejected, and incident history lives in per-decision files under `docs/decisions/D-NN-<slug>.md`, which are read on demand and not auto-loaded.
+
+When recording a new decision:
+
+1. **Pick the next free ID.** IDs are sequential (`D-001`, `D-002`, ...). Skip IDs are fine when a decision is retired — never reuse them.
+2. **Write the full file** at `docs/decisions/D-NN-<short-slug>.md`. Use this template:
+   ```markdown
+   ---
+   id: D-NN
+   title: <one-line title>
+   date: YYYY-MM-DD
+   ---
+
+   # D-NN: <one-line title>
+
+   *Decided: YYYY-MM-DD*
+
+   **Context**: <what triggered this, what was happening, what evidence you had>
+   **Decision**: <the binding rule, in detail>
+   **Alternatives rejected**: <if any, with why>
+   **Rationale**: <why this is the right call>
+   **See**: <files, PRs, issues, related decisions>
+   ```
+3. **Add one line to `DECISIONS.md`** in the appropriate group (`AI Factory — policy and lifecycle` / `Runtime / infrastructure` / `Data / ETL` / `WrenAI knowledge` / `Dashboard App`, or create a new group if none fits). The line must:
+   - State the **binding rule**, not the title (use imperative: "Do X" / "Don't Y" / "X must Y").
+   - Stay ≤ 180 characters.
+   - Link to the per-decision file: `[D-NN](docs/decisions/D-NN-<slug>.md)`.
+4. **Cross-link only from places that need it.** In other docs and code comments, link directly to the per-decision file (`docs/decisions/D-NN-<slug>.md`), not to the index.
+5. **Retire, don't rewrite.** If a decision no longer applies, mark its per-decision file with `## STATUS: retired (<date>) — superseded by D-MM` at the top and remove its line from `DECISIONS.md`. Keep the file in git for archaeology.
+
+Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, AI Factory rules) go here. Data-semantics decisions (table schemas, field types, join paths) also belong here — additionally, mirror the data-relevant ones into the appropriate `## LLM:rules` source MD so the dashboard knowledge bundle and WrenAI corpus pick them up.
+
+---
+
 ## Revisiones semanales de negocio (D-028, issue #467)
 
 Cada lunes 06:00 UTC un workflow simula 7 roles de negocio (CEO, Retail, Mayorista, Compras, CFO, Producto, BI Skeptic) y abre como mucho 1 issue por rol con propuestas de mejora. Las issues van etiquetadas con `business-review`, `role:<slug>`, `review-type:<slug>`, `needs-human-approval` y **NO** llevan `ai-work`.
@@ -374,7 +410,7 @@ The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledg
 
 WrenAI reads `## LLM:rules` (JSON instruction arrays) and `## LLM:sql-pairs` (### heading + ```sql``` blocks) from the same list of source MDs. Date placeholders (`:curr_from`, `:curr_to`, `:comp_from`, `:comp_to`) in SQL pairs are automatically transformed to native PostgreSQL `CURRENT_DATE` / `DATE_TRUNC` expressions before insertion, so both consumers see syntactically valid SQL for their respective execution contexts.
 
-Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — keep them in `DECISIONS-AND-CHANGES.md` only.
+Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — record them as a one-liner in `DECISIONS.md` + a `docs/decisions/D-NN-<slug>.md` file.
 
 ### What goes where
 
@@ -432,7 +468,7 @@ The full lifecycle of an issue (planner → sub-issues → implementer → PR �
 Read it before:
 - modifying any workflow under `.github/workflows/ai-*.yml` — the state machine is enforced across multiple files (`ai-worker.yml`, `ai-pr-review.yml`, `ai-address-feedback.yml`, `ai-watchdog.yml`) and changes in one need to be reasoned about against the others.
 - adding a new label that participates in the AI lifecycle.
-- changing the review policy (caps, rounds, who-requests-whom). See also [D-021](DECISIONS-AND-CHANGES.md#d-021).
+- changing the review policy (caps, rounds, who-requests-whom). See also [D-021](docs/decisions/D-021-two-review-rounds.md).
 - diagnosing a stalled / duplicated / mis-labelled issue or PR.
 
 The diagrams in that section reflect the post-#517/#518/#519 behaviour: implementers read parent comments, planner self-heals missing `ai-work` labels, job-level concurrency cancels duplicates, and the worker's `Handle success` is idempotent against re-fires (no duplicate Copilot reviews).
