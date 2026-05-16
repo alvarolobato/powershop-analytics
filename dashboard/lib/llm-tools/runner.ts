@@ -36,6 +36,7 @@ import {
   handleSubmitDashboardAnalysis,
   handleSubmitWeeklyReview,
 } from "./handlers/dashboards";
+import { handleStartDashboardGeneration } from "./handlers/start-dashboard-generation";
 import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
 import { CliRunnerError } from "@/lib/llm-client";
 import { sanitize } from "@/lib/llm-provider/sanitize";
@@ -124,6 +125,13 @@ export interface AgenticRunParams {
    * Defaults to false — opt in explicitly to avoid unexpected cost/latency.
    */
   enableReasoning?: boolean;
+  /**
+   * Explicit tool catalog for this run. When omitted, defaults to
+   * DASHBOARD_AGENTIC_TOOLS (full catalog, backwards-compatible).
+   * Use FREE_CHAT_TOOLS for free-chat flows that should only expose
+   * inspection + start_dashboard_generation.
+   */
+  tools?: ChatCompletionTool[];
 }
 
 export interface AgenticRunResult {
@@ -188,6 +196,8 @@ async function dispatchTool(
       return handleSubmitDashboardAnalysis(rawArgs, ctx);
     case "submit_weekly_review":
       return handleSubmitWeeklyReview(rawArgs, ctx);
+    case "start_dashboard_generation":
+      return handleStartDashboardGeneration(rawArgs, ctx);
     default:
       return toolError("UNKNOWN_TOOL", `Unknown tool: ${name}`, ctx);
   }
@@ -223,10 +233,11 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
     maxTokens,
     priorMessages,
     enableReasoning,
+    tools: toolsOverride,
   } = params;
 
   const cfg = getAgenticConfig();
-  const tools: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS;
+  const tools: ChatCompletionTool[] = toolsOverride ?? DASHBOARD_AGENTIC_TOOLS;
   const usage = emptyUsage();
 
   const systemMessage: ChatCompletionMessageParam =

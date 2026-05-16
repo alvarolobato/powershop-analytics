@@ -488,6 +488,17 @@ export async function setConversationArchived(id: string, archived: boolean): Pr
   await sql(`UPDATE conversations SET archived_at = $2 WHERE id = $1`, [id, archivedAt]);
 }
 
+/** Links a free-chat conversation to a dashboard by updating context_kind / context_ref. */
+export async function linkConversationToDashboard(
+  conversationId: string,
+  dashboardId: number,
+): Promise<void> {
+  await sql(
+    `UPDATE conversations SET context_kind = 'dashboard', context_ref = $2 WHERE id = $1`,
+    [conversationId, String(dashboardId)],
+  );
+}
+
 export async function countMessages(conversationId: string): Promise<number> {
   const rows = await sql<{ n: string }>(
     `SELECT COUNT(*) AS n FROM conversation_messages WHERE conversation_id = $1`,

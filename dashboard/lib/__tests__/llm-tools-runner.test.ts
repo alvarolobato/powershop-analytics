@@ -84,6 +84,12 @@ vi.mock("@/lib/llm-tools/handlers/dashboards", () => ({
   handleGetDashboardAllWidgetStatus: vi.fn().mockResolvedValue(ok({ widgets: [] })),
 }));
 
+vi.mock("@/lib/llm-tools/handlers/start-dashboard-generation", () => ({
+  handleStartDashboardGeneration: vi.fn().mockResolvedValue(
+    ok({ dashboard_id: "1", redirect_url: "/dashboards/1?tab=modify", summary: "Created" }),
+  ),
+}));
+
 import { runAgenticChat, AgenticRunnerError } from "@/lib/llm-tools/runner";
 import { createOpenRouterAgenticAdapter } from "@/lib/llm-provider/openrouter";
 
