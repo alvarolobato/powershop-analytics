@@ -6,6 +6,8 @@
  *
  * - When `callLlm` is true, role defaults to "user", the LLM is invoked with the
  *   conversation history, and an assistant message is appended automatically.
+ *   For `context_kind='global'` (free-chat) conversations, the full agentic runner
+ *   is used with FREE_CHAT_TOOLS and the data knowledge system prompt.
  * - When `callLlm` is false (default), the message is appended verbatim with the
  *   provided role (defaults to "user"). callLlm=true with role≠"user" is rejected.
  *
@@ -23,16 +25,29 @@ import {
   setInitialContext,
   touchConversation,
   type ConversationRow,
+  type InitialContext,
   type MessageRow,
 } from "@/lib/conversations";
-import type { InitialContext as ApiInitialContext } from "@/lib/conversation-types";
-import { llmComplete } from "@/lib/llm-client";
 import {
   getEffectiveDashboardModel,
+  getEffectiveOpenRouterProvider,
   loadDashboardLlmConfig,
 } from "@/lib/llm-provider/config";
 import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
+import { buildFreeChatContext, type FreeChatContext } from "@/lib/conversation-context";
+import {
+  runAgenticChat,
+  AgenticRunnerError,
+} from "@/lib/llm-tools/runner";
+import { createDashboardAgenticAdapter } from "@/lib/llm-client";
+import { getAgenticConfig } from "@/lib/llm-tools/config";
+import type { LlmAgenticContext } from "@/lib/llm-tools/types";
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionFunctionTool,
+} from "openai/resources/chat/completions";
+import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
@@ -120,11 +135,16 @@ export async function POST(
   const flowRaw = typeof b.flow === "string" ? b.flow : undefined;
 
   // ── DB phase: load conversation, append user message, load history ────────────
+  let conversation!: ConversationRow;
   let userMessage!: MessageRow;
-  let priorMessages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  let priorMessages: ChatCompletionMessageParam[] = [];
+  // Hoisted so both the initial_context snapshot (first message) and the LLM
+  // phase share a single classification and a single buildFreeChatContext() call.
+  let isFreeChatConv = false;
+  let freeChatCtx: FreeChatContext | null = null;
   try {
-    const conversation: ConversationRow | null = await getConversation(id);
-    if (!conversation) {
+    const conv: ConversationRow | null = await getConversation(id);
+    if (!conv) {
       return NextResponse.json(
         formatApiError(
           "Conversación no encontrada.",
@@ -136,7 +156,7 @@ export async function POST(
       );
     }
 
-    if (conversation.archived_at !== null) {
+    if (conv.archived_at !== null) {
       return NextResponse.json(
         formatApiError(
           "La conversación está archivada y no acepta nuevos mensajes.",
@@ -147,26 +167,68 @@ export async function POST(
         { status: 409 },
       );
     }
+    conversation = conv;
+    // Intentional ||: a conversation is free-chat when context_kind='global'
+    // (the primary marker, always set today) OR when mode='chat' (forward-compat
+    // for future named chat variants). Both conditions are currently always true
+    // together for global conversations, so the || has no practical effect; it is
+    // deliberate breadth — either signal alone should route to the agentic path.
+    isFreeChatConv = conv.context_kind === "global" || conv.mode === "chat";
+    // Build once here; reused by the initial_context snapshot below and the LLM
+    // runner later in the same request, avoiding a second call on first messages.
+    if (isFreeChatConv) freeChatCtx = buildFreeChatContext();
 
     userMessage = await appendMessage(id, role, { text: rawContent });
 
     // Snapshot initial_context on the first user message of any conversation
     // (when it hasn't been set yet). The setter is idempotent — only writes
     // when initial_context IS NULL.
-    if (role === "user" && conversation.initial_context === null) {
+    if (role === "user" && conv.initial_context === null) {
       try {
         const cfg = loadDashboardLlmConfig();
-        const flow = (flowRaw ?? "summary") as DashboardLlmFlow;
-        // Use the API InitialContext shape (conversation-types.ts) so the stored
-        // snapshot matches what GET /api/conversations/:id returns to consumers.
-        const snapshot: ApiInitialContext = {
-          model: getEffectiveDashboardModel(cfg, flow),
-          provider: cfg.provider,
-          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-          system_prompt_stable: "",
-          tools: [],
-          config: { flow },
-        };
+        // The snapshot is stored as the API-canonical InitialContext shape
+        // (conversation-types.ts) so GET /api/conversations/:id returns
+        // exactly what we wrote here. For free-chat (mode='chat') we capture
+        // the real system prompt + tool catalog + agentic limits so the
+        // "Contexto original" panel shows a faithful audit trail. For other
+        // flows we use the simpler empty-tools shape that pre-existed.
+        let snapshot: InitialContext;
+
+        if (isFreeChatConv && freeChatCtx) {
+          const agenticCfg = getAgenticConfig();
+          // "chat" is not a valid DashboardLlmFlow; pass undefined to the
+          // model resolver and let it fall back to the default, but record
+          // "chat" in config.flow as a human-readable label.
+          snapshot = {
+            model: getEffectiveDashboardModel(cfg),
+            provider: cfg.provider,
+            driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+            system_prompt_stable: freeChatCtx.systemPrompt.stable,
+            tools: freeChatCtx.tools
+              .filter((t): t is ChatCompletionFunctionTool => t.type === "function")
+              .map((t) => ({
+                name: t.function.name,
+                schema: t.function as unknown as Record<string, unknown>,
+              })),
+            config: {
+              flow: "chat",
+              tool_rounds_max: agenticCfg.maxToolRounds,
+              tool_calls_max: agenticCfg.maxToolCalls,
+              tool_timeout_ms: agenticCfg.toolTimeoutMs,
+            },
+          };
+        } else {
+          const flow = (flowRaw ?? "summary") as DashboardLlmFlow;
+          snapshot = {
+            model: getEffectiveDashboardModel(cfg, flow),
+            provider: cfg.provider,
+            driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+            system_prompt_stable: "",
+            tools: [],
+            config: { flow },
+          };
+        }
+
         await setInitialContext(id, snapshot);
       } catch (snapshotErr) {
         console.warn(
@@ -180,8 +242,10 @@ export async function POST(
     // DB_ERROR rather than LLM_ERROR.
     if (callLlm) {
       const prior = await loadMessages(id);
+      // Build full prior message history, excluding the just-appended user
+      // message by its ID (safer than positional slicing under concurrent load).
       priorMessages = prior
-        .filter((m) => m.role === "user" || m.role === "assistant")
+        .filter((m) => (m.role === "user" || m.role === "assistant") && m.id !== userMessage.id)
         .map((m) => {
           const c = m.content;
           const text =
@@ -216,30 +280,90 @@ export async function POST(
   }
 
   // ── LLM phase: call model, append assistant message ──────────────────────────
-  // priorMessages was loaded in the DB phase above.
+  // priorMessages was loaded in the DB phase above (all messages except the
+  // latest user message, which is passed as userContent).
   try {
+    let assistantText: string;
 
-    const llmResponse = await llmComplete({
-      flow: flowRaw ?? "summary",
-      systemPrompt: { stable: "" },
-      messages: priorMessages,
-      requestId,
-    });
+    if (isFreeChatConv && freeChatCtx) {
+      // Free-chat: use the full agentic runner with FREE_CHAT_TOOLS and the
+      // data knowledge system prompt so the LLM can inspect tables and dashboards.
+      const cfg = loadDashboardLlmConfig();
+      const model = getEffectiveDashboardModel(cfg);
+      const openRouterProvider = getEffectiveOpenRouterProvider(cfg);
+      const adapter = createDashboardAgenticAdapter();
+
+      const agenticCtx: LlmAgenticContext = {
+        requestId,
+        endpoint: "freeChat",
+        llmProvider: cfg.provider,
+        llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
+      };
+
+      const { content } = await runAgenticChat({
+        adapter,
+        model,
+        openRouterProvider,
+        systemPrompt: freeChatCtx.systemPrompt.stable,
+        userContent: rawContent,
+        ctx: agenticCtx,
+        temperature: 0.3,
+        maxTokens: 4096,
+        priorMessages,
+        tools: freeChatCtx.tools,
+      });
+      assistantText = content;
+    } else {
+      // Non-free-chat fallback: single-shot completion without tools.
+      // (generate/modify/analyze routes handle their own LLM calls.)
+      const { llmComplete } = await import("@/lib/llm-client");
+      const llmResponse = await llmComplete({
+        flow: flowRaw ?? "summary",
+        systemPrompt: { stable: "" },
+        messages: priorMessages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+        })),
+        requestId,
+      });
+      assistantText = llmResponse.text;
+    }
 
     const assistantMessage = await appendMessage(id, "assistant", {
-      text: llmResponse.text,
+      text: assistantText,
     });
     await touchConversation(id, "ok");
 
     void maybeGenerateTitle(id, [
-      ...priorMessages.map((m) => ({ role: m.role, content: m.content })),
-      { role: "assistant", content: llmResponse.text },
+      ...priorMessages.map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+      })),
+      { role: "user" as const, content: rawContent },
+      { role: "assistant" as const, content: assistantText },
     ]);
 
     return NextResponse.json({ ok: true, message: assistantMessage });
   } catch (err) {
     await touchConversation(id, "error").catch(() => {});
     console.error(`[${requestId}] POST /api/conversations/${id}/messages LLM error:`, err);
+
+    if (err instanceof AgenticRunnerError) {
+      const cfg = loadDashboardLlmConfig();
+      const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
+      persistAgenticError("freeChat", err, diagnostic);
+      return NextResponse.json(
+        formatApiError(
+          "El flujo de IA con herramientas no pudo completarse. Reformula el mensaje o inténtalo de nuevo.",
+          "AGENTIC_RUNNER",
+          diagnostic.subError,
+          err.requestId,
+          diagnostic,
+        ),
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json(
       formatApiError(
         "Error al procesar la respuesta del LLM.",
