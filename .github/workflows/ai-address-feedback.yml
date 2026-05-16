@@ -330,12 +330,20 @@ jobs:
 
       - name: Use role-specific CLAUDE.md
         run: |
-          cp .claude-contexts/feedback.md CLAUDE.md
-          # Hide the swap from git so workflows that commit/push
-          # (worker, address-feedback, ci-remediation) don't sweep
-          # it into commits, and `git rebase` (mergeability) isn't
-          # blocked by an uncommitted tracked-file change.
-          git update-index --skip-worktree CLAUDE.md
+          # Guarded: PR branches that predate #627 don't carry .claude-contexts/.
+          # Fall back to the repo's default CLAUDE.md (see ai-pr-review.yml for
+          # the same pattern; recovery for PRs #629/#640/#645-650 on 2026-05-16
+          # hit the unguarded `cp`).
+          if [ -f .claude-contexts/feedback.md ]; then
+            cp .claude-contexts/feedback.md CLAUDE.md
+            # Hide the swap from git so workflows that commit/push
+            # (worker, address-feedback, ci-remediation) don't sweep
+            # it into commits, and `git rebase` (mergeability) isn't
+            # blocked by an uncommitted tracked-file change.
+            git update-index --skip-worktree CLAUDE.md
+          else
+            echo "::notice::.claude-contexts/feedback.md not present on this ref (predates #627); using default CLAUDE.md"
+          fi
 
       - name: Address Review Feedback
         id: address

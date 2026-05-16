@@ -226,12 +226,19 @@ jobs:
       # (the dedup step earlier guarantees we won't loop on the same SHA).
       - name: Use role-specific CLAUDE.md
         run: |
-          cp .claude-contexts/mergeability.md CLAUDE.md
-          # Hide the swap from git so workflows that commit/push
-          # (worker, address-feedback, ci-remediation) don't sweep
-          # it into commits, and `git rebase` (mergeability) isn't
-          # blocked by an uncommitted tracked-file change.
-          git update-index --skip-worktree CLAUDE.md
+          # Guarded: PR branches that predate #627 don't carry .claude-contexts/.
+          # Fall back to the repo's default CLAUDE.md (see ai-pr-review.yml for
+          # the same pattern).
+          if [ -f .claude-contexts/mergeability.md ]; then
+            cp .claude-contexts/mergeability.md CLAUDE.md
+            # Hide the swap from git so workflows that commit/push
+            # (worker, address-feedback, ci-remediation) don't sweep
+            # it into commits, and `git rebase` (mergeability) isn't
+            # blocked by an uncommitted tracked-file change.
+            git update-index --skip-worktree CLAUDE.md
+          else
+            echo "::notice::.claude-contexts/mergeability.md not present on this ref (predates #627); using default CLAUDE.md"
+          fi
 
       - name: Auto-resolve conflicts with Claude
         id: claude_resolve
