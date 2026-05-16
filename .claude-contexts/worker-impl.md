@@ -34,9 +34,9 @@ Read `docs/issue-format.md` for the full template and phase rules.
 2. Implement the task.
 3. Tick the checkbox in the issue body immediately after completing the task:
    ```bash
-   # Read current body, replace "- [ ] N)" with "- [x] N)", write back
+   # Read current body, replace the first unchecked task with a checked one, write back
    BODY=$(gh issue view ISSUE_NUMBER --json body --jq .body)
-   UPDATED=$(echo "$BODY" | sed 's/- \[ \] N)/- [x] N)/')
+   UPDATED=$(echo "$BODY" | sed '0,/- \[ \]/s//- [x]/')
    gh issue edit ISSUE_NUMBER --body "$UPDATED"
    ```
 4. Repeat for each subsequent unchecked task in the phase.

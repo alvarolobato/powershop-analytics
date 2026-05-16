@@ -294,7 +294,7 @@ These are light grey (`#ededed`). The owner does not add or remove them. They ex
 | `fact-planned` | planner | Body refined; phases structured; ready for `ai-work` |
 | `fact-in-progress` | worker | Implementer is actively running |
 | `fact-ready-for-review` | address-feedback | PR ready for the next review pass |
-| `fact-phase-copilot` | worker Handle success | Round 1 (Copilot review) in progress |
+| `fact-phase-copilot` | worker `Handle success` (per #519) | Round 1 (Copilot review) in progress |
 | `fact-cp-after-1` | address-feedback | Copilot feedback addressed |
 | `fact-phase-opus` | address-feedback | Round 2 (Opus review) in progress |
 | `fact-o-after-1` | address-feedback | Opus feedback addressed; cycle done |
