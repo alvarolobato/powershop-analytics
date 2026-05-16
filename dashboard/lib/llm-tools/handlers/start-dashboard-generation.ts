@@ -109,7 +109,7 @@ export async function handleStartDashboardGeneration(
   }
 
   const redirectUrl = ctx.conversationId
-    ? `/dashboards/${dashboardId}?tab=modify&continue=${ctx.conversationId}`
+    ? `/dashboards/${dashboardId}?tab=modify&continue=${encodeURIComponent(ctx.conversationId)}`
     : `/dashboards/${dashboardId}?tab=modify`;
 
   // Link the conversation to the new dashboard via a direct DB update.
@@ -125,6 +125,6 @@ export async function handleStartDashboardGeneration(
   return toolOk({
     dashboard_id: String(dashboardId),
     redirect_url: redirectUrl,
-    summary: `Panel "${title}" creado con ${spec.widgets?.length ?? 0} widget(s). Visita ${redirectUrl} para revisarlo y modificarlo.`,
+    summary: `Panel "${title}" creado con ${spec.widgets.length} widget(s). Visita ${redirectUrl} para revisarlo y modificarlo.`,
   });
 }
