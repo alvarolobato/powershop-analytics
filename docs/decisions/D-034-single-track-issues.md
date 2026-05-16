@@ -8,7 +8,7 @@ date: 2026-05-16
 
 *Decided: 2026-05-16*
 
-**Context**: Two friction points were identified in the AI Factory as it handled issue #616:
+**Context**: Three friction points were identified in the AI Factory as it handled issue #616:
 
 1. **Issue noise**: the sub-issue model creates ~13 sub-issues for a single feature, flooding the open-issues list with `ai-task` entries the owner never needs to read directly. Issue #616 alone would have produced 13+ sub-issues.
 

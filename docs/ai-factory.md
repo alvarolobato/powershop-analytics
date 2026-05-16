@@ -186,7 +186,7 @@ Add ai-decompose?
 
 Only AI-Factory labels are listed. Component / priority / size / risk labels are unrelated to the lifecycle.
 
-Labels split into two groups: **owner-facing** (coloured; human adds/removes) and **`fact-*` internal state** (grey `#ededed`; workflows toggle, owner ignores). See [D-034](decisions/D-034-single-track-issues.md) for the rationale and [docs/issue-format.md § Label conventions](../docs/issue-format.md#label-conventions) for the full enumeration.
+Labels split into two groups: **owner-facing** (coloured; human adds/removes) and **`fact-*` internal state** (grey `#ededed`; workflows toggle, owner ignores). See [D-034](decisions/D-034-single-track-issues.md) for the rationale and [docs/issue-format.md § Label conventions](issue-format.md#label-conventions) for the full enumeration.
 
 #### Owner-facing labels
 
@@ -614,7 +614,7 @@ The Opus reviewer prompt (`.github/ai-factory/prompts/pr-review.md`) instructs O
 
 ### Where humans intervene
 
-This is the canonical list of human touchpoints across the entire lifecycle. **Outside of these 17, the factory operates autonomously.**
+This is the canonical list of human touchpoints across the entire lifecycle. **Outside of these 18, the factory operates autonomously.**
 
 | # | Touchpoint | Action | Frequency |
 |---|------------|--------|-----------|
@@ -623,19 +623,19 @@ This is the canonical list of human touchpoints across the entire lifecycle. **O
 | 3 | New issue is ambiguous, no checkpoint needed | `/plan` comment to preview, clarify body if needed, then add `ai-work` | Per ambiguous issue |
 | 4 | Discovery agent created an issue | Skim, close if noise, or label `ai-work` if real | Daily, in the project summary |
 | 5 | Issue / sub-issue / PR landed `ai-blocked` and watchdog escalated | Read the comment, fix the underlying problem, remove `ai-blocked` | Rare — watchdog absorbs most blocks |
-| 5a | Phase N PR merged; want Phase N+1 to start | Add `ai-work` to the issue | Per phase transition in multi-phase issues |
-| 6 | Sub-issue body is mangled (legacy `ai-decompose` path) | Add `fact-needs-rewrite`, repair the body | Very rare; verify steps catch most cases |
-| 7 | PR is `ai-awaiting-owner` | Review the PR + the inline AI review history; merge or request changes | Per PR |
-| 8 | You disagree with a Copilot or Opus comment | Reply yourself or override at merge | Per disagreement |
-| 9 | A workflow is mis-firing (rare bug in the factory) | Open an issue tagged `ai-factory`; if urgent, add `ai-blocked` + `no-ai` to the affected items | Very rare |
-| 10 | OAuth token actually expired and the host can't refresh through Cloudflare | Run `ps prod login` (or `claude /login` on the relevant host) | Per token-expiry incident — see [D-025](decisions/D-025-oauth-single-refresher.md) |
-| 11 | A `business-review` issue arrives with `needs-human-approval` | Decide whether to authorize: remove `needs-human-approval`, add `ai-work` (or close) | Weekly per [D-028](decisions/D-028-weekly-business-review.md) |
-| 12 | You want to fast-merge without review | Add `no-pr-review` before opening, merge yourself | Per exception |
-| 13 | Token refresh required across the launchd-synced container | One-time `claude /login` interactively; agent syncs from the keychain | Per token-expiry incident — see [D-025](decisions/D-025-oauth-single-refresher.md) |
-| 14 | Manager session report posted on tracking issue | Skim the "Decisions awaiting owner" section; act on items that need sign-off | Every 4 h (or daily digest) |
-| 15 | Manager filed an enhancement proposal (`ai-factory + agent-efficiency` issue) | Review the proposal; add `ai-work` if accepted | Per filed issue |
-| 16 | Manager filed a product bug issue | Review the filed issue; add `ai-work` or close if noise | Per filed issue |
-| 17 | Manager is taking unwanted autonomous actions | Open an issue, add `no-ai-manager` label to pause immediately | As needed |
+| 6 | Phase N PR merged; want Phase N+1 to start | Add `ai-work` to the issue | Per phase transition in multi-phase issues |
+| 7 | Sub-issue body is mangled (legacy `ai-decompose` path) | Add `fact-needs-rewrite`, repair the body | Very rare; verify steps catch most cases |
+| 8 | PR is `ai-awaiting-owner` | Review the PR + the inline AI review history; merge or request changes | Per PR |
+| 9 | You disagree with a Copilot or Opus comment | Reply yourself or override at merge | Per disagreement |
+| 10 | A workflow is mis-firing (rare bug in the factory) | Open an issue tagged `ai-factory`; if urgent, add `ai-blocked` + `no-ai` to the affected items | Very rare |
+| 11 | OAuth token actually expired and the host can't refresh through Cloudflare | Run `ps prod login` (or `claude /login` on the relevant host) | Per token-expiry incident — see [D-025](decisions/D-025-oauth-single-refresher.md) |
+| 12 | A `business-review` issue arrives with `needs-human-approval` | Decide whether to authorize: remove `needs-human-approval`, add `ai-work` (or close) | Weekly per [D-028](decisions/D-028-weekly-business-review.md) |
+| 13 | You want to fast-merge without review | Add `no-pr-review` before opening, merge yourself | Per exception |
+| 14 | Token refresh required across the launchd-synced container | One-time `claude /login` interactively; agent syncs from the keychain | Per token-expiry incident — see [D-025](decisions/D-025-oauth-single-refresher.md) |
+| 15 | Manager session report posted on tracking issue | Skim the "Decisions awaiting owner" section; act on items that need sign-off | Every 4 h (or daily digest) |
+| 16 | Manager filed an enhancement proposal (`ai-factory + agent-efficiency` issue) | Review the proposal; add `ai-work` if accepted | Per filed issue |
+| 17 | Manager filed a product bug issue | Review the filed issue; add `ai-work` or close if noise | Per filed issue |
+| 18 | Manager is taking unwanted autonomous actions | Open an issue, add `no-ai-manager` label to pause immediately | As needed |
 
 ### Three lifecycles, end to end
 
