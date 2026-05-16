@@ -135,6 +135,18 @@ export async function POST(
 
     return NextResponse.json({ ok: true, conversation: updated, redirect_url });
   } catch (err) {
+    // TOCTOU: conversation archived between the pre-flight check above and the UPDATE
+    if (err instanceof Error && /not found or is archived/i.test(err.message)) {
+      return NextResponse.json(
+        formatApiError(
+          "La conversación está archivada y no puede modificarse.",
+          "CONVERSATION_ARCHIVED",
+          undefined,
+          requestId,
+        ),
+        { status: 409 },
+      );
+    }
     console.error(
       `[${requestId}] POST /api/conversations/${rawId}/handoff-to-dashboard error:`,
       err,

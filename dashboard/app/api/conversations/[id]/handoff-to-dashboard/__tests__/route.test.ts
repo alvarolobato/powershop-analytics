@@ -265,6 +265,20 @@ describe("POST /api/conversations/:id/handoff-to-dashboard", () => {
       expect(body.code).toBe("DB_ERROR");
     });
 
+    it("returns 409 when conversation is archived concurrently (TOCTOU)", async () => {
+      mockGetConversation.mockResolvedValue(MOCK_CONV); // active when pre-flight checked
+      mockSql.mockResolvedValue([{ id: 42 }]);
+      mockMigrateConversationToDashboard.mockRejectedValue(
+        new Error(`Conversation ${VALID_CONV_ID} not found or is archived.`),
+      );
+
+      const req = makeRequest(VALID_CONV_ID, { dashboard_id: VALID_DASHBOARD_ID });
+      const res = await POST(req, params(VALID_CONV_ID));
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.code).toBe("CONVERSATION_ARCHIVED");
+    });
+
     it("returns 500 when getConversation throws", async () => {
       mockGetConversation.mockRejectedValue(new Error("connection refused"));
 
