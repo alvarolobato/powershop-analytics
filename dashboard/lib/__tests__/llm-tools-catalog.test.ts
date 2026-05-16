@@ -7,8 +7,8 @@ import {
 
 describe("llm-tools catalog", () => {
   describe("FREE_CHAT_TOOLS", () => {
-    it("contains exactly 11 tools (10 inspection + start_dashboard_generation)", () => {
-      expect(FREE_CHAT_TOOLS).toHaveLength(11);
+    it("contains exactly 12 tools (10 inspection + start_dashboard_generation + set_title)", () => {
+      expect(FREE_CHAT_TOOLS).toHaveLength(12);
     });
 
     it("includes all 10 inspection tools", () => {
@@ -28,6 +28,11 @@ describe("llm-tools catalog", () => {
     it("includes start_dashboard_generation", () => {
       const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
       expect(names).toContain("start_dashboard_generation");
+    });
+
+    it("includes set_title", () => {
+      const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
+      expect(names).toContain("set_title");
     });
 
     it("does NOT include apply_dashboard_modification", () => {

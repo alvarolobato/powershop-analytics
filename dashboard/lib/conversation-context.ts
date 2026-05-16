@@ -10,14 +10,16 @@
  */
 
 import { sql } from "@/lib/db-write";
-import type { ChatCompletionTool } from "openai/resources/chat/completions";
+import type { ChatCompletionTool, ChatCompletionFunctionTool } from "openai/resources/chat/completions";
 import { FREE_CHAT_TOOLS } from "@/lib/llm-tools/catalog";
+import { getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildStableKnowledgePart } from "@/lib/prompts";
 import { loadDashboardLlmConfig, getEffectiveDashboardModel, getEffectiveOpenRouterProvider } from "@/lib/llm-provider/config";
 import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
 import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
 import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
 import { logUsage } from "@/lib/llm-usage";
+import type { InitialContext } from "@/lib/conversation-types";
 
 export interface ChatTurn {
   role: "user" | "assistant";
@@ -44,6 +46,35 @@ export function buildFreeChatContext(): FreeChatContext {
   return {
     systemPrompt: { stable: FREE_CHAT_PREAMBLE + buildStableKnowledgePart() },
     tools: FREE_CHAT_TOOLS,
+  };
+}
+
+/**
+ * Build the InitialContext snapshot for a free-chat conversation.
+ * Shared between POST /api/conversations (creation-time snapshot) and
+ * POST /api/conversations/:id/messages (first-message fallback).
+ */
+export function buildFreeChatInitialContextSnapshot(): InitialContext {
+  const freeChatCtx = buildFreeChatContext();
+  const cfg = loadDashboardLlmConfig();
+  const agenticCfg = getAgenticConfig();
+  return {
+    model: getEffectiveDashboardModel(cfg),
+    provider: cfg.provider,
+    driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+    system_prompt_stable: freeChatCtx.systemPrompt.stable,
+    tools: freeChatCtx.tools
+      .filter((t): t is ChatCompletionFunctionTool => t.type === "function")
+      .map((t) => ({
+        name: t.function.name,
+        schema: t.function as unknown as Record<string, unknown>,
+      })),
+    config: {
+      flow: "chat",
+      tool_rounds_max: agenticCfg.maxToolRounds,
+      tool_calls_max: agenticCfg.maxToolCalls,
+      tool_timeout_ms: agenticCfg.toolTimeoutMs,
+    },
   };
 }
 

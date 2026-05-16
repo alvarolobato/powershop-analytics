@@ -310,7 +310,6 @@ const INSPECTION_TOOL_NAMES = new Set([
   "get_dashboard_queries",
   "get_dashboard_widget_raw_values",
   "get_dashboard_all_widget_status",
-  "set_title",
 ]);
 
 /** Free-chat-only: lets the LLM set a concise conversation title on first response. */

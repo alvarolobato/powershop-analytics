@@ -35,17 +35,15 @@ import {
 } from "@/lib/llm-provider/config";
 import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
-import { buildFreeChatContext, type FreeChatContext } from "@/lib/conversation-context";
+import { buildFreeChatContext, buildFreeChatInitialContextSnapshot, type FreeChatContext } from "@/lib/conversation-context";
 import {
   runAgenticChat,
   AgenticRunnerError,
 } from "@/lib/llm-tools/runner";
 import { createDashboardAgenticAdapter } from "@/lib/llm-client";
-import { getAgenticConfig } from "@/lib/llm-tools/config";
 import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 import type {
   ChatCompletionMessageParam,
-  ChatCompletionFunctionTool,
 } from "openai/resources/chat/completions";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 
@@ -195,28 +193,7 @@ export async function POST(
         let snapshot: InitialContext;
 
         if (isFreeChatConv && freeChatCtx) {
-          const agenticCfg = getAgenticConfig();
-          // "chat" is not a valid DashboardLlmFlow; pass undefined to the
-          // model resolver and let it fall back to the default, but record
-          // "chat" in config.flow as a human-readable label.
-          snapshot = {
-            model: getEffectiveDashboardModel(cfg),
-            provider: cfg.provider,
-            driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-            system_prompt_stable: freeChatCtx.systemPrompt.stable,
-            tools: freeChatCtx.tools
-              .filter((t): t is ChatCompletionFunctionTool => t.type === "function")
-              .map((t) => ({
-                name: t.function.name,
-                schema: t.function as unknown as Record<string, unknown>,
-              })),
-            config: {
-              flow: "chat",
-              tool_rounds_max: agenticCfg.maxToolRounds,
-              tool_calls_max: agenticCfg.maxToolCalls,
-              tool_timeout_ms: agenticCfg.toolTimeoutMs,
-            },
-          };
+          snapshot = buildFreeChatInitialContextSnapshot();
         } else {
           const flow = (flowRaw ?? "summary") as DashboardLlmFlow;
           snapshot = {

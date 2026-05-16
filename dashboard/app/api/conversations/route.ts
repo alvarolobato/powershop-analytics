@@ -8,13 +8,9 @@ import {
   listConversations,
   createConversation,
   setInitialContext,
-  type InitialContext,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
-import { buildFreeChatContext } from "@/lib/conversation-context";
-import { getEffectiveDashboardModel, loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { getAgenticConfig } from "@/lib/llm-tools/config";
-import type { ChatCompletionFunctionTool } from "openai/resources/chat/completions";
+import { buildFreeChatInitialContextSnapshot } from "@/lib/conversation-context";
 
 const VALID_MODES = new Set([
   "generate",
@@ -151,28 +147,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // GET /api/conversations/:id returns it without waiting for the first message.
     if (mode === "chat" && context_kind === "global") {
       try {
-        const freeChatCtx = buildFreeChatContext();
-        const cfg = loadDashboardLlmConfig();
-        const agenticCfg = getAgenticConfig();
-        const snapshot: InitialContext = {
-          model: getEffectiveDashboardModel(cfg),
-          provider: cfg.provider,
-          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-          system_prompt_stable: freeChatCtx.systemPrompt.stable,
-          tools: freeChatCtx.tools
-            .filter((t): t is ChatCompletionFunctionTool => t.type === "function")
-            .map((t) => ({
-              name: t.function.name,
-              schema: t.function as unknown as Record<string, unknown>,
-            })),
-          config: {
-            flow: "chat",
-            tool_rounds_max: agenticCfg.maxToolRounds,
-            tool_calls_max: agenticCfg.maxToolCalls,
-            tool_timeout_ms: agenticCfg.toolTimeoutMs,
-          },
-        };
-        await setInitialContext(result.id, snapshot);
+        await setInitialContext(result.id, buildFreeChatInitialContextSnapshot());
       } catch (snapshotErr) {
         console.warn(
           `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
