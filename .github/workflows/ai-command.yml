@@ -41,6 +41,15 @@ jobs:
           ref: >-
             ${{ github.event.issue.pull_request && format('refs/pull/{0}/head', github.event.issue.number) || format('refs/heads/{0}', github.event.repository.default_branch) }}
 
+      - name: Use role-specific CLAUDE.md
+        run: |
+          cp .claude-contexts/command.md CLAUDE.md
+          # Hide the swap from git so workflows that commit/push
+          # (worker, address-feedback, ci-remediation) don't sweep
+          # it into commits, and `git rebase` (mergeability) isn't
+          # blocked by an uncommitted tracked-file change.
+          git update-index --skip-worktree CLAUDE.md
+
       - name: Execute AI Command
         uses: anthropics/claude-code-action@v1
         env:
