@@ -237,7 +237,7 @@ The handler (`dashboard/lib/llm-tools/handlers/start-dashboard-generation.ts`):
 1. Calls the dashboard generation logic (same as `/api/dashboard/generate`)
 2. Persists the new dashboard to the DB
 3. Calls `POST /api/conversations/:id/handoff-to-dashboard` with `{ dashboard_id }`
-4. Returns `{ dashboard_id, redirect_url: '/dashboards/:id?continue=:convId', summary }`
+4. Returns `{ dashboard_id, redirect_url: '/dashboard/:id?continue=:convId', summary }`
 
 The LLM includes the `redirect_url` as a clickable link in its reply so the user can navigate to the new dashboard.
 
@@ -251,7 +251,7 @@ UPDATE conversations
 SET mode = 'modify',
     context_kind = 'dashboard',
     context_ref  = :dashboard_id,
-    context_url  = '/dashboards/:dashboard_id'
+    context_url  = '/dashboard/:dashboard_id'
 WHERE id = :convId
 ```
 

@@ -90,7 +90,7 @@ When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `generate`, `modify`, and
 | `FREE_CHAT_TOOLS` | 10 inspection tools + `start_dashboard_generation` (11 total) | Free conversations (`mode='chat'`) — planned (issue #616) |
 | `FULL_DASHBOARD_TOOLS` | All registered tools including write tools | Future expansion |
 
-The runner (`dashboard/lib/llm-tools/runner.ts`) accepts a `tools?: ChatCompletionTool[]` param. When omitted, it defaults to `DASHBOARD_AGENTIC_TOOLS` (the full catalog). Free-chat passes `FREE_CHAT_TOOLS` explicitly to restrict write tool access. There are no separate `GENERATE_TOOLS`/`MODIFY_TOOLS`/`ANALYZE_TOOLS` named exports; those flows use the runner default.
+The runner (`dashboard/lib/llm-tools/runner.ts`) accepts a `tools?: ChatCompletionTool[]` param. When omitted, it defaults to `DASHBOARD_AGENTIC_TOOLS` (the full catalog). Free-chat will pass `FREE_CHAT_TOOLS` explicitly to restrict write tool access (planned — issue #616). There are no separate `GENERATE_TOOLS`/`MODIFY_TOOLS`/`ANALYZE_TOOLS` named exports; those flows use the runner default.
 
 **Conversations DB table** (`conversations`): stores `context_kind` (`'global'` / `'dashboard'` / `'home'` / `'admin'`) and `context_ref` (dashboard numeric ID when applicable). Planned (issue #616): `listConversations()` will LEFT JOIN `dashboards` to resolve `context_dashboard_name` for the UI; the handoff endpoint (`POST /api/conversations/:id/handoff-to-dashboard`) will mutate `mode`, `context_kind`, `context_ref`, and `context_url` — messages and `initial_context` remain immutable as an audit trail. See [D-032](docs/decisions/D-032-free-chat-tools.md).
 
