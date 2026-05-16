@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import type { ConversationWithMessages, ConversationMessage } from "@/lib/conversation-types";
 import { isApiErrorResponse } from "@/lib/errors";
 import { getModeStyle } from "@/lib/conversation-mode-style";
@@ -475,7 +474,6 @@ interface ConversationViewerProps {
 }
 
 export function ConversationViewer({ initial }: ConversationViewerProps) {
-  const router = useRouter();
   const [conv, setConv] = useState<ConversationWithMessages>(initial);
   const bodyRef = useRef<HTMLDivElement>(null);
   const fallbackModel = useConfiguredModel();
