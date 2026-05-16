@@ -313,14 +313,8 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           // Record the full prompt as the first user message (plain string so
           // the conversation viewer renders it without special handling).
           await appendMessage(conv.id, "user", prompt);
-          // Mark the conversation as actively generating so consumers know it
-          // is not yet complete and can suppress interactive input if needed.
-          await touchConversation(conv.id, "error").catch(() => {});
-          // Immediately correct the status to a neutral "running" sentinel by
-          // clearing last_status — we use null to mean "in progress".
-          // (touchConversation only accepts "ok" | "error"; we use the DB directly.)
-          // We leave last_status as-is; the final appendMessage will set it.
           // Send the conversation URL so the frontend can show a link immediately.
+          // last_status starts NULL (in-progress); success/failure paths update it.
           send({ type: "conversation", requestId, conversationId: conv.id, c_url: conv.c_url });
         }).catch((e) => {
           console.error(`[${requestId}] createConversation failed:`, e);

@@ -28,6 +28,16 @@ vi.mock("@/lib/db-write", async () => {
   };
 });
 
+// --- Mock the conversations module ---
+vi.mock("@/lib/conversations", () => ({
+  createConversation: vi.fn().mockResolvedValue({
+    id: "mock-conv-id",
+    c_url: "/c/mock-conv-id",
+  }),
+  appendMessage: vi.fn().mockResolvedValue(undefined),
+  touchConversation: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { POST } from "../route";
 import {
   generateDashboard,
@@ -35,10 +45,13 @@ import {
   CircuitBreakerOpenError,
 } from "@/lib/llm";
 import * as dbWrite from "@/lib/db-write";
+import * as conversations from "@/lib/conversations";
 
 const mockGenerate = vi.mocked(generateDashboard);
 const mockCreateInteraction = vi.mocked(dbWrite.createInteraction);
 const mockFinishInteraction = vi.mocked(dbWrite.finishInteraction);
+const mockCreateConversation = vi.mocked(conversations.createConversation);
+const mockTouchConversation = vi.mocked(conversations.touchConversation);
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -82,6 +95,12 @@ describe("POST /api/dashboard/generate", () => {
     mockFinishInteraction.mockResolvedValue(undefined);
     vi.mocked(dbWrite.appendInteractionLines).mockReset();
     vi.mocked(dbWrite.appendInteractionLines).mockResolvedValue(undefined);
+    mockCreateConversation.mockReset();
+    mockCreateConversation.mockResolvedValue({ id: "mock-conv-id", c_url: "/c/mock-conv-id" } as Awaited<ReturnType<typeof conversations.createConversation>>);
+    mockTouchConversation.mockReset();
+    mockTouchConversation.mockResolvedValue(undefined);
+    vi.mocked(conversations.appendMessage).mockReset();
+    vi.mocked(conversations.appendMessage).mockResolvedValue(undefined);
   });
 
   // --- Happy path ---
@@ -422,6 +441,49 @@ describe("POST /api/dashboard/generate", () => {
         "error",
         expect.any(String),
       );
+    });
+  });
+
+  // --- Conversation status (stream path) ---
+  // Regression guard: the premature touchConversation(conv.id, "error") call
+  // that was removed in fix #628 must not reappear. The conversation status
+  // must stay NULL (in-progress) until the final success or failure handler.
+
+  describe("conversation status (stream path)", () => {
+    it("marks the conversation ok on success — never error", async () => {
+      mockGenerate.mockResolvedValue(JSON.stringify(VALID_SPEC));
+
+      const res = await POST(makeRequest({ prompt: "Ventas del mes", stream: true }));
+      // Drain the stream so all async handlers complete.
+      await res.text();
+
+      expect(mockTouchConversation).toHaveBeenCalledWith("mock-conv-id", "ok");
+      // Must never have been called with "error" — that would be the regression.
+      const errorCalls = mockTouchConversation.mock.calls.filter((args) => args[1] === "error");
+      expect(errorCalls).toHaveLength(0);
+    });
+
+    it("marks the conversation error on LLM failure — but not before generation runs", async () => {
+      mockGenerate.mockRejectedValue(new Error("LLM failure"));
+
+      const res = await POST(makeRequest({ prompt: "Ventas del mes", stream: true }));
+      await res.text();
+
+      // touchConversation("error") is correct here — it is the final handler.
+      expect(mockTouchConversation).toHaveBeenCalledWith("mock-conv-id", "error");
+      // Must have been called exactly once — no premature call before generation.
+      expect(mockTouchConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it("marks the conversation error on invalid spec — but not before generation runs", async () => {
+      mockGenerate.mockResolvedValue(JSON.stringify({ title: "no widgets" }));
+
+      const res = await POST(makeRequest({ prompt: "Ventas del mes", stream: true }));
+      await res.text();
+
+      expect(mockTouchConversation).toHaveBeenCalledWith("mock-conv-id", "error");
+      // Exactly once — no premature call immediately after createConversation.
+      expect(mockTouchConversation).toHaveBeenCalledTimes(1);
     });
   });
 });
