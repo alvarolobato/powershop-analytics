@@ -72,6 +72,9 @@ This file extracts the ASCII diagrams, dashboard JSON example, and widget tables
 │  GET  /api/dashboard/:id       ← load saved spec      │
 │  POST /api/dashboard/:id/save  ← persist spec         │
 │  GET  /api/dashboards          ← list all             │
+│  POST /api/conversations       ← create conversation  │
+│  POST /api/conversations/:id/messages  ← send message (callLlm: true → call LLM) │
+│  POST /api/conversations/:id/handoff-to-dashboard  ← mutate conv → dashboard mode (planned — issue #616) │
 └───────────────────────────────────────────────────────┘
 ```
 

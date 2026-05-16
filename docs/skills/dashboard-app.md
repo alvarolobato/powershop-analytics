@@ -192,6 +192,94 @@ Follow-up issue to revisit: if Anthropic adds cache token reporting to the
 Claude CLI's JSON output format, the runner can be updated to parse and
 persist them.
 
+## Conversaciones libres (free-chat)
+
+> **Status**: Design documentation. The components and endpoints in this section are planned for implementation in issue #616. File paths reference the planned targets; verify existence before using.
+
+A "free conversation" is one created with `context_kind='global'` and `mode='chat'`. It is NOT tied to a specific dashboard. The user can ask data questions, inspect the schema, explore saved dashboards, and then request a new dashboard — all in one continuous thread.
+
+### Creating a free conversation
+
+```typescript
+// POST /api/conversations
+{ mode: 'chat', context_kind: 'global', first_user_prompt?: string }
+// → { id, ... }  then navigate to /c/:id
+```
+
+The UI entry point is the **"+ Nueva conversación"** button on `/conversations` (`dashboard/app/conversations/page.tsx`), which opens `NewConversationDialog` (`dashboard/components/NewConversationDialog.tsx`).
+
+### FREE_CHAT_TOOLS catalog (11 tools)
+
+Defined in `dashboard/lib/llm-tools/catalog.ts` as the named export `FREE_CHAT_TOOLS`. These are the only tools exposed to the agentic runner when `conversation.mode === 'chat'` or `context_kind === 'global'`:
+
+| Tool | Purpose |
+|------|---------|
+| `validate_query` | SQL syntax + policy check (no rows) |
+| `execute_query` | Run a read-only SELECT, returns up to 200×30 cells |
+| `explain_query` | EXPLAIN (FORMAT JSON) plan without executing |
+| `list_ps_tables` | List all `ps_*` mirror tables |
+| `describe_ps_table` | Column list + types for one `ps_*` table |
+| `list_dashboards` | List saved dashboards (id, name, updated_at) |
+| `get_dashboard_spec` | Load the JSON spec for a saved dashboard |
+| `get_dashboard_queries` | All SQL strings embedded in a dashboard |
+| `get_dashboard_widget_raw_values` | Execute one widget's SQL from a saved dashboard |
+| `get_dashboard_all_widget_status` | Validate all SQL in a saved dashboard |
+| `start_dashboard_generation` | Trigger dashboard creation and handoff |
+
+Write tools (`apply_dashboard_modification`, `submit_dashboard_analysis`) are registered in `FULL_DASHBOARD_TOOLS` but **not** included in `FREE_CHAT_TOOLS`. This is intentional — see D-032.
+
+### `start_dashboard_generation` tool
+
+Input: `{ prompt: string, template?: string }`  
+Output: `{ dashboard_id: number, redirect_url: string, summary: string }`
+
+The handler (`dashboard/lib/llm-tools/handlers/start-dashboard-generation.ts`):
+1. Calls the dashboard generation logic (same as `/api/dashboard/generate`)
+2. Persists the new dashboard to the DB
+3. Calls `POST /api/conversations/:id/handoff-to-dashboard` with `{ dashboard_id }`
+4. Returns `{ dashboard_id, redirect_url: '/dashboard/:id?continue=:convId', summary }`
+
+The LLM includes the `redirect_url` as a clickable link in its reply so the user can navigate to the new dashboard.
+
+### `POST /api/conversations/:id/handoff-to-dashboard` endpoint
+
+File: `dashboard/app/api/conversations/[id]/handoff-to-dashboard/route.ts`
+
+Mutates the conversation row:
+```sql
+UPDATE conversations
+SET mode = 'modify',
+    context_kind = 'dashboard',
+    context_ref  = :dashboard_id,
+    context_url  = '/dashboard/:dashboard_id'
+WHERE id = :convId
+```
+
+**What stays immutable**: `initial_context`, all `conversation_messages` rows. The existing thread remains as an audit trail.
+
+**Error cases**: 404 if `dashboard_id` does not exist; 409 if the conversation is archived.
+
+Helper: `migrateConversationToDashboard(convId, dashboardId)` in `dashboard/lib/conversations.ts`.
+
+### `?continue=:convId` query param
+
+When the user navigates to `/dashboard/:id?continue=:convId` (note: singular `/dashboard/`), `DashboardSurface` (`dashboard/components/surfaces/DashboardSurface.tsx`) reads the `continue` searchParam via `useSearchParams()` and passes it to `ChatSidebar` as `initialConversationId`. The sidebar:
+1. Loads the conversation by ID (same as `?conversation=:id`)
+2. Opens the **Modificar** tab by default
+3. Disables the **Generar** tab (the conversation already has a dashboard)
+
+The user sees the full prior message history from the free-chat, and new messages are appended to the same `conversations` row.
+
+### System prompt and context assembly
+
+Free-chat system prompt is assembled in `dashboard/lib/conversation-context.ts` by `buildFreeChatContext()`. It uses the same knowledge bundle as generate/modify (from `dashboard/lib/knowledge.ts`) plus a Spanish preámbulo explaining the available tools. The `initial_context` snapshot stored at conversation start includes:
+- `system_prompt_stable`: the full assembled prompt
+- `tools`: array of `{name, schema}` for all 11 `FREE_CHAT_TOOLS`
+- `flow: 'chat'`
+- `config`: agentic limits (`tool_rounds_max`, `tool_calls_max`, `tool_timeout_ms`)
+
+Prior turns are loaded via `loadPriorTurns()` in `dashboard/lib/conversation-context.ts`.
+
 ## Dependencies
 
 - next: 14+
