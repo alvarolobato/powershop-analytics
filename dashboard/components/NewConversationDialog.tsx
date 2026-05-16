@@ -104,30 +104,16 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
         return;
       }
 
-      const created: { id: string; c_url: string } = await createRes.json();
-      const { id, c_url } = created;
+      const created: { id: string } = await createRes.json();
+      const { id } = created;
 
-      // Step 2: send first message (only when prompt is non-empty)
-      if (trimmed) {
-        const msgRes = await fetch(`/api/conversations/${id}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: trimmed, callLlm: true }),
-        });
-
-        if (!msgRes.ok) {
-          const body = await msgRes.json().catch(() => null);
-          const msg =
-            (body && typeof body.error === "string" ? body.error : null) ??
-            `Error ${msgRes.status} al enviar el mensaje`;
-          setError(msg);
-          setLoading(false);
-          return;
-        }
-      }
-
-      // Step 3: navigate to the conversation
-      router.push(c_url);
+      // Step 2: navigate immediately to the split-view conversation page.
+      // The ConversationViewer will detect ?q= and send the message itself,
+      // allowing the user to see the streaming response in real time.
+      const dest = trimmed
+        ? `/conversations/${id}?q=${encodeURIComponent(trimmed)}`
+        : `/conversations/${id}`;
+      router.push(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error inesperado");
       setLoading(false);

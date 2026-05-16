@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import type { ConversationWithMessages, ConversationMessage } from "@/lib/conversation-types";
 import { isApiErrorResponse } from "@/lib/errors";
 import { getModeStyle } from "@/lib/conversation-mode-style";
@@ -471,12 +472,16 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackMode
 
 interface ConversationViewerProps {
   initial: ConversationWithMessages;
+  /** When set, automatically send this as the first message on mount. */
+  autoSendPrompt?: string;
 }
 
-export function ConversationViewer({ initial }: ConversationViewerProps) {
+export function ConversationViewer({ initial, autoSendPrompt }: ConversationViewerProps) {
+  const router = useRouter();
   const [conv, setConv] = useState<ConversationWithMessages>(initial);
   const bodyRef = useRef<HTMLDivElement>(null);
   const fallbackModel = useConfiguredModel();
+  const autoSendFired = useRef(false);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -484,6 +489,56 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
   }, [conv.messages.length]);
+
+  // Mark conversation as read on mount (Task 1 wires up the DB side).
+  useEffect(() => {
+    void fetch(`/api/conversations/${initial.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ last_read_at: "now" }),
+    })?.catch(() => { /* silent */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial.id]);
+
+  // Auto-send the prompt that came from NewConversationDialog via ?q=...
+  useEffect(() => {
+    if (!autoSendPrompt || autoSendFired.current) return;
+    autoSendFired.current = true;
+
+    const text = autoSendPrompt.trim();
+    if (!text) return;
+
+    // Remove the ?q= param from the URL without triggering navigation
+    const url = new URL(window.location.href);
+    url.searchParams.delete("q");
+    router.replace(url.pathname + (url.search || ""));
+
+    // Optimistically add the user message
+    const userMsg: ConversationMessage = {
+      id: `local-user-${Date.now()}`,
+      conversation_id: initial.id,
+      role: "user",
+      content: { text },
+      created_at: new Date().toISOString(),
+    };
+    setConv((c) => ({ ...c, messages: [...c.messages, userMsg] }));
+
+    void fetch(`/api/conversations/${initial.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text, callLlm: true }),
+    })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json();
+        const raw = data?.message;
+        if (raw && typeof raw === "object" && "id" in raw) {
+          setConv((c) => ({ ...c, messages: [...c.messages, raw as ConversationMessage] }));
+        }
+      })
+      .catch(() => { /* silent — user can retry via footer */ });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSendPrompt, initial.id]);
 
   const handleTitleChange = useCallback((newTitle: string) => {
     setConv((c) => ({ ...c, title: newTitle }));

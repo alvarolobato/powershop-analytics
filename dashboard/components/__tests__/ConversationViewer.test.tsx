@@ -21,6 +21,11 @@ vi.mock("@/components/AgenticErrorDetails", () => ({
   ),
 }));
 
+const mockReplace = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: mockReplace }),
+}));
+
 import { ConversationViewer } from "../ConversationViewer";
 import type { ConversationWithMessages } from "@/lib/conversation-types";
 
@@ -352,6 +357,7 @@ describe("ConversationViewer", () => {
   });
 
   it("does not send when input is empty", async () => {
+    // Handles the model fetch (useConfiguredModel) and mark-read PATCH (fires on mount).
     globalThis.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({ model: "test/model" }),
@@ -363,11 +369,12 @@ describe("ConversationViewer", () => {
     const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
     expect(textarea).toHaveValue("");
     fireEvent.click(screen.getByText("Enviar"));
-    // The model endpoint may be called on mount; the messages endpoint must not be called
-    expect(globalThis.fetch).not.toHaveBeenCalledWith(
-      expect.stringContaining("/messages"),
-      expect.anything(),
+    // Model fetch and mark-read may be called on mount; the messages POST must not be made
+    const msgCalls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+      ([url, opts]: [string, RequestInit]) =>
+        url === "/api/conversations/conv-1/messages" && opts?.method === "POST",
     );
+    expect(msgCalls).toHaveLength(0);
   });
 
   // -----------------------------------------------------------------------
@@ -439,5 +446,106 @@ describe("ConversationViewer", () => {
     render(<ConversationViewer initial={conv} />);
     const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
     expect(textarea).toHaveValue("");
+  });
+
+  // -----------------------------------------------------------------------
+  // Mark as read on mount
+  // -----------------------------------------------------------------------
+
+  it("calls PATCH /api/conversations/:id with last_read_at=now on mount", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    globalThis.fetch = fetchMock;
+
+    render(<ConversationViewer initial={makeConv()} />);
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(
+        ([url, opts]) =>
+          url === "/api/conversations/conv-1" &&
+          opts?.method === "PATCH" &&
+          JSON.parse(opts.body as string).last_read_at === "now",
+      );
+      expect(patchCall).toBeTruthy();
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // autoSendPrompt
+  // -----------------------------------------------------------------------
+
+  it("auto-sends the prompt from autoSendPrompt on mount", async () => {
+    const fetchMock = vi
+      .fn()
+      // mark-read PATCH
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })
+      // messages POST
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            message: {
+              id: "m-auto",
+              conversation_id: "conv-1",
+              role: "assistant",
+              content: { text: "Respuesta automática" },
+              created_at: new Date().toISOString(),
+            },
+          }),
+      });
+    globalThis.fetch = fetchMock;
+
+    render(
+      <ConversationViewer initial={makeConv()} autoSendPrompt="Hola automático" />,
+    );
+
+    await waitFor(() => {
+      const msgCall = fetchMock.mock.calls.find(
+        ([url, opts]) =>
+          url === "/api/conversations/conv-1/messages" && opts?.method === "POST",
+      );
+      expect(msgCall).toBeTruthy();
+      const body = JSON.parse(msgCall![1].body as string);
+      expect(body.content).toBe("Hola automático");
+      expect(body.callLlm).toBe(true);
+    });
+  });
+
+  it("does not auto-send when autoSendPrompt is empty", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    globalThis.fetch = fetchMock;
+
+    render(<ConversationViewer initial={makeConv()} autoSendPrompt="" />);
+
+    // Wait a tick to let any effects run
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+
+    const msgCalls = fetchMock.mock.calls.filter(
+      ([url, opts]) =>
+        url === "/api/conversations/conv-1/messages" && opts?.method === "POST",
+    );
+    expect(msgCalls).toHaveLength(0);
+  });
+
+  it("clears ?q= from URL after auto-sending", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+    globalThis.fetch = fetchMock;
+
+    // Set a fake location with ?q= param
+    Object.defineProperty(window, "location", {
+      value: { href: "http://localhost/conversations/conv-1?q=Hola" },
+      writable: true,
+    });
+
+    render(<ConversationViewer initial={makeConv()} autoSendPrompt="Hola" />);
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalled();
+    });
   });
 });
