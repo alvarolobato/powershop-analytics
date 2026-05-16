@@ -5,6 +5,7 @@ import type { ConversationWithMessages, ConversationMessage } from "@/lib/conver
 import { isApiErrorResponse } from "@/lib/errors";
 import { getModeStyle } from "@/lib/conversation-mode-style";
 import { ConversationThread } from "./conversation/ConversationThread";
+import { useConfiguredModel } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Footer input
@@ -173,9 +174,10 @@ interface HeaderProps {
   conv: ConversationWithMessages;
   onTitleChange: (newTitle: string) => void;
   onArchiveToggle: () => void;
+  fallbackModel: string | null;
 }
 
-function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProps) {
+function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackModel }: HeaderProps) {
   const [editing, setEditing] = useState(false);
   const [titleValue, setTitleValue] = useState(conv.title ?? conv.first_user_prompt ?? "");
   const [shareOpen, setShareOpen] = useState(false);
@@ -302,6 +304,26 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProp
       >
         {modeStyle.label}
       </span>
+
+      {/* Model indicator */}
+      {(() => {
+        const rawModel = conv.initial_context?.model ?? fallbackModel;
+        if (!rawModel) return null;
+        const displayModel = rawModel.split("/").pop() ?? rawModel;
+        return (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--fg-subtle)",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+            title={rawModel}
+          >
+            {displayModel}
+          </span>
+        );
+      })()}
 
       {/* Actions */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -454,6 +476,7 @@ interface ConversationViewerProps {
 export function ConversationViewer({ initial }: ConversationViewerProps) {
   const [conv, setConv] = useState<ConversationWithMessages>(initial);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const fallbackModel = useConfiguredModel();
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -503,6 +526,7 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         conv={conv}
         onTitleChange={handleTitleChange}
         onArchiveToggle={() => void handleArchiveToggle()}
+        fallbackModel={fallbackModel}
       />
 
       {/* Body */}
