@@ -17,7 +17,6 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   // Track the element that had focus before the dialog opened so we can restore it on close.
   const previousFocusRef = useRef<Element | null>(null);
 
@@ -204,7 +203,6 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
           Primera pregunta (opcional)
           <textarea
             id="new-conv-prompt"
-            ref={textareaRef}
             data-testid="new-conversation-prompt"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -237,6 +235,7 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
         {/* Inline error */}
         {error && (
           <div
+            role="alert"
             data-testid="new-conversation-error"
             style={{
               background: "rgba(239,68,68,0.12)",
