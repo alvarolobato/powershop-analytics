@@ -261,12 +261,24 @@ jobs:
 
       - name: Use role-specific CLAUDE.md
         run: |
-          cp .claude-contexts/review.md CLAUDE.md
-          # Hide the swap from git so workflows that commit/push
-          # (worker, address-feedback, ci-remediation) don't sweep
-          # it into commits, and `git rebase` (mergeability) isn't
-          # blocked by an uncommitted tracked-file change.
-          git update-index --skip-worktree CLAUDE.md
+          # `.claude-contexts/review.md` was added in #627. PR branches that
+          # predate that commit (or get re-dispatched via workflow_dispatch
+          # against an older head ref) will be missing the file. The original
+          # `cp` was unguarded and hard-failed in that case (recovery dispatch
+          # for PRs #629/#640/#645-650 on 2026-05-16 all hit "cp: cannot stat
+          # '.claude-contexts/review.md'"). Fall back to the repo's regular
+          # CLAUDE.md when the role-specific file is absent — the review
+          # still runs, just without the role-tailored context.
+          if [ -f .claude-contexts/review.md ]; then
+            cp .claude-contexts/review.md CLAUDE.md
+            # Hide the swap from git so workflows that commit/push
+            # (worker, address-feedback, ci-remediation) don't sweep
+            # it into commits, and `git rebase` (mergeability) isn't
+            # blocked by an uncommitted tracked-file change.
+            git update-index --skip-worktree CLAUDE.md
+          else
+            echo "::notice::.claude-contexts/review.md not present on this ref (predates #627); using default CLAUDE.md"
+          fi
 
       - name: Claude PR Review
         if: steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
