@@ -10,6 +10,7 @@ import {
   getConversationWithMessages,
   updateConversationTitle,
   setConversationArchived,
+  markConversationRead,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 
@@ -107,6 +108,12 @@ export async function PATCH(
       { status: 400 },
     );
   }
+  if ("last_read_at" in b && b.last_read_at !== "now") {
+    return NextResponse.json(
+      formatApiError("El campo 'last_read_at' solo acepta el valor \"now\".", "INVALID_BODY", undefined, requestId),
+      { status: 400 },
+    );
+  }
 
   try {
     const existing = await getConversation(id);
@@ -134,6 +141,10 @@ export async function PATCH(
 
     if (typeof b.archived === "boolean") {
       await setConversationArchived(id, b.archived);
+    }
+
+    if (b.last_read_at === "now") {
+      await markConversationRead(id);
     }
 
     const updated = await getConversation(id);

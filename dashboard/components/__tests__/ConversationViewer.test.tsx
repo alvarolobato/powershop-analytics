@@ -44,6 +44,7 @@ function makeConv(overrides?: Partial<ConversationWithMessages>): ConversationWi
     llm_provider: "openrouter",
     llm_driver: null,
     initial_context: null,
+    last_read_at: null,
     messages: [],
     ...overrides,
   };

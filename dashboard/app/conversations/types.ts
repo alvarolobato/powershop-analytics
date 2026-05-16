@@ -19,4 +19,6 @@ export interface ConversationRow {
   last_message_preview: string | null;
   token_total: number;
   context_dashboard_name?: string | null;
+  last_read_at: string | null;
+  is_unread: boolean;
 }
