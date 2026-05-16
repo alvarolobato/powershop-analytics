@@ -15,7 +15,7 @@ import PreviousConversations from "@/components/PreviousConversations";
 import { InitialContextPanel } from "@/components/InitialContextPanel";
 import type { InitialContext } from "@/lib/conversation-types";
 import type { ChatMessage, ConversationApiMessage } from "./conversation/types";
-import { MessageBubble } from "./conversation/MessageBubble";
+import { MessageList } from "./conversation/MessageList";
 import { convertConversationMessages } from "./conversation/convertConversationMessages";
 
 // ---------------------------------------------------------------------------
@@ -712,15 +712,12 @@ function ModificarTab({
           </p>
         )}
 
-        {messages.map((msg, idx) => (
-          <MessageBubble
-            key={idx}
-            msg={msg}
-            isMarkdown={false}
-            logExpanded={expandedLogs[idx] ?? false}
-            onLogToggle={() => toggleLog(idx)}
-          />
-        ))}
+        <MessageList
+          messages={messages}
+          isMarkdown={false}
+          expandedLogs={expandedLogs}
+          onLogToggle={toggleLog}
+        />
 
         {/* Streaming log block */}
         {loading && streamingLog && streamingLog.length > 0 && (
@@ -1165,15 +1162,12 @@ function AnalizarTab({
         )}
 
         {/* Message bubbles */}
-        {messages.map((msg, idx) => (
-          <MessageBubble
-            key={idx}
-            msg={msg}
-            isMarkdown={msg.role === "assistant"}
-            logExpanded={expandedLogs[idx] ?? false}
-            onLogToggle={() => toggleLog(idx)}
-          />
-        ))}
+        <MessageList
+          messages={messages}
+          isMarkdown
+          expandedLogs={expandedLogs}
+          onLogToggle={toggleLog}
+        />
 
         {/* Streaming log */}
         {loading && streamingLog && streamingLog.length > 0 && (
