@@ -296,6 +296,7 @@ export async function POST(
       const agenticCtx: LlmAgenticContext = {
         requestId,
         endpoint: "freeChat",
+        conversationId: id,
         llmProvider: cfg.provider,
         llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
       };

@@ -7,8 +7,14 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   listConversations,
   createConversation,
+  setInitialContext,
+  type InitialContext,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
+import { buildFreeChatContext } from "@/lib/conversation-context";
+import { getEffectiveDashboardModel, loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { getAgenticConfig } from "@/lib/llm-tools/config";
+import type { ChatCompletionFunctionTool } from "openai/resources/chat/completions";
 
 const VALID_MODES = new Set([
   "generate",
@@ -140,6 +146,41 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       llm_provider,
       llm_driver,
     });
+
+    // Snapshot initial_context immediately for free-chat conversations so that
+    // GET /api/conversations/:id returns it without waiting for the first message.
+    if (mode === "chat" && context_kind === "global") {
+      try {
+        const freeChatCtx = buildFreeChatContext();
+        const cfg = loadDashboardLlmConfig();
+        const agenticCfg = getAgenticConfig();
+        const snapshot: InitialContext = {
+          model: getEffectiveDashboardModel(cfg),
+          provider: cfg.provider,
+          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+          system_prompt_stable: freeChatCtx.systemPrompt.stable,
+          tools: freeChatCtx.tools
+            .filter((t): t is ChatCompletionFunctionTool => t.type === "function")
+            .map((t) => ({
+              name: t.function.name,
+              schema: t.function as unknown as Record<string, unknown>,
+            })),
+          config: {
+            flow: "chat",
+            tool_rounds_max: agenticCfg.maxToolRounds,
+            tool_calls_max: agenticCfg.maxToolCalls,
+            tool_timeout_ms: agenticCfg.toolTimeoutMs,
+          },
+        };
+        await setInitialContext(result.id, snapshot);
+      } catch (snapshotErr) {
+        console.warn(
+          `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
+          snapshotErr,
+        );
+      }
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     console.error(`[${requestId}] POST /api/conversations error:`, err);

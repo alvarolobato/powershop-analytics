@@ -9,6 +9,7 @@ import type {
 } from "openai/resources/chat/completions";
 import { logLlmToolCall } from "./logging";
 import { DASHBOARD_AGENTIC_TOOLS } from "./catalog";
+import { updateConversationTitle } from "@/lib/conversations";
 import { getAgenticConfig } from "./config";
 import {
   emptyUsage,
@@ -17,7 +18,7 @@ import {
   type LlmAgenticContext,
   type AgenticProgressEvent,
 } from "./types";
-import { stringifyToolPayload, toolError, type ToolResponseBody } from "./tool-payload";
+import { stringifyToolPayload, toolError, toolOk, type ToolResponseBody } from "./tool-payload";
 import {
   handleValidateQuery,
   handleExecuteQuery,
@@ -198,6 +199,24 @@ async function dispatchTool(
       return handleSubmitWeeklyReview(rawArgs, ctx);
     case "start_dashboard_generation":
       return handleStartDashboardGeneration(rawArgs, ctx);
+    case "set_title": {
+      if (!ctx.conversationId) {
+        return toolError("SET_TITLE_NO_CONV", "set_title requires a conversation context", ctx);
+      }
+      let parsedArgs: Record<string, unknown>;
+      try {
+        parsedArgs = JSON.parse(rawArgs) as Record<string, unknown>;
+      } catch {
+        return toolError("SET_TITLE_INVALID_ARGS", "Invalid JSON arguments for set_title", ctx);
+      }
+      const title = parsedArgs.title;
+      if (typeof title !== "string" || title.trim() === "") {
+        return toolError("SET_TITLE_INVALID_TITLE", "title must be a non-empty string", ctx);
+      }
+      const trimmedTitle = title.trim().slice(0, 100);
+      await updateConversationTitle(ctx.conversationId, trimmedTitle);
+      return toolOk({ title: trimmedTitle });
+    }
     default:
       return toolError("UNKNOWN_TOOL", `Unknown tool: ${name}`, ctx);
   }
