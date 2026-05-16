@@ -10,7 +10,7 @@
  */
 
 import { sql } from "@/lib/db-write";
-import type { ChatCompletionTool, ChatCompletionFunctionTool } from "openai/resources/chat/completions";
+import type { ChatCompletionTool } from "openai/resources/chat/completions";
 import { FREE_CHAT_TOOLS } from "@/lib/llm-tools/catalog";
 import { getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildStableKnowledgePart } from "@/lib/prompts";
@@ -50,9 +50,9 @@ export function buildFreeChatContext(): FreeChatContext {
 }
 
 /**
- * Build the InitialContext snapshot for a free-chat conversation.
- * Shared between POST /api/conversations (creation-time snapshot) and
- * POST /api/conversations/:id/messages (first-message fallback).
+ * Build the InitialContext snapshot for a free-chat conversation. Called at
+ * creation time (POST /api/conversations) and as a fallback on the first user
+ * message (POST /api/conversations/:id/messages) so both paths stay in sync.
  */
 export function buildFreeChatInitialContextSnapshot(): InitialContext {
   const freeChatCtx = buildFreeChatContext();
@@ -63,12 +63,10 @@ export function buildFreeChatInitialContextSnapshot(): InitialContext {
     provider: cfg.provider,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
     system_prompt_stable: freeChatCtx.systemPrompt.stable,
-    tools: freeChatCtx.tools
-      .filter((t): t is ChatCompletionFunctionTool => t.type === "function")
-      .map((t) => ({
-        name: t.function.name,
-        schema: t.function as unknown as Record<string, unknown>,
-      })),
+    tools: freeChatCtx.tools.map((t) => ({
+      name: t.function.name,
+      schema: t.function as unknown as Record<string, unknown>,
+    })),
     config: {
       flow: "chat",
       tool_rounds_max: agenticCfg.maxToolRounds,

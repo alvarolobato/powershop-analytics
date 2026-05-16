@@ -56,6 +56,24 @@ describe("llm-tools catalog", () => {
     });
   });
 
+  describe("set_title tool", () => {
+    it("is present in FREE_CHAT_TOOLS", () => {
+      const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
+      expect(names).toContain("set_title");
+    });
+
+    it("is NOT present in DASHBOARD_AGENTIC_TOOLS", () => {
+      const names = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+      expect(names).not.toContain("set_title");
+    });
+
+    it("has required 'title' parameter", () => {
+      const tool = FREE_CHAT_TOOLS.find((t) => t.function.name === "set_title");
+      const required = tool?.function.parameters?.required as string[] | undefined;
+      expect(required).toContain("title");
+    });
+  });
+
   describe("FULL_DASHBOARD_TOOLS", () => {
     it("contains all tools from DASHBOARD_AGENTIC_TOOLS", () => {
       expect(FULL_DASHBOARD_TOOLS).toBe(DASHBOARD_AGENTIC_TOOLS);

@@ -42,9 +42,7 @@ import {
 } from "@/lib/llm-tools/runner";
 import { createDashboardAgenticAdapter } from "@/lib/llm-client";
 import type { LlmAgenticContext } from "@/lib/llm-tools/types";
-import type {
-  ChatCompletionMessageParam,
-} from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };

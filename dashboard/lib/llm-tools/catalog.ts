@@ -333,7 +333,7 @@ const SET_TITLE_TOOL: ChatCompletionTool = {
 };
 
 /**
- * Tools available in the free-chat flow: 10 inspection tools + start_dashboard_generation + set_title.
+ * Tools available in the free-chat flow: 10 inspection tools + start_dashboard_generation + set_title = 12 tools.
  * Does NOT include modification/analysis/review publish tools.
  */
 export const FREE_CHAT_TOOLS: ChatCompletionTool[] = [
