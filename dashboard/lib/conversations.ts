@@ -243,9 +243,10 @@ export async function listConversations(
        c.last_status, c.llm_provider, c.llm_driver, c.initial_context, c.created_by,
        c.last_read_at,
        -- is_unread: true when there is activity after last_read_at (or never read and has activity)
-       (
+       COALESCE(
          (c.last_read_at IS NULL AND c.last_interaction_at > c.created_at) OR
-         (c.last_read_at IS NOT NULL AND c.last_interaction_at > c.last_read_at)
+         (c.last_read_at IS NOT NULL AND c.last_interaction_at > c.last_read_at),
+         false
        ) AS is_unread,
        -- dashboard name when context_kind='dashboard'
        d.name AS context_dashboard_name,

@@ -805,8 +805,6 @@ CREATE INDEX IF NOT EXISTS idx_conversations_context_recent
     ON conversations (context_kind, context_ref, last_interaction_at DESC) WHERE archived_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_conversations_all_recent
     ON conversations (last_interaction_at DESC);
-CREATE INDEX IF NOT EXISTS idx_conversations_unread
-    ON conversations (last_interaction_at DESC) WHERE last_read_at IS NULL OR last_interaction_at > last_read_at;
 
 CREATE TABLE IF NOT EXISTS conversation_messages (
     id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
