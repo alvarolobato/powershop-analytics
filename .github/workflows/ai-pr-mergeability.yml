@@ -6,8 +6,11 @@ name: AI PR Mergeability
 # fixes failing CI; this one fixes everything BEFORE CI can even run.
 on:
   schedule:
-    # Every 30 minutes
-    - cron: "*/30 * * * *"
+    # Hourly (was every 30 minutes; reduced per issue #625 to ease GitHub
+    # schedule queue pressure — see D-030). The `push` event handles the
+    # hot path (rebase on every commit to main); the cron is the fallback
+    # for PRs that haven't had push activity.
+    - cron: "0 * * * *"
   push:
     branches: [main]
   workflow_dispatch:
@@ -240,7 +243,7 @@ jobs:
           REPO: ${{ env.REPO }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--permission-mode bypassPermissions --max-turns 60"
+          claude_args: "--model claude-haiku-4-5-20251001 --permission-mode bypassPermissions --max-turns 60"
           prompt: |
             You are resolving merge conflicts during a `git rebase` of PR #${{ env.PR_NUMBER }}.
 

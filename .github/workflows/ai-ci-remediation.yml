@@ -151,7 +151,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--permission-mode bypassPermissions --max-turns 120"
+          claude_args: "--model claude-sonnet-4-6 --permission-mode bypassPermissions --max-turns 120"
           prompt: |
             You are fixing **CI failures** for PR #${{ env.PR_NUMBER }} on branch `${{ needs.resolve.outputs.head_branch }}`.
 

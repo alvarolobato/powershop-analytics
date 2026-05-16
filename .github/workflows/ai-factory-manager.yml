@@ -258,7 +258,7 @@ jobs:
           TRACKING_ISSUE: ${{ steps.tracking.outputs.issue }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          claude_args: "--model claude-opus-4-7 --permission-mode bypassPermissions --max-turns 80"
+          claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 80"
           prompt: ${{ env.MANAGER_PROMPT }}
 
       # ── Failure handler ───────────────────────────────────────────────────
