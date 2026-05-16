@@ -94,7 +94,7 @@ else
   for label in "${OLD_STATE_LABELS[@]}"; do
     # Search non-comment lines for the label name
     while IFS= read -r filepath; do
-      if grep -q "^[^#]*$label" "$filepath" 2>/dev/null; then
+      if grep -qE "^[^#]*(\"${label}\"|'${label}')" "$filepath" 2>/dev/null; then
         if ! $FOUND_OLD_REFS; then
           echo "" >&2
           echo "ERROR: Workflow YAML files still reference old label names." >&2
@@ -102,7 +102,7 @@ else
           echo "The following workflow files must be updated to use fact-* names before running this script:" >&2
           FOUND_OLD_REFS=true
         fi
-        grep -n "^[^#]*$label" "$filepath" | while IFS=: read -r lineno _rest; do
+        grep -nE "^[^#]*(\"${label}\"|'${label}')" "$filepath" | while IFS=: read -r lineno _rest; do
           echo "  $filepath:$lineno  ($label)" >&2
         done
       fi
