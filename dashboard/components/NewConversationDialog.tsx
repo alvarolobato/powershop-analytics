@@ -107,13 +107,12 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
       const created: { id: string } = await createRes.json();
       const { id } = created;
 
-      // Step 2: navigate immediately to the split-view conversation page.
-      // The ConversationViewer will detect ?q= and send the message itself,
-      // allowing the user to see the streaming response in real time.
-      const dest = trimmed
-        ? `/conversations/${id}?q=${encodeURIComponent(trimmed)}`
-        : `/conversations/${id}`;
-      router.push(dest);
+      // Step 2: stash the prompt in sessionStorage (same-tab, consumed once on
+      // arrival) then navigate. ConversationViewer reads and clears the entry.
+      if (trimmed) {
+        sessionStorage.setItem(`conv-autosend-${id}`, trimmed);
+      }
+      router.push(`/conversations/${id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error inesperado");
       setLoading(false);

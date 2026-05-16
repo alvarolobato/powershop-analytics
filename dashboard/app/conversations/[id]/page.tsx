@@ -8,17 +8,13 @@ export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ q?: string }>;
 }
 
-export default async function ConversationSplitViewPage({ params, searchParams }: PageProps) {
+export default async function ConversationSplitViewPage({ params }: PageProps) {
   const { id } = await params;
-  const { q } = await searchParams;
 
   const conv = await fetchConversation(id);
   if (!conv) notFound();
-
-  const autoSendPrompt = typeof q === "string" && q.trim() ? q : undefined;
 
   return (
     <div
@@ -33,7 +29,7 @@ export default async function ConversationSplitViewPage({ params, searchParams }
 
       {/* Right panel: conversation detail */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <ConversationViewer initial={conv} autoSendPrompt={autoSendPrompt} />
+        <ConversationViewer initial={conv} />
       </div>
     </div>
   );

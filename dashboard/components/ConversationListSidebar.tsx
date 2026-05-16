@@ -9,21 +9,26 @@ interface ConversationListSidebarProps {
 }
 
 function formatRelativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
+  const ts = new Date(iso).getTime();
+  if (isNaN(ts)) return "";
+  const diff = Date.now() - ts;
   const minutes = Math.floor(diff / 60_000);
   if (minutes < 1) return "ahora";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  return `${days}d`;
+  if (days < 7) return `${days}d`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}sem`;
+  return new Date(ts).toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
 export function ConversationListSidebar({ selectedId }: ConversationListSidebarProps) {
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetch_ = useCallback(async () => {
+  const loadConversations = useCallback(async () => {
     try {
       const res = await fetch(
         "/api/conversations?mode=chat&context_kind=global&limit=50",
@@ -46,8 +51,15 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
   }, []);
 
   useEffect(() => {
-    void fetch_();
-  }, [fetch_]);
+    void loadConversations();
+  }, [loadConversations]);
+
+  // Optimistically clear the unread dot for the currently selected conversation.
+  useEffect(() => {
+    setConversations((prev) =>
+      prev.map((c) => (c.id === selectedId ? { ...c, is_unread: false } : c)),
+    );
+  }, [selectedId]);
 
   return (
     <div

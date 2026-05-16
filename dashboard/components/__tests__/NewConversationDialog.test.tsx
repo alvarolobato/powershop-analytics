@@ -66,12 +66,13 @@ describe("NewConversationDialog", () => {
 
   // ── Submit with prompt ─────────────────────────────────────────────────────
 
-  it("with prompt: calls POST /api/conversations then navigates to /conversations/:id?q=... without calling messages API", async () => {
+  it("with prompt: calls POST /api/conversations, stores prompt in sessionStorage, then navigates to /conversations/:id (no ?q=)", async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce({
       ok: true,
       json: async () => ({ id: "abc123def456", c_url: "/c/abc123def456" }),
     });
     vi.stubGlobal("fetch", fetchMock);
+    sessionStorage.clear();
 
     renderDialog();
     fireEvent.change(screen.getByTestId("new-conversation-prompt"), {
@@ -80,10 +81,11 @@ describe("NewConversationDialog", () => {
     fireEvent.click(screen.getByTestId("new-conversation-submit"));
 
     await waitFor(() =>
-      expect(mockPush).toHaveBeenCalledWith(
-        "/conversations/abc123def456?q=%C2%BFCu%C3%A1nto%20vendimos%20ayer%3F",
-      ),
+      expect(mockPush).toHaveBeenCalledWith("/conversations/abc123def456"),
     );
+
+    // Prompt stored in sessionStorage for ConversationViewer to consume
+    expect(sessionStorage.getItem("conv-autosend-abc123def456")).toBe("¿Cuánto vendimos ayer?");
 
     // Only one fetch call (no messages POST)
     expect(fetchMock).toHaveBeenCalledTimes(1);

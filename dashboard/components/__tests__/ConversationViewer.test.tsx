@@ -452,7 +452,8 @@ describe("ConversationViewer", () => {
   // Mark as read on mount
   // -----------------------------------------------------------------------
 
-  it("calls PATCH /api/conversations/:id with last_read_at=now on mount", async () => {
+  it("calls PATCH /api/conversations/:id with last_read_at=now on mount (no pending auto-send)", async () => {
+    sessionStorage.removeItem("conv-autosend-conv-1");
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     globalThis.fetch = fetchMock;
 
@@ -473,11 +474,10 @@ describe("ConversationViewer", () => {
   // autoSendPrompt
   // -----------------------------------------------------------------------
 
-  it("auto-sends the prompt from autoSendPrompt on mount", async () => {
+  it("auto-sends the prompt from sessionStorage on mount", async () => {
+    sessionStorage.setItem("conv-autosend-conv-1", "Hola automático");
     const fetchMock = vi
       .fn()
-      // mark-read PATCH
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) })
       // messages POST
       .mockResolvedValueOnce({
         ok: true,
@@ -491,12 +491,12 @@ describe("ConversationViewer", () => {
               created_at: new Date().toISOString(),
             },
           }),
-      });
+      })
+      // mark-read PATCH (fires after auto-send response)
+      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
     globalThis.fetch = fetchMock;
 
-    render(
-      <ConversationViewer initial={makeConv()} autoSendPrompt="Hola automático" />,
-    );
+    render(<ConversationViewer initial={makeConv()} />);
 
     await waitFor(() => {
       const msgCall = fetchMock.mock.calls.find(
@@ -510,13 +510,14 @@ describe("ConversationViewer", () => {
     });
   });
 
-  it("does not auto-send when autoSendPrompt is empty", async () => {
+  it("does not auto-send when no sessionStorage entry is present", async () => {
+    sessionStorage.removeItem("conv-autosend-conv-1");
     const fetchMock = vi
       .fn()
       .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     globalThis.fetch = fetchMock;
 
-    render(<ConversationViewer initial={makeConv()} autoSendPrompt="" />);
+    render(<ConversationViewer initial={makeConv()} />);
 
     // Wait a tick to let any effects run
     await act(async () => {
@@ -530,22 +531,17 @@ describe("ConversationViewer", () => {
     expect(msgCalls).toHaveLength(0);
   });
 
-  it("clears ?q= from URL after auto-sending", async () => {
+  it("clears sessionStorage entry after auto-sending", async () => {
+    sessionStorage.setItem("conv-autosend-conv-1", "Hola auto");
     const fetchMock = vi
       .fn()
       .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     globalThis.fetch = fetchMock;
 
-    // Set a fake location with ?q= param
-    Object.defineProperty(window, "location", {
-      value: { href: "http://localhost/conversations/conv-1?q=Hola" },
-      writable: true,
-    });
-
-    render(<ConversationViewer initial={makeConv()} autoSendPrompt="Hola" />);
+    render(<ConversationViewer initial={makeConv()} />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalled();
+      expect(sessionStorage.getItem("conv-autosend-conv-1")).toBeNull();
     });
   });
 });

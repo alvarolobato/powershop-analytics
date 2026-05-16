@@ -472,11 +472,9 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackMode
 
 interface ConversationViewerProps {
   initial: ConversationWithMessages;
-  /** When set, automatically send this as the first message on mount. */
-  autoSendPrompt?: string;
 }
 
-export function ConversationViewer({ initial, autoSendPrompt }: ConversationViewerProps) {
+export function ConversationViewer({ initial }: ConversationViewerProps) {
   const router = useRouter();
   const [conv, setConv] = useState<ConversationWithMessages>(initial);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -490,30 +488,29 @@ export function ConversationViewer({ initial, autoSendPrompt }: ConversationView
     }
   }, [conv.messages.length]);
 
-  // Mark conversation as read on mount (Task 1 wires up the DB side).
+  // On mount: if NewConversationDialog left a pending prompt in sessionStorage, auto-send it
+  // and mark as read after the response (prevents last_interaction_at racing ahead of
+  // last_read_at). Otherwise mark as read immediately.
   useEffect(() => {
-    void fetch(`/api/conversations/${initial.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ last_read_at: "now" }),
-    })?.catch(() => { /* silent */ });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initial.id]);
+    const key = `conv-autosend-${initial.id}`;
+    const stored = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
+    const text = stored?.trim() ?? "";
 
-  // Auto-send the prompt that came from NewConversationDialog via ?q=...
-  useEffect(() => {
-    if (!autoSendPrompt || autoSendFired.current) return;
+    const markRead = () =>
+      void fetch(`/api/conversations/${initial.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ last_read_at: "now" }),
+      }).catch(() => {});
+
+    if (!text || autoSendFired.current) {
+      markRead();
+      return;
+    }
+
     autoSendFired.current = true;
+    sessionStorage.removeItem(key);
 
-    const text = autoSendPrompt.trim();
-    if (!text) return;
-
-    // Remove the ?q= param from the URL without triggering navigation
-    const url = new URL(window.location.href);
-    url.searchParams.delete("q");
-    router.replace(url.pathname + (url.search || ""));
-
-    // Optimistically add the user message
     const userMsg: ConversationMessage = {
       id: `local-user-${Date.now()}`,
       conversation_id: initial.id,
@@ -529,6 +526,8 @@ export function ConversationViewer({ initial, autoSendPrompt }: ConversationView
       body: JSON.stringify({ content: text, callLlm: true }),
     })
       .then(async (res) => {
+        // Mark read AFTER the message is persisted so last_read_at >= last_interaction_at.
+        markRead();
         if (!res.ok) return;
         const data = await res.json();
         const raw = data?.message;
@@ -536,9 +535,9 @@ export function ConversationViewer({ initial, autoSendPrompt }: ConversationView
           setConv((c) => ({ ...c, messages: [...c.messages, raw as ConversationMessage] }));
         }
       })
-      .catch(() => { /* silent — user can retry via footer */ });
+      .catch(() => { markRead(); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoSendPrompt, initial.id]);
+  }, [initial.id]);
 
   const handleTitleChange = useCallback((newTitle: string) => {
     setConv((c) => ({ ...c, title: newTitle }));
