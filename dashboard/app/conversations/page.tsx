@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ConversationsTable } from "@/components/ConversationsTable";
 import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { NewConversationDialog } from "@/components/NewConversationDialog";
 import { isApiErrorResponse, type ApiErrorResponse } from "@/lib/errors";
 import type { ConversationRow } from "@/app/conversations/types";
 
@@ -330,6 +331,8 @@ function ConversationsPageContent() {
     () => searchParams?.get("archived") === "1"
   );
 
+  const [showNewConversationDialog, setShowNewConversationDialog] = useState(false);
+
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ApiErrorResponse | string | null>(null);
@@ -502,7 +505,35 @@ function ConversationsPageContent() {
             Historial de todas las interacciones con la IA
           </p>
         </div>
+
+        <button
+          type="button"
+          data-testid="new-conversation-btn"
+          onClick={() => setShowNewConversationDialog(true)}
+          style={{
+            background: "var(--accent)",
+            border: "none",
+            borderRadius: 6,
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 600,
+            padding: "8px 16px",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            whiteSpace: "nowrap",
+          }}
+        >
+          + Nueva conversación
+        </button>
       </div>
+
+      <NewConversationDialog
+        open={showNewConversationDialog}
+        onClose={() => setShowNewConversationDialog(false)}
+      />
 
       {/* Filter bar */}
       <FilterBar
