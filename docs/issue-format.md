@@ -2,7 +2,7 @@
 
 All GitHub issues in this project follow a single standard format. When creating issues, always use this template exactly.
 
-> **Why this lives here, not in AGENTS.md:** the template + phasing rules are ~140 lines of reference that the planner reads once when decomposing work, but every Claude session in the repo doesn't need them in the always-loaded context chain. AGENTS.md keeps a short summary and links here.
+> **Why this lives here, not in AGENTS.md:** the template + phasing rules are ~200 lines of reference that the planner reads once when decomposing work, but every Claude session in the repo doesn't need them in the always-loaded context chain. AGENTS.md keeps a short summary and links here.
 
 ## Issue template
 
@@ -18,41 +18,134 @@ All GitHub issues in this project follow a single standard format. When creating
 - **Definition of done**: <e.g., builds + tests pass; feature-specific checks>
 - **How is it going to be tested**: <testing strategy and specific test cases>
 
-## Tasks
-- [ ] 1) <task title> (owner: agent)
+## Plan
+<optional: narrative describing the overall approach, dependency graph, risks.
+The planner fills this in when it refines the issue body via `ai-plan` or `ai-work`.>
+
+## Phase 1 — <name>
+
+**Goal**: <what this phase achieves>
+**Branch**: `<worktree-name>-p1`
+**Depends on**: <nothing / Phase N PR merged>
+
+### Tasks
+
+- [ ] 1) <task title>
   - **Change**: <precise behavior or code change>
   - **Files**: <exact file paths>
   - **Acceptance**: <how to verify; exact commands and expected output>
-  - **Spec update**: mark done + update remaining tasks/context as needed
 
-- [ ] 2) ... (owner: agent)
+- [ ] 2) ... 
 
-- [ ] N-1) Run all checks and fix issues (owner: agent)
+- [ ] N-2) Run all checks and fix issues
   - **Change**: Run all tests, linting, type-checking, and formatting; fix any failures
   - **Files**: any files with issues
   - **Acceptance**: `docker compose run --rm etl python -m pytest && python -m ruff check etl/ && python -m mypy etl/`
-  - **Spec update**: mark done
 
-- [ ] N-1b) Copilot review (owner: agent, **one round only**)
-  - **Change**: Request a Copilot review, address all feedback, then stop. Do **not** re-request Copilot.
-  - **How**: `gh pr create`, then request Copilot review via REST API: `gh api repos/{owner}/{repo}/pulls/{PR#}/requested_reviewers --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]'`. Poll for review: `gh api repos/{owner}/{repo}/pulls/{PR#}/reviews --jq '[.[] | {state, user: .user.login, body}]'`. Address all comments with inline replies.
-  - **Acceptance**: Copilot review arrived, every comment has either a code change or a reply explaining why it does not apply. No second Copilot round.
-  - **Spec update**: mark done
+- [ ] N-1) Copilot review (one round only) per [D-021](docs/decisions/D-021-two-review-rounds.md)
 
-- [ ] N-1c) Opus review (owner: agent, **one round only, clean context**)
-  - **Change**: Run a single Opus review of the PR **from a fresh context** (new session, no implementation history), address all feedback, then stop.
-  - **How**: Start a new Claude Code session with no prior conversation about this PR and invoke the PR review flow on this PR number. Reply inline to every comment; apply the fixes that are correct.
-  - **Acceptance**: Opus review completed; every comment has either a code change or a reply. No second Opus round.
-  - **Spec update**: mark done
-
-- [ ] N) Create commit (owner: agent)
-  - **Change**: Stage all changes and create a descriptive commit
-  - **Files**: none (git operation)
-  - **Acceptance**: `git status` shows clean working tree; `git log -1` shows the new commit
-  - **Spec update**: mark done
+- [ ] N) Opus review (one round only, clean context) per [D-021](docs/decisions/D-021-two-review-rounds.md)
 
 ## Additional Context
 <append-only notes: discoveries, links, decisions, gotchas found during execution>
+```
+
+**Single-phase issues** (the default) have exactly one `## Phase 1` block. **Multi-phase issues** add `## Phase 2`, `## Phase N`, each depending on the previous phase's PR being merged.
+
+### Single-phase example
+
+```markdown
+# Add /api/health endpoint
+
+## Context
+- **Problem**: No endpoint to check ETL sync freshness
+- **Worktree**: `health-endpoint`
+- **Scope**: One route, one test
+- **Definition of done**: `GET /api/health` returns `{ status, last_sync }`. Tests pass.
+
+## Phase 1 — Health endpoint
+
+**Goal**: Implement and test the endpoint
+**Branch**: `health-endpoint-p1`
+**Depends on**: nothing
+
+### Tasks
+
+- [ ] 1) Create `dashboard/app/api/health/route.ts`
+  - **Change**: Query `watermark` table; return `{ status: "ok"|"stale", last_sync }`. Stale if last_sync > 48 h.
+  - **Files**: `dashboard/app/api/health/route.ts`
+  - **Acceptance**: `curl localhost:3000/api/health` returns JSON with `status` key
+
+- [ ] 2) Add Vitest test
+  - **Files**: `dashboard/app/api/health/route.test.ts`
+  - **Acceptance**: `npm test` green
+
+- [ ] 3) Run all checks and fix issues
+
+- [ ] 4) Copilot review (one round only)
+
+- [ ] 5) Opus review (one round only, clean context)
+```
+
+### Multi-phase example
+
+```markdown
+# Conversations feature
+
+## Context
+- **Problem**: No way to browse past AI conversations
+- **Worktree**: `conversations`
+- **Definition of done**: UI shows list + detail; API persists to DB.
+
+## Plan
+Three phases: data layer (Phase 1) → API routes (Phase 2) → UI components (Phase 3).
+Phase 2 cannot start until Phase 1 merges (consumes data-layer types).
+Phase 3 cannot start until Phase 2 merges (consumes API shape).
+
+| Phase | Tasks | Files | Reason for split |
+|-------|-------|-------|-----------------|
+| 1 | DB schema + lib types | `etl/schema/init.sql`, `dashboard/lib/conversations.ts` | Sets contract others read |
+| 2 | API routes | `dashboard/app/api/conversations/*.ts` | Needs Phase 1 types |
+| 3 | UI components | `dashboard/components/ChatSidebar.tsx` | Needs Phase 2 shapes |
+
+## Phase 1 — Data layer
+
+**Goal**: DB schema + TypeScript types
+**Branch**: `conversations-p1`
+**Depends on**: nothing
+
+### Tasks
+- [ ] 1) Add `conversations` table to `etl/schema/init.sql`
+- [ ] 2) Add TypeScript types in `dashboard/lib/conversations.ts`
+- [ ] 3) Run all checks
+- [ ] 4) Copilot review
+- [ ] 5) Opus review
+
+## Phase 2 — API routes
+
+**Goal**: REST endpoints for listing and fetching conversations
+**Branch**: `conversations-p2`
+**Depends on**: Phase 1 PR merged
+
+### Tasks
+- [ ] 1) `GET /api/conversations` route
+- [ ] 2) `GET /api/conversations/:id` route
+- [ ] 3) Run all checks
+- [ ] 4) Copilot review
+- [ ] 5) Opus review
+
+## Phase 3 — UI components
+
+**Goal**: ChatSidebar browsing conversations
+**Branch**: `conversations-p3`
+**Depends on**: Phase 2 PR merged
+
+### Tasks
+- [ ] 1) ChatSidebar with conversation list
+- [ ] 2) ConversationViewer detail pane
+- [ ] 3) Run all checks
+- [ ] 4) Copilot review
+- [ ] 5) Opus review
 ```
 
 ## Worktree workflow
@@ -95,51 +188,128 @@ Rules:
 - **Round 2 — Opus, clean context.** Start a new Claude Code session (no prior conversation about this PR or the branch) and run the PR review flow on this PR number. Reply inline to every comment; apply the correct fixes. **One round only — do not re-request Opus.**
 - **Merge** after both rounds are done and every comment has a change or a reply. Unresolved disagreement → flag to the human owner; don't start a third round to paper over it.
 
-## Phase labels and execution order
+## Phase execution order
 
-Issues are labelled by phase: `phase-1`, `phase-2`, ..., `phase-6`.
+Phases live as `## Phase N — <name>` headings **inside the issue body**. They are not labels.
 
-**Execution rules for unattended agents:**
-- Phase 1 is sequential: P1-A then P1-B.
-- Phases 2+3 sync issues are independent of each other — run in batches of 2-3 after P1-B merges. Each sync issue only creates `etl/sync/<module>.py` + tests. **None touch `etl/main.py`** — P4 owns that file.
-- Phase 4 (scheduler) wires all sync modules into `main.py` and runs the first full data load. Requires all sync PRs merged.
-- Phase 5 (WrenAI MDL) requires P4 complete (data must be in PostgreSQL).
-- Phase 6 (docs) requires P5 complete.
+**Execution rules:**
+- Phase 1 starts when `ai-work` is added to the issue.
+- The implementer finds the next un-merged phase (checks whether each phase's branch has a merged PR via `gh pr list --search "head:<branch>" --state merged`).
+- Phase N+1 starts only after Phase N's PR is **merged and `main` is green**.
+- The owner adds `ai-work` again to trigger Phase N+1 (or the watchdog re-triggers if `fact-in-progress` is stalled with unchecked tasks remaining).
+
+**Single phase** (default): issue has one `## Phase 1` block. The implementer walks its `### Tasks` checklist, commits per task, ticks checkboxes via `gh issue edit --body`, opens one PR.
+
+**Multiple phases**: each phase is a separate PR. The implementer opens the phase's PR, sets `fact-ready-for-review`, and stops. The next phase begins only after the owner merges the previous PR.
+
+**Resumability**: if the implementer times out or fails mid-phase, the checkboxes in the issue body record progress. Re-adding `ai-work` resumes at the first unchecked task.
+
+**`ai-decompose` escape hatch**: if the issue carries the `ai-decompose` label, the planner falls back to the legacy parent → sub-issues model (creates one sub-issue per task, each with `fact-task` + `ai-work`). Reserve this for genuinely huge work where parallel execution across multiple people matters.
 
 ## Planner phasing rules (mandatory for all decompositions)
 
-These rules apply to **every** planning session, not just the ETL epic above. The planner must apply them before finalising any sub-issue decomposition.
+These rules apply to **every** planning session — whether the planner produces phases-in-body (default) or sub-issues (when `ai-decompose` is present).
 
-### Q1 — When to produce phases (trigger conditions)
+### Default path: phases-in-body
+
+The planner edits the issue body in place to add or refine `## Phase N` headings and `### Tasks` checklists. Default = **one phase**. Split into multiple phases only when:
+
+1. **Size**: the estimated single PR would exceed ~2000 LOC, OR
+2. **Producer/consumer dependency**: task group A defines a shape or contract that group B reads (classic chain: DB schema → API routes → UI components). B cannot correctly implement against an unmerged A, OR
+3. **DDL conflict**: two task groups touch DDL on the same table or write heavily to the same critical shared file (`etl/main.py`, `dashboard/lib/knowledge.ts`).
+
+When **none** of the above apply, keep everything in a single phase.
+
+Include a dependency table in the `## Plan` section when splitting:
+
+| Phase | Task groups | Files | Reason for split |
+|-------|-------------|-------|-----------------|
+| 1 | Data layer | `etl/schema/init.sql`, `lib/types.ts` | Sets contract all others read |
+| 2 | API routes | `app/api/**/*.ts` | Needs Phase 1 types; can't merge concurrently |
+| 3 | UI | `components/**/*.tsx` | Needs Phase 2 shapes |
+
+### Legacy path: sub-issues (only when `ai-decompose` is present)
+
+When `ai-decompose` is on the issue, the planner creates one GitHub sub-issue per task group. Sub-issues carry `fact-task` + `ai-work`. Apply the original Q1–Q3 phasing rules below to batch them into phases.
+
+#### Q1 — When to produce phases (trigger conditions)
 
 Phases are **mandatory** when any two sub-issues share any of the following:
 
-1. **Shared source file** — the same path appears in the `Files:` section of two sub-issues (especially `dashboard/lib/*.ts`, `dashboard/components/`, `etl/schema/init.sql`, shared hooks/types).
-2. **Shared DB table** — any two sub-issues `CREATE`, `ALTER`, or heavily write to the same table. Schema DDL is the highest-risk overlap.
-3. **Shared HTTP route family** — any two sub-issues add or modify routes under the same prefix (e.g. `/api/conversations/*`).
-4. **Producer/consumer dependency** — one sub-issue defines a shape that another reads. Classic chain: data layer → API route → UI component. The consumer cannot correctly implement against a shape that isn't merged yet.
+1. **Shared source file** — the same path appears in the `Files:` section of two sub-issues.
+2. **Shared DB table** — any two sub-issues `CREATE`, `ALTER`, or heavily write to the same table.
+3. **Shared HTTP route family** — any two sub-issues add or modify routes under the same prefix.
+4. **Producer/consumer dependency** — one sub-issue defines a shape that another reads.
 
 When **none** of the above apply, sub-issues may run in parallel.
 
-### Q2 — Serialisation unit
+#### Q2 — Serialisation unit
 
-**Phase = a batch of sub-issues that share no files, tables, or contracts.** Within a phase, sub-issues run concurrently (existing worker behaviour). Between phases: all PRs from phase N must be **merged and `main` must be green** before any phase N+1 sub-issue receives `ai-work`.
+**Phase = a batch of sub-issues that share no files, tables, or contracts.** Within a phase, sub-issues run concurrently. Between phases: all PRs from phase N must be **merged and `main` must be green** before any phase N+1 sub-issue receives `ai-work`.
 
-Phase N+1 sub-issues are created with the `ai-task` label but **without** `ai-work`. The owner adds `ai-work` once all phase N PRs are merged.
+Phase N+1 sub-issues are created with `fact-task` but **without** `ai-work`. The owner adds `ai-work` once all phase N PRs are merged.
 
-### Q3 — Enforcement rule for the planner
+#### Q3 — Enforcement rule for the planner
 
 After listing sub-issues, the planner must:
 
-1. For each pair (A, B) assigned to the same phase: check all four Q1 conditions:
-   - **File overlap**: is `Files(A) ∩ Files(B)` non-empty (string intersection on the `Files:` lines)?
-   - **DB table overlap**: do both touch (CREATE/ALTER/write) the same table?
-   - **Route prefix overlap**: do both add or modify routes under the same HTTP prefix?
-   - **Producer/consumer chain**: does A define a shape or contract that B reads?
-2. If **any** of the above is true: move B to the next phase; document the reason in the plan comment.
+1. For each pair (A, B) assigned to the same phase: check all four Q1 conditions.
+2. If **any** is true: move B to the next phase; document the reason in the plan comment.
 3. Include a **dependency table** in the plan comment showing which sub-issues are in each phase and the reason for any serialisation.
 
-### Phase labeling
+## Label conventions
 
-- Use `phase-1`, `phase-2`, ... labels on sub-issues to indicate which batch they belong to.
-- In the plan comment, include a dependency table with columns: Phase | Sub-issue | Files | Reason for phase assignment.
+Labels split into two groups with different visual treatment and different owners.
+
+### Owner-facing labels (the only ones the owner adds or removes)
+
+The owner acts on these. They are coloured and visible.
+
+| Label | Purpose |
+|-------|---------|
+| `ai-work` | Trigger: start autonomous implementation |
+| `ai-plan` | Trigger: run planner only — refines issue body, no implementation |
+| `ai-decompose` | Opt-in: use legacy parent → sub-issues model for this issue |
+| `ai-blocked` | The agent couldn't proceed — read the comment, then intervene |
+| `ai-awaiting-owner` | Both review rounds done; PR awaits human merge |
+| `ai-bug` | AI-discovered bug; owner triages |
+| `ai-idea` | AI feature idea; owner triages |
+| `ai-factory` | Marks factory-infrastructure issues |
+| `agent-efficiency` | Improvement requests for the agent system |
+| `no-ai` | Hands off — factory will not touch this issue |
+| `no-ai-manager` | Pause the Factory Manager |
+| `no-pr-review` | Skip AI PR review on this PR |
+| `needs-human-approval` | D-028 gate — business-review issues; factory may not implement until removed |
+| `comp-*` | Component classification (`comp-dashboard`, `comp-etl`, etc.) |
+| `p0-critical` → `p3-low` | Priority |
+| Standard GitHub meta | `bug`, `enhancement`, `question`, etc. |
+
+### Internal `fact-*` state labels (workflows toggle; owner ignores)
+
+These are light grey (`#ededed`). The owner does not add or remove them. They exist so workflow conditionals can track state without cluttering the owner's view.
+
+| Label | Set by | Means |
+|-------|--------|-------|
+| `fact-task` | planner | This is a sub-issue (legacy `ai-decompose` path) |
+| `fact-planned` | planner | Body refined; phases structured; ready for `ai-work` |
+| `fact-in-progress` | worker | Implementer is actively running |
+| `fact-ready-for-review` | address-feedback | PR ready for the next review pass |
+| `fact-phase-copilot` | worker Handle success | Round 1 (Copilot review) in progress |
+| `fact-cp-after-1` | address-feedback | Copilot feedback addressed |
+| `fact-phase-opus` | address-feedback | Round 2 (Opus review) in progress |
+| `fact-o-after-1` | address-feedback | Opus feedback addressed; cycle done |
+| `fact-auto-retry` | worker / address-feedback | Watchdog: retry this (pairs with `ai-blocked`) |
+| `fact-ci-failing` | address-feedback / ci-remediation | CI is red; bot may auto-remediate |
+| `fact-needs-rewrite` | planner / verify steps | Sub-issue body was mangled; do not act until repaired |
+| `fact-parent-incomplete` | Factory Manager Pass 5 | Parent DoD has gaps |
+| `fact-parent-verified` | Factory Manager Pass 5 | Parent DoD verified |
+| `fact-manager-tracking` | Factory Manager | Marks the Manager's session-report issue |
+
+**Naming rule**: if a workflow toggles a label automatically and the owner never has to act on it, name it `fact-*` and colour it grey `#ededed`.
+
+### Auto-applied per PR (informational; owner reads, never adds)
+
+| Label | Applied by | Meaning |
+|-------|-----------|---------|
+| `risk-low/medium/high` | `ai-pr-labeler.yml` | Change risk estimate |
+| `size-xs/s/m/l/xl` | `ai-pr-labeler.yml` | PR size |
