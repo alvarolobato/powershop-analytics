@@ -1,4 +1,11 @@
 name: AI PR Review
+# D-033: `run-name` embeds the PR number in the workflow-run title so the
+# watchdog can match dispatched runs by `display_title` instead of `head_sha`.
+# Without this, `workflow_dispatch` runs record `head_sha = main's SHA` and
+# are invisible to filters like `head_sha == PR.headRefOid`, causing the
+# watchdog to think "Opus never ran" even after dozens of successful runs.
+run-name: >-
+  AI PR Review — PR #${{ github.event.pull_request.number || inputs.pr_number }}
 on:
   pull_request:
     # Strict Copilot-then-Opus sequencing (D-031, issue #580 fallout):
@@ -84,11 +91,31 @@ jobs:
           set -euo pipefail
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
 
-          # Head-SHA idempotency: if claude[bot] already submitted a review
-          # on this exact commit, skip silently. The first-fired run will
-          # post the review and labels; subsequent re-fires must be no-ops.
-          EXISTING_CLAUDE_REVIEWS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" \
-            --jq "[.[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\")] | length" 2>/dev/null || echo "0")
+          # Head-SHA idempotency: if claude[bot] already submitted a *real*
+          # Opus review on this exact commit, skip silently. The first-fired
+          # run will post the review and labels; subsequent re-fires must be
+          # no-ops.
+          #
+          # D-033: We must NOT count empty-body `state=COMMENTED` reviews.
+          # ai-address-feedback addresses each Copilot inline comment by
+          # submitting an inline-reply review (state=COMMENTED, body=""), so
+          # after a single round there are typically 3-10 such "reviews" on
+          # the new head SHA. Counting them caused every Opus dispatch to
+          # short-circuit, leaving PRs stranded in ai-phase-opus until the
+          # watchdog stamped ai-blocked (PRs #629, #640, #644-650 — see
+          # docs/decisions/D-033-opus-review-marker.md).
+          #
+          # Real Opus reviews have a non-empty body (the claude-code-action
+          # always posts a "## Review summary" header via use_sticky_comment).
+          # `(.body | length) > 0` cleanly discriminates.
+          #
+          # `--paginate` is required: address-feedback can add 3-10 empty-body
+          # review submissions per Copilot round, and PRs that go through
+          # several rounds easily exceed one page (100 reviews). Without
+          # pagination, a real Opus review on a later page would be missed
+          # and we'd post a duplicate.
+          EXISTING_CLAUDE_REVIEWS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/reviews?per_page=100" --paginate \
+            --jq ".[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\" and (.body | length) > 0) | .id" 2>/dev/null | wc -l | tr -d ' ')
           if ! [[ "$EXISTING_CLAUDE_REVIEWS" =~ ^[0-9]+$ ]]; then
             EXISTING_CLAUDE_REVIEWS=0
           fi

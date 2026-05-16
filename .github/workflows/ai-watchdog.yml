@@ -295,19 +295,31 @@ jobs:
               continue
             fi
 
-            # Find when ai-ready-for-review label was last added by looking at
-            # pr-review runs triggered for this PR in the last 30 minutes.
+            # Find recent pr-review runs for this PR (last 30 minutes).
+            #
+            # D-033: We match by `display_title` (set via top-level `run-name:`
+            # in ai-pr-review.yml: "AI PR Review — PR #NNN"). Previously this
+            # filtered by `.inputs.pr_number`, but `.inputs` is NOT in the
+            # workflow-runs LIST endpoint response (it's only in the single-run
+            # detail endpoint). That filter always returned empty, so the
+            # watchdog never recognised a recent run and re-dispatched every
+            # cycle (root cause of the #629/#640/#644-650 stall cascade).
+            #
+            # `--paginate` + a server-side `created` filter is required: under
+            # burst load (the failure mode this whole PR addresses) the repo
+            # easily generates >100 runs/hour and the target PR's run can be
+            # pushed off the first page. The `created` query parameter
+            # short-circuits pagination once we cross the 30-minute boundary
+            # so we don't walk the entire history.
             NOW=$(date -u +%s)
+            SINCE_ISO=$(date -u -d "@$((NOW - 1800))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
             RECENT_RUNS=$(gh api \
-              "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=10" \
-              --jq ".workflow_runs[] |
-                select(
-                  .head_branch != null and
-                  (.created_at | fromdateiso8601) > ($NOW - 1800)
-                ) | .inputs // {} | .pr_number // \"\"" 2>/dev/null || echo "")
+              "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=100&created=%3E${SINCE_ISO}" \
+              --paginate \
+              --jq '.workflow_runs[] | .display_title' 2>/dev/null || true)
 
-            # Check if there's a recent run for this PR number
-            if echo "$RECENT_RUNS" | grep -qx "$NUM"; then
+            # Match "PR #<NUM>" with a non-digit boundary so #64 doesn't match #647.
+            if echo "$RECENT_RUNS" | grep -E "PR #${NUM}([^0-9]|$)" >/dev/null 2>&1; then
               echo "PR #$NUM: pr-review already dispatched recently — skipping"
               continue
             fi
@@ -614,10 +626,41 @@ jobs:
               continue
             fi
 
-            # Look for the most recent successful ai-pr-review on this head SHA.
-            # Best-effort; skip silently on API hiccup.
-            LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=20" \
-              --jq "[.workflow_runs[] | select(.head_sha == \"$HEAD\" and .conclusion == \"success\")] | first | .updated_at // empty" 2>/dev/null || echo "")
+            # Look for the most recent successful ai-pr-review for this PR.
+            #
+            # D-033: Match by `display_title` ("AI PR Review — PR #NNN" set
+            # via top-level run-name) instead of head_sha. workflow_dispatch
+            # runs record `head_sha = main's SHA`, not the PR's SHA, so the
+            # previous head_sha filter was blind to all watchdog/auto re-
+            # dispatches and made this step think "Opus never ran" every cycle
+            # even though dozens of runs had succeeded.
+            #
+            # Belt-and-braces: also verify a real Opus REVIEW exists on the
+            # PR head SHA (non-empty body, see D-033 / ai-pr-review.yml
+            # head-SHA idempotency). A successful workflow run that
+            # short-circuited via idempotency doesn't count as "Opus ran".
+            #
+            # `--paginate` mirrors the pr-review.yml idempotency: high-review
+            # PRs can push a real Opus review onto a later page. Missing it
+            # here would send us down the "Opus never ran" retry path even
+            # though Opus already reviewed.
+            REAL_OPUS_ON_HEAD=$(gh api "repos/$REPO_FULL/pulls/$NUM/reviews?per_page=100" --paginate \
+              --jq ".[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD\" and (.body | length) > 0) | .id" 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+            if ! [[ "$REAL_OPUS_ON_HEAD" =~ ^[0-9]+$ ]]; then
+              REAL_OPUS_ON_HEAD=0
+            fi
+            if [ "$REAL_OPUS_ON_HEAD" -gt 0 ]; then
+              # Opus genuinely reviewed this head — but address-feedback
+              # didn't transition. Look up the workflow run anyway as the
+              # age anchor for retry. Use `created` to bound the search
+              # within STUCK_MAX_AGE_SECS and `--paginate` to be robust to
+              # bursty run histories.
+              SINCE_ISO_OPUS=$(date -u -d "@$((NOW - STUCK_MAX_AGE_SECS))" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)
+              LAST_OPUS_AT=$(gh api "repos/$REPO_FULL/actions/workflows/ai-pr-review.yml/runs?per_page=100&created=%3E${SINCE_ISO_OPUS}" --paginate \
+                --jq ".workflow_runs[] | select((.display_title // \"\") | test(\"PR #${NUM}(\\\\D|\$)\")) | select(.conclusion == \"success\") | .updated_at" 2>/dev/null | head -1 || echo "")
+            else
+              LAST_OPUS_AT=""
+            fi
             if [ -z "$LAST_OPUS_AT" ]; then
               # Opus has NEVER run on this PR head, but `ai-phase-opus` is set —
               # address-feedback transitioned the labels but its
