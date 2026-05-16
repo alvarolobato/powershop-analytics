@@ -6,10 +6,10 @@ name: AI PR Mergeability
 # fixes failing CI; this one fixes everything BEFORE CI can even run.
 on:
   schedule:
-    # Hourly. The push event handles the hot path (new commit on main
-    # rebases PRs immediately); cron is the fallback for PRs that haven't
-    # had push activity. Bumped from */30 to */60 per issue #625 to ease
-    # GitHub schedule queue pressure (D-030).
+    # Hourly (was every 30 minutes; reduced per issue #625 to ease GitHub
+    # schedule queue pressure — see D-030). The `push` event handles the
+    # hot path (rebase on every commit to main); the cron is the fallback
+    # for PRs that haven't had push activity.
     - cron: "0 * * * *"
   push:
     branches: [main]
