@@ -477,6 +477,11 @@ export async function updateConversationTitle(id: string, title: string): Promis
   await sql(`UPDATE conversations SET title = $2 WHERE id = $1`, [id, title]);
 }
 
+/** Sets the title only when it has not been set yet (title IS NULL). Idempotent — safe to call from tools that must run at most once. */
+export async function setConversationTitleOnce(id: string, title: string): Promise<void> {
+  await sql(`UPDATE conversations SET title = $2 WHERE id = $1 AND title IS NULL`, [id, title]);
+}
+
 /** Sets or clears archived_at. Passes timestamp as a param so callers can verify it. */
 export async function setConversationArchived(id: string, archived: boolean): Promise<void> {
   const archivedAt = archived ? new Date().toISOString() : null;

@@ -9,7 +9,7 @@ import type {
 } from "openai/resources/chat/completions";
 import { logLlmToolCall } from "./logging";
 import { DASHBOARD_AGENTIC_TOOLS } from "./catalog";
-import { updateConversationTitle } from "@/lib/conversations";
+import { setConversationTitleOnce } from "@/lib/conversations";
 import { getAgenticConfig } from "./config";
 import {
   emptyUsage,
@@ -214,7 +214,7 @@ async function dispatchTool(
         return toolError("SET_TITLE_INVALID_TITLE", "title must be a non-empty string", ctx);
       }
       const trimmedTitle = title.trim().slice(0, 100);
-      await updateConversationTitle(ctx.conversationId, trimmedTitle);
+      await setConversationTitleOnce(ctx.conversationId, trimmedTitle);
       return toolOk({ title: trimmedTitle });
     }
     default:

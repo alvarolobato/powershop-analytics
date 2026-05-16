@@ -36,6 +36,7 @@ import {
   getConversationWithMessages,
   listConversations,
   updateConversationTitle,
+  setConversationTitleOnce,
   setConversationArchived,
   archiveConversation,
   unarchiveConversation,
@@ -114,6 +115,19 @@ describe("updateConversationTitle", () => {
     expect(sql).toContain("UPDATE conversations");
     expect(sql).toContain("title");
     expect(params).toEqual(["abc123", "Mi análisis"]);
+  });
+});
+
+describe("setConversationTitleOnce", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("executes an UPDATE with AND title IS NULL guard", async () => {
+    mockSql.mockResolvedValue([]);
+    await setConversationTitleOnce("abc123", "Ventas semanales");
+    const [sql, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("UPDATE conversations");
+    expect(sql).toContain("title IS NULL");
+    expect(params).toEqual(["abc123", "Ventas semanales"]);
   });
 });
 
