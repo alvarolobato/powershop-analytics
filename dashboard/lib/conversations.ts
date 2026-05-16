@@ -16,6 +16,13 @@ import { generateRequestId } from "@/lib/errors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+// Import and re-export the canonical InitialContext shape from conversation-types.ts.
+// The snake_case shape there is what InitialContextPanel consumes and what the
+// API contract returns — this single definition eliminates the old camelCase
+// duplicate that was causing empty "Contexto original" panels.
+import type { InitialContext } from "@/lib/conversation-types";
+export type { InitialContext };
+
 export interface ConversationRow {
   id: string;
   mode: string;
@@ -32,23 +39,6 @@ export interface ConversationRow {
   llm_driver: string | null;
   initial_context: InitialContext | null;
   created_by: string | null;
-}
-
-/** Snapshot of LLM context at first message send. Immutable after creation. */
-export interface InitialContext {
-  model: string;
-  provider: string;
-  driver: string | null;
-  systemPrompt: {
-    stable: string;
-    volatile?: string;
-  };
-  tools: string[];
-  toolSchemas?: Record<string, unknown>[];
-  seedPrompt?: string;
-  flow?: string;
-  maxOutputTokens?: number;
-  agenticLimits?: Record<string, unknown>;
 }
 
 export interface MessageRow {
@@ -71,6 +61,8 @@ export interface ConversationListRow extends ConversationRow {
   duration_seconds: number;
   last_message_preview: string | null;
   token_total: number;
+  /** Dashboard name when context_kind='dashboard', resolved via LEFT JOIN. */
+  context_dashboard_name?: string | null;
 }
 
 export interface ListConversationsOptions {
@@ -246,6 +238,8 @@ export async function listConversations(
        c.id, c.mode, c.title, c.first_user_prompt, c.context_url, c.context_kind,
        c.context_ref, c.created_at, c.last_interaction_at, c.archived_at,
        c.last_status, c.llm_provider, c.llm_driver, c.initial_context, c.created_by,
+       -- dashboard name when context_kind='dashboard'
+       d.name AS context_dashboard_name,
        -- message count
        COALESCE(stats.message_count, 0)::INT AS message_count,
        -- tool_calls_count: assistant messages that have a tool_calls array in content
@@ -259,6 +253,7 @@ export async function listConversations(
        -- token totals across all messages
        COALESCE(stats.token_total, 0)::INT AS token_total
      FROM conversations c
+     LEFT JOIN dashboards d ON c.context_kind = 'dashboard' AND c.context_ref::text = d.id::text
      LEFT JOIN LATERAL (
        SELECT
          COUNT(*)::INT AS message_count,
