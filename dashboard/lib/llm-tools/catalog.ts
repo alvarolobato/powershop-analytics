@@ -1,10 +1,22 @@
 /**
  * OpenAI-format tool definitions for OpenRouter chat.completions.
+ *
+ * Named catalogs:
+ *   FREE_CHAT_TOOLS         — data inspection + dashboard generation trigger (free-chat flow)
+ *   DASHBOARD_AGENTIC_TOOLS — full catalog (generate / modify / analyze / review flows)
+ *
+ * Structure:
+ *   DATA_INSPECTION_TOOLS (private) — read-only SQL + dashboard inspect tools
+ *   FREE_CHAT_TOOLS = DATA_INSPECTION_TOOLS + start_dashboard_generation
+ *   DASHBOARD_AGENTIC_TOOLS = DATA_INSPECTION_TOOLS + validate_dashboard_spec
+ *                             + apply_dashboard_modification + submit_dashboard_analysis
+ *                             + submit_weekly_review
  */
 
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
 
-export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
+/** Read-only SQL and dashboard inspection tools shared across all flows. */
+const DATA_INSPECTION_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
@@ -146,6 +158,26 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_dashboard_all_widget_status",
+      description:
+        "Run read-only validation + cost check + SQL lint on every SQL string in a saved dashboard; does not execute full queries.",
+      parameters: {
+        type: "object",
+        properties: {
+          dashboard_id: { type: "integer" },
+        },
+        required: ["dashboard_id"],
+      },
+    },
+  },
+];
+
+/** Full tool catalog for generate / modify / analyze / review flows. */
+export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
+  ...DATA_INSPECTION_TOOLS,
+  {
+    type: "function",
+    function: {
       name: "validate_dashboard_spec",
       description:
         "Validate a candidate dashboard JSON spec before emitting it as the final answer. Runs Zod structural validation and SQL heuristic lint on every widget. Returns { ok, errors[], warnings[], hint }. Call this on every generate/modify task and only emit the final JSON when ok=true.",
@@ -160,21 +192,6 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
           },
         },
         required: ["spec"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_dashboard_all_widget_status",
-      description:
-        "Run read-only validation + cost check + SQL lint on every SQL string in a saved dashboard; does not execute full queries.",
-      parameters: {
-        type: "object",
-        properties: {
-          dashboard_id: { type: "integer" },
-        },
-        required: ["dashboard_id"],
       },
     },
   },

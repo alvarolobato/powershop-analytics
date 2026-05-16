@@ -1,12 +1,18 @@
 /**
- * Multi-turn conversation context for modify and analyze flows.
+ * Multi-turn conversation context for modify, analyze, and free-chat flows.
  *
  * Loads prior chat turns from the DB and, when the stored history exceeds the
  * turn cap, lazily summarises older turns into a single synthetic assistant
  * message so the LLM receives a bounded context window.
+ *
+ * Also builds the system prompt and tool catalog for free-chat conversations
+ * (`context_kind='global'`) via `buildFreeChatContext()`.
  */
 
 import { sql } from "@/lib/db-write";
+import type { ChatCompletionTool } from "openai/resources/chat/completions";
+import { FREE_CHAT_TOOLS } from "@/lib/llm-tools/catalog";
+import { buildStableKnowledgePart } from "@/lib/prompts";
 import { loadDashboardLlmConfig, getEffectiveDashboardModel, getEffectiveOpenRouterProvider } from "@/lib/llm-provider/config";
 import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
 import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
@@ -16,6 +22,28 @@ import { logUsage } from "@/lib/llm-usage";
 export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
+}
+
+export interface FreeChatContext {
+  systemPrompt: { stable: string };
+  tools: ChatCompletionTool[];
+}
+
+const FREE_CHAT_PREAMBLE =
+  "Eres un asistente analítico de PowerShop Analytics. " +
+  "Tienes acceso a herramientas para inspeccionar el modelo de datos, ejecutar consultas de solo lectura y explorar dashboards guardados. " +
+  "Cuando el usuario pida crear un dashboard, usa la herramienta `start_dashboard_generation`.\n\n";
+
+/**
+ * Build the system prompt and tool catalog for a free-chat conversation
+ * (context_kind='global'). Returns the stable knowledge bundle prefixed with
+ * a Spanish preamble plus the FREE_CHAT_TOOLS catalog.
+ */
+export function buildFreeChatContext(): FreeChatContext {
+  return {
+    systemPrompt: { stable: FREE_CHAT_PREAMBLE + buildStableKnowledgePart() },
+    tools: FREE_CHAT_TOOLS,
+  };
 }
 
 const DEFAULT_MAX_TURNS = 10;

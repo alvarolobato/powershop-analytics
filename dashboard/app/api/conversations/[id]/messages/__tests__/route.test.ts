@@ -11,12 +11,34 @@ const mockMaybeGenerateTitle = vi.fn();
 const mockTouchConversation = vi.fn();
 const mockSetInitialContext = vi.fn();
 const mockLlmComplete = vi.fn();
+const mockRunAgenticChat = vi.fn();
+const mockCreateDashboardAgenticAdapter = vi.fn(() => ({}));
+const mockBuildFreeChatContext = vi.fn(() => ({
+  systemPrompt: { stable: "Eres un asistente analítico de PowerShop Analytics. " + "x".repeat(200) },
+  tools: Array.from({ length: 11 }, (_, i) => ({
+    type: "function" as const,
+    function: { name: `tool_${i}`, description: "test tool", parameters: { type: "object", properties: {} } },
+  })),
+}));
+const mockBuildAgenticErrorDiagnostic = vi.fn((_err: unknown, _cfg: unknown) => ({
+  subError: "test error",
+  provider: "openrouter",
+}));
+const mockPersistAgenticError = vi.fn();
 const mockLoadDashboardLlmConfig = vi.fn(() => ({
   provider: "cli" as const,
   cliModel: "claude-sonnet-4-6",
   cliDriver: "claude_code" as const,
   openrouterModel: "openrouter/anthropic/claude-sonnet-4",
   openrouterModelByFlow: {} as Record<string, string>,
+}));
+const mockGetAgenticConfig = vi.fn(() => ({
+  maxToolRounds: 8,
+  maxToolCalls: 24,
+  toolTimeoutMs: 15000,
+  maxRows: 200,
+  maxColumns: 30,
+  maxResultChars: 20000,
 }));
 
 vi.mock("@/lib/conversations", () => ({
@@ -30,12 +52,43 @@ vi.mock("@/lib/conversations", () => ({
 
 vi.mock("@/lib/llm-client", () => ({
   llmComplete: (...a: unknown[]) => mockLlmComplete(...a),
+  createDashboardAgenticAdapter: () => mockCreateDashboardAgenticAdapter(),
+}));
+
+vi.mock("@/lib/llm-tools/runner", () => ({
+  runAgenticChat: (...a: unknown[]) => mockRunAgenticChat(...a),
+  AgenticRunnerError: class AgenticRunnerError extends Error {
+    code: string;
+    requestId: string;
+    diagnostic?: unknown;
+    constructor(code: string, message: string, requestId: string, diagnostic?: unknown) {
+      super(message);
+      this.name = "AgenticRunnerError";
+      this.code = code;
+      this.requestId = requestId;
+      this.diagnostic = diagnostic;
+    }
+  },
+}));
+
+vi.mock("@/lib/conversation-context", () => ({
+  buildFreeChatContext: () => mockBuildFreeChatContext(),
+}));
+
+vi.mock("@/lib/llm-tools/config", () => ({
+  getAgenticConfig: () => mockGetAgenticConfig(),
+}));
+
+vi.mock("@/lib/llm-tools/diagnostic", () => ({
+  buildAgenticErrorDiagnostic: (...a: unknown[]) => mockBuildAgenticErrorDiagnostic(...(a as [unknown, unknown])),
+  persistAgenticError: (...a: unknown[]) => mockPersistAgenticError(...a),
 }));
 
 vi.mock("@/lib/llm-provider/config", () => ({
   loadDashboardLlmConfig: () => mockLoadDashboardLlmConfig(),
   getEffectiveDashboardModel: (cfg: { cliModel: string; openrouterModel: string; provider: string }) =>
     cfg.provider === "cli" ? cfg.cliModel : cfg.openrouterModel,
+  getEffectiveOpenRouterProvider: () => undefined,
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
@@ -61,6 +114,13 @@ const CONV = {
   archived_at: null,
   last_status: "ok",
   initial_context: null,
+};
+
+const GLOBAL_CONV = {
+  ...CONV,
+  context_kind: "global",
+  mode: "chat",
+  context_ref: null,
 };
 
 const USER_ROW = {
@@ -100,6 +160,17 @@ beforeEach(() => {
   mockTouchConversation.mockReset();
   mockSetInitialContext.mockReset();
   mockLlmComplete.mockReset();
+  mockRunAgenticChat.mockReset();
+  mockCreateDashboardAgenticAdapter.mockReset().mockReturnValue({});
+  mockBuildFreeChatContext.mockReset().mockReturnValue({
+    systemPrompt: { stable: "Eres un asistente analítico de PowerShop Analytics. " + "x".repeat(200) },
+    tools: Array.from({ length: 11 }, (_, i) => ({
+      type: "function" as const,
+      function: { name: `tool_${i}`, description: "test tool", parameters: { type: "object", properties: {} } },
+    })),
+  });
+  mockBuildAgenticErrorDiagnostic.mockReset().mockReturnValue({ subError: "test error", provider: "openrouter" } as ReturnType<typeof mockBuildAgenticErrorDiagnostic>);
+  mockPersistAgenticError.mockReset();
 });
 
 describe("POST /api/conversations/:id/messages", () => {
@@ -210,7 +281,7 @@ describe("POST /api/conversations/:id/messages", () => {
   });
 
   it("does NOT snapshot initial_context when already set", async () => {
-    mockGetConversation.mockResolvedValue({ ...CONV, initial_context: { model: "x", provider: "cli", driver: null, systemPrompt: { stable: "" }, tools: [] } });
+    mockGetConversation.mockResolvedValue({ ...CONV, initial_context: { model: "x", provider: "cli", driver: null } });
     mockAppendMessage.mockResolvedValue(USER_ROW);
     mockTouchConversation.mockResolvedValue(undefined);
 
@@ -232,7 +303,7 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(mockSetInitialContext).not.toHaveBeenCalled();
   });
 
-  it("calls LLM and returns ok+assistant message row when callLlm=true", async () => {
+  it("calls LLM and returns ok+assistant message row when callLlm=true (non-free-chat)", async () => {
     mockGetConversation.mockResolvedValue(CONV);
     mockAppendMessage
       .mockResolvedValueOnce(USER_ROW) // user append
@@ -252,7 +323,84 @@ describe("POST /api/conversations/:id/messages", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.message).toEqual(ASSISTANT_ROW);
+    // Non-free-chat falls back to llmComplete
     expect(mockLlmComplete).toHaveBeenCalled();
+    expect(mockRunAgenticChat).not.toHaveBeenCalled();
+  });
+
+  // ── Free-chat (context_kind='global') tests ──────────────────────────────────
+
+  it("uses the agentic runner with FREE_CHAT_TOOLS for context_kind=global", async () => {
+    mockGetConversation.mockResolvedValue(GLOBAL_CONV);
+    mockAppendMessage
+      .mockResolvedValueOnce(USER_ROW)
+      .mockResolvedValueOnce(ASSISTANT_ROW);
+    mockLoadMessages.mockResolvedValue([USER_ROW]);
+    mockRunAgenticChat.mockResolvedValue({
+      content: "Hay 26 tablas ps_* en el mirror.",
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+    });
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockMaybeGenerateTitle.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "lista tablas ps_*", callLlm: true });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+
+    // Agentic runner must have been called instead of llmComplete
+    expect(mockRunAgenticChat).toHaveBeenCalledTimes(1);
+    expect(mockLlmComplete).not.toHaveBeenCalled();
+
+    // Verify it was called with 11 tools and a non-empty system prompt
+    const callArgs = mockRunAgenticChat.mock.calls[0][0] as {
+      tools: unknown[];
+      systemPrompt: string;
+    };
+    expect(callArgs.tools).toHaveLength(11);
+    expect(typeof callArgs.systemPrompt).toBe("string");
+    expect(callArgs.systemPrompt.length).toBeGreaterThan(100);
+  });
+
+  it("snapshots initial_context with real system prompt and tools for context_kind=global", async () => {
+    mockGetConversation.mockResolvedValue(GLOBAL_CONV); // initial_context: null
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "hola", callLlm: false });
+    await POST(req, ctx);
+
+    expect(mockSetInitialContext).toHaveBeenCalledTimes(1);
+    const snapshot = mockSetInitialContext.mock.calls[0][1] as {
+      system_prompt_stable: string;
+      tools: Array<{ name: string; schema: unknown }>;
+      config: { flow: string; tool_rounds_max: number };
+    };
+    expect(snapshot.system_prompt_stable.length).toBeGreaterThan(100);
+    expect(snapshot.tools.length).toBeGreaterThanOrEqual(11);
+    expect(snapshot.config.flow).toBe("chat");
+    expect(typeof snapshot.config.tool_rounds_max).toBe("number");
+  });
+
+  it("returns 500 with AGENTIC_RUNNER error when agentic runner throws AgenticRunnerError", async () => {
+    const { AgenticRunnerError } = await import("@/lib/llm-tools/runner");
+    mockGetConversation.mockResolvedValue(GLOBAL_CONV);
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockLoadMessages.mockResolvedValue([USER_ROW]);
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+    mockRunAgenticChat.mockRejectedValue(
+      new AgenticRunnerError("AGENTIC_MAX_ROUNDS", "Too many rounds", "test-req-id"),
+    );
+
+    const [req, ctx] = postRequest(ID, { content: "hola", callLlm: true });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("AGENTIC_RUNNER");
   });
 
   it("returns 500 with DB_ERROR when DB phase throws", async () => {
@@ -279,9 +427,10 @@ describe("POST /api/conversations/:id/messages", () => {
     const body = await res.json();
     expect(body.code).toBe("DB_ERROR");
     expect(mockLlmComplete).not.toHaveBeenCalled();
+    expect(mockRunAgenticChat).not.toHaveBeenCalled();
   });
 
-  it("returns 500 with LLM_ERROR when LLM call throws", async () => {
+  it("returns 500 with LLM_ERROR when LLM call throws (non-free-chat)", async () => {
     mockGetConversation.mockResolvedValue(CONV);
     mockAppendMessage.mockResolvedValue(USER_ROW);
     mockLoadMessages.mockResolvedValue([USER_ROW]);
@@ -294,5 +443,20 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.code).toBe("LLM_ERROR");
+  });
+
+  it("callLlm=false still works and does not call runner or llmComplete", async () => {
+    mockGetConversation.mockResolvedValue(GLOBAL_CONV);
+    mockAppendMessage.mockResolvedValue(USER_ROW);
+    mockTouchConversation.mockResolvedValue(undefined);
+    mockSetInitialContext.mockResolvedValue(undefined);
+
+    const [req, ctx] = postRequest(ID, { content: "hello", callLlm: false });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(mockRunAgenticChat).not.toHaveBeenCalled();
+    expect(mockLlmComplete).not.toHaveBeenCalled();
   });
 });
