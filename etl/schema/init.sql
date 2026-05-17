@@ -820,6 +820,36 @@ CREATE TABLE IF NOT EXISTS conversation_messages (
 CREATE INDEX IF NOT EXISTS idx_conversation_messages_by_conv
     ON conversation_messages (conversation_id, created_at);
 
+-- Server-driven conversation turns (D-034 unified engine)
+-- Each row represents one user→assistant exchange. Background job transitions
+-- status: pending → streaming → complete|error.
+CREATE TABLE IF NOT EXISTS conversation_turns (
+    id              UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id TEXT         NOT NULL REFERENCES conversations(id) ON DELETE RESTRICT,
+    turn_index      INTEGER      NOT NULL,
+    user_message    TEXT         NOT NULL,
+    status          TEXT         NOT NULL DEFAULT 'pending'
+                    CHECK (status IN ('pending', 'streaming', 'complete', 'error')),
+    started_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    error           TEXT,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Ordered log/token/context events emitted during a turn.
+-- Clients replay from seq=0 on connect; Last-Event-ID resumes from seq N.
+CREATE TABLE IF NOT EXISTS turn_events (
+    id              BIGSERIAL    PRIMARY KEY,
+    turn_id         UUID         NOT NULL REFERENCES conversation_turns(id) ON DELETE CASCADE,
+    seq             INTEGER      NOT NULL,
+    event_type      TEXT         NOT NULL,
+    payload         JSONB        NOT NULL DEFAULT '{}',
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_events_turn_seq
+    ON turn_events (turn_id, seq);
+
 -- ============================================================
 -- Indexes on visible document numbers (n_albaran / n_factura)
 -- These accelerate lookups by the human-visible document number.
