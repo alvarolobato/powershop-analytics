@@ -169,6 +169,7 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
               : "Sin título");
           const isSelected = conv.id === selectedId;
           const isUnread = conv.is_unread === true;
+          const isRunning = conv.last_status === "running";
 
           return (
             <Link
@@ -189,17 +190,32 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
                 minWidth: 0,
               }}
             >
-              {/* Unread indicator */}
-              <span
-                aria-label={isUnread ? "No leído" : undefined}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: isUnread ? "var(--accent)" : "transparent",
-                  flexShrink: 0,
-                }}
-              />
+              {/* Running spinner or unread dot */}
+              {isRunning ? (
+                <span
+                  aria-label="Procesando"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    border: "2px solid var(--accent)",
+                    borderTopColor: "transparent",
+                    flexShrink: 0,
+                    animation: "spin 0.8s linear infinite",
+                  }}
+                />
+              ) : (
+                <span
+                  aria-label={isUnread ? "No leído" : undefined}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: isUnread ? "var(--accent)" : "transparent",
+                    flexShrink: 0,
+                  }}
+                />
+              )}
 
               {/* Title + timestamp */}
               <span

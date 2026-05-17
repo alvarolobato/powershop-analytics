@@ -28,6 +28,7 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
     if (!text || sending) return;
     setSending(true);
     setError(null);
+    setInput("");  // Clear immediately so the textarea feels responsive
     // Optimistically render the user's message — the server saved it but the
     // POST response only returns the assistant reply, so the UI would otherwise
     // skip the user's turn until the next page load.
@@ -50,7 +51,6 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
         return;
       }
       const data = await res.json();
-      setInput("");
       // POST /messages returns { message: MessageRow } where MessageRow is the
       // assistant row when callLlm=true. Older code returned a bare string;
       // tolerate both shapes so a partial deploy doesn't break the UI.

@@ -416,6 +416,7 @@ function ModificarTab({
   dashboardId,
   initialContext,
   onInitialContextLoaded,
+  onLoadingChange,
   ensureConversation,
   saveMessage,
 }: {
@@ -429,11 +430,13 @@ function ModificarTab({
   dashboardId?: number;
   initialContext?: InitialContext | null;
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
+  onLoadingChange?: (v: boolean) => void;
   ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const setLoadingWithNotify = (v: boolean) => { setLoading(v); onLoadingChange?.(v); };
   const [streamingLog, setStreamingLog] = useState<LogLine[] | null>(null);
   const creationLogs = useCreationLogs(dashboardId);
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
@@ -477,7 +480,7 @@ function ModificarTab({
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setLoading(true);
+    setLoadingWithNotify(true);
     setStreamingLog([]);
 
     // Create (or reuse) a conversation so the session is persisted immediately.
@@ -695,7 +698,7 @@ function ModificarTab({
         logs: [...capturedLogs],
       });
     } finally {
-      setLoading(false);
+      setLoadingWithNotify(false);
       setTimeout(() => setStreamingLog(null), 400);
     }
   }, [input, loading, spec, onSpecUpdate, setMessages]);
@@ -852,6 +855,7 @@ function AnalizarTab({
   onPrefillApplied,
   initialContext,
   onInitialContextLoaded,
+  onLoadingChange,
   ensureConversation,
   saveMessage,
 }: {
@@ -865,6 +869,7 @@ function AnalizarTab({
   onPrefillApplied?: () => void;
   initialContext?: InitialContext | null;
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
+  onLoadingChange?: (v: boolean) => void;
   ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
 }) {
@@ -876,6 +881,7 @@ function AnalizarTab({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const appliedPrefillIdRef = useRef<number | null>(null);
+  const setLoadingWithNotify = (v: boolean) => { setLoading(v); onLoadingChange?.(v); };
 
   // Prefill from drilldown — fires when handleDataPointClick on the page
   // sets pendingAnalyze with a fresh trigger id.
@@ -916,7 +922,7 @@ function AnalizarTab({
       setMessages((prev) => [...prev, userMessage]);
       setInput("");
       setSuggestions([]);
-      setLoading(true);
+      setLoadingWithNotify(true);
       setStreamingLog([]);
 
       // Create (or reuse) a conversation so the session is persisted immediately.
@@ -1359,6 +1365,8 @@ export default function ChatSidebar({
   // can call startNewConversation on the correct tab's hook instance.
   const modifyConv = useDashboardConversation(dashboardId);
   const analyzeConv = useDashboardConversation(dashboardId);
+  // Tracks whether the active tab's LLM call is in flight — used by the header spinner.
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Refs to detect whether initial messages were provided by the parent on mount.
   // Used to skip auto-load when preloaded messages are present, preventing them from being
@@ -1682,17 +1690,25 @@ export default function ChatSidebar({
               }}
             >
               <span
+                aria-label={isProcessing ? "Procesando" : "Conectado"}
                 style={{
-                  width: 5,
-                  height: 5,
+                  width: isProcessing ? 10 : 5,
+                  height: isProcessing ? 10 : 5,
                   borderRadius: "50%",
-                  background: "var(--up)",
-                  animation: "pulse-dot 2s ease-in-out infinite",
+                  background: isProcessing ? "transparent" : "var(--up)",
+                  border: isProcessing ? "2px solid var(--accent)" : "none",
+                  borderTopColor: isProcessing ? "transparent" : undefined,
+                  animation: isProcessing
+                    ? "spin 0.8s linear infinite"
+                    : "pulse-dot 2s ease-in-out infinite",
                   display: "inline-block",
                   flexShrink: 0,
+                  transition: "all 0.2s",
                 }}
               />
-              {`Conectado · ${configuredModel ? displayModelName(configuredModel) : "..."}`}
+              {isProcessing
+                ? `Procesando · ${configuredModel ? displayModelName(configuredModel) : "..."}`
+                : `Conectado · ${configuredModel ? displayModelName(configuredModel) : "..."}`}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -1846,6 +1862,7 @@ export default function ChatSidebar({
             dashboardId={dashboardId}
             initialContext={modifyInitialContext}
             onInitialContextLoaded={setModifyInitialContext}
+            onLoadingChange={setIsProcessing}
             ensureConversation={modifyConv.ensureConversation}
             saveMessage={modifyConv.saveMessage}
           />
@@ -1865,6 +1882,7 @@ export default function ChatSidebar({
             onPrefillApplied={onPendingAnalyzeInputConsumed}
             initialContext={analyzeInitialContext}
             onInitialContextLoaded={setAnalyzeInitialContext}
+            onLoadingChange={setIsProcessing}
             ensureConversation={analyzeConv.ensureConversation}
             saveMessage={analyzeConv.saveMessage}
           />
