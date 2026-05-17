@@ -1,0 +1,763 @@
+"use client";
+
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  type KeyboardEvent,
+} from "react";
+import type {
+  ConversationWithMessages,
+  ConversationMessage,
+  InitialContext,
+} from "@/lib/conversation-types";
+import { isAssistantContent, getMessageText } from "@/lib/conversation-types";
+import { InitialContextPanel } from "@/components/InitialContextPanel";
+import LogBlock, { type LogLine } from "@/components/LogBlock";
+import type { DashboardSpec } from "@/lib/schema";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface TurnData {
+  context: InitialContext | null;
+  logs: LogLine[];
+  complete: boolean;
+  error: string | null;
+}
+
+export interface NewConversationConfig {
+  conversationMode: "modify" | "analyze" | "chat";
+  contextKind: "dashboard" | "home" | "admin" | "global";
+  contextRef?: string;
+}
+
+export interface ConversationPaneProps {
+  conversationId: string | null;
+  mode: "panel" | "standalone";
+  onSpecUpdate?: (spec: DashboardSpec, prompt: string) => void;
+  newConversationConfig?: NewConversationConfig;
+  onConversationCreated?: (id: string) => void;
+  onProcessingChange?: (streaming: boolean) => void;
+  prefillText?: string;
+  prefillId?: number;
+  onPrefillConsumed?: () => void;
+}
+
+// ── SSE stream reader ──────────────────────────────────────────────────────
+// Custom fetch-based SSE reader so we can set Last-Event-ID header and
+// implement exponential backoff reconnect. The browser's native EventSource
+// auto-reconnects but doesn't support custom headers or controlled backoff.
+
+interface SseFrame {
+  id: number;
+  data: Record<string, unknown>;
+}
+
+async function* readSseStream(
+  url: string,
+  lastEventId: number,
+  signal: AbortSignal,
+): AsyncGenerator<SseFrame> {
+  const headers: Record<string, string> = { Accept: "text/event-stream" };
+  if (lastEventId > 0) headers["Last-Event-ID"] = String(lastEventId);
+
+  const response = await fetch(url, { headers, signal });
+  if (!response.body || !response.ok) return;
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let currentId = lastEventId;
+  let currentData = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (line.startsWith("id: ")) {
+        const parsed = parseInt(line.slice(4), 10);
+        if (!isNaN(parsed)) currentId = parsed;
+      } else if (line.startsWith("data: ")) {
+        currentData += (currentData ? "\n" : "") + line.slice(6);
+      } else if (line === "") {
+        if (currentData && currentData !== "{}") {
+          try {
+            const parsed = JSON.parse(currentData) as Record<string, unknown>;
+            yield { id: currentId, data: parsed };
+          } catch {
+            // skip malformed frames
+          }
+        }
+        currentData = "";
+      }
+    }
+  }
+}
+
+// ── Log payload conversion ─────────────────────────────────────────────────
+
+function payloadToLogLine(payload: Record<string, unknown>): LogLine | null {
+  // Full LogLine structure (from agentic runner)
+  if (typeof payload.label === "string") {
+    return {
+      timestamp: (payload.timestamp as string | undefined) ?? "",
+      kind: (["tool", "reason", "done"].includes(payload.kind as string)
+        ? payload.kind
+        : "default") as LogLine["kind"],
+      label: payload.label,
+      detail: payload.detail as string | undefined,
+      body: payload.body as string | undefined,
+    };
+  }
+  // Simple {kind, text, ts} format emitted directly by turn-background
+  if (typeof payload.text === "string") {
+    return {
+      timestamp: (payload.ts as string | undefined) ?? "",
+      kind: "default",
+      label: payload.text,
+    };
+  }
+  return null;
+}
+
+// ── UserBubble ─────────────────────────────────────────────────────────────
+
+function UserBubble({ text }: { text: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+      <div
+        style={{
+          maxWidth: "85%",
+          background: "var(--accent-soft)",
+          border: "1px solid var(--accent)",
+          borderRadius: "12px 12px 2px 12px",
+          padding: "8px 12px",
+          fontSize: 13,
+          color: "var(--fg)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+        data-testid="user-bubble"
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
+// ── AssistantBubble ────────────────────────────────────────────────────────
+
+function AssistantBubble({
+  text,
+  isError,
+}: {
+  text: string;
+  isError?: boolean;
+}) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 8 }}>
+      <div
+        style={{
+          maxWidth: "85%",
+          background: isError ? "rgba(220,38,38,0.1)" : "var(--bg-2)",
+          border: isError ? "1px solid rgba(220,38,38,0.3)" : "none",
+          borderRadius: "12px 12px 12px 2px",
+          padding: "8px 12px",
+          fontSize: 13,
+          color: "var(--fg)",
+          lineHeight: 1.5,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+        }}
+        data-testid="assistant-bubble"
+      >
+        {text}
+      </div>
+    </div>
+  );
+}
+
+// ── LoadingDots ────────────────────────────────────────────────────────────
+
+function LoadingDots() {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 8 }}>
+      <div
+        style={{
+          background: "var(--bg-2)",
+          borderRadius: 10,
+          padding: "10px 12px",
+          fontSize: 12.5,
+        }}
+        data-testid="loading-dots"
+      >
+        <span className="inline-flex gap-1" aria-label="Procesando">
+          <span className="animate-bounce">.</span>
+          <span className="animate-bounce [animation-delay:0.15s]">.</span>
+          <span className="animate-bounce [animation-delay:0.3s]">.</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
+export function ConversationPane({
+  conversationId: initialConversationId,
+  mode,
+  onSpecUpdate,
+  newConversationConfig,
+  onConversationCreated,
+  onProcessingChange,
+  prefillText,
+  prefillId,
+  onPrefillConsumed,
+}: ConversationPaneProps) {
+  const [convId, setConvId] = useState<string | null>(initialConversationId);
+  const [conv, setConv] = useState<ConversationWithMessages | null>(null);
+  // turnId → TurnData (context + logs from SSE events)
+  const [turns, setTurns] = useState<Map<string, TurnData>>(new Map());
+  // assistantMessageId → turnId
+  const [msgToTurn, setMsgToTurn] = useState<Map<string, string>>(new Map());
+  // Currently streaming turn
+  const [pendingTurnId, setPendingTurnId] = useState<string | null>(null);
+  const [pendingUserMsg, setPendingUserMsg] = useState("");
+  const [pendingPrompt, setPendingPrompt] = useState("");
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [expandedLogs, setExpandedLogs] = useState<Record<string, boolean>>({});
+
+  const scrollEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastEventIdRef = useRef(0);
+  const pendingTurnIdRef = useRef<string | null>(null);
+  const pendingPromptRef = useRef("");
+
+  // Keep refs in sync
+  useEffect(() => {
+    pendingTurnIdRef.current = pendingTurnId;
+  }, [pendingTurnId]);
+  useEffect(() => {
+    pendingPromptRef.current = pendingPrompt;
+  }, [pendingPrompt]);
+
+  // Sync onProcessingChange
+  useEffect(() => {
+    onProcessingChange?.(pendingTurnId !== null);
+  }, [pendingTurnId, onProcessingChange]);
+
+  // When conversationId prop changes from outside (e.g. parent resets for new conv)
+  useEffect(() => {
+    setConvId(initialConversationId);
+    setConv(null);
+    setTurns(new Map());
+    setMsgToTurn(new Map());
+    setPendingTurnId(null);
+    setPendingUserMsg("");
+    setPendingPrompt("");
+    lastEventIdRef.current = 0;
+  }, [initialConversationId]);
+
+  // Load conversation from server
+  const loadConversation = useCallback(async (id: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${id}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as ConversationWithMessages;
+      setConv(data);
+    } catch {
+      // silent
+    }
+  }, []);
+
+  useEffect(() => {
+    if (convId) void loadConversation(convId);
+  }, [convId, loadConversation]);
+
+  // Scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (typeof scrollEndRef.current?.scrollIntoView === "function") {
+      scrollEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [conv?.messages?.length, pendingTurnId]);
+
+  // Prefill input
+  const appliedPrefillRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!prefillText?.trim()) return;
+    if (prefillId !== undefined && appliedPrefillRef.current === prefillId) return;
+    if (prefillId !== undefined) appliedPrefillRef.current = prefillId;
+    setInput(prefillText);
+    onPrefillConsumed?.();
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }, [prefillId, prefillText, onPrefillConsumed]);
+
+  // Handle spec_update SSE event
+  const handleSpecUpdateEvent = useCallback(
+    (payload: Record<string, unknown>, prompt: string) => {
+      if (!onSpecUpdate) return;
+      const spec = payload.spec as DashboardSpec | undefined;
+      if (spec) {
+        onSpecUpdate(spec, prompt);
+      }
+    },
+    [onSpecUpdate],
+  );
+
+  // SSE connection with exponential backoff reconnect
+  useEffect(() => {
+    if (!convId) return;
+
+    let active = true;
+    let backoff = 1000;
+    const controller = new AbortController();
+
+    function handleEvent(data: Record<string, unknown>, eventId: number) {
+      lastEventIdRef.current = eventId;
+      const turnId = data.turnId as string;
+      const eventType = data.eventType as string;
+      const payload = data.payload as Record<string, unknown>;
+
+      if (eventType === "context") {
+        const ctx = (payload.context ?? payload) as InitialContext;
+        setTurns((prev) => {
+          const map = new Map(prev);
+          const existing = map.get(turnId) ?? {
+            context: null,
+            logs: [],
+            complete: false,
+            error: null,
+          };
+          return map.set(turnId, { ...existing, context: ctx });
+        });
+      } else if (eventType === "log") {
+        const logLine = payloadToLogLine(payload);
+        if (logLine) {
+          setTurns((prev) => {
+            const map = new Map(prev);
+            const existing = map.get(turnId) ?? {
+              context: null,
+              logs: [],
+              complete: false,
+              error: null,
+            };
+            return map.set(turnId, {
+              ...existing,
+              logs: [...existing.logs, logLine],
+            });
+          });
+        }
+      } else if (eventType === "spec_update") {
+        handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
+      } else if (eventType === "complete") {
+        const messageId = payload.messageId as string | undefined;
+        setTurns((prev) => {
+          const map = new Map(prev);
+          const existing = map.get(turnId) ?? {
+            context: null,
+            logs: [],
+            complete: false,
+            error: null,
+          };
+          return map.set(turnId, { ...existing, complete: true });
+        });
+        if (messageId) {
+          setMsgToTurn((prev) => new Map(prev).set(messageId, turnId));
+        }
+        // Refresh messages and clear pending turn if this is the active one
+        if (pendingTurnIdRef.current === turnId) {
+          void fetch(`/api/conversations/${convId}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((freshConv) => {
+              if (freshConv) setConv(freshConv as ConversationWithMessages);
+              if (pendingTurnIdRef.current === turnId) {
+                setPendingTurnId(null);
+                setPendingUserMsg("");
+                setPendingPrompt("");
+              }
+            })
+            .catch(() => {
+              if (pendingTurnIdRef.current === turnId) setPendingTurnId(null);
+            });
+        }
+      } else if (eventType === "error") {
+        const errText = (payload.message as string | undefined) ?? "Error desconocido";
+        setTurns((prev) => {
+          const map = new Map(prev);
+          const existing = map.get(turnId) ?? {
+            context: null,
+            logs: [],
+            complete: false,
+            error: null,
+          };
+          return map.set(turnId, { ...existing, error: errText });
+        });
+        if (pendingTurnIdRef.current === turnId) {
+          setPendingTurnId(null);
+          setPendingUserMsg("");
+          setPendingPrompt("");
+          setSendError(errText);
+        }
+      }
+    }
+
+    async function connect() {
+      while (active) {
+        try {
+          for await (const { id, data } of readSseStream(
+            `/api/conversations/${convId}/stream`,
+            lastEventIdRef.current,
+            controller.signal,
+          )) {
+            // Reset backoff on any successful event
+            backoff = 1000;
+            handleEvent(data, id);
+          }
+          // Stream ended cleanly (unusual) — reconnect with short delay
+          if (active) {
+            await new Promise((r) => setTimeout(r, backoff));
+            backoff = Math.min(backoff * 2, 30000);
+          }
+        } catch {
+          if (!active || controller.signal.aborted) return;
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s, 30s max
+          await new Promise((r) => setTimeout(r, backoff));
+          backoff = Math.min(backoff * 2, 30000);
+        }
+      }
+    }
+
+    void connect();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+    // handleSpecUpdateEvent is stable (useCallback with stable deps)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [convId, handleSpecUpdateEvent]);
+
+  // Send a message
+  const handleSend = useCallback(
+    async (overrideText?: string) => {
+      const text = (overrideText ?? input).trim();
+      if (!text || sending) return;
+
+      setInput("");
+      setSending(true);
+      setSendError(null);
+
+      try {
+        let currentConvId = convId;
+
+        // Create conversation if needed
+        if (!currentConvId) {
+          if (!newConversationConfig) {
+            setSendError("No se puede enviar sin una conversación activa.");
+            return;
+          }
+          const res = await fetch("/api/conversations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mode: newConversationConfig.conversationMode,
+              context_kind: newConversationConfig.contextKind,
+              context_ref: newConversationConfig.contextRef,
+            }),
+          });
+          if (!res.ok) {
+            setSendError("No se pudo crear la conversación.");
+            return;
+          }
+          const created = (await res.json()) as { id: string };
+          currentConvId = created.id;
+          setConvId(currentConvId);
+          onConversationCreated?.(currentConvId);
+        }
+
+        // Optimistic user message
+        setPendingUserMsg(text);
+        setPendingPrompt(text);
+
+        // POST turn
+        const res = await fetch(`/api/conversations/${currentConvId}/turns`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: text }),
+        });
+
+        if (!res.ok) {
+          setPendingUserMsg("");
+          setPendingPrompt("");
+          const errData = await res.json().catch(() => null);
+          const msg =
+            (errData as Record<string, string> | null)?.error ??
+            "Error al enviar el mensaje.";
+          setSendError(msg);
+          return;
+        }
+
+        const { turnId } = (await res.json()) as { turnId: string };
+        setPendingTurnId(turnId);
+      } catch {
+        setPendingUserMsg("");
+        setPendingPrompt("");
+        setSendError("No se pudo conectar con el servidor.");
+      } finally {
+        setSending(false);
+      }
+    },
+    [input, sending, convId, newConversationConfig, onConversationCreated],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        void handleSend();
+      }
+    },
+    [handleSend],
+  );
+
+  const toggleLog = (id: string) =>
+    setExpandedLogs((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  // ── Render messages ──────────────────────────────────────────────────────
+
+  const messages = conv?.messages ?? [];
+
+  // Graceful fallback: if no turns exist for this conversation (pre-turn era),
+  // just render messages from conversation_messages directly without context panels.
+  const hasTurnData = turns.size > 0 || msgToTurn.size > 0;
+
+  // Render conversation_messages, injecting turn context/logs before each assistant message
+  const renderMessages = () => {
+    if (messages.length === 0 && !pendingTurnId) {
+      return (
+        <p
+          style={{
+            fontSize: 12,
+            color: "var(--fg-subtle)",
+            textAlign: "center",
+            marginTop: 32,
+          }}
+        >
+          {convId ? "Escribe un mensaje para continuar." : "Escribe tu primer mensaje."}
+        </p>
+      );
+    }
+
+    const items: React.ReactNode[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === "tool") continue;
+
+      const msgId = msg.id;
+      const text = extractMessageText(msg);
+      if (!text && msg.role !== "assistant") continue;
+
+      if (msg.role === "user") {
+        items.push(<UserBubble key={msgId} text={text} />);
+      } else {
+        // assistant message
+        const turnId = hasTurnData ? msgToTurn.get(msgId) : undefined;
+        const turnData = turnId ? turns.get(turnId) : null;
+        const isErr =
+          isAssistantContent(msg.content) && (msg.content.is_error ?? false);
+
+        if (turnData?.context) {
+          items.push(
+            <div key={`ctx-${msgId}`} data-testid="context-panel" style={{ marginBottom: 4 }}>
+              <InitialContextPanel context={turnData.context} />
+            </div>,
+          );
+        }
+
+        if (turnData && turnData.logs.length > 0) {
+          items.push(
+            <div
+              key={`log-${msgId}`}
+              data-testid="log-block"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "flex-start",
+                marginBottom: 4,
+              }}
+            >
+              <LogBlock
+                lines={turnData.logs}
+                expanded={expandedLogs[msgId] ?? false}
+                onToggle={() => toggleLog(msgId)}
+              />
+            </div>,
+          );
+        }
+
+        items.push(
+          <AssistantBubble key={msgId} text={text || "(sin texto)"} isError={isErr} />,
+        );
+      }
+    }
+
+    return items;
+  };
+
+  // Streaming turn rendering
+  const renderPendingTurn = () => {
+    if (!pendingTurnId) return null;
+
+    const turnData = turns.get(pendingTurnId);
+    const hasLogs = turnData && turnData.logs.length > 0;
+
+    return (
+      <>
+        {pendingUserMsg && <UserBubble text={pendingUserMsg} />}
+        {turnData?.context && (
+          <div data-testid="context-panel" style={{ marginBottom: 4 }}>
+            <InitialContextPanel context={turnData.context} />
+          </div>
+        )}
+        {hasLogs && (
+          <div
+            data-testid="log-block"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "flex-start",
+              marginBottom: 4,
+            }}
+          >
+            <LogBlock lines={turnData.logs} streaming />
+          </div>
+        )}
+        {!turnData?.complete && !turnData?.error && <LoadingDots />}
+        {turnData?.error && (
+          <AssistantBubble text={turnData.error} isError />
+        )}
+      </>
+    );
+  };
+
+  // ── Layout styles ────────────────────────────────────────────────────────
+
+  const isPanel = mode === "panel";
+
+  return (
+    <div
+      data-testid="conversation-pane"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        overflow: "hidden",
+      }}
+    >
+      {/* Messages area */}
+      <div
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: isPanel ? "12px 14px" : "16px",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        {renderMessages()}
+        {renderPendingTurn()}
+        <div ref={scrollEndRef} />
+      </div>
+
+      {/* Error banner */}
+      {sendError && (
+        <div
+          style={{
+            padding: "6px 14px",
+            fontSize: 12,
+            color: "var(--down, #dc2626)",
+            background: "rgba(220,38,38,0.08)",
+            borderTop: "1px solid rgba(220,38,38,0.2)",
+          }}
+        >
+          {sendError}
+        </div>
+      )}
+
+      {/* Input area */}
+      <div
+        style={{
+          borderTop: "1px solid var(--border)",
+          padding: isPanel ? "10px 12px" : "12px 16px",
+          background: "var(--bg-1)",
+        }}
+      >
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={sending || pendingTurnId !== null}
+            placeholder="Escribe un mensaje…"
+            rows={2}
+            style={{
+              flex: 1,
+              resize: "none",
+              padding: "8px 10px",
+              fontSize: isPanel ? 12 : 13,
+              background: "var(--bg)",
+              border: "1px solid var(--border-strong)",
+              borderRadius: 8,
+              color: "var(--fg)",
+              fontFamily: "inherit",
+              outline: "none",
+              opacity: sending || pendingTurnId !== null ? 0.6 : 1,
+            }}
+          />
+          <button
+            onClick={() => void handleSend()}
+            disabled={sending || pendingTurnId !== null || !input.trim()}
+            style={{
+              padding: isPanel ? "8px 12px" : "9px 16px",
+              background: "var(--accent)",
+              border: "none",
+              borderRadius: 8,
+              color: "#fff",
+              fontSize: isPanel ? 12 : 13,
+              fontWeight: 500,
+              cursor:
+                sending || pendingTurnId !== null || !input.trim()
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                sending || pendingTurnId !== null || !input.trim() ? 0.5 : 1,
+              fontFamily: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {sending ? "…" : "Enviar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function extractMessageText(msg: ConversationMessage): string {
+  if (typeof msg.content === "string") return msg.content;
+  if (isAssistantContent(msg.content)) {
+    return getMessageText(msg.content);
+  }
+  return "";
+}

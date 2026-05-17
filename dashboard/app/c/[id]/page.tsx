@@ -1,8 +1,5 @@
-import { notFound } from "next/navigation";
-import { ConversationViewer } from "@/components/ConversationViewer";
-import { fetchConversation } from "@/lib/conversation-api";
+import { ConversationPane } from "@/components/ConversationPane";
 
-// Must be dynamic: fetchConversation calls the internal API at render time.
 export const dynamic = "force-dynamic";
 
 interface PageProps {
@@ -11,8 +8,6 @@ interface PageProps {
 
 export default async function ConversationChatPage({ params }: PageProps) {
   const { id } = await params;
-  const conv = await fetchConversation(id);
-  if (!conv) notFound();
 
   return (
     <div
@@ -23,7 +18,7 @@ export default async function ConversationChatPage({ params }: PageProps) {
         overflow: "hidden",
       }}
     >
-      <ConversationViewer initial={conv} />
+      <ConversationPane mode="standalone" conversationId={id} />
     </div>
   );
 }

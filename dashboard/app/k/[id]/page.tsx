@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
-import { ConversationViewer } from "@/components/ConversationViewer";
+import { ConversationPane } from "@/components/ConversationPane";
 import DashboardSurface from "@/components/surfaces/DashboardSurface";
 import HomeSurface from "@/components/surfaces/HomeSurface";
 import AdminSurface from "@/components/surfaces/AdminSurface";
@@ -81,7 +81,7 @@ export default async function ConversationInContextPage({ params }: PageProps) {
         overflow: "hidden",
       }}
     >
-      <ConversationViewer initial={conv} />
+      <ConversationPane mode="standalone" conversationId={id} />
     </div>
   );
 }
