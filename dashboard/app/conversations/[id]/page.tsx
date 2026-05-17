@@ -1,9 +1,7 @@
-import { notFound } from "next/navigation";
-import { ConversationViewer } from "@/components/ConversationViewer";
 import { ConversationListSidebar } from "@/components/ConversationListSidebar";
-import { fetchConversation } from "@/lib/conversation-api";
+import { ConversationPane } from "@/components/ConversationPane";
 
-// Must be dynamic: data depends on the conversation ID and search params.
+// Must be dynamic: data depends on the conversation ID.
 export const dynamic = "force-dynamic";
 
 interface PageProps {
@@ -12,9 +10,6 @@ interface PageProps {
 
 export default async function ConversationSplitViewPage({ params }: PageProps) {
   const { id } = await params;
-
-  const conv = await fetchConversation(id);
-  if (!conv) notFound();
 
   return (
     <div
@@ -35,7 +30,7 @@ export default async function ConversationSplitViewPage({ params }: PageProps) {
 
       {/* Right panel: conversation detail */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-        <ConversationViewer initial={conv} />
+        <ConversationPane mode="standalone" conversationId={id} />
       </div>
     </div>
   );

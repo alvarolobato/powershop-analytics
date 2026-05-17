@@ -106,13 +106,21 @@ export async function runTurnBackground(
         seq,
       );
     } else if (mode === "analyze" || mode === "modify") {
-      assistantText = await runDashboardTurn(
+      const dashResult = await runDashboardTurn(
         mode,
         conversation,
         userMessage,
         priorMessages,
         requestId,
       );
+      assistantText = dashResult.text;
+      // Notify SSE clients when a modify turn produced a new dashboard spec.
+      if (dashResult.spec) {
+        await emitTurnEvent(conversationId, turnId, seq(), "spec_update", {
+          spec: dashResult.spec,
+          summary: dashResult.summary ?? "",
+        });
+      }
     } else {
       // Fallback: generic single-shot chat completion.
       assistantText = await runGenericTurn(
@@ -216,15 +224,23 @@ async function runFreeChatTurn(
   }
 }
 
+interface DashboardTurnResult {
+  text: string;
+  /** Set when apply_dashboard_modification tool staged a new spec. */
+  spec?: import("@/lib/schema").DashboardSpec;
+  summary?: string;
+}
+
 async function runDashboardTurn(
   mode: string,
   conversation: ConversationRow,
   userMessage: string,
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
-): Promise<string> {
+): Promise<DashboardTurnResult> {
   const { sql } = await import("@/lib/db-write");
-  const agenticCtx = {
+  // agenticCtx is mutated in-place by tool handlers (modifyResult, analyzeResult).
+  const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
     requestId,
     endpoint: (mode === "analyze" ? "analyzeDashboard" : "modifyDashboard") as
       | "analyzeDashboard"
@@ -233,8 +249,9 @@ async function runDashboardTurn(
   };
 
   let currentSpec = "";
+  let dashId: number | undefined;
   if (conversation.context_ref) {
-    const dashId = Number(conversation.context_ref);
+    dashId = Number(conversation.context_ref);
     if (Number.isFinite(dashId)) {
       const specRows = await sql<{ spec: unknown }>(
         `SELECT spec FROM dashboards WHERE id = $1`,
@@ -246,10 +263,29 @@ async function runDashboardTurn(
 
   if (mode === "analyze") {
     const { analyzeDashboard } = await import("@/lib/llm");
-    return analyzeDashboard(currentSpec, userMessage, undefined, agenticCtx, priorMessages);
+    const text = await analyzeDashboard(
+      currentSpec,
+      userMessage,
+      undefined,
+      agenticCtx,
+      priorMessages,
+    );
+    return { text };
   } else {
     const { modifyDashboard } = await import("@/lib/llm");
-    return modifyDashboard(currentSpec, userMessage, agenticCtx, priorMessages);
+    const text = await modifyDashboard(currentSpec, userMessage, agenticCtx, priorMessages);
+
+    // If the agentic runner called apply_dashboard_modification, persist the new spec.
+    if (agenticCtx.modifyResult && dashId !== undefined && Number.isFinite(dashId)) {
+      const { spec, summary } = agenticCtx.modifyResult;
+      await sql(`UPDATE dashboards SET spec = $1 WHERE id = $2`, [
+        JSON.stringify(spec),
+        dashId,
+      ]).catch(() => {});
+      return { text, spec, summary };
+    }
+
+    return { text };
   }
 }
 
