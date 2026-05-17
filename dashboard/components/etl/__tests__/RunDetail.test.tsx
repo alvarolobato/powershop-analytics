@@ -240,7 +240,8 @@ describe("RunDetail component", () => {
     await waitFor(() => { expect(screen.getByTestId("run-detail")).toBeInTheDocument(); });
     const countAfterLoad = fetchCount;
     await act(async () => { vi.advanceTimersByTime(30_000); });
-    await waitFor(() => { expect(fetchCount).toBeGreaterThan(countAfterLoad); });
+    // fetchCount++ is synchronous in the mock (before the first await), so no waitFor needed
+    expect(fetchCount).toBeGreaterThan(countAfterLoad);
     vi.useRealTimers();
   });
 
