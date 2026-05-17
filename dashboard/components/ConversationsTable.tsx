@@ -451,7 +451,7 @@ export function ConversationsTable({
                         }}
                       >
                         <a
-                          href={`/c/${row.id}`}
+                          href={`/conversations/${row.id}`}
                           title={displayTitle}
                           style={{
                             color: "inherit",
@@ -464,7 +464,7 @@ export function ConversationsTable({
                           }}
                           onClick={(e) => {
                             e.preventDefault();
-                            router.push(`/c/${row.id}`);
+                            router.push(`/conversations/${row.id}`);
                           }}
                           data-testid={`title-cell-${row.id}`}
                         >

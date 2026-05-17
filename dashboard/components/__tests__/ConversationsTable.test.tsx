@@ -231,7 +231,7 @@ describe("ConversationsTable", () => {
     expect(screen.getByText("¿Cuánto vendimos ayer?")).toBeInTheDocument();
   });
 
-  it("clicking title cell navigates to /c/<id>", () => {
+  it("clicking title cell navigates to /conversations/<id>", () => {
     const row = makeRow({ id: "nav-title-1", title: "Navegar al hacer clic" });
     render(
       <ConversationsTable
@@ -241,7 +241,7 @@ describe("ConversationsTable", () => {
       />
     );
     fireEvent.click(screen.getByTestId(`title-cell-${row.id}`));
-    expect(mockPush).toHaveBeenCalledWith(`/c/${row.id}`);
+    expect(mockPush).toHaveBeenCalledWith(`/conversations/${row.id}`);
   });
 
   it("shows bulk action bar when rows are selected", () => {
