@@ -352,7 +352,10 @@ describe("ConversationViewer", () => {
   });
 
   it("does not send when input is empty", async () => {
-    globalThis.fetch = vi.fn();
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ model: "test/model" }),
+    });
     // Use a conversation with existing messages so pre-fill does not apply
     // (pre-fill only kicks in when messages.length === 0)
     render(<ConversationViewer initial={makeConv({ messages: [makeUserMsg("msg")] })} />);
@@ -360,7 +363,11 @@ describe("ConversationViewer", () => {
     const textarea = screen.getByPlaceholderText("Escribe un mensaje…");
     expect(textarea).toHaveValue("");
     fireEvent.click(screen.getByText("Enviar"));
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    // The model endpoint may be called on mount; the messages endpoint must not be called
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/messages"),
+      expect.anything(),
+    );
   });
 
   // -----------------------------------------------------------------------
