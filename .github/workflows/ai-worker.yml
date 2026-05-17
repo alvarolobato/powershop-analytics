@@ -338,7 +338,7 @@ jobs:
                ```bash
                BODY=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body)
                UPDATED=$(printf '%s' "$BODY" | sed '0,/- \[ \]/s//- [x]/')
-               TMP=$(mktemp --suffix=.md); printf '%s' "$UPDATED" > "$TMP"
+               TMP=$(mktemp /tmp/issue-body.XXXXXX); printf '%s' "$UPDATED" > "$TMP"
                gh issue edit ${{ env.ISSUE_NUMBER }} --body-file "$TMP"; rm -f "$TMP"
                ```
             3. Repeat for the next unchecked task in this phase
@@ -348,11 +348,20 @@ jobs:
             # ETL: cd etl && python -m ruff check . && python -m pytest
             # Dashboard: cd dashboard && npm test
             git push -u origin BRANCH
+            ```
+
+            Determine the correct issue reference for the PR body:
+            - Count total `## Phase N` headings in the issue body (TOTAL_PHASES)
+            - This is Phase N
+            - If N < TOTAL_PHASES: use `Part of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)` — do NOT close the issue
+            - If N == TOTAL_PHASES (last phase): use `Closes #${{ env.ISSUE_NUMBER }}` — this closes the issue on merge
+
+            ```bash
             gh pr create \
               --title "<feature> (Phase N: <phase name>)" \
-              --body "$(printf '## Summary\n...\n\nCloses #${{ env.ISSUE_NUMBER }}')"
+              --body "$(printf '## Summary\n...\n\nPart of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)')"
             ```
-            **One PR per phase.** Never open multiple PRs for the same phase.
+            **One PR per phase. Only the LAST phase PR should say `Closes #ISSUE`.**
 
             ### If you cannot finish
             Tick whatever tasks completed. Post a blocking comment tagging @alvarolobato.
