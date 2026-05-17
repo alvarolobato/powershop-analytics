@@ -143,9 +143,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       llm_driver,
     });
 
-    // Snapshot initial_context immediately for free-chat conversations so that
-    // GET /api/conversations/:id returns it without waiting for the first message.
-    if (mode === "chat" && context_kind === "global") {
+    // Snapshot initial_context for all free-chat conversations so that
+    // GET /api/conversations/:id can show "Contexto original" without waiting
+    // for the first message. Previously only mode=chat&context_kind=global was
+    // snapshotted; analyze/modify conversations created from the ChatSidebar
+    // always had initial_context=null, so their "Contexto original" panel was
+    // blank. We snapshot whenever context_kind=global (any free-chat mode).
+    // Analyze/modify conversations started from a dashboard panel get their
+    // initial_context set by the messages route on first user message instead.
+    if (context_kind === "global" || mode === "chat") {
       try {
         await setInitialContext(result.id, buildFreeChatInitialContextSnapshot());
       } catch (snapshotErr) {

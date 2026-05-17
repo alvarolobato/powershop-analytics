@@ -30,9 +30,11 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
 
   const loadConversations = useCallback(async () => {
     try {
-      const res = await fetch(
-        "/api/conversations?mode=chat&context_kind=global&limit=50",
-      );
+      // No mode/context_kind filter — the split-view route is reachable from
+      // all conversation types (free-chat, analyze, modify), so the sidebar
+      // must list all of them. Original spec filtered to free-chat only,
+      // which made the sidebar empty when viewing a dashboard conversation.
+      const res = await fetch("/api/conversations?limit=50");
       if (!res.ok) return;
       const data = await res.json();
       const rows: ConversationRow[] = Array.isArray(data) ? data : data.conversations ?? [];
