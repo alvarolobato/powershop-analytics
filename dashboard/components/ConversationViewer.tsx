@@ -502,6 +502,10 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
   // Poll when a response is in-flight: last message is from "user" (waiting for
   // assistant reply), or initial_context hasn't been written yet (race between
   // creation and first render). Capped at 8 attempts (8 × 2.5 s = 20 s max).
+  //
+  // Dep array uses stable derived scalars (not conv.messages array) so the
+  // effect doesn't re-fire on every setConv(fresh) inside poll(), which would
+  // reset pollAttemptsRef.current to 0 and make MAX_ATTEMPTS a no-op.
   useEffect(() => {
     const waitingForAssistant = lastMsgRole === "user";
     const waitingForContext = !hasInitialContext;
