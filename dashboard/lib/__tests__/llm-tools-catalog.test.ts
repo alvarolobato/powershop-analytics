@@ -7,8 +7,8 @@ import {
 
 describe("llm-tools catalog", () => {
   describe("FREE_CHAT_TOOLS", () => {
-    it("contains exactly 11 tools (10 inspection + start_dashboard_generation)", () => {
-      expect(FREE_CHAT_TOOLS).toHaveLength(11);
+    it("contains exactly 12 tools (10 inspection + start_dashboard_generation + set_title)", () => {
+      expect(FREE_CHAT_TOOLS).toHaveLength(12);
     });
 
     it("includes all 10 inspection tools", () => {
@@ -30,6 +30,11 @@ describe("llm-tools catalog", () => {
       expect(names).toContain("start_dashboard_generation");
     });
 
+    it("includes set_title", () => {
+      const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
+      expect(names).toContain("set_title");
+    });
+
     it("does NOT include apply_dashboard_modification", () => {
       const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
       expect(names).not.toContain("apply_dashboard_modification");
@@ -48,6 +53,24 @@ describe("llm-tools catalog", () => {
     it("does NOT include submit_weekly_review", () => {
       const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
       expect(names).not.toContain("submit_weekly_review");
+    });
+  });
+
+  describe("set_title tool", () => {
+    it("is present in FREE_CHAT_TOOLS", () => {
+      const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
+      expect(names).toContain("set_title");
+    });
+
+    it("is NOT present in DASHBOARD_AGENTIC_TOOLS", () => {
+      const names = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+      expect(names).not.toContain("set_title");
+    });
+
+    it("has required 'title' parameter", () => {
+      const tool = FREE_CHAT_TOOLS.find((t) => t.function.name === "set_title");
+      const required = tool?.function.parameters?.required as string[] | undefined;
+      expect(required).toContain("title");
     });
   });
 

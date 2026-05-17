@@ -71,8 +71,21 @@ vi.mock("@/lib/llm-tools/runner", () => ({
   },
 }));
 
+const mockBuildFreeChatInitialContextSnapshot = vi.fn(() => ({
+  model: "claude-sonnet-4-6",
+  provider: "cli" as const,
+  driver: "claude_code" as const,
+  system_prompt_stable: "Eres un asistente analítico de PowerShop Analytics. " + "x".repeat(200),
+  tools: Array.from({ length: 11 }, (_, i) => ({
+    name: `tool_${i}`,
+    schema: { name: `tool_${i}`, description: "test tool", parameters: { type: "object", properties: {} } },
+  })),
+  config: { flow: "chat", tool_rounds_max: 8, tool_calls_max: 24, tool_timeout_ms: 15000 },
+}));
+
 vi.mock("@/lib/conversation-context", () => ({
   buildFreeChatContext: () => mockBuildFreeChatContext(),
+  buildFreeChatInitialContextSnapshot: () => mockBuildFreeChatInitialContextSnapshot(),
 }));
 
 vi.mock("@/lib/llm-tools/config", () => ({
@@ -168,6 +181,17 @@ beforeEach(() => {
       type: "function" as const,
       function: { name: `tool_${i}`, description: "test tool", parameters: { type: "object", properties: {} } },
     })),
+  });
+  mockBuildFreeChatInitialContextSnapshot.mockReset().mockReturnValue({
+    model: "claude-sonnet-4-6",
+    provider: "cli" as const,
+    driver: "claude_code" as const,
+    system_prompt_stable: "Eres un asistente analítico de PowerShop Analytics. " + "x".repeat(200),
+    tools: Array.from({ length: 11 }, (_, i) => ({
+      name: `tool_${i}`,
+      schema: { name: `tool_${i}`, description: "test tool", parameters: { type: "object", properties: {} } },
+    })),
+    config: { flow: "chat", tool_rounds_max: 8, tool_calls_max: 24, tool_timeout_ms: 15000 },
   });
   mockBuildAgenticErrorDiagnostic.mockReset().mockReturnValue({ subError: "test error", provider: "openrouter" } as ReturnType<typeof mockBuildAgenticErrorDiagnostic>);
   mockPersistAgenticError.mockReset();
