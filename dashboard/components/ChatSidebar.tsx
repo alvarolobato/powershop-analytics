@@ -1547,6 +1547,67 @@ export default function ChatSidebar({
     return () => controller.abort();
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Poll for in-flight assistant messages: when the last message in the active
+  // tab is from "user" and the tab is not currently loading (no active LLM call
+  // in this session), poll the DB every 2 s. Covers the "navigated away while
+  // LLM was running and came back" case. Stops when an assistant reply appears.
+  useEffect(() => {
+    const activeConvId =
+      activeTab === "analizar"
+        ? analyzeConv.conversationIdRef.current
+        : modifyConv.conversationIdRef.current;
+    const activeMessages =
+      activeTab === "analizar" ? analyzeMessages : modifyMessages;
+
+    const lastMsg = activeMessages[activeMessages.length - 1];
+    if (!activeConvId || !lastMsg || lastMsg.role !== "user") return;
+    if (isProcessing) return; // live LLM call ongoing — no need to poll
+
+    let cancelled = false;
+    const POLL_MS = 2500;
+    const MAX_POLLS = 20; // ~50 s max
+    let polls = 0;
+
+    const poll = async () => {
+      if (cancelled || polls >= MAX_POLLS) return;
+      polls += 1;
+      try {
+        const res = await fetch(`/api/conversations/${activeConvId}`);
+        if (cancelled || !res.ok) return;
+        const data = (await res.json()) as { messages?: { role: string; content: unknown; logs?: unknown[] | null }[]; initial_context?: unknown };
+        const msgs = data.messages ?? [];
+        const hasAssistant = msgs.some((m) => m.role === "assistant");
+
+        if (hasAssistant) {
+          // Rebuild messages from DB and update state
+          const rebuilt = convertConversationMessages(
+            msgs as Parameters<typeof convertConversationMessages>[0],
+          );
+          if (activeTab === "analizar") {
+            setAnalyzeMessages(rebuilt);
+            if (data.initial_context && !analyzeInitialContext) {
+              setAnalyzeInitialContext(data.initial_context as InitialContext);
+            }
+          } else {
+            setModifyMessages(rebuilt);
+            if (data.initial_context && !modifyInitialContext) {
+              setModifyInitialContext(data.initial_context as InitialContext);
+            }
+          }
+          return; // stop polling
+        }
+
+        setTimeout(() => void poll(), POLL_MS);
+      } catch {
+        setTimeout(() => void poll(), POLL_MS);
+      }
+    };
+
+    const timer = setTimeout(() => void poll(), POLL_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, analyzeMessages, modifyMessages, isProcessing]);
+
   // "Nueva conversación" — clears messages for the active tab and archives the
   // current conversation so the next send creates a fresh one.
   const handleNewConversation = useCallback(() => {
