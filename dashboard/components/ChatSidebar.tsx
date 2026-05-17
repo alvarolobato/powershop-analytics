@@ -415,6 +415,7 @@ function ModificarTab({
   onPrefillApplied,
   dashboardId,
   initialContext,
+  onInitialContextLoaded,
   ensureConversation,
   saveMessage,
 }: {
@@ -427,6 +428,7 @@ function ModificarTab({
   onPrefillApplied?: () => void;
   dashboardId?: number;
   initialContext?: InitialContext | null;
+  onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
 }) {
@@ -478,10 +480,20 @@ function ModificarTab({
     setLoading(true);
     setStreamingLog([]);
 
-    // Create a conversation record on the first message so the session is
-    // persisted immediately and appears in the conversations list.
+    // Create (or reuse) a conversation so the session is persisted immediately.
+    // After ensuring the conversation, fetch its initial_context so the
+    // "Contexto original" panel shows right away without waiting for the
+    // next auto-load cycle.
     const convId = await ensureConversation("modify");
-    if (convId) void saveMessage(convId, { role: "user", content: trimmed });
+    if (convId) {
+      void saveMessage(convId, { role: "user", content: trimmed });
+      if (!initialContext && onInitialContextLoaded) {
+        void fetch(`/api/conversations/${convId}`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((d) => { if (d?.initial_context) onInitialContextLoaded(d.initial_context); })
+          .catch(() => {});
+      }
+    }
 
     // Real progress lines streamed from the server (NDJSON path) — captured
     // in a local mutable array so the final message logs include exactly
@@ -839,6 +851,7 @@ function AnalizarTab({
   prefillRequest,
   onPrefillApplied,
   initialContext,
+  onInitialContextLoaded,
   ensureConversation,
   saveMessage,
 }: {
@@ -851,6 +864,7 @@ function AnalizarTab({
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   initialContext?: InitialContext | null;
+  onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
 }) {
@@ -905,10 +919,17 @@ function AnalizarTab({
       setLoading(true);
       setStreamingLog([]);
 
-      // Create a conversation record on the first message so the session is
-      // persisted immediately and appears in the conversations list.
+      // Create (or reuse) a conversation so the session is persisted immediately.
       const convId = await ensureConversation("analyze");
-      if (convId) void saveMessage(convId, { role: "user", content: trimmed });
+      if (convId) {
+        void saveMessage(convId, { role: "user", content: trimmed });
+        if (!initialContext && onInitialContextLoaded) {
+          void fetch(`/api/conversations/${convId}`)
+            .then((r) => r.ok ? r.json() : null)
+            .then((d) => { if (d?.initial_context) onInitialContextLoaded(d.initial_context); })
+            .catch(() => {});
+        }
+      }
 
       // Real progress lines streamed from the server (NDJSON).
       const capturedLogs: LogLine[] = [];
@@ -1824,6 +1845,7 @@ export default function ChatSidebar({
             onPrefillApplied={onPendingModifyInputConsumed}
             dashboardId={dashboardId}
             initialContext={modifyInitialContext}
+            onInitialContextLoaded={setModifyInitialContext}
             ensureConversation={modifyConv.ensureConversation}
             saveMessage={modifyConv.saveMessage}
           />
@@ -1842,6 +1864,7 @@ export default function ChatSidebar({
             }
             onPrefillApplied={onPendingAnalyzeInputConsumed}
             initialContext={analyzeInitialContext}
+            onInitialContextLoaded={setAnalyzeInitialContext}
             ensureConversation={analyzeConv.ensureConversation}
             saveMessage={analyzeConv.saveMessage}
           />
