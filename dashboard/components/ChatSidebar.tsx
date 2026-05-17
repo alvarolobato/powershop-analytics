@@ -431,7 +431,7 @@ function ModificarTab({
   initialContext?: InitialContext | null;
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   onLoadingChange?: (v: boolean) => void;
-  ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
+  ensureConversation: (mode: "modify" | "analyze") => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
@@ -483,18 +483,14 @@ function ModificarTab({
     setLoadingWithNotify(true);
     setStreamingLog([]);
 
-    // Create (or reuse) a conversation so the session is persisted immediately.
-    // After ensuring the conversation, fetch its initial_context so the
-    // "Contexto original" panel shows right away without waiting for the
-    // next auto-load cycle.
-    const convId = await ensureConversation("modify");
+    // ensureConversation returns initial_context synchronously — no second
+    // fetch, no race condition with the LLM call.
+    const convResult = await ensureConversation("modify");
+    const convId = convResult?.id ?? null;
     if (convId) {
       void saveMessage(convId, { role: "user", content: trimmed });
-      if (!initialContext && onInitialContextLoaded) {
-        void fetch(`/api/conversations/${convId}`)
-          .then((r) => r.ok ? r.json() : null)
-          .then((d) => { if (d?.initial_context) onInitialContextLoaded(d.initial_context); })
-          .catch(() => {});
+      if (convResult?.initialContext && onInitialContextLoaded) {
+        onInitialContextLoaded(convResult.initialContext);
       }
     }
 
@@ -870,7 +866,7 @@ function AnalizarTab({
   initialContext?: InitialContext | null;
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   onLoadingChange?: (v: boolean) => void;
-  ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
+  ensureConversation: (mode: "modify" | "analyze") => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
@@ -925,15 +921,13 @@ function AnalizarTab({
       setLoadingWithNotify(true);
       setStreamingLog([]);
 
-      // Create (or reuse) a conversation so the session is persisted immediately.
-      const convId = await ensureConversation("analyze");
+      // ensureConversation returns initial_context synchronously.
+      const convResult = await ensureConversation("analyze");
+      const convId = convResult?.id ?? null;
       if (convId) {
         void saveMessage(convId, { role: "user", content: trimmed });
-        if (!initialContext && onInitialContextLoaded) {
-          void fetch(`/api/conversations/${convId}`)
-            .then((r) => r.ok ? r.json() : null)
-            .then((d) => { if (d?.initial_context) onInitialContextLoaded(d.initial_context); })
-            .catch(() => {});
+        if (convResult?.initialContext && onInitialContextLoaded) {
+          onInitialContextLoaded(convResult.initialContext);
         }
       }
 

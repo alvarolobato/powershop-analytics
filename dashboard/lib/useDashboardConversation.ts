@@ -17,6 +17,7 @@
  */
 
 import { useRef, useCallback } from "react";
+import type { InitialContext } from "@/lib/conversation-types";
 
 type DashboardMode = "modify" | "analyze";
 
@@ -26,8 +27,17 @@ interface SaveMessageOptions {
   logs?: unknown[] | null;
 }
 
+export interface EnsureConversationResult {
+  id: string;
+  /** initial_context returned synchronously from ensureConversation so callers
+   *  don't need a second fetch to show the "Contexto original" panel. */
+  initialContext: InitialContext | null;
+}
+
 interface UseDashboardConversationResult {
-  ensureConversation: (mode: DashboardMode) => Promise<string | null>;
+  /** Returns both the conversation ID and its initial_context so the caller can
+   *  update the UI without a second round-trip. */
+  ensureConversation: (mode: DashboardMode) => Promise<EnsureConversationResult | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
   /** Archive the current conversation and reset so the next send creates a fresh one. */
   startNewConversation: () => Promise<void>;
@@ -41,14 +51,25 @@ export function useDashboardConversation(
   const modeRef = useRef<DashboardMode | null>(null);
 
   const ensureConversation = useCallback(
-    async (mode: DashboardMode): Promise<string | null> => {
+    async (mode: DashboardMode): Promise<EnsureConversationResult | null> => {
       if (!dashboardId) return null;
-      if (conversationIdRef.current) return conversationIdRef.current;
       modeRef.current = mode;
 
-      // Reuse the most-recent non-archived conversation for this dashboard+mode
-      // rather than always creating a new one (Copilot review: avoids split-history
-      // where the auto-load shows one conversation while new messages go to another).
+      // If we already have a conversation for this session, fetch it fresh so
+      // we always return initial_context (needed for "Contexto original" panel).
+      if (conversationIdRef.current) {
+        const id = conversationIdRef.current;
+        try {
+          const r = await fetch(`/api/conversations/${id}`);
+          if (r.ok) {
+            const d = (await r.json()) as { id: string; initial_context?: InitialContext | null };
+            return { id, initialContext: d.initial_context ?? null };
+          }
+        } catch { /* fall through */ }
+        return { id, initialContext: null };
+      }
+
+      // Reuse the most-recent non-archived conversation for this dashboard+mode.
       try {
         const checkRes = await fetch(
           `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${mode}&limit=1`,
@@ -59,28 +80,38 @@ export function useDashboardConversation(
             | { conversations: { id: string; archived_at: string | null }[] };
           const list = Array.isArray(data) ? data : data.conversations;
           if (list?.length && !list[0].archived_at) {
-            conversationIdRef.current = list[0].id;
-            return list[0].id;
+            const id = list[0].id;
+            conversationIdRef.current = id;
+            // Fetch the full row so we have initial_context.
+            try {
+              const r = await fetch(`/api/conversations/${id}`);
+              if (r.ok) {
+                const d = (await r.json()) as { id: string; initial_context?: InitialContext | null };
+                return { id, initialContext: d.initial_context ?? null };
+              }
+            } catch { /* fall through */ }
+            return { id, initialContext: null };
           }
         }
       } catch { /* fall through to creation */ }
 
+      // Create a new conversation. POST returns the full row including initial_context.
       try {
         const res = await fetch("/api/conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode,
-            flow: mode,          // passed through to initial_context snapshot
+            flow: mode,
             context_kind: "dashboard",
             context_ref: String(dashboardId),
             context_url: `/paneles/${dashboardId}`,
           }),
         });
         if (!res.ok) return null;
-        const data = (await res.json()) as { id: string };
+        const data = (await res.json()) as { id: string; initial_context?: InitialContext | null };
         conversationIdRef.current = data.id;
-        return data.id;
+        return { id: data.id, initialContext: data.initial_context ?? null };
       } catch {
         return null;
       }
