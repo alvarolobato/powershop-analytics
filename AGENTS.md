@@ -446,9 +446,13 @@ The diagrams in that section reflect the post-#517/#518/#519 behaviour: implemen
 
 ## Issue and PR format
 
-All GitHub issues in this project follow a single standard format. Full template + worktree workflow + PR/review policy + phase labels + planner phasing rules: **[docs/issue-format.md](docs/issue-format.md)**.
+All GitHub issues in this project follow a single standard format. Full template + examples + label conventions + phasing rules: **[docs/issue-format.md](docs/issue-format.md)**.
 
 **Short summary** (the rules that bind everyone):
 - Every PR gets **exactly two review rounds**, each once: Copilot first, then Opus from a clean context. No third round; escalate to the human owner if blocked. See [D-021](docs/decisions/D-021-two-review-rounds.md).
-- Each issue uses the standard template (Context / Tasks / Additional Context) and is opened against a named **worktree**.
-- Sub-issues are batched into **phases** when they share a file, DB table, HTTP route prefix, or producer/consumer dependency. Between phases: all PRs merged + `main` green before phase N+1 sub-issues get `ai-work`.
+- Each issue uses the standard template (Context / Plan / Phase N / Additional Context). Phases live as `## Phase N — <name>` headings in the issue body — not as labels.
+- **Default**: one phase = one PR. The planner adds `## Plan` and `## Phase 1` headings when refining the issue body. Split into multiple phases only when: >2000 LOC, producer/consumer dependency, or same-file DDL conflict.
+- **`ai-plan` label**: triggers the planner only — refines the issue body in place, sets `fact-planned`, stops. No implementation. Owner reviews the refined body and adds `ai-work` when ready.
+- **`ai-work` label**: implementer walks the next un-merged phase's `### Tasks` checklist sequentially, ticks checkboxes, opens one PR per phase. If the body is unstructured and `fact-planned` is absent, the planner runs inline first.
+- **`ai-decompose` label**: opt-in escape hatch for the legacy parent → sub-issues model. Reserve for genuinely huge work where parallel execution across multiple people matters.
+- **`fact-*` labels** (grey `#ededed`): internal state markers toggled by workflows. The owner does not act on these. See [docs/issue-format.md § Label conventions](docs/issue-format.md#label-conventions) for the full list. See [D-034](docs/decisions/D-034-single-track-issues.md) for the rationale.

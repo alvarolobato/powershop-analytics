@@ -20,6 +20,7 @@
 | [D-030](docs/decisions/D-030-watchdog-cadence.md) | Watchdog cron is `*/30` + `pull_request_review:[submitted]` + `pull_request:[closed]` to compensate for GitHub schedule queue saturation. |
 | [D-031](docs/decisions/D-031-copilot-opus-sequencing.md) | `ai-pr-review.yml` fires only on `labeled:ai-ready-for-review`. Strict order: Copilot → address → Opus → address → owner-merge. No `\|\| true` on critical dispatches. |
 | [D-033](docs/decisions/D-033-opus-review-marker.md) | Opus head-SHA idempotency requires `(.body \| length) > 0` (inline replies have empty body). Workflow runs matched by `display_title` via top-level `run-name`, never `head_sha` or `.inputs.*`. |
+| [D-034](docs/decisions/D-034-single-track-issues.md) | Default: single-track issues with phases-as-PRs in the body. `ai-plan` refines without implementing; `ai-decompose` opts into legacy sub-issues. `fact-*` labels are internal state. |
 
 ## Runtime / infrastructure
 
