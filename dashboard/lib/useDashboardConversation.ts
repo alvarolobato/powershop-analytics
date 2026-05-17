@@ -28,6 +28,10 @@ interface SaveMessageOptions {
 interface UseDashboardConversationResult {
   ensureConversation: (mode: DashboardMode) => Promise<string | null>;
   saveMessage: (convId: string, opts: SaveMessageOptions) => Promise<void>;
+  /** Seed an existing conversation ID found by the auto-load so ensureConversation reuses it. */
+  seedConversationId: (id: string) => void;
+  /** Archive the current conversation and reset so the next send creates a fresh one. */
+  startNewConversation: () => Promise<void>;
   conversationIdRef: React.MutableRefObject<string | null>;
 }
 
@@ -42,6 +46,26 @@ export function useDashboardConversation(
       if (!dashboardId) return null;
       if (conversationIdRef.current) return conversationIdRef.current;
       modeRef.current = mode;
+
+      // Reuse the most-recent non-archived conversation for this dashboard+mode
+      // rather than always creating a new one (Copilot review: avoids split-history
+      // where the auto-load shows one conversation while new messages go to another).
+      try {
+        const checkRes = await fetch(
+          `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}&mode=${mode}&limit=1`,
+        );
+        if (checkRes.ok) {
+          const data = (await checkRes.json()) as
+            | { id: string; archived_at: string | null }[]
+            | { conversations: { id: string; archived_at: string | null }[] };
+          const list = Array.isArray(data) ? data : data.conversations;
+          if (list?.length && !list[0].archived_at) {
+            conversationIdRef.current = list[0].id;
+            return list[0].id;
+          }
+        }
+      } catch { /* fall through to creation */ }
+
       try {
         const res = await fetch("/api/conversations", {
           method: "POST",
@@ -87,5 +111,24 @@ export function useDashboardConversation(
     [],
   );
 
-  return { ensureConversation, saveMessage, conversationIdRef };
+  const seedConversationId = useCallback((id: string) => {
+    if (!conversationIdRef.current) conversationIdRef.current = id;
+  }, []);
+
+  // Archive the current conversation and reset so the next send creates a
+  // fresh one.  Called by "Nueva conversación" in ChatSidebar.
+  const startNewConversation = useCallback(async () => {
+    const id = conversationIdRef.current;
+    conversationIdRef.current = null;
+    if (!id) return;
+    try {
+      await fetch(`/api/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: true }),
+      });
+    } catch { /* best-effort */ }
+  }, []);
+
+  return { ensureConversation, saveMessage, seedConversationId, startNewConversation, conversationIdRef };
 }

@@ -410,23 +410,25 @@ function ModificarTab({
   onSpecUpdate,
   messages,
   setMessages,
-  onMessagesChange,
   isActive,
   prefillRequest,
   onPrefillApplied,
   dashboardId,
   initialContext,
+  ensureConversation,
+  saveMessage,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   dashboardId?: number;
   initialContext?: InitialContext | null;
+  ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -435,7 +437,6 @@ function ModificarTab({
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const { ensureConversation, saveMessage } = useDashboardConversation(dashboardId);
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
@@ -496,20 +497,15 @@ function ModificarTab({
      * user message, never overwriting newer messages someone else added.
      */
     const appendAssistant = (assistant: ChatMessage) => {
-      let nextSnapshot: ChatMessage[] = [];
       setMessages((prev) => {
         // Find our user message by reference — userMessage is unique to
         // this send. Insert right after it; if not found (defensive),
         // append to the end.
         const idx = prev.indexOf(userMessage);
-        const next =
-          idx >= 0
-            ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
-            : [...prev, assistant];
-        nextSnapshot = next;
-        return next;
+        return idx >= 0
+          ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
+          : [...prev, assistant];
       });
-      onMessagesChange?.(nextSnapshot);
     };
 
     try {
@@ -663,6 +659,7 @@ function ModificarTab({
         }
       }
 
+      if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
       appendAssistant({
         role: "assistant",
         content: chatContent,
@@ -689,7 +686,7 @@ function ModificarTab({
       setLoading(false);
       setTimeout(() => setStreamingLog(null), 400);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange]);
+  }, [input, loading, spec, onSpecUpdate, setMessages]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -837,23 +834,25 @@ function AnalizarTab({
   widgetData,
   messages,
   setMessages,
-  onMessagesChange,
   isActive,
   dashboardId,
   prefillRequest,
   onPrefillApplied,
   initialContext,
+  ensureConversation,
+  saveMessage,
 }: {
   spec: DashboardSpec;
   widgetData?: Map<number, WidgetState>;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   dashboardId?: number;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   initialContext?: InitialContext | null;
+  ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -863,7 +862,6 @@ function AnalizarTab({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const appliedPrefillIdRef = useRef<number | null>(null);
-  const { ensureConversation, saveMessage } = useDashboardConversation(dashboardId);
 
   // Prefill from drilldown — fires when handleDataPointClick on the page
   // sets pendingAnalyze with a fresh trigger id.
@@ -921,17 +919,12 @@ function AnalizarTab({
        * race conditions when other state changes happen mid-request.
        */
       const appendAssistant = (assistant: ChatMessage) => {
-        let nextSnapshot: ChatMessage[] = [];
         setMessages((prev) => {
           const idx = prev.indexOf(userMessage);
-          const next =
-            idx >= 0
-              ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
-              : [...prev, assistant];
-          nextSnapshot = next;
-          return next;
+          return idx >= 0
+            ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
+            : [...prev, assistant];
         });
-        onMessagesChange?.(nextSnapshot);
       };
 
       try {
@@ -1061,6 +1054,7 @@ function AnalizarTab({
 
         // With publish-tool contract: message = freeform chat reply, response = analysis body.
         const chatContent = data.message?.trim() || data.response;
+        if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
         appendAssistant({
           role: "assistant",
           content: chatContent,
@@ -1089,7 +1083,7 @@ function AnalizarTab({
         setTimeout(() => setStreamingLog(null), 400);
       }
     },
-    [loading, spec, widgetData, setMessages, onMessagesChange, dashboardId]
+    [loading, spec, widgetData, setMessages, dashboardId]
   );
 
   const handleInputSend = useCallback(() => {
@@ -1340,6 +1334,11 @@ export default function ChatSidebar({
     initialAnalyzeContext ?? null
   );
 
+  // Conversation persistence hooks — hoisted to ChatSidebar so handleNewConversation
+  // can call startNewConversation on the correct tab's hook instance.
+  const modifyConv = useDashboardConversation(dashboardId);
+  const analyzeConv = useDashboardConversation(dashboardId);
+
   // Refs to detect whether initial messages were provided by the parent on mount.
   // Used to skip auto-load when preloaded messages are present, preventing them from being
   // overwritten by the conversation API (e.g., when arriving from /k/:id or via ?continue=).
@@ -1525,19 +1524,22 @@ export default function ChatSidebar({
     return () => controller.abort();
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // "Nueva conversación" — clears messages for the active tab
+  // "Nueva conversación" — clears messages for the active tab and archives the
+  // current conversation so the next send creates a fresh one.
   const handleNewConversation = useCallback(() => {
     if (activeTab === "modificar") {
+      void modifyConv.startNewConversation();
       setModifyMessages([]);
       setModifyInitialContext(null);
       hadInitialModifyMessagesRef.current = false;
     } else {
+      void analyzeConv.startNewConversation();
       setAnalyzeMessages([]);
       setAnalyzeInitialContext(null);
       hadInitialAnalyzeMessagesRef.current = false;
     }
     setShowPreviousConversations(false);
-  }, [activeTab]);
+  }, [activeTab, modifyConv, analyzeConv]);
 
   // Handle pending modify prefill (opens sidebar in modify tab)
   useEffect(() => {
@@ -1822,6 +1824,8 @@ export default function ChatSidebar({
             onPrefillApplied={onPendingModifyInputConsumed}
             dashboardId={dashboardId}
             initialContext={modifyInitialContext}
+            ensureConversation={modifyConv.ensureConversation}
+            saveMessage={modifyConv.saveMessage}
           />
         ) : (
           <AnalizarTab
@@ -1838,6 +1842,8 @@ export default function ChatSidebar({
             }
             onPrefillApplied={onPendingAnalyzeInputConsumed}
             initialContext={analyzeInitialContext}
+            ensureConversation={analyzeConv.ensureConversation}
+            saveMessage={analyzeConv.saveMessage}
           />
         )}
       </div>

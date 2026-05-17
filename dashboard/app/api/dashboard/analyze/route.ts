@@ -33,10 +33,9 @@ import { NextResponse } from "next/server";
 import {
   analyzeDashboard,
   generateSuggestions,
-  BudgetExceededError,
-  CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
+import { classifyLlmError } from "@/lib/llm-error-payload";
 import { loadPriorTurns } from "@/lib/conversation-context";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
@@ -138,31 +137,12 @@ function buildLlmErrorPayload(
       ),
     };
   }
-  if (err instanceof BudgetExceededError) {
-    return {
-      status: 429,
-      payload: formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-    };
-  }
-  if (err instanceof CircuitBreakerOpenError) {
-    return {
-      status: 503,
-      payload: formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
-    };
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  const normalizedMessage = message.toLowerCase();
-  const isRateLimit =
-    normalizedMessage.includes("rate limit") ||
-    normalizedMessage.includes("ratelimit") ||
-    normalizedMessage.includes("429");
+  const { status, code, userMessage } = classifyLlmError(err, requestId);
   return {
-    status: isRateLimit ? 429 : 500,
+    status,
     payload: formatApiError(
-      isRateLimit
-        ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-        : "No se pudo analizar el dashboard. Inténtalo de nuevo.",
-      isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+      userMessage,
+      code as Parameters<typeof formatApiError>[1],
       sanitizeErrorMessage(err),
       requestId,
     ),

@@ -97,6 +97,7 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
       <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
         <input
           type="search"
+          aria-label="Buscar conversaciones"
           placeholder="Buscar…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}

@@ -25,10 +25,7 @@ import type { DashboardSpec } from "@/lib/schema";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { DrillDownContext } from "@/components/widgets/types";
 import type { ConversationWithMessages } from "@/lib/conversation-types";
-import {
-  isAssistantContent,
-  getMessageText,
-} from "@/lib/conversation-types";
+import { convertConversationMessages } from "@/components/conversation/convertConversationMessages";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,23 +88,6 @@ function formatWidgetDataAsText(spec: DashboardSpec): string {
 function parseIsoToLocalDate(iso: string): Date {
   const [y, m, d] = iso.split("-").map((x) => parseInt(x, 10));
   return new Date(y, m - 1, d, 0, 0, 0, 0);
-}
-
-function convMessagesToChatMessages(
-  conv: ConversationWithMessages,
-): ChatMessage[] {
-  return conv.messages
-    // Tool messages are intentionally excluded: ChatSidebar only renders user/assistant turns.
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => {
-      const ac = m.role === "assistant" && isAssistantContent(m.content) ? m.content : null;
-      return {
-        role: m.role as "user" | "assistant",
-        content: getMessageText(m.content),
-        timestamp: new Date(m.created_at),
-        isError: ac?.is_error ?? false,
-      } satisfies ChatMessage;
-    });
 }
 
 // ---------------------------------------------------------------------------
@@ -559,11 +539,11 @@ export default function DashboardSurface({
   // Resolve initial messages and LLM context for the sidebar from preloaded conversation
   const preloadedAnalyzeMessages =
     preloadedConversation && preloadedConversation.mode === "analyze"
-      ? convMessagesToChatMessages(preloadedConversation)
+      ? convertConversationMessages(preloadedConversation.messages)
       : undefined;
   const preloadedModifyMessages =
     preloadedConversation && preloadedConversation.mode === "modify"
-      ? convMessagesToChatMessages(preloadedConversation)
+      ? convertConversationMessages(preloadedConversation.messages)
       : undefined;
   const preloadedModifyContext =
     preloadedConversation && preloadedConversation.mode === "modify"

@@ -478,6 +478,7 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const fallbackModel = useConfiguredModel();
   const autoSendFired = useRef(false);
+  const pollAttemptsRef = useRef(0);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -486,34 +487,40 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
     }
   }, [conv.messages.length]);
 
-  // Poll when a response is in-flight: last message is from "user" with no
-  // assistant reply yet (LLM is running in the ChatSidebar), or initial_context
-  // hasn't been written yet (race between creation and first render).
+  // Poll when a response is in-flight: last message is from "user" (waiting for
+  // assistant reply), or initial_context hasn't been written yet (race between
+  // creation and first render). Capped at 8 attempts (8 × 2.5 s = 20 s max).
   useEffect(() => {
     const lastMsg = conv.messages[conv.messages.length - 1];
-    const waitingForAssistant =
-      lastMsg?.role === "user" &&
-      conv.messages.every((m) => m.role !== "assistant");
+    const waitingForAssistant = lastMsg?.role === "user";
     const waitingForContext = conv.initial_context === null;
     if (!waitingForAssistant && !waitingForContext) return;
 
+    pollAttemptsRef.current = 0;
+    const MAX_ATTEMPTS = 8;
     const POLL_MS = 2500;
     let timer: ReturnType<typeof setTimeout>;
 
     const poll = async () => {
+      pollAttemptsRef.current += 1;
+      if (pollAttemptsRef.current > MAX_ATTEMPTS) return;
       try {
         const res = await fetch(`/api/conversations/${conv.id}`);
         if (!res.ok) return;
         const fresh = (await res.json()) as ConversationWithMessages;
         setConv(fresh);
-        // Keep polling if still no assistant reply or still no initial_context
+        // Keep polling if still waiting for assistant reply or initial_context
         const stillWaiting =
-          (fresh.messages ?? []).every((m) => m.role !== "assistant") ||
+          (fresh.messages ?? []).at(-1)?.role === "user" ||
           fresh.initial_context === null;
-        if (stillWaiting) timer = setTimeout(() => void poll(), POLL_MS);
+        if (stillWaiting && pollAttemptsRef.current < MAX_ATTEMPTS) {
+          timer = setTimeout(() => void poll(), POLL_MS);
+        }
       } catch {
-        // network hiccup — retry
-        timer = setTimeout(() => void poll(), POLL_MS);
+        // network hiccup — retry if under cap
+        if (pollAttemptsRef.current < MAX_ATTEMPTS) {
+          timer = setTimeout(() => void poll(), POLL_MS);
+        }
       }
     };
 
