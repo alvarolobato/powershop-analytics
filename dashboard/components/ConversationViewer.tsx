@@ -486,6 +486,41 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
     }
   }, [conv.messages.length]);
 
+  // Poll when a response is in-flight: last message is from "user" with no
+  // assistant reply yet (LLM is running in the ChatSidebar), or initial_context
+  // hasn't been written yet (race between creation and first render).
+  useEffect(() => {
+    const lastMsg = conv.messages[conv.messages.length - 1];
+    const waitingForAssistant =
+      lastMsg?.role === "user" &&
+      conv.messages.every((m) => m.role !== "assistant");
+    const waitingForContext = conv.initial_context === null;
+    if (!waitingForAssistant && !waitingForContext) return;
+
+    const POLL_MS = 2500;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/conversations/${conv.id}`);
+        if (!res.ok) return;
+        const fresh = (await res.json()) as ConversationWithMessages;
+        setConv(fresh);
+        // Keep polling if still no assistant reply or still no initial_context
+        const stillWaiting =
+          (fresh.messages ?? []).every((m) => m.role !== "assistant") ||
+          fresh.initial_context === null;
+        if (stillWaiting) timer = setTimeout(() => void poll(), POLL_MS);
+      } catch {
+        // network hiccup — retry
+        timer = setTimeout(() => void poll(), POLL_MS);
+      }
+    };
+
+    timer = setTimeout(() => void poll(), POLL_MS);
+    return () => clearTimeout(timer);
+  }, [conv.id, conv.messages, conv.initial_context]);
+
   // On mount: if NewConversationDialog left a pending prompt in sessionStorage, auto-send it
   // and mark as read after the response (prevents last_interaction_at racing ahead of
   // last_read_at). Otherwise mark as read immediately.

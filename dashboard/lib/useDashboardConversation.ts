@@ -18,17 +18,16 @@
 
 import { useRef, useCallback } from "react";
 
+type DashboardMode = "modify" | "analyze";
+
 interface SaveMessageOptions {
   role: "user" | "assistant";
   content: string;
 }
 
 interface UseDashboardConversationResult {
-  /** Ensures a conversation row exists; returns the conversation ID. */
-  ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
-  /** Saves a single message to the conversation (no LLM). */
+  ensureConversation: (mode: DashboardMode) => Promise<string | null>;
   saveMessage: (convId: string, opts: SaveMessageOptions) => Promise<void>;
-  /** The current conversation ID (null if no conversation created yet). */
   conversationIdRef: React.MutableRefObject<string | null>;
 }
 
@@ -36,18 +35,20 @@ export function useDashboardConversation(
   dashboardId: number | undefined,
 ): UseDashboardConversationResult {
   const conversationIdRef = useRef<string | null>(null);
+  const modeRef = useRef<DashboardMode | null>(null);
 
   const ensureConversation = useCallback(
-    async (mode: "modify" | "analyze"): Promise<string | null> => {
+    async (mode: DashboardMode): Promise<string | null> => {
       if (!dashboardId) return null;
       if (conversationIdRef.current) return conversationIdRef.current;
-
+      modeRef.current = mode;
       try {
         const res = await fetch("/api/conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             mode,
+            flow: mode,          // passed through to initial_context snapshot
             context_kind: "dashboard",
             context_ref: String(dashboardId),
             context_url: `/paneles/${dashboardId}`,
@@ -67,11 +68,18 @@ export function useDashboardConversation(
   const saveMessage = useCallback(
     async (convId: string, { role, content }: SaveMessageOptions): Promise<void> => {
       try {
+        const flow = modeRef.current ?? "chat";
         await fetch(`/api/conversations/${convId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role, content, callLlm: false }),
+          body: JSON.stringify({ role, content, callLlm: false, flow }),
         });
+        // After the assistant message lands, trigger title generation.
+        if (role === "assistant") {
+          void fetch(`/api/conversations/${convId}/generate-title`, {
+            method: "POST",
+          }).catch(() => {});
+        }
       } catch {
         // Best-effort — don't block the UI if persistence fails
       }

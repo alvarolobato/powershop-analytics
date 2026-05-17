@@ -11,6 +11,11 @@ import {
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 import { buildFreeChatInitialContextSnapshot } from "@/lib/conversation-context";
+import {
+  getEffectiveDashboardModel,
+  loadDashboardLlmConfig,
+} from "@/lib/llm-provider/config";
+import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 
 const VALID_MODES = new Set([
   "generate",
@@ -131,6 +136,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     typeof b.first_user_prompt === "string" ? b.first_user_prompt : undefined;
   const llm_provider = typeof b.llm_provider === "string" ? b.llm_provider : undefined;
   const llm_driver = typeof b.llm_driver === "string" ? b.llm_driver : undefined;
+  // Caller can explicitly pass the flow (e.g., "analyze"/"modify"); falls back to mode.
+  const flow = (typeof b.flow === "string" ? b.flow : mode) as DashboardLlmFlow;
 
   try {
     const result = await createConversation({
@@ -143,23 +150,33 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       llm_driver,
     });
 
-    // Snapshot initial_context for all free-chat conversations so that
-    // GET /api/conversations/:id can show "Contexto original" without waiting
-    // for the first message. Previously only mode=chat&context_kind=global was
-    // snapshotted; analyze/modify conversations created from the ChatSidebar
-    // always had initial_context=null, so their "Contexto original" panel was
-    // blank. We snapshot whenever context_kind=global (any free-chat mode).
-    // Analyze/modify conversations started from a dashboard panel get their
-    // initial_context set by the messages route on first user message instead.
-    if (context_kind === "global" || mode === "chat") {
-      try {
+    // Always snapshot initial_context at creation so "Contexto original" is
+    // available the moment the conversation row exists — not as a fallback in
+    // the messages route after the first user message.  Single place, single
+    // responsibility.
+    //
+    // Free-chat (global) → full snapshot: model, system prompt, tool catalog.
+    // Dashboard (analyze/modify/…) → model + flow only (the system prompt and
+    //   tools change per-request inside the analyze/modify LLM routes).
+    try {
+      if (context_kind === "global" || mode === "chat") {
         await setInitialContext(result.id, buildFreeChatInitialContextSnapshot());
-      } catch (snapshotErr) {
-        console.warn(
-          `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
-          snapshotErr,
-        );
+      } else {
+        const cfg = loadDashboardLlmConfig();
+        await setInitialContext(result.id, {
+          model: getEffectiveDashboardModel(cfg, flow),
+          provider: cfg.provider,
+          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+          system_prompt_stable: "",
+          tools: [],
+          config: { flow },
+        });
       }
+    } catch (snapshotErr) {
+      console.warn(
+        `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
+        snapshotErr,
+      );
     }
 
     return NextResponse.json(result, { status: 201 });

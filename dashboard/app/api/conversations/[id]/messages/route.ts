@@ -22,10 +22,8 @@ import {
   appendMessage,
   loadMessages,
   maybeGenerateTitle,
-  setInitialContext,
   touchConversation,
   type ConversationRow,
-  type InitialContext,
   type MessageRow,
 } from "@/lib/conversations";
 import {
@@ -35,7 +33,7 @@ import {
 } from "@/lib/llm-provider/config";
 import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
-import { buildFreeChatContext, buildFreeChatInitialContextSnapshot, type FreeChatContext } from "@/lib/conversation-context";
+import { buildFreeChatContext, type FreeChatContext } from "@/lib/conversation-context";
 import {
   runAgenticChat,
   AgenticRunnerError,
@@ -176,42 +174,8 @@ export async function POST(
 
     userMessage = await appendMessage(id, role, { text: rawContent });
 
-    // Snapshot initial_context on the first user message of any conversation
-    // (when it hasn't been set yet). The setter is idempotent — only writes
-    // when initial_context IS NULL.
-    if (role === "user" && conv.initial_context === null) {
-      try {
-        const cfg = loadDashboardLlmConfig();
-        // The snapshot is stored as the API-canonical InitialContext shape
-        // (conversation-types.ts) so GET /api/conversations/:id returns
-        // exactly what we wrote here. For free-chat (mode='chat') we capture
-        // the real system prompt + tool catalog + agentic limits so the
-        // "Contexto original" panel shows a faithful audit trail. For other
-        // flows we use the simpler empty-tools shape that pre-existed.
-        let snapshot: InitialContext;
-
-        if (isFreeChatConv && freeChatCtx) {
-          snapshot = buildFreeChatInitialContextSnapshot();
-        } else {
-          const flow = (flowRaw ?? "summary") as DashboardLlmFlow;
-          snapshot = {
-            model: getEffectiveDashboardModel(cfg, flow),
-            provider: cfg.provider,
-            driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-            system_prompt_stable: "",
-            tools: [],
-            config: { flow },
-          };
-        }
-
-        await setInitialContext(id, snapshot);
-      } catch (snapshotErr) {
-        console.warn(
-          `[${requestId}] setInitialContext failed for ${id}:`,
-          snapshotErr,
-        );
-      }
-    }
+    // initial_context is now always set at conversation creation time in
+    // POST /api/conversations — no fallback needed here.
 
     // Load message history in the DB phase so a PG failure is reported as
     // DB_ERROR rather than LLM_ERROR.
