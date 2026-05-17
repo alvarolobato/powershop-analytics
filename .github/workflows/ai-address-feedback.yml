@@ -149,10 +149,17 @@ jobs:
           # Fix: do the same cleanup the address-job d021 step would have
           # done, then short-circuit. Idempotent: removing absent labels and
           # adding present ones via the REST endpoint is a no-op.
-          if echo ",$LABELS," | grep -q ",fact-cp-after-1," \
-             && echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
+          # D-021 converge: both rounds done = fact-o-after-1 present AND no
+          # stale phase labels. fact-cp-after-1 may have been cleaned up by
+          # address-feedback's own Opus handoff before this resolve step runs
+          # (observed on PR #683: only fact-o-after-1 was present). Guard on
+          # fact-o-after-1 alone when no phase label is still active.
+          HAS_CP=$(echo ",$LABELS," | grep -c ",fact-cp-after-1," || true)
+          HAS_O=$(echo ",$LABELS," | grep -c ",fact-o-after-1," || true)
+          HAS_PHASE=$(echo ",$LABELS," | grep -cE ",fact-phase-(copilot|opus)," || true)
+          if [ "${HAS_O:-0}" -gt 0 ] && [ "${HAS_PHASE:-0}" -eq 0 ]; then
             SHOULD_RUN="false"
-            REASON="PR #$PR already has fact-cp-after-1 + fact-o-after-1 (D-021 converged)"
+            REASON="PR #$PR D-021 converged (fact-o-after-1 present, no active phase label; fact-cp-after-1 present=${HAS_CP})"
             # Clear stale phase / blocked / auto-retry labels.
             for stale in fact-ready-for-review fact-phase-copilot fact-phase-opus ai-blocked fact-auto-retry; do
               gh api "repos/${{ github.repository }}/issues/$PR/labels/$stale" -X DELETE 2>/dev/null || true
