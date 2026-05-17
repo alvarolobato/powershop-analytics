@@ -203,8 +203,8 @@ export async function POST(
             config: { flow },
           });
         }
-      } catch {
-        // best-effort recovery — don't fail the message write
+      } catch (snapshotErr) {
+        console.warn(`[${requestId}] setInitialContext recovery failed for ${id}:`, snapshotErr);
       }
     }
 

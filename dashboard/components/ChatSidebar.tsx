@@ -431,7 +431,7 @@ function ModificarTab({
   initialContext?: InitialContext | null;
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   onLoadingChange?: (v: boolean) => void;
-  ensureConversation: (mode: "modify" | "analyze") => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
+  ensureConversation: (mode: "modify" | "analyze", firstPrompt?: string) => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
@@ -485,7 +485,7 @@ function ModificarTab({
 
     // ensureConversation returns initial_context synchronously — no second
     // fetch, no race condition with the LLM call.
-    const convResult = await ensureConversation("modify");
+    const convResult = await ensureConversation("modify", trimmed);
     const convId = convResult?.id ?? null;
     if (convId) {
       void saveMessage(convId, { role: "user", content: trimmed });
@@ -866,7 +866,7 @@ function AnalizarTab({
   initialContext?: InitialContext | null;
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   onLoadingChange?: (v: boolean) => void;
-  ensureConversation: (mode: "modify" | "analyze") => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
+  ensureConversation: (mode: "modify" | "analyze", firstPrompt?: string) => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
@@ -922,7 +922,7 @@ function AnalizarTab({
       setStreamingLog([]);
 
       // ensureConversation returns initial_context synchronously.
-      const convResult = await ensureConversation("analyze");
+      const convResult = await ensureConversation("analyze", trimmed);
       const convId = convResult?.id ?? null;
       if (convId) {
         void saveMessage(convId, { role: "user", content: trimmed });
@@ -1745,7 +1745,7 @@ export default function ChatSidebar({
               }}
             >
               <span
-                aria-label={isProcessing ? "Procesando" : "Conectado"}
+                aria-label={isProcessing ? "Estado: procesando" : "Estado: conectado"}
                 style={{
                   width: isProcessing ? 10 : 5,
                   height: isProcessing ? 10 : 5,

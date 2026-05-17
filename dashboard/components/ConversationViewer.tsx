@@ -49,7 +49,7 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
       });
 
       // ── NDJSON streaming path ─────────────────────────────────────────────
-      const ct = res.headers.get("content-type") ?? "";
+      const ct = res.headers?.get("content-type") ?? "";
       if (res.body && ct.includes("application/x-ndjson")) {
         // Inline NDJSON reader — parse one JSON object per line.
         async function* readLines(body: ReadableStream<Uint8Array>) {

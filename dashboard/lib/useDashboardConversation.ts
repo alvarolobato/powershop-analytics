@@ -37,7 +37,7 @@ export interface EnsureConversationResult {
 interface UseDashboardConversationResult {
   /** Returns both the conversation ID and its initial_context so the caller can
    *  update the UI without a second round-trip. */
-  ensureConversation: (mode: DashboardMode) => Promise<EnsureConversationResult | null>;
+  ensureConversation: (mode: DashboardMode, firstPrompt?: string) => Promise<EnsureConversationResult | null>;
   saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
   /** Archive the current conversation and reset so the next send creates a fresh one. */
   startNewConversation: () => Promise<void>;
@@ -51,7 +51,7 @@ export function useDashboardConversation(
   const modeRef = useRef<DashboardMode | null>(null);
 
   const ensureConversation = useCallback(
-    async (mode: DashboardMode): Promise<EnsureConversationResult | null> => {
+    async (mode: DashboardMode, firstPrompt?: string): Promise<EnsureConversationResult | null> => {
       if (!dashboardId) return null;
       modeRef.current = mode;
 
@@ -106,6 +106,7 @@ export function useDashboardConversation(
             context_kind: "dashboard",
             context_ref: String(dashboardId),
             context_url: `/paneles/${dashboardId}`,
+            ...(firstPrompt ? { first_user_prompt: firstPrompt } : {}),
           }),
         });
         if (!res.ok) return null;
