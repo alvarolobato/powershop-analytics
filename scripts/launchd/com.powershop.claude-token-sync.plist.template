@@ -11,11 +11,11 @@
     <string>__REPO_ROOT__/scripts/sync-claude-token.sh</string>
   </array>
 
-  <!-- Run at load (when launchctl bootstraps the agent) and every 2 hours. -->
+  <!-- Run at load (when launchctl bootstraps the agent) and every 5 minutes. -->
   <key>RunAtLoad</key>
   <true/>
   <key>StartInterval</key>
-  <integer>7200</integer>
+  <integer>300</integer>
 
   <!-- Also fire on demand: when a process (typically the dashboard container)
        writes/touches the kick file, launchd runs the sync script immediately.
