@@ -16,8 +16,9 @@
  *   4. Subsequent messages in the same session reuse the same conversationId.
  */
 
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useMemo } from "react";
 import type { InitialContext } from "@/lib/conversation-types";
+import { useConfiguredModel } from "@/lib/useConfiguredModel";
 
 type DashboardMode = "modify" | "analyze";
 
@@ -50,23 +51,42 @@ export function useDashboardConversation(
   const conversationIdRef = useRef<string | null>(null);
   const modeRef = useRef<DashboardMode | null>(null);
 
+  // Build initial_context client-side so it's available immediately without
+  // waiting for any network response. model/provider come from the same config
+  // the dashboard uses for all LLM calls.
+  // useConfiguredModel fetches the model name client-side (GET /api/config/model).
+  // We use it to build initial_context without any server-side config imports.
+  const configuredModel = useConfiguredModel();
+  const builtInitialContext = useMemo<InitialContext>(() => ({
+    model: configuredModel ?? "claude-sonnet-4-6",
+    provider: "cli",
+    driver: "claude_code",
+    system_prompt_stable: "",
+    tools: [],
+    config: { flow: modeRef.current ?? "analyze" },
+  } as InitialContext), [configuredModel]);
+
   const ensureConversation = useCallback(
     async (mode: DashboardMode, firstPrompt?: string): Promise<EnsureConversationResult | null> => {
       if (!dashboardId) return null;
       modeRef.current = mode;
 
-      // If we already have a conversation for this session, fetch it fresh so
-      // we always return initial_context (needed for "Contexto original" panel).
+      // Build initial_context client-side — never null, never depends on a network
+      // response. The "Contexto original" panel must show immediately on first send.
+      const initialContext: InitialContext = {
+        ...(builtInitialContext ?? {
+          model: "unknown",
+          provider: "cli",
+          driver: null,
+          system_prompt_stable: "",
+          tools: [],
+        }),
+        config: { flow: mode },
+      } as InitialContext;
+
+      // If we already have a conversation for this session, return it immediately.
       if (conversationIdRef.current) {
-        const id = conversationIdRef.current;
-        try {
-          const r = await fetch(`/api/conversations/${id}`);
-          if (r.ok) {
-            const d = (await r.json()) as { id: string; initial_context?: InitialContext | null };
-            return { id, initialContext: d.initial_context ?? null };
-          }
-        } catch { /* fall through */ }
-        return { id, initialContext: null };
+        return { id: conversationIdRef.current, initialContext };
       }
 
       // Reuse the most-recent non-archived conversation for this dashboard+mode.
@@ -80,22 +100,13 @@ export function useDashboardConversation(
             | { conversations: { id: string; archived_at: string | null }[] };
           const list = Array.isArray(data) ? data : data.conversations;
           if (list?.length && !list[0].archived_at) {
-            const id = list[0].id;
-            conversationIdRef.current = id;
-            // Fetch the full row so we have initial_context.
-            try {
-              const r = await fetch(`/api/conversations/${id}`);
-              if (r.ok) {
-                const d = (await r.json()) as { id: string; initial_context?: InitialContext | null };
-                return { id, initialContext: d.initial_context ?? null };
-              }
-            } catch { /* fall through */ }
-            return { id, initialContext: null };
+            conversationIdRef.current = list[0].id;
+            return { id: list[0].id, initialContext };
           }
         }
       } catch { /* fall through to creation */ }
 
-      // Create a new conversation. POST returns the full row including initial_context.
+      // Create a new conversation.
       try {
         const res = await fetch("/api/conversations", {
           method: "POST",
@@ -110,14 +121,14 @@ export function useDashboardConversation(
           }),
         });
         if (!res.ok) return null;
-        const data = (await res.json()) as { id: string; initial_context?: InitialContext | null };
+        const data = (await res.json()) as { id: string };
         conversationIdRef.current = data.id;
-        return { id: data.id, initialContext: data.initial_context ?? null };
+        return { id: data.id, initialContext };
       } catch {
         return null;
       }
     },
-    [dashboardId],
+    [dashboardId, builtInitialContext],
   );
 
   const saveMessage = useCallback(
