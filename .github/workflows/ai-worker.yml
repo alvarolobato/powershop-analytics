@@ -254,7 +254,10 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'ai-work' &&
-        contains(github.event.issue.labels.*.name, 'fact-task')
+        (
+          contains(github.event.issue.labels.*.name, 'fact-planned') ||
+          contains(github.event.issue.labels.*.name, 'fact-task')
+        )
       ) ||
       (
         github.event_name == 'workflow_dispatch' &&
