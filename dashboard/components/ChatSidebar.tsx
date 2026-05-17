@@ -523,7 +523,7 @@ function ModificarTab({
       const res = await fetch("/api/dashboard/modify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, prompt: trimmed }),
+        body: JSON.stringify({ spec, prompt: trimmed, ...(convId ? { conversationId: convId } : {}) }),
       });
 
       // -------------------------------------------------------------------
@@ -958,6 +958,7 @@ function AnalizarTab({
             prompt: trimmed,
             ...(action ? { action } : {}),
             ...(dashboardId !== undefined ? { dashboardId } : {}),
+            ...(convId ? { conversationId: convId } : {}),
           }),
         });
 

@@ -58,6 +58,7 @@ import {
   createInteraction,
   finishInteraction,
 } from "@/lib/db-write";
+import { appendMessage, touchConversation } from "@/lib/conversations";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
@@ -139,7 +140,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { spec, prompt, dashboardId } = body as Record<string, unknown>;
+  const { spec, prompt, dashboardId, conversationId } = body as Record<string, unknown>;
+  const convId = typeof conversationId === "string" && conversationId.trim() ? conversationId.trim() : null;
 
   // --- Validate required fields ---------------------------------------------
   if (spec === undefined) {
@@ -219,6 +221,17 @@ export async function POST(request: Request) {
     });
   } catch (e) {
     console.error(`[${requestId}] createInteraction(modify) failed:`, e);
+  }
+
+  // --- Save user message server-side immediately ----------------------------
+  // This ensures the message is persisted even if the browser disconnects
+  // before the response arrives and the client-side save never runs.
+  if (convId) {
+    try {
+      await appendMessage(convId, { role: "user", content: { text: prompt.trim() } });
+    } catch (e) {
+      console.warn(`[${requestId}] Failed to save user message for conv ${convId}:`, e);
+    }
   }
 
   // --- Load prior conversation turns (if this is a saved dashboard) --------
@@ -447,6 +460,14 @@ export async function POST(request: Request) {
         console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
       );
     }
+    if (convId && message) {
+      try {
+        await appendMessage(convId, { role: "assistant", content: { text: message } });
+        await touchConversation(convId, "ok").catch(() => {});
+      } catch (e) {
+        console.warn(`[${requestId}] Failed to save assistant message for conv ${convId}:`, e);
+      }
+    }
     // Return additive fields: spec (existing contract) + message + summary (new).
     return NextResponse.json({ ...updatedSpec, message, summary });
   }
@@ -519,6 +540,14 @@ export async function POST(request: Request) {
         await finishInteraction(interactionId, "completed", JSON.stringify(updatedSpec)).catch((e) =>
           console.error(`[${requestId}] finishInteraction(modify,completed) failed:`, e),
         );
+      }
+      if (convId && message) {
+        try {
+          await appendMessage(convId, { role: "assistant", content: { text: message } });
+          await touchConversation(convId, "ok").catch(() => {});
+        } catch (e) {
+          console.warn(`[${requestId}] Failed to save assistant message for conv ${convId}:`, e);
+        }
       }
       // Additive NDJSON result frame: spec (existing) + message + summary (new).
       send({ type: "result", requestId, spec: updatedSpec, message, summary });
