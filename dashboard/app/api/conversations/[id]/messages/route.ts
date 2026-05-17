@@ -22,6 +22,7 @@ import {
   appendMessage,
   loadMessages,
   maybeGenerateTitle,
+  setInitialContext,
   touchConversation,
   type ConversationRow,
   type MessageRow,
@@ -33,7 +34,7 @@ import {
 } from "@/lib/llm-provider/config";
 import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
-import { buildFreeChatContext, type FreeChatContext } from "@/lib/conversation-context";
+import { buildFreeChatContext, buildFreeChatInitialContextSnapshot, type FreeChatContext } from "@/lib/conversation-context";
 import {
   runAgenticChat,
   AgenticRunnerError,
@@ -174,8 +175,32 @@ export async function POST(
 
     userMessage = await appendMessage(id, role, { text: rawContent });
 
-    // initial_context is now always set at conversation creation time in
-    // POST /api/conversations — no fallback needed here.
+    // initial_context is always set at conversation creation time in
+    // POST /api/conversations. Guard here for the rare case where the
+    // creation-time snapshot write failed (transient DB error) — if it did,
+    // the "Contexto original" panel would stay blank forever without this
+    // idempotent recovery path. setInitialContext is a no-op when the field
+    // is already set (Copilot review on the conversations/route.ts change).
+    if (role === "user" && conv.initial_context === null) {
+      try {
+        const cfg = loadDashboardLlmConfig();
+        const flow = (flowRaw ?? conv.mode ?? "chat") as DashboardLlmFlow;
+        if (isFreeChatConv && freeChatCtx) {
+          await setInitialContext(id, buildFreeChatInitialContextSnapshot());
+        } else {
+          await setInitialContext(id, {
+            model: getEffectiveDashboardModel(cfg, flow),
+            provider: cfg.provider,
+            driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+            system_prompt_stable: "",
+            tools: [],
+            config: { flow },
+          });
+        }
+      } catch {
+        // best-effort recovery — don't fail the message write
+      }
+    }
 
     // Load message history in the DB phase so a PG failure is reported as
     // DB_ERROR rather than LLM_ERROR.

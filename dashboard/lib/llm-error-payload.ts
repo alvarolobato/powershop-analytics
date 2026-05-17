@@ -11,10 +11,11 @@ import {
   BudgetExceededError,
   CircuitBreakerOpenError,
 } from "@/lib/llm";
+import type { ErrorCode } from "@/lib/errors";
 
 export interface ClassifiedLlmError {
   status: number;
-  code: string;
+  code: ErrorCode;
   userMessage: string;
 }
 
@@ -42,7 +43,7 @@ export function classifyLlmError(
   if (err instanceof BudgetExceededError) {
     return {
       status: 429,
-      code: "BUDGET_EXCEEDED",
+      code: "LLM_BUDGET_EXCEEDED",
       userMessage: err.message,
     };
   }
@@ -57,13 +58,16 @@ export function classifyLlmError(
 
   const message = err instanceof Error ? err.message : String(err);
   const normalizedMessage = message.toLowerCase();
+  // Use specific phrases to avoid matching unrelated words ("generate", "moderate").
   const isRateLimit =
-    normalizedMessage.includes("rate") || normalizedMessage.includes("429");
+    normalizedMessage.includes("rate limit") ||
+    normalizedMessage.includes("ratelimit") ||
+    normalizedMessage.includes("429");
 
   if (isRateLimit) {
     return {
       status: 429,
-      code: "LLM_RATE_LIMITED",
+      code: "LLM_RATE_LIMIT",
       userMessage:
         "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos.",
     };

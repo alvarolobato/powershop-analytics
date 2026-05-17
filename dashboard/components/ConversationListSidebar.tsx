@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import type { ConversationRow } from "@/app/conversations/types";
 
@@ -56,6 +56,17 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(
+      (c) =>
+        c.title?.toLowerCase().includes(q) ||
+        c.first_user_prompt?.toLowerCase().includes(q) ||
+        c.last_message_preview?.toLowerCase().includes(q),
+    );
+  }, [conversations, query]);
 
   // Optimistically clear the unread dot for the currently selected conversation.
   useEffect(() => {
@@ -150,17 +161,7 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
       )}
 
       {!loading &&
-        conversations
-        .filter((conv) => {
-          if (!query.trim()) return true;
-          const q = query.toLowerCase();
-          return (
-            conv.title?.toLowerCase().includes(q) ||
-            conv.first_user_prompt?.toLowerCase().includes(q) ||
-            conv.last_message_preview?.toLowerCase().includes(q)
-          );
-        })
-        .map((conv) => {
+        filtered.map((conv) => {
           const title =
             conv.title?.trim() ||
             (conv.first_user_prompt
@@ -234,10 +235,7 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
             </Link>
           );
         })}
-      {!loading && query.trim() && conversations.filter((c) =>
-        [c.title, c.first_user_prompt, c.last_message_preview]
-          .some((f) => f?.toLowerCase().includes(query.toLowerCase()))
-      ).length === 0 && (
+      {!loading && query.trim() && filtered.length === 0 && (
         <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--fg-muted)" }}>
           Sin resultados
         </div>

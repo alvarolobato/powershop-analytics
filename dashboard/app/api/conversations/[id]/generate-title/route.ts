@@ -25,7 +25,9 @@ export async function POST(
             : JSON.stringify(c);
         return { role: m.role as "user" | "assistant", content: text };
       });
-    void maybeGenerateTitle(id, turns);
+    void maybeGenerateTitle(id, turns).catch((e) =>
+      console.warn(`[${requestId}] maybeGenerateTitle failed for ${id}:`, e),
+    );
     return NextResponse.json({ ok: true });
   } catch (err) {
     console.warn(`[${requestId}] generate-title error for ${id}:`, err);

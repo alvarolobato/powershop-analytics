@@ -28,8 +28,6 @@ interface SaveMessageOptions {
 interface UseDashboardConversationResult {
   ensureConversation: (mode: DashboardMode) => Promise<string | null>;
   saveMessage: (convId: string, opts: SaveMessageOptions) => Promise<void>;
-  /** Seed an existing conversation ID found by the auto-load so ensureConversation reuses it. */
-  seedConversationId: (id: string) => void;
   /** Archive the current conversation and reset so the next send creates a fresh one. */
   startNewConversation: () => Promise<void>;
   conversationIdRef: React.MutableRefObject<string | null>;
@@ -111,10 +109,6 @@ export function useDashboardConversation(
     [],
   );
 
-  const seedConversationId = useCallback((id: string) => {
-    if (!conversationIdRef.current) conversationIdRef.current = id;
-  }, []);
-
   // Archive the current conversation and reset so the next send creates a
   // fresh one.  Called by "Nueva conversación" in ChatSidebar.
   const startNewConversation = useCallback(async () => {
@@ -130,5 +124,5 @@ export function useDashboardConversation(
     } catch { /* best-effort */ }
   }, []);
 
-  return { ensureConversation, saveMessage, seedConversationId, startNewConversation, conversationIdRef };
+  return { ensureConversation, saveMessage, startNewConversation, conversationIdRef };
 }

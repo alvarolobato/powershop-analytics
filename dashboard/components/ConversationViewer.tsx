@@ -487,16 +487,25 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
     }
   }, [conv.messages.length]);
 
+  // Derive stable waiting booleans from conv so the polling effect doesn't
+  // re-fire on every setConv() call (conv.messages changes identity on each
+  // fetch, which would reset pollAttemptsRef and make the cap ineffective).
+  const lastMsgRole = conv.messages.at(-1)?.role ?? null;
+  const hasInitialContext = conv.initial_context !== null;
+
+  // Reset the poll counter when switching to a different conversation so each
+  // conversation gets its own independent cap (not accumulated across navigations).
+  useEffect(() => {
+    pollAttemptsRef.current = 0;
+  }, [conv.id]);
+
   // Poll when a response is in-flight: last message is from "user" (waiting for
   // assistant reply), or initial_context hasn't been written yet (race between
   // creation and first render). Capped at 8 attempts (8 × 2.5 s = 20 s max).
   useEffect(() => {
-    const lastMsg = conv.messages[conv.messages.length - 1];
-    const waitingForAssistant = lastMsg?.role === "user";
-    const waitingForContext = conv.initial_context === null;
+    const waitingForAssistant = lastMsgRole === "user";
+    const waitingForContext = !hasInitialContext;
     if (!waitingForAssistant && !waitingForContext) return;
-
-    pollAttemptsRef.current = 0;
     const MAX_ATTEMPTS = 8;
     const POLL_MS = 2500;
     let timer: ReturnType<typeof setTimeout>;
@@ -509,7 +518,6 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         if (!res.ok) return;
         const fresh = (await res.json()) as ConversationWithMessages;
         setConv(fresh);
-        // Keep polling if still waiting for assistant reply or initial_context
         const stillWaiting =
           (fresh.messages ?? []).at(-1)?.role === "user" ||
           fresh.initial_context === null;
@@ -517,7 +525,6 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
           timer = setTimeout(() => void poll(), POLL_MS);
         }
       } catch {
-        // network hiccup — retry if under cap
         if (pollAttemptsRef.current < MAX_ATTEMPTS) {
           timer = setTimeout(() => void poll(), POLL_MS);
         }
@@ -526,7 +533,8 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
 
     timer = setTimeout(() => void poll(), POLL_MS);
     return () => clearTimeout(timer);
-  }, [conv.id, conv.messages, conv.initial_context]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv.id, lastMsgRole, hasInitialContext]);
 
   // On mount: if NewConversationDialog left a pending prompt in sessionStorage, auto-send it
   // and mark as read after the response (prevents last_interaction_at racing ahead of
