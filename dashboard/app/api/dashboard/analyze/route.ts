@@ -448,9 +448,10 @@ export async function POST(request: Request) {
         console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
       );
     }
-    if (convId && message) {
+    const msgToSave = message || analysisResponse;
+    if (convId && msgToSave) {
       try {
-        await appendMessage(convId, { role: "assistant", content: { text: message } });
+        await appendMessage(convId, { role: "assistant", content: { text: msgToSave } });
         await touchConversation(convId, "ok").catch(() => {});
       } catch (e) {
         console.warn(`[${requestId}] Failed to save assistant message for conv ${convId}:`, e);
@@ -549,9 +550,10 @@ export async function POST(request: Request) {
           console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
         );
       }
-      if (convId && message) {
+      const msgToSave = message || analysisResponse;
+      if (convId && msgToSave) {
         try {
-          await appendMessage(convId, { role: "assistant", content: { text: message } });
+          await appendMessage(convId, { role: "assistant", content: { text: msgToSave } });
           await touchConversation(convId, "ok").catch(() => {});
         } catch (e) {
           console.warn(`[${requestId}] Failed to save assistant message for conv ${convId}:`, e);

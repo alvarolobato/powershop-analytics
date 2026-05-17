@@ -720,13 +720,15 @@ function ModificarTab({
         <CreationLogPanel lines={creationLogs} />
       )}
 
+      {/* Initial context — outside the scrollable area so it stays visible */}
+      {initialContext && messages.length > 0 && (
+        <div style={{ padding: "0 16px 4px", flexShrink: 0 }}>
+          <InitialContextPanel context={initialContext} />
+        </div>
+      )}
+
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {/* Initial context panel — shown at the top when a prior conversation has context */}
-        {initialContext && messages.length > 0 && (
-          <InitialContextPanel context={initialContext} />
-        )}
-
         {messages.length === 0 && (
           <p style={{ fontSize: 12, color: "var(--fg-subtle)", textAlign: "center", marginTop: 32 }}>
             Escribe un mensaje para modificar el dashboard.
@@ -1129,6 +1131,13 @@ function AnalizarTab({
         Pregunta sobre los datos.
       </div>
 
+      {/* Initial context — outside the scrollable area so it stays visible */}
+      {initialContext && messages.length > 0 && (
+        <div style={{ padding: "0 16px 4px", flexShrink: 0 }}>
+          <InitialContextPanel context={initialContext} />
+        </div>
+      )}
+
       {/* Messages area */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
         {/* Action preset buttons */}
@@ -1183,11 +1192,6 @@ function AnalizarTab({
               </button>
             ))}
           </div>
-        )}
-
-        {/* Initial context panel — shown at the top when a prior conversation has context */}
-        {initialContext && messages.length > 0 && (
-          <InitialContextPanel context={initialContext} />
         )}
 
         {/* Empty state */}
@@ -1580,17 +1584,18 @@ export default function ChatSidebar({
         const hasAssistant = msgs.some((m) => m.role === "assistant");
 
         if (hasAssistant) {
-          // Rebuild messages from DB and update state
+          // Only replace in-memory messages if DB has MORE messages (the browser
+          // is ahead otherwise — e.g., optimistic user messages not yet in DB).
           const rebuilt = convertConversationMessages(
             msgs as Parameters<typeof convertConversationMessages>[0],
           );
           if (activeTab === "analizar") {
-            setAnalyzeMessages(rebuilt);
+            setAnalyzeMessages((prev) => rebuilt.length >= prev.length ? rebuilt : prev);
             if (data.initial_context && !analyzeInitialContext) {
               setAnalyzeInitialContext(data.initial_context as InitialContext);
             }
           } else {
-            setModifyMessages(rebuilt);
+            setModifyMessages((prev) => rebuilt.length >= prev.length ? rebuilt : prev);
             if (data.initial_context && !modifyInitialContext) {
               setModifyInitialContext(data.initial_context as InitialContext);
             }
