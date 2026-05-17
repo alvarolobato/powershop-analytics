@@ -69,7 +69,9 @@ jobs:
 
           BRANCH="${{ github.event.workflow_run.head_branch }}"
           case "$BRANCH" in
-            ai/*) ;;
+            ai/*) ;;                    # factory sub-issue branches
+            conversation-engine-*) ;;  # D-034 single-track phase branches
+            fix/*|feat/*|refactor/*) ;; # manual factory-adjacent branches
             *)
               echo "should_run=false" >> "$GITHUB_OUTPUT"
               exit 0
