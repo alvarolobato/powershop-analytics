@@ -75,145 +75,82 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 80"
           prompt: |
-            You are the AI Planner. Generate a comprehensive implementation plan for this issue.
+            You are the AI Planner (D-034 single-track model). Your job is to **edit the
+            issue body in place** — adding `## Phase N — name` headings with `### Tasks`
+            checklists — following the template in `docs/issue-format.md`.
+            Do NOT post the plan as a comment. Do NOT create sub-issues.
 
-            The command was: "${{ github.event.comment.body }}"
+            The trigger: "${{ github.event.comment.body }}"
 
-            If this thread is **pull request #${{ github.event.issue.number }}** (not a standalone issue), plan against the **PR branch** you are checked out on; post the plan as a **pull request** comment and mention linked issues by number from the PR body.
+            If this is a PR (not an issue), post a plan comment on the PR instead of
+            editing the body, then skip the label steps.
 
-            ## Step 1 — Understand the request
-            Read the issue title, body, and ALL comments carefully.
-            Read CLAUDE.md and AGENTS.md for project context.
-            Read relevant skill docs in docs/skills/ for the affected domain.
-            Explore the codebase to understand the current state.
+            ## Step 1 — Understand deeply
+            Read the issue #${{ github.event.issue.number }} title, body, and ALL comments.
+            Read CLAUDE.md (role: planner), AGENTS.md, and `docs/issue-format.md`.
+            Read relevant skill docs in `docs/skills/` for the affected domain.
+            Explore the codebase — read actual files, not just names.
 
-            ## Step 2 — Post a comprehensive plan comment
+            ## Step 2 — Rewrite the issue body in place
+            Edit issue #${{ github.event.issue.number }} body using `gh issue edit --body-file`.
+            Follow the template in `docs/issue-format.md` exactly:
 
-            Post a comment with this structure:
+            - Keep the original **Context** block (Problem, Scope, Constraints, etc.)
+            - Add or replace the **Plan** section (2-3 sentences on the approach + a
+              dependency table if multi-phase)
+            - Add **## Phase N — name** sections with **### Tasks** checklists
+            - Add **## Exit criteria / Validation** section — list every user-stated
+              requirement as a checkbox that can be ticked only with evidence (test
+              output, screenshot, or recording). Source these from: any acceptance
+              criteria already in the issue, comments from the owner, and the original
+              problem statement. Format:
+              ```
+              ## Exit criteria / Validation
 
-            ---
-            ## 🗺️ Implementation Plan
+              - [ ] **EC-1**: <user-observable requirement> — *Evidence*: <what to show>
+              - [ ] **EC-2**: ...
+              ```
+            - Add **## Additional Context** section if needed
 
-            ### Analysis
-            [What is being asked, why it matters, what the current state of the codebase is.
-            Reference specific files and line numbers you examined.]
+            Decide on phases using the rules in `docs/issue-format.md` (Q1–Q3). Default
+            is one phase. Split only when: PR would exceed ~2 000 LOC, or there is a
+            producer/consumer dependency, or two groups touch the same critical shared file.
 
-            ### Architecture decisions
-            [Key decisions: data model, API design, component structure, etc. Explain WHY.]
-
-            ### Sub-tasks
-            List every discrete unit of work. Each task must be independently implementable
-            (own branch + PR) and small enough to complete in a focused session.
-
-            **DO NOT create sub-issues for lifecycle steps.** "Run all checks", "Copilot
-            review", "Opus review", and "Create commit" are steps inside the feature PR's
-            lifecycle (the worker handles them automatically) — they are not independent
-            code changes. Decomposing a parent into one `fact-task` per lifecycle step
-            spawns N parallel PRs that all implement the same feature (this happened
-            with #481 → #482..#487 → PRs #490, #491, #494, #496). If the parent produces
-            only one logical change, output **one** sub-issue, not five.
-
-            | # | Title | Files | Acceptance |
-            |---|-------|-------|------------|
-            | 1 | ... | ... | ... |
-            | 2 | ... | ... | ... |
-
-            ### Dependency order
-            [Which tasks must be done before others, and why]
-
-            ### Testing strategy
-            [How each task will be verified — unit tests, integration tests, manual checks]
-
-            ### Risks
-            [What could go wrong, edge cases, things to watch out for]
-
-            ### Complexity estimate
-            [XS / S / M / L / XL with brief justification]
-            ---
-
-            ## Step 3 — Label the issue
-            Always add the `fact-planned` label after posting the plan:
+            Write the body to a temp file, then edit:
             ```bash
-            gh issue edit ISSUE_NUMBER --add-label "fact-planned"
-            ```
-
-            ## Step 4 — Create sub-issues (only if `/plan --full` was used)
-            Check if the comment was `/plan --full`. If YES, create sub-issues AND kick off
-            implementation:
-
-            ### Body integrity rules — MUST follow
-
-            Issue bodies have repeatedly been corrupted by stripping JSX
-            components and TypeScript generics inside backticks (e.g.
-            `` `<Foo />` `` and `` `Promise<void>` `` arrived as empty
-            `` `` `` and `` `Promise` ``). Always:
-            1. Write the body to a temp file first, then use
-               `gh issue create --body-file <path>`. Never inline-construct
-               via `--body "$(cat <<…)"`.
-            2. Keep JSX, HTML tags, and TypeScript generics literal inside
-               backticks. Do not abbreviate.
-            3. After creating each sub-issue, re-read the body with
-               `gh issue view <NUM> --json body --jq .body` and abort if
-               it contains `` `` `` (empty inline code span).
-
-            For EACH task in the sub-tasks table:
-            IMPORTANT: create the issue WITHOUT labels first, then add labels
-            in a separate command — this is required for GitHub to fire the
-            `labeled` event that triggers the implementation workflow.
-
-            ```bash
-            TMP_BODY=$(mktemp --suffix=.md)
-            cat > "$TMP_BODY" <<'BODY'
-            ## Parent issue
-            Closes #PARENT_NUMBER
-
-            ## Task
-            TASK_DESCRIPTION
-
-            ## Files to change
-            - list of files
-
-            ## Acceptance criteria
-            - list of checks
-
-            ## Context
-            See parent issue #PARENT_NUMBER for full plan.
+            TMP=$(mktemp --suffix=.md)
+            cat > "$TMP" <<'BODY'
+            [full rewritten body here]
             BODY
-
-            SUB_ISSUE=$(gh issue create \
-              --title "PARENT_TITLE — Task N: TASK_TITLE" \
-              --body-file "$TMP_BODY" | grep -o '[0-9]*$')
-            rm -f "$TMP_BODY"
-
-            # Verify the body is intact — fail loudly if mangled.
-            # PCRE lookaround excludes triple-backtick fences (```sql, ```bash, …);
-            # only flag truly empty inline code spans (`` `` ``). False-positive
-            # observed on issue #536 (2026-05-09) which had ```sql fences and
-            # was falsely flagged by the naive `grep -q '``'`.
-            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -qP '(?<!`)``(?!`)'; then
-              echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans — JSX/generics likely stripped."
-              gh issue edit "$SUB_ISSUE" --add-label "fact-needs-rewrite" || true
-              exit 1
-            fi
-
-            # Add labels separately so the labeled event fires reliably
-            gh issue edit $SUB_ISSUE --add-label "fact-task"
-            gh issue edit $SUB_ISSUE --add-label "ai-work"
+            gh issue edit ${{ github.event.issue.number }} --body-file "$TMP"
+            rm -f "$TMP"
             ```
 
-            After creating each sub-issue, update the parent issue body to include:
-            `- [ ] Task N: TITLE (#SUB_ISSUE_NUMBER)`
+            ## Step 3 — Post a short analysis comment
+            Post one comment (≤ 10 lines) explaining:
+            - What you found in the codebase relevant to this issue
+            - Why you chose this phase structure (or single phase)
+            - Any risks or blockers identified
 
-            Post a final comment listing all created sub-issues and noting that
-            implementation will start automatically.
+            ## Step 4 — Set labels
+            ```bash
+            ISSUE=${{ github.event.issue.number }}
+            gh issue edit "$ISSUE" --add-label "fact-planned"
+            gh issue edit "$ISSUE" --add-label "ai-awaiting-owner"
+            ```
 
-            If the comment was plain `/plan` (no --full flag), do NOT create sub-issues —
-            just post the plan for human review. The human can then label the issue
-            `ai-work` or run `/plan --full` when ready to implement.
+            The owner will review the rewritten body. When satisfied they add `ai-work`
+            to trigger implementation.
 
-      - name: Clear fact-in-progress on completion
+            ## Step 5 — If you cannot complete the plan
+            Post a comment tagging @alvarolobato with what is blocking.
+            Remove `fact-in-progress`. Add `ai-blocked`. Exit.
+
+      - name: Clear in-progress labels on completion
         if: always() && github.event_name == 'issues' && github.event.label.name == 'ai-plan'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit "${{ github.event.issue.number }}" --remove-label "fact-in-progress" || true
+          ISSUE="${{ github.event.issue.number }}"
+          gh issue edit "$ISSUE" --remove-label "fact-in-progress" || true
+          gh issue edit "$ISSUE" --remove-label "ai-plan" || true

@@ -46,6 +46,24 @@ The planner fills this in when it refines the issue body via `ai-plan` or `ai-wo
 
 - [ ] N) Opus review (one round only, clean context) per [D-021](docs/decisions/D-021-two-review-rounds.md)
 
+## Exit criteria / Validation
+
+Each item below must be ticked with **concrete evidence** before the issue is
+considered done. Evidence means test output, a CI run link, a screenshot, or a
+short screen recording — not "manually verified". The implementer must provide
+this evidence in the PR description or a comment on the issue.
+
+- [ ] **EC-1**: <user-observable requirement, stated in terms the owner can verify in the browser or API> — *Evidence*: <what to produce: test output / screenshot / recording>
+- [ ] **EC-2**: ...
+
+<format rules for the planner when writing exit criteria>
+- Write from the owner's point of view, not the implementer's ("I can see X" not "the function returns Y")
+- Each criterion must be independently verifiable without reading source code
+- Forbidden phrases: "tests pass", "component renders", "function returns" — these are not user-observable
+- Required: state the exact user action and the expected observable result
+- Include at least one integration or e2e test criterion per phase
+</format rules>
+
 ## Additional Context
 <append-only notes: discoveries, links, decisions, gotchas found during execution>
 ```
