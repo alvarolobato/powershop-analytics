@@ -79,7 +79,16 @@ export async function POST(
     );
   }
 
-  const conversation = await getConversation(id).catch(() => null);
+  let conversation;
+  try {
+    conversation = await getConversation(id);
+  } catch (err) {
+    console.error(`[${requestId}] POST /api/conversations/${id}/turns lookup error:`, err);
+    return NextResponse.json(
+      formatApiError("Error al acceder a la conversación.", "DB_ERROR", undefined, requestId),
+      { status: 500 },
+    );
+  }
   if (!conversation) {
     return NextResponse.json(
       formatApiError(

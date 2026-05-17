@@ -168,6 +168,15 @@ describe("POST /api/conversations/:id/turns", () => {
     expect(body.code).toBe("NOT_FOUND");
   });
 
+  it("returns 500 when getConversation throws (DB error)", async () => {
+    mockGetConversation.mockRejectedValue(new Error("DB connection failed"));
+    const [req, ctx] = makePostRequest(CONV_ID, { content: "hello" });
+    const res = await POST(req, ctx);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.code).toBe("DB_ERROR");
+  });
+
   it("returns 409 for archived conversation", async () => {
     mockGetConversation.mockResolvedValue({
       ...BASE_CONV,

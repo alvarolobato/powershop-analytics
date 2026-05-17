@@ -49,6 +49,8 @@ export async function runTurnBackground(
     await insertTurnEvent(turnId, seq(), "context", contextPayload);
 
     // Build prior message history for multi-turn context.
+    // Must be loaded before appending the current user message so the current
+    // turn's user content isn't duplicated in priorMessages and userContent.
     const prior = await loadMessages(conversationId);
     const priorMessages = prior
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -65,6 +67,9 @@ export async function runTurnBackground(
               : JSON.stringify(c);
         return { role: m.role as "user" | "assistant", content: text };
       });
+
+    // Persist user message so future turns can reconstruct full history.
+    await appendMessage(conversationId, "user", { text: userMessage });
 
     // Dispatch to the appropriate LLM path based on conversation mode.
     let assistantText: string;

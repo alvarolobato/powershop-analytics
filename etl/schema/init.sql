@@ -833,7 +833,8 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     error           TEXT,
-    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_conversation_turns_conv_index UNIQUE (conversation_id, turn_index)
 );
 
 -- Ordered log/token/context events emitted during a turn.

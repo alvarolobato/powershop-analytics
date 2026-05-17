@@ -136,21 +136,21 @@ describe("getTurnWithEvents", () => {
 });
 
 describe("getConversationEvents", () => {
-  it("returns all events when sinceSeq is not provided", async () => {
+  it("returns all events when sinceId is not provided", async () => {
     mockSql.mockResolvedValueOnce(TURN_EVENTS);
     const events = await getConversationEvents(CONV_ID);
     expect(events).toHaveLength(2);
     const [query] = mockSql.mock.calls[0] as [string];
-    expect(query).not.toContain("seq >");
+    expect(query).not.toContain("te.id >");
   });
 
-  it("filters events when sinceSeq is provided", async () => {
+  it("filters events by id when sinceId is provided", async () => {
     mockSql.mockResolvedValueOnce([TURN_EVENTS[1]]);
-    const events = await getConversationEvents(CONV_ID, 0);
+    const events = await getConversationEvents(CONV_ID, 1);
     expect(events).toHaveLength(1);
     const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
-    expect(query).toContain("seq >");
-    expect(params[1]).toBe(0);
+    expect(query).toContain("te.id >");
+    expect(params[1]).toBe(1);
   });
 });
 

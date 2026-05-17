@@ -1,9 +1,5 @@
 /**
  * Turn-events data layer — CRUD for conversation_turns and turn_events.
- *
- * turn_index is assigned atomically via subquery MAX+1 so concurrent inserts
- * are safe without an advisory lock (PK conflict is not possible because each
- * row gets its own UUID; the index is only used for ordering display).
  */
 
 import { sql } from "@/lib/db-write";
@@ -127,17 +123,17 @@ export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents 
 
 export async function getConversationEvents(
   conversationId: string,
-  sinceSeq?: number,
+  sinceId?: number,
 ): Promise<TurnEventRow[]> {
-  if (sinceSeq !== undefined) {
+  if (sinceId !== undefined) {
     return sql<TurnEventRow>(
       `SELECT te.*
          FROM turn_events te
          JOIN conversation_turns ct ON ct.id = te.turn_id
         WHERE ct.conversation_id = $1
-          AND te.seq > $2
-        ORDER BY te.seq ASC`,
-      [conversationId, sinceSeq],
+          AND te.id > $2
+        ORDER BY te.id ASC`,
+      [conversationId, sinceId],
     );
   }
   return sql<TurnEventRow>(
@@ -145,7 +141,7 @@ export async function getConversationEvents(
        FROM turn_events te
        JOIN conversation_turns ct ON ct.id = te.turn_id
       WHERE ct.conversation_id = $1
-      ORDER BY te.seq ASC`,
+      ORDER BY te.id ASC`,
     [conversationId],
   );
 }
