@@ -110,6 +110,34 @@ describe("ConversationPane", () => {
     });
   });
 
+  it("renders pre-turn conversations (no turn_events) from conversation_messages", async () => {
+    // Verifies the graceful fallback for conversations created before the turn tables.
+    // The SSE stream is empty (no turn data), so messages render without context panels.
+    stubFetch("conv-preturn", [
+      {
+        id: "pre-u1",
+        conversation_id: "conv-preturn",
+        role: "user",
+        content: { text: "Pregunta antigua" },
+        created_at: new Date().toISOString(),
+      },
+      {
+        id: "pre-a1",
+        conversation_id: "conv-preturn",
+        role: "assistant",
+        content: { text: "Respuesta antigua" },
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    render(<ConversationPane conversationId="conv-preturn" mode="standalone" />);
+    await waitFor(() => {
+      expect(screen.getByText("Pregunta antigua")).toBeInTheDocument();
+      expect(screen.getByText("Respuesta antigua")).toBeInTheDocument();
+      // No context panel since there are no turns
+      expect(screen.queryByTestId("context-panel")).not.toBeInTheDocument();
+    });
+  });
+
   it("skips tool-role messages in rendered output", async () => {
     stubFetch("conv-1", [
       {
