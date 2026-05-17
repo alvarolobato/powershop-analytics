@@ -52,7 +52,8 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'ai-work' &&
-        !contains(github.event.issue.labels.*.name, 'fact-task')
+        !contains(github.event.issue.labels.*.name, 'fact-task') &&
+        !contains(github.event.issue.labels.*.name, 'fact-planned')
       ) ||
       (
         github.event_name == 'workflow_dispatch' &&
@@ -97,176 +98,85 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-opus-4-6 --permission-mode bypassPermissions --max-turns 80"
           prompt: |
-            You are the AI Planner. Your job is to deeply analyse issue #${{ env.ISSUE_NUMBER }},
-            produce a comprehensive implementation plan, and break it into actionable sub-tasks.
+            You are the AI Planner (D-034 single-track model). Your job is to analyse
+            issue #${{ env.ISSUE_NUMBER }} and **edit its body in place** — adding
+            `## Phase N — name` headings with `### Tasks` checklists — so the
+            implementer can walk the checklist sequentially with one PR per phase.
+            Do NOT create sub-issues unless the issue carries `ai-decompose`.
 
             ## Step 1 — Understand the request
             Read the issue title, body, and ALL comments carefully.
-            Read CLAUDE.md and AGENTS.md for project context.
-            Read relevant skill docs in docs/skills/ for the affected domain.
+            Read CLAUDE.md (role: planner) and AGENTS.md for project context.
+            Read `docs/issue-format.md` for the phase template and rules.
             Explore the codebase to understand the current state.
 
-            ## Step 2 — Write a comprehensive plan comment
-            Post a comment on issue #${{ env.ISSUE_NUMBER }} with this structure:
+            ## Step 2 — Decide: phases or single phase?
+            Split into multiple phases ONLY when:
+            - Estimated single PR would exceed ~2000 LOC, OR
+            - Producer/consumer dependency requires merge of A before B
+              (data layer → API route → UI component), OR
+            - Two task groups touch DDL on the same table or critical shared file.
+            Otherwise: one phase, one PR.
 
-            ---
-            ## 🗺️ Implementation Plan
+            ## Step 3 — Rewrite the issue body in place
+            Edit issue #${{ env.ISSUE_NUMBER }} body using `gh issue edit --body-file`.
+            Preserve the original Context block. Replace or add the Plan + phases.
 
-            ### Analysis
-            [What is being asked, why it matters, what the current state of the codebase is.
-            Reference specific files and line numbers you examined.]
+            Format (use this exactly):
 
-            ### Architecture decisions
-            [Key decisions made: data model, API design, component structure, etc. Explain WHY.]
+            ```
+            [original Context block — keep as-is]
 
-            ### Sub-tasks
-            List every discrete unit of work as a numbered task. Each task must be:
-            - Independently implementable (own branch + PR)
-            - Small enough to complete in a single focused session
-            - Clearly scoped (specific files, specific behaviour)
-            - **A genuinely independent code change** — see "What is NOT a sub-task" below.
+            ## Plan
+            [2-3 sentence narrative of the approach. If multi-phase: include a
+            dependency table: Phase | Tasks | Why this order]
 
-            | # | Title | Files | Acceptance |
-            |---|-------|-------|------------|
-            | 1 | ... | ... | ... |
-            | 2 | ... | ... | ... |
+            ## Phase 1 — <name>
 
-            ### What is NOT a sub-task — DO NOT create sub-issues for these
-            The AGENTS.md issue template lists lifecycle steps (`Run all checks`,
-            `Copilot review`, `Opus review`, `Create commit`) as numbered tasks
-            inside ONE feature's lifecycle — they are **not** independent code
-            changes and **must never** become separate `fact-task` sub-issues.
-            Creating one `fact-task` per lifecycle step produces N parallel PRs
-            that all implement the same feature (this happened with #481 →
-            #482..#487 → PRs #490, #491, #494, #496).
+            **Goal**: <one sentence>
+            **Branch**: `ai/issue-${{ env.ISSUE_NUMBER }}-p1`
+            **Depends on**: nothing
 
-            Specifically, do NOT create a sub-issue for any of these:
-            - "Run checks / fix lint / fix tests" — the feature sub-task already
-              owns this. The implementer runs checks before pushing.
-            - "Copilot review" — the worker requests Copilot automatically once
-              the feature PR exists (`Handle success` step in `ai-worker.yml`).
-            - "Opus review" — handled by `ai-pr-review.yml` on the feature PR.
-            - "Create commit / merge" — the implementer commits as part of the
-              feature sub-task; merge is a human decision.
+            ### Tasks
 
-            Only create sub-issues for **distinct code changes** that touch
-            different files / different concerns and could legitimately be
-            reviewed and merged independently. If the parent issue produces
-            only one logical change, output **one** sub-issue, not five.
+            - [ ] 1) <task title> (owner: agent)
+              - **Change**: <precise what to do>
+              - **Files**: <exact paths>
+              - **Acceptance**: <how to verify — user-observable behaviour, not "test passes">
 
-            ### Dependency order
-            [Which tasks must be done before others, and why]
+            - [ ] 2) ...
 
-            ### Testing strategy
-            [How each task will be verified — unit tests, integration tests, manual checks]
+            - [ ] N) Run all checks, fix failures, open PR
+              - **Change**: Run tests + lint; push; `gh pr create`
+              - **Acceptance**: CI green; PR description references issue
 
-            ### Risks
-            [What could go wrong, edge cases, things to watch out for]
-            ---
+            ## Phase 2 — <name>   [only if needed]
 
-            ## Step 3 — Create sub-issues
-            For EACH task in the table above, create a GitHub sub-issue.
-            IMPORTANT: create the issue WITHOUT labels first, then add labels
-            in a separate command — this is required for GitHub to fire the
-            `labeled` event that triggers the implementation workflow.
-
-            ### Body integrity rules — MUST follow
-
-            Issue bodies have repeatedly been corrupted by stripping JSX
-            components and TypeScript generics inside backticks (e.g. `` `<Foo />` ``
-            and `` `Promise<void>` `` arrived as empty `` `` `` and `` `Promise` ``).
-            Two known causes: (1) the shell interpreting `<Component>` as
-            I/O redirection when bodies are passed inline; (2) the LLM
-            eliding repetitive technical fragments mid-generation.
-
-            To prevent both:
-
-            1. **Always write the body to a temp file first**, then use
-               `gh issue create --body-file <path>`. Never use `--body
-               "$(cat <<…)"` or any inline construction — those can be
-               re-parsed by the shell or your own quoting layer.
-            2. **Write JSX, HTML tags, and TypeScript generics literally**
-               inside backticks. Do not abbreviate. `` `<DateRangePicker />` ``
-               must stay as `` `<DateRangePicker />` ``, not `` `` ``.
-               `` `Promise<void>` `` must stay as `` `Promise<void>` ``,
-               not `` `Promise` ``.
-            3. **After each `gh issue create`, immediately re-read the
-               issue body** with `gh issue view <NUM> --json body --jq .body`
-               and verify it does not contain `` `` `` (two adjacent backticks
-               with nothing between). If it does, the body was mangled —
-               delete the issue and re-create it.
-
-            ### Template
-
-            ```bash
-            # 1. Write body to a temp file (quoted heredoc — no shell expansion).
-            TMP_BODY=$(mktemp --suffix=.md)
-            cat > "$TMP_BODY" <<'BODY'
-            ## Parent issue
-            Closes #${{ env.ISSUE_NUMBER }}
-
-            ## Task
-            TASK_DESCRIPTION
-
-            ## Files to change
-            - list of files
-
-            ## Acceptance criteria
-            - list of checks
-
-            ## Context
-            See parent issue #${{ env.ISSUE_NUMBER }} for full plan.
-            BODY
-
-            # 2. Create the issue from the file (no inline shell parsing).
-            SUB_ISSUE=$(gh issue create \
-              --title "PARENT_TITLE — Task N: TASK_TITLE" \
-              --body-file "$TMP_BODY" | grep -o '[0-9]*$')
-            rm -f "$TMP_BODY"
-
-            # 3. Verify the body is intact — fail loudly if anything was mangled.
-            # Detect EMPTY inline code spans (`` `` ``) that signal stripped
-            # JSX/generics. Use PCRE lookaround to exclude triple-backtick
-            # fenced code blocks (` ``` `), which would otherwise match any
-            # ```sql/```bash/```json fence opener and false-positive every
-            # body that uses code blocks.
-            if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -qP '(?<!`)``(?!`)'; then
-              echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans (\`\`) — likely JSX/generics were stripped. Investigate before continuing."
-              gh issue edit "$SUB_ISSUE" --add-label "fact-needs-rewrite" || true
-              exit 1
-            fi
-
-            # 4. Add labels separately so the labeled event fires reliably.
-            gh issue edit $SUB_ISSUE --add-label "fact-task"
-            gh issue edit $SUB_ISSUE --add-label "ai-work"
+            **Depends on**: Phase 1 merged
+            ...
             ```
 
-            After creating each sub-issue, add it to the parent issue's body as a task
-            checkbox so progress is visible:
+            ## Step 4 — Post analysis comment
+            Post a short comment (≤10 lines) on issue #${{ env.ISSUE_NUMBER }} with:
+            - What you found in the codebase
+            - Why you chose this phase structure (or why single phase)
+            - Any risks or constraints flagged
+
+            ## Step 5 — Set fact-planned, re-trigger implementation
             ```bash
-            # Append to the parent issue body:
-            # - [ ] Task N: TITLE (#SUB_ISSUE_NUMBER)
+            gh issue edit ${{ env.ISSUE_NUMBER }}               --remove-label "fact-in-progress"               --add-label "fact-planned"
+            # Re-add ai-work so the implement job fires immediately
+            gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "ai-work"
             ```
 
-            ## Step 4 — Finalize parent issue
-            - Update the parent issue body to include the full task checklist with sub-issue links
-            - Remove label "fact-in-progress"
-            - Add label "fact-planned"
-            - Post a final comment listing all created sub-issues
+            ## Step 6 — If ai-decompose is present (escape hatch)
+            Fall through to the legacy sub-issues model: create one sub-issue per task group,
+            each carrying `fact-task` + `ai-work`. Apply Q1–Q3 phasing rules from
+            docs/issue-format.md. Phase N+1 sub-issues get `fact-task` but NOT `ai-work`.
 
-            ## Step 5 — If you cannot complete the plan
-            If the issue is too vague, missing critical info, or blocked by something you cannot
-            resolve: DO NOT silently stop. Instead:
-            1. Post a comment tagging @alvarolobato explaining precisely what is blocking you
-               and what information you need.
-            2. Remove `fact-in-progress` and add `ai-blocked`.
-            3. Exit normally (so the workflow does not mark itself "failed").
-
-            ## Rules
-            - Create sub-issues in dependency order
-            - Each sub-issue must have both "fact-task" AND "ai-work" labels so the
-              implementation phase triggers automatically
-            - Do NOT start implementing — only plan and decompose
+            ## Step 7 — If you cannot complete the plan
+            Post a comment tagging @alvarolobato explaining exactly what is blocking.
+            Remove `fact-in-progress`. Add `ai-blocked`.
 
       - name: Verify plan output
         id: verify_plan
@@ -287,67 +197,6 @@ jobs:
             echo "status=incomplete" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Self-heal sub-issue labels
-        if: always() && steps.verify_plan.outputs.status == 'planned'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Defense-in-depth: ensure every sub-issue carries BOTH `fact-task` AND
-          # `ai-work`. The planner agent has been observed (e.g. on issue #502)
-          # to add `fact-task` but skip `ai-work`, leaving sub-issues stalled
-          # forever — the implement phase only triggers when `ai-work` is
-          # applied. This step audits every sub-issue and adds whichever
-          # required label is missing.
-          SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
-            --state open --limit 50 \
-            --search "Closes #${ISSUE_NUMBER} in:body" \
-            --json number,labels)
-
-          echo "$SUB_ISSUES" | jq -c '.[]' | while read -r row; do
-            NUM=$(echo "$row" | jq -r '.number')
-            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
-            if ! echo ",$LABELS," | grep -q ",fact-task,"; then
-              echo "Sub-issue #$NUM missing 'fact-task' — adding."
-              gh issue edit "$NUM" --add-label "fact-task" || true
-            fi
-            if ! echo ",$LABELS," | grep -q ",ai-work,"; then
-              echo "Sub-issue #$NUM missing 'ai-work' — planner forgot; adding to trigger implementation."
-              gh issue edit "$NUM" --add-label "ai-work" || true
-            fi
-          done
-
-      - name: Detect mangled sub-issue bodies
-        if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Defense-in-depth: even when the planner follows the per-issue
-          # verify step, Claude may forget. Scan all open sub-issues that
-          # reference this parent ("Closes #N") for empty inline code spans
-          # — the signature of stripped JSX/generics. Flag them with
-          # `fact-needs-rewrite` so a human (or a follow-up worker) can repair
-          # the body before the implementation phase tries to act on it.
-          #
-          # The detection regex uses Oniguruma lookaround `(?<!`)``(?!`)`
-          # to match exactly two adjacent backticks NOT inside a triple-
-          # backtick fence. Without the lookaround, every fenced code
-          # block opener (```sql, ```bash, ```json, …) false-positives
-          # the check — observed on issue #536 (2026-05-09) which had a
-          # perfectly intact body but ```sql/``` fences and got falsely
-          # flagged + locked behind fact-needs-rewrite.
-          SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
-            --state open --limit 50 \
-            --search "Closes #${ISSUE_NUMBER} in:body" \
-            --json number,body --jq '.[]' || true)
-
-          echo "$SUB_ISSUES" | jq -c 'select(.body | test("(?<!`)``(?!`)"))' 2>/dev/null | while read -r row; do
-            NUM=$(echo "$row" | jq -r '.number')
-            echo "Sub-issue #$NUM body contains empty backticks — flagging."
-            gh issue edit "$NUM" --add-label "fact-needs-rewrite" || true
-            gh issue comment "$NUM" --body "⚠️ AI Worker: this sub-issue body contains empty inline code spans (\`\`) — likely JSX components or TypeScript generics were stripped during creation. The implementation phase will not run on it until the body is repaired and \`fact-needs-rewrite\` is removed." || true
-          done
 
       - name: Flag incomplete plan
         if: always() && steps.verify_plan.outputs.status == 'incomplete'
@@ -448,97 +297,86 @@ jobs:
           claude_args: "--model claude-sonnet-4-6 --permission-mode bypassPermissions --max-turns 120"
           allowed_bots: "claude[bot],github-actions[bot]"
           prompt: |
-            You are the AI Worker. Implement exactly what sub-task issue #${{ env.ISSUE_NUMBER }} describes — nothing more.
+            You are the AI Implementer (D-034 single-track model).
+            Read CLAUDE.md (role: implementer) and AGENTS.md first — they define the model.
 
-            ## Process
-            1. Read sub-task issue #${{ env.ISSUE_NUMBER }}: title, body, acceptance criteria
-            2. Read the PARENT issue (linked in the body) — **including ALL its comments**.
-               The planner posts the implementation plan (analysis, architecture decisions,
-               dependency order, "what is NOT a sub-task" rules) as a COMMENT, not in the
-               body. Reading just the body misses everything that matters for context.
-               Use this to fetch body + every comment in one shot:
+            ## Determine your path
+
+            ```bash
+            LABELS=$(gh issue view ${{ env.ISSUE_NUMBER }} --json labels --jq '[.labels[].name] | join(",")')
+            ```
+
+            **Path A — fact-planned (single-track phase-walker)**:
+            `fact-planned` in labels AND `fact-task` NOT in labels → follow Phase-walker below.
+
+            **Path B — fact-task (legacy sub-issue)**:
+            `fact-task` in labels → follow Legacy sub-task below.
+
+            ---
+
+            ## PATH A — Phase-walker
+
+            ### 1. Find the active phase
+            Read issue #${{ env.ISSUE_NUMBER }} body. Find all `## Phase N — name` headings.
+            For each phase N, check if its PR was merged:
+            ```bash
+            gh pr list --search "head:ai/issue-${{ env.ISSUE_NUMBER }}-p${N}" --state merged --json number,mergedAt
+            ```
+            The active phase = lowest-numbered phase with no merged PR.
+            If all phases are merged: post a "✅ All phases complete" comment and exit.
+
+            ### 2. Walk the checklist sequentially — one task at a time
+            For each unchecked `- [ ]` task in the active phase's `### Tasks`:
+            1. Implement what the task says (nothing more, nothing less)
+            2. Tick the checkbox immediately after completing:
+               ```bash
+               BODY=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body)
+               UPDATED=$(printf '%s' "$BODY" | sed '0,/- \[ \]/s//- [x]/')
+               TMP=$(mktemp --suffix=.md); printf '%s' "$UPDATED" > "$TMP"
+               gh issue edit ${{ env.ISSUE_NUMBER }} --body-file "$TMP"; rm -f "$TMP"
                ```
+            3. Repeat for the next unchecked task in this phase
+
+            ### 3. Run checks, commit, open ONE PR for the phase
+            ```bash
+            # ETL: cd etl && python -m ruff check . && python -m pytest
+            # Dashboard: cd dashboard && npm test
+            git push -u origin BRANCH
+            gh pr create \
+              --title "<feature> (Phase N: <phase name>)" \
+              --body "$(printf '## Summary\n...\n\nCloses #${{ env.ISSUE_NUMBER }}')"
+            ```
+            **One PR per phase.** Never open multiple PRs for the same phase.
+
+            ### If you cannot finish
+            Tick whatever tasks completed. Post a blocking comment tagging @alvarolobato.
+            Remove `fact-in-progress`. Add `ai-blocked`. Exit.
+
+            ---
+
+            ## PATH B — Legacy sub-task
+
+            1. Read sub-task issue #${{ env.ISSUE_NUMBER }}: title, body, acceptance criteria
+            2. Read the PARENT issue body + ALL comments (architecture rationale lives there):
+               ```bash
                PARENT=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body \
                  | grep -oE 'Closes #[0-9]+' | head -1 | tr -d '#A-Za-z ')
-               if [ -n "$PARENT" ]; then
-                 gh issue view "$PARENT" --json title,body,comments \
-                   --jq '"# \(.title)\n\n\(.body)\n\n---\n\n" + (.comments | map("## Comment by \(.author.login) at \(.createdAt)\n\n\(.body)") | join("\n\n---\n\n"))'
-               fi
+               [ -n "$PARENT" ] && gh issue view "$PARENT" --json title,body,comments \
+                 --jq '"# \(.title)\n\n\(.body)\n\n" + (.comments | map(.body) | join("\n\n---\n\n"))'
                ```
-               Read every comment top to bottom — the architecture rationale, dependency
-               graph, and design discussions live there.
             3. Read CLAUDE.md and AGENTS.md
-            4. Read relevant skill docs in docs/skills/ for the affected domain
-            5. Before starting, run the **sibling-PR pre-flight check** — this is
-               critical to prevent the duplicate-PR fan-out (#481 → 4 PRs problem).
-               a. Check for a PR already opened against THIS sub-issue:
-                  ```
-                  gh pr list --state all --search "head:ai/issue-${{ env.ISSUE_NUMBER }}-"
-                  gh pr list --state all --search "Closes #${{ env.ISSUE_NUMBER }} in:body"
-                  ```
-               b. **Also** look at SIBLING sub-issues of the same parent. The planner
-                  may have created multiple sub-issues whose work overlaps. Find the
-                  parent from the issue body (line `Closes #PARENT`) and list all
-                  open PRs that close any sibling:
-                  ```
-                  PARENT=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq .body \
-                    | grep -oE 'Closes #[0-9]+' | head -1 | tr -d '#A-Za-z ')
-                  if [ -n "$PARENT" ]; then
-                    SIBLINGS=$(gh issue list --state open --search "Closes #${PARENT} in:body" \
-                      --json number --jq '.[].number')
-                    for SIB in $SIBLINGS; do
-                      gh pr list --state all --search "Closes #${SIB} in:body" \
-                        --json number,title,state,headRefName,body
-                    done
-                  fi
-                  ```
-               c. If ANY existing PR already implements the same change (same files,
-                  same intent), do NOT open a duplicate. Instead:
-                  - Comment on this issue explaining which PR (#NNN) already covers it
-                    and listing the sibling sub-issues that map to the same lifecycle.
-                  - Close this issue with `gh issue close ${{ env.ISSUE_NUMBER }} --reason "not planned"`.
-                  - Exit normally (don't push an empty branch, don't create a PR).
-               d. Lifecycle-style sub-issues — anything titled "Run all checks", "Copilot
-                  review", "Opus review", or "Create commit" — should ALWAYS be closed
-                  here without a PR: those are steps inside the feature PR's lifecycle,
-                  not independent code changes. See the planner section in this same
-                  workflow for context on why these no longer get sub-issues.
-            6. Create branch: `ai/issue-${{ env.ISSUE_NUMBER }}-{short-slug}`
-            7. Implement the changes:
-               - Follow existing code style and patterns
-               - Don't add unnecessary abstractions
-               - Don't over-engineer — do exactly what's asked
-               - Include tests for new functionality
-            8. Run validation:
-               - ETL changes: `cd etl && python -m ruff check . && python -m pytest`
-               - Dashboard changes: `cd dashboard && npm test`
-               - Fix any failures before committing
-            9. Commit: `feat|fix|docs: description (closes #${{ env.ISSUE_NUMBER }})`
-            10. Push the branch with `git push -u origin BRANCH`
-            11. Create a PR:
-                - Title references this sub-task
-                - Body: ## Summary, ## Changes, ## Test Results
-                - Include `Closes #${{ env.ISSUE_NUMBER }}` in the body
-                - Verify the PR was created by running `gh pr view` on the branch.
+            4. Pre-flight: check for existing PRs to avoid duplicates.
+               If a PR already covers this work, close this issue and exit.
+            5. Create branch `ai/issue-${{ env.ISSUE_NUMBER }}-{slug}`, implement, run checks
+            6. Commit, push, `gh pr create` with `Closes #${{ env.ISSUE_NUMBER }}`
 
-            ## If you cannot finish
-            NEVER silently stop. If something is blocking you:
-            1. Push whatever partial progress you have to the branch.
-            2. Post a comment on issue #${{ env.ISSUE_NUMBER }} tagging @alvarolobato with
-               a precise description of what is blocking you (unclear spec, missing access,
-               failing test you cannot diagnose, etc.).
-            3. Exit normally — the workflow will verify a PR was created and mark the
-               issue `ai-blocked` automatically if not.
+            ---
 
-            ## Rules
-            - Read-only SQL: NEVER INSERT/UPDATE/DELETE/DROP in production queries
-            - No credentials in code
-            - No customer data in code
-            - 4D PKs are NUMERIC, never FLOAT8
-            - For wide tables, specify columns explicitly
-            - Scope strictly to this sub-task — do not implement other tasks
-            - NEVER use --no-verify or bypass pre-commit hooks
-            - NEVER force-push
+            ## Rules (both paths)
+            - Read-only SQL: NEVER INSERT/UPDATE/DELETE/DROP in production
+            - No credentials in code; no customer data
+            - Scope strictly to the task — don't implement other tasks
+            - NEVER use --no-verify or bypass pre-commit hooks; NEVER force-push
 
       # Verify a PR was actually created for this issue. The `Handle success`
       # step used to fire on step completion alone — but Claude can exit
