@@ -100,12 +100,15 @@ export async function insertTurnEvent(
   seq: number,
   eventType: string,
   payload: Record<string, unknown>,
-): Promise<void> {
-  await sql(
+): Promise<number> {
+  const rows = await sql<{ id: number }>(
     `INSERT INTO turn_events (turn_id, seq, event_type, payload)
-     VALUES ($1, $2, $3, $4)`,
+     VALUES ($1, $2, $3, $4)
+     RETURNING id`,
     [turnId, seq, eventType, JSON.stringify(payload)],
   );
+  if (!rows[0]?.id) throw new Error("insertTurnEvent: RETURNING id returned no rows");
+  return rows[0].id;
 }
 
 export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents | null> {
