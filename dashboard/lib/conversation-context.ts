@@ -63,10 +63,12 @@ export function buildFreeChatInitialContextSnapshot(): InitialContext {
     provider: cfg.provider,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
     system_prompt_stable: freeChatCtx.systemPrompt.stable,
-    tools: freeChatCtx.tools.map((t) => ({
-      name: t.function.name,
-      schema: t.function as unknown as Record<string, unknown>,
-    })),
+    tools: freeChatCtx.tools
+      .filter((t): t is Extract<ChatCompletionTool, { type: "function" }> => t.type === "function")
+      .map((t) => ({
+        name: t.function.name,
+        schema: t.function as unknown as Record<string, unknown>,
+      })),
     config: {
       flow: "chat",
       tool_rounds_max: agenticCfg.maxToolRounds,
