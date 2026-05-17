@@ -42,12 +42,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Remove ai-plan label after pickup
+      - name: Remove ai-plan, add fact-in-progress + planning comment
         if: github.event_name == 'issues' && github.event.label.name == 'ai-plan'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh issue edit "${{ github.event.issue.number }}" --remove-label "ai-plan" || true
+          ISSUE="${{ github.event.issue.number }}"
+          gh issue edit "$ISSUE" --remove-label "ai-plan" --add-label "fact-in-progress" || true
+          gh issue comment "$ISSUE" \
+            --body "🗺️ AI Planner — started. Reading the issue and codebase, then rewriting the body with phases + task checklists. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
       - uses: actions/checkout@v4
         with:
@@ -207,3 +210,10 @@ jobs:
             If the comment was plain `/plan` (no --full flag), do NOT create sub-issues —
             just post the plan for human review. The human can then label the issue
             `ai-work` or run `/plan --full` when ready to implement.
+
+      - name: Clear fact-in-progress on completion
+        if: always() && github.event_name == 'issues' && github.event.label.name == 'ai-plan'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" --remove-label "fact-in-progress" || true
