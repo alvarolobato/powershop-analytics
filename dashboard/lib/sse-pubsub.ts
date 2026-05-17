@@ -54,12 +54,16 @@ function release(conversationId: string): void {
 /**
  * Subscribe to live events for a conversation.
  * Returns an unsubscribe function — call it when the SSE connection closes.
+ * The returned function is idempotent: calling it twice is a no-op.
  */
 export function subscribe(conversationId: string, listener: Listener): () => void {
   const emitter = getOrCreate(conversationId);
   emitter.on("event", listener);
 
+  let called = false;
   return () => {
+    if (called) return;
+    called = true;
     emitter.off("event", listener);
     release(conversationId);
   };
@@ -79,4 +83,12 @@ export function publish(conversationId: string, event: SseEvent): void {
 /** Exposed for testing only — current subscriber count for a conversation. */
 export function subscriberCount(conversationId: string): number {
   return emitters.get(conversationId)?.count ?? 0;
+}
+
+/** Exposed for testing only — resets all emitter state between tests. */
+export function __resetForTests(): void {
+  for (const { emitter } of emitters.values()) {
+    emitter.removeAllListeners();
+  }
+  emitters.clear();
 }

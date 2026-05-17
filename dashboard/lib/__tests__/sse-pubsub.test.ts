@@ -4,15 +4,14 @@
  * Tests: subscribe → publish → listener receives event; unsubscribe → no leak.
  */
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
-import { subscribe, publish, subscriberCount } from "@/lib/sse-pubsub";
+import { describe, expect, it, beforeEach } from "vitest";
+import { subscribe, publish, subscriberCount, __resetForTests } from "@/lib/sse-pubsub";
 
 const CONV_A = "aaaaaa000001";
 const CONV_B = "bbbbbb000002";
 
 beforeEach(() => {
-  // Drain any lingering subscriptions by unsubscribing all.
-  // (Each test creates fresh subscriptions via subscribe() calls.)
+  __resetForTests();
 });
 
 describe("sse-pubsub", () => {
@@ -128,11 +127,12 @@ describe("sse-pubsub", () => {
     unsub2();
   });
 
-  it("calling unsubscribe twice does not throw", () => {
+  it("calling unsubscribe twice does not throw or corrupt the subscriber count", () => {
     const unsubscribe = subscribe(CONV_A, () => {});
-    expect(() => {
-      unsubscribe();
-      unsubscribe();
-    }).not.toThrow();
+    expect(subscriberCount(CONV_A)).toBe(1);
+    unsubscribe();
+    expect(subscriberCount(CONV_A)).toBe(0);
+    expect(() => unsubscribe()).not.toThrow();
+    expect(subscriberCount(CONV_A)).toBe(0);
   });
 });

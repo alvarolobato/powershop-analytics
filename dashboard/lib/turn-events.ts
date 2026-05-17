@@ -107,7 +107,8 @@ export async function insertTurnEvent(
      RETURNING id`,
     [turnId, seq, eventType, JSON.stringify(payload)],
   );
-  return rows[0]?.id ?? 0;
+  if (!rows[0]?.id) throw new Error("insertTurnEvent: RETURNING id returned no rows");
+  return rows[0].id;
 }
 
 export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents | null> {

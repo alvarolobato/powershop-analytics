@@ -3,10 +3,12 @@
  *
  * On connect:
  *   1. Validate the conversation exists.
- *   2. Replay all turn_events with id > Last-Event-ID (default 0) in seq order.
- *   3. Subscribe to the in-process pub/sub for live events.
- *   4. Send a keepalive ping every 15 s.
- *   5. On client disconnect: unsubscribe and close the stream.
+ *   2. Subscribe to the in-process pub/sub (before history replay, to avoid the race
+ *      window where events published during the DB query would be lost).
+ *   3. Replay all turn_events with id > Last-Event-ID (default 0) in seq order.
+ *   4. Flush any live events buffered during replay, deduplicating against history.
+ *   5. Send a keepalive ping every 15 s.
+ *   6. On client disconnect: unsubscribe and close the stream.
  *
  * SSE format:
  *   id: <turn_event.id>
@@ -15,6 +17,8 @@
  * Clients reconnect by sending `Last-Event-ID: N` — they will only receive
  * events with turn_event.id > N.
  */
+
+export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { getConversation } from "@/lib/conversations";
@@ -65,9 +69,10 @@ export async function GET(
   }
 
   // Parse Last-Event-ID header for resumption (default: replay everything).
+  // Number() rejects trailing garbage ("5xyz" → NaN) unlike parseInt which returns 5.
   const lastEventIdHeader = request.headers.get("Last-Event-ID");
-  const rawSinceId = lastEventIdHeader ? parseInt(lastEventIdHeader, 10) : 0;
-  const sinceIdParam = Number.isFinite(rawSinceId) && rawSinceId > 0 ? rawSinceId : undefined;
+  const rawSinceId = lastEventIdHeader ? Number(lastEventIdHeader) : 0;
+  const sinceIdParam = Number.isInteger(rawSinceId) && rawSinceId > 0 ? rawSinceId : undefined;
 
   const encoder = new TextEncoder();
 
@@ -96,17 +101,46 @@ export async function GET(
 
   const stream = new ReadableStream({
     async start(controller) {
+      // Subscribe BEFORE fetching history to close the race window where events
+      // published between the DB snapshot and subscribe() would be lost. Events
+      // that arrive during replay are buffered and deduplicated afterwards.
+      const liveBuffer: SseEvent[] = [];
+      let replayDone = false;
+      let maxReplayedId = 0;
+
+      unsubscribeFn = subscribe(id, (event: SseEvent) => {
+        if (!replayDone) {
+          liveBuffer.push(event);
+          return;
+        }
+        if (event.dbEventId <= maxReplayedId) return;
+        try {
+          controller.enqueue(
+            formatEvent(event.dbEventId, {
+              turnId: event.turnId,
+              seq: event.seq,
+              eventType: event.eventType,
+              payload: event.payload,
+            }),
+          );
+        } catch {
+          cleanup();
+        }
+      });
+
       // Replay historical events.
       let historicalEvents;
       try {
         historicalEvents = await getConversationEvents(id, sinceIdParam);
       } catch (err) {
         console.error(`[${requestId}] stream replay error for ${id}:`, err);
+        cleanup();
         controller.close();
         return;
       }
 
       for (const ev of historicalEvents) {
+        if (ev.id > maxReplayedId) maxReplayedId = ev.id;
         try {
           controller.enqueue(
             formatEvent(ev.id, {
@@ -123,21 +157,25 @@ export async function GET(
         }
       }
 
-      // Subscribe to live events published by the background turn job.
-      unsubscribeFn = subscribe(id, (event: SseEvent) => {
+      // Flush buffered live events, skipping those already sent via history replay.
+      replayDone = true;
+      for (const ev of liveBuffer) {
+        if (ev.dbEventId <= maxReplayedId) continue;
         try {
           controller.enqueue(
-            formatEvent(event.dbEventId, {
-              turnId: event.turnId,
-              seq: event.seq,
-              eventType: event.eventType,
-              payload: event.payload,
+            formatEvent(ev.dbEventId, {
+              turnId: ev.turnId,
+              seq: ev.seq,
+              eventType: ev.eventType,
+              payload: ev.payload,
             }),
           );
         } catch {
-          // Stream closed; cancel() will clean up.
+          cleanup();
+          return;
         }
-      });
+      }
+      liveBuffer.length = 0;
 
       // Keepalive timer — prevents proxy/load-balancer idle timeouts.
       keepaliveTimer = setInterval(() => {
@@ -158,7 +196,6 @@ export async function GET(
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
       "X-Accel-Buffering": "no",
     },
   });
