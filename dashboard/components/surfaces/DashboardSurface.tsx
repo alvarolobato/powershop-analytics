@@ -25,10 +25,7 @@ import type { DashboardSpec } from "@/lib/schema";
 import type { ApiErrorResponse } from "@/lib/errors";
 import type { DrillDownContext } from "@/components/widgets/types";
 import type { ConversationWithMessages } from "@/lib/conversation-types";
-import {
-  isAssistantContent,
-  getMessageText,
-} from "@/lib/conversation-types";
+import { convertConversationMessages } from "@/components/conversation/convertConversationMessages";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,8 +36,6 @@ interface DashboardRecord {
   name: string;
   description: string | null;
   spec: DashboardSpec;
-  chat_messages_analyze?: ChatMessage[];
-  chat_messages_modify?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -93,23 +88,6 @@ function formatWidgetDataAsText(spec: DashboardSpec): string {
 function parseIsoToLocalDate(iso: string): Date {
   const [y, m, d] = iso.split("-").map((x) => parseInt(x, 10));
   return new Date(y, m - 1, d, 0, 0, 0, 0);
-}
-
-function convMessagesToChatMessages(
-  conv: ConversationWithMessages,
-): ChatMessage[] {
-  return conv.messages
-    // Tool messages are intentionally excluded: ChatSidebar only renders user/assistant turns.
-    .filter((m) => m.role === "user" || m.role === "assistant")
-    .map((m) => {
-      const ac = m.role === "assistant" && isAssistantContent(m.content) ? m.content : null;
-      return {
-        role: m.role as "user" | "assistant",
-        content: getMessageText(m.content),
-        timestamp: new Date(m.created_at),
-        isError: ac?.is_error ?? false,
-      } satisfies ChatMessage;
-    });
 }
 
 // ---------------------------------------------------------------------------
@@ -501,82 +479,6 @@ export default function DashboardSurface({
     [saveSpec],
   );
 
-  const modifyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const modifyCounterRef = useRef(0);
-  const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const analyzeCounterRef = useRef(0);
-
-  const handleAnalyzeMessagesChange = useCallback(
-    (messages: ChatMessage[]) => {
-      if (!dashboard) return;
-      if (analyzeDebounceRef.current) {
-        clearTimeout(analyzeDebounceRef.current);
-      }
-      analyzeDebounceRef.current = setTimeout(() => {
-        const thisCount = ++analyzeCounterRef.current;
-        fetch(`/api/dashboard/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            spec: latestSpecRef.current ?? dashboard.spec,
-            chat_messages_analyze: messages,
-            skipVersion: true,
-          }),
-        })
-          .then((res) => {
-            if (thisCount !== analyzeCounterRef.current) return;
-            if (!res.ok) console.error("Error guardando mensajes de análisis:", res.status);
-          })
-          .catch((err) => {
-            if (thisCount !== analyzeCounterRef.current) return;
-            console.error("Error guardando mensajes de análisis:", err);
-          });
-      }, 800);
-    },
-    [dashboard, id],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (analyzeDebounceRef.current) clearTimeout(analyzeDebounceRef.current);
-    };
-  }, [id]);
-
-  const handleModifyMessagesChange = useCallback(
-    (messages: ChatMessage[]) => {
-      if (!dashboard) return;
-      if (modifyDebounceRef.current) {
-        clearTimeout(modifyDebounceRef.current);
-      }
-      modifyDebounceRef.current = setTimeout(() => {
-        const thisCount = ++modifyCounterRef.current;
-        fetch(`/api/dashboard/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            spec: latestSpecRef.current ?? dashboard.spec,
-            chat_messages_modify: messages,
-            skipVersion: true,
-          }),
-        })
-          .then((res) => {
-            if (thisCount !== modifyCounterRef.current) return;
-            if (!res.ok) console.error("Error guardando mensajes de modificar:", res.status);
-          })
-          .catch((err) => {
-            if (thisCount !== modifyCounterRef.current) return;
-            console.error("Error guardando mensajes de modificar:", err);
-          });
-      }, 800);
-    },
-    [dashboard, id],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (modifyDebounceRef.current) clearTimeout(modifyDebounceRef.current);
-    };
-  }, [id]);
 
   const handleNameSave = useCallback(async () => {
     const trimmed = nameValue.trim();
@@ -637,11 +539,11 @@ export default function DashboardSurface({
   // Resolve initial messages and LLM context for the sidebar from preloaded conversation
   const preloadedAnalyzeMessages =
     preloadedConversation && preloadedConversation.mode === "analyze"
-      ? convMessagesToChatMessages(preloadedConversation)
+      ? convertConversationMessages(preloadedConversation.messages)
       : undefined;
   const preloadedModifyMessages =
     preloadedConversation && preloadedConversation.mode === "modify"
-      ? convMessagesToChatMessages(preloadedConversation)
+      ? convertConversationMessages(preloadedConversation.messages)
       : undefined;
   const preloadedModifyContext =
     preloadedConversation && preloadedConversation.mode === "modify"
@@ -1030,13 +932,11 @@ export default function DashboardSurface({
         onOpenSidebar={handleOpenChatSidebar}
         widgetData={widgetData}
         initialAnalyzeMessages={
-          preloadedAnalyzeMessages ?? (dashboard.chat_messages_analyze ?? [])
+          preloadedAnalyzeMessages ?? []
         }
-        onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
         initialModifyMessages={
-          continueConvId ? [] : (preloadedModifyMessages ?? (dashboard.chat_messages_modify ?? []))
+          continueConvId ? [] : (preloadedModifyMessages ?? [])
         }
-        onModifyMessagesChange={handleModifyMessagesChange}
         pendingModifyInput={pendingModify?.prompt}
         pendingModifyTriggerId={pendingModify?.id}
         onPendingModifyInputConsumed={handlePendingModifyInputConsumed}

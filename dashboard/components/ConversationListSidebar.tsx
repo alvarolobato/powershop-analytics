@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import type { ConversationRow } from "@/app/conversations/types";
 
@@ -27,12 +27,15 @@ function formatRelativeTime(iso: string): string {
 export function ConversationListSidebar({ selectedId }: ConversationListSidebarProps) {
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const loadConversations = useCallback(async () => {
     try {
-      const res = await fetch(
-        "/api/conversations?mode=chat&context_kind=global&limit=50",
-      );
+      // No mode/context_kind filter — the split-view route is reachable from
+      // all conversation types (free-chat, analyze, modify), so the sidebar
+      // must list all of them. Original spec filtered to free-chat only,
+      // which made the sidebar empty when viewing a dashboard conversation.
+      const res = await fetch("/api/conversations?limit=50");
       if (!res.ok) return;
       const data = await res.json();
       const rows: ConversationRow[] = Array.isArray(data) ? data : data.conversations ?? [];
@@ -53,6 +56,17 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return conversations;
+    return conversations.filter(
+      (c) =>
+        c.title?.toLowerCase().includes(q) ||
+        c.first_user_prompt?.toLowerCase().includes(q) ||
+        c.last_message_preview?.toLowerCase().includes(q),
+    );
+  }, [conversations, query]);
 
   // Optimistically clear the unread dot for the currently selected conversation.
   useEffect(() => {
@@ -90,6 +104,29 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
         Conversaciones
       </div>
 
+      {/* Search */}
+      <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <input
+          type="search"
+          aria-label="Buscar conversaciones"
+          placeholder="Buscar…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "5px 8px",
+            fontSize: 12,
+            background: "var(--bg-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            color: "var(--fg)",
+            fontFamily: "inherit",
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+
       {loading && (
         <div
           style={{
@@ -124,7 +161,7 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
       )}
 
       {!loading &&
-        conversations.map((conv) => {
+        filtered.map((conv) => {
           const title =
             conv.title?.trim() ||
             (conv.first_user_prompt
@@ -132,6 +169,7 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
               : "Sin título");
           const isSelected = conv.id === selectedId;
           const isUnread = conv.is_unread === true;
+          const isRunning = conv.last_status === "running";
 
           return (
             <Link
@@ -152,17 +190,32 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
                 minWidth: 0,
               }}
             >
-              {/* Unread indicator */}
-              <span
-                aria-label={isUnread ? "No leído" : undefined}
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: isUnread ? "var(--accent)" : "transparent",
-                  flexShrink: 0,
-                }}
-              />
+              {/* Running spinner or unread dot */}
+              {isRunning ? (
+                <span
+                  aria-label="Procesando"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    border: "2px solid var(--accent)",
+                    borderTopColor: "transparent",
+                    flexShrink: 0,
+                    animation: "spin 0.8s linear infinite",
+                  }}
+                />
+              ) : (
+                <span
+                  aria-label={isUnread ? "No leído" : undefined}
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: isUnread ? "var(--accent)" : "transparent",
+                    flexShrink: 0,
+                  }}
+                />
+              )}
 
               {/* Title + timestamp */}
               <span
@@ -198,6 +251,11 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
             </Link>
           );
         })}
+      {!loading && query.trim() && filtered.length === 0 && (
+        <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--fg-muted)" }}>
+          Sin resultados
+        </div>
+      )}
     </div>
   );
 }

@@ -20,6 +20,12 @@ export default async function ConversationSplitViewPage({ params }: PageProps) {
     <div
       style={{
         display: "flex",
+        // The root layout's <main> has .main-content padding: 20px on all sides.
+        // Negate it so this page is full-bleed and exactly fills the viewport
+        // below the 56px TopBar. Without this, height: calc(100vh - 56px) makes
+        // the content 40px taller than the available space and the page scrolls.
+        margin: -20,
+        width: "calc(100% + 40px)",
         height: "calc(100vh - 56px)",
         overflow: "hidden",
       }}

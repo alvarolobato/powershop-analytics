@@ -18,6 +18,7 @@ import type { ChatMessage, ConversationApiMessage } from "./conversation/types";
 import { MessageList } from "./conversation/MessageList";
 import { convertConversationMessages } from "./conversation/convertConversationMessages";
 import { useConfiguredModel, displayModelName } from "@/lib/useConfiguredModel";
+import { useDashboardConversation } from "@/lib/useDashboardConversation";
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -78,12 +79,8 @@ export interface ChatSidebarProps {
   widgetData?: Map<number, WidgetState>;
   /** Initial analyze messages to restore on page load. */
   initialAnalyzeMessages?: ChatMessage[];
-  /** Callback fired when analyze messages change (for persistence). */
-  onAnalyzeMessagesChange?: (messages: ChatMessage[]) => void;
   /** Initial modify messages to restore on page load. */
   initialModifyMessages?: ChatMessage[];
-  /** Callback fired when modify messages change (for persistence). */
-  onModifyMessagesChange?: (messages: ChatMessage[]) => void;
   /**
    * When `pendingModifyTriggerId` changes with a non-empty `pendingModifyInput`,
    * the Modificar tab is selected, the textarea is filled, focused, and the sidebar opens if needed.
@@ -413,31 +410,43 @@ function ModificarTab({
   onSpecUpdate,
   messages,
   setMessages,
-  onMessagesChange,
   isActive,
   prefillRequest,
   onPrefillApplied,
   dashboardId,
   initialContext,
+  onInitialContextLoaded,
+  onLoadingChange,
+  ensureConversation,
+  saveMessage,
 }: {
   spec: DashboardSpec;
   onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   dashboardId?: number;
   initialContext?: InitialContext | null;
+  onInitialContextLoaded?: (ctx: InitialContext | null) => void;
+  onLoadingChange?: (v: boolean) => void;
+  ensureConversation: (mode: "modify" | "analyze", firstPrompt?: string) => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const setLoadingWithNotify = (v: boolean) => { setLoading(v); onLoadingChange?.(v); };
   const [streamingLog, setStreamingLog] = useState<LogLine[] | null>(null);
   const creationLogs = useCreationLogs(dashboardId);
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Local copy of initial_context so the panel stays visible even if the outer
+  // analyzeInitialContext/modifyInitialContext state resets between renders.
+  const [localCtx, setLocalCtx] = useState<InitialContext | null>(initialContext ?? null);
+  // Sync localCtx when the prop updates (e.g., from auto-load or polling).
+  useEffect(() => { if (initialContext && !localCtx) setLocalCtx(initialContext); }, [initialContext]); // eslint-disable-line
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
@@ -476,8 +485,20 @@ function ModificarTab({
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-    setLoading(true);
+    setLoadingWithNotify(true);
     setStreamingLog([]);
+
+    // ensureConversation returns initial_context synchronously — no second
+    // fetch, no race condition with the LLM call.
+    const convResult = await ensureConversation("modify", trimmed);
+    const convId = convResult?.id ?? null;
+    if (convId) {
+      void saveMessage(convId, { role: "user", content: trimmed });
+      if (convResult?.initialContext) {
+        setLocalCtx(convResult.initialContext);
+        onInitialContextLoaded?.(convResult.initialContext);
+      }
+    }
 
     // Real progress lines streamed from the server (NDJSON path) — captured
     // in a local mutable array so the final message logs include exactly
@@ -493,27 +514,22 @@ function ModificarTab({
      * user message, never overwriting newer messages someone else added.
      */
     const appendAssistant = (assistant: ChatMessage) => {
-      let nextSnapshot: ChatMessage[] = [];
       setMessages((prev) => {
         // Find our user message by reference — userMessage is unique to
         // this send. Insert right after it; if not found (defensive),
         // append to the end.
         const idx = prev.indexOf(userMessage);
-        const next =
-          idx >= 0
-            ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
-            : [...prev, assistant];
-        nextSnapshot = next;
-        return next;
+        return idx >= 0
+          ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
+          : [...prev, assistant];
       });
-      onMessagesChange?.(nextSnapshot);
     };
 
     try {
       const res = await fetch("/api/dashboard/modify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ spec, prompt: trimmed }),
+        body: JSON.stringify({ spec, prompt: trimmed, ...(convId ? { conversationId: convId } : {}) }),
       });
 
       // -------------------------------------------------------------------
@@ -584,6 +600,7 @@ function ModificarTab({
               chatContent += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
             }
           }
+          if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
           appendAssistant({
             role: "assistant",
             content: chatContent,
@@ -659,6 +676,7 @@ function ModificarTab({
         }
       }
 
+      if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
       appendAssistant({
         role: "assistant",
         content: chatContent,
@@ -682,10 +700,10 @@ function ModificarTab({
         logs: [...capturedLogs],
       });
     } finally {
-      setLoading(false);
+      setLoadingWithNotify(false);
       setTimeout(() => setStreamingLog(null), 400);
     }
-  }, [input, loading, spec, onSpecUpdate, setMessages, onMessagesChange]);
+  }, [input, loading, spec, onSpecUpdate, setMessages]);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -708,13 +726,15 @@ function ModificarTab({
         <CreationLogPanel lines={creationLogs} />
       )}
 
+      {/* Initial context — outside the scrollable area so it stays visible */}
+      {(localCtx ?? initialContext) && messages.length > 0 && (
+        <div style={{ padding: "0 16px 4px", flexShrink: 0 }}>
+          <InitialContextPanel context={(localCtx ?? initialContext)!} />
+        </div>
+      )}
+
       {/* Messages */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {/* Initial context panel — shown at the top when a prior conversation has context */}
-        {initialContext && messages.length > 0 && (
-          <InitialContextPanel context={initialContext} />
-        )}
-
         {messages.length === 0 && (
           <p style={{ fontSize: 12, color: "var(--fg-subtle)", textAlign: "center", marginTop: 32 }}>
             Escribe un mensaje para modificar el dashboard.
@@ -833,23 +853,29 @@ function AnalizarTab({
   widgetData,
   messages,
   setMessages,
-  onMessagesChange,
   isActive,
   dashboardId,
   prefillRequest,
   onPrefillApplied,
   initialContext,
+  onInitialContextLoaded,
+  onLoadingChange,
+  ensureConversation,
+  saveMessage,
 }: {
   spec: DashboardSpec;
   widgetData?: Map<number, WidgetState>;
   messages: ChatMessage[];
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>;
-  onMessagesChange?: (messages: ChatMessage[]) => void;
   isActive: boolean;
   dashboardId?: number;
   prefillRequest?: { text: string; id: number } | null;
   onPrefillApplied?: () => void;
   initialContext?: InitialContext | null;
+  onInitialContextLoaded?: (ctx: InitialContext | null) => void;
+  onLoadingChange?: (v: boolean) => void;
+  ensureConversation: (mode: "modify" | "analyze", firstPrompt?: string) => Promise<import("@/lib/useDashboardConversation").EnsureConversationResult | null>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -859,6 +885,9 @@ function AnalizarTab({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const appliedPrefillIdRef = useRef<number | null>(null);
+  const setLoadingWithNotify = (v: boolean) => { setLoading(v); onLoadingChange?.(v); };
+  const [localCtx, setLocalCtx] = useState<InitialContext | null>(initialContext ?? null);
+  useEffect(() => { if (initialContext && !localCtx) setLocalCtx(initialContext); }, [initialContext]); // eslint-disable-line
 
   // Prefill from drilldown — fires when handleDataPointClick on the page
   // sets pendingAnalyze with a fresh trigger id.
@@ -899,8 +928,19 @@ function AnalizarTab({
       setMessages((prev) => [...prev, userMessage]);
       setInput("");
       setSuggestions([]);
-      setLoading(true);
+      setLoadingWithNotify(true);
       setStreamingLog([]);
+
+      // ensureConversation returns initial_context synchronously.
+      const convResult = await ensureConversation("analyze", trimmed);
+      const convId = convResult?.id ?? null;
+      if (convId) {
+        void saveMessage(convId, { role: "user", content: trimmed });
+        if (convResult?.initialContext) {
+          setLocalCtx(convResult.initialContext);
+          onInitialContextLoaded?.(convResult.initialContext);
+        }
+      }
 
       // Real progress lines streamed from the server (NDJSON).
       const capturedLogs: LogLine[] = [];
@@ -911,17 +951,12 @@ function AnalizarTab({
        * race conditions when other state changes happen mid-request.
        */
       const appendAssistant = (assistant: ChatMessage) => {
-        let nextSnapshot: ChatMessage[] = [];
         setMessages((prev) => {
           const idx = prev.indexOf(userMessage);
-          const next =
-            idx >= 0
-              ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
-              : [...prev, assistant];
-          nextSnapshot = next;
-          return next;
+          return idx >= 0
+            ? [...prev.slice(0, idx + 1), assistant, ...prev.slice(idx + 1)]
+            : [...prev, assistant];
         });
-        onMessagesChange?.(nextSnapshot);
       };
 
       try {
@@ -934,6 +969,7 @@ function AnalizarTab({
             prompt: trimmed,
             ...(action ? { action } : {}),
             ...(dashboardId !== undefined ? { dashboardId } : {}),
+            ...(convId ? { conversationId: convId } : {}),
           }),
         });
 
@@ -991,6 +1027,7 @@ function AnalizarTab({
             // With the publish-tool contract: message = freeform chat reply, response = analysis body.
             // If message is empty (legacy path), fall back to response.
             const chatContent = result.message?.trim() || result.response;
+            if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
             appendAssistant({
               role: "assistant",
               content: chatContent,
@@ -1050,6 +1087,7 @@ function AnalizarTab({
 
         // With publish-tool contract: message = freeform chat reply, response = analysis body.
         const chatContent = data.message?.trim() || data.response;
+        if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
         appendAssistant({
           role: "assistant",
           content: chatContent,
@@ -1074,11 +1112,11 @@ function AnalizarTab({
           logs: [...capturedLogs],
         });
       } finally {
-        setLoading(false);
+        setLoadingWithNotify(false);
         setTimeout(() => setStreamingLog(null), 400);
       }
     },
-    [loading, spec, widgetData, setMessages, onMessagesChange, dashboardId]
+    [loading, spec, widgetData, setMessages, dashboardId]
   );
 
   const handleInputSend = useCallback(() => {
@@ -1101,6 +1139,13 @@ function AnalizarTab({
       <div style={{ padding: "10px 16px 0", fontSize: 11, color: "var(--fg-subtle)" }}>
         Pregunta sobre los datos.
       </div>
+
+      {/* Initial context — outside the scrollable area so it stays visible */}
+      {(localCtx ?? initialContext) && messages.length > 0 && (
+        <div style={{ padding: "0 16px 4px", flexShrink: 0 }}>
+          <InitialContextPanel context={(localCtx ?? initialContext)!} />
+        </div>
+      )}
 
       {/* Messages area */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
@@ -1156,11 +1201,6 @@ function AnalizarTab({
               </button>
             ))}
           </div>
-        )}
-
-        {/* Initial context panel — shown at the top when a prior conversation has context */}
-        {initialContext && messages.length > 0 && (
-          <InitialContextPanel context={initialContext} />
         )}
 
         {/* Empty state */}
@@ -1296,9 +1336,7 @@ export default function ChatSidebar({
   dashboardId,
   widgetData,
   initialAnalyzeMessages,
-  onAnalyzeMessagesChange,
   initialModifyMessages,
-  onModifyMessagesChange,
   pendingModifyInput,
   pendingModifyTriggerId,
   onPendingModifyInputConsumed,
@@ -1330,6 +1368,13 @@ export default function ChatSidebar({
   const [analyzeInitialContext, setAnalyzeInitialContext] = useState<InitialContext | null>(
     initialAnalyzeContext ?? null
   );
+
+  // Conversation persistence hooks — hoisted to ChatSidebar so handleNewConversation
+  // can call startNewConversation on the correct tab's hook instance.
+  const modifyConv = useDashboardConversation(dashboardId);
+  const analyzeConv = useDashboardConversation(dashboardId);
+  // Tracks whether the active tab's LLM call is in flight — used by the header spinner.
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Refs to detect whether initial messages were provided by the parent on mount.
   // Used to skip auto-load when preloaded messages are present, preventing them from being
@@ -1398,9 +1443,6 @@ export default function ChatSidebar({
         setModifyMessages(msgs);
         setModifyInitialContext(data.initial_context ?? null);
         setActiveTab("modificar");
-        // Persist handoff messages so the modify API loads them as prior context
-        // on the user's next turn (loadPriorTurns reads chat_messages_modify).
-        onModifyMessagesChange?.(msgs);
       })
       .catch(() => {
         // Non-critical — if the fetch fails, the tab starts empty
@@ -1519,21 +1561,84 @@ export default function ChatSidebar({
     return () => controller.abort();
   }, [dashboardId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // "Nueva conversación" — clears messages for the active tab
+  // Poll for in-flight assistant messages: when the last message in the active
+  // tab is from "user" and the tab is not currently loading (no active LLM call
+  // in this session), poll the DB every 2 s. Covers the "navigated away while
+  // LLM was running and came back" case. Stops when an assistant reply appears.
+  useEffect(() => {
+    const activeConvId =
+      activeTab === "analizar"
+        ? analyzeConv.conversationIdRef.current
+        : modifyConv.conversationIdRef.current;
+    const activeMessages =
+      activeTab === "analizar" ? analyzeMessages : modifyMessages;
+
+    const lastMsg = activeMessages[activeMessages.length - 1];
+    if (!activeConvId || !lastMsg || lastMsg.role !== "user") return;
+    if (isProcessing) return; // live LLM call ongoing — no need to poll
+
+    let cancelled = false;
+    const POLL_MS = 2500;
+    const MAX_POLLS = 20; // ~50 s max
+    let polls = 0;
+
+    const poll = async () => {
+      if (cancelled || polls >= MAX_POLLS) return;
+      polls += 1;
+      try {
+        const res = await fetch(`/api/conversations/${activeConvId}`);
+        if (cancelled || !res.ok) return;
+        const data = (await res.json()) as { messages?: { role: string; content: unknown; logs?: unknown[] | null }[]; initial_context?: unknown };
+        const msgs = data.messages ?? [];
+        const hasAssistant = msgs.some((m) => m.role === "assistant");
+
+        if (hasAssistant) {
+          // Only replace in-memory messages if DB has MORE messages (the browser
+          // is ahead otherwise — e.g., optimistic user messages not yet in DB).
+          const rebuilt = convertConversationMessages(
+            msgs as Parameters<typeof convertConversationMessages>[0],
+          );
+          if (activeTab === "analizar") {
+            setAnalyzeMessages((prev) => rebuilt.length >= prev.length ? rebuilt : prev);
+            if (data.initial_context && !analyzeInitialContext) {
+              setAnalyzeInitialContext(data.initial_context as InitialContext);
+            }
+          } else {
+            setModifyMessages((prev) => rebuilt.length >= prev.length ? rebuilt : prev);
+            if (data.initial_context && !modifyInitialContext) {
+              setModifyInitialContext(data.initial_context as InitialContext);
+            }
+          }
+          return; // stop polling
+        }
+
+        setTimeout(() => void poll(), POLL_MS);
+      } catch {
+        setTimeout(() => void poll(), POLL_MS);
+      }
+    };
+
+    const timer = setTimeout(() => void poll(), POLL_MS);
+    return () => { cancelled = true; clearTimeout(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, analyzeMessages, modifyMessages, isProcessing]);
+
+  // "Nueva conversación" — clears messages for the active tab and archives the
+  // current conversation so the next send creates a fresh one.
   const handleNewConversation = useCallback(() => {
     if (activeTab === "modificar") {
+      void modifyConv.startNewConversation();
       setModifyMessages([]);
-      onModifyMessagesChange?.([]);
       setModifyInitialContext(null);
       hadInitialModifyMessagesRef.current = false;
     } else {
+      void analyzeConv.startNewConversation();
       setAnalyzeMessages([]);
-      onAnalyzeMessagesChange?.([]);
       setAnalyzeInitialContext(null);
       hadInitialAnalyzeMessagesRef.current = false;
     }
     setShowPreviousConversations(false);
-  }, [activeTab, onModifyMessagesChange, onAnalyzeMessagesChange]);
+  }, [activeTab, modifyConv, analyzeConv]);
 
   // Handle pending modify prefill (opens sidebar in modify tab)
   useEffect(() => {
@@ -1655,17 +1760,25 @@ export default function ChatSidebar({
               }}
             >
               <span
+                aria-label={isProcessing ? "Estado: procesando" : "Estado: conectado"}
                 style={{
-                  width: 5,
-                  height: 5,
+                  width: isProcessing ? 10 : 5,
+                  height: isProcessing ? 10 : 5,
                   borderRadius: "50%",
-                  background: "var(--up)",
-                  animation: "pulse-dot 2s ease-in-out infinite",
+                  background: isProcessing ? "transparent" : "var(--up)",
+                  border: isProcessing ? "2px solid var(--accent)" : "none",
+                  borderTopColor: isProcessing ? "transparent" : undefined,
+                  animation: isProcessing
+                    ? "spin 0.8s linear infinite"
+                    : "pulse-dot 2s ease-in-out infinite",
                   display: "inline-block",
                   flexShrink: 0,
+                  transition: "all 0.2s",
                 }}
               />
-              {`Conectado · ${configuredModel ? displayModelName(configuredModel) : "..."}`}
+              {isProcessing
+                ? `Procesando · ${configuredModel ? displayModelName(configuredModel) : "..."}`
+                : `Conectado · ${configuredModel ? displayModelName(configuredModel) : "..."}`}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -1809,7 +1922,6 @@ export default function ChatSidebar({
             onSpecUpdate={onSpecUpdate}
             messages={modifyMessages}
             setMessages={setModifyMessages}
-            onMessagesChange={onModifyMessagesChange}
             isActive={activeTab === "modificar"}
             prefillRequest={
               pendingModifyInput?.trim() && pendingModifyTriggerId !== undefined
@@ -1819,6 +1931,10 @@ export default function ChatSidebar({
             onPrefillApplied={onPendingModifyInputConsumed}
             dashboardId={dashboardId}
             initialContext={modifyInitialContext}
+            onInitialContextLoaded={setModifyInitialContext}
+            onLoadingChange={setIsProcessing}
+            ensureConversation={modifyConv.ensureConversation}
+            saveMessage={modifyConv.saveMessage}
           />
         ) : (
           <AnalizarTab
@@ -1826,7 +1942,6 @@ export default function ChatSidebar({
             widgetData={widgetData}
             messages={analyzeMessages}
             setMessages={setAnalyzeMessages}
-            onMessagesChange={onAnalyzeMessagesChange}
             isActive={activeTab === "analizar"}
             dashboardId={dashboardId}
             prefillRequest={
@@ -1836,6 +1951,10 @@ export default function ChatSidebar({
             }
             onPrefillApplied={onPendingAnalyzeInputConsumed}
             initialContext={analyzeInitialContext}
+            onInitialContextLoaded={setAnalyzeInitialContext}
+            onLoadingChange={setIsProcessing}
+            ensureConversation={analyzeConv.ensureConversation}
+            saveMessage={analyzeConv.saveMessage}
           />
         )}
       </div>

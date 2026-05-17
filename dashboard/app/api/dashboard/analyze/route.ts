@@ -33,10 +33,9 @@ import { NextResponse } from "next/server";
 import {
   analyzeDashboard,
   generateSuggestions,
-  BudgetExceededError,
-  CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
+import { classifyLlmError } from "@/lib/llm-error-payload";
 import { loadPriorTurns } from "@/lib/conversation-context";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
@@ -53,6 +52,7 @@ import {
   createInteraction,
   finishInteraction,
 } from "@/lib/db-write";
+import { appendMessage, touchConversation } from "@/lib/conversations";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
@@ -138,31 +138,12 @@ function buildLlmErrorPayload(
       ),
     };
   }
-  if (err instanceof BudgetExceededError) {
-    return {
-      status: 429,
-      payload: formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-    };
-  }
-  if (err instanceof CircuitBreakerOpenError) {
-    return {
-      status: 503,
-      payload: formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId),
-    };
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  const normalizedMessage = message.toLowerCase();
-  const isRateLimit =
-    normalizedMessage.includes("rate limit") ||
-    normalizedMessage.includes("ratelimit") ||
-    normalizedMessage.includes("429");
+  const { status, code, userMessage } = classifyLlmError(err, requestId);
   return {
-    status: isRateLimit ? 429 : 500,
+    status,
     payload: formatApiError(
-      isRateLimit
-        ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-        : "No se pudo analizar el dashboard. Inténtalo de nuevo.",
-      isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+      userMessage,
+      code as Parameters<typeof formatApiError>[1],
       sanitizeErrorMessage(err),
       requestId,
     ),
@@ -192,10 +173,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const { spec, widgetData, prompt, action, dashboardId } = body as Record<
+  const { spec, widgetData, prompt, action, dashboardId, conversationId } = body as Record<
     string,
     unknown
   >;
+  const convId = typeof conversationId === "string" && conversationId.trim() ? conversationId.trim() : null;
 
   // --- Validate required fields --------------------------------------------
   if (spec === undefined) {
@@ -228,6 +210,17 @@ export async function POST(request: Request) {
       ),
       { status: 400 },
     );
+  }
+
+  // --- Save user message server-side immediately ----------------------------
+  // This ensures the message is persisted even if the browser disconnects
+  // before the response arrives and the client-side save never runs.
+  if (convId) {
+    try {
+      await appendMessage(convId, { role: "user", content: { text: prompt.trim() } });
+    } catch (e) {
+      console.warn(`[${requestId}] Failed to save user message for conv ${convId}:`, e);
+    }
   }
 
   // --- Validate spec with Zod ----------------------------------------------
@@ -455,6 +448,15 @@ export async function POST(request: Request) {
         console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
       );
     }
+    const msgToSave = message || analysisResponse;
+    if (convId && msgToSave) {
+      try {
+        await appendMessage(convId, { role: "assistant", content: { text: msgToSave } });
+        await touchConversation(convId, "ok").catch(() => {});
+      } catch (e) {
+        console.warn(`[${requestId}] Failed to save assistant message for conv ${convId}:`, e);
+      }
+    }
     return NextResponse.json({ response: analysisResponse, message, summary, suggestions });
   }
 
@@ -547,6 +549,15 @@ export async function POST(request: Request) {
         await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
           console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
         );
+      }
+      const msgToSave = message || analysisResponse;
+      if (convId && msgToSave) {
+        try {
+          await appendMessage(convId, { role: "assistant", content: { text: msgToSave } });
+          await touchConversation(convId, "ok").catch(() => {});
+        } catch (e) {
+          console.warn(`[${requestId}] Failed to save assistant message for conv ${convId}:`, e);
+        }
       }
       send({ type: "result", requestId, response: analysisResponse, message, summary, suggestions });
       controller.close();

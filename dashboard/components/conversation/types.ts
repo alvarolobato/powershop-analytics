@@ -35,5 +35,6 @@ export interface ConversationApiMessage {
   conversation_id: string;
   role: "user" | "assistant" | "tool";
   content: unknown; // JSONB: string | { text?: string } | { type: string; text?: string }[]
+  logs?: unknown[] | null;
   created_at: string;
 }

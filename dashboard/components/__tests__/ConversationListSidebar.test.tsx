@@ -145,6 +145,36 @@ describe("ConversationListSidebar", () => {
     });
   });
 
+  it("fetches all conversations without mode/context_kind filter", async () => {
+    // Regression: original spec hardcoded ?mode=chat&context_kind=global which
+    // made the sidebar empty when viewing an analyze/modify/dashboard conversation.
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [],
+    });
+    render(<ConversationListSidebar selectedId="any" />);
+    await waitFor(() => {
+      const url = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as string;
+      expect(url).not.toContain("mode=");
+      expect(url).not.toContain("context_kind=");
+      expect(url).toContain("/api/conversations");
+    });
+  });
+
+  it("shows dashboard analyze conversations alongside free-chat ones", async () => {
+    // Regression: sidebar must show conversations of any context_kind/mode.
+    const rows = [
+      makeRow({ id: "free-chat-1", title: "Pregunta libre", mode: "chat", context_kind: "global" }),
+      makeRow({ id: "analyze-1", title: "Analiza ventas", mode: "analyze", context_kind: "dashboard", context_ref: "42" }),
+    ];
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: true, json: async () => rows });
+    render(<ConversationListSidebar selectedId="free-chat-1" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("sidebar-conv-free-chat-1")).toBeInTheDocument();
+      expect(screen.getByTestId("sidebar-conv-analyze-1")).toBeInTheDocument();
+    });
+  });
+
   it("uses first_user_prompt when title is null", async () => {
     const rows = [makeRow({ id: "conv-1", title: null, first_user_prompt: "Pregunta sin título" })];
     globalThis.fetch = vi.fn().mockResolvedValue({

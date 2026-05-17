@@ -20,10 +20,9 @@
 import { NextResponse } from "next/server";
 import {
   generateDashboard,
-  BudgetExceededError,
-  CircuitBreakerOpenError,
   AgenticRunnerError,
 } from "@/lib/llm";
+import { classifyLlmError } from "@/lib/llm-error-payload";
 import { validateSpec, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
@@ -142,43 +141,14 @@ function mapGenerateLlmError(err: unknown, requestId: string): GenerateFinishErr
       ) as unknown as Record<string, unknown>,
     };
   }
-  if (err instanceof BudgetExceededError) {
-    return {
-      ok: false,
-      status: 429,
-      payload: formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId) as unknown as Record<
-        string,
-        unknown
-      >,
-    };
-  }
-  if (err instanceof CircuitBreakerOpenError) {
-    return {
-      ok: false,
-      status: 503,
-      payload: formatApiError(err.message, "LLM_CIRCUIT_OPEN", undefined, requestId) as unknown as Record<
-        string,
-        unknown
-      >,
-    };
-  }
-  const message = err instanceof Error ? err.message : String(err);
-  const normalizedMessage = message.toLowerCase();
+  const { status, code, userMessage } = classifyLlmError(err, requestId);
   console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
-
-  const isRateLimit =
-    normalizedMessage.includes("rate limit") ||
-    normalizedMessage.includes("ratelimit") ||
-    normalizedMessage.includes("429");
-
   return {
     ok: false,
-    status: isRateLimit ? 429 : 500,
+    status,
     payload: formatApiError(
-      isRateLimit
-        ? "Límite de uso del modelo de IA alcanzado. Inténtalo en unos minutos."
-        : "Error al generar el dashboard. Inténtalo de nuevo.",
-      isRateLimit ? "LLM_RATE_LIMIT" : "LLM_ERROR",
+      userMessage,
+      code as Parameters<typeof formatApiError>[1],
       sanitizeErrorMessage(err),
       requestId,
     ) as unknown as Record<string, unknown>,

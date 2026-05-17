@@ -11,6 +11,11 @@ import {
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
 import { buildFreeChatInitialContextSnapshot } from "@/lib/conversation-context";
+import {
+  getEffectiveDashboardModel,
+  loadDashboardLlmConfig,
+} from "@/lib/llm-provider/config";
+import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 
 const VALID_MODES = new Set([
   "generate",
@@ -131,6 +136,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     typeof b.first_user_prompt === "string" ? b.first_user_prompt : undefined;
   const llm_provider = typeof b.llm_provider === "string" ? b.llm_provider : undefined;
   const llm_driver = typeof b.llm_driver === "string" ? b.llm_driver : undefined;
+  // Caller can explicitly pass the flow (e.g., "analyze"/"modify"); falls back to mode.
+  const flow = (typeof b.flow === "string" ? b.flow : mode) as DashboardLlmFlow;
 
   try {
     const result = await createConversation({
@@ -143,20 +150,38 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       llm_driver,
     });
 
-    // Snapshot initial_context immediately for free-chat conversations so that
-    // GET /api/conversations/:id returns it without waiting for the first message.
-    if (mode === "chat" && context_kind === "global") {
-      try {
-        await setInitialContext(result.id, buildFreeChatInitialContextSnapshot());
-      } catch (snapshotErr) {
-        console.warn(
-          `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
-          snapshotErr,
-        );
+    // Always snapshot initial_context at creation. We capture the snapshot
+    // object and merge it into the response — `result` comes from the INSERT
+    // RETURNING and has initial_context=null because setInitialContext runs
+    // afterwards. Without this merge the client receives null and
+    // "Contexto original" never appears on first send.
+    let initialContextValue: Record<string, unknown> | null = null;
+    try {
+      if (context_kind === "global" || mode === "chat") {
+        initialContextValue = buildFreeChatInitialContextSnapshot() as unknown as Record<string, unknown>;
+      } else {
+        const cfg = loadDashboardLlmConfig();
+        initialContextValue = {
+          model: getEffectiveDashboardModel(cfg, flow),
+          provider: cfg.provider,
+          driver: cfg.provider === "cli" ? cfg.cliDriver : null,
+          system_prompt_stable: "",
+          tools: [],
+          config: { flow },
+        };
       }
+      await setInitialContext(result.id, initialContextValue as unknown as Parameters<typeof setInitialContext>[1]);
+    } catch (snapshotErr) {
+      console.warn(
+        `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
+        snapshotErr,
+      );
     }
 
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json(
+      { ...result, initial_context: initialContextValue },
+      { status: 201 },
+    );
   } catch (err) {
     console.error(`[${requestId}] POST /api/conversations error:`, err);
     return NextResponse.json(

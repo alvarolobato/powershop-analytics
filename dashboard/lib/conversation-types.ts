@@ -95,6 +95,7 @@ export interface ConversationMessage {
   tokens_output?: number | null;
   tokens_cache_read?: number | null;
   tokens_cache_creation?: number | null;
+  logs?: unknown[] | null;
   created_at: string;
 }
 

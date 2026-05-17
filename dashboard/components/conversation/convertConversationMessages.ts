@@ -28,6 +28,7 @@ export function convertConversationMessages(
           (isError ? "Error en la respuesta del asistente" : ""),
         timestamp: new Date(msg.created_at),
         isError,
+        ...(Array.isArray(msg.logs) && msg.logs.length > 0 ? { logs: msg.logs as import("@/components/LogBlock").LogLine[] } : {}),
       };
     })
     .filter((msg) => msg.content.length > 0);

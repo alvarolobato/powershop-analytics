@@ -16,18 +16,21 @@ interface FooterProps {
   archived: boolean;
   onMessageSent: (msg: ConversationMessage) => void;
   initialInput?: string;
+  onSendingChange?: (v: boolean) => void;
 }
 
-function ConversationFooter({ conversationId, archived, onMessageSent, initialInput }: FooterProps) {
+function ConversationFooter({ conversationId, archived, onMessageSent, initialInput, onSendingChange }: FooterProps) {
   const [input, setInput] = useState(initialInput ?? "");
   const [sending, setSending] = useState(false);
+  const setSendingWithNotify = (v: boolean) => { setSending(v); onSendingChange?.(v); };
   const [error, setError] = useState<string | null>(null);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || sending) return;
-    setSending(true);
+    setSendingWithNotify(true);
     setError(null);
+    setInput("");  // Clear immediately so the textarea feels responsive
     // Optimistically render the user's message — the server saved it but the
     // POST response only returns the assistant reply, so the UI would otherwise
     // skip the user's turn until the next page load.
@@ -44,13 +47,57 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: text, callLlm: true }),
       });
+
+      // ── NDJSON streaming path ─────────────────────────────────────────────
+      const ct = res.headers?.get("content-type") ?? "";
+      if (res.body && ct.includes("application/x-ndjson")) {
+        // Inline NDJSON reader — parse one JSON object per line.
+        async function* readLines(body: ReadableStream<Uint8Array>) {
+          const reader = body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (line.trim()) yield line;
+              }
+            }
+            if (buffer.trim()) yield buffer;
+          } finally {
+            reader.releaseLock();
+          }
+        }
+
+        type NdjsonFrame =
+          | { type: "progress"; requestId: string; logLine: unknown }
+          | { type: "result"; requestId: string; message: ConversationMessage }
+          | { type: "error"; requestId: string; httpStatus?: number; error?: string };
+
+        for await (const line of readLines(res.body)) {
+          let frame: NdjsonFrame;
+          try { frame = JSON.parse(line) as NdjsonFrame; } catch { continue; }
+          if (frame.type === "result") {
+            onMessageSent(frame.message);
+          } else if (frame.type === "error") {
+            setError(frame.error ?? "Error al enviar el mensaje");
+          }
+          // "progress" frames are ignored in ConversationViewer (no log UI here)
+        }
+        return;
+      }
+
+      // ── Legacy JSON path ──────────────────────────────────────────────────
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setError(isApiErrorResponse(body) ? body.error : "Error al enviar el mensaje");
         return;
       }
       const data = await res.json();
-      setInput("");
       // POST /messages returns { message: MessageRow } where MessageRow is the
       // assistant row when callLlm=true. Older code returned a bare string;
       // tolerate both shapes so a partial deploy doesn't break the UI.
@@ -69,7 +116,7 @@ function ConversationFooter({ conversationId, archived, onMessageSent, initialIn
     } catch {
       setError("Error al enviar el mensaje");
     } finally {
-      setSending(false);
+      setSendingWithNotify(false);
     }
   }, [input, sending, conversationId, onMessageSent]);
 
@@ -175,9 +222,10 @@ interface HeaderProps {
   onTitleChange: (newTitle: string) => void;
   onArchiveToggle: () => void;
   fallbackModel: string | null;
+  isSending?: boolean;
 }
 
-function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackModel }: HeaderProps) {
+function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackModel, isSending }: HeaderProps) {
   const [editing, setEditing] = useState(false);
   const [titleValue, setTitleValue] = useState(conv.title ?? conv.first_user_prompt ?? "");
   const [shareOpen, setShareOpen] = useState(false);
@@ -288,6 +336,23 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackMode
           </h1>
         )}
       </div>
+
+      {/* Processing spinner — shown when LLM is in flight */}
+      {isSending && (
+        <span
+          aria-label="Procesando"
+          style={{
+            width: 14,
+            height: 14,
+            borderRadius: "50%",
+            border: "2px solid var(--accent)",
+            borderTopColor: "transparent",
+            display: "inline-block",
+            flexShrink: 0,
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+      )}
 
       {/* Mode pill */}
       <span
@@ -475,9 +540,11 @@ interface ConversationViewerProps {
 
 export function ConversationViewer({ initial }: ConversationViewerProps) {
   const [conv, setConv] = useState<ConversationWithMessages>(initial);
+  const [isSending, setIsSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement>(null);
   const fallbackModel = useConfiguredModel();
   const autoSendFired = useRef(false);
+  const pollAttemptsRef = useRef(0);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -485,6 +552,59 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
   }, [conv.messages.length]);
+
+  // Derive stable waiting booleans from conv so the polling effect doesn't
+  // re-fire on every setConv() call (conv.messages changes identity on each
+  // fetch, which would reset pollAttemptsRef and make the cap ineffective).
+  const lastMsgRole = conv.messages.at(-1)?.role ?? null;
+  const hasInitialContext = conv.initial_context !== null;
+
+  // Reset the poll counter when switching to a different conversation so each
+  // conversation gets its own independent cap (not accumulated across navigations).
+  useEffect(() => {
+    pollAttemptsRef.current = 0;
+  }, [conv.id]);
+
+  // Poll when a response is in-flight: last message is from "user" (waiting for
+  // assistant reply), or initial_context hasn't been written yet (race between
+  // creation and first render). Capped at 8 attempts (8 × 2.5 s = 20 s max).
+  //
+  // Dep array uses stable derived scalars (not conv.messages array) so the
+  // effect doesn't re-fire on every setConv(fresh) inside poll(), which would
+  // reset pollAttemptsRef.current to 0 and make MAX_ATTEMPTS a no-op.
+  useEffect(() => {
+    const waitingForAssistant = lastMsgRole === "user";
+    const waitingForContext = !hasInitialContext;
+    if (!waitingForAssistant && !waitingForContext) return;
+    const MAX_ATTEMPTS = 8;
+    const POLL_MS = 2500;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      pollAttemptsRef.current += 1;
+      if (pollAttemptsRef.current > MAX_ATTEMPTS) return;
+      try {
+        const res = await fetch(`/api/conversations/${conv.id}`);
+        if (!res.ok) return;
+        const fresh = (await res.json()) as ConversationWithMessages;
+        setConv(fresh);
+        const stillWaiting =
+          (fresh.messages ?? []).at(-1)?.role === "user" ||
+          fresh.initial_context === null;
+        if (stillWaiting && pollAttemptsRef.current < MAX_ATTEMPTS) {
+          timer = setTimeout(() => void poll(), POLL_MS);
+        }
+      } catch {
+        if (pollAttemptsRef.current < MAX_ATTEMPTS) {
+          timer = setTimeout(() => void poll(), POLL_MS);
+        }
+      }
+    };
+
+    timer = setTimeout(() => void poll(), POLL_MS);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conv.id, lastMsgRole, hasInitialContext]);
 
   // On mount: if NewConversationDialog left a pending prompt in sessionStorage, auto-send it
   // and mark as read after the response (prevents last_interaction_at racing ahead of
@@ -527,6 +647,29 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         // Mark read AFTER the message is persisted so last_read_at >= last_interaction_at.
         markRead();
         if (!res.ok) return;
+        const ct = res.headers.get("content-type") ?? "";
+        if (res.body && ct.includes("application/x-ndjson")) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buf = "";
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const lines = buf.split("\n");
+            buf = lines.pop() ?? "";
+            for (const line of lines) {
+              if (!line.trim()) continue;
+              try {
+                const frame = JSON.parse(line) as { type: string; message?: ConversationMessage };
+                if (frame.type === "result" && frame.message) {
+                  setConv((c) => ({ ...c, messages: [...c.messages, frame.message as ConversationMessage] }));
+                }
+              } catch { /* skip */ }
+            }
+          }
+          return;
+        }
         const data = await res.json();
         const raw = data?.message;
         if (raw && typeof raw === "object" && "id" in raw) {
@@ -579,6 +722,7 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         onTitleChange={handleTitleChange}
         onArchiveToggle={() => void handleArchiveToggle()}
         fallbackModel={fallbackModel}
+        isSending={isSending}
       />
 
       {/* Body */}
@@ -599,6 +743,7 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         archived={!!conv.archived_at}
         onMessageSent={handleMessageSent}
         initialInput={initial.messages.length === 0 ? (initial.first_user_prompt ?? undefined) : undefined}
+        onSendingChange={setIsSending}
       />
     </div>
   );

@@ -92,17 +92,38 @@ export async function loadPriorTurns(
   channel: "modify" | "analyze",
   maxTurns = DEFAULT_MAX_TURNS,
 ): Promise<ChatTurn[]> {
-  const COLUMN_MAP = {
-    modify: "chat_messages_modify",
-    analyze: "chat_messages_analyze",
-  } as const;
-  const column = COLUMN_MAP[channel];
-
-  let rows: { messages: unknown }[];
+  // Reads from conversation_messages — the single source of truth.
+  // Previously read from dashboard.chat_messages_{modify,analyze} columns
+  // which have been removed.
+  // Two-step query: (1) find the single most-recent non-archived conversation
+  // for this dashboard+mode so we don't mix turns from multiple conversations;
+  // (2) fetch the LAST N messages of that conversation ordered newest-first,
+  // then reverse so the LLM receives them chronologically.
+  // Copilot review: the previous single JOIN with ORDER BY c.last_interaction_at DESC
+  // could pull messages from multiple conversations and returned the OLDEST turns
+  // (ASC + LIMIT) instead of the most-recent ones.
+  let rows: { role: string; content: unknown }[];
   try {
-    rows = await sql<{ messages: unknown }>(
-      `SELECT ${column} AS messages FROM dashboards WHERE id = $1`,
-      [dashboardId],
+    rows = await sql<{ role: string; content: unknown }>(
+      `WITH latest_conv AS (
+         SELECT id
+           FROM conversations
+          WHERE context_kind = 'dashboard'
+            AND context_ref  = $1
+            AND mode         = $2
+            AND archived_at IS NULL
+          ORDER BY last_interaction_at DESC
+          LIMIT 1
+       ),
+       recent_msgs AS (
+         SELECT cm.role, cm.content, cm.created_at
+           FROM conversation_messages cm
+           JOIN latest_conv lc ON cm.conversation_id = lc.id
+          ORDER BY cm.created_at DESC
+          LIMIT $3
+       )
+       SELECT role, content FROM recent_msgs ORDER BY created_at ASC`,
+      [String(dashboardId), channel, maxTurns * 2 + 10],
     );
   } catch (e) {
     console.error(
@@ -114,17 +135,19 @@ export async function loadPriorTurns(
     return [];
   }
 
-  if (!rows.length || !rows[0].messages) return [];
-  const raw = rows[0].messages;
-  if (!Array.isArray(raw)) return [];
-
   const turns: ChatTurn[] = [];
-  for (const item of raw) {
-    if (typeof item !== "object" || item === null) continue;
-    const m = item as Record<string, unknown>;
-    if (typeof m.role !== "string" || typeof m.content !== "string") continue;
-    if (m.role !== "user" && m.role !== "assistant") continue;
-    turns.push({ role: m.role as "user" | "assistant", content: m.content as string });
+  for (const row of rows) {
+    if (row.role !== "user" && row.role !== "assistant") continue;
+    const c = row.content;
+    let text: string;
+    if (typeof c === "string") {
+      text = c;
+    } else if (c !== null && typeof c === "object" && typeof (c as Record<string, unknown>).text === "string") {
+      text = (c as Record<string, unknown>).text as string;
+    } else {
+      text = JSON.stringify(c);
+    }
+    turns.push({ role: row.role as "user" | "assistant", content: text });
   }
 
   if (turns.length <= maxTurns) return turns;

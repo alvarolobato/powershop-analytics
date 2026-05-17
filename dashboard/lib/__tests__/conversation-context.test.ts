@@ -42,12 +42,11 @@ describe("loadPriorTurns", () => {
   });
 
   it("returns stored turns in order when count is within cap", async () => {
-    const stored: ChatTurn[] = [
+    mockSql.mockResolvedValue([
       { role: "user", content: "Añade margen" },
       { role: "assistant", content: "He añadido el margen." },
       { role: "user", content: "Agrúpalo por familia" },
-    ];
-    mockSql.mockResolvedValue([{ messages: stored }]);
+    ]);
 
     const result = await loadPriorTurns(42, "modify");
 
@@ -63,36 +62,34 @@ describe("loadPriorTurns", () => {
     expect(result).toEqual([]);
   });
 
-  it("returns [] when chat_messages column is null", async () => {
-    mockSql.mockResolvedValue([{ messages: null }]);
-    const result = await loadPriorTurns(42, "analyze");
-    expect(result).toEqual([]);
-  });
-
-  it("reads chat_messages_analyze for 'analyze' channel", async () => {
-    mockSql.mockResolvedValue([{ messages: [] }]);
+  it("queries conversation_messages for 'analyze' channel", async () => {
+    mockSql.mockResolvedValue([]);
     await loadPriorTurns(10, "analyze");
     expect(mockSql).toHaveBeenCalledWith(
-      expect.stringContaining("chat_messages_analyze"),
-      [10],
+      expect.stringContaining("conversation_messages"),
+      [String(10), "analyze", expect.any(Number)],
+    );
+    expect(mockSql).toHaveBeenCalledWith(
+      expect.stringContaining("context_kind = 'dashboard'"),
+      expect.any(Array),
     );
   });
 
-  it("reads chat_messages_modify for 'modify' channel", async () => {
-    mockSql.mockResolvedValue([{ messages: [] }]);
+  it("queries conversation_messages for 'modify' channel", async () => {
+    mockSql.mockResolvedValue([]);
     await loadPriorTurns(10, "modify");
     expect(mockSql).toHaveBeenCalledWith(
-      expect.stringContaining("chat_messages_modify"),
-      [10],
+      expect.stringContaining("conversation_messages"),
+      [String(10), "modify", expect.any(Number)],
     );
   });
 
   it("calls summariseOldTurns when stored turns exceed the cap", async () => {
-    const stored: ChatTurn[] = Array.from({ length: 12 }, (_, i) => ({
+    const stored = Array.from({ length: 12 }, (_, i) => ({
       role: i % 2 === 0 ? ("user" as const) : ("assistant" as const),
       content: `Message ${i}`,
     }));
-    mockSql.mockResolvedValue([{ messages: stored }]);
+    mockSql.mockResolvedValue(stored);
     mockOpenRouterCompletion.mockResolvedValue({ content: "- req 0\n- req 2", usage: null });
 
     const result = await loadPriorTurns(42, "modify", 10);
@@ -112,7 +109,7 @@ describe("loadPriorTurns", () => {
       { role: "system", content: "Should be dropped" },
       { role: "assistant", content: "Also valid" },
     ];
-    mockSql.mockResolvedValue([{ messages: stored }]);
+    mockSql.mockResolvedValue(stored);
     const result = await loadPriorTurns(42, "modify");
     expect(result).toHaveLength(2);
     expect(result[0].role).toBe("user");
