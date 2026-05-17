@@ -162,12 +162,15 @@ jobs:
             - Why you chose this phase structure (or why single phase)
             - Any risks or constraints flagged
 
-            ## Step 5 — Set fact-planned, re-trigger implementation
+            ## Step 5 — Set labels and stop
             ```bash
-            gh issue edit ${{ env.ISSUE_NUMBER }}               --remove-label "fact-in-progress"               --add-label "fact-planned"
-            # Re-add ai-work so the implement job fires immediately
-            gh issue edit ${{ env.ISSUE_NUMBER }} --add-label "ai-work"
+            gh issue edit ${{ env.ISSUE_NUMBER }} \
+              --remove-label "fact-in-progress" \
+              --add-label "fact-planned" \
+              --add-label "ai-awaiting-owner"
             ```
+            Do NOT add `ai-work`. The owner reviews the rewritten body and
+            adds `ai-work` themselves when ready to start implementation.
 
             ## Step 6 — If ai-decompose is present (escape hatch)
             Fall through to the legacy sub-issues model: create one sub-issue per task group,
