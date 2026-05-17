@@ -109,7 +109,7 @@ describe("updateTurnStatus", () => {
 
 describe("insertTurnEvent", () => {
   it("writes correct params to DB", async () => {
-    mockSql.mockResolvedValueOnce([]);
+    mockSql.mockResolvedValueOnce([{ id: 42 }]);
     await insertTurnEvent(TURN_ID, 5, "log", { kind: "meta", text: "Procesando…" });
     const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(params[0]).toBe(TURN_ID);
