@@ -442,6 +442,11 @@ function ModificarTab({
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Local copy of initial_context so the panel stays visible even if the outer
+  // analyzeInitialContext/modifyInitialContext state resets between renders.
+  const [localCtx, setLocalCtx] = useState<InitialContext | null>(initialContext ?? null);
+  // Sync localCtx when the prop updates (e.g., from auto-load or polling).
+  useEffect(() => { if (initialContext && !localCtx) setLocalCtx(initialContext); }, [initialContext]); // eslint-disable-line
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
@@ -489,8 +494,9 @@ function ModificarTab({
     const convId = convResult?.id ?? null;
     if (convId) {
       void saveMessage(convId, { role: "user", content: trimmed });
-      if (convResult?.initialContext && onInitialContextLoaded) {
-        onInitialContextLoaded(convResult.initialContext);
+      if (convResult?.initialContext) {
+        setLocalCtx(convResult.initialContext);
+        onInitialContextLoaded?.(convResult.initialContext);
       }
     }
 
@@ -721,9 +727,9 @@ function ModificarTab({
       )}
 
       {/* Initial context — outside the scrollable area so it stays visible */}
-      {initialContext && messages.length > 0 && (
+      {(localCtx ?? initialContext) && messages.length > 0 && (
         <div style={{ padding: "0 16px 4px", flexShrink: 0 }}>
-          <InitialContextPanel context={initialContext} />
+          <InitialContextPanel context={(localCtx ?? initialContext)!} />
         </div>
       )}
 
@@ -880,6 +886,8 @@ function AnalizarTab({
   const inputRef = useRef<HTMLInputElement>(null);
   const appliedPrefillIdRef = useRef<number | null>(null);
   const setLoadingWithNotify = (v: boolean) => { setLoading(v); onLoadingChange?.(v); };
+  const [localCtx, setLocalCtx] = useState<InitialContext | null>(initialContext ?? null);
+  useEffect(() => { if (initialContext && !localCtx) setLocalCtx(initialContext); }, [initialContext]); // eslint-disable-line
 
   // Prefill from drilldown — fires when handleDataPointClick on the page
   // sets pendingAnalyze with a fresh trigger id.
@@ -928,8 +936,9 @@ function AnalizarTab({
       const convId = convResult?.id ?? null;
       if (convId) {
         void saveMessage(convId, { role: "user", content: trimmed });
-        if (convResult?.initialContext && onInitialContextLoaded) {
-          onInitialContextLoaded(convResult.initialContext);
+        if (convResult?.initialContext) {
+          setLocalCtx(convResult.initialContext);
+          onInitialContextLoaded?.(convResult.initialContext);
         }
       }
 
@@ -1132,9 +1141,9 @@ function AnalizarTab({
       </div>
 
       {/* Initial context — outside the scrollable area so it stays visible */}
-      {initialContext && messages.length > 0 && (
+      {(localCtx ?? initialContext) && messages.length > 0 && (
         <div style={{ padding: "0 16px 4px", flexShrink: 0 }}>
-          <InitialContextPanel context={initialContext} />
+          <InitialContextPanel context={(localCtx ?? initialContext)!} />
         </div>
       )}
 
