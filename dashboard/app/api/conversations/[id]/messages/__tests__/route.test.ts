@@ -109,6 +109,11 @@ vi.mock("@/lib/errors", async (importOriginal) => {
   return { ...actual, generateRequestId: () => "test-req-id" };
 });
 
+// Mock @/lib/db (read pool) used in Feature 4 dashboard context lookup.
+vi.mock("@/lib/db", () => ({
+  sql: vi.fn().mockResolvedValue([]),
+}));
+
 import { POST } from "../route";
 
 // Valid 12-char lowercase hex (matches route ID_PATTERN).
@@ -163,6 +168,26 @@ function postRequest(
     }),
     { params: { id } },
   ];
+}
+
+/**
+ * Parse an NDJSON streaming response — returns all frames as an array.
+ * Used when callLlm=true (the route now returns application/x-ndjson).
+ */
+async function readNdjsonFrames(res: Response): Promise<Record<string, unknown>[]> {
+  const text = await res.text();
+  return text
+    .split("\n")
+    .filter((l) => l.trim())
+    .map((l) => JSON.parse(l) as Record<string, unknown>);
+}
+
+/** Return the last non-progress frame (result or error). */
+async function readNdjsonResult(res: Response): Promise<Record<string, unknown>> {
+  const frames = await readNdjsonFrames(res);
+  const terminal = frames.find((f) => f.type === "result" || f.type === "error");
+  if (!terminal) throw new Error(`No terminal frame found. Frames: ${JSON.stringify(frames)}`);
+  return terminal;
 }
 
 beforeEach(() => {
@@ -289,7 +314,8 @@ describe("POST /api/conversations/:id/messages", () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.message).toEqual(USER_ROW);
-    expect(mockAppendMessage).toHaveBeenCalledWith(ID, "user", { text: "Hello" });
+    // Route now uses object form of appendMessage (includes logs field)
+    expect(mockAppendMessage).toHaveBeenCalledWith(ID, expect.objectContaining({ role: "user", content: { text: "Hello" } }));
   });
 
   it("snapshots initial_context only when it is null and role=user", async () => {
@@ -322,12 +348,12 @@ describe("POST /api/conversations/:id/messages", () => {
     const [req, ctx] = postRequest(ID, { content: "Reply", role: "assistant" });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
-    expect(mockAppendMessage).toHaveBeenCalledWith(ID, "assistant", { text: "Reply" });
+    expect(mockAppendMessage).toHaveBeenCalledWith(ID, expect.objectContaining({ role: "assistant", content: { text: "Reply" } }));
     // Should not snapshot initial_context for non-user appends
     expect(mockSetInitialContext).not.toHaveBeenCalled();
   });
 
-  it("calls LLM and returns ok+assistant message row when callLlm=true (non-free-chat)", async () => {
+  it("calls LLM and streams NDJSON result when callLlm=true (non-free-chat)", async () => {
     mockGetConversation.mockResolvedValue(CONV);
     mockAppendMessage
       .mockResolvedValueOnce(USER_ROW) // user append
@@ -344,9 +370,10 @@ describe("POST /api/conversations/:id/messages", () => {
     const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: true });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.message).toEqual(ASSISTANT_ROW);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const frame = await readNdjsonResult(res);
+    expect(frame.type).toBe("result");
+    expect(frame.message).toEqual(ASSISTANT_ROW);
     // Non-free-chat falls back to llmComplete
     expect(mockLlmComplete).toHaveBeenCalled();
     expect(mockRunAgenticChat).not.toHaveBeenCalled();
@@ -354,7 +381,7 @@ describe("POST /api/conversations/:id/messages", () => {
 
   // ── Free-chat (context_kind='global') tests ──────────────────────────────────
 
-  it("uses the agentic runner with FREE_CHAT_TOOLS for context_kind=global", async () => {
+  it("uses the agentic runner with FREE_CHAT_TOOLS for context_kind=global and streams NDJSON", async () => {
     mockGetConversation.mockResolvedValue(GLOBAL_CONV);
     mockAppendMessage
       .mockResolvedValueOnce(USER_ROW)
@@ -371,8 +398,9 @@ describe("POST /api/conversations/:id/messages", () => {
     const [req, ctx] = postRequest(ID, { content: "lista tablas ps_*", callLlm: true });
     const res = await POST(req, ctx);
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const frame = await readNdjsonResult(res);
+    expect(frame.type).toBe("result");
 
     // Agentic runner must have been called instead of llmComplete
     expect(mockRunAgenticChat).toHaveBeenCalledTimes(1);
@@ -409,7 +437,7 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(typeof snapshot.config.tool_rounds_max).toBe("number");
   });
 
-  it("returns 500 with AGENTIC_RUNNER error when agentic runner throws AgenticRunnerError", async () => {
+  it("streams NDJSON error frame when agentic runner throws AgenticRunnerError", async () => {
     const { AgenticRunnerError } = await import("@/lib/llm-tools/runner");
     mockGetConversation.mockResolvedValue(GLOBAL_CONV);
     mockAppendMessage.mockResolvedValue(USER_ROW);
@@ -422,9 +450,12 @@ describe("POST /api/conversations/:id/messages", () => {
 
     const [req, ctx] = postRequest(ID, { content: "hola", callLlm: true });
     const res = await POST(req, ctx);
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.code).toBe("AGENTIC_RUNNER");
+    // NDJSON stream always returns HTTP 200; error is signalled via error frame.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const frame = await readNdjsonResult(res);
+    expect(frame.type).toBe("error");
+    expect(frame.code).toBe("AGENTIC_RUNNER");
   });
 
   it("returns 500 with DB_ERROR when DB phase throws", async () => {
@@ -454,7 +485,7 @@ describe("POST /api/conversations/:id/messages", () => {
     expect(mockRunAgenticChat).not.toHaveBeenCalled();
   });
 
-  it("returns 500 with LLM_ERROR when LLM call throws (non-free-chat)", async () => {
+  it("streams NDJSON error frame with LLM_ERROR when LLM call throws (non-free-chat)", async () => {
     mockGetConversation.mockResolvedValue(CONV);
     mockAppendMessage.mockResolvedValue(USER_ROW);
     mockLoadMessages.mockResolvedValue([USER_ROW]);
@@ -464,9 +495,12 @@ describe("POST /api/conversations/:id/messages", () => {
 
     const [req, ctx] = postRequest(ID, { content: "Hello", callLlm: true });
     const res = await POST(req, ctx);
-    expect(res.status).toBe(500);
-    const body = await res.json();
-    expect(body.code).toBe("LLM_ERROR");
+    // NDJSON stream always returns HTTP 200; error is signalled via error frame.
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/x-ndjson");
+    const frame = await readNdjsonResult(res);
+    expect(frame.type).toBe("error");
+    expect(frame.code).toBe("LLM_ERROR");
   });
 
   it("callLlm=false still works and does not call runner or llmComplete", async () => {

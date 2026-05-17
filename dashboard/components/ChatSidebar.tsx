@@ -432,7 +432,7 @@ function ModificarTab({
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   onLoadingChange?: (v: boolean) => void;
   ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
-  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -598,7 +598,7 @@ function ModificarTab({
               chatContent += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
             }
           }
-          if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
+          if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
           appendAssistant({
             role: "assistant",
             content: chatContent,
@@ -674,7 +674,7 @@ function ModificarTab({
         }
       }
 
-      if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
+      if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
       appendAssistant({
         role: "assistant",
         content: chatContent,
@@ -871,7 +871,7 @@ function AnalizarTab({
   onInitialContextLoaded?: (ctx: InitialContext | null) => void;
   onLoadingChange?: (v: boolean) => void;
   ensureConversation: (mode: "modify" | "analyze") => Promise<string | null>;
-  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string }) => Promise<void>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -1021,7 +1021,7 @@ function AnalizarTab({
             // With the publish-tool contract: message = freeform chat reply, response = analysis body.
             // If message is empty (legacy path), fall back to response.
             const chatContent = result.message?.trim() || result.response;
-            if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
+            if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
             appendAssistant({
               role: "assistant",
               content: chatContent,
@@ -1081,7 +1081,7 @@ function AnalizarTab({
 
         // With publish-tool contract: message = freeform chat reply, response = analysis body.
         const chatContent = data.message?.trim() || data.response;
-        if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
+        if (convId) void saveMessage(convId, { role: "assistant", content: chatContent, logs: capturedLogs.length > 0 ? capturedLogs : null });
         appendAssistant({
           role: "assistant",
           content: chatContent,
@@ -1106,7 +1106,7 @@ function AnalizarTab({
           logs: [...capturedLogs],
         });
       } finally {
-        setLoading(false);
+        setLoadingWithNotify(false);
         setTimeout(() => setStreamingLog(null), 400);
       }
     },

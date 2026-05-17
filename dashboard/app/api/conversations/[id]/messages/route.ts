@@ -13,7 +13,10 @@
  *
  * Returns:
  *   - `{ ok: true, message: MessageRow }` when callLlm=false
- *   - `{ ok: true, message: MessageRow }` (the assistant row) when callLlm=true
+ *   - NDJSON stream (Content-Type: application/x-ndjson) when callLlm=true:
+ *     - `{ type:"progress", requestId, logLine }` — progress frames
+ *     - `{ type:"result", requestId, message: MessageRow }` — the assistant row
+ *     - `{ type:"error", requestId, httpStatus, error, code }` — on failure
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -173,7 +176,10 @@ export async function POST(
     // runner later in the same request, avoiding a second call on first messages.
     if (isFreeChatConv) freeChatCtx = buildFreeChatContext();
 
-    userMessage = await appendMessage(id, role, { text: rawContent });
+    // Accept logs only on the callLlm=false path (they're passed by the client
+    // when persisting an assistant message that was already generated locally).
+    const incomingLogs = !callLlm && Array.isArray(b.logs) ? (b.logs as unknown[]) : null;
+    userMessage = await appendMessage(id, { role, content: { text: rawContent }, logs: incomingLogs });
 
     // initial_context is always set at conversation creation time in
     // POST /api/conversations. Guard here for the rare case where the
@@ -243,100 +249,146 @@ export async function POST(
     return NextResponse.json({ ok: true, message: userMessage });
   }
 
-  // ── LLM phase: call model, append assistant message ──────────────────────────
+  // ── LLM phase: stream NDJSON response ────────────────────────────────────────
   // priorMessages was loaded in the DB phase above (all messages except the
   // latest user message, which is passed as userContent).
-  try {
-    let assistantText: string;
+  //
+  // We return an NDJSON stream so ConversationViewer can show a loading
+  // indicator while the LLM is processing and receive the result frame
+  // without a full page reload / poll cycle.
+  const encoder = new TextEncoder();
 
-    if (isFreeChatConv && freeChatCtx) {
-      // Free-chat: use the full agentic runner with FREE_CHAT_TOOLS and the
-      // data knowledge system prompt so the LLM can inspect tables and dashboards.
-      const cfg = loadDashboardLlmConfig();
-      const model = getEffectiveDashboardModel(cfg);
-      const openRouterProvider = getEffectiveOpenRouterProvider(cfg);
-      const adapter = createDashboardAgenticAdapter();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const enqueue = (obj: unknown) =>
+        controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
 
-      const agenticCtx: LlmAgenticContext = {
-        requestId,
-        endpoint: "freeChat",
-        conversationId: id,
-        llmProvider: cfg.provider,
-        llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
-      };
+      try {
+        // Emit a progress frame so the client knows we started.
+        enqueue({ type: "progress", requestId, logLine: { kind: "step", text: "Procesando…", elapsed: 0 } });
 
-      const { content } = await runAgenticChat({
-        adapter,
-        model,
-        openRouterProvider,
-        systemPrompt: freeChatCtx.systemPrompt.stable,
-        userContent: rawContent,
-        ctx: agenticCtx,
-        temperature: 0.3,
-        maxTokens: 4096,
-        priorMessages,
-        tools: freeChatCtx.tools,
-      });
-      assistantText = content;
-    } else {
-      // Non-free-chat fallback: single-shot completion without tools.
-      // (generate/modify/analyze routes handle their own LLM calls.)
-      const { llmComplete } = await import("@/lib/llm-client");
-      const llmResponse = await llmComplete({
-        flow: flowRaw ?? "summary",
-        systemPrompt: { stable: "" },
-        messages: priorMessages.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-        })),
-        requestId,
-      });
-      assistantText = llmResponse.text;
-    }
+        // ── Determine system prompt (Feature 4: dashboard context) ────────────
+        let systemPrompt = freeChatCtx?.systemPrompt.stable ?? "";
 
-    const assistantMessage = await appendMessage(id, "assistant", {
-      text: assistantText,
-    });
-    await touchConversation(id, "ok");
+        const conv = conversation; // already loaded in DB phase
+        const isDashboardConv =
+          conv.context_kind === "dashboard" &&
+          (conv.mode === "analyze" || conv.mode === "modify") &&
+          conv.context_ref;
 
-    void maybeGenerateTitle(id, [
-      ...priorMessages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-      })),
-      { role: "user" as const, content: rawContent },
-      { role: "assistant" as const, content: assistantText },
-    ]);
+        if (isDashboardConv) {
+          try {
+            const { sql: sqlRead } = await import("@/lib/db-write");
+            const specRows = await sqlRead<{ spec: unknown }>(
+              `SELECT spec FROM dashboards WHERE id = $1`,
+              [parseInt(conv.context_ref!, 10)],
+            ).catch(() => [] as { spec: unknown }[]);
+            const spec = specRows[0]?.spec;
+            systemPrompt = spec
+              ? `Eres un asistente de análisis para el cuadro de mandos. El cuadro contiene la siguiente configuración:\n\n${JSON.stringify(spec, null, 2)}\n\nResponde en español sobre los datos y configuración de este cuadro de mandos.`
+              : freeChatCtx?.systemPrompt.stable ?? "";
+          } catch {
+            // best-effort — fall back to free-chat system prompt
+          }
+        }
 
-    return NextResponse.json({ ok: true, message: assistantMessage });
-  } catch (err) {
-    await touchConversation(id, "error").catch(() => {});
-    console.error(`[${requestId}] POST /api/conversations/${id}/messages LLM error:`, err);
+        // ── Call LLM ─────────────────────────────────────────────────────────
+        let assistantText: string;
 
-    if (err instanceof AgenticRunnerError) {
-      const cfg = loadDashboardLlmConfig();
-      const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
-      persistAgenticError("freeChat", err, diagnostic);
-      return NextResponse.json(
-        formatApiError(
-          "El flujo de IA con herramientas no pudo completarse. Reformula el mensaje o inténtalo de nuevo.",
-          "AGENTIC_RUNNER",
-          diagnostic.subError,
-          err.requestId,
-          diagnostic,
-        ),
-        { status: 500 },
-      );
-    }
+        if (isFreeChatConv && freeChatCtx) {
+          // Free-chat: use the full agentic runner with FREE_CHAT_TOOLS.
+          const cfg = loadDashboardLlmConfig();
+          const model = getEffectiveDashboardModel(cfg);
+          const openRouterProvider = getEffectiveOpenRouterProvider(cfg);
+          const adapter = createDashboardAgenticAdapter();
 
-    return NextResponse.json(
-      formatApiError(
-        "Error al procesar la respuesta del LLM.",
-        "LLM_ERROR",
-        sanitizeErrorMessage(err),
-        requestId,
-      ),
-      { status: 500 },
-    );
-  }
+          const agenticCtx: LlmAgenticContext = {
+            requestId,
+            endpoint: "freeChat",
+            conversationId: id,
+            llmProvider: cfg.provider,
+            llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
+          };
+
+          const { content } = await runAgenticChat({
+            adapter,
+            model,
+            openRouterProvider,
+            systemPrompt: freeChatCtx.systemPrompt.stable,
+            userContent: rawContent,
+            ctx: agenticCtx,
+            temperature: 0.3,
+            maxTokens: 4096,
+            priorMessages,
+            tools: freeChatCtx.tools,
+          });
+          assistantText = content;
+        } else {
+          // Non-free-chat: single-shot completion (generate/modify/analyze
+          // routes handle their own LLM calls; this handles dashboard chat).
+          const { llmComplete } = await import("@/lib/llm-client");
+          const llmResponse = await llmComplete({
+            flow: flowRaw ?? "summary",
+            systemPrompt: { stable: systemPrompt },
+            messages: priorMessages.map((m) => ({
+              role: m.role as "user" | "assistant",
+              content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+            })),
+            requestId,
+          });
+          assistantText = llmResponse.text;
+        }
+
+        const assistantMessage = await appendMessage(id, "assistant", {
+          text: assistantText,
+        });
+        await touchConversation(id, "ok");
+
+        void maybeGenerateTitle(id, [
+          ...priorMessages.map((m) => ({
+            role: m.role as "user" | "assistant",
+            content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+          })),
+          { role: "user" as const, content: rawContent },
+          { role: "assistant" as const, content: assistantText },
+        ]);
+
+        enqueue({ type: "result", requestId, message: assistantMessage });
+        controller.close();
+      } catch (err) {
+        await touchConversation(id, "error").catch(() => {});
+        console.error(`[${requestId}] POST /api/conversations/${id}/messages LLM error:`, err);
+
+        if (err instanceof AgenticRunnerError) {
+          const cfg = loadDashboardLlmConfig();
+          const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
+          persistAgenticError("freeChat", err, diagnostic);
+          enqueue({
+            type: "error",
+            requestId: err.requestId ?? requestId,
+            httpStatus: 500,
+            error: "El flujo de IA con herramientas no pudo completarse. Reformula el mensaje o inténtalo de nuevo.",
+            code: "AGENTIC_RUNNER",
+            details: diagnostic.subError,
+            diagnostic,
+          });
+        } else {
+          enqueue({
+            type: "error",
+            requestId,
+            httpStatus: 500,
+            error: "Error al procesar la respuesta del LLM.",
+            code: "LLM_ERROR",
+            details: sanitizeErrorMessage(err),
+          });
+        }
+        controller.close();
+      }
+    },
+  });
+
+  return new NextResponse(stream, {
+    status: 200,
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
 }

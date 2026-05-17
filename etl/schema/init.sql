@@ -954,6 +954,9 @@ END $$;
 -- (Backfill migration removed — chat_messages_* columns dropped above.
 --  Conversation history lives exclusively in conversation_messages.)
 
+-- Add logs column to persist streaming log lines alongside the assistant message.
+ALTER TABLE conversation_messages ADD COLUMN IF NOT EXISTS logs JSONB DEFAULT NULL;
+
 -- ============================================================
 -- ANALYZE (update planner statistics after initial load)
 -- ============================================================

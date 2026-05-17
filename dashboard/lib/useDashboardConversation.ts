@@ -23,11 +23,12 @@ type DashboardMode = "modify" | "analyze";
 interface SaveMessageOptions {
   role: "user" | "assistant";
   content: string;
+  logs?: unknown[] | null;
 }
 
 interface UseDashboardConversationResult {
   ensureConversation: (mode: DashboardMode) => Promise<string | null>;
-  saveMessage: (convId: string, opts: SaveMessageOptions) => Promise<void>;
+  saveMessage: (convId: string, opts: { role: "user" | "assistant"; content: string; logs?: unknown[] | null }) => Promise<void>;
   /** Archive the current conversation and reset so the next send creates a fresh one. */
   startNewConversation: () => Promise<void>;
   conversationIdRef: React.MutableRefObject<string | null>;
@@ -88,13 +89,13 @@ export function useDashboardConversation(
   );
 
   const saveMessage = useCallback(
-    async (convId: string, { role, content }: SaveMessageOptions): Promise<void> => {
+    async (convId: string, { role, content, logs }: SaveMessageOptions): Promise<void> => {
       try {
         const flow = modeRef.current ?? "chat";
         await fetch(`/api/conversations/${convId}/messages`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ role, content, callLlm: false, flow }),
+          body: JSON.stringify({ role, content, callLlm: false, flow, ...(logs != null ? { logs } : {}) }),
         });
         // After the assistant message lands, trigger title generation.
         if (role === "assistant") {

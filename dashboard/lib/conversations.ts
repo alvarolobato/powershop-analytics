@@ -51,6 +51,7 @@ export interface MessageRow {
   tokens_output: number | null;
   tokens_cache_read: number | null;
   tokens_cache_creation: number | null;
+  logs?: unknown[] | null;
   created_at: string;
 }
 
@@ -104,6 +105,7 @@ export interface AppendMessageOptions {
   tokens_output?: number;
   tokens_cache_read?: number;
   tokens_cache_creation?: number;
+  logs?: unknown[] | null;
 }
 
 // ── ID generation ─────────────────────────────────────────────────────────────
@@ -159,7 +161,7 @@ export async function getConversationWithMessages(
   if (!conv) return null;
   const messages = await sql<MessageRow>(
     `SELECT id, conversation_id, role, content, tokens_input, tokens_output,
-            tokens_cache_read, tokens_cache_creation, created_at
+            tokens_cache_read, tokens_cache_creation, logs, created_at
      FROM conversation_messages
      WHERE conversation_id = $1
      ORDER BY created_at ASC`,
@@ -382,6 +384,7 @@ export async function appendMessage(
   let tOut: number | null;
   let tCacheRead: number | null;
   let tCacheCreation: number | null;
+  let logs: unknown[] | null;
 
   if (typeof roleOrOpts === "string") {
     role = roleOrOpts;
@@ -390,6 +393,7 @@ export async function appendMessage(
     tOut = tokens?.tokens_output ?? null;
     tCacheRead = tokens?.tokens_cache_read ?? null;
     tCacheCreation = tokens?.tokens_cache_creation ?? null;
+    logs = null;
   } else {
     role = roleOrOpts.role;
     actualContent = roleOrOpts.content;
@@ -397,15 +401,16 @@ export async function appendMessage(
     tOut = roleOrOpts.tokens_output ?? null;
     tCacheRead = roleOrOpts.tokens_cache_read ?? null;
     tCacheCreation = roleOrOpts.tokens_cache_creation ?? null;
+    logs = roleOrOpts.logs ?? null;
   }
 
   const rows = await sql<MessageRow>(
     `INSERT INTO conversation_messages
        (conversation_id, role, content, tokens_input, tokens_output,
-        tokens_cache_read, tokens_cache_creation)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+        tokens_cache_read, tokens_cache_creation, logs)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb)
      RETURNING id, conversation_id, role, content, tokens_input, tokens_output,
-               tokens_cache_read, tokens_cache_creation, created_at`,
+               tokens_cache_read, tokens_cache_creation, logs, created_at`,
     [
       conversationId,
       role,
@@ -414,6 +419,7 @@ export async function appendMessage(
       tOut,
       tCacheRead,
       tCacheCreation,
+      logs !== null ? JSON.stringify(logs) : null,
     ],
   );
 
@@ -431,7 +437,7 @@ export async function appendMessage(
 export async function loadMessages(conversationId: string): Promise<MessageRow[]> {
   return sql<MessageRow>(
     `SELECT id, conversation_id, role, content, tokens_input, tokens_output,
-            tokens_cache_read, tokens_cache_creation, created_at
+            tokens_cache_read, tokens_cache_creation, logs, created_at
        FROM conversation_messages
       WHERE conversation_id = $1
       ORDER BY created_at ASC`,
