@@ -218,11 +218,14 @@ async function runDashboardTurn(
 
   let currentSpec = "";
   if (conversation.context_ref) {
-    const specRows = await sql<{ spec: unknown }>(
-      `SELECT spec FROM dashboards WHERE id = $1`,
-      [parseInt(conversation.context_ref, 10)],
-    ).catch(() => [] as { spec: unknown }[]);
-    currentSpec = specRows[0]?.spec ? JSON.stringify(specRows[0].spec) : "";
+    const dashId = Number(conversation.context_ref);
+    if (Number.isFinite(dashId)) {
+      const specRows = await sql<{ spec: unknown }>(
+        `SELECT spec FROM dashboards WHERE id = $1`,
+        [dashId],
+      ).catch(() => [] as { spec: unknown }[]);
+      currentSpec = specRows[0]?.spec ? JSON.stringify(specRows[0].spec) : "";
+    }
   }
 
   if (mode === "analyze") {
