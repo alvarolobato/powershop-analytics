@@ -278,11 +278,15 @@ async function runDashboardTurn(
     // If the agentic runner called apply_dashboard_modification, persist the new spec.
     if (agenticCtx.modifyResult && dashId !== undefined && Number.isFinite(dashId)) {
       const { spec, summary } = agenticCtx.modifyResult;
-      await sql(`UPDATE dashboards SET spec = $1 WHERE id = $2`, [
-        JSON.stringify(spec),
-        dashId,
-      ]).catch(() => {});
-      return { text, spec, summary };
+      try {
+        await sql(`UPDATE dashboards SET spec = $1 WHERE id = $2`, [
+          JSON.stringify(spec),
+          dashId,
+        ]);
+        return { text, spec, summary };
+      } catch (err) {
+        console.error(`[turn-background] spec persist failed for dashboard ${dashId}:`, err);
+      }
     }
 
     return { text };

@@ -84,7 +84,7 @@ async function* readSseStream(
         const parsed = parseInt(line.slice(4), 10);
         if (!isNaN(parsed)) currentId = parsed;
       } else if (line.startsWith("data: ")) {
-        currentData += line.slice(6);
+        currentData += (currentData ? "\n" : "") + line.slice(6);
       } else if (line === "") {
         if (currentData && currentData !== "{}") {
           try {
@@ -576,7 +576,7 @@ export function ConversationPane({
 
         if (turnData?.context) {
           items.push(
-            <div key={`ctx-${msgId}`} style={{ marginBottom: 4 }}>
+            <div key={`ctx-${msgId}`} data-testid="context-panel" style={{ marginBottom: 4 }}>
               <InitialContextPanel context={turnData.context} />
             </div>,
           );
@@ -586,6 +586,7 @@ export function ConversationPane({
           items.push(
             <div
               key={`log-${msgId}`}
+              data-testid="log-block"
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -622,12 +623,13 @@ export function ConversationPane({
       <>
         {pendingUserMsg && <UserBubble text={pendingUserMsg} />}
         {turnData?.context && (
-          <div style={{ marginBottom: 4 }}>
+          <div data-testid="context-panel" style={{ marginBottom: 4 }}>
             <InitialContextPanel context={turnData.context} />
           </div>
         )}
         {hasLogs && (
           <div
+            data-testid="log-block"
             style={{
               display: "flex",
               flexDirection: "column",
