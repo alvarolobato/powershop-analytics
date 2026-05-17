@@ -119,6 +119,7 @@ export async function runTurnBackground(
         await emitTurnEvent(conversationId, turnId, seq(), "spec_update", {
           spec: dashResult.spec,
           summary: dashResult.summary ?? "",
+          prompt: userMessage,
         });
       }
     } else {

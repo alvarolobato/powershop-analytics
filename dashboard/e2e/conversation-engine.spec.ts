@@ -128,7 +128,10 @@ test("AC-6: logs persist after full page reload", async ({ page }) => {
 // AC-7: Panel and standalone show identical content
 // ---------------------------------------------------------------------------
 
-test("AC-7: panel and standalone views show identical messages", async ({ page, context }) => {
+// Note: after Phase 3, both /c/[id] and /conversations/[id] render ConversationPane
+// in standalone mode; mode="panel" is exercised by the ChatSidebar unit tests.
+// This test validates that both standalone routes resolve the same conversation identically.
+test("AC-7: both standalone routes show identical messages for the same conversation", async ({ page, context }) => {
   const convId = await ensureConversation(page);
   await postTurn(page, convId, "Muéstrame algo interesante.");
 

@@ -356,7 +356,7 @@ export function ConversationPane({
           });
         }
       } else if (eventType === "spec_update") {
-        handleSpecUpdateEvent(payload, pendingPromptRef.current);
+        handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
       } else if (eventType === "complete") {
         const messageId = payload.messageId as string | undefined;
         setTurns((prev) => {

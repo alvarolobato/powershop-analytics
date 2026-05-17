@@ -138,7 +138,10 @@ export default function ChatSidebar({
 
     if (!initialConversationId) void loadLatest("modify");
     void loadLatest("analyze");
-    return () => ctrl.abort();
+    return () => {
+      autoLoadedRef.current = false;
+      ctrl.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dashboardId]);
 
