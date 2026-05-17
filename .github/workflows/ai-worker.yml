@@ -44,7 +44,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────
   # PHASE 1 — PLAN
   # Triggered when ai-work is applied to an issue that is NOT already
-  # a sub-task (sub-tasks carry the "ai-task" label).
+  # a sub-task (sub-tasks carry the "fact-task" label).
   # Produces: detailed plan comment + sub-issues (each labeled ai-work)
   # ─────────────────────────────────────────────────────────────────
   plan:
@@ -52,7 +52,7 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'ai-work' &&
-        !contains(github.event.issue.labels.*.name, 'ai-task')
+        !contains(github.event.issue.labels.*.name, 'fact-task')
       ) ||
       (
         github.event_name == 'workflow_dispatch' &&
@@ -75,7 +75,7 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-work" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-in-progress" || true
+            --add-label "fact-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "🔍 AI Worker — planning phase started. Analyzing the issue and codebase. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
@@ -135,8 +135,8 @@ jobs:
             The AGENTS.md issue template lists lifecycle steps (`Run all checks`,
             `Copilot review`, `Opus review`, `Create commit`) as numbered tasks
             inside ONE feature's lifecycle — they are **not** independent code
-            changes and **must never** become separate `ai-task` sub-issues.
-            Creating one `ai-task` per lifecycle step produces N parallel PRs
+            changes and **must never** become separate `fact-task` sub-issues.
+            Creating one `fact-task` per lifecycle step produces N parallel PRs
             that all implement the same feature (this happened with #481 →
             #482..#487 → PRs #490, #491, #494, #496).
 
@@ -232,12 +232,12 @@ jobs:
             # body that uses code blocks.
             if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -qP '(?<!`)``(?!`)'; then
               echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans (\`\`) — likely JSX/generics were stripped. Investigate before continuing."
-              gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
+              gh issue edit "$SUB_ISSUE" --add-label "fact-needs-rewrite" || true
               exit 1
             fi
 
             # 4. Add labels separately so the labeled event fires reliably.
-            gh issue edit $SUB_ISSUE --add-label "ai-task"
+            gh issue edit $SUB_ISSUE --add-label "fact-task"
             gh issue edit $SUB_ISSUE --add-label "ai-work"
             ```
 
@@ -250,8 +250,8 @@ jobs:
 
             ## Step 4 — Finalize parent issue
             - Update the parent issue body to include the full task checklist with sub-issue links
-            - Remove label "ai-in-progress"
-            - Add label "ai-planned"
+            - Remove label "fact-in-progress"
+            - Add label "fact-planned"
             - Post a final comment listing all created sub-issues
 
             ## Step 5 — If you cannot complete the plan
@@ -259,12 +259,12 @@ jobs:
             resolve: DO NOT silently stop. Instead:
             1. Post a comment tagging @alvarolobato explaining precisely what is blocking you
                and what information you need.
-            2. Remove `ai-in-progress` and add `ai-blocked`.
+            2. Remove `fact-in-progress` and add `ai-blocked`.
             3. Exit normally (so the workflow does not mark itself "failed").
 
             ## Rules
             - Create sub-issues in dependency order
-            - Each sub-issue must have both "ai-task" AND "ai-work" labels so the
+            - Each sub-issue must have both "fact-task" AND "ai-work" labels so the
               implementation phase triggers automatically
             - Do NOT start implementing — only plan and decompose
 
@@ -276,10 +276,10 @@ jobs:
         run: |
           set -euo pipefail
           # A successful plan should either: (a) have created sub-issues and
-          # added `ai-planned`, (b) added `ai-blocked` (planner gave up cleanly).
+          # added `fact-planned`, (b) added `ai-blocked` (planner gave up cleanly).
           LABELS=$(gh issue view "$ISSUE_NUMBER" --json labels --jq '[.labels[].name] | join(",")')
           echo "Labels after plan: $LABELS"
-          if echo ",$LABELS," | grep -q ",ai-planned,"; then
+          if echo ",$LABELS," | grep -q ",fact-planned,"; then
             echo "status=planned" >> "$GITHUB_OUTPUT"
           elif echo ",$LABELS," | grep -q ",ai-blocked,"; then
             echo "status=blocked" >> "$GITHUB_OUTPUT"
@@ -293,9 +293,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Defense-in-depth: ensure every sub-issue carries BOTH `ai-task` AND
+          # Defense-in-depth: ensure every sub-issue carries BOTH `fact-task` AND
           # `ai-work`. The planner agent has been observed (e.g. on issue #502)
-          # to add `ai-task` but skip `ai-work`, leaving sub-issues stalled
+          # to add `fact-task` but skip `ai-work`, leaving sub-issues stalled
           # forever — the implement phase only triggers when `ai-work` is
           # applied. This step audits every sub-issue and adds whichever
           # required label is missing.
@@ -307,9 +307,9 @@ jobs:
           echo "$SUB_ISSUES" | jq -c '.[]' | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
             LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
-            if ! echo ",$LABELS," | grep -q ",ai-task,"; then
-              echo "Sub-issue #$NUM missing 'ai-task' — adding."
-              gh issue edit "$NUM" --add-label "ai-task" || true
+            if ! echo ",$LABELS," | grep -q ",fact-task,"; then
+              echo "Sub-issue #$NUM missing 'fact-task' — adding."
+              gh issue edit "$NUM" --add-label "fact-task" || true
             fi
             if ! echo ",$LABELS," | grep -q ",ai-work,"; then
               echo "Sub-issue #$NUM missing 'ai-work' — planner forgot; adding to trigger implementation."
@@ -327,7 +327,7 @@ jobs:
           # verify step, Claude may forget. Scan all open sub-issues that
           # reference this parent ("Closes #N") for empty inline code spans
           # — the signature of stripped JSX/generics. Flag them with
-          # `ai-needs-rewrite` so a human (or a follow-up worker) can repair
+          # `fact-needs-rewrite` so a human (or a follow-up worker) can repair
           # the body before the implementation phase tries to act on it.
           #
           # The detection regex uses Oniguruma lookaround `(?<!`)``(?!`)`
@@ -336,7 +336,7 @@ jobs:
           # block opener (```sql, ```bash, ```json, …) false-positives
           # the check — observed on issue #536 (2026-05-09) which had a
           # perfectly intact body but ```sql/``` fences and got falsely
-          # flagged + locked behind ai-needs-rewrite.
+          # flagged + locked behind fact-needs-rewrite.
           SUB_ISSUES=$(gh issue list --repo "${{ github.repository }}" \
             --state open --limit 50 \
             --search "Closes #${ISSUE_NUMBER} in:body" \
@@ -345,8 +345,8 @@ jobs:
           echo "$SUB_ISSUES" | jq -c 'select(.body | test("(?<!`)``(?!`)"))' 2>/dev/null | while read -r row; do
             NUM=$(echo "$row" | jq -r '.number')
             echo "Sub-issue #$NUM body contains empty backticks — flagging."
-            gh issue edit "$NUM" --add-label "ai-needs-rewrite" || true
-            gh issue comment "$NUM" --body "⚠️ AI Worker: this sub-issue body contains empty inline code spans (\`\`) — likely JSX components or TypeScript generics were stripped during creation. The implementation phase will not run on it until the body is repaired and \`ai-needs-rewrite\` is removed." || true
+            gh issue edit "$NUM" --add-label "fact-needs-rewrite" || true
+            gh issue comment "$NUM" --body "⚠️ AI Worker: this sub-issue body contains empty inline code spans (\`\`) — likely JSX components or TypeScript generics were stripped during creation. The implementation phase will not run on it until the body is repaired and \`fact-needs-rewrite\` is removed." || true
           done
 
       - name: Flag incomplete plan
@@ -355,11 +355,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+            --add-label "ai-blocked" --add-label "fact-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ AI Planner finished but did not produce a plan. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI Planner finished but did not produce a plan. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Handle plan failure
         if: failure()
@@ -374,27 +374,27 @@ jobs:
             fi
           fi
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+            --add-label "ai-blocked" --add-label "fact-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Planner failed. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
-      - name: Ensure ai-in-progress is cleared on cancel
+      - name: Ensure fact-in-progress is cleared on cancel
         if: cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+            --add-label "ai-blocked" --add-label "fact-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ AI Planner was cancelled. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI Planner was cancelled. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
   # ─────────────────────────────────────────────────────────────────
   # PHASE 2 — IMPLEMENT
-  # Triggered when ai-work is applied to a sub-task issue (ai-task label).
+  # Triggered when ai-work is applied to a sub-task issue (fact-task label).
   # Produces: branch + PR implementing exactly this sub-task.
   # ─────────────────────────────────────────────────────────────────
   implement:
@@ -402,7 +402,7 @@ jobs:
       (
         github.event_name == 'issues' &&
         github.event.label.name == 'ai-work' &&
-        contains(github.event.issue.labels.*.name, 'ai-task')
+        contains(github.event.issue.labels.*.name, 'fact-task')
       ) ||
       (
         github.event_name == 'workflow_dispatch' &&
@@ -425,7 +425,7 @@ jobs:
           gh issue edit "$ISSUE_NUMBER" \
             --remove-label "ai-work" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-in-progress" || true
+            --add-label "fact-in-progress" || true
           gh issue comment "$ISSUE_NUMBER" \
             --body "🤖 AI Worker — implementation started. [Workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
@@ -585,7 +585,7 @@ jobs:
           COPILOT_TOKEN: ${{ secrets.COPILOT_PAT || github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           PR_NUM="${{ steps.verify.outputs.pr_number }}"
           REPO_NAME="${{ github.repository }}"
 
@@ -593,13 +593,13 @@ jobs:
           # PR-by-body, so this success path also fires when a worker re-runs
           # on a sub-task that already has a PR (e.g. the planner re-added
           # `ai-work`, the worker re-fired, it found the existing PR via the
-          # verify search). Without this guard we'd re-add `ai-phase-copilot`
+          # verify search). Without this guard we'd re-add `fact-phase-copilot`
           # and re-POST `requested_reviewers`, producing a SECOND Copilot
           # review on the same PR — directly violating the "1 Copilot + 1
           # Opus, no more" policy. Symptom in production: 2026-05-09 burst
           # of duplicate Copilot reviews on PRs #512–#516.
           PR_LABELS=$(gh pr view "$PR_NUM" --json labels --jq '[.labels[].name] | join(",")' || echo "")
-          for marker in "ai-phase-copilot" "ai-phase-opus" "ai-cp-after-1" "ai-o-after-1"; do
+          for marker in "fact-phase-copilot" "fact-phase-opus" "fact-cp-after-1" "fact-o-after-1"; do
             if echo ",$PR_LABELS," | grep -q ",$marker,"; then
               echo "PR #$PR_NUM already has '$marker' — review cycle already in progress or done. Not re-requesting Copilot."
               gh issue comment "$ISSUE_NUMBER" \
@@ -632,11 +632,11 @@ jobs:
           # Do not dispatch Opus immediately — avoids rate limits and reduces token spend.
 
           # Self-heal: phase labels must exist in the repo for the state machine to advance.
-          gh label create "ai-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
-          gh label create "ai-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
+          gh label create "fact-phase-copilot" --color "0052cc" --description "AI Factory: Copilot review in progress" 2>/dev/null || true
+          gh label create "fact-phase-opus" --color "6f42c1" --description "AI Factory: Opus review in progress" 2>/dev/null || true
 
           # REST API for label adds — see #611 (gh pr edit exits non-zero on projectCards deprecation).
-          gh api -X POST "repos/$REPO_NAME/issues/$PR_NUM/labels" -f "labels[]=ai-phase-copilot" >/dev/null
+          gh api -X POST "repos/$REPO_NAME/issues/$PR_NUM/labels" -f "labels[]=fact-phase-copilot" >/dev/null
 
           # Request Copilot with the PAT-capable token and verify the request
           # actually landed. If COPILOT_PAT is unset the fallback GITHUB_TOKEN
@@ -648,7 +648,7 @@ jobs:
 
           if [ "${COPILOT_ADDED:-0}" -gt 0 ]; then
             gh pr comment "$PR_NUM" \
-              --body "🤖 **AI Factory**: Automated review starts with **Copilot**, then **Opus** (one pass each). Labels: \`ai-phase-copilot\` → \`ai-phase-opus\`." || true
+              --body "🤖 **AI Factory**: Automated review starts with **Copilot**, then **Opus** (one pass each). Labels: \`fact-phase-copilot\` → \`fact-phase-opus\`." || true
           else
             # Silent failure — don't advertise a review cycle that didn't start.
             gh api -X POST "repos/$REPO_NAME/issues/$PR_NUM/labels" -f "labels[]=ai-blocked" >/dev/null
@@ -694,11 +694,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+            --add-label "ai-blocked" --add-label "fact-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ AI Worker finished but did NOT create a PR. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. This usually means the agent hit its turn limit or failed to push the branch. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI Worker finished but did NOT create a PR. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically. This usually means the agent hit its turn limit or failed to push the branch. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
       - name: Handle failure
         if: failure()
@@ -718,20 +718,20 @@ jobs:
             fi
           fi
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+            --add-label "ai-blocked" --add-label "fact-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "❌ AI Worker failed.${BRANCH_NOTE} Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
 
-      - name: Ensure ai-in-progress is cleared on cancel
+      - name: Ensure fact-in-progress is cleared on cancel
         if: cancelled()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh issue edit "$ISSUE_NUMBER" \
-            --remove-label "ai-in-progress" || true
+            --remove-label "fact-in-progress" || true
           gh issue edit "$ISSUE_NUMBER" \
-            --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+            --add-label "ai-blocked" --add-label "fact-auto-retry" || true
           gh issue comment "$ISSUE_NUMBER" \
-            --body "⚠️ AI Worker was cancelled. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI Worker was cancelled. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})."

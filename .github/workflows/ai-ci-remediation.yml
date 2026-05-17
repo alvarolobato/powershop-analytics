@@ -113,10 +113,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          gh label create "ai-ci-failing" --color D93F0B --description "CI failed; bot may auto-remediate" 2>/dev/null || true
+          gh label create "fact-ci-failing" --color D93F0B --description "CI failed; bot may auto-remediate" 2>/dev/null || true
           # REST API for label ops — see #611.
           gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/ai-awaiting-owner" >/dev/null 2>&1 || true
-          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-ci-failing" >/dev/null
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=fact-ci-failing" >/dev/null
 
       - uses: actions/checkout@v4
         with:
@@ -189,16 +189,16 @@ jobs:
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
             --body "🔧 **AI CI remediation** finished for failed CI [run $RID]($SERVER/$REPO/actions/runs/$RID). Bot workflow: [run ${{ github.run_id }}]($SERVER/$REPO/actions/runs/${{ github.run_id }}). CI remediation attempted for run $RID" || true
 
-      - name: Clear `ai-ci-failing` if CI is now green
+      - name: Clear `fact-ci-failing` if CI is now green
         if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
-          # Best-effort cleanup. Without this step, `ai-ci-failing` lingers on
+          # Best-effort cleanup. Without this step, `fact-ci-failing` lingers on
           # PRs whose CI was successfully remediated, blocking the
           # address-feedback workflow's CI-gated owner handoff (see
-          # ai-address-feedback.yml ~line 187, which treats ai-ci-failing
+          # ai-address-feedback.yml ~line 187, which treats fact-ci-failing
           # presence as CI_STATE='failing'). Watchdog also cleans it but only
           # every 15 min; clear eagerly here so the converge →
           # ai-awaiting-owner can advance immediately on the next
@@ -222,12 +222,12 @@ jobs:
             2>/dev/null || echo "unknown")
           echo "PR #$PR_NUMBER head=$HEAD_SHA CI_STATE=$CI_STATE"
           if [ "$CI_STATE" = "ready" ]; then
-            if gh api "repos/$REPO/issues/$PR_NUMBER/labels/ai-ci-failing" -X DELETE >/dev/null 2>&1; then
-              echo "Cleared ai-ci-failing on PR #$PR_NUMBER (CI now green)."
+            if gh api "repos/$REPO/issues/$PR_NUMBER/labels/fact-ci-failing" -X DELETE >/dev/null 2>&1; then
+              echo "Cleared fact-ci-failing on PR #$PR_NUMBER (CI now green)."
             else
-              echo "ai-ci-failing was not present on PR #$PR_NUMBER (or API hiccup) — no-op."
+              echo "fact-ci-failing was not present on PR #$PR_NUMBER (or API hiccup) — no-op."
             fi
           else
-            echo "CI is $CI_STATE — leaving ai-ci-failing in place; watchdog will revisit."
+            echo "CI is $CI_STATE — leaving fact-ci-failing in place; watchdog will revisit."
           fi
           exit 0

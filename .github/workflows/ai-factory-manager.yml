@@ -60,7 +60,7 @@ jobs:
       # ── Defensive label pre-create (idempotent) ────────────────────────────
       # The labels below already exist on this repo (from PR #564's partial
       # work) and the Pass 5 prompt depends on them — its idempotency check
-      # is keyed off `ai-parent-verified` / `ai-parent-incomplete` being
+      # is keyed off `fact-parent-verified` / `fact-parent-incomplete` being
       # present on the parent issue. If anyone ever deletes them (or the
       # workflow runs on a fork without them), `gh issue edit --add-label`
       # fails 422 and Pass 5 would re-verify the same parent every cron tick,
@@ -73,8 +73,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh label create ai-parent-verified   --color 0e8a16 --description "Pass 5: parent DoD verified" 2>/dev/null || true
-          gh label create ai-parent-incomplete --color d93f0b --description "Pass 5: parent has gaps"     2>/dev/null || true
+          gh label create fact-parent-verified   --color 0e8a16 --description "Pass 5: parent DoD verified" 2>/dev/null || true
+          gh label create fact-parent-incomplete --color d93f0b --description "Pass 5: parent has gaps"     2>/dev/null || true
           gh label create agent-efficiency     --color 1d76db --description "Factory/agent infra improvement (target of manager follow-up issues)" 2>/dev/null || true
 
       # ── Tracking-issue discovery (shared with failure handler) ────────────
@@ -86,10 +86,10 @@ jobs:
         run: |
           set -euo pipefail
           num=$(gh issue list \
-            --label factory-manager-tracking --state open --limit 1 \
+            --label fact-manager-tracking --state open --limit 1 \
             --json number --jq '.[0].number // ""')
           if [ -z "$num" ]; then
-            echo "::warning::No open issue carries 'factory-manager-tracking' label. Session report will be skipped."
+            echo "::warning::No open issue carries 'fact-manager-tracking' label. Session report will be skipped."
           fi
           echo "issue=$num" >> "$GITHUB_OUTPUT"
 

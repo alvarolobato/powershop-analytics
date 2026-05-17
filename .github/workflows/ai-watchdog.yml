@@ -14,7 +14,7 @@ on:
     - cron: "*/30 * * * *"
   workflow_dispatch:
   # Event-driven supplement for the two most time-sensitive rules:
-  # (1) the ai-phase-opus transition after Opus submits a review, and
+  # (1) the fact-phase-opus transition after Opus submits a review, and
   # (2) label/state cleanup on PR close. These rules fire within seconds
   # of the event rather than waiting for the next cron tick.
   pull_request_review:
@@ -53,15 +53,15 @@ jobs:
           # GHA load, or when the worker is busy on the same concurrency
           # group and a queued event silently dropped. The worker's first
           # action on pickup is `remove-label ai-work` + `add-label
-          # ai-in-progress`; an issue with `ai-work` AND no `ai-in-progress`
+          # fact-in-progress`; an issue with `ai-work` AND no `fact-in-progress`
           # AND > STUCK_AGE_SECS old is stuck.
           #
-          # Detection: open issue, has `ai-work`, lacks `ai-in-progress` /
-          # `ai-blocked` / `ai-needs-rewrite` / `needs-human-approval`, the
+          # Detection: open issue, has `ai-work`, lacks `fact-in-progress` /
+          # `ai-blocked` / `fact-needs-rewrite` / `needs-human-approval`, the
           # most recent issue update is older than STUCK_AGE_SECS, and the
           # comment trail shows fewer than MAX_AI_WORK_KICK_RETRIES prior
           # kicks from this step. Action: dispatch ai-worker.yml directly
-          # via workflow_dispatch (phase=implement for `ai-task` sub-issues,
+          # via workflow_dispatch (phase=implement for `fact-task` sub-issues,
           # phase=plan otherwise).
           STUCK_AGE_SECS=600   # 10 min — generous buffer for the labeled event
           MAX_AI_WORK_KICK_RETRIES=3
@@ -78,11 +78,11 @@ jobs:
             UPDATED=$(echo "$row" | jq -r '.updatedAt')
 
             # Worker is currently running on this issue — leave it alone.
-            if echo ",$LABELS," | grep -q ",ai-in-progress,"; then
+            if echo ",$LABELS," | grep -q ",fact-in-progress,"; then
               continue
             fi
             # Already escalated or human-blocked — leave it for the owner.
-            for blocker in ai-blocked ai-needs-rewrite needs-human-approval; do
+            for blocker in ai-blocked fact-needs-rewrite needs-human-approval; do
               if echo ",$LABELS," | grep -q ",$blocker,"; then
                 echo "PR/issue #$NUM has '$blocker' — skipping."
                 continue 2
@@ -97,7 +97,7 @@ jobs:
             fi
 
             # Determine which phase to dispatch.
-            if echo ",$LABELS," | grep -q ",ai-task,"; then
+            if echo ",$LABELS," | grep -q ",fact-task,"; then
               PHASE="implement"
             else
               PHASE="plan"
@@ -125,16 +125,16 @@ jobs:
               "$MARKER detected ${AGE}s after \`ai-work\` was applied. Dispatched \`ai-worker.yml\` (phase=\`$PHASE\`, retry $((RETRY_COUNT + 1))/$MAX_AI_WORK_KICK_RETRIES)." 2>/dev/null || true
           done
 
-      - name: Stuck `ai-in-progress` issues
+      - name: Stuck `fact-in-progress` issues
         run: |
           set -euo pipefail
-          # Any issue in `ai-in-progress` for >60 minutes is considered stuck.
+          # Any issue in `fact-in-progress` for >60 minutes is considered stuck.
           NOW=$(date -u +%s)
           STUCK_THRESHOLD_SECS=3600
 
-          # List open issues with ai-in-progress
+          # List open issues with fact-in-progress
           ISSUES=$(gh issue list --repo "$REPO_FULL" \
-            --state open --label "ai-in-progress" \
+            --state open --label "fact-in-progress" \
             --json number,updatedAt,title,labels --limit 100)
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
@@ -145,25 +145,25 @@ jobs:
             AGE=$(( NOW - UPDATED_TS ))
 
             if [ "$AGE" -ge "$STUCK_THRESHOLD_SECS" ]; then
-              echo "Issue #$NUM ($TITLE) stuck for ${AGE}s — marking ai-blocked + ai-auto-retry"
+              echo "Issue #$NUM ($TITLE) stuck for ${AGE}s — marking ai-blocked + fact-auto-retry"
               gh issue edit "$NUM" --repo "$REPO_FULL" \
-                --remove-label "ai-in-progress" || true
+                --remove-label "fact-in-progress" || true
               gh issue edit "$NUM" --repo "$REPO_FULL" \
-                --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+                --add-label "ai-blocked" --add-label "fact-auto-retry" || true
               gh issue comment "$NUM" --repo "$REPO_FULL" \
-                --body "⚠️ AI Factory watchdog: this issue has been \`ai-in-progress\` for over an hour without progress. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+                --body "⚠️ AI Factory watchdog: this issue has been \`fact-in-progress\` for over an hour without progress. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             fi
           done
 
-      - name: Sub-tasks with ai-task but no PR, no progress
+      - name: Sub-tasks with fact-task but no PR, no progress
         run: |
           set -euo pipefail
-          # A sub-task labeled `ai-task` but with NO `ai-in-progress`,
+          # A sub-task labeled `fact-task` but with NO `fact-in-progress`,
           # `ai-blocked`, or `ai-work` and NO PR referencing it is
           # considered an orphan worker result (e.g. worker claimed success
           # but produced nothing). Flag it.
           ISSUES=$(gh issue list --repo "$REPO_FULL" \
-            --state open --label "ai-task" \
+            --state open --label "fact-task" \
             --json number,title,labels --limit 100 \
             --search "is:issue")
 
@@ -173,7 +173,7 @@ jobs:
             LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
 
             # Skip if already in progress / blocked / queued / done
-            for SKIP in ai-in-progress ai-blocked ai-work; do
+            for SKIP in fact-in-progress ai-blocked ai-work; do
               if echo ",$LABELS," | grep -q ",$SKIP,"; then
                 continue 2
               fi
@@ -185,24 +185,24 @@ jobs:
               --json number --jq 'length')
 
             if [ "${PR_COUNT:-0}" = "0" ]; then
-              echo "Orphan sub-task #$NUM ($TITLE) has no PR and no active label — re-queuing with ai-auto-retry."
+              echo "Orphan sub-task #$NUM ($TITLE) has no PR and no active label — re-queuing with fact-auto-retry."
               gh issue edit "$NUM" --repo "$REPO_FULL" \
-                --add-label "ai-blocked" --add-label "ai-auto-retry" || true
+                --add-label "ai-blocked" --add-label "fact-auto-retry" || true
               gh issue comment "$NUM" --repo "$REPO_FULL" \
-                --body "⚠️ AI Factory watchdog: this sub-task has \`ai-task\` but no PR, no \`ai-in-progress\`, and no \`ai-work\`. The worker likely reported success without actually creating a PR. Marked \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+                --body "⚠️ AI Factory watchdog: this sub-task has \`fact-task\` but no PR, no \`fact-in-progress\`, and no \`ai-work\`. The worker likely reported success without actually creating a PR. Marked \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
             fi
           done
 
-      - name: Re-enable auto-retry for exhausted ai-task issues
+      - name: Re-enable auto-retry for exhausted fact-task issues
         run: |
           set -euo pipefail
-          # After MAX_RETRIES the watchdog removes `ai-auto-retry`, leaving
-          # `ai-blocked` + `ai-task` with no path back into the retry loop.
-          # Restore `ai-auto-retry` once per week per issue (and only if the
+          # After MAX_RETRIES the watchdog removes `fact-auto-retry`, leaving
+          # `ai-blocked` + `fact-task` with no path back into the retry loop.
+          # Restore `fact-auto-retry` once per week per issue (and only if the
           # issue was previously escalated) so hardened workers can run again.
           NOW=$(date -u +%s)
           ISSUES=$(gh issue list --repo "$REPO_FULL" --state open \
-            --label "ai-blocked" --label "ai-task" \
+            --label "ai-blocked" --label "fact-task" \
             --json number,title,labels --limit 100 --search "is:issue")
 
           echo "$ISSUES" | jq -c '.[]' | while read -r row; do
@@ -210,10 +210,10 @@ jobs:
             TITLE=$(echo "$row" | jq -r '.title')
             LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
 
-            if echo ",$LABELS," | grep -q ",ai-auto-retry,"; then
+            if echo ",$LABELS," | grep -q ",fact-auto-retry,"; then
               continue
             fi
-            if echo ",$LABELS," | grep -q ",ai-in-progress,"; then
+            if echo ",$LABELS," | grep -q ",fact-in-progress,"; then
               continue
             fi
 
@@ -235,7 +235,7 @@ jobs:
             fi
 
             LAST_RESTORE=$(gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
-              --jq '[.[] | select(.body | test("restored ai-auto-retry for this sub-task"))] | last | .created_at // empty' 2>/dev/null || echo "")
+              --jq '[.[] | select(.body | test("restored fact-auto-retry for this sub-task"))] | last | .created_at // empty' 2>/dev/null || echo "")
             if [ -n "$LAST_RESTORE" ]; then
               LR_TS=$(date -u -d "$LAST_RESTORE" +%s)
               if [ "$(( NOW - LR_TS ))" -lt 604800 ]; then
@@ -243,16 +243,16 @@ jobs:
               fi
             fi
 
-            echo "Restoring ai-auto-retry for exhausted sub-task #$NUM ($TITLE)"
-            gh issue edit "$NUM" --repo "$REPO_FULL" --add-label "ai-auto-retry" || true
+            echo "Restoring fact-auto-retry for exhausted sub-task #$NUM ($TITLE)"
+            gh issue edit "$NUM" --repo "$REPO_FULL" --add-label "fact-auto-retry" || true
             gh issue comment "$NUM" --repo "$REPO_FULL" \
-              --body "🔄 AI Factory watchdog: restored ai-auto-retry for this sub-task (no PR yet). Worker/permissions budgets were increased; the next auto-retry cycle will dispatch implementation. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
+              --body "🔄 AI Factory watchdog: restored fact-auto-retry for this sub-task (no PR yet). Worker/permissions budgets were increased; the next auto-retry cycle will dispatch implementation. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
           done
 
-      - name: Stalled ai-ready-for-review PRs
+      - name: Stalled fact-ready-for-review PRs
         run: |
           set -euo pipefail
-          # PRs labelled `ai-ready-for-review` should trigger a pr-review run.
+          # PRs labelled `fact-ready-for-review` should trigger a pr-review run.
           # The label is added by address-feedback (or ai-worker) via explicit
           # workflow_dispatch — BUT if that dispatch silently failed (rate limit,
           # OIDC error, etc.), the label will just sit there forever.
@@ -262,7 +262,7 @@ jobs:
           MAX_STALL_RETRIES=5
 
           PRS=$(gh pr list --repo "$REPO_FULL" --state open \
-            --label "ai-ready-for-review" \
+            --label "fact-ready-for-review" \
             --json number,title,labels --limit 50)
 
           echo "$PRS" | jq -c '.[]' | while read -r pr; do
@@ -272,24 +272,24 @@ jobs:
 
             # Skip blocked PRs — let the auto-retry step handle them.
             if echo ",$LABELS," | grep -q ",ai-blocked,"; then
-              echo "PR #$NUM: has ai-blocked, skipping ai-ready-for-review check"
+              echo "PR #$NUM: has ai-blocked, skipping fact-ready-for-review check"
               continue
             fi
 
             # D-021: skip PRs where both rounds were already addressed.
-            # The address-feedback workflow now strips ai-ready-for-review on
+            # The address-feedback workflow now strips fact-ready-for-review on
             # converge, but a stale label could still trip this step into
             # re-dispatching a third review (PR #495 had 5+ Opus rounds because
             # of this loop).
-            if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
-               && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
-              echo "PR #$NUM: D-021 converged (both ai-cp-after-1 + ai-o-after-1) — clearing stale ai-ready-for-review and skipping"
+            if echo ",$LABELS," | grep -q ",fact-cp-after-1," \
+               && echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
+              echo "PR #$NUM: D-021 converged (both fact-cp-after-1 + fact-o-after-1) — clearing stale fact-ready-for-review and skipping"
               # REST API — see #611 (gh pr edit exits non-zero on projectCards deprecation).
-              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-ready-for-review" >/dev/null 2>&1 || true
+              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/fact-ready-for-review" >/dev/null 2>&1 || true
               # Owner-handoff label is CI-gated to match owner_handoff_or_ci_gate
               # in ai-address-feedback.yml: don't claim merge-ready when CI is
-              # failing. If `ai-ci-failing` is set, leave label state alone.
-              if ! echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+              # failing. If `fact-ci-failing` is set, leave label state alone.
+              if ! echo ",$LABELS," | grep -q ",fact-ci-failing,"; then
                 gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-awaiting-owner" >/dev/null 2>&1 || true
               fi
               continue
@@ -328,19 +328,19 @@ jobs:
             # was added >20 minutes ago.
             LABEL_ADDED_AT=$(gh api "repos/$REPO_FULL/issues/$NUM/events" \
               --paginate \
-              --jq '[.[] | select(.event == "labeled" and .label.name == "ai-ready-for-review")] | last | .created_at // empty' \
+              --jq '[.[] | select(.event == "labeled" and .label.name == "fact-ready-for-review")] | last | .created_at // empty' \
               2>/dev/null || echo "")
 
             if [ -z "$LABEL_ADDED_AT" ]; then
-              echo "PR #$NUM: ai-ready-for-review label found but no timeline entry — dispatching review"
+              echo "PR #$NUM: fact-ready-for-review label found but no timeline entry — dispatching review"
             else
               LABEL_TS=$(date -u -d "$LABEL_ADDED_AT" +%s 2>/dev/null || echo 0)
               AGE=$(( NOW - LABEL_TS ))
               if [ "$AGE" -lt "$STALL_THRESHOLD_SECS" ]; then
-                echo "PR #$NUM: ai-ready-for-review added ${AGE}s ago — too soon (min ${STALL_THRESHOLD_SECS}s), skipping"
+                echo "PR #$NUM: fact-ready-for-review added ${AGE}s ago — too soon (min ${STALL_THRESHOLD_SECS}s), skipping"
                 continue
               fi
-              echo "PR #$NUM: ai-ready-for-review stalled for ${AGE}s — dispatching pr-review"
+              echo "PR #$NUM: fact-ready-for-review stalled for ${AGE}s — dispatching pr-review"
             fi
 
             # Count watchdog re-dispatches for this PR by counting the
@@ -360,14 +360,14 @@ jobs:
               # We capture the exit status so the escalation comment can
               # accurately report what actually happened (instead of a false
               # "Added ai-blocked" audit trail when the API call failed).
-              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-ready-for-review" >/dev/null 2>&1 \
+              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/fact-ready-for-review" >/dev/null 2>&1 \
                 && RFR_REMOVED=true || RFR_REMOVED=false
               gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 \
                 && BLOCKED_ADDED=true || BLOCKED_ADDED=false
               if $BLOCKED_ADDED; then
-                LABEL_REPORT="Removed \`ai-ready-for-review\` (success=$RFR_REMOVED), added \`ai-blocked\`."
+                LABEL_REPORT="Removed \`fact-ready-for-review\` (success=$RFR_REMOVED), added \`ai-blocked\`."
               else
-                LABEL_REPORT="**Tried to remove \`ai-ready-for-review\` (success=$RFR_REMOVED) and add \`ai-blocked\` but the API POST failed** — please add the label manually."
+                LABEL_REPORT="**Tried to remove \`fact-ready-for-review\` (success=$RFR_REMOVED) and add \`ai-blocked\` but the API POST failed** — please add the label manually."
               fi
               gh pr comment "$NUM" --repo "$REPO_FULL" \
                 --body "🚨 @$OWNER_HANDLE — pr-review has been stalled for this PR after $MAX_STALL_RETRIES watchdog re-dispatch attempts. ${LABEL_REPORT} Please investigate." || true
@@ -390,7 +390,7 @@ jobs:
           # Anthropic's rate limit). When a burst of PRs opens simultaneously,
           # GitHub keeps the in-progress run + the *latest* queued run and
           # CANCELS everything in between. Those PRs are then missing
-          # `ai-phase-copilot`, `ai-phase-opus`, `ai-awaiting-owner`, etc. —
+          # `fact-phase-copilot`, `fact-phase-opus`, `ai-awaiting-owner`, etc. —
           # they look "unreviewed" with no label trail to re-enter the flow.
           #
           # This step finds open PRs with NO pr-review phase labels and NO
@@ -411,8 +411,8 @@ jobs:
             LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
 
             # Any single label that proves pr-review already progressed.
-            for HAS in ai-ready-for-review ai-phase-copilot ai-phase-opus \
-                       ai-awaiting-owner ai-ci-failing ai-blocked \
+            for HAS in fact-ready-for-review fact-phase-copilot fact-phase-opus \
+                       ai-awaiting-owner fact-ci-failing ai-blocked \
                        no-pr-review; do
               if echo ",$LABELS," | grep -q ",$HAS,"; then
                 echo "PR #$NUM has '$HAS' — pr-review flow already handled it, skipping."
@@ -420,17 +420,17 @@ jobs:
               fi
             done
 
-            # D-021: skip when BOTH ai-cp-after-1 + ai-o-after-1 are present.
+            # D-021: skip when BOTH fact-cp-after-1 + fact-o-after-1 are present.
             # That's the converged-state signal; an earlier workflow may have
             # stripped ai-awaiting-owner, leaving the PR exposed to a fresh
             # cold-dispatch (PRs #493 / #495 hit this — 4 cold-dispatches across
             # 8 hours despite both rounds being addressed). Re-add awaiting-owner
             # only when CI is not failing so we don't claim merge-ready in front
             # of a red CI (mirrors owner_handoff_or_ci_gate).
-            if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
-               && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
-              echo "PR #$NUM has both ai-cp-after-1 + ai-o-after-1 — D-021 converged, skipping cold-dispatch."
-              if ! echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+            if echo ",$LABELS," | grep -q ",fact-cp-after-1," \
+               && echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
+              echo "PR #$NUM has both fact-cp-after-1 + fact-o-after-1 — D-021 converged, skipping cold-dispatch."
+              if ! echo ",$LABELS," | grep -q ",fact-ci-failing,"; then
                 # REST API — see #611.
                 gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-awaiting-owner" >/dev/null 2>&1 || true
               fi
@@ -577,21 +577,21 @@ jobs:
             fi
           done
 
-      - name: Stuck `ai-phase-opus` PRs (Opus reviewed but address-feedback didn't transition)
+      - name: Stuck `fact-phase-opus` PRs (Opus reviewed but address-feedback didn't transition)
         run: |
           set -uo pipefail
           # PRs that received an Opus review but never transitioned to
-          # `ai-cp-after-1 + ai-o-after-1 + ai-awaiting-owner` indicate the
+          # `fact-cp-after-1 + fact-o-after-1 + ai-awaiting-owner` indicate the
           # `Dispatch address-feedback` step in `ai-pr-review.yml` succeeded
           # but the dispatched run was cancelled (the global concurrency
           # group `ai-address-feedback-global` cancelled it under load — the
           # `cancel-in-progress: false` setting queues but the GHA scheduler
           # has been observed to mark queued runs `cancelled` instead).
           # The cold-dispatch path ABOVE (line ~290) explicitly skips PRs
-          # with `ai-phase-opus`, so without this step a PR can sit in
-          # `ai-phase-opus` forever.
+          # with `fact-phase-opus`, so without this step a PR can sit in
+          # `fact-phase-opus` forever.
           #
-          # Detection: PR has `ai-phase-opus` + `ai-cp-after-1` AND the most
+          # Detection: PR has `fact-phase-opus` + `fact-cp-after-1` AND the most
           # recent successful ai-pr-review on its head SHA finished between
           # STUCK_AGE_SECS and STUCK_MAX_AGE_SECS ago AND the PR has fewer
           # than MAX_OPUS_STALL_RETRIES re-dispatches from this step
@@ -601,10 +601,10 @@ jobs:
           STUCK_AGE_SECS=900       # 15 min — give the post-Opus dispatch a chance
           STUCK_MAX_AGE_SECS=3600  # 60 min — older = human problem, not auto-recoverable
           MAX_OPUS_STALL_RETRIES=3
-          MARKER="🔁 **AI Watchdog**: stuck \`ai-phase-opus\`"
+          MARKER="🔁 **AI Watchdog**: stuck \`fact-phase-opus\`"
           NOW=$(date -u +%s)
 
-          PRS_JSON=$(gh pr list --repo "$REPO_FULL" --state open --label "ai-phase-opus" \
+          PRS_JSON=$(gh pr list --repo "$REPO_FULL" --state open --label "fact-phase-opus" \
             --json number,headRefOid,labels,updatedAt 2>/dev/null || echo "[]")
           echo "$PRS_JSON" | jq -c '.[]' | while read -r pr; do
             NUM=$(echo "$pr" | jq -r '.number')
@@ -612,12 +612,12 @@ jobs:
             LABELS=$(echo "$pr" | jq -r '[.labels[].name] | join(",")')
 
             # Already converged on Opus pass — address-feedback skipped or finished.
-            if echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
+            if echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
               continue
             fi
-            # Still has the in-progress marker — needs ai-cp-after-1 to even be in opus.
-            if ! echo ",$LABELS," | grep -q ",ai-cp-after-1,"; then
-              echo "PR #$NUM: ai-phase-opus without ai-cp-after-1 — unusual, leaving for cold-dispatch."
+            # Still has the in-progress marker — needs fact-cp-after-1 to even be in opus.
+            if ! echo ",$LABELS," | grep -q ",fact-cp-after-1,"; then
+              echo "PR #$NUM: fact-phase-opus without fact-cp-after-1 — unusual, leaving for cold-dispatch."
               continue
             fi
             # Already escalated — owner is on the hook now, don't spam.
@@ -662,7 +662,7 @@ jobs:
               LAST_OPUS_AT=""
             fi
             if [ -z "$LAST_OPUS_AT" ]; then
-              # Opus has NEVER run on this PR head, but `ai-phase-opus` is set —
+              # Opus has NEVER run on this PR head, but `fact-phase-opus` is set —
               # address-feedback transitioned the labels but its
               # `gh workflow run ai-pr-review.yml` dispatch was lost (observed
               # 2026-05-09 on PRs #542/#543/#546). Dispatch directly. Use the
@@ -672,11 +672,11 @@ jobs:
               UPDATED_TS=$(date -u -d "$UPDATED_AT" +%s 2>/dev/null || echo 0)
               AGE=$(( NOW - UPDATED_TS ))
               if [ "$AGE" -lt "$STUCK_AGE_SECS" ]; then
-                echo "PR #$NUM: ai-phase-opus + no Opus run, but PR updated ${AGE}s ago — give the post-Copilot dispatch more time."
+                echo "PR #$NUM: fact-phase-opus + no Opus run, but PR updated ${AGE}s ago — give the post-Copilot dispatch more time."
                 continue
               fi
               if [ "$AGE" -gt "$STUCK_MAX_AGE_SECS" ]; then
-                echo "PR #$NUM: ai-phase-opus + no Opus run, PR updated ${AGE}s ago (>${STUCK_MAX_AGE_SECS}s) — too old, owner problem."
+                echo "PR #$NUM: fact-phase-opus + no Opus run, PR updated ${AGE}s ago (>${STUCK_MAX_AGE_SECS}s) — too old, owner problem."
                 continue
               fi
 
@@ -689,7 +689,7 @@ jobs:
                 echo "PR #$NUM: hit $RETRY_COUNT_OPUS Opus-dispatch retries (cap=$MAX_OPUS_STALL_RETRIES) — escalating to ai-blocked."
                 gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 || true
                 gh pr comment "$NUM" --repo "$REPO_FULL" --body \
-                  "🚨 **AI Watchdog**: \`ai-phase-opus\` is set but Opus never ran (after $RETRY_COUNT_OPUS direct dispatches of \`ai-pr-review.yml\`). Adding \`ai-blocked\` and handing off — please dispatch manually or merge as-is. cc @${OWNER_HANDLE:-alvarolobato}" 2>/dev/null || true
+                  "🚨 **AI Watchdog**: \`fact-phase-opus\` is set but Opus never ran (after $RETRY_COUNT_OPUS direct dispatches of \`ai-pr-review.yml\`). Adding \`ai-blocked\` and handing off — please dispatch manually or merge as-is. cc @${OWNER_HANDLE:-alvarolobato}" 2>/dev/null || true
                 continue
               fi
 
@@ -697,7 +697,7 @@ jobs:
               gh workflow run ai-pr-review.yml --repo "$REPO_FULL" \
                 --field pr_number="$NUM" 2>/dev/null || true
               gh pr comment "$NUM" --repo "$REPO_FULL" --body \
-                "🔁 **AI Watchdog**: \`ai-phase-opus\` is set but Opus never ran on head SHA \`${HEAD:0:7}\`. Dispatching \`ai-pr-review.yml\` directly (retry $((RETRY_COUNT_OPUS + 1))/$MAX_OPUS_STALL_RETRIES)." 2>/dev/null || true
+                "🔁 **AI Watchdog**: \`fact-phase-opus\` is set but Opus never ran on head SHA \`${HEAD:0:7}\`. Dispatching \`ai-pr-review.yml\` directly (retry $((RETRY_COUNT_OPUS + 1))/$MAX_OPUS_STALL_RETRIES)." 2>/dev/null || true
               continue
             fi
             LAST_OPUS_TS=$(date -u -d "$LAST_OPUS_AT" +%s 2>/dev/null || echo 0)
@@ -718,20 +718,20 @@ jobs:
             # Fallback: simpler query if the above failed.
             if ! [[ "$RETRY_COUNT" =~ ^[0-9]+$ ]]; then
               RETRY_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
-                --jq "[.[] | select(.body | contains(\"AI Watchdog\") and contains(\"ai-phase-opus\"))] | length" 2>/dev/null || echo "0")
+                --jq "[.[] | select(.body | contains(\"AI Watchdog\") and contains(\"fact-phase-opus\"))] | length" 2>/dev/null || echo "0")
             fi
             if [ "${RETRY_COUNT:-0}" -ge "$MAX_OPUS_STALL_RETRIES" ]; then
               echo "PR #$NUM: hit $RETRY_COUNT retries (cap=$MAX_OPUS_STALL_RETRIES) — escalating to ai-blocked."
               gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" -f "labels[]=ai-blocked" >/dev/null 2>&1 || true
               gh pr comment "$NUM" --repo "$REPO_FULL" --body \
-                "🚨 **AI Watchdog**: stuck in \`ai-phase-opus\` after $RETRY_COUNT auto-recovery attempts. Adding \`ai-blocked\` and handing off — please dispatch \`ai-address-feedback.yml\` manually or merge as-is. cc @${OWNER_HANDLE:-alvarolobato}" 2>/dev/null || true
+                "🚨 **AI Watchdog**: stuck in \`fact-phase-opus\` after $RETRY_COUNT auto-recovery attempts. Adding \`ai-blocked\` and handing off — please dispatch \`ai-address-feedback.yml\` manually or merge as-is. cc @${OWNER_HANDLE:-alvarolobato}" 2>/dev/null || true
               continue
             fi
 
             echo "PR #$NUM: re-dispatching address-feedback (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES, Opus ${AGE}s ago)."
             gh workflow run ai-address-feedback.yml --repo "$REPO_FULL" \
               --field pr_number="$NUM" \
-              --field reason="watchdog: stuck in ai-phase-opus for ${AGE}s after successful Opus review (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES)" 2>/dev/null || true
+              --field reason="watchdog: stuck in fact-phase-opus for ${AGE}s after successful Opus review (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES)" 2>/dev/null || true
             gh pr comment "$NUM" --repo "$REPO_FULL" --body \
               "$MARKER detected ${AGE}s after Opus success. Re-dispatched \`ai-address-feedback.yml\` (retry $((RETRY_COUNT + 1))/$MAX_OPUS_STALL_RETRIES)." 2>/dev/null || true
           done
@@ -739,7 +739,7 @@ jobs:
       - name: Auto-retry blocked PRs (address-feedback failures)
         run: |
           set -euo pipefail
-          # PRs labelled ai-blocked + ai-auto-retry had a transient address-feedback
+          # PRs labelled ai-blocked + fact-auto-retry had a transient address-feedback
           # failure (rate limit, OIDC error, etc.). Re-dispatch after 90 minutes.
           # NOTE: We measure age from the LAST FAILURE COMMENT, not updatedAt —
           # updatedAt resets on any label change and would give a false "too soon".
@@ -748,7 +748,7 @@ jobs:
           MIN_WAIT_SECS=5400  # 90 minutes
 
           PRS=$(gh pr list --repo "$REPO_FULL" \
-            --state open --label "ai-blocked,ai-auto-retry" \
+            --state open --label "ai-blocked,fact-auto-retry" \
             --json number,title,labels --limit 50)
 
           echo "$PRS" | jq -c '.[]' | while read -r row; do
@@ -801,7 +801,7 @@ jobs:
 
             if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
               echo "PR #$NUM hit max retries — escalating to human."
-              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-auto-retry" >/dev/null 2>&1 || true
+              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/fact-auto-retry" >/dev/null 2>&1 || true
               gh pr comment "$NUM" --repo "$REPO_FULL" \
                 --body "🚨 @$OWNER_HANDLE — PR #$NUM address-feedback has failed $RETRY_COUNT times and will NOT be retried automatically. Please investigate." || true
               continue
@@ -817,10 +817,10 @@ jobs:
               continue
             fi
 
-            # Decide which workflow to retry: if the PR has ai-ready-for-review,
+            # Decide which workflow to retry: if the PR has fact-ready-for-review,
             # the failure was from pr-review (it adds that label in its failure
             # handler). Otherwise, assume it was address-feedback.
-            if echo ",$LABELS," | grep -q ",ai-ready-for-review,"; then
+            if echo ",$LABELS," | grep -q ",fact-ready-for-review,"; then
               RETRY_WORKFLOW="ai-pr-review.yml"
               RETRY_LABEL_DESC="pr-review"
             else
@@ -830,7 +830,7 @@ jobs:
 
             echo "Retrying $RETRY_LABEL_DESC for PR #$NUM — attempt $(( RETRY_COUNT + 1 )) of $MAX_RETRIES"
             # REST API — see #611.
-            for l in ai-blocked ai-auto-retry; do
+            for l in ai-blocked fact-auto-retry; do
               gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/$l" >/dev/null 2>&1 || true
             done
             gh pr comment "$NUM" --repo "$REPO_FULL" \
@@ -852,7 +852,7 @@ jobs:
       - name: Auto-retry transient failures
         run: |
           set -euo pipefail
-          # Issues labelled ai-blocked + ai-auto-retry were blocked by an
+          # Issues labelled ai-blocked + fact-auto-retry were blocked by an
           # infrastructure failure (rate limit, OIDC error, cancellation, timeout)
           # — NOT by a deliberate Claude decision. Retry them automatically.
           #
@@ -884,8 +884,8 @@ jobs:
             TITLE=$(echo "$row" | jq -r '.title')
             LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
 
-            # Only process issues that have ai-auto-retry
-            if ! echo ",$LABELS," | grep -q ",ai-auto-retry,"; then
+            # Only process issues that have fact-auto-retry
+            if ! echo ",$LABELS," | grep -q ",fact-auto-retry,"; then
               continue
             fi
 
@@ -960,10 +960,10 @@ jobs:
             fi
 
             if [ "$EFFECTIVE_RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
-              # Exhausted retries — remove ai-auto-retry and ping human
+              # Exhausted retries — remove fact-auto-retry and ping human
               echo "Issue #$NUM has hit max retries ($MAX_RETRIES) — escalating to human."
               gh issue edit "$NUM" --repo "$REPO_FULL" \
-                --remove-label "ai-auto-retry" || true
+                --remove-label "fact-auto-retry" || true
               gh issue comment "$NUM" --repo "$REPO_FULL" \
                 --body "🚨 @$OWNER_HANDLE — AI Factory watchdog: issue #$NUM has failed $EFFECTIVE_RETRY_COUNT times and will NOT be retried automatically. Please investigate and either fix the underlying problem or re-label with \`ai-work\` when ready." || true
               continue
@@ -986,12 +986,12 @@ jobs:
             ATTEMPT=$(( EFFECTIVE_RETRY_COUNT + 1 ))
             echo "Retrying issue #$NUM ($TITLE) — attempt $ATTEMPT of $MAX_RETRIES"
             gh issue edit "$NUM" --repo "$REPO_FULL" \
-              --remove-label "ai-blocked" --remove-label "ai-auto-retry" || true
+              --remove-label "ai-blocked" --remove-label "fact-auto-retry" || true
             gh issue comment "$NUM" --repo "$REPO_FULL" \
               --body "🔄 AI Factory watchdog: auto-retrying (attempt $ATTEMPT of $MAX_RETRIES) after transient failure. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
 
-            # Determine phase: sub-tasks (ai-task) → implement, parents → plan
-            if echo ",$LABELS," | grep -q ",ai-task,"; then
+            # Determine phase: sub-tasks (fact-task) → implement, parents → plan
+            if echo ",$LABELS," | grep -q ",fact-task,"; then
               PHASE="implement"
             else
               PHASE="plan"
@@ -1004,17 +1004,17 @@ jobs:
             sleep 30  # stagger to avoid hammering the rate limit
           done
 
-      - name: Clear ai-ci-failing when CI is green
+      - name: Clear fact-ci-failing when CI is green
         run: |
           set -euo pipefail
           mkdir -p .github/scripts
           gh api "repos/$REPO_FULL/contents/.github/scripts/ci-handoff-state.sh?ref=${{ github.event.repository.default_branch }}" \
             | jq -r '.content' | base64 -d > .github/scripts/ci-handoff-state.sh
           chmod +x .github/scripts/ci-handoff-state.sh
-          gh pr list --repo "$REPO_FULL" --state open --label "ai-ci-failing" --json number --jq '.[].number' | while read -r NUM; do
+          gh pr list --repo "$REPO_FULL" --state open --label "fact-ci-failing" --json number --jq '.[].number' | while read -r NUM; do
             hs=$(bash .github/scripts/ci-handoff-state.sh "$REPO_FULL" "$NUM")
             if [ "$hs" = "ready" ]; then
-              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/ai-ci-failing" >/dev/null 2>&1 || true
+              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/fact-ci-failing" >/dev/null 2>&1 || true
             fi
           done
 

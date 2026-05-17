@@ -87,9 +87,9 @@ jobs:
             (so GitHub fires `labeled` events reliably):
 
             ```bash
-            gh issue edit N --add-label "ai-task"
+            gh issue edit N --add-label "fact-task"
             gh issue edit N --add-label "ai-work"
             ```
 
             That queues **implementation** (single focused PR) for the bug. Do **not** add
-            `ai-planned` unless you also posted a plan comment.
+            `fact-planned` unless you also posted a plan comment.

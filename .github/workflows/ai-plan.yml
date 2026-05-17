@@ -2,6 +2,8 @@ name: AI Plan
 on:
   issue_comment:
     types: [created]
+  issues:
+    types: [labeled]
 
 concurrency:
   group: ai-plan-${{ github.run_id }}
@@ -15,23 +17,37 @@ permissions:
 
 jobs:
   plan:
-    # Do NOT require pull_request == null — PR review threads are still "issues"
-    # in the API; that guard skips `/plan` on pull requests entirely.
+    # Fires on /plan comments (any repo member) OR when ai-plan label is applied.
     if: >-
-      startsWith(github.event.comment.body, '/plan') &&
       (
-        github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'COLLABORATOR'
+        github.event_name == 'issue_comment' &&
+        startsWith(github.event.comment.body, '/plan') &&
+        (
+          github.event.comment.author_association == 'OWNER' ||
+          github.event.comment.author_association == 'MEMBER' ||
+          github.event.comment.author_association == 'COLLABORATOR'
+        )
+      ) || (
+        github.event_name == 'issues' &&
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'ai-plan'
       )
     runs-on: ubuntu-latest
     steps:
-      - name: Acknowledge comment with eyes reaction
+      - name: Acknowledge /plan comment with eyes reaction
+        if: github.event_name == 'issue_comment'
         run: |
           gh api repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions \
             --method POST -f content=eyes
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Remove ai-plan label after pickup
+        if: github.event_name == 'issues' && github.event.label.name == 'ai-plan'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue edit "${{ github.event.issue.number }}" --remove-label "ai-plan" || true
 
       - uses: actions/checkout@v4
         with:
@@ -89,7 +105,7 @@ jobs:
             **DO NOT create sub-issues for lifecycle steps.** "Run all checks", "Copilot
             review", "Opus review", and "Create commit" are steps inside the feature PR's
             lifecycle (the worker handles them automatically) — they are not independent
-            code changes. Decomposing a parent into one `ai-task` per lifecycle step
+            code changes. Decomposing a parent into one `fact-task` per lifecycle step
             spawns N parallel PRs that all implement the same feature (this happened
             with #481 → #482..#487 → PRs #490, #491, #494, #496). If the parent produces
             only one logical change, output **one** sub-issue, not five.
@@ -113,9 +129,9 @@ jobs:
             ---
 
             ## Step 3 — Label the issue
-            Always add the `ai-planned` label after posting the plan:
+            Always add the `fact-planned` label after posting the plan:
             ```bash
-            gh issue edit ISSUE_NUMBER --add-label "ai-planned"
+            gh issue edit ISSUE_NUMBER --add-label "fact-planned"
             ```
 
             ## Step 4 — Create sub-issues (only if `/plan --full` was used)
@@ -173,12 +189,12 @@ jobs:
             # was falsely flagged by the naive `grep -q '``'`.
             if gh issue view "$SUB_ISSUE" --json body --jq .body | grep -qP '(?<!`)``(?!`)'; then
               echo "::error::Sub-issue #$SUB_ISSUE body contains empty inline code spans — JSX/generics likely stripped."
-              gh issue edit "$SUB_ISSUE" --add-label "ai-needs-rewrite" || true
+              gh issue edit "$SUB_ISSUE" --add-label "fact-needs-rewrite" || true
               exit 1
             fi
 
             # Add labels separately so the labeled event fires reliably
-            gh issue edit $SUB_ISSUE --add-label "ai-task"
+            gh issue edit $SUB_ISSUE --add-label "fact-task"
             gh issue edit $SUB_ISSUE --add-label "ai-work"
             ```
 
