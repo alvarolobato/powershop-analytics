@@ -18,6 +18,7 @@ import {
   touchConversation,
   type ConversationRow,
 } from "@/lib/conversations";
+import { publish } from "@/lib/sse-pubsub";
 import { generateRequestId } from "@/lib/errors";
 
 // Re-export for use in tests without importing from route
@@ -28,6 +29,19 @@ export type { ConversationRow };
 function makeSeq(): () => number {
   let n = 0;
   return () => n++;
+}
+
+// ── Insert + publish helper ────────────────────────────────────────────────────
+
+async function emitTurnEvent(
+  conversationId: string,
+  turnId: string,
+  seq: number,
+  eventType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const dbEventId = await insertTurnEvent(turnId, seq, eventType, payload);
+  publish(conversationId, { dbEventId, turnId, seq, eventType, payload });
 }
 
 // ── Dispatcher ─────────────────────────────────────────────────────────────────
@@ -46,7 +60,7 @@ export async function runTurnBackground(
 
     // Emit context snapshot event (which model/provider/tools are being used).
     const contextPayload = buildContextPayload(conversation, requestId);
-    await insertTurnEvent(turnId, seq(), "context", contextPayload);
+    await emitTurnEvent(conversationId, turnId, seq(), "context", contextPayload);
 
     // Build prior message history for multi-turn context.
     // Must be loaded before appending the current user message so the current
@@ -76,7 +90,7 @@ export async function runTurnBackground(
     const mode = conversation.mode;
     const isFreeChatConv = conversation.context_kind === "global" || mode === "chat";
 
-    await insertTurnEvent(turnId, seq(), "log", {
+    await emitTurnEvent(conversationId, turnId, seq(), "log", {
       kind: "meta",
       text: "Procesando…",
       ts: new Date().toISOString(),
@@ -116,7 +130,9 @@ export async function runTurnBackground(
     await touchConversation(conversationId, "ok");
 
     // Emit the complete event with the assistant message for SSE clients.
-    await insertTurnEvent(turnId, seq(), "complete", { messageId: assistantMsg.id });
+    await emitTurnEvent(conversationId, turnId, seq(), "complete", {
+      messageId: assistantMsg.id,
+    });
 
     await updateTurnStatus(turnId, "complete");
 
@@ -129,7 +145,7 @@ export async function runTurnBackground(
   } catch (err) {
     const errText = err instanceof Error ? err.message : String(err);
     console.error(`[${requestId}] runTurnBackground error for turn ${turnId}:`, err);
-    await insertTurnEvent(turnId, seq(), "error", {
+    await emitTurnEvent(conversationId, turnId, seq(), "error", {
       message: errText,
       ts: new Date().toISOString(),
     }).catch(() => {});
@@ -190,7 +206,7 @@ async function runFreeChatTurn(
     return content;
   } catch (err) {
     if (err instanceof AgenticRunnerError) {
-      await insertTurnEvent(turnId, seq(), "log", {
+      await emitTurnEvent(conversationId, turnId, seq(), "log", {
         kind: "error",
         text: err.message,
         ts: new Date().toISOString(),
