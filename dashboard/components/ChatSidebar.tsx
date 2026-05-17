@@ -18,6 +18,7 @@ import type { ChatMessage, ConversationApiMessage } from "./conversation/types";
 import { MessageList } from "./conversation/MessageList";
 import { convertConversationMessages } from "./conversation/convertConversationMessages";
 import { useConfiguredModel, displayModelName } from "@/lib/useConfiguredModel";
+import { useDashboardConversation } from "@/lib/useDashboardConversation";
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -438,6 +439,7 @@ function ModificarTab({
   const [expandedLogs, setExpandedLogs] = useState<Record<number, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const { ensureConversation, saveMessage } = useDashboardConversation(dashboardId);
 
   useEffect(() => {
     if (messagesEndRef.current && typeof messagesEndRef.current.scrollIntoView === "function") {
@@ -478,6 +480,11 @@ function ModificarTab({
     setInput("");
     setLoading(true);
     setStreamingLog([]);
+
+    // Create a conversation record on the first message so the session is
+    // persisted immediately and appears in the conversations list.
+    const convId = await ensureConversation("modify");
+    if (convId) void saveMessage(convId, { role: "user", content: trimmed });
 
     // Real progress lines streamed from the server (NDJSON path) — captured
     // in a local mutable array so the final message logs include exactly
@@ -584,6 +591,7 @@ function ModificarTab({
               chatContent += ` Se ${widgetDelta === -1 ? "ha eliminado 1 widget" : `han eliminado ${Math.abs(widgetDelta)} widgets`}.`;
             }
           }
+          if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
           appendAssistant({
             role: "assistant",
             content: chatContent,
@@ -859,6 +867,7 @@ function AnalizarTab({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const appliedPrefillIdRef = useRef<number | null>(null);
+  const { ensureConversation, saveMessage } = useDashboardConversation(dashboardId);
 
   // Prefill from drilldown — fires when handleDataPointClick on the page
   // sets pendingAnalyze with a fresh trigger id.
@@ -901,6 +910,11 @@ function AnalizarTab({
       setSuggestions([]);
       setLoading(true);
       setStreamingLog([]);
+
+      // Create a conversation record on the first message so the session is
+      // persisted immediately and appears in the conversations list.
+      const convId = await ensureConversation("analyze");
+      if (convId) void saveMessage(convId, { role: "user", content: trimmed });
 
       // Real progress lines streamed from the server (NDJSON).
       const capturedLogs: LogLine[] = [];
@@ -991,6 +1005,7 @@ function AnalizarTab({
             // With the publish-tool contract: message = freeform chat reply, response = analysis body.
             // If message is empty (legacy path), fall back to response.
             const chatContent = result.message?.trim() || result.response;
+            if (convId) void saveMessage(convId, { role: "assistant", content: chatContent });
             appendAssistant({
               role: "assistant",
               content: chatContent,

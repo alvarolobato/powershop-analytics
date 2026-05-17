@@ -27,6 +27,7 @@ function formatRelativeTime(iso: string): string {
 export function ConversationListSidebar({ selectedId }: ConversationListSidebarProps) {
   const [conversations, setConversations] = useState<ConversationRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const loadConversations = useCallback(async () => {
     try {
@@ -92,6 +93,28 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
         Conversaciones
       </div>
 
+      {/* Search */}
+      <div style={{ padding: "8px 10px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <input
+          type="search"
+          placeholder="Buscar…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "5px 8px",
+            fontSize: 12,
+            background: "var(--bg-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            color: "var(--fg)",
+            fontFamily: "inherit",
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+      </div>
+
       {loading && (
         <div
           style={{
@@ -126,7 +149,17 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
       )}
 
       {!loading &&
-        conversations.map((conv) => {
+        conversations
+        .filter((conv) => {
+          if (!query.trim()) return true;
+          const q = query.toLowerCase();
+          return (
+            conv.title?.toLowerCase().includes(q) ||
+            conv.first_user_prompt?.toLowerCase().includes(q) ||
+            conv.last_message_preview?.toLowerCase().includes(q)
+          );
+        })
+        .map((conv) => {
           const title =
             conv.title?.trim() ||
             (conv.first_user_prompt
@@ -200,6 +233,14 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
             </Link>
           );
         })}
+      {!loading && query.trim() && conversations.filter((c) =>
+        [c.title, c.first_user_prompt, c.last_message_preview]
+          .some((f) => f?.toLowerCase().includes(query.toLowerCase()))
+      ).length === 0 && (
+        <div style={{ padding: "12px 14px", fontSize: 12, color: "var(--fg-muted)" }}>
+          Sin resultados
+        </div>
+      )}
     </div>
   );
 }
