@@ -2,10 +2,10 @@
  * Shared hook for creating and persisting conversations that originate from
  * the ChatSidebar "Analizar" or "Modificar" tabs.
  *
- * Previously these tabs stored messages only in the dashboard's
- * `chat_messages_analyze`/`chat_messages_modify` columns.  If the browser
- * was closed mid-session the chat history was lost and no record appeared in
- * the /conversations list.
+ * Previously these tabs stored messages only in the (now-removed)
+ * `chat_messages_analyze`/`chat_messages_modify` columns on the dashboards
+ * table.  If the browser was closed mid-session the chat history was lost
+ * and no record appeared in the /conversations list.
  *
  * This hook:
  *   1. On the first message send, creates a conversation record via
@@ -14,9 +14,6 @@
  *      has content even if the LLM times out).
  *   3. After the LLM responds it saves the assistant message.
  *   4. Subsequent messages in the same session reuse the same conversationId.
- *
- * The existing chat_messages_* dashboard cache remains intact for backwards
- * compatibility (legacy consumers still read from there).
  */
 
 import { useRef, useCallback } from "react";

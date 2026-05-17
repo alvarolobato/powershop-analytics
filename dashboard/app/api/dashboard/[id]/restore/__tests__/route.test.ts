@@ -37,7 +37,6 @@ const RETURNING_ROW = {
   name: "Sales",
   description: null,
   spec: TARGET_SPEC,
-  chat_messages_analyze: null,
   created_at: "2026-04-01T10:00:00Z",
   updated_at: "2026-04-18T12:00:00Z",
 };

@@ -79,12 +79,8 @@ export interface ChatSidebarProps {
   widgetData?: Map<number, WidgetState>;
   /** Initial analyze messages to restore on page load. */
   initialAnalyzeMessages?: ChatMessage[];
-  /** Callback fired when analyze messages change (for persistence). */
-  onAnalyzeMessagesChange?: (messages: ChatMessage[]) => void;
   /** Initial modify messages to restore on page load. */
   initialModifyMessages?: ChatMessage[];
-  /** Callback fired when modify messages change (for persistence). */
-  onModifyMessagesChange?: (messages: ChatMessage[]) => void;
   /**
    * When `pendingModifyTriggerId` changes with a non-empty `pendingModifyInput`,
    * the Modificar tab is selected, the textarea is filled, focused, and the sidebar opens if needed.
@@ -1311,9 +1307,7 @@ export default function ChatSidebar({
   dashboardId,
   widgetData,
   initialAnalyzeMessages,
-  onAnalyzeMessagesChange,
   initialModifyMessages,
-  onModifyMessagesChange,
   pendingModifyInput,
   pendingModifyTriggerId,
   onPendingModifyInputConsumed,
@@ -1413,9 +1407,6 @@ export default function ChatSidebar({
         setModifyMessages(msgs);
         setModifyInitialContext(data.initial_context ?? null);
         setActiveTab("modificar");
-        // Persist handoff messages so the modify API loads them as prior context
-        // on the user's next turn (loadPriorTurns reads chat_messages_modify).
-        onModifyMessagesChange?.(msgs);
       })
       .catch(() => {
         // Non-critical — if the fetch fails, the tab starts empty
@@ -1538,17 +1529,15 @@ export default function ChatSidebar({
   const handleNewConversation = useCallback(() => {
     if (activeTab === "modificar") {
       setModifyMessages([]);
-      onModifyMessagesChange?.([]);
       setModifyInitialContext(null);
       hadInitialModifyMessagesRef.current = false;
     } else {
       setAnalyzeMessages([]);
-      onAnalyzeMessagesChange?.([]);
       setAnalyzeInitialContext(null);
       hadInitialAnalyzeMessagesRef.current = false;
     }
     setShowPreviousConversations(false);
-  }, [activeTab, onModifyMessagesChange, onAnalyzeMessagesChange]);
+  }, [activeTab]);
 
   // Handle pending modify prefill (opens sidebar in modify tab)
   useEffect(() => {
@@ -1824,7 +1813,6 @@ export default function ChatSidebar({
             onSpecUpdate={onSpecUpdate}
             messages={modifyMessages}
             setMessages={setModifyMessages}
-            onMessagesChange={onModifyMessagesChange}
             isActive={activeTab === "modificar"}
             prefillRequest={
               pendingModifyInput?.trim() && pendingModifyTriggerId !== undefined
@@ -1841,7 +1829,6 @@ export default function ChatSidebar({
             widgetData={widgetData}
             messages={analyzeMessages}
             setMessages={setAnalyzeMessages}
-            onMessagesChange={onAnalyzeMessagesChange}
             isActive={activeTab === "analizar"}
             dashboardId={dashboardId}
             prefillRequest={

@@ -42,7 +42,6 @@ import {
   unarchiveConversation,
   updateTitle,
   updateLastStatus,
-  syncLegacyCache,
   appendMessage,
   countMessages,
   maybeGenerateTitle,
@@ -568,75 +567,6 @@ describe("listConversations — is_unread and last_read_at fields", () => {
     const rows = await listConversations();
     expect(rows[0].is_unread).toBe(true);
     expect(rows[0].last_read_at).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// syncLegacyCache
-// ---------------------------------------------------------------------------
-
-describe("syncLegacyCache", () => {
-  beforeEach(() => mockSql.mockReset());
-
-  it("does nothing when conversation not found", async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await syncLegacyCache("abc123def456");
-    expect(mockSql).toHaveBeenCalledTimes(1);
-  });
-
-  it("does nothing when context_kind is not 'dashboard'", async () => {
-    mockSql.mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "home", context_ref: "1", archived_at: null }]);
-    await syncLegacyCache("abc123def456");
-    expect(mockSql).toHaveBeenCalledTimes(1);
-  });
-
-  it("does nothing when mode is not modify or analyze", async () => {
-    mockSql.mockResolvedValueOnce([{ id: "abc123def456", mode: "generate", context_kind: "dashboard", context_ref: "1", archived_at: null }]);
-    await syncLegacyCache("abc123def456");
-    expect(mockSql).toHaveBeenCalledTimes(1);
-  });
-
-  it("does nothing when conversation is archived", async () => {
-    mockSql.mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "dashboard", context_ref: "1", archived_at: "2026-01-01" }]);
-    await syncLegacyCache("abc123def456");
-    expect(mockSql).toHaveBeenCalledTimes(1);
-  });
-
-  it("updates chat_messages_modify when mode=modify", async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "dashboard", context_ref: "42", archived_at: null }])
-      .mockResolvedValueOnce([{ role: "user", content: { text: "Hola" }, created_at: "2026-01-01" }])
-      .mockResolvedValueOnce([]);
-
-    await syncLegacyCache("abc123def456");
-
-    expect(mockSql).toHaveBeenCalledTimes(3);
-    const [updateQuery, updateParams] = mockSql.mock.calls[2] as [string, unknown[]];
-    expect(updateQuery).toContain("chat_messages_modify");
-    expect(updateParams[0]).toBe(42);
-    const legacy = JSON.parse(updateParams[1] as string);
-    expect(legacy[0].content).toBe("Hola");
-  });
-
-  it("updates chat_messages_analyze when mode=analyze", async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: "abc123def456", mode: "analyze", context_kind: "dashboard", context_ref: "7", archived_at: null }])
-      .mockResolvedValueOnce([{ role: "user", content: { text: "Info" }, created_at: "2026-01-01" }])
-      .mockResolvedValueOnce([]);
-
-    await syncLegacyCache("abc123def456");
-
-    const [updateQuery] = mockSql.mock.calls[2] as [string, unknown[]];
-    expect(updateQuery).toContain("chat_messages_analyze");
-  });
-
-  it("does nothing when context_ref is not a valid number", async () => {
-    mockSql
-      .mockResolvedValueOnce([{ id: "abc123def456", mode: "modify", context_kind: "dashboard", context_ref: "not-a-number", archived_at: null }])
-      .mockResolvedValueOnce([]);
-
-    await syncLegacyCache("abc123def456");
-    expect(mockSql).toHaveBeenCalledTimes(2);
   });
 });
 

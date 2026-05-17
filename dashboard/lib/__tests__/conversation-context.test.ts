@@ -69,21 +69,21 @@ describe("loadPriorTurns", () => {
     expect(result).toEqual([]);
   });
 
-  it("reads chat_messages_analyze for 'analyze' channel", async () => {
-    mockSql.mockResolvedValue([{ messages: [] }]);
+  it("queries conversation_messages for 'analyze' channel", async () => {
+    mockSql.mockResolvedValue([]);
     await loadPriorTurns(10, "analyze");
     expect(mockSql).toHaveBeenCalledWith(
-      expect.stringContaining("chat_messages_analyze"),
-      [10],
+      expect.stringContaining("conversation_messages"),
+      [String(10), "analyze", expect.any(Number)],
     );
   });
 
-  it("reads chat_messages_modify for 'modify' channel", async () => {
-    mockSql.mockResolvedValue([{ messages: [] }]);
+  it("queries conversation_messages for 'modify' channel", async () => {
+    mockSql.mockResolvedValue([]);
     await loadPriorTurns(10, "modify");
     expect(mockSql).toHaveBeenCalledWith(
-      expect.stringContaining("chat_messages_modify"),
-      [10],
+      expect.stringContaining("conversation_messages"),
+      [String(10), "modify", expect.any(Number)],
     );
   });
 

@@ -782,7 +782,6 @@ describe("ChatSidebar", () => {
     const initialMessages = [
       { role: "user" as const, content: "Hola", timestamp: new Date() },
     ];
-    const onModifyMessagesChange = vi.fn();
 
     render(
       <ChatSidebar
@@ -792,7 +791,6 @@ describe("ChatSidebar", () => {
         onToggle={onToggle}
         dashboardId={1}
         initialModifyMessages={initialMessages}
-        onModifyMessagesChange={onModifyMessagesChange}
       />,
     );
 
@@ -808,8 +806,6 @@ describe("ChatSidebar", () => {
 
     // The "Hola" message should be gone
     expect(screen.queryByText("Hola")).not.toBeInTheDocument();
-    // The callback should have been called with empty array
-    expect(onModifyMessagesChange).toHaveBeenCalledWith([]);
   });
 
   it("clears Analizar messages when Nueva conversación is clicked in Analizar tab", async () => {
@@ -818,7 +814,6 @@ describe("ChatSidebar", () => {
     const initialMessages = [
       { role: "user" as const, content: "Analiza esto", timestamp: new Date() },
     ];
-    const onAnalyzeMessagesChange = vi.fn();
 
     render(
       <ChatSidebar
@@ -828,7 +823,6 @@ describe("ChatSidebar", () => {
         onToggle={onToggle}
         dashboardId={1}
         initialAnalyzeMessages={initialMessages}
-        onAnalyzeMessagesChange={onAnalyzeMessagesChange}
       />,
     );
 
@@ -847,8 +841,6 @@ describe("ChatSidebar", () => {
 
     // The "Analiza esto" message should be gone
     expect(screen.queryByText("Analiza esto")).not.toBeInTheDocument();
-    // The callback should have been called with empty array
-    expect(onAnalyzeMessagesChange).toHaveBeenCalledWith([]);
   });
 
   // -----------------------------------------------------------------------

@@ -39,8 +39,6 @@ interface DashboardRecord {
   name: string;
   description: string | null;
   spec: DashboardSpec;
-  chat_messages_analyze?: ChatMessage[];
-  chat_messages_modify?: ChatMessage[];
   created_at: string;
   updated_at: string;
 }
@@ -501,82 +499,6 @@ export default function DashboardSurface({
     [saveSpec],
   );
 
-  const modifyDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const modifyCounterRef = useRef(0);
-  const analyzeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const analyzeCounterRef = useRef(0);
-
-  const handleAnalyzeMessagesChange = useCallback(
-    (messages: ChatMessage[]) => {
-      if (!dashboard) return;
-      if (analyzeDebounceRef.current) {
-        clearTimeout(analyzeDebounceRef.current);
-      }
-      analyzeDebounceRef.current = setTimeout(() => {
-        const thisCount = ++analyzeCounterRef.current;
-        fetch(`/api/dashboard/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            spec: latestSpecRef.current ?? dashboard.spec,
-            chat_messages_analyze: messages,
-            skipVersion: true,
-          }),
-        })
-          .then((res) => {
-            if (thisCount !== analyzeCounterRef.current) return;
-            if (!res.ok) console.error("Error guardando mensajes de análisis:", res.status);
-          })
-          .catch((err) => {
-            if (thisCount !== analyzeCounterRef.current) return;
-            console.error("Error guardando mensajes de análisis:", err);
-          });
-      }, 800);
-    },
-    [dashboard, id],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (analyzeDebounceRef.current) clearTimeout(analyzeDebounceRef.current);
-    };
-  }, [id]);
-
-  const handleModifyMessagesChange = useCallback(
-    (messages: ChatMessage[]) => {
-      if (!dashboard) return;
-      if (modifyDebounceRef.current) {
-        clearTimeout(modifyDebounceRef.current);
-      }
-      modifyDebounceRef.current = setTimeout(() => {
-        const thisCount = ++modifyCounterRef.current;
-        fetch(`/api/dashboard/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            spec: latestSpecRef.current ?? dashboard.spec,
-            chat_messages_modify: messages,
-            skipVersion: true,
-          }),
-        })
-          .then((res) => {
-            if (thisCount !== modifyCounterRef.current) return;
-            if (!res.ok) console.error("Error guardando mensajes de modificar:", res.status);
-          })
-          .catch((err) => {
-            if (thisCount !== modifyCounterRef.current) return;
-            console.error("Error guardando mensajes de modificar:", err);
-          });
-      }, 800);
-    },
-    [dashboard, id],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (modifyDebounceRef.current) clearTimeout(modifyDebounceRef.current);
-    };
-  }, [id]);
 
   const handleNameSave = useCallback(async () => {
     const trimmed = nameValue.trim();
@@ -1030,13 +952,11 @@ export default function DashboardSurface({
         onOpenSidebar={handleOpenChatSidebar}
         widgetData={widgetData}
         initialAnalyzeMessages={
-          preloadedAnalyzeMessages ?? (dashboard.chat_messages_analyze ?? [])
+          preloadedAnalyzeMessages ?? []
         }
-        onAnalyzeMessagesChange={handleAnalyzeMessagesChange}
         initialModifyMessages={
-          continueConvId ? [] : (preloadedModifyMessages ?? (dashboard.chat_messages_modify ?? []))
+          continueConvId ? [] : (preloadedModifyMessages ?? [])
         }
-        onModifyMessagesChange={handleModifyMessagesChange}
         pendingModifyInput={pendingModify?.prompt}
         pendingModifyTriggerId={pendingModify?.id}
         onPendingModifyInputConsumed={handlePendingModifyInputConsumed}

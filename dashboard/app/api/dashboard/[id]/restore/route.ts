@@ -206,7 +206,7 @@ export async function POST(
       `UPDATE dashboards
        SET spec = $1, updated_at = NOW()
        WHERE id = $2
-       RETURNING id, name, description, spec, chat_messages_analyze, created_at, updated_at`,
+       RETURNING id, name, description, spec, created_at, updated_at`,
       [JSON.stringify(validatedSpec), dashboardId],
     );
 

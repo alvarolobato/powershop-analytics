@@ -261,6 +261,22 @@ The AI worker (and any other claude-code-action job in this repo) must **not** c
 
 If you (the worker) detect that a planned sub-task would touch `.github/workflows/`, split it out into a separate `ai-blocked + ai-task` sub-issue with the workflow YAML in the body, and proceed with the rest. Do **not** attempt the push and do **not** try to "fix" it by adding permissions to the YAML.
 
+### Backwards compatibility — default is to break it
+
+**This project has a single deployment** (one production instance, no external API consumers, no SDK users). There is no reason to maintain backwards compatibility for its own sake.
+
+When a cleaner design requires breaking a schema, API shape, or internal contract, **break it by default**. Do not add shims, dual-code-paths, deprecated fields, or `|| legacy_fallback` expressions to keep old behaviour alive. That debt accumulates fast and was the root cause of the `chat_messages_*` column debacle: a cache that was kept "for backwards compat" for months after conversations moved to a proper table, bloating the schema and confusing every new reader of the code.
+
+**Default behaviour**: drop the old thing, migrate data if needed (a single SQL migration is fine), ship the new thing.
+
+**When to ask**: if you are unsure whether a specific deployment artifact (a file format someone may have downloaded, a webhook schema external partners call, etc.) is truly internal-only — ask the owner before breaking it. But if it's a DB column, an internal API field, or an in-process cache: just remove it.
+
+Concretely:
+- Old DB column replaced by a proper table → `DROP COLUMN`, no `|| old_column` fallback in code.
+- Internal API field renamed → remove the old name from the route; don't accept both.
+- Legacy in-memory cache replaced by the real data source → delete the cache write, delete the cache read.
+- Migration data: write a one-time SQL block in `init.sql` under `-- One-time migration:` and mark it as run-once (idempotent via `IF NOT EXISTS` or `WHERE NOT EXISTS`). Remove the migration block once it has run on production (a follow-up PR).
+
 ### Python changes and commits
 
 **Before any commit that touches Python** (`.py` under `etl/`, `scripts/`, or elsewhere in the repo), run **Ruff format** on the paths you changed so CI does not fail on style. From the repo root, typical patterns:
