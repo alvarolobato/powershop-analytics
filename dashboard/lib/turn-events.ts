@@ -1,0 +1,147 @@
+/**
+ * Turn-events data layer — CRUD for conversation_turns and turn_events.
+ */
+
+import { sql } from "@/lib/db-write";
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
+export interface TurnRow {
+  id: string;
+  conversation_id: string;
+  turn_index: number;
+  user_message: string;
+  status: "pending" | "streaming" | "complete" | "error";
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  created_at: string;
+}
+
+export interface TurnEventRow {
+  id: number;
+  turn_id: string;
+  seq: number;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface TurnWithEvents {
+  turn: TurnRow;
+  events: TurnEventRow[];
+}
+
+// ── Queries ────────────────────────────────────────────────────────────────────
+
+export async function getNextTurnIndex(conversationId: string): Promise<number> {
+  const rows = await sql<{ next_index: number }>(
+    `SELECT COALESCE(MAX(turn_index) + 1, 0) AS next_index
+       FROM conversation_turns
+      WHERE conversation_id = $1`,
+    [conversationId],
+  );
+  return rows[0]?.next_index ?? 0;
+}
+
+export async function createTurn(
+  conversationId: string,
+  userMessage: string,
+): Promise<{ turnId: string; turnIndex: number }> {
+  const rows = await sql<{ id: string; turn_index: number }>(
+    `INSERT INTO conversation_turns (conversation_id, turn_index, user_message, status)
+     VALUES (
+       $1,
+       (SELECT COALESCE(MAX(turn_index) + 1, 0)
+          FROM conversation_turns
+         WHERE conversation_id = $1),
+       $2,
+       'pending'
+     )
+     RETURNING id, turn_index`,
+    [conversationId, userMessage],
+  );
+  if (!rows[0]) throw new Error("createTurn: no row returned");
+  return { turnId: rows[0].id, turnIndex: rows[0].turn_index };
+}
+
+export async function updateTurnStatus(
+  turnId: string,
+  status: "pending" | "streaming" | "complete" | "error",
+  error?: string,
+): Promise<void> {
+  if (status === "streaming") {
+    await sql(
+      `UPDATE conversation_turns SET status = $2, started_at = NOW() WHERE id = $1`,
+      [turnId, status],
+    );
+  } else if (status === "complete") {
+    await sql(
+      `UPDATE conversation_turns SET status = $2, completed_at = NOW() WHERE id = $1`,
+      [turnId, status],
+    );
+  } else if (status === "error") {
+    await sql(
+      `UPDATE conversation_turns
+          SET status = $2, completed_at = NOW(), error = $3
+        WHERE id = $1`,
+      [turnId, status, error ?? null],
+    );
+  } else {
+    await sql(
+      `UPDATE conversation_turns SET status = $2 WHERE id = $1`,
+      [turnId, status],
+    );
+  }
+}
+
+export async function insertTurnEvent(
+  turnId: string,
+  seq: number,
+  eventType: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  await sql(
+    `INSERT INTO turn_events (turn_id, seq, event_type, payload)
+     VALUES ($1, $2, $3, $4)`,
+    [turnId, seq, eventType, JSON.stringify(payload)],
+  );
+}
+
+export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents | null> {
+  const turns = await sql<TurnRow>(
+    `SELECT * FROM conversation_turns WHERE id = $1`,
+    [turnId],
+  );
+  if (!turns[0]) return null;
+  const events = await sql<TurnEventRow>(
+    `SELECT * FROM turn_events WHERE turn_id = $1 ORDER BY seq ASC`,
+    [turnId],
+  );
+  return { turn: turns[0], events };
+}
+
+export async function getConversationEvents(
+  conversationId: string,
+  sinceId?: number,
+): Promise<TurnEventRow[]> {
+  if (sinceId !== undefined) {
+    return sql<TurnEventRow>(
+      `SELECT te.*
+         FROM turn_events te
+         JOIN conversation_turns ct ON ct.id = te.turn_id
+        WHERE ct.conversation_id = $1
+          AND te.id > $2
+        ORDER BY te.id ASC`,
+      [conversationId, sinceId],
+    );
+  }
+  return sql<TurnEventRow>(
+    `SELECT te.*
+       FROM turn_events te
+       JOIN conversation_turns ct ON ct.id = te.turn_id
+      WHERE ct.conversation_id = $1
+      ORDER BY te.id ASC`,
+    [conversationId],
+  );
+}

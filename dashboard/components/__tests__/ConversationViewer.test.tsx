@@ -476,24 +476,26 @@ describe("ConversationViewer", () => {
 
   it("auto-sends the prompt from sessionStorage on mount", async () => {
     sessionStorage.setItem("conv-autosend-conv-1", "Hola automático");
-    const fetchMock = vi
-      .fn()
-      // messages POST
-      .mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            message: {
-              id: "m-auto",
-              conversation_id: "conv-1",
-              role: "assistant",
-              content: { text: "Respuesta automática" },
-              created_at: new Date().toISOString(),
-            },
-          }),
-      })
-      // mark-read PATCH (fires after auto-send response)
-      .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({}) });
+    // Use mockImplementation to route by URL so incidental calls (model config,
+    // polling, mark-read) get a generic ok response and don't exhaust a queue.
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      if (url === "/api/conversations/conv-1/messages" && opts?.method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              message: {
+                id: "m-auto",
+                conversation_id: "conv-1",
+                role: "assistant",
+                content: { text: "Respuesta automática" },
+                created_at: new Date().toISOString(),
+              },
+            }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+    });
     globalThis.fetch = fetchMock;
 
     render(<ConversationViewer initial={makeConv()} />);
