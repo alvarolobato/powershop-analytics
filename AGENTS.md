@@ -261,6 +261,17 @@ The AI worker (and any other claude-code-action job in this repo) must **not** c
 
 If you (the worker) detect that a planned sub-task would touch `.github/workflows/`, split it out into a separate `ai-blocked + ai-task` sub-issue with the workflow YAML in the body, and proceed with the rest. Do **not** attempt the push and do **not** try to "fix" it by adding permissions to the YAML.
 
+### No GitHub API bypass for git push (D-029 corollary)
+
+When `git push` is blocked (e.g., because recent main commits changed `.github/workflows/` files and GitHub enforces a workflow-scope check on the push), **do not** work around it by using the GitHub Git Tree API (`POST /repos/:owner/:repo/git/trees`, `POST /git/commits`, `PATCH /git/refs`) to push code directly. This bypasses the same security model that D-029 protects and is explicitly not acceptable.
+
+**The correct response when git push is blocked:**
+1. Post a comment on the issue explaining the block and tagging @alvarolobato.
+2. Leave the code staged but not pushed (or stash it on the branch if partial work was done before the block was hit).
+3. Add `ai-blocked`. The owner resolves by ensuring the worker token has `contents: write` scope or by pushing manually.
+
+The API bypass creates PRs that circumvent security checks and are difficult to audit. It is **never** acceptable regardless of how convenient it seems.
+
 ### Backwards compatibility — default is to break it
 
 **This project has a single deployment** (one production instance, no external API consumers, no SDK users). There is no reason to maintain backwards compatibility for its own sake.
