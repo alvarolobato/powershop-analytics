@@ -46,6 +46,7 @@ import {
   countMessages,
   maybeGenerateTitle,
   migrateConversationToDashboard,
+  markConversationRead,
 } from "../conversations";
 
 // ---------------------------------------------------------------------------
@@ -486,6 +487,73 @@ describe("updateLastStatus", () => {
     expect(query).toContain("last_interaction_at");
     expect(params[0]).toBe("abc123");
     expect(params[1]).toBe("ok");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// markConversationRead
+// ---------------------------------------------------------------------------
+
+describe("markConversationRead", () => {
+  beforeEach(() => mockSql.mockReset());
+
+  it("executes UPDATE SET last_read_at = NOW() for the given id", async () => {
+    mockSql.mockResolvedValue([]);
+    await markConversationRead("abc123def456");
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("UPDATE conversations");
+    expect(query).toContain("last_read_at");
+    expect(query).toContain("NOW()");
+    expect(params[0]).toBe("abc123def456");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listConversations — is_unread computed field
+// ---------------------------------------------------------------------------
+
+describe("listConversations — is_unread and last_read_at fields", () => {
+  beforeEach(() => {
+    mockSql.mockReset();
+    mockSql.mockResolvedValue([]);
+  });
+
+  it("SELECT includes last_read_at and is_unread", async () => {
+    await listConversations();
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("last_read_at");
+    expect(query).toContain("is_unread");
+  });
+
+  it("is_unread expression covers null last_read_at case", async () => {
+    await listConversations();
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("last_read_at IS NULL");
+    expect(query).toContain("last_interaction_at > c.created_at");
+  });
+
+  it("is_unread expression covers non-null last_read_at case", async () => {
+    await listConversations();
+    const [query] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("last_read_at IS NOT NULL");
+    expect(query).toContain("last_interaction_at > c.last_read_at");
+  });
+
+  it("returns is_unread and last_read_at values from the row", async () => {
+    const fixture = {
+      id: "conv1", mode: "chat", title: null, first_user_prompt: null,
+      context_url: null, context_kind: "global", context_ref: null,
+      created_at: "2026-05-01T10:00:00Z", last_interaction_at: "2026-05-01T11:00:00Z",
+      archived_at: null, last_status: null, llm_provider: null, llm_driver: null,
+      initial_context: null, created_by: null, last_read_at: null,
+      message_count: 3, tool_calls_count: 0, rounds_count: 0,
+      duration_seconds: 3600, last_message_preview: "Hola", token_total: 100,
+      context_dashboard_name: null, is_unread: true,
+    };
+    mockSql.mockResolvedValue([fixture]);
+    const rows = await listConversations();
+    expect(rows[0].is_unread).toBe(true);
+    expect(rows[0].last_read_at).toBeNull();
   });
 });
 

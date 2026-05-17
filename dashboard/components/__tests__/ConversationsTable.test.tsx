@@ -42,6 +42,8 @@ const BASE_ROW: ConversationRow = {
   duration_seconds: 3600,
   last_message_preview: "Las ventas de ayer fueron 38.420€",
   token_total: 12400,
+  last_read_at: null,
+  is_unread: false,
 };
 
 function makeRow(overrides: Partial<ConversationRow> = {}): ConversationRow {

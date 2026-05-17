@@ -56,6 +56,7 @@ export interface Conversation {
   llm_provider: string | null;
   llm_driver: string | null;
   initial_context: InitialContext | null;
+  last_read_at: string | null;
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ const mockGetConversation = vi.fn();
 const mockGetConversationWithMessages = vi.fn();
 const mockUpdateConversationTitle = vi.fn();
 const mockSetConversationArchived = vi.fn();
+const mockMarkConversationRead = vi.fn();
 
 vi.mock("@/lib/conversations", () => ({
   getConversation: (...args: unknown[]) => mockGetConversation(...args),
@@ -15,6 +16,7 @@ vi.mock("@/lib/conversations", () => ({
     mockGetConversationWithMessages(...args),
   updateConversationTitle: (...args: unknown[]) => mockUpdateConversationTitle(...args),
   setConversationArchived: (...args: unknown[]) => mockSetConversationArchived(...args),
+  markConversationRead: (...args: unknown[]) => mockMarkConversationRead(...args),
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
@@ -52,6 +54,7 @@ beforeEach(() => {
   mockGetConversationWithMessages.mockReset();
   mockUpdateConversationTitle.mockReset();
   mockSetConversationArchived.mockReset();
+  mockMarkConversationRead.mockReset();
 });
 
 describe("GET /api/conversations/:id", () => {
@@ -257,5 +260,37 @@ describe("PATCH /api/conversations/:id", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.code).toBe("DB_ERROR");
+  });
+
+  it("returns 400 when last_read_at is not \"now\"", async () => {
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ last_read_at: "2026-01-01T00:00:00Z" }),
+    });
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe("INVALID_BODY");
+    expect(mockMarkConversationRead).not.toHaveBeenCalled();
+  });
+
+  it("marks conversation as read when last_read_at is \"now\"", async () => {
+    const updatedConv = { ...MOCK_CONV, last_read_at: "2026-01-01T00:05:00Z" };
+    mockGetConversation
+      .mockResolvedValueOnce(MOCK_CONV)
+      .mockResolvedValueOnce(updatedConv);
+    mockMarkConversationRead.mockResolvedValue(undefined);
+
+    const req = new NextRequest(`http://localhost:4000/api/conversations/${VALID_ID}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ last_read_at: "now" }),
+    });
+    const res = await PATCH(req, params(VALID_ID));
+    expect(res.status).toBe(200);
+    expect(mockMarkConversationRead).toHaveBeenCalledWith(VALID_ID);
+    const body = await res.json();
+    expect(body.last_read_at).toBe("2026-01-01T00:05:00Z");
   });
 });
