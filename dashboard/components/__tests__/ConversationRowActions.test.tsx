@@ -39,6 +39,8 @@ const BASE: ConversationRow = {
   duration_seconds: 90,
   last_message_preview: "Las ventas fueron 12.000€",
   token_total: 5000,
+  last_read_at: null,
+  is_unread: false,
 };
 
 function makeConv(overrides: Partial<ConversationRow> = {}): ConversationRow {

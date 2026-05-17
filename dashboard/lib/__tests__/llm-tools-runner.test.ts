@@ -90,6 +90,11 @@ vi.mock("@/lib/llm-tools/handlers/start-dashboard-generation", () => ({
   ),
 }));
 
+const mockSetConversationTitleOnce = vi.fn().mockResolvedValue(undefined);
+vi.mock("@/lib/conversations", () => ({
+  setConversationTitleOnce: (...a: unknown[]) => mockSetConversationTitleOnce(...a),
+}));
+
 import { runAgenticChat, AgenticRunnerError } from "@/lib/llm-tools/runner";
 import { createOpenRouterAgenticAdapter } from "@/lib/llm-provider/openrouter";
 
@@ -235,5 +240,58 @@ describe("runAgenticChat", () => {
         maxTokens: 10,
       }),
     ).rejects.toBeInstanceOf(AgenticRunnerError);
+  });
+
+  it("calls setConversationTitleOnce when set_title is invoked with a valid title", async () => {
+    mockSetConversationTitleOnce.mockReset().mockResolvedValue(undefined);
+    const create = vi
+      .fn()
+      .mockReturnValueOnce(
+        makeToolCallStream([
+          { id: "call_title", function: { name: "set_title", arguments: JSON.stringify({ title: "  Mi Panel  " }) } },
+        ]),
+      )
+      .mockReturnValueOnce(makeTextStream("Título establecido"));
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
+
+    await runAgenticChat({
+      adapter,
+      model: "m",
+      systemPrompt: "s",
+      userContent: "u",
+      ctx: { ...ctx, conversationId: "conv_abc123" },
+      temperature: 0,
+      maxTokens: 200,
+    });
+
+    expect(mockSetConversationTitleOnce).toHaveBeenCalledTimes(1);
+    expect(mockSetConversationTitleOnce).toHaveBeenCalledWith("conv_abc123", "Mi Panel");
+  });
+
+  it("does not call setConversationTitleOnce when set_title receives an empty title", async () => {
+    mockSetConversationTitleOnce.mockReset().mockResolvedValue(undefined);
+    const create = vi
+      .fn()
+      .mockReturnValueOnce(
+        makeToolCallStream([
+          { id: "call_title", function: { name: "set_title", arguments: JSON.stringify({ title: "" }) } },
+        ]),
+      )
+      .mockReturnValueOnce(makeTextStream("ok"));
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
+
+    await runAgenticChat({
+      adapter,
+      model: "m",
+      systemPrompt: "s",
+      userContent: "u",
+      ctx: { ...ctx, conversationId: "conv_abc123" },
+      temperature: 0,
+      maxTokens: 200,
+    });
+
+    expect(mockSetConversationTitleOnce).not.toHaveBeenCalled();
   });
 });

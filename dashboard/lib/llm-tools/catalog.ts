@@ -312,15 +312,38 @@ const INSPECTION_TOOL_NAMES = new Set([
   "get_dashboard_all_widget_status",
 ]);
 
+/** Free-chat-only: lets the LLM set a concise conversation title on first response. */
+const SET_TITLE_TOOL: ChatCompletionTool = {
+  type: "function",
+  function: {
+    name: "set_title",
+    description:
+      "Set a concise title (5-7 words, Spanish) for this conversation. Call this once in your first response.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: {
+          type: "string",
+          description: "Concise conversation title in Spanish (5-7 words).",
+        },
+      },
+      required: ["title"],
+    },
+  },
+};
+
 /**
- * Tools available in the free-chat flow: 10 inspection tools + start_dashboard_generation.
+ * Tools available in the free-chat flow: 10 inspection tools + start_dashboard_generation + set_title = 12 tools.
  * Does NOT include modification/analysis/review publish tools.
  */
-export const FREE_CHAT_TOOLS: ChatCompletionTool[] = DASHBOARD_AGENTIC_TOOLS.filter(
-  (t): t is Extract<ChatCompletionTool, { type: "function" }> =>
-    t.type === "function" &&
-    (INSPECTION_TOOL_NAMES.has(t.function.name) || t.function.name === "start_dashboard_generation"),
-);
+export const FREE_CHAT_TOOLS: ChatCompletionTool[] = [
+  ...DASHBOARD_AGENTIC_TOOLS.filter(
+    (t): t is Extract<ChatCompletionTool, { type: "function" }> =>
+      t.type === "function" &&
+      (INSPECTION_TOOL_NAMES.has(t.function.name) || t.function.name === "start_dashboard_generation"),
+  ),
+  SET_TITLE_TOOL,
+];
 
 /**
  * All tools, including modification, analysis, review, and generation tools.

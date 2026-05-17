@@ -9,14 +9,14 @@ run-name: >-
 on:
   pull_request:
     # Strict Copilot-then-Opus sequencing (D-031, issue #580 fallout):
-    # this workflow fires ONLY when `ai-ready-for-review` is applied, which
+    # this workflow fires ONLY when `fact-ready-for-review` is applied, which
     # happens at exactly one moment in the lifecycle — when address-feedback
-    # finishes addressing the Copilot review and adds `ai-phase-opus +
-    # ai-ready-for-review`. Previously `opened`/`reopened`/`ready_for_review`
+    # finishes addressing the Copilot review and adds `fact-phase-opus +
+    # fact-ready-for-review`. Previously `opened`/`reopened`/`ready_for_review`
     # were also in `types:`, which caused Opus to race against Copilot on
     # fresh PRs (PRs #594, #596 both got an Opus review at PR-open time
     # before Copilot had even posted, leaving the chain stuck in
-    # `ai-phase-opus` because address-feedback only processed the latest
+    # `fact-phase-opus` because address-feedback only processed the latest
     # review). Workflow_dispatch remains for manual re-fires.
     types: [labeled]
   workflow_dispatch:
@@ -29,7 +29,7 @@ on:
 # Per-PR concurrency. The previous global `ai-pr-review-global` group serialised
 # every Opus review repo-wide; when many PRs landed at once, downstream steps
 # that dispatch this workflow (e.g. the phase-advance in ai-address-feedback)
-# stranded PRs in `ai-phase-opus` forever (PR #496 was stuck overnight). Per-PR
+# stranded PRs in `fact-phase-opus` forever (PR #496 was stuck overnight). Per-PR
 # groups still prevent two concurrent reviews of the same PR while letting
 # different PRs proceed in parallel. Anthropic-side rate limits are handled by
 # the claude-code-action's own retry.
@@ -52,7 +52,7 @@ jobs:
       ) || (
         github.event_name == 'pull_request' &&
         github.event.action == 'labeled' &&
-        github.event.label.name == 'ai-ready-for-review' &&
+        github.event.label.name == 'fact-ready-for-review' &&
         github.event.pull_request.draft == false &&
         !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
         github.event.pull_request.head.repo.full_name == github.repository
@@ -71,9 +71,9 @@ jobs:
       # same commit. PR #561 received THREE Claude reviews on the same head
       # SHA (11:54, 11:55, 12:45 on 2026-05-10) because:
       #   - ai-pr-review fires on `opened`, `reopened`, `ready_for_review`,
-      #     and `labeled (ai-ready-for-review)`. Each can re-fire while the
-      #     prior run hasn't finished tagging `ai-o-after-1`.
-      #   - The watchdog `Stuck ai-phase-opus` step (D-021 recovery) can
+      #     and `labeled (fact-ready-for-review)`. Each can re-fire while the
+      #     prior run hasn't finished tagging `fact-o-after-1`.
+      #   - The watchdog `Stuck fact-phase-opus` step (D-021 recovery) can
       #     dispatch ai-pr-review again before the prior workflow has
       #     finished posting its review.
       # Per-PR concurrency does NOT prevent this — it only serializes; the
@@ -101,7 +101,7 @@ jobs:
           # submitting an inline-reply review (state=COMMENTED, body=""), so
           # after a single round there are typically 3-10 such "reviews" on
           # the new head SHA. Counting them caused every Opus dispatch to
-          # short-circuit, leaving PRs stranded in ai-phase-opus until the
+          # short-circuit, leaving PRs stranded in fact-phase-opus until the
           # watchdog stamped ai-blocked (PRs #629, #640, #644-650 — see
           # docs/decisions/D-033-opus-review-marker.md).
           #
@@ -127,31 +127,31 @@ jobs:
 
           LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
             --json labels --jq '[.labels[].name] | join(",")')
-          if echo ",$LABELS," | grep -q ",ai-cp-after-1," \
-             && echo ",$LABELS," | grep -q ",ai-o-after-1,"; then
-            echo "PR #$PR_NUMBER already has ai-cp-after-1 + ai-o-after-1 — D-021 converged."
+          if echo ",$LABELS," | grep -q ",fact-cp-after-1," \
+             && echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
+            echo "PR #$PR_NUMBER already has fact-cp-after-1 + fact-o-after-1 — D-021 converged."
             # Always clean up phase labels (cosmetic; safe).
             # REST API — see #611.
-            for l in ai-ready-for-review ai-phase-copilot ai-phase-opus; do
+            for l in fact-ready-for-review fact-phase-copilot fact-phase-opus; do
               gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
             done
             # Owner-handoff label is CI-gated, mirroring `owner_handoff_or_ci_gate`
             # in ai-address-feedback.yml: only mark `ai-awaiting-owner` when CI
-            # is green for the head SHA. If `ai-ci-failing` is already set or CI
+            # is green for the head SHA. If `fact-ci-failing` is already set or CI
             # is not (yet) green, leave that label as-is and post a different
             # comment so we don't claim merge-ready prematurely.
             HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
             CI_STATE=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" \
               --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
               2>/dev/null || echo "unknown")
-            if echo ",$LABELS," | grep -q ",ai-ci-failing,"; then
+            if echo ",$LABELS," | grep -q ",fact-ci-failing,"; then
               CI_STATE="failing"
             fi
             if [ "$CI_STATE" = "ready" ]; then
               # REST API — see #611 (gh pr edit exits non-zero on projectCards deprecation).
               gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
               gh pr comment "$PR_NUMBER" --repo "$REPO" \
-                --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed (\`ai-cp-after-1\` + \`ai-o-after-1\`). Skipping additional review. Awaiting owner merge decision." || true
+                --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed (\`fact-cp-after-1\` + \`fact-o-after-1\`). Skipping additional review. Awaiting owner merge decision." || true
             else
               gh pr comment "$PR_NUMBER" --repo "$REPO" \
                 --body "ℹ️ **AI Factory**: D-021 — both rounds already addressed. Skipping additional review. **Not marking \`ai-awaiting-owner\`** because CI is \`$CI_STATE\`." || true
@@ -166,13 +166,13 @@ jobs:
       # ai-awaiting-owner here any more — stripping it on every dispatch was
       # what let the cold-dispatch loop undo the converged state on #493 / #495.
       # The d021 step above already cleans up label state for converged PRs.
-      - name: Clear ai-ready-for-review (best-effort)
+      - name: Clear fact-ready-for-review (best-effort)
         if: steps.d021.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           # REST API — see #611.
-          for l in ai-ready-for-review ai-ci-failing; do
+          for l in fact-ready-for-review fact-ci-failing; do
             gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
           done
 
@@ -253,7 +253,7 @@ jobs:
         run: |
           set -euo pipefail
           # REST API — see #611.
-          gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/ai-ready-for-review" >/dev/null 2>&1 || true
+          gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/fact-ready-for-review" >/dev/null 2>&1 || true
           # Don't re-request Copilot here — the dispatcher already did. Just
           # explain why Claude can't review this PR so nobody thinks it failed.
           MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. **Copilot review still runs** (no such restriction). Merge with human + Copilot review."
@@ -323,7 +323,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # REST API — see #611.
-          for l in ai-blocked ai-auto-retry; do
+          for l in ai-blocked fact-auto-retry; do
             gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
           done
 
@@ -349,7 +349,7 @@ jobs:
         # at this point — the prior bug on PR #595 was a GraphQL 504 in the
         # review step followed by `gh pr edit` failing with "not a git
         # repository" because there's no `--repo` fallback. Result: no
-        # ai-blocked / ai-auto-retry labels and a silent 5 h stall.
+        # ai-blocked / fact-auto-retry labels and a silent 5 h stall.
         if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
@@ -366,10 +366,10 @@ jobs:
           # see the retry marker and the PR stalls silently. Let the step go
           # red so the failure is visible in the Actions UI.
           gh pr comment "$PR_NUMBER" --repo "$REPO" \
-            --body "⚠️ AI PR Review failed. Marking \`ai-ready-for-review\` + \`ai-blocked\` + \`ai-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }})."
+            --body "⚠️ AI PR Review failed. Marking \`fact-ready-for-review\` + \`ai-blocked\` + \`fact-auto-retry\` — watchdog will retry automatically.${RESET_LINE} See [workflow run](${{ github.server_url }}/$REPO/actions/runs/${{ github.run_id }})."
           # REST API — see #611. Strict (no || true) — if the bot can't even
           # stamp the retry markers, the watchdog has nothing to recover from
           # and the failure must be visible in the Actions UI (D-031).
-          for l in ai-ready-for-review ai-blocked ai-auto-retry; do
+          for l in fact-ready-for-review ai-blocked fact-auto-retry; do
             gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=$l" >/dev/null
           done

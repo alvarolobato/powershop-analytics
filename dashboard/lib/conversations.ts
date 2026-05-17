@@ -39,6 +39,7 @@ export interface ConversationRow {
   llm_driver: string | null;
   initial_context: InitialContext | null;
   created_by: string | null;
+  last_read_at: string | null;
 }
 
 export interface MessageRow {
@@ -63,6 +64,8 @@ export interface ConversationListRow extends ConversationRow {
   token_total: number;
   /** Dashboard name when context_kind='dashboard', resolved via LEFT JOIN. */
   context_dashboard_name?: string | null;
+  /** True when the conversation has unread activity since last_read_at. */
+  is_unread: boolean;
 }
 
 export interface ListConversationsOptions {
@@ -141,7 +144,7 @@ export async function getConversation(id: string): Promise<ConversationRow | nul
   const rows = await sql<ConversationRow>(
     `SELECT id, mode, title, first_user_prompt, context_url, context_kind, context_ref,
             created_at, last_interaction_at, archived_at, last_status,
-            llm_provider, llm_driver, initial_context, created_by
+            llm_provider, llm_driver, initial_context, created_by, last_read_at
      FROM conversations
      WHERE id = $1`,
     [id],
@@ -238,6 +241,13 @@ export async function listConversations(
        c.id, c.mode, c.title, c.first_user_prompt, c.context_url, c.context_kind,
        c.context_ref, c.created_at, c.last_interaction_at, c.archived_at,
        c.last_status, c.llm_provider, c.llm_driver, c.initial_context, c.created_by,
+       c.last_read_at,
+       -- is_unread: true when there is activity after last_read_at (or never read and has activity)
+       COALESCE(
+         (c.last_read_at IS NULL AND c.last_interaction_at > c.created_at) OR
+         (c.last_read_at IS NOT NULL AND c.last_interaction_at > c.last_read_at),
+         false
+       ) AS is_unread,
        -- dashboard name when context_kind='dashboard'
        d.name AS context_dashboard_name,
        -- message count
@@ -461,6 +471,14 @@ export async function setInitialContext(
   );
 }
 
+/** Mark a conversation as read by setting last_read_at to the current timestamp. */
+export async function markConversationRead(id: string): Promise<void> {
+  await sql(
+    `UPDATE conversations SET last_read_at = NOW() WHERE id = $1`,
+    [id],
+  );
+}
+
 export async function updateLastStatus(
   conversationId: string,
   status: "ok" | "error",
@@ -475,6 +493,11 @@ export async function updateLastStatus(
 
 export async function updateConversationTitle(id: string, title: string): Promise<void> {
   await sql(`UPDATE conversations SET title = $2 WHERE id = $1`, [id, title]);
+}
+
+/** Sets the title only when it has not been set yet (title IS NULL). Idempotent — safe to call from tools that must run at most once. */
+export async function setConversationTitleOnce(id: string, title: string): Promise<void> {
+  await sql(`UPDATE conversations SET title = $2 WHERE id = $1 AND title IS NULL`, [id, title]);
 }
 
 /** Sets or clears archived_at. Passes timestamp as a param so callers can verify it. */

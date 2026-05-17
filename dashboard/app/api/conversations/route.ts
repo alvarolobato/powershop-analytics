@@ -7,8 +7,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   listConversations,
   createConversation,
+  setInitialContext,
 } from "@/lib/conversations";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
+import { buildFreeChatInitialContextSnapshot } from "@/lib/conversation-context";
 
 const VALID_MODES = new Set([
   "generate",
@@ -140,6 +142,20 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       llm_provider,
       llm_driver,
     });
+
+    // Snapshot initial_context immediately for free-chat conversations so that
+    // GET /api/conversations/:id returns it without waiting for the first message.
+    if (mode === "chat" && context_kind === "global") {
+      try {
+        await setInitialContext(result.id, buildFreeChatInitialContextSnapshot());
+      } catch (snapshotErr) {
+        console.warn(
+          `[${requestId}] POST /api/conversations setInitialContext failed for ${result.id}:`,
+          snapshotErr,
+        );
+      }
+    }
+
     return NextResponse.json(result, { status: 201 });
   } catch (err) {
     console.error(`[${requestId}] POST /api/conversations error:`, err);

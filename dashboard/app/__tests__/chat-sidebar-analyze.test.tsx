@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor, act } from "@testing-library/react"
 import "@testing-library/jest-dom/vitest";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { DashboardSpec } from "@/lib/schema";
+import { _resetCacheForTesting } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -48,6 +49,7 @@ describe("ChatSidebar — Analizar tab", () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    _resetCacheForTesting();
   });
 
   afterEach(() => {
@@ -154,9 +156,11 @@ describe("ChatSidebar — Analizar tab", () => {
       );
     });
 
-    // Verify the action was sent
-    const callArg = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0][1];
-    const body = JSON.parse(callArg.body);
+    // Verify the action was sent (find the analyze call by URL, ignoring model-config calls)
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    const analyzeCall = fetchMock.mock.calls.find(([url]) => url === "/api/dashboard/analyze");
+    expect(analyzeCall).toBeDefined();
+    const body = JSON.parse(analyzeCall![1].body as string);
     expect(body.action).toBe("explicar");
     expect(body.prompt).toBe("Explícame los datos del dashboard");
   });
@@ -232,6 +236,11 @@ describe("ChatSidebar — Analizar tab", () => {
 
   it("clicking a suggestion chip auto-sends the question", async () => {
     const fetchMock = vi.fn()
+      // model-config endpoint called on mount by useConfiguredModel
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ model: "test/model" }),
+      })
       .mockResolvedValueOnce({
         ok: true,
         json: () =>
@@ -276,7 +285,10 @@ describe("ChatSidebar — Analizar tab", () => {
     });
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const analyzeCalls = fetchMock.mock.calls.filter(
+        ([url]) => url === "/api/dashboard/analyze",
+      );
+      expect(analyzeCalls).toHaveLength(2);
     });
 
     // Second user message shown

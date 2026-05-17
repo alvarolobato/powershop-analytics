@@ -5,6 +5,7 @@ import type { ConversationWithMessages, ConversationMessage } from "@/lib/conver
 import { isApiErrorResponse } from "@/lib/errors";
 import { getModeStyle } from "@/lib/conversation-mode-style";
 import { ConversationThread } from "./conversation/ConversationThread";
+import { useConfiguredModel, displayModelName } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Footer input
@@ -173,9 +174,10 @@ interface HeaderProps {
   conv: ConversationWithMessages;
   onTitleChange: (newTitle: string) => void;
   onArchiveToggle: () => void;
+  fallbackModel: string | null;
 }
 
-function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProps) {
+function ConversationHeader({ conv, onTitleChange, onArchiveToggle, fallbackModel }: HeaderProps) {
   const [editing, setEditing] = useState(false);
   const [titleValue, setTitleValue] = useState(conv.title ?? conv.first_user_prompt ?? "");
   const [shareOpen, setShareOpen] = useState(false);
@@ -302,6 +304,26 @@ function ConversationHeader({ conv, onTitleChange, onArchiveToggle }: HeaderProp
       >
         {modeStyle.label}
       </span>
+
+      {/* Model indicator */}
+      {(() => {
+        const rawModel = conv.initial_context?.model ?? fallbackModel;
+        if (!rawModel) return null;
+        const displayModel = displayModelName(rawModel);
+        return (
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--fg-subtle)",
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+            title={rawModel}
+          >
+            {displayModel}
+          </span>
+        );
+      })()}
 
       {/* Actions */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -454,6 +476,8 @@ interface ConversationViewerProps {
 export function ConversationViewer({ initial }: ConversationViewerProps) {
   const [conv, setConv] = useState<ConversationWithMessages>(initial);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const fallbackModel = useConfiguredModel();
+  const autoSendFired = useRef(false);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -461,6 +485,57 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
   }, [conv.messages.length]);
+
+  // On mount: if NewConversationDialog left a pending prompt in sessionStorage, auto-send it
+  // and mark as read after the response (prevents last_interaction_at racing ahead of
+  // last_read_at). Otherwise mark as read immediately.
+  useEffect(() => {
+    const key = `conv-autosend-${initial.id}`;
+    const stored = typeof window !== "undefined" ? sessionStorage.getItem(key) : null;
+    const text = stored?.trim() ?? "";
+
+    const markRead = () =>
+      void fetch(`/api/conversations/${initial.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ last_read_at: "now" }),
+      }).catch(() => {});
+
+    if (!text || autoSendFired.current) {
+      markRead();
+      return;
+    }
+
+    autoSendFired.current = true;
+    sessionStorage.removeItem(key);
+
+    const userMsg: ConversationMessage = {
+      id: `local-user-${Date.now()}`,
+      conversation_id: initial.id,
+      role: "user",
+      content: { text },
+      created_at: new Date().toISOString(),
+    };
+    setConv((c) => ({ ...c, messages: [...c.messages, userMsg] }));
+
+    void fetch(`/api/conversations/${initial.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: text, callLlm: true }),
+    })
+      .then(async (res) => {
+        // Mark read AFTER the message is persisted so last_read_at >= last_interaction_at.
+        markRead();
+        if (!res.ok) return;
+        const data = await res.json();
+        const raw = data?.message;
+        if (raw && typeof raw === "object" && "id" in raw) {
+          setConv((c) => ({ ...c, messages: [...c.messages, raw as ConversationMessage] }));
+        }
+      })
+      .catch(() => { markRead(); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial.id]);
 
   const handleTitleChange = useCallback((newTitle: string) => {
     setConv((c) => ({ ...c, title: newTitle }));
@@ -503,6 +578,7 @@ export function ConversationViewer({ initial }: ConversationViewerProps) {
         conv={conv}
         onTitleChange={handleTitleChange}
         onArchiveToggle={() => void handleArchiveToggle()}
+        fallbackModel={fallbackModel}
       />
 
       {/* Body */}

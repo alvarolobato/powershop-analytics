@@ -17,6 +17,7 @@ import type { InitialContext } from "@/lib/conversation-types";
 import type { ChatMessage, ConversationApiMessage } from "./conversation/types";
 import { MessageList } from "./conversation/MessageList";
 import { convertConversationMessages } from "./conversation/convertConversationMessages";
+import { useConfiguredModel, displayModelName } from "@/lib/useConfiguredModel";
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -1311,6 +1312,7 @@ export default function ChatSidebar({
   initialAnalyzeContext,
   initialConversationId,
 }: ChatSidebarProps) {
+  const configuredModel = useConfiguredModel();
   const [activeTab, setActiveTab] = useState<"modificar" | "analizar">(
     initialMode ?? "modificar"
   );
@@ -1663,7 +1665,7 @@ export default function ChatSidebar({
                   flexShrink: 0,
                 }}
               />
-              Conectado · claude-sonnet
+              {`Conectado · ${configuredModel ? displayModelName(configuredModel) : "..."}`}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>

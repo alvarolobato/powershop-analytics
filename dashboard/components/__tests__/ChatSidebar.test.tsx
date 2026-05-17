@@ -437,7 +437,10 @@ describe("ChatSidebar", () => {
   // -----------------------------------------------------------------------
 
   it("does not send empty messages", () => {
-    globalThis.fetch = vi.fn();
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ model: "test/model" }),
+    });
 
     render(
       <ChatSidebar
@@ -452,7 +455,11 @@ describe("ChatSidebar", () => {
     expect(screen.getByLabelText("Enviar")).toBeDisabled();
 
     fireEvent.click(screen.getByLabelText("Enviar"));
-    expect(globalThis.fetch).not.toHaveBeenCalled();
+    // The model endpoint may be called on mount; the modify endpoint must not be called
+    expect(globalThis.fetch).not.toHaveBeenCalledWith(
+      expect.stringContaining("/api/dashboard/modify"),
+      expect.anything(),
+    );
   });
 
   // -----------------------------------------------------------------------
