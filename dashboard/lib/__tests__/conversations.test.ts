@@ -274,7 +274,8 @@ describe("getConversationWithMessages", () => {
     const msg = { id: "msg-1", conversation_id: "abc123", role: "user", content: { text: "Hola" }, created_at: "2026-01-01" };
     mockSql
       .mockResolvedValueOnce([conv])  // getConversation
-      .mockResolvedValueOnce([msg]);  // messages query
+      .mockResolvedValueOnce([msg])   // messages query
+      .mockResolvedValueOnce([]);     // activeTurns query
 
     const result = await getConversationWithMessages("abc123");
     expect(result).not.toBeNull();

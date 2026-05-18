@@ -18,6 +18,7 @@
  */
 
 import { readFileSync, existsSync } from "fs";
+import { resolve } from "path";
 import { getPool } from "@/lib/db-write";
 
 const DEFAULT_SCHEMA_PATH = "/app/schema/init.sql";
@@ -26,6 +27,9 @@ function resolveSchemaPath(): string | null {
   const envPath = process.env.SCHEMA_SQL_PATH;
   if (envPath && existsSync(envPath)) return envPath;
   if (existsSync(DEFAULT_SCHEMA_PATH)) return DEFAULT_SCHEMA_PATH;
+  // Dev/CI: dashboard/ is cwd, init.sql lives at ../etl/schema/init.sql
+  const devPath = resolve(process.cwd(), "..", "etl", "schema", "init.sql");
+  if (existsSync(devPath)) return devPath;
   return null;
 }
 
