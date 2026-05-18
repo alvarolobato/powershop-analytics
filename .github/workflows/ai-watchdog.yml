@@ -1010,6 +1010,42 @@ jobs:
             sleep 30  # stagger to avoid hammering the rate limit
           done
 
+      - name: Converged PRs awaiting CI-green handoff (fact-o-after-1 + CI ready → ai-awaiting-owner)
+        run: |
+          set -uo pipefail
+          # Gap identified 2026-05-18: when owner_handoff_or_ci_gate runs in
+          # address-feedback and CI is still "running", it posts a warning but
+          # does NOT add ai-awaiting-owner and does NOT set fact-ci-failing.
+          # Result: the PR is stuck with fact-o-after-1 but no ai-awaiting-owner
+          # until the next watchdog cycle that explicitly re-checks CI state.
+          # This step fills that gap.
+          mkdir -p .github/scripts
+          gh api "repos/$REPO_FULL/contents/.github/scripts/ci-handoff-state.sh?ref=${{ github.event.repository.default_branch }}" \
+            | jq -r '.content' | base64 -d > .github/scripts/ci-handoff-state.sh
+          chmod +x .github/scripts/ci-handoff-state.sh
+          gh pr list --repo "$REPO_FULL" --state open --label "fact-o-after-1" \
+            --json number,labels --jq '.[] | select(
+              ([.labels[].name] | any(. == "ai-awaiting-owner")) | not
+            ) | .number' | while read -r NUM; do
+            LABELS=$(gh pr view "$NUM" --repo "$REPO_FULL" --json labels \
+              --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+            if echo ",$LABELS," | grep -qE ",fact-phase-(copilot|opus),"; then
+              echo "PR #$NUM: active phase label still present, skipping."
+              continue
+            fi
+            if echo ",$LABELS," | grep -q ",ai-blocked,"; then
+              continue
+            fi
+            hs=$(bash .github/scripts/ci-handoff-state.sh "$REPO_FULL" "$NUM")
+            echo "PR #$NUM: fact-o-after-1 + no ai-awaiting-owner — CI state: $hs"
+            if [ "$hs" = "ready" ]; then
+              gh api -X DELETE "repos/$REPO_FULL/issues/$NUM/labels/fact-ci-failing" >/dev/null 2>&1 || true
+              gh api -X POST "repos/$REPO_FULL/issues/$NUM/labels" \
+                -f "labels[]=ai-awaiting-owner" >/dev/null 2>&1 || true
+              echo "  → Added ai-awaiting-owner to PR #$NUM (CI ready, D-021 converged)."
+            fi
+          done
+
       - name: Clear fact-ci-failing when CI is green
         run: |
           set -euo pipefail
