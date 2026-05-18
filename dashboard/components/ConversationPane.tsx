@@ -406,6 +406,7 @@ export function ConversationPane({
             const map = new Map(prev);
             const existing = map.get(turnId) ?? {
               context: null,
+              thinking: null,
               logs: [],
               complete: false,
               error: null,
