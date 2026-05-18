@@ -24,6 +24,31 @@ import { generateRequestId } from "@/lib/errors";
 // Re-export for use in tests without importing from route
 export type { ConversationRow };
 
+// ── Tool arg formatting ────────────────────────────────────────────────────────
+
+function formatToolArgs(toolName: string, argsPreview?: string): string {
+  if (!argsPreview) return "";
+  // argsPreview is the raw JSON of the tool arguments. For known tools, extract
+  // the most readable field rather than showing the full escaped JSON string.
+  try {
+    const args = JSON.parse(argsPreview) as Record<string, unknown>;
+    if (toolName === "execute_query" && typeof args.sql === "string") {
+      return args.sql.replace(/\s+/g, " ").slice(0, 120);
+    }
+    if (toolName === "describe_table" && typeof args.table_name === "string") {
+      return args.table_name;
+    }
+    if (typeof args.query === "string") return args.query.slice(0, 120);
+    if (typeof args.sql === "string") return args.sql.slice(0, 120);
+    if (typeof args.name === "string") return args.name;
+    // Generic fallback: show first string value
+    const first = Object.values(args).find((v) => typeof v === "string");
+    return first ? String(first).slice(0, 120) : argsPreview.slice(0, 80);
+  } catch {
+    return argsPreview.slice(0, 80);
+  }
+}
+
 // ── Sequential event counter per turn ─────────────────────────────────────────
 
 function makeSeq(): () => number {
@@ -264,26 +289,59 @@ async function runDashboardTurn(
       | "modifyDashboard",
     conversationId: conversation.id,
     // Wire agentic progress events to SSE so the client sees tool steps in real time.
-    onAgenticProgress: (event) => {
-      let text: string | null = null;
-      if (event.type === "tool_start") {
-        text = `▶ ${event.name}${event.argsPreview ? `: ${event.argsPreview}` : ""}`;
-      } else if (event.type === "tool_done") {
-        text = `${event.ok ? "✓" : "✗"} ${event.name} (${event.ms}ms)`;
-      } else if (event.type === "model_text_delta" && event.text) {
-        // Stream tokens: emit a token event so the UI can show typing.
-        void emitTurnEvent(conversationId, turnId, seq(), "token", {
-          delta: event.text,
-        }).catch(() => {});
-        return;
-      }
-      if (text) {
-        void emitTurnEvent(conversationId, turnId, seq(), "log", {
-          kind: "tool",
-          text,
-          ts: new Date().toISOString(),
-        }).catch(() => {});
-      }
+    onAgenticProgress: (() => {
+      // Track whether the current round is a tool-calling round.
+      // model_text_delta fires BEFORE assistant_tools in the same round, so we
+      // optimistically stream tokens, then clear them when tools are detected.
+      let inToolRound = false;
+      return (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => {
+        if (event.type === "round") {
+          inToolRound = false;
+        } else if (event.type === "assistant_tools") {
+          // This round is tool-calling: the model_text_delta events were tool
+          // call JSON, not prose. Send an empty token event to clear the UI.
+          inToolRound = true;
+          void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
+          return;
+        } else if (event.type === "model_text_delta" && event.text && !inToolRound) {
+          // model_text_delta.text is CUMULATIVE (full text so far, not a delta).
+          // Emit as token event; client replaces (not appends) streamingText.
+          void emitTurnEvent(conversationId, turnId, seq(), "token", {
+            text: event.text,
+          }).catch(() => {});
+          return;
+        }
+
+        // Tool progress log lines — parse args into readable form.
+        let logText: string | null = null;
+        if (event.type === "tool_start") {
+          const args = formatToolArgs(event.name, event.argsPreview);
+          logText = `▶ ${event.name}${args ? `: ${args}` : ""}`;
+        } else if (event.type === "tool_done") {
+          logText = `${event.ok ? "✓" : "✗"} ${event.name} (${event.ms}ms)`;
+        }
+        if (logText) {
+          void emitTurnEvent(conversationId, turnId, seq(), "log", {
+            kind: "tool",
+            text: logText,
+            ts: new Date().toISOString(),
+          }).catch(() => {});
+        }
+      };
+    })(),
+    // Callback from analyzeDashboard/modifyDashboard once the system prompt is built.
+    // Emits an updated context event so the UI can show the full prompt sent to the LLM.
+    onSystemPromptReady: (systemPrompt: string) => {
+      void emitTurnEvent(conversationId, turnId, seq(), "context", {
+        context: {
+          model: conversation.llm_driver ?? conversation.llm_provider ?? "unknown",
+          provider: conversation.llm_provider ?? "unknown",
+          flow: mode,
+          seed_prompt: userMessage,
+          system_prompt_stable: systemPrompt,
+        },
+        requestId,
+      }).catch(() => {});
     },
   };
 

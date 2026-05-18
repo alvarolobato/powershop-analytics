@@ -279,6 +279,7 @@ export async function modifyDashboard(
     const agenticPreamble = buildAgenticToolPreamble();
     const promptSplit = buildModifyPromptSplit(currentSpec, true);
     const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
+    ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`);
     const cachedMsg =
       cfg.provider === "openrouter"
         ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
@@ -439,6 +440,7 @@ export async function analyzeDashboard(
       dashboardId: requestCtx.dashboardId,
       agenticMode: true,
     })}\n\n${buildAgenticToolPreamble()}`;
+    ctx?.onSystemPromptReady?.(systemPrompt);
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "analyze");
     const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "analyze");

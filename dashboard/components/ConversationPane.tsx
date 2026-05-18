@@ -364,10 +364,11 @@ export function ConversationPane({
           });
         }
       } else if (eventType === "token") {
-        // Streaming token delta from analyze/modify/generate flows.
-        const delta = (payload.delta as string | undefined) ?? "";
-        if (delta && pendingTurnIdRef.current === turnId) {
-          setStreamingText((prev) => prev + delta);
+        // model_text_delta.text is CUMULATIVE (full text so far, not a delta).
+        // Replace streamingText entirely. Empty string = clear (tool round detected).
+        const text = (payload.text as string | undefined) ?? (payload.delta as string | undefined) ?? "";
+        if (pendingTurnIdRef.current === turnId) {
+          setStreamingText(text);
         }
       } else if (eventType === "spec_update") {
         handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
