@@ -35,6 +35,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Schema file must be at /app/config/schema.yaml at runtime (resolveSchemaPath priority #2).
 COPY --chown=nextjs:nodejs config/schema.yaml /app/config/schema.yaml
 COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
+# Wrapper sets keepAliveTimeout=65s before Next.js creates its HTTP server.
+# The default Node.js 18+ value (5s) drops SSE connections mid-stream.
+COPY --chown=nextjs:nodejs server-wrapper.js /app/server-wrapper.js
 
 USER nextjs
 
@@ -44,4 +47,4 @@ ENV PORT=4000
 ENV HOSTNAME="0.0.0.0"
 
 ENTRYPOINT ["/app/docker-entrypoint.sh"]
-CMD ["node", "server.js"]
+CMD ["node", "server-wrapper.js"]

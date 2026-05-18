@@ -29,7 +29,10 @@ import { formatApiError, generateRequestId } from "@/lib/errors";
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
 const ID_PATTERN = /^[a-f0-9]{12}$/;
-const KEEPALIVE_MS = 15_000;
+// Must be shorter than the server's Keep-Alive timeout (5 s in Next.js standalone).
+// Without a ping within 5 s, the connection closes and the client replays all
+// events as a batch on reconnect, breaking live streaming.
+const KEEPALIVE_MS = 3_000;
 
 export async function GET(
   request: NextRequest,
