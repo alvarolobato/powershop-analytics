@@ -1,7 +1,7 @@
 name: AI Post-Merge EC Verify
 # Safety net: when a PR merges and auto-closes a linked issue, check whether
 # the issue's Exit Criteria (EC) items are all verified. If any are unverified,
-# re-open the issue and add `ai-parent-incomplete` so it doesn't silently vanish.
+# re-open the issue and add `fact-parent-incomplete` so it doesn't silently vanish.
 # Complements the Phase-walker EC guard in ai-worker.yml (which blocks `Closes #N`
 # before the PR is created). This workflow catches cases the worker misses.
 on:
@@ -86,12 +86,12 @@ jobs:
                 echo "Re-opened issue #$ISSUE_NUM ($UNCHECKED_EC EC items unverified)."
               fi
 
-              # Label: ai-parent-incomplete. Create if missing.
-              gh label create "ai-parent-incomplete" --color "e4e669" \
+              # Label: fact-parent-incomplete. Create if missing.
+              gh label create "fact-parent-incomplete" --color "e4e669" \
                 --description "Parent issue has unmet Exit Criteria — not safe to close" \
                 --repo "$REPO" 2>/dev/null || true
               gh api -X POST "repos/$REPO/issues/$ISSUE_NUM/labels" \
-                -f "labels[]=ai-parent-incomplete" >/dev/null 2>&1 || true
+                -f "labels[]=fact-parent-incomplete" >/dev/null 2>&1 || true
 
               # Remove ai-awaiting-owner — issue still needs work.
               gh api -X DELETE "repos/$REPO/issues/$ISSUE_NUM/labels/ai-awaiting-owner" \
