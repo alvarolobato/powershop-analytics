@@ -103,11 +103,21 @@ async function* readSseStream(
 
 // ── Log payload conversion ─────────────────────────────────────────────────
 
+function fmtTs(iso: string | undefined): string {
+  if (!iso) return "";
+  try {
+    // Show just HH:MM:SS from the ISO timestamp
+    return new Date(iso).toTimeString().slice(0, 8);
+  } catch {
+    return iso.slice(11, 19) || "";
+  }
+}
+
 function payloadToLogLine(payload: Record<string, unknown>): LogLine | null {
   // Full LogLine structure (from agentic runner)
   if (typeof payload.label === "string") {
     return {
-      timestamp: (payload.timestamp as string | undefined) ?? "",
+      timestamp: fmtTs(payload.timestamp as string | undefined),
       kind: (["tool", "reason", "done"].includes(payload.kind as string)
         ? payload.kind
         : "default") as LogLine["kind"],
@@ -119,7 +129,7 @@ function payloadToLogLine(payload: Record<string, unknown>): LogLine | null {
   // Simple {kind, text, ts} format emitted directly by turn-background
   if (typeof payload.text === "string") {
     return {
-      timestamp: (payload.ts as string | undefined) ?? "",
+      timestamp: fmtTs(payload.ts as string | undefined),
       kind: "default",
       label: payload.text,
     };

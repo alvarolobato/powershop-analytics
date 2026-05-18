@@ -25,6 +25,7 @@ import {
 } from "./llm-provider/config";
 import type { DashboardLlmConfig, DashboardLlmFlow } from "./llm-provider/types";
 import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
+import { DASHBOARD_AGENTIC_TOOLS } from "./llm-tools/catalog";
 import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
@@ -279,7 +280,8 @@ export async function modifyDashboard(
     const agenticPreamble = buildAgenticToolPreamble();
     const promptSplit = buildModifyPromptSplit(currentSpec, true);
     const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
-    ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`);
+    const modifyToolNames = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+    ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`, modifyToolNames);
     const cachedMsg =
       cfg.provider === "openrouter"
         ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
@@ -440,7 +442,8 @@ export async function analyzeDashboard(
       dashboardId: requestCtx.dashboardId,
       agenticMode: true,
     })}\n\n${buildAgenticToolPreamble()}`;
-    ctx?.onSystemPromptReady?.(systemPrompt);
+    const analyzeToolNames = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+    ctx?.onSystemPromptReady?.(systemPrompt, analyzeToolNames);
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "analyze");
     const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "analyze");

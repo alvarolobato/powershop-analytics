@@ -221,6 +221,13 @@ export function InitialContextPanel({ context }: InitialContextPanelProps) {
             </span>
           </FieldRow>
 
+          {/* Prior messages in context */}
+          {context.prior_messages !== undefined && (
+            <FieldRow label="Mensajes previos en contexto">
+              <span>{context.prior_messages} mensaje{context.prior_messages !== 1 ? "s" : ""}</span>
+            </FieldRow>
+          )}
+
           {/* Prompt inicial */}
           {context.seed_prompt && (
             <FieldRow label="Prompt inicial del usuario">
@@ -268,24 +275,21 @@ export function InitialContextPanel({ context }: InitialContextPanelProps) {
             </div>
           )}
 
-          {/* Config */}
-          {context.config && (
+          {/* Config — only show readable fields, not raw dashboard spec JSON */}
+          {context.config && Object.keys(context.config).length > 0 && (
             <FieldRow label="Configuración">
-              <pre
-                style={{
-                  margin: 0,
-                  fontSize: 11,
-                  fontFamily: "var(--font-jetbrains, monospace)",
-                  color: "var(--fg)",
-                  background: "var(--bg-1)",
-                  borderRadius: 4,
-                  padding: "6px 8px",
-                  border: "1px solid var(--border)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {JSON.stringify(context.config, null, 2)}
-              </pre>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                {Object.entries(context.config)
+                  .filter(([, v]) => typeof v !== "string" || v.length < 200)
+                  .map(([k, v]) => (
+                    <span key={k} style={{ fontSize: 11, fontFamily: "var(--font-jetbrains, monospace)" }}>
+                      <span style={{ color: "var(--fg-muted)" }}>{k}: </span>
+                      <span style={{ color: "var(--fg)" }}>
+                        {typeof v === "string" ? v : JSON.stringify(v)}
+                      </span>
+                    </span>
+                  ))}
+              </div>
             </FieldRow>
           )}
         </div>

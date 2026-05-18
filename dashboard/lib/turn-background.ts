@@ -28,25 +28,33 @@ export type { ConversationRow };
 
 function formatToolArgs(toolName: string, argsPreview?: string): string {
   if (!argsPreview) return "";
-  // argsPreview is the raw JSON of the tool arguments. For known tools, extract
-  // the most readable field rather than showing the full escaped JSON string.
-  try {
-    const args = JSON.parse(argsPreview) as Record<string, unknown>;
-    if (toolName === "execute_query" && typeof args.sql === "string") {
-      return args.sql.replace(/\s+/g, " ").slice(0, 120);
-    }
-    if (toolName === "describe_table" && typeof args.table_name === "string") {
-      return args.table_name;
-    }
-    if (typeof args.query === "string") return args.query.slice(0, 120);
-    if (typeof args.sql === "string") return args.sql.slice(0, 120);
-    if (typeof args.name === "string") return args.name;
-    // Generic fallback: show first string value
-    const first = Object.values(args).find((v) => typeof v === "string");
-    return first ? String(first).slice(0, 120) : argsPreview.slice(0, 80);
-  } catch {
-    return argsPreview.slice(0, 80);
+  // argsPreview may be TRUNCATED JSON (the runner limits preview length),
+  // so JSON.parse often throws. Use regex extraction as the primary approach.
+
+  // Helper: extract a named string field from potentially truncated JSON
+  function extractField(json: string, key: string): string | null {
+    // Matches "key":"value" — value can contain escaped chars
+    const re = new RegExp(`"${key}"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)`);
+    const m = json.match(re);
+    if (!m) return null;
+    // Unescape JSON string escapes in the extracted value
+    return m[1].replace(/\\"/g, '"').replace(/\\n/g, " ").replace(/\\\\/g, "\\");
   }
+
+  if (toolName === "execute_query" || toolName === "execute_write_query") {
+    const sql = extractField(argsPreview, "sql");
+    if (sql) return sql.replace(/\s+/g, " ").slice(0, 160);
+  }
+  if (toolName === "describe_table") {
+    const name = extractField(argsPreview, "table_name") ?? extractField(argsPreview, "name");
+    if (name) return name;
+  }
+  // Generic: try first string field
+  const firstStr = argsPreview.match(/"[^"]+"\s*:\s*"((?:[^"\\]|\\.)*)"/);
+  if (firstStr) {
+    return firstStr[1].replace(/\\"/g, '"').replace(/\\n/g, " ").slice(0, 160);
+  }
+  return "";
 }
 
 // ── Shared agentic progress handler ───────────────────────────────────────────
@@ -60,6 +68,8 @@ function makeProgressHandler(
   conversationId: string,
   turnId: string,
   seq: () => number,
+  /** When true, token streaming is suppressed (analyze/modify use tool calls for output). */
+  suppressTokens = false,
 ): (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => void {
   let inToolRound = false;
 
@@ -67,15 +77,14 @@ function makeProgressHandler(
     if (event.type === "round") {
       inToolRound = false;
     } else if (event.type === "assistant_tools") {
-      // This round is tool-calling: model_text_delta and model_thinking_delta
-      // events in this round were tool-call JSON / thinking about tools.
-      // Send empty events to clear the UI, then suppress until next round.
       inToolRound = true;
-      void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
+      // Clear any tokens/thinking that streamed before we knew this was a tool round.
+      if (!suppressTokens) {
+        void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
+      }
       void emitTurnEvent(conversationId, turnId, seq(), "thinking", { text: "" }).catch(() => {});
       return;
     } else if (event.type === "model_thinking_delta" && event.text) {
-      // Extended thinking — cumulative text, replace (not append).
       if (!inToolRound) {
         void emitTurnEvent(conversationId, turnId, seq(), "thinking", {
           text: event.text,
@@ -83,8 +92,10 @@ function makeProgressHandler(
       }
       return;
     } else if (event.type === "model_text_delta" && event.text) {
-      // model_text_delta.text is CUMULATIVE — replace streamingText, never append.
-      if (!inToolRound) {
+      // model_text_delta.text is CUMULATIVE — replace, never append.
+      // For dashboard modes (analyze/modify), ALL text deltas are tool-call JSON —
+      // suppress them so users don't see raw JSON streaming.
+      if (!inToolRound && !suppressTokens) {
         void emitTurnEvent(conversationId, turnId, seq(), "token", {
           text: event.text,
         }).catch(() => {});
@@ -144,13 +155,8 @@ export async function runTurnBackground(
   try {
     await updateTurnStatus(turnId, "streaming");
 
-    // Emit context snapshot event (model/provider/tools + user message as seed_prompt).
-    const contextPayload = buildContextPayload(conversation, requestId, userMessage);
-    await emitTurnEvent(conversationId, turnId, seq(), "context", contextPayload);
-
-    // Build prior message history for multi-turn context.
-    // Must be loaded before appending the current user message so the current
-    // turn's user content isn't duplicated in priorMessages and userContent.
+    // Load prior messages first so the context snapshot includes the message count.
+    // Must be loaded before appending the current user message.
     const prior = await loadMessages(conversationId);
     const priorMessages = prior
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -167,6 +173,15 @@ export async function runTurnBackground(
               : JSON.stringify(c);
         return { role: m.role as "user" | "assistant", content: text };
       });
+
+    // Emit context snapshot now that we know how many prior messages exist.
+    const contextPayload = buildContextPayload(
+      conversation,
+      requestId,
+      userMessage,
+      priorMessages.length,
+    );
+    await emitTurnEvent(conversationId, turnId, seq(), "context", contextPayload);
 
     // Persist user message so future turns can reconstruct full history.
     await appendMessage(conversationId, "user", { text: userMessage });
@@ -350,18 +365,22 @@ async function runDashboardTurn(
       | "analyzeDashboard"
       | "modifyDashboard",
     conversationId: conversation.id,
-    // Wire agentic progress events to SSE (token streaming, thinking, tool logs).
-    onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
+    // Wire agentic progress events to SSE. Suppress token streaming for dashboard
+    // modes — analyze/modify always end with a tool call (submit_dashboard_analysis
+    // or apply_dashboard_modification), never prose, so model_text_delta is JSON.
+    onAgenticProgress: makeProgressHandler(conversationId, turnId, seq, true),
     // Callback from analyzeDashboard/modifyDashboard once the system prompt is built.
     // Emits an updated context event so the UI can show the full prompt sent to the LLM.
-    onSystemPromptReady: (systemPrompt: string) => {
+    onSystemPromptReady: (systemPrompt: string, toolNames?: string[]) => {
       void emitTurnEvent(conversationId, turnId, seq(), "context", {
         context: {
           model: conversation.llm_driver ?? conversation.llm_provider ?? "unknown",
           provider: conversation.llm_provider ?? "unknown",
           flow: mode,
           seed_prompt: userMessage,
+          prior_messages: priorMessages.length,
           system_prompt_stable: systemPrompt,
+          ...(toolNames && { tools: toolNames.map((n) => ({ name: n, schema: {} })) }),
         },
         requestId,
       }).catch(() => {});
@@ -439,10 +458,18 @@ function buildContextPayload(
   conversation: ConversationRow,
   requestId: string,
   userMessage?: string,
+  priorMessageCount?: number,
 ): Record<string, unknown> {
   const seed_prompt = userMessage?.trim() || undefined;
+  const priorMsgMeta = priorMessageCount !== undefined
+    ? { prior_messages: priorMessageCount }
+    : undefined;
+
   if (conversation.initial_context) {
-    return { context: { ...conversation.initial_context, seed_prompt }, requestId };
+    return {
+      context: { ...conversation.initial_context, seed_prompt, ...priorMsgMeta },
+      requestId,
+    };
   }
   return {
     context: {
@@ -450,6 +477,7 @@ function buildContextPayload(
       provider: conversation.llm_provider ?? "unknown",
       flow: conversation.mode ?? "chat",
       seed_prompt,
+      ...priorMsgMeta,
     },
     requestId,
   };
