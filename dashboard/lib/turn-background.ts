@@ -96,7 +96,17 @@ export async function runTurnBackground(
       ts: new Date().toISOString(),
     });
 
-    if (isFreeChatConv) {
+    // E2E stub: return a canned response instantly without calling any LLM.
+    // Activated by DASHBOARD_LLM_PROVIDER=e2e-stub — used in CI Playwright tests
+    // to avoid API costs and external dependencies.
+    if (process.env.DASHBOARD_LLM_PROVIDER === "e2e-stub") {
+      await emitTurnEvent(conversationId, turnId, seq(), "log", {
+        kind: "meta",
+        text: "[e2e-stub] respuesta generada sin LLM real",
+        ts: new Date().toISOString(),
+      });
+      assistantText = `[e2e-stub] Respuesta a: "${userMessage.slice(0, 80)}"`;
+    } else if (isFreeChatConv) {
       assistantText = await runFreeChatTurn(
         userMessage,
         priorMessages,
