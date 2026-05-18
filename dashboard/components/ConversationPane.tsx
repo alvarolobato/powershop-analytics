@@ -230,6 +230,8 @@ export function ConversationPane({
   const [pendingTurnId, setPendingTurnId] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState("");
   const [pendingPrompt, setPendingPrompt] = useState("");
+  // Accumulated streaming text (token events) for the active turn
+  const [streamingText, setStreamingText] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -263,16 +265,22 @@ export function ConversationPane({
     setPendingTurnId(null);
     setPendingUserMsg("");
     setPendingPrompt("");
+    setStreamingText("");
     lastEventIdRef.current = 0;
   }, [initialConversationId]);
 
-  // Load conversation from server
+  // Load conversation from server. On the initial load, also restores
+  // pendingTurnId from any in-progress streaming turn (EC-2 / AC-4 resume).
   const loadConversation = useCallback(async (id: string) => {
     try {
       const res = await fetch(`/api/conversations/${id}`);
       if (!res.ok) return;
-      const data = (await res.json()) as ConversationWithMessages;
+      const data = (await res.json()) as ConversationWithMessages & { active_turn_id?: string | null };
       setConv(data);
+      // Restore the pending turn on refresh so renderPendingTurn() shows accumulated logs.
+      if (data.active_turn_id && !pendingTurnIdRef.current) {
+        setPendingTurnId(data.active_turn_id);
+      }
     } catch {
       // silent
     }
@@ -355,6 +363,12 @@ export function ConversationPane({
             });
           });
         }
+      } else if (eventType === "token") {
+        // Streaming token delta from analyze/modify/generate flows.
+        const delta = (payload.delta as string | undefined) ?? "";
+        if (delta && pendingTurnIdRef.current === turnId) {
+          setStreamingText((prev) => prev + delta);
+        }
       } else if (eventType === "spec_update") {
         handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
       } else if (eventType === "complete") {
@@ -382,10 +396,14 @@ export function ConversationPane({
                 setPendingTurnId(null);
                 setPendingUserMsg("");
                 setPendingPrompt("");
+                setStreamingText("");
               }
             })
             .catch(() => {
-              if (pendingTurnIdRef.current === turnId) setPendingTurnId(null);
+              if (pendingTurnIdRef.current === turnId) {
+                setPendingTurnId(null);
+                setStreamingText("");
+              }
             });
         }
       } else if (eventType === "error") {
@@ -640,7 +658,10 @@ export function ConversationPane({
             <LogBlock lines={turnData.logs} streaming />
           </div>
         )}
-        {!turnData?.complete && !turnData?.error && <LoadingDots />}
+        {streamingText && (
+          <AssistantBubble key="streaming" text={streamingText} isError={false} />
+        )}
+        {!streamingText && !turnData?.complete && !turnData?.error && <LoadingDots />}
         {turnData?.error && (
           <AssistantBubble text={turnData.error} isError />
         )}

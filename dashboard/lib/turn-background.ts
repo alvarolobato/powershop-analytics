@@ -58,8 +58,8 @@ export async function runTurnBackground(
   try {
     await updateTurnStatus(turnId, "streaming");
 
-    // Emit context snapshot event (which model/provider/tools are being used).
-    const contextPayload = buildContextPayload(conversation, requestId);
+    // Emit context snapshot event (model/provider/tools + user message as seed_prompt).
+    const contextPayload = buildContextPayload(conversation, requestId, userMessage);
     await emitTurnEvent(conversationId, turnId, seq(), "context", contextPayload);
 
     // Build prior message history for multi-turn context.
@@ -122,6 +122,9 @@ export async function runTurnBackground(
         userMessage,
         priorMessages,
         requestId,
+        conversationId,
+        turnId,
+        seq,
       );
       assistantText = dashResult.text;
       // Notify SSE clients when a modify turn produced a new dashboard spec.
@@ -248,6 +251,9 @@ async function runDashboardTurn(
   userMessage: string,
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
+  conversationId: string,
+  turnId: string,
+  seq: () => number,
 ): Promise<DashboardTurnResult> {
   const { sql } = await import("@/lib/db-write");
   // agenticCtx is mutated in-place by tool handlers (modifyResult, analyzeResult).
@@ -257,6 +263,28 @@ async function runDashboardTurn(
       | "analyzeDashboard"
       | "modifyDashboard",
     conversationId: conversation.id,
+    // Wire agentic progress events to SSE so the client sees tool steps in real time.
+    onAgenticProgress: (event) => {
+      let text: string | null = null;
+      if (event.type === "tool_start") {
+        text = `▶ ${event.name}${event.argsPreview ? `: ${event.argsPreview}` : ""}`;
+      } else if (event.type === "tool_done") {
+        text = `${event.ok ? "✓" : "✗"} ${event.name} (${event.ms}ms)`;
+      } else if (event.type === "model_text_delta" && event.text) {
+        // Stream tokens: emit a token event so the UI can show typing.
+        void emitTurnEvent(conversationId, turnId, seq(), "token", {
+          delta: event.text,
+        }).catch(() => {});
+        return;
+      }
+      if (text) {
+        void emitTurnEvent(conversationId, turnId, seq(), "log", {
+          kind: "tool",
+          text,
+          ts: new Date().toISOString(),
+        }).catch(() => {});
+      }
+    },
   };
 
   let currentSpec = "";
@@ -329,15 +357,18 @@ async function runGenericTurn(
 function buildContextPayload(
   conversation: ConversationRow,
   requestId: string,
+  userMessage?: string,
 ): Record<string, unknown> {
+  const seed_prompt = userMessage?.trim() || undefined;
   if (conversation.initial_context) {
-    return { context: conversation.initial_context, requestId };
+    return { context: { ...conversation.initial_context, seed_prompt }, requestId };
   }
   return {
     context: {
       model: conversation.llm_driver ?? conversation.llm_provider ?? "unknown",
       provider: conversation.llm_provider ?? "unknown",
       flow: conversation.mode ?? "chat",
+      seed_prompt,
     },
     requestId,
   };

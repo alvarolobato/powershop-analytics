@@ -156,18 +156,27 @@ export async function getConversation(id: string): Promise<ConversationRow | nul
 
 export async function getConversationWithMessages(
   id: string,
-): Promise<(ConversationRow & { messages: MessageRow[] }) | null> {
+): Promise<(ConversationRow & { messages: MessageRow[]; active_turn_id: string | null }) | null> {
   const conv = await getConversation(id);
   if (!conv) return null;
-  const messages = await sql<MessageRow>(
-    `SELECT id, conversation_id, role, content, tokens_input, tokens_output,
-            tokens_cache_read, tokens_cache_creation, logs, created_at
-     FROM conversation_messages
-     WHERE conversation_id = $1
-     ORDER BY created_at ASC`,
-    [id],
-  );
-  return { ...conv, messages };
+  const [messages, activeTurns] = await Promise.all([
+    sql<MessageRow>(
+      `SELECT id, conversation_id, role, content, tokens_input, tokens_output,
+              tokens_cache_read, tokens_cache_creation, logs, created_at
+       FROM conversation_messages
+       WHERE conversation_id = $1
+       ORDER BY created_at ASC`,
+      [id],
+    ),
+    // Return any in-progress turn so clients can resume SSE on refresh (EC-2/AC-4).
+    sql<{ id: string }>(
+      `SELECT id FROM conversation_turns
+       WHERE conversation_id = $1 AND status IN ('streaming', 'pending')
+       ORDER BY turn_index DESC LIMIT 1`,
+      [id],
+    ),
+  ]);
+  return { ...conv, messages, active_turn_id: activeTurns[0]?.id ?? null };
 }
 
 export async function listConversations(
