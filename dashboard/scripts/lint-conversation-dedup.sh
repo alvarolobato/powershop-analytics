@@ -17,14 +17,12 @@ fi
 
 # AC-10b: Old LLM-calling patterns must not appear in component files
 OLD_PATTERNS="handleSend|loadPriorTurns|appendMessage"
-if grep -rEn --include="*.tsx" --include="*.ts" "$OLD_PATTERNS" "$COMPONENTS" 2>/dev/null \
+MATCHES=$(grep -rEn --include="*.tsx" --include="*.ts" "$OLD_PATTERNS" "$COMPONENTS" 2>/dev/null \
     | grep -v "ConversationPane.tsx" \
-    | grep -v "__tests__" \
-    | grep -qE "."; then
+    | grep -v "__tests__" || true)
+if [ -n "$MATCHES" ]; then
   echo "FAIL: old conversation patterns found in components (handleSend|loadPriorTurns|appendMessage):" >&2
-  grep -rEn --include="*.tsx" --include="*.ts" "$OLD_PATTERNS" "$COMPONENTS" 2>/dev/null \
-    | grep -v "ConversationPane.tsx" \
-    | grep -v "__tests__" >&2 || true
+  echo "$MATCHES" >&2
   FAIL=1
 fi
 
