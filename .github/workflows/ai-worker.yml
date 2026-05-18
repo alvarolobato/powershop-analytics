@@ -354,14 +354,25 @@ jobs:
             - Count total `## Phase N` headings in the issue body (TOTAL_PHASES)
             - This is Phase N
             - If N < TOTAL_PHASES: use `Part of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)` — do NOT close the issue
-            - If N == TOTAL_PHASES (last phase): use `Closes #${{ env.ISSUE_NUMBER }}` — this closes the issue on merge
+            - If N == TOTAL_PHASES (last phase):
+              FIRST check whether the issue has unchecked Exit Criteria items:
+              ```bash
+              EC_UNCHECKED=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq '.body' \
+                | grep -cF '- [ ] **EC-' || true)
+              ```
+              - If EC_UNCHECKED == 0: use `Closes #${{ env.ISSUE_NUMBER }}` — this closes the issue on merge
+              - If EC_UNCHECKED > 0: use `Part of #${{ env.ISSUE_NUMBER }} (Final phase — Exit Criteria pending verification)` — do NOT close the issue yet.
+                Also post a comment on the issue:
+                ```bash
+                gh issue comment ${{ env.ISSUE_NUMBER }} --body "⚠️ Phase N (final) complete — **$EC_UNCHECKED Exit Criteria item(s) are still unverified**. Not auto-closing this issue. Please tick each \`**EC-\` checkbox with concrete evidence (test output, screenshot, CI run link) before closing manually."
+                ```
 
             ```bash
             gh pr create \
               --title "<feature> (Phase N: <phase name>)" \
               --body "$(printf '## Summary\n...\n\nPart of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)')"
             ```
-            **One PR per phase. Only the LAST phase PR should say `Closes #ISSUE`.**
+            **One PR per phase. Only the LAST phase PR should say `Closes #ISSUE`, and only when all EC items are verified.**
 
             ### If you cannot finish
             Tick whatever tasks completed. Post a blocking comment tagging @alvarolobato.

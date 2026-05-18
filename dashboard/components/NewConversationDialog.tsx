@@ -108,7 +108,7 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
       const { id } = created;
 
       // Step 2: stash the prompt in sessionStorage (same-tab, consumed once on
-      // arrival) then navigate. ConversationViewer reads and clears the entry.
+      // arrival) then navigate. ConversationPane reads and clears the entry.
       if (trimmed) {
         sessionStorage.setItem(`conv-autosend-${id}`, trimmed);
       }

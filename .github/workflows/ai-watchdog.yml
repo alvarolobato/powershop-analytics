@@ -1060,6 +1060,48 @@ jobs:
             fi
           done
 
+      - name: Stalled `ai-parent-incomplete` issues (EC unverified for >7 days)
+        run: |
+          set -uo pipefail
+          # When ai-post-merge-verify.yml re-opens an issue and stamps
+          # ai-parent-incomplete, the owner is expected to verify each EC item
+          # and close manually. If no action is taken within 7 days, ping.
+          STALE_DAYS=7
+          STALE_SECS=$(( STALE_DAYS * 86400 ))
+          MARKER="🔔 **AI Watchdog**: stalled \`ai-parent-incomplete\`"
+          MAX_PINGS=2
+          NOW=$(date -u +%s)
+
+          gh issue list --repo "$REPO_FULL" --state open \
+            --label "ai-parent-incomplete" \
+            --json number,title,updatedAt,labels --limit 50 \
+            | jq -c '.[]' | while read -r row; do
+            NUM=$(echo "$row" | jq -r '.number')
+            TITLE=$(echo "$row" | jq -r '.title')
+            UPDATED=$(echo "$row" | jq -r '.updatedAt')
+            LABELS=$(echo "$row" | jq -r '[.labels[].name] | join(",")')
+            UPDATED_TS=$(date -u -d "$UPDATED" +%s 2>/dev/null || echo 0)
+            AGE=$(( NOW - UPDATED_TS ))
+
+            # Skip: needs human approval (D-028 business-review).
+            if echo ",$LABELS," | grep -q ",needs-human-approval,"; then continue; fi
+            # Skip: owner already engaged (ai-work or ai-blocked set).
+            if echo ",$LABELS," | grep -qE ",(ai-work|ai-blocked),"; then continue; fi
+            # Skip: not stale yet.
+            if [ "$AGE" -lt "$STALE_SECS" ]; then continue; fi
+
+            PING_COUNT=$(gh api "repos/$REPO_FULL/issues/$NUM/comments?per_page=100" \
+              --jq "[.[] | select(.body | startswith(\"$MARKER\"))] | length" 2>/dev/null || echo "0")
+            if [ "${PING_COUNT:-0}" -ge "$MAX_PINGS" ]; then
+              echo "Issue #$NUM: already pinged $PING_COUNT times — skipping."
+              continue
+            fi
+
+            echo "Issue #$NUM: ai-parent-incomplete for ${AGE}s (${STALE_DAYS}+ days) — pinging."
+            gh issue comment "$NUM" --repo "$REPO_FULL" \
+              --body "$MARKER: this issue has had unverified Exit Criteria for $STALE_DAYS+ days. Please verify each \`**EC-\` checkbox with concrete evidence and close manually — or remove \`ai-parent-incomplete\` if verification is not required. cc @${OWNER_HANDLE}" 2>/dev/null || true
+          done
+
       - name: Bot-triggered runs gated as `action_required`
         run: |
           set -euo pipefail

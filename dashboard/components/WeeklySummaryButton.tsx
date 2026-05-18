@@ -11,7 +11,7 @@ import { WEEKLY_SUMMARY_SEED } from "@/lib/seed-prompts";
 //   1. User clicks the button.
 //   2. Component POSTs to /api/conversations to create a conversation with the
 //      weekly summary seed prompt and the home page as context.
-//   3. On success, navigates to /c/<id> — the standalone ConversationViewer
+//   3. On success, navigates to /c/<id> — the standalone ConversationPane
 //      with the seed pre-filled in the textarea. No LLM call fires until the
 //      user clicks send. (HomeSurface at /k/<id> is a stub, so c_url is used.)
 //

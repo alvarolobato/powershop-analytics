@@ -1,0 +1,132 @@
+name: AI Post-Merge EC Verify
+# Safety net: when a PR merges and auto-closes a linked issue, check whether
+# the issue's Exit Criteria (EC) items are all verified. If any are unverified,
+# re-open the issue and add `ai-parent-incomplete` so it doesn't silently vanish.
+# Complements the Phase-walker EC guard in ai-worker.yml (which blocks `Closes #N`
+# before the PR is created). This workflow catches cases the worker misses.
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: ai-post-merge-verify-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Check EC items on linked issues
+        run: |
+          set -uo pipefail
+
+          # Only run for factory-relevant branches — avoids noise on human PRs.
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          case "$BRANCH" in
+            ai/*|conversation-engine-*|fix/*|feat/*|refactor/*) ;;
+            *)
+              echo "Branch '$BRANCH' is not a factory branch — skipping."
+              exit 0
+              ;;
+          esac
+
+          # Skip no-ai PRs.
+          PR_LABELS=$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+          if echo ",$PR_LABELS," | grep -q ",no-ai,"; then
+            echo "PR #$PR has no-ai — skipping."
+            exit 0
+          fi
+
+          # Extract issue numbers from "Closes #NNN" or "Part of #NNN" in PR body.
+          PR_BODY=$(gh pr view "$PR" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
+          ISSUES=$(echo "$PR_BODY" | grep -oE '(Closes|Part of) #[0-9]+' \
+            | grep -oE '[0-9]+' | sort -u)
+
+          if [ -z "$ISSUES" ]; then
+            echo "No linked issues in PR #$PR body — skipping."
+            exit 0
+          fi
+
+          for ISSUE_NUM in $ISSUES; do
+            ISSUE_JSON=$(gh issue view "$ISSUE_NUM" --repo "$REPO" \
+              --json body,state 2>/dev/null || echo "")
+            if [ -z "$ISSUE_JSON" ]; then
+              echo "Issue #$ISSUE_NUM not found — skipping."
+              continue
+            fi
+
+            ISSUE_STATE=$(echo "$ISSUE_JSON" | jq -r '.state')
+            BODY=$(echo "$ISSUE_JSON" | jq -r '.body')
+
+            # Count unchecked Exit Criteria lines: "- [ ] **EC-"
+            UNCHECKED_EC=$(printf '%s' "$BODY" | grep -cF '- [ ] **EC-' || true)
+            # Count unchecked regular task checkboxes (numbered tasks)
+            UNCHECKED_TASKS=$(printf '%s' "$BODY" | grep -cE '^- \[ \] [0-9]' || true)
+
+            echo "Issue #$ISSUE_NUM: state=$ISSUE_STATE unchecked_ec=$UNCHECKED_EC unchecked_tasks=$UNCHECKED_TASKS"
+
+            if [ "${UNCHECKED_EC:-0}" -gt 0 ]; then
+              # EC items unverified — this is a hard stop.
+
+              # Re-open if the merge auto-closed it.
+              if [ "$ISSUE_STATE" = "CLOSED" ]; then
+                gh issue reopen "$ISSUE_NUM" --repo "$REPO" 2>/dev/null || true
+                echo "Re-opened issue #$ISSUE_NUM ($UNCHECKED_EC EC items unverified)."
+              fi
+
+              # Label: ai-parent-incomplete. Create if missing.
+              gh label create "ai-parent-incomplete" --color "e4e669" \
+                --description "Parent issue has unmet Exit Criteria — not safe to close" \
+                --repo "$REPO" 2>/dev/null || true
+              gh api -X POST "repos/$REPO/issues/$ISSUE_NUM/labels" \
+                -f "labels[]=ai-parent-incomplete" >/dev/null 2>&1 || true
+
+              # Remove ai-awaiting-owner — issue still needs work.
+              gh api -X DELETE "repos/$REPO/issues/$ISSUE_NUM/labels/ai-awaiting-owner" \
+                >/dev/null 2>&1 || true
+
+              # Build EC list for the comment.
+              EC_LINES=$(printf '%s' "$BODY" | grep -F '- [ ] **EC-' \
+                | sed 's/^- \[ \] /- /' | head -20)
+
+              REOPEN_NOTE=""
+              if [ "$ISSUE_STATE" = "CLOSED" ]; then
+                REOPEN_NOTE=" The issue was auto-closed by the PR merge and has been **re-opened**."
+              fi
+
+              gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "$(cat <<EOF
+          ⚠️ **AI Factory — Post-Merge EC Check**: PR #$PR merged but **$UNCHECKED_EC Exit Criteria item(s) are still unverified**.$REOPEN_NOTE
+
+          **Unverified items:**
+          $EC_LINES
+
+          Each item requires **concrete evidence** before the issue can be considered done: test output, a CI run link, a screenshot, or a short screen recording — not "manually verified".
+
+          Once all EC items are ticked, close this issue manually.
+          cc @alvarolobato
+          EOF
+              )" 2>/dev/null || true
+
+            elif [ "${UNCHECKED_TASKS:-0}" -gt 0 ] && [ "$ISSUE_STATE" = "CLOSED" ]; then
+              # No EC items but unchecked task checkboxes — warn only, don't reopen.
+              gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "$(cat <<EOF
+          ⚠️ **AI Factory — Post-Merge EC Check**: PR #$PR merged and closed this issue, but **$UNCHECKED_TASKS task checkbox(es) are still unchecked**. No Exit Criteria items were found, so this may be intentional. Review and reopen manually if work is incomplete.
+          cc @alvarolobato
+          EOF
+              )" 2>/dev/null || true
+            else
+              echo "Issue #$ISSUE_NUM: all EC items verified (or none defined) — no action needed."
+            fi
+          done
