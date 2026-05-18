@@ -52,7 +52,6 @@ vi.mock("@/lib/llm-provider/config", () => ({
   loadDashboardLlmConfig: () => mockLoadDashboardLlmConfig(),
   getEffectiveDashboardModel: (cfg: { cliModel: string; openrouterModel: string; provider: string }) =>
     cfg.provider === "cli" ? cfg.cliModel : cfg.openrouterModel,
-  getEffectiveOpenRouterProvider: () => undefined,
 }));
 
 vi.mock("@/lib/errors", async (importOriginal) => {
