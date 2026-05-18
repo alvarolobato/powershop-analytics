@@ -711,12 +711,24 @@ export function ConversationPane({
     const turnData = turns.get(pendingTurnId);
     const hasLogs = turnData && turnData.logs.length > 0;
 
+    // Fallback: derive basic context from the conversation object immediately
+    // (before the SSE context event arrives). The SSE event replaces this once
+    // received. Prevents the blank context-panel window in standalone view.
+    const displayContext: InitialContext | null = turnData?.context ?? (conv
+      ? {
+          model: conv.llm_driver ?? conv.llm_provider ?? "unknown",
+          provider: conv.llm_provider ?? "unknown",
+          config: { flow: conv.mode ?? "chat" },
+          seed_prompt: pendingUserMsg || undefined,
+        }
+      : null);
+
     return (
       <>
         {pendingUserMsg && <UserBubble text={pendingUserMsg} />}
-        {turnData?.context && (
+        {displayContext && (
           <div data-testid="context-panel" style={{ marginBottom: 4 }}>
-            <InitialContextPanel context={turnData.context} />
+            <InitialContextPanel context={displayContext} />
           </div>
         )}
         {hasLogs && (
