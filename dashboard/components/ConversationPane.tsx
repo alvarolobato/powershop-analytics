@@ -21,6 +21,7 @@ import type { DashboardSpec } from "@/lib/schema";
 
 interface TurnData {
   context: InitialContext | null;
+  thinking: string | null; // final extended-thinking text (persisted after complete)
   logs: LogLine[];
   complete: boolean;
   error: string | null;
@@ -183,6 +184,54 @@ function AssistantBubble({
   );
 }
 
+// ── ThinkingBlock ──────────────────────────────────────────────────────────
+
+function ThinkingBlock({ text, streaming = false }: { text: string; streaming?: boolean }) {
+  const [open, setOpen] = useState(streaming); // open while streaming, collapsed after
+  return (
+    <div style={{ marginBottom: 4, maxWidth: "85%" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "2px 0",
+          color: "var(--fg-muted)",
+          fontSize: 11,
+          fontFamily: "inherit",
+        }}
+      >
+        <span style={{ fontSize: 10 }}>{open ? "▼" : "▶"}</span>
+        <span>{streaming ? "🤔 Pensando…" : "🤔 Pensamiento"}</span>
+      </button>
+      {open && (
+        <div
+          style={{
+            marginTop: 4,
+            padding: "8px 10px",
+            background: "rgba(99,102,241,0.06)",
+            border: "1px solid rgba(99,102,241,0.2)",
+            borderRadius: 6,
+            fontSize: 11.5,
+            color: "var(--fg-muted)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            lineHeight: 1.55,
+            maxHeight: 300,
+            overflowY: "auto",
+          }}
+        >
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── LoadingDots ────────────────────────────────────────────────────────────
 
 function LoadingDots() {
@@ -232,6 +281,8 @@ export function ConversationPane({
   const [pendingPrompt, setPendingPrompt] = useState("");
   // Accumulated streaming text (token events) for the active turn
   const [streamingText, setStreamingText] = useState("");
+  // Accumulated extended thinking text for the active turn
+  const [thinkingText, setThinkingText] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -266,6 +317,7 @@ export function ConversationPane({
     setPendingUserMsg("");
     setPendingPrompt("");
     setStreamingText("");
+    setThinkingText("");
     lastEventIdRef.current = 0;
   }, [initialConversationId]);
 
@@ -340,6 +392,7 @@ export function ConversationPane({
           const map = new Map(prev);
           const existing = map.get(turnId) ?? {
             context: null,
+            thinking: null,
             logs: [],
             complete: false,
             error: null,
@@ -363,12 +416,20 @@ export function ConversationPane({
             });
           });
         }
+      } else if (eventType === "thinking") {
+        // Extended thinking — cumulative. Empty string = tool round cleared.
+        const text = (payload.text as string | undefined) ?? "";
+        if (pendingTurnIdRef.current === turnId) {
+          setThinkingText(text);
+        }
       } else if (eventType === "token") {
         // model_text_delta.text is CUMULATIVE (full text so far, not a delta).
         // Replace streamingText entirely. Empty string = clear (tool round detected).
         const text = (payload.text as string | undefined) ?? (payload.delta as string | undefined) ?? "";
         if (pendingTurnIdRef.current === turnId) {
           setStreamingText(text);
+          // Token clear also clears thinking (same tool-round signal).
+          if (text === "") setThinkingText("");
         }
       } else if (eventType === "spec_update") {
         handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
@@ -378,11 +439,14 @@ export function ConversationPane({
           const map = new Map(prev);
           const existing = map.get(turnId) ?? {
             context: null,
+            thinking: null,
             logs: [],
             complete: false,
             error: null,
           };
-          return map.set(turnId, { ...existing, complete: true });
+          // Persist final thinking text into TurnData so it survives after complete.
+          const finalThinking = thinkingText || null;
+          return map.set(turnId, { ...existing, complete: true, thinking: finalThinking });
         });
         if (messageId) {
           setMsgToTurn((prev) => new Map(prev).set(messageId, turnId));
@@ -398,12 +462,14 @@ export function ConversationPane({
                 setPendingUserMsg("");
                 setPendingPrompt("");
                 setStreamingText("");
+                setThinkingText("");
               }
             })
             .catch(() => {
               if (pendingTurnIdRef.current === turnId) {
                 setPendingTurnId(null);
                 setStreamingText("");
+                setThinkingText("");
               }
             });
         }
@@ -413,6 +479,7 @@ export function ConversationPane({
           const map = new Map(prev);
           const existing = map.get(turnId) ?? {
             context: null,
+            thinking: null,
             logs: [],
             complete: false,
             error: null,
@@ -601,6 +668,12 @@ export function ConversationPane({
           );
         }
 
+        if (turnData?.thinking) {
+          items.push(
+            <ThinkingBlock key={`think-${msgId}`} text={turnData.thinking} />,
+          );
+        }
+
         if (turnData && turnData.logs.length > 0) {
           items.push(
             <div
@@ -659,10 +732,11 @@ export function ConversationPane({
             <LogBlock lines={turnData.logs} streaming />
           </div>
         )}
+        {thinkingText && <ThinkingBlock text={thinkingText} streaming />}
         {streamingText && (
           <AssistantBubble key="streaming" text={streamingText} isError={false} />
         )}
-        {!streamingText && !turnData?.complete && !turnData?.error && <LoadingDots />}
+        {!thinkingText && !streamingText && !turnData?.complete && !turnData?.error && <LoadingDots />}
         {turnData?.error && (
           <AssistantBubble text={turnData.error} isError />
         )}

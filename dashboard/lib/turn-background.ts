@@ -49,6 +49,67 @@ function formatToolArgs(toolName: string, argsPreview?: string): string {
   }
 }
 
+// ── Shared agentic progress handler ───────────────────────────────────────────
+
+/**
+ * Creates an onAgenticProgress callback that emits SSE events for streaming
+ * tokens, extended thinking, and tool progress. Used by both runFreeChatTurn
+ * and runDashboardTurn so behaviour is identical across conversation modes.
+ */
+function makeProgressHandler(
+  conversationId: string,
+  turnId: string,
+  seq: () => number,
+): (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => void {
+  let inToolRound = false;
+
+  return (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => {
+    if (event.type === "round") {
+      inToolRound = false;
+    } else if (event.type === "assistant_tools") {
+      // This round is tool-calling: model_text_delta and model_thinking_delta
+      // events in this round were tool-call JSON / thinking about tools.
+      // Send empty events to clear the UI, then suppress until next round.
+      inToolRound = true;
+      void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
+      void emitTurnEvent(conversationId, turnId, seq(), "thinking", { text: "" }).catch(() => {});
+      return;
+    } else if (event.type === "model_thinking_delta" && event.text) {
+      // Extended thinking — cumulative text, replace (not append).
+      if (!inToolRound) {
+        void emitTurnEvent(conversationId, turnId, seq(), "thinking", {
+          text: event.text,
+        }).catch(() => {});
+      }
+      return;
+    } else if (event.type === "model_text_delta" && event.text) {
+      // model_text_delta.text is CUMULATIVE — replace streamingText, never append.
+      if (!inToolRound) {
+        void emitTurnEvent(conversationId, turnId, seq(), "token", {
+          text: event.text,
+        }).catch(() => {});
+      }
+      return;
+    }
+
+    // Tool progress log lines.
+    let logText: string | null = null;
+    if (event.type === "tool_start") {
+      const args = formatToolArgs(event.name, event.argsPreview);
+      logText = `▶ ${event.name}${args ? `: ${args}` : ""}`;
+    } else if (event.type === "tool_done") {
+      logText = `${event.ok ? "✓" : "✗"} ${event.name} (${event.ms}ms)`;
+    }
+    if (logText) {
+      void emitTurnEvent(conversationId, turnId, seq(), "log", {
+        kind: "tool",
+        text: logText,
+        ts: new Date().toISOString(),
+      }).catch(() => {});
+    }
+  };
+}
+
 // ── Sequential event counter per turn ─────────────────────────────────────────
 
 function makeSeq(): () => number {
@@ -235,6 +296,7 @@ async function runFreeChatTurn(
     conversationId,
     llmProvider: cfg.provider,
     llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
+    onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
   };
 
   try {
@@ -288,47 +350,8 @@ async function runDashboardTurn(
       | "analyzeDashboard"
       | "modifyDashboard",
     conversationId: conversation.id,
-    // Wire agentic progress events to SSE so the client sees tool steps in real time.
-    onAgenticProgress: (() => {
-      // Track whether the current round is a tool-calling round.
-      // model_text_delta fires BEFORE assistant_tools in the same round, so we
-      // optimistically stream tokens, then clear them when tools are detected.
-      let inToolRound = false;
-      return (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => {
-        if (event.type === "round") {
-          inToolRound = false;
-        } else if (event.type === "assistant_tools") {
-          // This round is tool-calling: the model_text_delta events were tool
-          // call JSON, not prose. Send an empty token event to clear the UI.
-          inToolRound = true;
-          void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
-          return;
-        } else if (event.type === "model_text_delta" && event.text && !inToolRound) {
-          // model_text_delta.text is CUMULATIVE (full text so far, not a delta).
-          // Emit as token event; client replaces (not appends) streamingText.
-          void emitTurnEvent(conversationId, turnId, seq(), "token", {
-            text: event.text,
-          }).catch(() => {});
-          return;
-        }
-
-        // Tool progress log lines — parse args into readable form.
-        let logText: string | null = null;
-        if (event.type === "tool_start") {
-          const args = formatToolArgs(event.name, event.argsPreview);
-          logText = `▶ ${event.name}${args ? `: ${args}` : ""}`;
-        } else if (event.type === "tool_done") {
-          logText = `${event.ok ? "✓" : "✗"} ${event.name} (${event.ms}ms)`;
-        }
-        if (logText) {
-          void emitTurnEvent(conversationId, turnId, seq(), "log", {
-            kind: "tool",
-            text: logText,
-            ts: new Date().toISOString(),
-          }).catch(() => {});
-        }
-      };
-    })(),
+    // Wire agentic progress events to SSE (token streaming, thinking, tool logs).
+    onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
     // Callback from analyzeDashboard/modifyDashboard once the system prompt is built.
     // Emits an updated context event so the UI can show the full prompt sent to the LLM.
     onSystemPromptReady: (systemPrompt: string) => {
