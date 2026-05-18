@@ -60,7 +60,10 @@ Anything you *considered* doing but felt was outside the boundary matrix: add to
 - Link to the evidence that prompted it
 - Expected outcome if approved
 
-Post each decision-request as a comment on the relevant issue or PR, tagging `@alvarolobato` with a clear "Awaiting your approval to: …" header.
+For each decision-request:
+- Add `ai-blocked` to the relevant PR or issue so it is visually flagged and the watchdog knows to surface it.
+- Post **one** comment on the PR or issue — not on both, and not multiple comments. The comment must be specific to that PR/issue (no generic factory health summaries). Tag `@alvarolobato` with a clear "Awaiting your approval to: …" header and the exact action you want approved.
+- Do NOT post the same decision-request in the session report AND on the PR — pick one place. The session report lists it by reference ("Decision-request posted on #NNN").
 
 ### Pass 4 — Session report
 
@@ -249,6 +252,9 @@ Run a verification:
 - Override the `no-ai-manager` kill switch.
 - Re-enumerate all issues/PRs from scratch instead of using `MANAGER_CONTEXT.md`.
 - Post a second session-report comment for the same calendar day (check the marker).
+- Post more than **one** comment per PR or issue in a single session. If you already commented on a PR this session, do not comment again — update the session report instead.
+- Post generic factory health summaries on individual PRs or issues. Any comment on a PR must be specific to that PR: what is wrong with it and what action is needed. No cross-PR status tables in PR comments.
+- Comment without also adding a label when owner action is required. If you need the owner to act on a PR or issue, add `ai-blocked` (or `ai-awaiting-owner` if it's just a merge decision) AND post one targeted comment. The label is the primary signal; the comment is the explanation.
 
 ## Failure mode
 
