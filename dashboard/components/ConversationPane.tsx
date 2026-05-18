@@ -199,7 +199,7 @@ function AssistantBubble({
 function ThinkingBlock({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const [open, setOpen] = useState(streaming); // open while streaming, collapsed after
   return (
-    <div style={{ marginBottom: 4, maxWidth: "85%" }}>
+    <div data-testid="thinking-block" style={{ marginBottom: 4, maxWidth: "85%" }}>
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
@@ -303,6 +303,7 @@ export function ConversationPane({
   const lastEventIdRef = useRef(0);
   const pendingTurnIdRef = useRef<string | null>(null);
   const pendingPromptRef = useRef("");
+  const thinkingTextRef = useRef("");
 
   // Keep refs in sync
   useEffect(() => {
@@ -311,6 +312,9 @@ export function ConversationPane({
   useEffect(() => {
     pendingPromptRef.current = pendingPrompt;
   }, [pendingPrompt]);
+  useEffect(() => {
+    thinkingTextRef.current = thinkingText;
+  }, [thinkingText]);
 
   // Sync onProcessingChange
   useEffect(() => {
@@ -456,7 +460,7 @@ export function ConversationPane({
             error: null,
           };
           // Persist final thinking text into TurnData so it survives after complete.
-          const finalThinking = thinkingText || null;
+          const finalThinking = thinkingTextRef.current || null;
           return map.set(turnId, { ...existing, complete: true, thinking: finalThinking });
         });
         if (messageId) {

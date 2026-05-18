@@ -150,11 +150,11 @@
 - key: dashboard.llm_provider
   env: DASHBOARD_LLM_PROVIDER
   type: enum
-  enum_values: [cli, openrouter]
+  enum_values: [cli, openrouter, e2e-stub]
   sensitive: false
   default: "cli"
   section: "Dashboard LLM"
-  description: "Proveedor LLM del dashboard. 'cli' (recomendado): usa el binario claude del host vía agente launchd que mantiene ~/.claude/.credentials.json sincronizado con el llavero. 'openrouter': usa la API HTTP con OPENROUTER_API_KEY."
+  description: "Proveedor LLM del dashboard. 'cli' (recomendado): usa el binario claude del host vía agente launchd que mantiene ~/.claude/.credentials.json sincronizado con el llavero. 'openrouter': usa la API HTTP con OPENROUTER_API_KEY. 'e2e-stub': respuestas deterministas sin LLM real (solo tests de integración/e2e)."
   requires_restart: []
   components: [dashboard]
 

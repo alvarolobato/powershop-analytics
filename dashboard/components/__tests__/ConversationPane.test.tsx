@@ -348,4 +348,62 @@ describe("ConversationPane", () => {
       expect(onProcessingChange).toHaveBeenCalledWith(true);
     });
   });
+
+  it("thinking block persists after turn completes", async () => {
+    const encoder = new TextEncoder();
+    const convId = "conv-thinking";
+    const turnId = "turn-1";
+    const thinkingContent = "some extended thought";
+
+    const conv = {
+      id: convId,
+      mode: "chat",
+      title: null,
+      active_turn_id: turnId,
+      messages: [
+        {
+          id: "m1",
+          conversation_id: convId,
+          role: "assistant",
+          content: { text: "Mi respuesta" },
+          created_at: new Date().toISOString(),
+        },
+      ],
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          // Stream emits a thinking event immediately, then a complete event after a
+          // macrotask delay — giving React time to flush the thinkingTextRef sync effect
+          // between the two events (this is the condition the bug fix must satisfy).
+          let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+          const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+          ctrl.enqueue(encoder.encode(
+            `id: 1\ndata: ${JSON.stringify({ turnId, eventType: "thinking", payload: { text: thinkingContent } })}\n\n`,
+          ));
+          setTimeout(() => {
+            ctrl.enqueue(encoder.encode(
+              `id: 2\ndata: ${JSON.stringify({ turnId, eventType: "complete", payload: { messageId: "m1" } })}\n\n`,
+            ));
+            ctrl.close();
+          }, 20);
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(conv),
+        } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    await waitFor(
+      () => expect(screen.getByTestId("thinking-block")).toBeInTheDocument(),
+      { timeout: 3000 },
+    );
+  });
 });
