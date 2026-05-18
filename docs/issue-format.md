@@ -53,15 +53,22 @@ considered done. Evidence means test output, a CI run link, a screenshot, or a
 short screen recording — not "manually verified". The implementer must provide
 this evidence in the PR description or a comment on the issue.
 
-- [ ] **EC-1**: <user-observable requirement, stated in terms the owner can verify in the browser or API> — *Evidence*: <what to produce: test output / screenshot / recording>
-- [ ] **EC-2**: ...
+**Every EC item must be verifiable by CI or explicitly marked human-only.**
+Prefer the form that names a specific test:
+
+- [ ] **EC-1**: <user-observable requirement> — *Verified by*: `path/to/test.spec.ts` → `"test name"` (CI run: link)
+- [ ] **EC-2**: <requirement that cannot be automated> — *Human-only*: <reason automation is not possible> — *Evidence*: <screenshot/recording>
+
+If an EC item has no test and is not marked `Human-only`, it is incomplete. The Opus reviewer will block the PR.
 
 <format rules for the planner when writing exit criteria>
 - Write from the owner's point of view, not the implementer's ("I can see X" not "the function returns Y")
 - Each criterion must be independently verifiable without reading source code
 - Forbidden phrases: "tests pass", "component renders", "function returns" — these are not user-observable
 - Required: state the exact user action and the expected observable result
-- Include at least one integration or e2e test criterion per phase
+- **Preferred**: link to the specific test case that covers it. "Verified by `dashboard/e2e/foo.spec.ts` → `AC-4`" is better than "Evidence: CI run link"
+- Mark items `Human-only` only when a running container with real data is strictly required (e.g. visual layout, hardware peripherals). Everything else should have a test.
+- Include at least one Playwright or integration test criterion per feature that touches the UI or API
 </format rules>
 
 ## Additional Context

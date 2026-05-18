@@ -15,6 +15,31 @@ You are reviewing a pull request for the PowerShop Analytics project.
 4. **4D PKs are NUMERIC**: Primary keys use Real (float) with .99 suffix — store as NUMERIC, never FLOAT8
 5. **No `SELECT *`**: For wide tables (Articulos 379 cols, CCStock 582 cols), always specify columns
 
+## Exit Criteria verification — FIRST, BLOCKING
+
+**Before reading any code**, read the linked parent issue.
+
+Find the parent issue number from the PR body (`Closes #NNN` or `Part of #NNN (Phase N of M)`).
+Fetch its body:
+```bash
+gh issue view NNN --json body --jq .body
+```
+
+Find every line matching `- [ ] **EC-` or `- [x] **EC-`. For each:
+
+1. State whether the code changes in this PR **satisfy** it — trace from the EC description to the specific file+function that implements it.
+2. If the EC is NOT satisfied by code AND has no corresponding CI test (`.spec.ts`, `.test.ts`, `test_*.py`) that would catch a regression, **block the PR** with:
+
+> 🚫 **EC-N not satisfied**: [EC description]. The code does not implement [what's missing], and there is no CI test that would catch this. This must be addressed before merge.
+
+3. If the EC is satisfied by code but has no CI test, note it as a non-blocking warning:
+
+> ⚠️ **EC-N has no automated test**: Satisfied by [file:line] but no test guards against regression.
+
+4. If NO parent issue exists (no `Closes #` or `Part of #` in the PR body), skip this section.
+
+**Why this matters**: The factory can ship code that compiles and passes unit tests but misses the feature's main point. EC items are the only machine-readable statement of user-observable behavior. If the reviewer does not verify them, no one does until the user runs the feature manually.
+
 ## Review Checklist
 - [ ] No security vulnerabilities (OWASP top 10)
 - [ ] SQL queries are parameterized

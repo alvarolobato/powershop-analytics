@@ -331,7 +331,22 @@ jobs:
             The active phase = lowest-numbered phase with no merged PR.
             If all phases are merged: post a "✅ All phases complete" comment and exit.
 
-            ### 2. Walk the checklist sequentially — one task at a time
+            ### 2. Read the Exit Criteria BEFORE implementing anything
+
+            ```bash
+            gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq '.body' \
+              | grep '**EC-'
+            ```
+
+            For each `**EC-N**` item, ask: **what code makes this true, and does a CI test verify it?**
+
+            - If the EC says "refresh mid-stream shows logs" → there must be a Playwright test that reloads the page mid-turn and asserts the log block is visible.
+            - If the EC says "streaming tokens visible" → there must be a test or clear code path emitting `token` events.
+            - If an EC item has no corresponding test AND no CI gate, **add the test as part of this phase before any other task**.
+
+            This check is mandatory even if it is Phase 1. ECs are the contract. If you discover an EC has no test coverage, create the test first.
+
+            ### 3. Walk the checklist sequentially — one task at a time
             For each unchecked `- [ ]` task in the active phase's `### Tasks`:
             1. Implement what the task says (nothing more, nothing less)
             2. Tick the checkbox immediately after completing:
