@@ -16,6 +16,7 @@
 #   logs [svc]         docker compose logs -f --tail 100 [<service>]
 #   version            Show the version running on prod
 #   health             Run health checks against prod services
+#   push-knowledge     Transfer source MDs to prod and run wren-push-metadata.py
 #   token-status       Show the prod Claude OAuth expiry (no ssh shell)
 #   login              Interactive ssh -t for `claude /login` on prod
 #   ssh                Open a shell on prod
@@ -46,7 +47,8 @@ Configuration (set in ~/.config/powershop-analytics/.env or shell env):
   PROD_PATH     deployment dir on prod (required — set in .env)
 
 Stack operations:
-  deploy            Pull latest Docker Hub images and restart the stack
+  deploy                Pull latest Docker Hub images and restart the stack
+    [--skip-knowledge]    Skip automatic WrenAI knowledge push after restart
   update            Full update: new compose/config from latest GitHub release + deploy
   restart [svc]     Restart all services or a specific one
   status            Container status + version + health checks + token state
@@ -55,10 +57,12 @@ Stack operations:
   health            Run health checks against all prod services
 
 Maintenance:
-  push-config       Upload local wren-config.yaml to prod (restarts wren-ai-service)
-  token-status      Show prod Claude OAuth expiry hours
-  login             Open interactive ssh and run "claude /login" on prod
-  ssh               Open a shell on prod
+  push-config           Upload local wren-config.yaml to prod (restarts wren-ai-service)
+  push-knowledge        Transfer source MDs to prod and push WrenAI knowledge
+    [--dry-run]           Print knowledge counts without pushing; still transfers files
+  token-status          Show prod Claude OAuth expiry hours
+  login                 Open interactive ssh and run "claude /login" on prod
+  ssh                   Open a shell on prod
 EOF
 }
 
@@ -99,13 +103,34 @@ remote_tty() {
 # deploy — pull latest images from Docker Hub and restart
 # ---------------------------------------------------------------------------
 cmd_deploy() {
+    local skip_knowledge=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --skip-knowledge) skip_knowledge=true; shift ;;
+            *) echo -e "${RED}ps prod deploy: unknown option '$1'${NC}" >&2; exit 1 ;;
+        esac
+    done
+
     echo -e "${CYAN}Deploying to $PROD_HOST → $PROD_PATH${NC}"
     echo -e "${DIM}Pulling latest Docker Hub images...${NC}"
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) pull"
     echo -e "${DIM}Restarting stack...${NC}"
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) up -d"
+    echo -e "${GREEN}Deploy complete.${NC}"
+
+    if [ "$skip_knowledge" = false ]; then
+        echo
+        echo -e "${DIM}Waiting for wren-ui to be healthy before pushing knowledge...${NC}"
+        # Poll until wren-ui responds on port 3000 (up to 60 s)
+        remote "for i in \$(seq 1 12); do curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1 && break || sleep 5; done; true"
+        echo -e "${CYAN}Pushing WrenAI knowledge...${NC}"
+        cmd_push_knowledge
+    else
+        echo -e "${DIM}Skipping knowledge push (--skip-knowledge).${NC}"
+    fi
+
     echo
-    echo -e "${GREEN}Deploy complete.${NC} Run 'ps prod health' to verify."
+    echo -e "${GREEN}All done.${NC} Run 'ps prod health' to verify."
 }
 
 # ---------------------------------------------------------------------------
@@ -285,6 +310,61 @@ cmd_push_config() {
 }
 
 # ---------------------------------------------------------------------------
+# push-knowledge — transfer source MDs to prod and run wren-push-metadata.py
+#
+# Prod has no git checkout, so source MDs must be transferred temporarily.
+# Uses tar over SSH to preserve directory structure without requiring rsync.
+# ---------------------------------------------------------------------------
+cmd_push_knowledge() {
+    require_prod_host
+
+    local dry_run_flag=""
+    if [ "${1:-}" = "--dry-run" ]; then
+        dry_run_flag="--dry-run"
+    fi
+
+    # Source MDs must match scripts/wren-push-metadata.py SOURCE_MDS list
+    local source_mds=(
+        docs/etl-sync-strategy.md
+        docs/architecture/sales.md
+        docs/architecture/wholesale.md
+        docs/architecture/stock-logistics.md
+        docs/architecture/purchasing.md
+        docs/architecture/products.md
+        docs/architecture/customers.md
+        docs/architecture/stores-hr.md
+        docs/skills/4d-sql-dialect.md
+        docs/skills/data-access.md
+        docs/dashboard/sql-pairs.md
+    )
+
+    echo -e "${CYAN}Pushing WrenAI knowledge to $PROD_HOST...${NC}"
+
+    # Create a temp directory on prod
+    local tmpdir
+    tmpdir=$(remote "mktemp -d /tmp/ps-knowledge.XXXXXX")
+    echo -e "${DIM}Temp dir on prod: $tmpdir${NC}"
+
+    # Transfer script + source MDs via tar over SSH (preserves relative paths)
+    echo -e "${DIM}Transferring script and source MDs...${NC}"
+    tar -czf - -C "$REPO_ROOT" scripts/wren-push-metadata.py "${source_mds[@]}" \
+        | ssh "$PROD_HOST" "bash -lc $(printf '%q' "mkdir -p $(printf %q "$tmpdir") && tar -xzf - -C $(printf %q "$tmpdir")")" \
+            2> >(grep -v 'tput: No value for \$TERM' >&2)
+
+    # Run the push script on prod (inside PROD_PATH so docker compose cp works)
+    echo -e "${DIM}Running wren-push-metadata.py on prod...${NC}"
+    remote "cd $(printf %q "$PROD_PATH") && python3 $(printf %q "$tmpdir/scripts/wren-push-metadata.py") --repo-root $(printf %q "$tmpdir") --url http://localhost:3000 $dry_run_flag"
+
+    # Clean up
+    remote "rm -rf $(printf %q "$tmpdir")"
+    echo -e "${DIM}Cleaned up temp dir.${NC}"
+
+    if [ -z "$dry_run_flag" ]; then
+        echo -e "${GREEN}Knowledge push complete. WrenAI instructions and SQL pairs are up to date.${NC}"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # token-status
 # ---------------------------------------------------------------------------
 cmd_token_status() {
@@ -350,8 +430,9 @@ case "$SUBCMD" in
     logs)          cmd_logs "$@" ;;
     version)       cmd_version "$@" ;;
     health)        cmd_health "$@" ;;
-    push-config)   cmd_push_config "$@" ;;
-    token-status)  cmd_token_status "$@" ;;
+    push-config)     cmd_push_config "$@" ;;
+    push-knowledge)  cmd_push_knowledge "$@" ;;
+    token-status)    cmd_token_status "$@" ;;
     login)         cmd_login "$@" ;;
     ssh)           cmd_ssh "$@" ;;
     *)

@@ -769,8 +769,24 @@ def main():
         action="store_true",
         help="Print instruction + SQL pair counts and a JSON sample; exit without API calls or SQLite writes",
     )
+    parser.add_argument(
+        "--repo-root",
+        type=pathlib.Path,
+        default=None,
+        metavar="PATH",
+        help="Root of the repository (overrides auto-detection from script location). "
+        "Use when running from a temp directory where source MDs have been SCP'd.",
+    )
     args = parser.parse_args()
     url = args.url
+
+    # If --repo-root is provided, update the global and reload knowledge from that root.
+    if args.repo_root is not None:
+        global _REPO_ROOT, INSTRUCTIONS, SQL_PAIRS, RELATIONSHIPS, SOURCE_QUESTIONS
+        _REPO_ROOT = args.repo_root.resolve()
+        INSTRUCTIONS, SQL_PAIRS = load_knowledge_from_mds()
+        RELATIONSHIPS = parse_relationships_from_mds(SOURCE_MDS)
+        SOURCE_QUESTIONS = {question for question, _sql in SQL_PAIRS}
 
     if args.dry_run:
         print("═══ Dry run — knowledge loaded from source MDs ═══")
