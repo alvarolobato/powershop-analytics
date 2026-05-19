@@ -25,6 +25,7 @@ Requires: the wren-ui container to be running (for GraphQL API + SQLite copy).
 """
 
 import argparse
+import decimal
 import json
 import os
 import pathlib
@@ -724,7 +725,7 @@ def cross_validate(dsn: str) -> None:
                 numeric_vals = [
                     (c, v)
                     for c, v in zip(col_names, row)
-                    if isinstance(v, (int, float)) and v is not None
+                    if isinstance(v, (int, float, decimal.Decimal)) and v is not None
                 ]
                 if len(numeric_vals) == 2:
                     (c1, v1), (c2, v2) = numeric_vals
