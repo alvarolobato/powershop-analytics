@@ -165,8 +165,8 @@ test("AC-8: reopening after close shows completed response", async ({ browser })
 
   const convId = await ensureConversation(page1);
 
-  // Start a turn
-  await postTurn(page1, convId, "Explica brevemente qué es el comercio minorista.");
+  // Start a turn — capture turnId so we can poll the turn-specific status endpoint
+  const turnId = await postTurn(page1, convId, "Explica brevemente qué es el comercio minorista.");
 
   await page1.goto(`/c/${convId}`);
 
@@ -174,7 +174,7 @@ test("AC-8: reopening after close shows completed response", async ({ browser })
   await page1.waitForTimeout(1_000);
   await context1.close();
 
-  // Wait for the turn to complete server-side (poll the turns endpoint)
+  // Wait for the turn to complete server-side (poll GET /turns/:turnId which returns { turn: { status } })
   const context2: BrowserContext = await browser.newContext();
   const page2 = await context2.newPage();
 
@@ -184,7 +184,7 @@ test("AC-8: reopening after close shows completed response", async ({ browser })
   // no active turn AND at least one message has been persisted.
   let completed = false;
   for (let i = 0; i < 30; i++) {
-    const resp = await page2.request.get(`/api/conversations/${convId}`);
+    const resp = await page2.request.get(`/api/conversations/${convId}/turns/${turnId}`);
     if (resp.ok()) {
       const body = await resp.json();
       if (body.active_turn_id === null && (body.messages?.length ?? 0) > 0) {
