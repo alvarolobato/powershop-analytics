@@ -302,6 +302,11 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           claude_args: "--model claude-sonnet-4-6 --permission-mode bypassPermissions --max-turns 120"
           allowed_bots: "claude[bot],github-actions[bot]"
+          # Branch prefix is enforced here so the "Verify PR was created" step can
+          # reliably find the branch via `gh pr list --search "head:ai/issue-NNN-"`.
+          # The agent's prompt also instructs this prefix, but the action-level config
+          # is the authoritative gate — the agent cannot override it.
+          branch_prefix: "ai/issue-${{ env.ISSUE_NUMBER }}-"
           prompt: |
             You are the AI Implementer (D-034 single-track model).
             Read CLAUDE.md (role: implementer) and AGENTS.md first — they define the model.

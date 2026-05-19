@@ -173,11 +173,27 @@ Phase 3 cannot start until Phase 2 merges (consumes API shape).
 - [ ] 5) Opus review
 ```
 
+## Branch naming — REQUIRED for the AI factory
+
+The AI worker enforces branch names via `branch_prefix: "ai/issue-NNN-"` in the workflow. **All implementation branches must follow this pattern:**
+
+```
+ai/issue-<NUMBER>-<short-slug>
+```
+
+Examples:
+- `ai/issue-702-thinking-scroll`
+- `ai/issue-702-p1` (for phase 1 of a multi-phase issue)
+
+**Why this matters**: The "Verify PR was created" step searches for `head:ai/issue-NNN-*`. A branch with any other prefix (e.g. `conv-ui-tweaks-p1`, `claude/`, `fix/`) causes the verify step to report "no PR created" even when the branch and PR exist, which falsely marks the issue `ai-blocked`.
+
+The `branch_prefix` is set at the workflow level in `ai-worker.yml` — the agent cannot override it. Human contributors should also follow this pattern when creating branches for factory-tracked issues.
+
 ## Worktree workflow
 
 Each issue specifies a **worktree name**. Before starting work:
 ```bash
-git worktree add ../<repo>-<worktree-name> -b <worktree-name>
+git worktree add ../<repo>-<worktree-name> -b ai/issue-<NUMBER>-<worktree-name>
 cd ../<repo>-<worktree-name>
 ```
 Work in the worktree. When done, PR is merged and worktree is removed:
