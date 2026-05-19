@@ -375,6 +375,9 @@ async function runDashboardTurn(
     // Emits an updated context event so the UI can show the full prompt sent to the LLM.
     onSystemPromptReady: (systemPrompt: string, tools?: Array<{ name: string; schema: Record<string, unknown> }>) => {
       const resolvedModel = resolveModelName();
+      const priorPreview = priorMessages.length > 0
+        ? priorMessages.slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 200) }))
+        : undefined;
       void emitTurnEvent(conversationId, turnId, seq(), "context", {
         context: {
           model: resolvedModel,
@@ -383,6 +386,7 @@ async function runDashboardTurn(
           flow: mode,
           seed_prompt: userMessage,
           prior_messages: priorMessages.length,
+          ...(priorPreview && { prior_messages_preview: priorPreview }),
           system_prompt_stable: systemPrompt,
           ...(tools && tools.length > 0 && { tools }),
         },

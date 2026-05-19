@@ -193,7 +193,22 @@ function AssistantBubble({
           <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
         ) : (
           <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              allowedElements={[
+                "p", "br", "strong", "em", "ul", "ol", "li",
+                "code", "pre", "blockquote", "a",
+                "h1", "h2", "h3", "h4", "h5", "h6",
+                "table", "thead", "tbody", "tr", "th", "td",
+              ]}
+              components={{
+                a: ({ ...props }) => (
+                  <a {...props} target="_blank" rel="noopener noreferrer" />
+                ),
+              }}
+            >
+              {text}
+            </ReactMarkdown>
           </div>
         )}
       </div>

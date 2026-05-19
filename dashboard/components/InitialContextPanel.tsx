@@ -55,6 +55,14 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+function smartUnescape(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { /* not valid JSON */ }
+  }
+  return text;
+}
+
 function PromptBlock({
   label,
   text,
@@ -102,7 +110,7 @@ function PromptBlock({
           border: "1px solid var(--border)",
         }}
       >
-        {text.replace(/\\"/g, '"')}
+        {smartUnescape(text)}
       </pre>
     </div>
   );
