@@ -20,14 +20,12 @@ describe("AnalyzeLauncher", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it("calls onOpen with seed prompt when clicked", () => {
+  it("calls onOpen with empty string when clicked (no pre-filled prompt)", () => {
     const onOpen = vi.fn();
     render(<AnalyzeLauncher dashboardId={42} onOpen={onOpen} />);
     fireEvent.click(screen.getByTestId("analyze-launcher"));
     expect(onOpen).toHaveBeenCalledOnce();
-    // Seed prompt should be a non-empty string
-    expect(typeof onOpen.mock.calls[0][0]).toBe("string");
-    expect(onOpen.mock.calls[0][0].length).toBeGreaterThan(0);
+    expect(onOpen).toHaveBeenCalledWith("");
   });
 
   it("does nothing when clicked without onOpen prop", () => {
