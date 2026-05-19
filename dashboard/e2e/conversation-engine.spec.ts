@@ -178,14 +178,16 @@ test("AC-8: reopening after close shows completed response", async ({ browser })
   const context2: BrowserContext = await browser.newContext();
   const page2 = await context2.newPage();
 
-  // Poll until completed or timeout
+  // Poll until completed or timeout.
+  // The GET /api/conversations/:id response includes active_turn_id (null when
+  // no turn is streaming/pending) and messages[]. Turn is done when there is
+  // no active turn AND at least one message has been persisted.
   let completed = false;
   for (let i = 0; i < 30; i++) {
     const resp = await page2.request.get(`/api/conversations/${convId}`);
     if (resp.ok()) {
       const body = await resp.json();
-      const lastStatus = body.turns?.[body.turns.length - 1]?.status;
-      if (lastStatus === "complete" || lastStatus === "error") {
+      if (body.active_turn_id === null && (body.messages?.length ?? 0) > 0) {
         completed = true;
         break;
       }

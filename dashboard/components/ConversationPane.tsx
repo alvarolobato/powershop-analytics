@@ -496,28 +496,28 @@ export function ConversationPane({
         if (messageId) {
           setMsgToTurn((prev) => new Map(prev).set(messageId, turnId));
         }
-        // Refresh messages and clear pending turn if this is the active one
-        if (pendingTurnIdRef.current === turnId) {
-          void fetch(`/api/conversations/${convId}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((freshConv) => {
-              if (freshConv) setConv(freshConv as ConversationWithMessages);
-              if (pendingTurnIdRef.current === turnId) {
-                setPendingTurnId(null);
-                setPendingUserMsg("");
-                setPendingPrompt("");
-                setStreamingText("");
-                setThinkingText("");
-              }
-            })
-            .catch(() => {
-              if (pendingTurnIdRef.current === turnId) {
-                setPendingTurnId(null);
-                setStreamingText("");
-                setThinkingText("");
-              }
-            });
-        }
+        // Always refresh messages so passive watchers (second browser window)
+        // also pick up the newly-persisted assistant message. Clear pending-
+        // turn state only when this client initiated the turn.
+        void fetch(`/api/conversations/${convId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((freshConv) => {
+            if (freshConv) setConv(freshConv as ConversationWithMessages);
+            if (pendingTurnIdRef.current === turnId) {
+              setPendingTurnId(null);
+              setPendingUserMsg("");
+              setPendingPrompt("");
+              setStreamingText("");
+              setThinkingText("");
+            }
+          })
+          .catch(() => {
+            if (pendingTurnIdRef.current === turnId) {
+              setPendingTurnId(null);
+              setStreamingText("");
+              setThinkingText("");
+            }
+          });
       } else if (eventType === "error") {
         const errText = (payload.message as string | undefined) ?? "Error desconocido";
         setTurns((prev) => {
