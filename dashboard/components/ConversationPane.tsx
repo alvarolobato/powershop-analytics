@@ -468,7 +468,6 @@ export function ConversationPane({
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [prefillId, prefillText, onPrefillConsumed]);
 
-
   // Handle spec_update SSE event
   const handleSpecUpdateEvent = useCallback(
     (payload: Record<string, unknown>, prompt: string) => {
