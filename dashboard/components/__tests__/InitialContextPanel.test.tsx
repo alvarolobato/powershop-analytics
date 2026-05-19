@@ -28,12 +28,14 @@ function openPanel() {
 
 describe("InitialContextPanel", () => {
   it("PromptBlock unescapes JSON (EC-4)", () => {
-    const escaped = '{\"widget\":\"foo\",\"value\":42}';
+    // String.raw preserves the literal backslashes so the runtime value is
+    // {\"widget\":\"foo\",\"value\":42} — invalid JSON until backslashes are stripped.
+    const escaped = String.raw`{\"widget\":\"foo\",\"value\":42}`;
     const ctx = makeContext({ system_prompt_stable: escaped });
     render(<InitialContextPanel context={ctx} />);
     openPanel();
 
-    // The pre element should show unescaped JSON
+    // The pre element should show unescaped, pretty-printed JSON
     const pre = screen.getByText((content) => content.includes('"widget"'));
     expect(pre).toBeInTheDocument();
     expect(pre.textContent).toContain('"widget"');

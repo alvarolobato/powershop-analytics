@@ -446,6 +446,25 @@ describe("ConversationPane", () => {
       () => expect(screen.getByTestId("thinking-scroll")).toBeInTheDocument(),
       { timeout: 4000 },
     );
+
+    // Spy on the scrollTop setter to verify the useEffect sets it to scrollHeight.
+    // The second SSE event fires after 10 ms (setTimeout in mock above) so there
+    // is a window between the first event (which makes the element appear) and the
+    // second event (which triggers the text-change useEffect we want to assert on).
+    const scrollEl = screen.getByTestId("thinking-scroll");
+    const STUB_SCROLL_HEIGHT = 500;
+    Object.defineProperty(scrollEl, "scrollHeight", { value: STUB_SCROLL_HEIGHT, configurable: true });
+    let capturedScrollTop = -1;
+    Object.defineProperty(scrollEl, "scrollTop", {
+      get() { return capturedScrollTop; },
+      set(v: number) { capturedScrollTop = v; },
+      configurable: true,
+    });
+
+    await waitFor(
+      () => expect(capturedScrollTop).toBe(STUB_SCROLL_HEIGHT),
+      { timeout: 4000 },
+    );
   });
 
   it("thinking text persists through tool calls (no token-clear wipe)", async () => {

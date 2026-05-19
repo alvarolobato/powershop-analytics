@@ -58,7 +58,11 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
 function smartUnescape(text: string): string {
   const trimmed = text.trim();
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { /* not valid JSON */ }
+    try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { /* not valid JSON as-is */ }
+    // Fallback: system prompts delivered as JSON-in-JSON may have \" escaped quotes.
+    try {
+      return JSON.stringify(JSON.parse(trimmed.replace(/\\"/g, '"')), null, 2);
+    } catch { /* not valid JSON after unescaping either */ }
   }
   return text;
 }
