@@ -87,6 +87,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
         run: |
           set -euo pipefail
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
@@ -156,6 +157,18 @@ jobs:
               gh pr comment "$PR_NUMBER" --repo "$REPO" \
                 --body "ℹ️ **AI Factory**: D-021 — both rounds already addressed. Skipping additional review. **Not marking \`ai-awaiting-owner\`** because CI is \`$CI_STATE\`." || true
             fi
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif ! echo ",$LABELS," | grep -q ",fact-cp-after-1,"; then
+            # fact-cp-after-1 is absent: Copilot hasn't been reviewed+addressed yet.
+            # Running Opus now would invert the D-021 order (Copilot → address → Opus).
+            # Re-request Copilot and bail out so the correct sequence can complete.
+            echo "PR #$PR_NUMBER: fact-cp-after-1 not set — Copilot round not done. Re-requesting Copilot and skipping Opus."
+            post_result=$(GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" \
+              gh api "repos/$REPO/pulls/$PR_NUMBER/requested_reviewers" \
+              --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
+            echo "Copilot re-request result: $post_result"
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "⏳ **AI Factory**: Skipping Opus review — Copilot round (D-021 step 1) has not been addressed yet (\`fact-cp-after-1\` absent). Re-requested Copilot review. Opus will run after Copilot + address-feedback completes." || true
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
