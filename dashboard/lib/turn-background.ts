@@ -375,9 +375,7 @@ async function runDashboardTurn(
     // Emits an updated context event so the UI can show the full prompt sent to the LLM.
     onSystemPromptReady: (systemPrompt: string, tools?: Array<{ name: string; schema: Record<string, unknown> }>) => {
       const resolvedModel = resolveModelName();
-      const priorPreview = priorMessages.length > 0
-        ? priorMessages.slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 200) }))
-        : undefined;
+      const priorPreview = buildPriorPreview(priorMessages);
       void emitTurnEvent(conversationId, turnId, seq(), "context", {
         context: {
           model: resolvedModel,
@@ -462,6 +460,13 @@ async function runGenericTurn(
 
 // ── Context snapshot builder ───────────────────────────────────────────────────
 
+function buildPriorPreview(
+  messages: Array<{ role: string; content: string }>,
+): Array<{ role: string; content: string }> | undefined {
+  if (messages.length === 0) return undefined;
+  return messages.slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 200) }));
+}
+
 function resolveModelName(): string {
   try {
     const cfg = loadDashboardLlmConfig();
@@ -482,14 +487,8 @@ function buildContextPayload(
   const priorMsgMeta = priorMessageCount !== undefined
     ? { prior_messages: priorMessageCount }
     : undefined;
-  const previewMeta = priorMessagesArray && priorMessagesArray.length > 0
-    ? {
-        prior_messages_preview: priorMessagesArray.slice(-10).map((m) => ({
-          role: m.role,
-          content: m.content.slice(0, 200),
-        })),
-      }
-    : undefined;
+  const preview = priorMessagesArray ? buildPriorPreview(priorMessagesArray) : undefined;
+  const previewMeta = preview ? { prior_messages_preview: preview } : undefined;
 
   if (conversation.initial_context) {
     return {

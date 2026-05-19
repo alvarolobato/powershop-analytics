@@ -91,7 +91,7 @@ function PromptBlock({
         >
           {label}
         </span>
-        <CopyButton text={text} />
+        <CopyButton text={smartUnescape(text)} />
       </div>
       <pre
         style={{
