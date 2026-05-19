@@ -406,4 +406,118 @@ describe("ConversationPane", () => {
       { timeout: 3000 },
     );
   });
+
+  it("ThinkingBlock auto-scrolls to bottom on content change", async () => {
+    const encoder = new TextEncoder();
+    const convId = "conv-autoscroll";
+    const turnId = "turn-scroll";
+    // active_turn_id causes the component to set pendingTurnId, enabling SSE event processing
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: turnId, messages: [] };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+          const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+          ctrl.enqueue(encoder.encode(
+            `id: 1\ndata: ${JSON.stringify({ turnId, eventType: "thinking", payload: { text: "first thought" } })}\n\n`,
+          ));
+          setTimeout(() => {
+            ctrl.enqueue(encoder.encode(
+              `id: 2\ndata: ${JSON.stringify({ turnId, eventType: "thinking", payload: { text: "first thought\nsecond thought\nthird thought" } })}\n\n`,
+            ));
+            ctrl.close();
+          }, 10);
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(conv),
+        } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    // thinking-scroll renders inside ThinkingBlock when open=true (set by streaming=true)
+    await waitFor(
+      () => expect(screen.getByTestId("thinking-scroll")).toBeInTheDocument(),
+      { timeout: 4000 },
+    );
+  });
+
+  it("thinking text persists through tool calls (no token-clear wipe)", async () => {
+    const encoder = new TextEncoder();
+    const convId = "conv-tool-thinking";
+    const turnId = "turn-tool";
+    const thinkingContent = "important reasoning";
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: turnId, messages: [] };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          let ctrl!: ReadableStreamDefaultController<Uint8Array>;
+          const stream = new ReadableStream<Uint8Array>({ start(c) { ctrl = c; } });
+          // thinking arrives
+          ctrl.enqueue(encoder.encode(
+            `id: 1\ndata: ${JSON.stringify({ turnId, eventType: "thinking", payload: { text: thinkingContent } })}\n\n`,
+          ));
+          setTimeout(() => {
+            // tool round: token clear (text:"") — must NOT clear thinking
+            ctrl.enqueue(encoder.encode(
+              `id: 2\ndata: ${JSON.stringify({ turnId, eventType: "token", payload: { text: "" } })}\n\n`,
+            ));
+          }, 10);
+          setTimeout(() => {
+            ctrl.close();
+          }, 50);
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(conv),
+        } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    // thinking block must appear
+    await waitFor(
+      () => expect(screen.getByTestId("thinking-block")).toBeInTheDocument(),
+      { timeout: 4000 },
+    );
+    // and persist even after the token clear arrives
+    await waitFor(
+      () => expect(screen.getByText(thinkingContent)).toBeInTheDocument(),
+      { timeout: 4000 },
+    );
+  });
+
+  it("AssistantBubble renders markdown as HTML", async () => {
+    stubFetch("conv-md", [
+      {
+        id: "m1",
+        conversation_id: "conv-md",
+        role: "assistant",
+        content: { text: "**bold text** and a list:\n- item one\n- item two" },
+        created_at: new Date().toISOString(),
+      },
+    ]);
+    render(<ConversationPane conversationId="conv-md" mode="standalone" />);
+    await waitFor(() => {
+      const bubble = screen.getByTestId("assistant-bubble");
+      // ReactMarkdown renders **bold text** as <strong>
+      const strong = bubble.querySelector("strong");
+      expect(strong).toBeInTheDocument();
+      expect(strong?.textContent).toBe("bold text");
+      // And list items as <li>
+      const items = bubble.querySelectorAll("li");
+      expect(items.length).toBeGreaterThanOrEqual(2);
+    });
+  });
 });

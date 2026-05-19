@@ -20,6 +20,7 @@ import {
 } from "@/lib/conversations";
 import { publish } from "@/lib/sse-pubsub";
 import { generateRequestId } from "@/lib/errors";
+import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
 
 // Re-export for use in tests without importing from route
 export type { ConversationRow };
@@ -78,11 +79,11 @@ function makeProgressHandler(
       inToolRound = false;
     } else if (event.type === "assistant_tools") {
       inToolRound = true;
-      // Clear any tokens/thinking that streamed before we knew this was a tool round.
+      // Clear streaming tokens that appeared before we knew this was a tool round.
+      // Thinking text is preserved — it remains visible while tools execute.
       if (!suppressTokens) {
         void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
       }
-      void emitTurnEvent(conversationId, turnId, seq(), "thinking", { text: "" }).catch(() => {});
       return;
     } else if (event.type === "model_thinking_delta" && event.text) {
       if (!inToolRound) {
@@ -180,6 +181,7 @@ export async function runTurnBackground(
       requestId,
       userMessage,
       priorMessages.length,
+      priorMessages,
     );
     await emitTurnEvent(conversationId, turnId, seq(), "context", contextPayload);
 
@@ -371,16 +373,18 @@ async function runDashboardTurn(
     onAgenticProgress: makeProgressHandler(conversationId, turnId, seq, true),
     // Callback from analyzeDashboard/modifyDashboard once the system prompt is built.
     // Emits an updated context event so the UI can show the full prompt sent to the LLM.
-    onSystemPromptReady: (systemPrompt: string, toolNames?: string[]) => {
+    onSystemPromptReady: (systemPrompt: string, tools?: Array<{ name: string; schema: Record<string, unknown> }>) => {
+      const resolvedModel = resolveModelName();
       void emitTurnEvent(conversationId, turnId, seq(), "context", {
         context: {
-          model: conversation.llm_driver ?? conversation.llm_provider ?? "unknown",
+          model: resolvedModel,
           provider: conversation.llm_provider ?? "unknown",
+          driver: conversation.llm_driver ?? null,
           flow: mode,
           seed_prompt: userMessage,
           prior_messages: priorMessages.length,
           system_prompt_stable: systemPrompt,
-          ...(toolNames && { tools: toolNames.map((n) => ({ name: n, schema: {} })) }),
+          ...(tools && tools.length > 0 && { tools }),
         },
         requestId,
       }).catch(() => {});
@@ -454,30 +458,51 @@ async function runGenericTurn(
 
 // ── Context snapshot builder ───────────────────────────────────────────────────
 
+function resolveModelName(): string {
+  try {
+    const cfg = loadDashboardLlmConfig();
+    return getEffectiveDashboardModel(cfg);
+  } catch {
+    return "unknown";
+  }
+}
+
 function buildContextPayload(
   conversation: ConversationRow,
   requestId: string,
   userMessage?: string,
   priorMessageCount?: number,
+  priorMessagesArray?: Array<{ role: string; content: string }>,
 ): Record<string, unknown> {
   const seed_prompt = userMessage?.trim() || undefined;
   const priorMsgMeta = priorMessageCount !== undefined
     ? { prior_messages: priorMessageCount }
     : undefined;
+  const previewMeta = priorMessagesArray && priorMessagesArray.length > 0
+    ? {
+        prior_messages_preview: priorMessagesArray.slice(-10).map((m) => ({
+          role: m.role,
+          content: m.content.slice(0, 200),
+        })),
+      }
+    : undefined;
 
   if (conversation.initial_context) {
     return {
-      context: { ...conversation.initial_context, seed_prompt, ...priorMsgMeta },
+      context: { ...conversation.initial_context, seed_prompt, ...priorMsgMeta, ...previewMeta },
       requestId,
     };
   }
+  const resolvedModel = resolveModelName();
   return {
     context: {
-      model: conversation.llm_driver ?? conversation.llm_provider ?? "unknown",
+      model: resolvedModel,
       provider: conversation.llm_provider ?? "unknown",
+      driver: conversation.llm_driver ?? null,
       flow: conversation.mode ?? "chat",
       seed_prompt,
       ...priorMsgMeta,
+      ...previewMeta,
     },
     requestId,
   };

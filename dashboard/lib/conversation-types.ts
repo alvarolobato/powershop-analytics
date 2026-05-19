@@ -32,6 +32,7 @@ export interface InitialContext {
   system_prompt_volatile?: string;
   tools?: Array<{ name: string; schema: Record<string, unknown> }>;
   prior_messages?: number;
+  prior_messages_preview?: Array<{ role: string; content: string }>;
   config?: {
     flow?: string;
     maxOutputTokens?: number;

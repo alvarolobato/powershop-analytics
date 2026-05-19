@@ -7,6 +7,8 @@ import {
   useCallback,
   type KeyboardEvent,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   ConversationWithMessages,
   ConversationMessage,
@@ -183,12 +185,17 @@ function AssistantBubble({
           fontSize: 13,
           color: "var(--fg)",
           lineHeight: 1.5,
-          whiteSpace: "pre-wrap",
           wordBreak: "break-word",
         }}
         data-testid="assistant-bubble"
       >
-        {text}
+        {isError ? (
+          <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -198,6 +205,14 @@ function AssistantBubble({
 
 function ThinkingBlock({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const [open, setOpen] = useState(streaming); // open while streaming, collapsed after
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text]);
+
   return (
     <div data-testid="thinking-block" style={{ marginBottom: 4, maxWidth: "85%" }}>
       <button
@@ -220,6 +235,8 @@ function ThinkingBlock({ text, streaming = false }: { text: string; streaming?: 
       </button>
       {open && (
         <div
+          ref={scrollRef}
+          data-testid="thinking-scroll"
           style={{
             marginTop: 4,
             padding: "8px 10px",
@@ -443,8 +460,6 @@ export function ConversationPane({
         const text = (payload.text as string | undefined) ?? (payload.delta as string | undefined) ?? "";
         if (pendingTurnIdRef.current === turnId) {
           setStreamingText(text);
-          // Token clear also clears thinking (same tool-round signal).
-          if (text === "") setThinkingText("");
         }
       } else if (eventType === "spec_update") {
         handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
