@@ -185,6 +185,7 @@ def extract_sql_pairs(content: str) -> list[tuple[str, str]]:
             if not sql_m or not question:
                 continue
             sql = transform_date_placeholders(sql_m.group(1).strip())
+            sql = transform_wren_table_names(sql)
             pairs.append((question, sql))
     return pairs
 
@@ -197,6 +198,26 @@ def transform_date_placeholders(sql: str) -> str:
     """
     for placeholder, expression in _DATE_PLACEHOLDERS:
         sql = sql.replace(placeholder, expression)
+    return sql
+
+
+def transform_wren_table_names(sql: str) -> str:
+    """Convert PostgreSQL schema.table notation to WrenAI model reference names.
+
+    SQL pairs in sql-pairs.md use "public"."ps_ventas" (valid PostgreSQL) but
+    WrenAI's query engine expects the model reference name "public_ps_ventas"
+    (schema and table joined with underscore). Feeding the schema.table form
+    to WrenAI's RAG causes the LLM to generate SQL that WrenAI cannot execute.
+
+    Transforms: "public"."ps_  →  "public_ps_
+    Also handles unquoted variants: public.ps_  →  public_ps_
+    """
+    import re
+
+    # Quoted: "public"."ps_something" -> "public_ps_something"
+    sql = re.sub(r'"public"\."(ps_[^"]+)"', r'"public_\1"', sql)
+    # Unquoted: public.ps_something -> public_ps_something
+    sql = re.sub(r"\bpublic\.(ps_\w+)", r"public_\1", sql)
     return sql
 
 
