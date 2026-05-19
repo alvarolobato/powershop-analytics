@@ -280,7 +280,9 @@ export async function modifyDashboard(
     const agenticPreamble = buildAgenticToolPreamble();
     const promptSplit = buildModifyPromptSplit(currentSpec, true);
     const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
-    const modifyToolNames = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+    const modifyToolNames = DASHBOARD_AGENTIC_TOOLS
+      .filter((t): t is { type: "function"; function: { name: string } } => t.type === "function")
+      .map((t) => t.function.name);
     ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`, modifyToolNames);
     const cachedMsg =
       cfg.provider === "openrouter"
@@ -442,7 +444,9 @@ export async function analyzeDashboard(
       dashboardId: requestCtx.dashboardId,
       agenticMode: true,
     })}\n\n${buildAgenticToolPreamble()}`;
-    const analyzeToolNames = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+    const analyzeToolNames = DASHBOARD_AGENTIC_TOOLS
+      .filter((t): t is { type: "function"; function: { name: string } } => t.type === "function")
+      .map((t) => t.function.name);
     ctx?.onSystemPromptReady?.(systemPrompt, analyzeToolNames);
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "analyze");
