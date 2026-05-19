@@ -7,6 +7,8 @@ import {
   useCallback,
   type KeyboardEvent,
 } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type {
   ConversationWithMessages,
   ConversationMessage,
@@ -183,12 +185,32 @@ function AssistantBubble({
           fontSize: 13,
           color: "var(--fg)",
           lineHeight: 1.5,
-          whiteSpace: "pre-wrap",
           wordBreak: "break-word",
         }}
         data-testid="assistant-bubble"
       >
-        {text}
+        {isError ? (
+          <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
+        ) : (
+          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              allowedElements={[
+                "p", "br", "strong", "em", "ul", "ol", "li",
+                "code", "pre", "blockquote", "a",
+                "h1", "h2", "h3", "h4", "h5", "h6",
+                "table", "thead", "tbody", "tr", "th", "td",
+              ]}
+              components={{
+                a: ({ ...props }) => (
+                  <a {...props} target="_blank" rel="noopener noreferrer" />
+                ),
+              }}
+            >
+              {text}
+            </ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -198,6 +220,14 @@ function AssistantBubble({
 
 function ThinkingBlock({ text, streaming = false }: { text: string; streaming?: boolean }) {
   const [open, setOpen] = useState(streaming); // open while streaming, collapsed after
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text]);
+
   return (
     <div data-testid="thinking-block" style={{ marginBottom: 4, maxWidth: "85%" }}>
       <button
@@ -220,6 +250,8 @@ function ThinkingBlock({ text, streaming = false }: { text: string; streaming?: 
       </button>
       {open && (
         <div
+          ref={scrollRef}
+          data-testid="thinking-scroll"
           style={{
             marginTop: 4,
             padding: "8px 10px",
@@ -443,8 +475,6 @@ export function ConversationPane({
         const text = (payload.text as string | undefined) ?? (payload.delta as string | undefined) ?? "";
         if (pendingTurnIdRef.current === turnId) {
           setStreamingText(text);
-          // Token clear also clears thinking (same tool-round signal).
-          if (text === "") setThinkingText("");
         }
       } else if (eventType === "spec_update") {
         handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
@@ -466,28 +496,28 @@ export function ConversationPane({
         if (messageId) {
           setMsgToTurn((prev) => new Map(prev).set(messageId, turnId));
         }
-        // Refresh messages and clear pending turn if this is the active one
-        if (pendingTurnIdRef.current === turnId) {
-          void fetch(`/api/conversations/${convId}`)
-            .then((r) => (r.ok ? r.json() : null))
-            .then((freshConv) => {
-              if (freshConv) setConv(freshConv as ConversationWithMessages);
-              if (pendingTurnIdRef.current === turnId) {
-                setPendingTurnId(null);
-                setPendingUserMsg("");
-                setPendingPrompt("");
-                setStreamingText("");
-                setThinkingText("");
-              }
-            })
-            .catch(() => {
-              if (pendingTurnIdRef.current === turnId) {
-                setPendingTurnId(null);
-                setStreamingText("");
-                setThinkingText("");
-              }
-            });
-        }
+        // Always refresh messages so passive watchers (second browser window)
+        // also pick up the newly-persisted assistant message. Clear pending-
+        // turn state only when this client initiated the turn.
+        void fetch(`/api/conversations/${convId}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((freshConv) => {
+            if (freshConv) setConv(freshConv as ConversationWithMessages);
+            if (pendingTurnIdRef.current === turnId) {
+              setPendingTurnId(null);
+              setPendingUserMsg("");
+              setPendingPrompt("");
+              setStreamingText("");
+              setThinkingText("");
+            }
+          })
+          .catch(() => {
+            if (pendingTurnIdRef.current === turnId) {
+              setPendingTurnId(null);
+              setStreamingText("");
+              setThinkingText("");
+            }
+          });
       } else if (eventType === "error") {
         const errText = (payload.message as string | undefined) ?? "Error desconocido";
         setTurns((prev) => {

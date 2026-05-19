@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import type { InitialContext } from "@/lib/conversation-types";
 
 interface InitialContextPanelProps {
@@ -55,6 +55,18 @@ function FieldRow({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+function smartUnescape(text: string): string {
+  const trimmed = text.trim();
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try { return JSON.stringify(JSON.parse(trimmed), null, 2); } catch { /* not valid JSON as-is */ }
+    // Fallback: system prompts delivered as JSON-in-JSON may have \" escaped quotes.
+    try {
+      return JSON.stringify(JSON.parse(trimmed.replace(/\\"/g, '"')), null, 2);
+    } catch { /* not valid JSON after unescaping either */ }
+  }
+  return text;
+}
+
 function PromptBlock({
   label,
   text,
@@ -83,7 +95,7 @@ function PromptBlock({
         >
           {label}
         </span>
-        <CopyButton text={text} />
+        <CopyButton text={smartUnescape(text)} />
       </div>
       <pre
         style={{
@@ -102,8 +114,41 @@ function PromptBlock({
           border: "1px solid var(--border)",
         }}
       >
-        {text}
+        {smartUnescape(text)}
       </pre>
+    </div>
+  );
+}
+
+function CollapsibleSection({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "4px 0",
+          textAlign: "left",
+          fontSize: 10,
+          fontWeight: 600,
+          textTransform: "uppercase" as const,
+          letterSpacing: "0.05em",
+          color: "var(--fg-muted)",
+          fontFamily: "inherit",
+        }}
+      >
+        <span style={{ fontSize: 9 }}>{open ? "▾" : "▸"}</span>
+        {label}
+      </button>
+      {open && <div style={{ marginTop: 4 }}>{children}</div>}
     </div>
   );
 }
@@ -226,6 +271,37 @@ export function InitialContextPanel({ context }: InitialContextPanelProps) {
             <FieldRow label="Mensajes previos en contexto">
               <span>{context.prior_messages} mensaje{context.prior_messages !== 1 ? "s" : ""}</span>
             </FieldRow>
+          )}
+
+          {/* Conversation history preview */}
+          {context.prior_messages_preview && context.prior_messages_preview.length > 0 && (
+            <CollapsibleSection
+              label={`Historial de la conversación (${context.prior_messages_preview.length} mensajes)`}
+            >
+              <div
+                data-testid="history-preview"
+                style={{ display: "flex", flexDirection: "column", gap: 4 }}
+              >
+                {context.prior_messages_preview.map((msg, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      fontSize: 11,
+                      fontFamily: "var(--font-jetbrains, monospace)",
+                      padding: "4px 6px",
+                      background: "var(--bg-1)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 3,
+                    }}
+                  >
+                    <span style={{ color: "var(--fg-muted)", fontWeight: 600 }}>
+                      {msg.role}:{" "}
+                    </span>
+                    <span style={{ color: "var(--fg)" }}>{msg.content}</span>
+                  </div>
+                ))}
+              </div>
+            </CollapsibleSection>
           )}
 
           {/* Prompt inicial */}

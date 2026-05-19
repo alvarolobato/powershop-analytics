@@ -20,6 +20,7 @@ function normalizeProvider(raw: string | null | undefined): DashboardLlmProvider
   const v = (raw ?? "cli").trim().toLowerCase();
   if (v === "" || v === "cli") return "cli";
   if (v === "openrouter") return "openrouter";
+  if (v === "e2e-stub") return "e2e-stub";
   throw new Error(
     `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "cli" or "openrouter".`,
   );

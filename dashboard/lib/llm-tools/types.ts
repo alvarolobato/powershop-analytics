@@ -58,7 +58,10 @@ export interface LlmAgenticContext {
   /** Optional hook for NDJSON streaming UI and diagnostics. */
   onAgenticProgress?: (event: AgenticProgressEvent) => void;
   /** Called once the system prompt is assembled, before the first LLM call. */
-  onSystemPromptReady?: (systemPrompt: string, toolNames?: string[]) => void;
+  onSystemPromptReady?: (
+    systemPrompt: string,
+    tools?: Array<{ name: string; schema: Record<string, unknown> }>,
+  ) => void;
   /** Telemetry: active LLM transport (OpenRouter HTTP vs local CLI). */
   llmProvider?: DashboardLlmProviderId;
   /** When `llmProvider` is `cli`, which driver binary/protocol is used. */

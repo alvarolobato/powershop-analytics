@@ -280,10 +280,10 @@ export async function modifyDashboard(
     const agenticPreamble = buildAgenticToolPreamble();
     const promptSplit = buildModifyPromptSplit(currentSpec, true);
     const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
-    const modifyToolNames = DASHBOARD_AGENTIC_TOOLS
-      .filter((t): t is { type: "function"; function: { name: string } } => t.type === "function")
-      .map((t) => t.function.name);
-    ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`, modifyToolNames);
+    const modifyTools = DASHBOARD_AGENTIC_TOOLS
+      .filter((t): t is { type: "function"; function: { name: string; description?: string; parameters?: Record<string, unknown> } } => t.type === "function")
+      .map((t) => ({ name: t.function.name, schema: t.function as Record<string, unknown> }));
+    ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`, modifyTools);
     const cachedMsg =
       cfg.provider === "openrouter"
         ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
@@ -444,10 +444,10 @@ export async function analyzeDashboard(
       dashboardId: requestCtx.dashboardId,
       agenticMode: true,
     })}\n\n${buildAgenticToolPreamble()}`;
-    const analyzeToolNames = DASHBOARD_AGENTIC_TOOLS
-      .filter((t): t is { type: "function"; function: { name: string } } => t.type === "function")
-      .map((t) => t.function.name);
-    ctx?.onSystemPromptReady?.(systemPrompt, analyzeToolNames);
+    const analyzeTools = DASHBOARD_AGENTIC_TOOLS
+      .filter((t): t is { type: "function"; function: { name: string; description?: string; parameters?: Record<string, unknown> } } => t.type === "function")
+      .map((t) => ({ name: t.function.name, schema: t.function as Record<string, unknown> }));
+    ctx?.onSystemPromptReady?.(systemPrompt, analyzeTools);
     const adapter = createDashboardAgenticAdapter();
     const model = getEffectiveDashboardModel(cfg, "analyze");
     const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "analyze");

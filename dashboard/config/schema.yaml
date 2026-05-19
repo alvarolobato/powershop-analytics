@@ -45,11 +45,11 @@
 - key: dashboard.llm_provider
   env: DASHBOARD_LLM_PROVIDER
   type: enum
-  enum_values: [cli, openrouter]
+  enum_values: [cli, openrouter, e2e-stub]
   sensitive: false
   default: cli
   section: "Dashboard LLM"
-  description: "Proveedor LLM: 'cli' usa Claude Code local (OAuth), 'openrouter' usa la API de OpenRouter."
+  description: "Proveedor LLM: 'cli' usa Claude Code local (OAuth), 'openrouter' usa la API de OpenRouter. 'e2e-stub' solo para tests e2e."
   requires_restart: []
 
 - key: dashboard.llm_model_openrouter
