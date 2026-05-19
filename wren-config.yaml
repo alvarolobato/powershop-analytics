@@ -3,7 +3,7 @@ provider: litellm_llm
 timeout: 120
 models:
   - alias: default
-    model: openrouter/anthropic/claude-sonnet-4
+    model: openrouter/deepseek/deepseek-chat-v3-0324
     context_window_size: 200000
     kwargs:
       max_tokens: 4096
