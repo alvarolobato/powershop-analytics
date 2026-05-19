@@ -68,24 +68,23 @@ jobs:
           fi
 
           BRANCH="${{ github.event.workflow_run.head_branch }}"
-          # Run remediation when there is an open PR with fact-ci-failing, regardless
-          # of branch name. The branch filter previously blocked branches like
-          # conv-ui-tweaks-p1 that don't follow the ai/* prefix convention.
-          # Instead of maintaining an ever-growing list of allowed prefixes, check
-          # whether the PR actually carries fact-ci-failing — that's the true gate.
+          case "$BRANCH" in
+            ai/*) ;;                    # factory branches (branch_prefix enforced in ai-worker.yml)
+            conversation-engine-*) ;;  # D-034 single-track phase branches
+            fix/*|feat/*|refactor/*) ;; # manual factory-adjacent branches
+            *)
+              echo "should_run=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
+
           PR=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
           if [ -z "$PR" ]; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          PR_LABELS=$(gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')
-          if ! echo ",$PR_LABELS," | grep -q ",fact-ci-failing,"; then
-            # No fact-ci-failing label — CI didn't fail on this PR, nothing to remediate.
-            echo "should_run=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
 
-          if echo ",$PR_LABELS," | grep -q ",no-ai,"; then
+          if gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | any(. == "no-ai")' | grep -q true; then
             echo "should_run=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
