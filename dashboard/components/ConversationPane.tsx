@@ -192,24 +192,51 @@ function AssistantBubble({
         {isError ? (
           <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
         ) : (
-          <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 prose-h1:text-base prose-h2:text-sm prose-h3:text-sm prose-headings:font-semibold">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              allowedElements={[
-                "p", "br", "strong", "em", "ul", "ol", "li",
-                "code", "pre", "blockquote", "a",
-                "h1", "h2", "h3", "h4", "h5", "h6",
-                "table", "thead", "tbody", "tr", "th", "td",
-              ]}
-              components={{
-                a: ({ ...props }) => (
-                  <a {...props} target="_blank" rel="noopener noreferrer" />
-                ),
-              }}
-            >
-              {text}
-            </ReactMarkdown>
-          </div>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            allowedElements={[
+              "p", "br", "strong", "em", "ul", "ol", "li",
+              "code", "pre", "blockquote", "a",
+              "h1", "h2", "h3", "h4", "h5", "h6",
+              "table", "thead", "tbody", "tr", "th", "td",
+            ]}
+            components={{
+              p: ({ ...props }) => <p style={{ margin: "0 0 6px" }} {...props} />,
+              strong: ({ ...props }) => <strong style={{ fontWeight: 600 }} {...props} />,
+              em: ({ ...props }) => <em style={{ fontStyle: "italic" }} {...props} />,
+              ul: ({ ...props }) => <ul style={{ margin: "4px 0", paddingLeft: 18 }} {...props} />,
+              ol: ({ ...props }) => <ol style={{ margin: "4px 0", paddingLeft: 18 }} {...props} />,
+              li: ({ ...props }) => <li style={{ margin: "1px 0" }} {...props} />,
+              h1: ({ ...props }) => <h1 style={{ fontSize: 15, fontWeight: 700, margin: "8px 0 4px" }} {...props} />,
+              h2: ({ ...props }) => <h2 style={{ fontSize: 14, fontWeight: 600, margin: "6px 0 3px" }} {...props} />,
+              h3: ({ ...props }) => <h3 style={{ fontSize: 13, fontWeight: 600, margin: "4px 0 2px" }} {...props} />,
+              code: ({ ...props }) => (
+                <code style={{ fontFamily: "var(--font-jetbrains, monospace)", fontSize: 11, background: "var(--bg-1)", padding: "1px 4px", borderRadius: 3 }} {...props} />
+              ),
+              pre: ({ ...props }) => (
+                <pre style={{ fontFamily: "var(--font-jetbrains, monospace)", fontSize: 11, background: "var(--bg-1)", padding: "8px 10px", borderRadius: 4, overflowX: "auto", margin: "4px 0" }} {...props} />
+              ),
+              blockquote: ({ ...props }) => (
+                <blockquote style={{ borderLeft: "3px solid var(--border)", paddingLeft: 10, margin: "4px 0", color: "var(--fg-muted)" }} {...props} />
+              ),
+              table: ({ ...props }) => (
+                <div style={{ overflowX: "auto", margin: "6px 0" }}>
+                  <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }} {...props} />
+                </div>
+              ),
+              th: ({ ...props }) => (
+                <th style={{ border: "1px solid var(--border)", padding: "4px 8px", background: "var(--bg-1)", fontWeight: 600, textAlign: "left" }} {...props} />
+              ),
+              td: ({ ...props }) => (
+                <td style={{ border: "1px solid var(--border)", padding: "4px 8px" }} {...props} />
+              ),
+              a: ({ ...props }) => (
+                <a style={{ color: "var(--accent)", textDecoration: "underline" }} {...props} target="_blank" rel="noopener noreferrer" />
+              ),
+            }}
+          >
+            {text}
+          </ReactMarkdown>
         )}
       </div>
     </div>
