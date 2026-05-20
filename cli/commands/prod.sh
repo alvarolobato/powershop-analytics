@@ -121,10 +121,13 @@ cmd_deploy() {
     if [ "$skip_knowledge" = false ]; then
         echo
         echo -e "${DIM}Waiting for wren-ui to be healthy before pushing knowledge...${NC}"
-        # Poll until wren-ui responds on port 3000 (up to 60 s)
-        remote "for i in \$(seq 1 12); do curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1 && break || sleep 5; done; true"
-        echo -e "${CYAN}Pushing WrenAI knowledge...${NC}"
-        cmd_push_knowledge
+        # Poll until wren-ui responds on port 3000 (up to 60 s); exit 0 on success, 1 on timeout
+        if remote "for i in \$(seq 1 12); do curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1 && exit 0 || sleep 5; done; exit 1"; then
+            echo -e "${CYAN}Pushing WrenAI knowledge...${NC}"
+            cmd_push_knowledge
+        else
+            echo -e "${YELLOW}wren-ui did not respond within 60s — skipping knowledge push. Run 'ps prod push-knowledge' manually once the stack is healthy.${NC}" >&2
+        fi
     else
         echo -e "${DIM}Skipping knowledge push (--skip-knowledge).${NC}"
     fi
@@ -319,9 +322,12 @@ cmd_push_knowledge() {
     require_prod_host
 
     local dry_run_flag=""
-    if [ "${1:-}" = "--dry-run" ]; then
-        dry_run_flag="--dry-run"
-    fi
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --dry-run) dry_run_flag="--dry-run"; shift ;;
+            *) echo -e "${RED}ps prod push-knowledge: unknown option '$1'${NC}" >&2; exit 1 ;;
+        esac
+    done
 
     # Source MDs must match scripts/wren-push-metadata.py SOURCE_MDS list
     local source_mds=(
@@ -345,18 +351,27 @@ cmd_push_knowledge() {
     tmpdir=$(remote "mktemp -d /tmp/ps-knowledge.XXXXXX")
     echo -e "${DIM}Temp dir on prod: $tmpdir${NC}"
 
-    # Transfer script + source MDs via tar over SSH (preserves relative paths)
+    # Ensure tmpdir is cleaned up on exit (including early exit due to set -e)
+    # shellcheck disable=SC2064
+    trap "remote 'rm -rf $(printf %q "$tmpdir")' 2>/dev/null; trap - EXIT" EXIT
+
+    # Transfer script + source MDs via tar over SSH (preserves relative paths).
+    # Subshell with pipefail so a local tar failure (e.g. missing source MD) is not masked.
     echo -e "${DIM}Transferring script and source MDs...${NC}"
-    tar -czf - -C "$REPO_ROOT" scripts/wren-push-metadata.py "${source_mds[@]}" \
-        | ssh "$PROD_HOST" "bash -lc $(printf '%q' "mkdir -p $(printf %q "$tmpdir") && tar -xzf - -C $(printf %q "$tmpdir")")" \
-            2> >(grep -v 'tput: No value for \$TERM' >&2)
+    (
+        set -o pipefail
+        tar -czf - -C "$REPO_ROOT" scripts/wren-push-metadata.py "${source_mds[@]}" \
+            | ssh "$PROD_HOST" "bash -lc $(printf '%q' "mkdir -p $(printf %q "$tmpdir") && tar -xzf - -C $(printf %q "$tmpdir")")" \
+                2> >(grep -v 'tput: No value for \$TERM' >&2)
+    )
 
     # Run the push script on prod (inside PROD_PATH so docker compose cp works)
     echo -e "${DIM}Running wren-push-metadata.py on prod...${NC}"
     remote "cd $(printf %q "$PROD_PATH") && python3 $(printf %q "$tmpdir/scripts/wren-push-metadata.py") --repo-root $(printf %q "$tmpdir") --url http://localhost:3000 $dry_run_flag"
 
-    # Clean up
+    # Clean up explicitly and clear the trap (trap handles error paths above)
     remote "rm -rf $(printf %q "$tmpdir")"
+    trap - EXIT
     echo -e "${DIM}Cleaned up temp dir.${NC}"
 
     if [ -z "$dry_run_flag" ]; then
