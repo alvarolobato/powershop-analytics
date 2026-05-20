@@ -243,9 +243,12 @@ services:
       # block editing from the admin /config UI (env-sourced keys are
       # surfaced as read-only). Set them on the host shell only if you
       # genuinely want a hard override.
-      # Claude Code CLI credentials (OAuth token). The CLI is installed inside the
-      # image via npm; only the credentials need to be mounted from the host.
-      # The nextjs user (uid 1001) inside the container reads from /home/nextjs/.claude/
+      # Claude Code CLI credentials for DASHBOARD_LLM_PROVIDER=cli.
+      # Run `claude /install-github-app` once to generate a 1-year OAuth token.
+      # Copy the full contents of ~/.claude/.credentials.json into your
+      # ~/.config/powershop-analytics/.env as CLAUDE_CODE_OAUTH_TOKEN='<json>'.
+      # The CLI reads this env var directly — no file mount needed (D-025 updated).
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       HOME: /home/nextjs
     volumes:
       # Mount centralized config directory (read-write; dashboard writes config.yaml)
@@ -257,15 +260,7 @@ services:
       # (idempotent — CREATE TABLE IF NOT EXISTS). Both ETL and Dashboard
       # apply the same file; init.sql is the single source of schema truth.
       - ./etl/schema/init.sql:/app/schema/init.sql:ro
-      # Mount Claude Code CLI credentials for DASHBOARD_LLM_PROVIDER=cli.
-      # The binary is installed in the image via npm install -g @anthropic-ai/claude-code.
-      # ~/.claude/ contains .credentials.json (OAuth token) and session state.
-      - ${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:/home/nextjs/.claude:rw
-      # ~/.claude.json is mounted read-only at a side path; the entrypoint
-      # copies it to /home/nextjs/.claude.json at startup. A direct rw bind
-      # mount caused concurrent-write corruption when the host CLI (this Mac)
-      # and the container CLI both wrote to the same inode (Apr 2026 incident).
-      - ${CLAUDE_JSON:-${HOME}/.claude.json}:/host-claude.json:ro
+      # Note: CLAUDE_CODE_OAUTH_TOKEN is passed via env (above). No file mount needed.
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
     networks:

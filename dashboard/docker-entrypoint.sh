@@ -1,58 +1,40 @@
 #!/bin/sh
 # Claude Code CLI auth bootstrap for the dashboard container.
 #
-# IMPORTANT — do NOT auto-refresh the OAuth token from inside the container.
-# OAuth refresh-token rotation invalidates the previous refresh_token on every
-# successful refresh. On macOS hosts the source of truth for the refresh token
-# is the Keychain entry "Claude Code-credentials"; the container only sees a
-# copy that scripts/sync-claude-token.sh wrote into ~/.claude/.credentials.json.
-# If the container refreshes, the new refresh_token lands in the file but the
-# Keychain still holds the old (now-invalidated) one, which forces the host
-# claude CLI to re-login. Apr 2026 incident: that exact flow logged the user
-# out of host claude. We therefore only seed config and report token state —
-# we do NOT call /api/auth/oauth/token. When the access token expires, the
-# user runs `bash scripts/sync-claude-token.sh` on the host to re-sync from
-# Keychain. The Keychain itself is the only thing that should ever rotate the
-# refresh token (driven by host claude or `claude /login`).
+# Auth approach (updated 2026-05-20, D-025 revised):
+# CLAUDE_CODE_OAUTH_TOKEN env var holds the full ~/.claude/.credentials.json JSON.
+# Generated once via `claude /install-github-app` — valid for 1 year.
+# The CLI reads CLAUDE_CODE_OAUTH_TOKEN directly; no file mount required.
+#
+# DO NOT refresh from inside the container. D-025 still applies:
+# refresh-token rotation invalidates the Keychain copy on the host.
+# With a 1-year token, no refresh is needed. Regenerate annually via
+# `claude /install-github-app` and update CLAUDE_CODE_OAUTH_TOKEN in .env.
 
-CREDS="$HOME/.claude/.credentials.json"
-
-# Seed ~/.claude.json from the read-only host copy if present. We deliberately
-# do not bind-mount the file rw because both host and container CLIs write to
-# it on startup, atomically replacing the inode and corrupting the host view
-# (Apr 2026 incident: dozens of .claude.json.corrupted.* backups).
-if [ -f /host-claude.json ] && [ ! -f "$HOME/.claude.json" ]; then
-  cp /host-claude.json "$HOME/.claude.json"
-  chmod 600 "$HOME/.claude.json"
-  echo "[claude-auth] Seeded ~/.claude.json from host copy."
-fi
-
-if [ -f "$CREDS" ] && command -v node >/dev/null 2>&1; then
+if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] && command -v node >/dev/null 2>&1; then
   node - <<'JSEOF'
-const fs = require('fs');
-
-const credsPath = process.env.HOME + '/.claude/.credentials.json';
 let creds;
-try { creds = JSON.parse(fs.readFileSync(credsPath, 'utf8')); } catch { process.exit(0); }
+try { creds = JSON.parse(process.env.CLAUDE_CODE_OAUTH_TOKEN); } catch { process.exit(0); }
 
 const oauth = creds?.claudeAiOauth;
 if (!oauth?.expiresAt) {
-  console.log('[claude-auth] credentials.json has no expiresAt — cannot report token state.');
+  console.log('[claude-auth] CLAUDE_CODE_OAUTH_TOKEN has no expiresAt — cannot report token state.');
   process.exit(0);
 }
 
 const expiresIn = oauth.expiresAt - Date.now();
 const hours = Math.round(expiresIn / 3600000);
+const days = Math.round(expiresIn / 86400000);
 if (expiresIn <= 0) {
-  console.log(`[claude-auth] WARNING: access token expired ${Math.abs(hours)}h ago.`);
-  console.log('[claude-auth] Run on the host to re-sync from Keychain:');
-  console.log('[claude-auth]   bash scripts/sync-claude-token.sh && ps stack restart');
-  console.log('[claude-auth] (We never refresh from inside the container — refresh-token');
-  console.log('[claude-auth]  rotation would invalidate the host Keychain copy.)');
+  console.log(`[claude-auth] WARNING: token expired ${Math.abs(hours)}h ago.`);
+  console.log('[claude-auth] Regenerate: run `claude /install-github-app` on the host,');
+  console.log('[claude-auth] then update CLAUDE_CODE_OAUTH_TOKEN in ~/.config/powershop-analytics/.env.');
 } else {
-  console.log(`[claude-auth] Token valid for ${hours}h.`);
+  console.log(`[claude-auth] Token valid for ${days} days (${hours}h).`);
 }
 JSEOF
+else
+  echo "[claude-auth] CLAUDE_CODE_OAUTH_TOKEN not set — CLI provider will be unavailable."
 fi
 
 exec "$@"
