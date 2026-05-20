@@ -58,7 +58,7 @@ job-level `if:` conditions cannot prevent it.
    human reviewers and `claude[bot]` (Opus) reviews, which run successfully. Removing it
    would lose the fast-path Opus transition detection (seconds vs. ≤30 min).
 
-4. **Proposed (human-commit only, per D-029)**: See the "Proposed YAML" section in PR #680.
+4. **Proposed (human-commit only, per D-029)**: See the "Proposed YAML" section in PR #712.
    - `ai-address-feedback.yml`: add explicit `Copilot` check to the bot-skip condition
      so that if the `action_required` gating is ever resolved, Copilot reviews still
      take the cron/dispatch path rather than trying to run address-feedback directly.
