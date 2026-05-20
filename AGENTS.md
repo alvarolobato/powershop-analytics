@@ -398,9 +398,11 @@ If you discover something during a session — a null field, an unexpected table
 
 When you change anything that affects what either LLM consumer should know about the data platform, **both commands are required**:
 ```bash
-npm run build:knowledge   # update dashboard/lib/knowledge.ts
+npm run build:knowledge   # update dashboard/lib/knowledge.ts — commit the result
 ps wren push              # update WrenAI's SQLite + qdrant index
 ```
+
+**After changing any source MD with `## LLM:*` markers**: run `npm run build:knowledge` and commit the updated `dashboard/lib/knowledge.ts`. CI will fail if `knowledge.ts` is stale (drift guard step in the `dashboard-test` job).
 
 The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, `docs/dashboard/sql-pairs.md`). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
 
@@ -429,9 +431,23 @@ npm run build:knowledge
 git diff --exit-code dashboard/lib/knowledge.ts
 ```
 
-Once implemented (issue #502), the CI drift guard runs `npm run build:knowledge` and fails
-if `dashboard/lib/knowledge.ts` differs from what the sources produce.
+CI runs `npm run build:knowledge` and fails if `dashboard/lib/knowledge.ts` differs from what the sources produce (drift guard in the `dashboard-test` job).
 Never hand-edit `dashboard/lib/knowledge.ts` — edit the source MDs and regenerate.
+
+### Prod knowledge sync
+
+`ps prod deploy` automatically pushes WrenAI knowledge after restarting containers — no manual step needed after a deployment.
+
+For mid-sprint updates (when source MDs changed but no deployment is planned):
+```bash
+ps prod push-knowledge              # push current knowledge to prod
+ps prod push-knowledge --dry-run    # verify counts without pushing
+```
+
+To skip the knowledge push during a deployment:
+```bash
+ps prod deploy --skip-knowledge
+```
 
 ---
 

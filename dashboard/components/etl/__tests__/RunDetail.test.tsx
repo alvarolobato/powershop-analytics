@@ -238,9 +238,10 @@ describe("RunDetail component", () => {
     });
     render(<RunDetail runId="3" />);
     await waitFor(() => { expect(screen.getByTestId("run-detail")).toBeInTheDocument(); });
+    // Flush pending effects so the auto-refresh setInterval is registered before we advance
+    await act(async () => {});
     const countAfterLoad = fetchCount;
     await act(async () => { vi.advanceTimersByTime(30_000); });
-    // fetchCount++ is synchronous in the mock (before the first await), so no waitFor needed
     expect(fetchCount).toBeGreaterThan(countAfterLoad);
     vi.useRealTimers();
   });
