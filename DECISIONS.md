@@ -21,6 +21,7 @@
 | [D-031](docs/decisions/D-031-copilot-opus-sequencing.md) | `ai-pr-review.yml` fires only on `labeled:ai-ready-for-review`. Strict order: Copilot → address → Opus → address → owner-merge. No `\|\| true` on critical dispatches. |
 | [D-033](docs/decisions/D-033-opus-review-marker.md) | Opus head-SHA idempotency requires `(.body \| length) > 0` (inline replies have empty body). Workflow runs matched by `display_title` via top-level `run-name`, never `head_sha` or `.inputs.*`. |
 | [D-034](docs/decisions/D-034-single-track-issues.md) | Single-track issues by default (phases in body, one PR per phase). `ai-plan` for plan-only checkpoint; `ai-decompose` opts into sub-issues. Internal labels renamed `fact-*`. |
+| [D-035](docs/decisions/D-035-action-required-bot-gating.md) | GitHub gates `pull_request_review` runs as `action_required` when triggered by the `Copilot` actor. Rely on `*/30` cron watchdog (dispatches via `workflow_dispatch`) as the authoritative recovery path. |
 
 ## Runtime / infrastructure
 
