@@ -22,7 +22,7 @@ function normalizeProvider(raw: string | null | undefined): DashboardLlmProvider
   if (v === "openrouter") return "openrouter";
   if (v === "e2e-stub") return "e2e-stub";
   throw new Error(
-    `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "cli" or "openrouter".`,
+    `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "cli" or "openrouter" (or "e2e-stub" for CI only).`,
   );
 }
 
