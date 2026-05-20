@@ -84,3 +84,19 @@ elif [ "$HOURS_LEFT" -le "$WARN_THRESHOLD_HOURS" ]; then
 else
   log "Token valid ${HOURS_LEFT}h. Synced to $CREDS_FILE."
 fi
+
+# Also sync to GitHub Actions secret CLAUDE_CODE_OAUTH_TOKEN so the AI factory
+# workflows (ai-worker, ai-address-feedback, ai-pr-review) always use fresh
+# credentials. The secret stores the same JSON the action expects.
+# Requires: gh CLI authenticated on this Mac (gh auth status).
+GH_REPO="${CLAUDE_GH_REPO:-alvarolobato/powershop-analytics}"
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  if printf '%s' "$TOKEN_JSON" | gh secret set CLAUDE_CODE_OAUTH_TOKEN \
+      --repo "$GH_REPO" 2>/dev/null; then
+    log "GitHub secret CLAUDE_CODE_OAUTH_TOKEN updated for $GH_REPO."
+  else
+    log "WARN: Could not update GitHub secret (gh auth issue or network). Local file still synced."
+  fi
+else
+  log "gh CLI not available or not authenticated — skipping GitHub secret sync."
+fi
