@@ -82,14 +82,13 @@ jobs:
             If no bugs found, do NOT create an issue. Silence is better than noise.
 
             ## After you create a bug issue (required)
-            New issues do **not** run AI Worker by themselves. After `gh issue create` prints
-            the URL, capture the issue number `N` and run **two separate** label commands
-            (so GitHub fires `labeled` events reliably):
+            After `gh issue create` prints the URL, add only the `bug` label:
 
             ```bash
-            gh issue edit N --add-label "fact-task"
-            gh issue edit N --add-label "ai-work"
+            gh issue edit N --add-label "bug"
             ```
 
-            That queues **implementation** (single focused PR) for the bug. Do **not** add
-            `fact-planned` unless you also posted a plan comment.
+            Do **NOT** add `ai-work` or `fact-task`. The human owner reviews bug issues
+            and decides whether to dispatch the AI worker. Adding `ai-work` automatically
+            triggers implementation without human approval — that is not acceptable for
+            bugs found by automated scanning.
