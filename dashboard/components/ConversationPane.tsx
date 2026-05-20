@@ -139,6 +139,67 @@ function payloadToLogLine(payload: Record<string, unknown>): LogLine | null {
   return null;
 }
 
+// ── SuggestionPills ────────────────────────────────────────────────────────
+
+const ANALYZE_SUGGESTIONS = [
+  "Analiza este cuadro de mandos y explícame los patrones más importantes",
+  "¿Qué tendencias destacan esta semana?",
+  "¿Dónde hay anomalías o valores atípicos?",
+  "¿Qué recomendarías mejorar?",
+];
+
+const MODIFY_SUGGESTIONS = [
+  "Añade un widget de margen bruto",
+  "Cambia el período a este trimestre",
+  "Añade un gráfico de ventas por tienda",
+  "Simplifica el dashboard con los KPIs más importantes",
+];
+
+function SuggestionPills({
+  suggestions,
+  onSend,
+}: {
+  suggestions: string[];
+  onSend: (text: string) => void;
+}) {
+  return (
+    <div
+      data-testid="suggestion-pills"
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 6,
+        padding: "12px 4px 4px",
+        justifyContent: "center",
+      }}
+    >
+      {suggestions.map((s) => (
+        <button
+          key={s}
+          type="button"
+          data-testid="suggestion-pill"
+          onClick={() => onSend(s)}
+          style={{
+            background: "var(--bg-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 16,
+            padding: "6px 12px",
+            fontSize: 11.5,
+            color: "var(--fg-muted)",
+            cursor: "pointer",
+            fontFamily: "inherit",
+            textAlign: "left",
+            maxWidth: 260,
+            lineHeight: 1.3,
+          }}
+        >
+          {s}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── UserBubble ─────────────────────────────────────────────────────────────
 
 function UserBubble({ text }: { text: string }) {
@@ -363,6 +424,7 @@ export function ConversationPane({
   const pendingTurnIdRef = useRef<string | null>(null);
   const pendingPromptRef = useRef("");
   const thinkingTextRef = useRef("");
+  const autosendFiredRef = useRef(false);
 
   // Keep refs in sync
   useEffect(() => {
@@ -686,6 +748,18 @@ export function ConversationPane({
     [handleSend],
   );
 
+  // Autosend on mount — reads the sessionStorage key written by NewConversationDialog
+  // when the user created this conversation with a prompt. Fires at most once per mount.
+  useEffect(() => {
+    if (!initialConversationId || autosendFiredRef.current) return;
+    const key = `conv-autosend-${initialConversationId}`;
+    const stored = sessionStorage.getItem(key);
+    if (!stored) return;
+    autosendFiredRef.current = true;
+    sessionStorage.removeItem(key);
+    void handleSend(stored);
+  }, [initialConversationId, handleSend]);
+
   const toggleLog = (id: string) =>
     setExpandedLogs((prev) => ({ ...prev, [id]: !prev[id] }));
 
@@ -700,17 +774,33 @@ export function ConversationPane({
   // Render conversation_messages, injecting turn context/logs before each assistant message
   const renderMessages = () => {
     if (messages.length === 0 && !pendingTurnId) {
+      const convMode =
+        newConversationConfig?.conversationMode ?? (conv?.mode as string | undefined);
+      const pills =
+        convMode === "analyze"
+          ? ANALYZE_SUGGESTIONS
+          : convMode === "modify"
+            ? MODIFY_SUGGESTIONS
+            : null;
       return (
-        <p
-          style={{
-            fontSize: 12,
-            color: "var(--fg-subtle)",
-            textAlign: "center",
-            marginTop: 32,
-          }}
-        >
-          {convId ? "Escribe un mensaje para continuar." : "Escribe tu primer mensaje."}
-        </p>
+        <>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--fg-subtle)",
+              textAlign: "center",
+              marginTop: 32,
+            }}
+          >
+            {convId ? "Escribe un mensaje para continuar." : "Escribe tu primer mensaje."}
+          </p>
+          {pills && !sending && (
+            <SuggestionPills
+              suggestions={pills}
+              onSend={(text) => void handleSend(text)}
+            />
+          )}
+        </>
       );
     }
 

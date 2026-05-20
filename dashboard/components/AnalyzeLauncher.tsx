@@ -15,9 +15,6 @@ import { useState } from "react";
 // Visible when chat sidebar is closed; hidden when open.
 // ---------------------------------------------------------------------------
 
-const SEED_PROMPT =
-  "Analiza este cuadro de mandos y explícame los patrones más importantes";
-
 interface AnalyzeLauncherProps {
   /** Numeric dashboard id — kept for API compatibility */
   dashboardId?: number | null;
@@ -37,7 +34,7 @@ export default function AnalyzeLauncher({
 
   function handleClick() {
     if (onOpen) {
-      onOpen(SEED_PROMPT);
+      onOpen("");
     }
   }
 

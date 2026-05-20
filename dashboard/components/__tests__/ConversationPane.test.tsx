@@ -517,6 +517,141 @@ describe("ConversationPane", () => {
     );
   });
 
+  it("autosends prompt from sessionStorage on mount", async () => {
+    const storedPrompt = "¿Cuántas ventas hubo ayer?";
+    vi.stubGlobal("sessionStorage", {
+      getItem: vi.fn().mockImplementation((key: string) =>
+        key === "conv-autosend-conv-autosend-id" ? storedPrompt : null,
+      ),
+      removeItem: vi.fn(),
+      setItem: vi.fn(),
+    });
+
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      const u = url as string;
+      if (u.includes("/stream")) return makeStreamFetch();
+      if (opts?.method === "POST" && u.includes("/turns")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ turnId: "turn-auto" }),
+        } as unknown as Response);
+      }
+      return makeConvFetch("conv-autosend-id");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ConversationPane conversationId="conv-autosend-id" mode="standalone" />,
+    );
+
+    await waitFor(() => {
+      const turnCall = fetchMock.mock.calls.find(
+        ([url, opts]) =>
+          typeof url === "string" &&
+          url.includes("/turns") &&
+          opts?.method === "POST",
+      );
+      expect(turnCall).toBeDefined();
+      const body = JSON.parse(turnCall![1].body as string) as { content: string };
+      expect(body.content).toBe(storedPrompt);
+    });
+  });
+
+  it("clicking suggestion pill sends immediately", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      const u = url as string;
+      if (u.includes("/stream")) return makeStreamFetch();
+      if (opts?.method === "POST" && u === "/api/conversations") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: "new-analyze-conv" }),
+        } as unknown as Response);
+      }
+      if (opts?.method === "POST" && u.includes("/turns")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ turnId: "turn-pill" }),
+        } as unknown as Response);
+      }
+      return makeConvFetch("new-analyze-conv");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ConversationPane
+        conversationId={null}
+        mode="panel"
+        newConversationConfig={{
+          conversationMode: "analyze",
+          contextKind: "dashboard",
+          contextRef: "1",
+        }}
+        onConversationCreated={vi.fn()}
+      />,
+    );
+
+    const pills = await screen.findAllByTestId("suggestion-pill");
+    expect(pills.length).toBeGreaterThan(0);
+
+    fireEvent.click(pills[0]);
+
+    await waitFor(() => {
+      const turnCall = fetchMock.mock.calls.find(
+        ([url, opts]) =>
+          typeof url === "string" &&
+          url.includes("/turns") &&
+          opts?.method === "POST",
+      );
+      expect(turnCall).toBeDefined();
+    });
+  });
+
+  it("suggestion pills hidden after message sent", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+      const u = url as string;
+      if (u.includes("/stream")) return makeStreamFetch();
+      if (opts?.method === "POST" && u === "/api/conversations") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ id: "new-modify-conv" }),
+        } as unknown as Response);
+      }
+      if (opts?.method === "POST" && u.includes("/turns")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ turnId: "turn-hide" }),
+        } as unknown as Response);
+      }
+      return makeConvFetch("new-modify-conv");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <ConversationPane
+        conversationId={null}
+        mode="panel"
+        newConversationConfig={{
+          conversationMode: "modify",
+          contextKind: "dashboard",
+          contextRef: "1",
+        }}
+        onConversationCreated={vi.fn()}
+      />,
+    );
+
+    // Pills should be visible in modify mode with no messages
+    const pills = await screen.findAllByTestId("suggestion-pill");
+    expect(pills.length).toBeGreaterThan(0);
+
+    // Click a pill to trigger send
+    fireEvent.click(pills[0]);
+
+    // After send, pendingTurnId is set → pills disappear
+    await waitFor(() => {
+      expect(screen.queryByTestId("suggestion-pills")).not.toBeInTheDocument();
+    });
+  });
+
   it("AssistantBubble renders markdown as HTML", async () => {
     stubFetch("conv-md", [
       {
