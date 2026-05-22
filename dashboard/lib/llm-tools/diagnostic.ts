@@ -45,7 +45,7 @@ export function buildAgenticErrorDiagnostic(
 
   return {
     subError: `${err.code}: ${sanitize(err.message)}`,
-    provider: cfg.provider === "e2e-stub" ? "openrouter" : cfg.provider,
+    provider: effectiveCfg.provider,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
     model: getEffectiveDashboardModel(effectiveCfg),
     phase,
