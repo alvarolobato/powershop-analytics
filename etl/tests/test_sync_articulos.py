@@ -170,6 +170,38 @@ class TestSyncArticulos:
         )
 
 
+class TestDeltaSqlConstruction:
+    """Unit tests for SQL operator precedence fix — no external connections needed."""
+
+    def test_delta_sql_parenthesisation(self):
+        from datetime import date
+
+        from etl.sync.articulos import _SQL_ARTICULOS
+
+        date_str = date(2025, 1, 15).strftime("%Y-%m-%d")
+        delta_sql = f"{_SQL_ARTICULOS} AND FechaModifica >= {{d '{date_str}'}}"
+
+        assert (
+            "WHERE (CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA')" in delta_sql
+        ), (
+            "OR condition must be parenthesised so AND FechaModifica applies to both branches"
+        )
+        paren_pos = delta_sql.index("WHERE (")
+        and_pos = delta_sql.index("AND FechaModifica")
+        assert and_pos > paren_pos, (
+            "AND clause must follow the closing parenthesis of the OR"
+        )
+
+    def test_full_refresh_sql_unchanged(self):
+        from etl.sync.articulos import _SQL_ARTICULOS
+
+        assert (
+            "WHERE (CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA')"
+            in _SQL_ARTICULOS
+        )
+        assert "AND FechaModifica" not in _SQL_ARTICULOS
+
+
 class TestNullifyZeroFks:
     """Unit tests for _nullify_zero_fks — no external connections needed.
 
