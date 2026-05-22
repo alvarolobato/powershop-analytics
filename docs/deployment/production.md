@@ -303,9 +303,12 @@ Follow the [restore procedure](#restore-procedure) above. If no backup exists, t
 
 ### Mac OS reinstall
 
-1. Re-run `deploy/install-prod.sh` (it skips `.env` if it already exists).
+1. Re-run the bootstrap (skips `.env` if it already exists):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install-prod.sh | bash
+   ```
 2. Run `claude /login`.
-3. Run `scripts/install-claude-token-launchd.sh`.
+3. Install the launchd agent using the no-checkout path in [Step 3](#step-3--install-the-token-sync-launchd-agent) above.
 4. Run `docker compose up -d` from `~/powershop`.
 
 If `data/` survived the reinstall (external drive, separate partition), the databases come up immediately. If not, the ETL re-syncs from the 4D source.
