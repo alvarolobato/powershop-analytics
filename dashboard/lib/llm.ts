@@ -1,175 +1,31 @@
 /**
- * Dashboard LLM entry points: thin wrappers around llm-client.ts.
+ * Dashboard LLM entry points — thin wrappers around assembleRequest().
  *
- * Single-shot paths delegate to `llmComplete` (which owns provider selection,
- * telemetry, and circuit-breaker). Agentic paths call `runAgenticChat` directly,
- * wrapped in `callWithCircuitBreaker`, and write telemetry here.
- * This file owns prompt construction and public API contracts only.
+ * Every public function delegates to `assembleRequest(flow, vars, ...)` in
+ * `dashboard/lib/llm-context/`.  No prompt assembly or LLM calls happen here
+ * directly; all of that is owned by llm-context/assemble.ts (the single
+ * seam enforced by CI via check-llm-context.sh).
+ *
+ * This file retains:
+ *  - Public API contracts (function signatures, return types)
+ *  - `checkDailyBudget()` gate (not inside assembleRequest)
+ *  - Re-exports consumed by routes and turn-background
  */
 
-import {
-  buildGeneratePrompt,
-  buildModifyPrompt,
-  buildAgenticToolPreamble,
-  buildGeneratePromptSplit,
-  buildModifyPromptSplit,
-} from "./prompts";
-import { buildSuggestPrompt, buildGapAnalysisPrompt } from "./creation-prompts";
-import { buildAnalyzePrompt, buildSuggestionPrompt } from "./analyze-prompts";
 import { ReviewLlmOutputSchema, type ReviewLlmOutput } from "./review-schema";
-import { logUsage, checkDailyBudget } from "./llm-usage";
-import {
-  loadDashboardLlmConfig,
-  getEffectiveDashboardModel,
-  getEffectiveOpenRouterProvider,
-} from "./llm-provider/config";
-import type { DashboardLlmConfig, DashboardLlmFlow } from "./llm-provider/types";
-import { isAgenticToolsEnabled, getAgenticConfig } from "./llm-tools/config";
-import { DASHBOARD_AGENTIC_TOOLS } from "./llm-tools/catalog";
-import { runAgenticChat, AgenticRunnerError } from "./llm-tools/runner";
-import { callWithCircuitBreaker } from "./llm-circuit-breaker";
+import { checkDailyBudget } from "./llm-usage";
+import { getAgenticConfig } from "./llm-tools/config";
+import { AgenticRunnerError } from "./llm-tools/runner";
+import { resetClient } from "./llm-client";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
-import {
-  llmComplete,
-  createDashboardAgenticAdapter,
-  resetClient,
-  buildCachedSystemMessage,
-} from "./llm-client";
-import type { ChatTurn } from "./llm-client";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { assembleRequest } from "./llm-context";
+import type { FlowVars } from "./llm-context";
 
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
 export { AgenticRunnerError };
 export type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
 export { resetClient };
-
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
-function usageMetaFromCfg(cfg: DashboardLlmConfig) {
-  return {
-    provider: cfg.provider,
-    driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-  };
-}
-
-function attachTelemetry(ctx: LlmAgenticContext, cfg: DashboardLlmConfig): LlmAgenticContext {
-  // MUST mutate ctx in place, not return a clone. The agentic tool handlers
-  // write the staged result back to ctx (ctx.analyzeResult, ctx.modifyResult,
-  // ctx.reviewResult — see lib/llm-tools/handlers/dashboards.ts), and the
-  // route reads those fields AFTER the call completes. If we returned a
-  // shallow-clone here, the handlers would write into the clone and the
-  // route would read null from the original — which is exactly the bug that
-  // surfaced as "El modelo no publicó el análisis" even when the log shows
-  // submit_dashboard_analysis was called.
-  ctx.llmProvider = cfg.provider;
-  ctx.llmDriver = cfg.provider === "cli" ? cfg.cliDriver : null;
-  return ctx;
-}
-
-type ChatLikeMessage = { role: string; content?: unknown };
-
-function extractSystem(messages: ReadonlyArray<ChatLikeMessage>): string {
-  const sys = messages.find((m) => m.role === "system");
-  if (!sys) return "";
-  return typeof sys.content === "string"
-    ? sys.content
-    : sys.content == null
-      ? ""
-      : JSON.stringify(sys.content);
-}
-
-function extractUserMsgs(messages: ReadonlyArray<ChatLikeMessage>): ChatTurn[] {
-  return messages
-    .filter((m) => m.role !== "system")
-    .map((m) => ({
-      role: m.role as "user" | "assistant",
-      content:
-        typeof m.content === "string"
-          ? m.content
-          : m.content == null
-            ? ""
-            : JSON.stringify(m.content),
-    }));
-}
-
-/**
- * Single-shot text completion delegating to llmComplete.
- * Internal — used by the non-agentic paths in the public functions below.
- */
-async function chatText(
-  messages: ReadonlyArray<ChatLikeMessage>,
-  temperature: number,
-  maxTokens: number,
-  endpoint: string,
-  requestId?: string | null,
-  flow?: DashboardLlmFlow,
-): Promise<string> {
-  const resp = await llmComplete({
-    flow: flow ?? endpoint,
-    systemPrompt: { stable: extractSystem(messages) },
-    messages: extractUserMsgs(messages),
-    temperature,
-    maxOutputTokens: maxTokens,
-    requestId: requestId ?? null,
-    endpoint,
-  });
-  return resp.text;
-}
-
-/**
- * Single-shot text completion with streaming progress events via ctx.
- * Emits `model_step_start` before the call and `model_text_delta` per chunk.
- */
-async function chatTextWithProgress(
-  messages: ReadonlyArray<ChatLikeMessage>,
-  temperature: number,
-  maxTokens: number,
-  endpoint: string,
-  ctx: LlmAgenticContext,
-  flow?: DashboardLlmFlow,
-): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-
-  if (ctx.onAgenticProgress) {
-    try {
-      ctx.onAgenticProgress({
-        type: "model_step_start",
-        round: 1,
-        provider: ctx.llmProvider ?? cfg.provider,
-        driver: ctx.llmDriver ?? (cfg.provider === "cli" ? cfg.cliDriver : null),
-      });
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const resp = await llmComplete({
-    flow: flow ?? endpoint,
-    systemPrompt: { stable: extractSystem(messages) },
-    messages: extractUserMsgs(messages),
-    temperature,
-    maxOutputTokens: maxTokens,
-    requestId: ctx.requestId ?? null,
-    endpoint,
-    onTextDelta: (chars, totalChars) => {
-      if (ctx.onAgenticProgress) {
-        try {
-          ctx.onAgenticProgress({
-            type: "model_text_delta",
-            round: 1,
-            chars,
-            totalChars,
-          });
-        } catch {
-          /* ignore */
-        }
-      }
-    },
-  });
-
-  return resp.text;
-}
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
@@ -182,72 +38,32 @@ export async function generateDashboard(
   userPrompt: string,
   ctx?: LlmAgenticContext,
 ): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-  const requestCtx = attachTelemetry(
-    ctx ?? { requestId: "req_local", endpoint: "generateDashboard" },
-    cfg,
-  );
-
   await checkDailyBudget();
 
-  if (isAgenticToolsEnabled()) {
-    const adapter = createDashboardAgenticAdapter();
-    const model = getEffectiveDashboardModel(cfg, "generate");
-    const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "generate");
-    const agenticPreamble = buildAgenticToolPreamble();
-    const promptSplit = buildGeneratePromptSplit();
-    const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
-    const cachedMsg =
-      cfg.provider === "openrouter"
-        ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
-        : undefined;
-    const { content, usage } = await callWithCircuitBreaker(() =>
-      runAgenticChat({
-        adapter,
-        model,
-        openRouterProvider,
-        systemPrompt: stableWithPreamble,
-        cachedSystemMessage: cachedMsg,
-        userContent: userPrompt,
-        ctx: requestCtx,
-        temperature: 0.2,
-        maxTokens: 8192,
-      }),
-    );
-    void logUsage("generateDashboard", model, usage, usageMetaFromCfg(cfg), {
-      requestId: requestCtx.requestId,
-    });
-    return content;
-  }
+  const requestCtx: LlmAgenticContext = ctx ?? {
+    requestId: "req_local",
+    endpoint: "generateDashboard",
+  };
 
-  if (cfg.provider === "openrouter") {
-    // Use the stable/volatile split so llm-client.ts can apply
-    // cache_control to the stable prefix via buildCachedSystemMessage.
-    const promptSplit = buildGeneratePromptSplit();
-    const resp = await llmComplete({
-      flow: "generate",
-      systemPrompt: { stable: promptSplit.stable, volatile: promptSplit.volatile },
-      messages: [{ role: "user", content: userPrompt }],
+  const result = await assembleRequest(
+    "generate",
+    {},
+    null,
+    userPrompt,
+    {
+      ctx: requestCtx,
+      requestId: requestCtx.requestId ?? "req_local",
+      endpoint: "generateDashboard",
       temperature: 0.2,
       maxOutputTokens: 8192,
-      requestId: requestCtx.requestId,
-      endpoint: "generateDashboard",
-    });
-    return resp.text;
+    },
+  );
+
+  if (!result.text) {
+    throw new Error("LLM returned an empty response");
   }
 
-  const systemPrompt = buildGeneratePrompt();
-  return chatText(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    0.2,
-    8192,
-    "generateDashboard",
-    requestCtx.requestId,
-    "generate",
-  );
+  return result.text;
 }
 
 /**
@@ -261,86 +77,36 @@ export async function modifyDashboard(
   ctx?: LlmAgenticContext,
   priorTurns?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-  const requestCtx = attachTelemetry(
-    ctx ?? { requestId: "req_local", endpoint: "modifyDashboard" },
-    cfg,
-  );
-
   await checkDailyBudget();
 
-  const priorMessages: ChatCompletionMessageParam[] = (priorTurns ?? []).map(
-    (t) => ({ role: t.role, content: t.content }),
-  );
+  const requestCtx: LlmAgenticContext = ctx ?? {
+    requestId: "req_local",
+    endpoint: "modifyDashboard",
+  };
 
-  if (isAgenticToolsEnabled()) {
-    const adapter = createDashboardAgenticAdapter();
-    const model = getEffectiveDashboardModel(cfg, "modify");
-    const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "modify");
-    const agenticPreamble = buildAgenticToolPreamble();
-    const promptSplit = buildModifyPromptSplit(currentSpec, true);
-    const stableWithPreamble = `${promptSplit.stable}\n\n${agenticPreamble}`;
-    const modifyTools = DASHBOARD_AGENTIC_TOOLS
-      .filter((t): t is { type: "function"; function: { name: string; description?: string; parameters?: Record<string, unknown> } } => t.type === "function")
-      .map((t) => ({ name: t.function.name, schema: t.function as Record<string, unknown> }));
-    ctx?.onSystemPromptReady?.(`${stableWithPreamble}\n\n${promptSplit.volatile}`, modifyTools);
-    const cachedMsg =
-      cfg.provider === "openrouter"
-        ? buildCachedSystemMessage(stableWithPreamble, promptSplit.volatile)
-        : undefined;
-    const { content, usage } = await callWithCircuitBreaker(() =>
-      runAgenticChat({
-        adapter,
-        model,
-        openRouterProvider,
-        systemPrompt: `${promptSplit.stable}\n\n${agenticPreamble}\n\n${promptSplit.volatile}`,
-        cachedSystemMessage: cachedMsg,
-        userContent: userPrompt,
-        ctx: requestCtx,
-        temperature: 0.2,
-        maxTokens: 8192,
-        priorMessages,
-      }),
-    );
-    void logUsage("modifyDashboard", model, usage, usageMetaFromCfg(cfg), {
-      requestId: requestCtx.requestId,
-    });
-    return content;
-  }
+  const priorMessages = (priorTurns ?? []).map((t) => ({
+    role: t.role,
+    content: t.content,
+  }));
 
-  // Non-agentic path: use legacy prompt (no publish-tool instructions).
-  if (cfg.provider === "openrouter") {
-    // Use the stable/volatile split so llm-client.ts can apply
-    // cache_control to the stable prefix via buildCachedSystemMessage.
-    const promptSplit = buildModifyPromptSplit(currentSpec, false);
-    const resp = await llmComplete({
-      flow: "modify",
-      systemPrompt: { stable: promptSplit.stable, volatile: promptSplit.volatile },
-      messages: [
-        ...(priorTurns ?? []).map((t) => ({ role: t.role, content: t.content })),
-        { role: "user", content: userPrompt },
-      ],
+  const vars: FlowVars = { currentSpec };
+
+  const result = await assembleRequest(
+    "modify",
+    vars,
+    null,
+    userPrompt,
+    {
+      ctx: requestCtx,
+      priorMessages,
+      requestId: requestCtx.requestId ?? "req_local",
+      endpoint: "modifyDashboard",
       temperature: 0.2,
       maxOutputTokens: 8192,
-      requestId: requestCtx.requestId,
-      endpoint: "modifyDashboard",
-    });
-    return resp.text;
-  }
-
-  const systemPrompt = buildModifyPrompt(currentSpec, false);
-  return chatText(
-    [
-      { role: "system", content: systemPrompt },
-      ...priorMessages,
-      { role: "user", content: userPrompt },
-    ],
-    0.2,
-    8192,
-    "modifyDashboard",
-    requestCtx.requestId,
-    "modify",
+    },
   );
+
+  return result.text;
 }
 
 /**
@@ -353,28 +119,27 @@ export async function suggestDashboards(
   existingDashboards: { title: string; description: string }[],
   opts?: { requestId?: string },
 ): Promise<string> {
-  const systemPrompt = buildSuggestPrompt(role, existingDashboards);
-
   await checkDailyBudget();
 
-  const content = await chatText(
-    [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content: `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
-      },
-    ],
-    0.2,
-    8192,
-    "suggestDashboards",
-    opts?.requestId ?? null,
+  const vars: FlowVars = { role, existingDashboards };
+
+  const result = await assembleRequest(
+    "suggest",
+    vars,
+    null,
+    `Sugiere 3-4 dashboards útiles para el rol: ${role}`,
+    {
+      requestId: opts?.requestId ?? null,
+      endpoint: "suggestDashboards",
+      temperature: 0.2,
+      maxOutputTokens: 8192,
+    },
   );
 
-  if (!content) {
+  if (!result.text) {
     throw new Error("LLM returned an empty response");
   }
-  return content;
+  return result.text;
 }
 
 /**
@@ -390,29 +155,27 @@ export async function analyzeGaps(
   }[],
   opts?: { requestId?: string },
 ): Promise<string> {
-  const systemPrompt = buildGapAnalysisPrompt(existingDashboards);
-
   await checkDailyBudget();
 
-  const content = await chatText(
-    [
-      { role: "system", content: systemPrompt },
-      {
-        role: "user",
-        content:
-          "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
-      },
-    ],
-    0.2,
-    8192,
-    "analyzeGaps",
-    opts?.requestId ?? null,
+  const vars: FlowVars = { existingDashboards };
+
+  const result = await assembleRequest(
+    "gap",
+    vars,
+    null,
+    "Analiza los dashboards existentes e identifica las áreas de negocio importantes que no están cubiertas.",
+    {
+      requestId: opts?.requestId ?? null,
+      endpoint: "analyzeGaps",
+      temperature: 0.2,
+      maxOutputTokens: 8192,
+    },
   );
 
-  if (!content) {
+  if (!result.text) {
     throw new Error("LLM returned an empty response");
   }
-  return content;
+  return result.text;
 }
 
 /**
@@ -427,110 +190,76 @@ export async function analyzeDashboard(
   ctx?: LlmAgenticContext,
   priorTurns?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
-  const cfg = loadDashboardLlmConfig();
-  const requestCtx = attachTelemetry(
-    ctx ?? { requestId: "req_local", endpoint: "analyzeDashboard" },
-    cfg,
-  );
-
   await checkDailyBudget();
 
-  const priorMessages: ChatCompletionMessageParam[] = (priorTurns ?? []).map(
-    (t) => ({ role: t.role, content: t.content }),
-  );
+  const requestCtx: LlmAgenticContext = ctx ?? {
+    requestId: "req_local",
+    endpoint: "analyzeDashboard",
+  };
 
-  if (isAgenticToolsEnabled()) {
-    const systemPrompt = `${buildAnalyzePrompt(serializedData, action, {
-      dashboardId: requestCtx.dashboardId,
-      agenticMode: true,
-    })}\n\n${buildAgenticToolPreamble()}`;
-    const analyzeTools = DASHBOARD_AGENTIC_TOOLS
-      .filter((t): t is { type: "function"; function: { name: string; description?: string; parameters?: Record<string, unknown> } } => t.type === "function")
-      .map((t) => ({ name: t.function.name, schema: t.function as Record<string, unknown> }));
-    ctx?.onSystemPromptReady?.(systemPrompt, analyzeTools);
-    const adapter = createDashboardAgenticAdapter();
-    const model = getEffectiveDashboardModel(cfg, "analyze");
-    const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "analyze");
-    const { content, usage } = await callWithCircuitBreaker(() =>
-      runAgenticChat({
-        adapter,
-        model,
-        openRouterProvider,
-        systemPrompt,
-        userContent: userPrompt,
-        ctx: requestCtx,
-        temperature: 0.3,
-        maxTokens: 4096,
-        priorMessages,
-      }),
-    );
-    void logUsage("analyzeDashboard", model, usage, usageMetaFromCfg(cfg), {
-      requestId: requestCtx.requestId,
-    });
-    return content;
-  }
+  const priorMessages = (priorTurns ?? []).map((t) => ({
+    role: t.role,
+    content: t.content,
+  }));
 
-  // Non-agentic path: use legacy prompt (no publish-tool instructions).
-  const systemPrompt = buildAnalyzePrompt(serializedData, action, {
+  const vars: FlowVars = {
+    serializedData,
+    action,
     dashboardId: requestCtx.dashboardId,
-    agenticMode: false,
-  });
+  };
 
-  return chatText(
-    [
-      { role: "system", content: systemPrompt },
-      ...priorMessages,
-      { role: "user", content: userPrompt },
-    ],
-    0.3,
-    4096,
-    "analyzeDashboard",
-    requestCtx.requestId,
+  const result = await assembleRequest(
     "analyze",
+    vars,
+    null,
+    userPrompt,
+    {
+      ctx: requestCtx,
+      priorMessages,
+      requestId: requestCtx.requestId ?? "req_local",
+      endpoint: "analyzeDashboard",
+      temperature: 0.3,
+      maxOutputTokens: 4096,
+    },
   );
+
+  return result.text;
 }
 
 /**
- * Generate a weekly business review using the agentic runner so that the
- * `submit_weekly_review` tool is reachable.
+ * Generate a weekly business review using the agentic runner.
+ *
+ * @param vars     - Query results, week description, and generation mode.
+ * @param opts     - Optional request id and progress callback.
  */
 export async function generateReviewAgentic(
-  systemPrompt: string,
+  vars: { queryResults: string; reviewedWeekDescription: string; generationMode: "initial" | "refresh_data" | "alternate_angle" },
   opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
   await checkDailyBudget();
 
-  const cfg = loadDashboardLlmConfig();
-  const ctx: LlmAgenticContext = attachTelemetry(
+  const ctx: LlmAgenticContext = {
+    requestId,
+    endpoint: "generateReview",
+    onAgenticProgress: opts?.onAgenticProgress,
+    reviewResult: null,
+  };
+
+  const result = await assembleRequest(
+    "weekly",
+    vars,
+    null,
+    "Genera la revisión semanal ahora.",
     {
+      ctx,
       requestId,
       endpoint: "generateReview",
-      onAgenticProgress: opts?.onAgenticProgress,
-      reviewResult: null,
-    },
-    cfg,
-  );
-
-  const adapter = createDashboardAgenticAdapter();
-  const model = getEffectiveDashboardModel(cfg, "weekly");
-  const openRouterProvider = getEffectiveOpenRouterProvider(cfg, "weekly");
-
-  const { content: finalMessage, usage } = await callWithCircuitBreaker(() =>
-    runAgenticChat({
-      adapter,
-      model,
-      openRouterProvider,
-      systemPrompt,
-      userContent: "Genera la revisión semanal ahora.",
-      ctx,
       temperature: 0.2,
-      maxTokens: 4096,
-    }),
+      maxOutputTokens: 4096,
+    },
   );
-
-  void logUsage("generateReview", model, usage, usageMetaFromCfg(cfg), { requestId });
 
   if (!ctx.reviewResult) {
     const agenticCfg = getAgenticConfig();
@@ -554,43 +283,50 @@ export async function generateReviewAgentic(
     );
   }
 
-  return { content: ctx.reviewResult.content, message: finalMessage };
+  return { content: ctx.reviewResult.content, message: result.text };
 }
 
 /**
  * Generate a weekly business review with optional agentic progress callbacks.
  */
 export async function generateReviewWithProgress(
-  systemPrompt: string,
+  vars: { queryResults: string; reviewedWeekDescription: string; generationMode: "initial" | "refresh_data" | "alternate_angle" },
   opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
   await checkDailyBudget();
 
-  if (isAgenticToolsEnabled()) {
-    return generateReviewAgentic(systemPrompt, opts);
-  }
+  // Agentic path: always use assembleRequest which dispatches to runAgenticChat
+  // when isAgenticToolsEnabled() is true.
+  const ctx: LlmAgenticContext = {
+    requestId,
+    endpoint: "generateReview",
+    onAgenticProgress: opts?.onAgenticProgress,
+    reviewResult: null,
+  };
 
-  const cfg = loadDashboardLlmConfig();
-  const requestCtx = attachTelemetry(
+  const result = await assembleRequest(
+    "weekly",
+    vars,
+    null,
+    "Genera la revisión semanal ahora.",
     {
+      ctx,
       requestId,
       endpoint: "generateReview",
-      onAgenticProgress: opts?.onAgenticProgress,
+      temperature: 0.2,
+      maxOutputTokens: 4096,
     },
-    cfg,
   );
 
-  const rawContent = await chatTextWithProgress(
-    [{ role: "system", content: systemPrompt }],
-    0.2,
-    4096,
-    "generateReview",
-    requestCtx,
-    "weekly",
-  );
+  // Agentic path: reviewResult was staged by submit_weekly_review tool
+  if (ctx.reviewResult) {
+    return { content: ctx.reviewResult.content, message: result.text };
+  }
 
+  // Non-agentic path: parse JSON from result.text
+  const rawContent = result.text;
   const fenced = rawContent.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   const jsonStr = fenced ? fenced[1].trim() : rawContent.trim();
 
@@ -616,25 +352,27 @@ export async function generateReviewWithProgress(
  * Generate a weekly business review from query results (in Spanish).
  */
 export async function generateReview(
-  systemPrompt: string,
+  vars: { queryResults: string; reviewedWeekDescription: string; generationMode: "initial" | "refresh_data" | "alternate_angle" },
   opts?: { requestId?: string },
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
   await checkDailyBudget();
 
-  if (isAgenticToolsEnabled()) {
-    return generateReviewAgentic(systemPrompt, { requestId });
-  }
-
-  const rawContent = await chatText(
-    [{ role: "system", content: systemPrompt }],
-    0.2,
-    4096,
-    "generateReview",
-    requestId,
+  const result = await assembleRequest(
+    "weekly",
+    vars,
+    null,
+    "Genera la revisión semanal ahora.",
+    {
+      requestId,
+      endpoint: "generateReview",
+      temperature: 0.2,
+      maxOutputTokens: 4096,
+    },
   );
 
+  const rawContent = result.text;
   const fenced = rawContent.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
   const jsonStr = fenced ? fenced[1].trim() : rawContent.trim();
 
@@ -668,16 +406,28 @@ export async function generateSuggestions(
 ): Promise<string[]> {
   try {
     await checkDailyBudget();
-    const prompt = buildSuggestionPrompt(serializedData, lastExchange);
 
-    const content = await chatText(
-      [{ role: "user", content: prompt }],
-      0.5,
-      512,
-      "generateSuggestions",
-      opts?.requestId ?? null,
+    const vars: FlowVars = { serializedData };
+
+    // buildSuggestionPrompt returns a plain string used as the user message
+    // (no system prompt). We pass it as userMessage with flow "summary".
+    const { buildSuggestionPrompt } = await import("./analyze-prompts");
+    const userMessage = buildSuggestionPrompt(serializedData, lastExchange);
+
+    const result = await assembleRequest(
+      "summary",
+      vars,
+      null,
+      userMessage,
+      {
+        requestId: opts?.requestId ?? null,
+        endpoint: "generateSuggestions",
+        temperature: 0.5,
+        maxOutputTokens: 512,
+      },
     );
 
+    const content = result.text;
     const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);
     const jsonStr = fenced ? fenced[1].trim() : content.trim();
 

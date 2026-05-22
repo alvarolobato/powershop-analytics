@@ -36,7 +36,7 @@ import {
   AgenticRunnerError,
 } from "@/lib/llm";
 import { classifyLlmError } from "@/lib/llm-error-payload";
-import { loadPriorTurns } from "@/lib/conversation-context";
+import { loadPriorTurns } from "@/lib/llm-context";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
 import type { WidgetStateData } from "@/lib/data-serializer";

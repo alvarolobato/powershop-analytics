@@ -226,6 +226,27 @@ cp cli/ps ~/bin/ps-analytics  # or symlink
 
 ---
 
+## Dashboard App — LLM call architecture
+
+All LLM calls in the Dashboard App go through a single central module. **Never import `llmComplete` or `runAgenticChat` directly** from outside `dashboard/lib/llm-context/`. CI enforces this via `dashboard/scripts/check-llm-context.sh` (runs in the `dashboard-test` job).
+
+```
+dashboard/lib/llm-context/      ← single LLM entry point
+  assembleRequest(flow, vars, conversationId, userMessage, opts)
+    → buildSystemPrompt(flow, vars)   { stable, volatile? }
+    → buildHistory(conversationId)    prior messages
+    → toolsForFlow(flow)              per-flow tool catalog
+    → llmComplete / runAgenticChat    (only imports here)
+    → AssembleResult { text, usage, model }
+```
+
+**Named flows**: `generate`, `modify`, `analyze`, `suggest`, `gap`, `weekly`, `chat`, `summary`.
+**Side-channel results**: tool handlers mutate `ctx` in place (`ctx.modifyResult`, `ctx.analyzeResult`, `ctx.reviewResult`); the caller reads them after `assembleRequest()` returns.
+
+Full skill reference: [docs/skills/llm-context.md](docs/skills/llm-context.md). Decision record: [D-036](docs/decisions/D-036-llm-context-centralization.md).
+
+---
+
 ## Important Rules for AI Assistants
 
 ### Claude OAuth token: single-refresher rule (D-025, issue #440)

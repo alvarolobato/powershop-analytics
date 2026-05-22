@@ -22,7 +22,8 @@ import {
 } from "@/lib/llm-provider/config";
 import type { DashboardLlmFlow } from "@/lib/llm-provider/types";
 import { formatApiError, generateRequestId, sanitizeErrorMessage } from "@/lib/errors";
-import { buildFreeChatContext, buildFreeChatInitialContextSnapshot } from "@/lib/conversation-context";
+import { buildFreeChatContext } from "@/lib/llm-context";
+import { buildFreeChatInitialContextSnapshot } from "@/lib/conversation-context";
 
 type RouteContext = { params: Promise<{ id: string }> | { id: string } };
 
