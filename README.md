@@ -6,15 +6,14 @@ This is an experiment project to use AI to analyze data from an SQL source, in t
 
 ## Deploy
 
-### Linux / macOS
+### Local development (Linux / macOS / Windows)
 
 ```bash
 curl -fsSL https://github.com/alvarolobato/powershop-analytics/releases/latest/download/install.sh | bash
 ```
 
-### Windows (PowerShell)
-
 ```powershell
+# Windows (PowerShell)
 irm https://github.com/alvarolobato/powershop-analytics/releases/latest/download/install.ps1 | iex
 ```
 
@@ -29,14 +28,24 @@ ps-analytics open        # open WrenAI UI at http://localhost:3000
 
 See **[docs/deployment/getting-started.md](docs/deployment/getting-started.md)** for the full guide.
 
+### Production install (dedicated Mac)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install-prod.sh | bash
+```
+
+See **[docs/deployment/production.md](docs/deployment/production.md)** for the complete production install guide (prerequisites, OAuth token setup, backup, disaster recovery).
+
 ## Documentation
 
 ### Deployment
 
-- [Getting started](docs/deployment/getting-started.md) — install, first run, verify
+- [Getting started](docs/deployment/getting-started.md) — local dev install, first run, verify
+- [Production install](docs/deployment/production.md) — production Mac setup, backup, DR
+- [prod CLI reference](docs/deployment/prod-cli.md) — `ps prod *` command reference
 - [WrenAI setup](docs/deployment/wren-setup.md) — data source, LLM, model selection
 - [4D connection](docs/deployment/4d-connection.md) — network, credentials, SQL server setup
-- [Operations](docs/deployment/operations.md) — CLI reference, monitoring, backups, updates
+- [Operations](docs/deployment/operations.md) — local CLI reference, monitoring, backups, updates
 - [Troubleshooting](docs/deployment/troubleshooting.md) — common issues and fixes
 
 ### For contributors

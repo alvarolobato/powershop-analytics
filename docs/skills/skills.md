@@ -21,6 +21,8 @@ This folder contains **skill documents** for AI agents working on the powershop-
 |----------|---------|----------|
 | **[../etl-sync-strategy.md](../etl-sync-strategy.md)** | Validated sync strategy for every table: delta field, PK, method, gotchas. Confirmed against production data. | Implementing or debugging ETL sync, deciding whether a table is append-only or needs upsert. |
 | **[../architecture/](../architecture/)** | Per-domain ER diagrams, row counts, field notes, and ETL sync sections. | Understanding table relationships, planning queries, checking field names. |
+| **[../deployment/production.md](../deployment/production.md)** | Production install guide: cold-start, prerequisites, backup/restore, disaster recovery, upgrades, monitoring. | Setting up or operating the production Mac; answering "how do I stand up a second prod instance". |
+| **[../deployment/prod-cli.md](../deployment/prod-cli.md)** | `ps prod *` CLI reference: all 12 subcommands with synopsis, side effects, examples. | Looking up what a `ps prod` command does or when to use deploy vs update. |
 
 ## Meta Skills
 

@@ -40,6 +40,8 @@ This is a **public repository** -- no credentials, customer data, or business-sp
 | `.env.example` | Environment variable template (no real secrets) |
 | `ARCHITECTURE.md` | System architecture, component diagrams, data flow |
 | `DECISIONS.md` | Decision index — one-line binding rules; full rationale in `docs/decisions/D-NN-<slug>.md` |
+| `docs/deployment/production.md` | Production install guide — cold-start, prerequisites, backup, disaster recovery |
+| `docs/deployment/prod-cli.md` | `ps prod *` CLI reference — all 12 subcommands |
 
 ---
 
