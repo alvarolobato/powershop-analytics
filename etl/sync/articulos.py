@@ -195,7 +195,7 @@ _SQL_ARTICULOS = (
     " PrecioCoste, Precio1, PrCosteNe, PIva, Anulado, FechaCreacion, FechaModifica,"
     " Color, ClaveTemporada, Modelo, Sexo"
     " FROM Articulos"
-    " WHERE CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA'"
+    " WHERE (CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA')"
 )
 
 _SQL_MA_ARTICLE_CODES = (

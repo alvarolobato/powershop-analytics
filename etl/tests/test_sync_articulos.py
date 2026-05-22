@@ -1,13 +1,17 @@
-"""Integration tests for etl/sync/articulos.py.
+"""Tests for etl/sync/articulos.py.
 
-All tests require both a live 4D connection (P4D_HOST set) and a live
+Most tests require both a live 4D connection (P4D_HOST set) and a live
 PostgreSQL connection.  They are skipped automatically when either is
 unavailable so CI without external access passes cleanly.
+
+TestDeltaSqlConstruction is a pure unit-test class and runs without any
+external connections.
 
 What is tested:
 - Row count in ps_articulos matches 4D source after sync.
 - No bytes values in ps_articulos (bytes-decoding regression guard).
 - ccrefejofacm is populated for at least 90 % of rows (referencia present).
+- SQL operator precedence: OR condition is parenthesised so delta filter applies correctly.
 """
 
 from __future__ import annotations
@@ -168,6 +172,36 @@ class TestSyncArticulos:
             f"Only {non_empty}/{total} ({ratio:.1%}) rows have a non-empty"
             " ccrefejofacm.  Expected >= 90%."
         )
+
+
+class TestDeltaSqlConstruction:
+    """Unit tests for SQL operator precedence fix — no external connections needed."""
+
+    def test_delta_sql_parenthesisation(self):
+        from datetime import date
+
+        from etl.sync.articulos import _SQL_ARTICULOS
+
+        date_str = date(2025, 1, 15).strftime("%Y-%m-%d")
+        delta_sql = f"{_SQL_ARTICULOS} AND FechaModifica >= {{d '{date_str}'}}"
+
+        assert (
+            "WHERE (CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA')" in delta_sql
+        ), (
+            "OR condition must be parenthesised so AND FechaModifica applies to both branches"
+        )
+        assert ") AND FechaModifica" in delta_sql, (
+            "AND clause must follow the closing parenthesis of the OR group"
+        )
+
+    def test_base_sql_has_ma_exclusion_and_no_delta_filter(self):
+        from etl.sync.articulos import _SQL_ARTICULOS
+
+        assert (
+            "WHERE (CCRefeJOFACM IS NULL OR LEFT(CCRefeJOFACM, 2) <> 'MA')"
+            in _SQL_ARTICULOS
+        )
+        assert "AND FechaModifica" not in _SQL_ARTICULOS
 
 
 class TestNullifyZeroFks:
