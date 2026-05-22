@@ -113,12 +113,25 @@ test("AC-6: logs persist after full page reload", async ({ page }) => {
   await page.goto(`/c/${convId}`);
   await waitForAssistantBubble(page);
 
-  // Capture logs before reload
+  // Log blocks appear after SSE event replay completes the complete event and
+  // triggers a conversation refresh — waitForAssistantBubble only ensures the
+  // REST API response arrived, not the SSE replay. Wait for the count to settle.
+  await page
+    .locator('[data-testid="log-block"]')
+    .first()
+    .waitFor({ state: "attached", timeout: 5_000 })
+    .catch(() => {});
+
   const logsBefore = await page.locator('[data-testid="log-block"]').count();
 
   // Full reload
   await page.reload();
   await waitForAssistantBubble(page);
+  await page
+    .locator('[data-testid="log-block"]')
+    .first()
+    .waitFor({ state: "attached", timeout: 5_000 })
+    .catch(() => {});
 
   const logsAfter = await page.locator('[data-testid="log-block"]').count();
   expect(logsAfter).toEqual(logsBefore);
