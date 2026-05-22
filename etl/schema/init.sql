@@ -630,6 +630,16 @@ ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_from TIMESTAM
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS watermark_to   TIMESTAMPTZ;
 ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS error_msg      TEXT;
 
+-- OTel trace correlation — nullable; populated by Phase 2 ETL instrumentation.
+-- trace_id links the DB row to the distributed trace in Elastic APM / Kibana.
+ALTER TABLE etl_sync_runs      ADD COLUMN IF NOT EXISTS trace_id TEXT;
+ALTER TABLE etl_sync_runs      ADD COLUMN IF NOT EXISTS span_id  TEXT;
+ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS trace_id TEXT;
+ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS span_id  TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_etl_sync_runs_trace_id       ON etl_sync_runs(trace_id)       WHERE trace_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_etl_sync_run_tables_trace_id ON etl_sync_run_tables(trace_id) WHERE trace_id IS NOT NULL;
+
 -- Transport channel: dashboard writes a row here; ETL polls and picks it up.
 CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     id           SERIAL       PRIMARY KEY,
@@ -697,6 +707,11 @@ CREATE INDEX IF NOT EXISTS idx_llm_usage_endpoint_request_id
 ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_provider TEXT NOT NULL DEFAULT 'openrouter';
 ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS llm_driver TEXT;
 
+-- OTel trace correlation for llm_tool_calls — populated by Phase 3 instrumentation.
+ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS trace_id TEXT;
+ALTER TABLE llm_tool_calls ADD COLUMN IF NOT EXISTS span_id  TEXT;
+CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_trace_id ON llm_tool_calls(trace_id) WHERE trace_id IS NOT NULL;
+
 -- ============================================================
 -- AGENTIC_RUNNER failure audit log (Dashboard App — issue #419)
 -- One row per AgenticRunnerError surfaced from /api/dashboard/{generate,modify,analyze}.
@@ -728,6 +743,11 @@ CREATE TABLE IF NOT EXISTS llm_errors (
 CREATE INDEX IF NOT EXISTS idx_llm_errors_created_at ON llm_errors(created_at);
 CREATE INDEX IF NOT EXISTS idx_llm_errors_request_id  ON llm_errors(request_id);
 CREATE INDEX IF NOT EXISTS idx_llm_errors_endpoint    ON llm_errors(endpoint);
+
+-- OTel trace correlation for llm_errors — populated by Phase 3 instrumentation.
+ALTER TABLE llm_errors ADD COLUMN IF NOT EXISTS trace_id TEXT;
+ALTER TABLE llm_errors ADD COLUMN IF NOT EXISTS span_id  TEXT;
+CREATE INDEX IF NOT EXISTS idx_llm_errors_trace_id ON llm_errors(trace_id) WHERE trace_id IS NOT NULL;
 
 -- ============================================================
 -- LLM interaction history (Dashboard App — full run audit trail)
@@ -771,6 +791,12 @@ BEGIN
   END IF;
 END
 $$;
+
+-- OTel trace correlation for llm_interactions — populated by Phase 3 instrumentation.
+-- trace_id on this table is the primary click-through from the admin UI to Kibana APM.
+ALTER TABLE llm_interactions ADD COLUMN IF NOT EXISTS trace_id TEXT;
+ALTER TABLE llm_interactions ADD COLUMN IF NOT EXISTS span_id  TEXT;
+CREATE INDEX IF NOT EXISTS idx_llm_interactions_trace_id ON llm_interactions(trace_id) WHERE trace_id IS NOT NULL;
 
 -- ============================================================
 -- Conversations (Dashboard App — persistent LLM chat history)

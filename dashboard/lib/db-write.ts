@@ -25,6 +25,14 @@ export interface InteractionLine {
 
 export type InteractionEndpoint = "generate" | "modify" | "analyze";
 
+// ─── OTel trace context ──────────────────────────────────────────────────────
+
+/** W3C trace-context IDs written to PG rows for click-through to Kibana APM. */
+export interface TraceContext {
+  traceId: string | null;
+  spanId: string | null;
+}
+
 // ─── Pool configuration ─────────────────────────────────────────────────────
 
 const STATEMENT_TIMEOUT_MS = 30_000;

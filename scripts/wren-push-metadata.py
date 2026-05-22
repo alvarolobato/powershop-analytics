@@ -784,7 +784,10 @@ def main():
     # If --repo-root is provided, update the global and reload knowledge from that root.
     if args.repo_root is not None:
         if not args.repo_root.is_dir():
-            print(f"ERROR: --repo-root '{args.repo_root}' is not a directory", file=sys.stderr)
+            print(
+                f"ERROR: --repo-root '{args.repo_root}' is not a directory",
+                file=sys.stderr,
+            )
             sys.exit(2)
         global _REPO_ROOT, INSTRUCTIONS, SQL_PAIRS, RELATIONSHIPS, SOURCE_QUESTIONS
         _REPO_ROOT = args.repo_root.resolve()

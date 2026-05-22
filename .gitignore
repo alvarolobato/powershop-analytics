@@ -51,3 +51,5 @@ _*.json
 
 # Vitest coverage output
 dashboard/coverage/
+otel/local/*.jsonl
+otel/local/*.json
