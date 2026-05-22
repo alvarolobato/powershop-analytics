@@ -108,10 +108,12 @@ export async function assembleRequest(
     content: m.content,
   }));
 
-  // 4. Execute
-  if (isAgenticToolsEnabled()) {
+  // 4. Execute — only route through agentic when the flow has tools; single-shot
+  // flows (suggest/gap/summary/title/weekly) return [] from toolsForFlow and
+  // must stay on the llmComplete path to preserve strict JSON-only outputs.
+  const tools = toolsForFlow(flow);
+  if (isAgenticToolsEnabled() && tools.length > 0) {
     const adapter = createDashboardAgenticAdapter();
-    const tools = toolsForFlow(flow);
 
     // Build the ctx, falling back to a minimal one if the caller didn't provide it
     const agenticCtx: LlmAgenticContext = opts?.ctx ?? {

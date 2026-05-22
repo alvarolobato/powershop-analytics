@@ -14,43 +14,50 @@ set -euo pipefail
 
 DASHBOARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Check: no file outside llm-context/ imports llmComplete from llm-client
-VIOLATIONS_LLM_COMPLETE=$(grep -rn \
+FAILED=0
+
+# Check: no file outside llm-context/ imports llmComplete from llm-client.
+#
+# File-level check: first collect files that have a `from "@/lib/llm-client"` (or
+# relative equivalent) import statement, then test each of those files for the
+# llmComplete symbol.  Matching on `from.*"<path>"` (not just `"<path>"`) avoids
+# false positives from inline TypeScript type references like import("./module").
+while IFS= read -r file; do
+  if grep -q 'llmComplete' "$file"; then
+    echo "❌ LLM context boundary violation — file imports llmComplete outside llm-context/:"
+    grep -n 'llmComplete' "$file" | sed "s|^|  $file:|"
+    echo ""
+    FAILED=1
+  fi
+done < <(grep -rl \
   --include='*.ts' --include='*.tsx' \
   'from.*"@/lib/llm-client"\|from.*"./llm-client"\|from.*"../llm-client"\|from.*"../../llm-client"' \
   "$DASHBOARD_DIR" \
-  | grep 'llmComplete' \
   | grep -v 'dashboard/lib/llm-context/' \
   | grep -v '__tests__' \
   | grep -v 'node_modules' \
   || true)
 
-# Check: no file outside llm-context/ imports runAgenticChat from runner
-VIOLATIONS_AGENTIC=$(grep -rn \
+# Check: no file outside llm-context/ imports runAgenticChat from runner.
+#
+# Same file-level approach: find files with the import statement, then check
+# for the symbol.  `from.*"./runner"` avoids matching inline TypeScript
+# `import("./runner").SomeType` self-references inside the runner source file.
+while IFS= read -r file; do
+  if grep -q 'runAgenticChat' "$file"; then
+    echo "❌ LLM context boundary violation — file imports runAgenticChat outside llm-context/:"
+    grep -n 'runAgenticChat' "$file" | sed "s|^|  $file:|"
+    echo ""
+    FAILED=1
+  fi
+done < <(grep -rl \
   --include='*.ts' --include='*.tsx' \
   'from.*"@/lib/llm-tools/runner"\|from.*"./runner"\|from.*"../runner"\|from.*"../../llm-tools/runner"' \
   "$DASHBOARD_DIR" \
-  | grep 'runAgenticChat' \
   | grep -v 'dashboard/lib/llm-context/' \
   | grep -v '__tests__' \
   | grep -v 'node_modules' \
   || true)
-
-FAILED=0
-
-if [ -n "$VIOLATIONS_LLM_COMPLETE" ]; then
-  echo "❌ LLM context boundary violation — files importing llmComplete outside llm-context/:"
-  echo "$VIOLATIONS_LLM_COMPLETE"
-  echo ""
-  FAILED=1
-fi
-
-if [ -n "$VIOLATIONS_AGENTIC" ]; then
-  echo "❌ LLM context boundary violation — files importing runAgenticChat outside llm-context/:"
-  echo "$VIOLATIONS_AGENTIC"
-  echo ""
-  FAILED=1
-fi
 
 if [ "$FAILED" -eq 1 ]; then
   echo "All LLM calls must go through dashboard/lib/llm-context/assemble.ts"

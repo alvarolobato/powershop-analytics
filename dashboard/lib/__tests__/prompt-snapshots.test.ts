@@ -6,9 +6,8 @@
  * imports to point at llm-context/ (that would defeat the purpose of the
  * baseline).
  *
- * DASHBOARD_AGENTIC_TOOLS_ENABLED is deliberately left unset (defaults to
- * true, but the snapshots are captured against the actual default). The goal
- * is stable output across refactors, not forcing a specific mode.
+ * DASHBOARD_AGENTIC_TOOLS_ENABLED is stubbed to "false" in beforeEach so that
+ * snapshots are deterministic and independent of the environment default.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
