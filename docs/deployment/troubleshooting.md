@@ -4,7 +4,7 @@ Items marked **[Prod-applicable]** also apply to the production deployment — t
 
 ---
 
-## Prod-applicable issues {#prod-applicable-issues}
+## Prod-applicable issues
 
 ### Container won't start **[Prod-applicable]**
 
@@ -21,7 +21,7 @@ ps prod logs <service>
 Common causes:
 
 - **Missing `.env` variable** — the ETL or WrenAI service will exit immediately if a required variable is empty. Check that `P4D_HOST`, `P4D_USER`, `P4D_PASSWORD`, `OPENROUTER_API_KEY`, and `POSTGRES_PASSWORD` are set in `.env`.
-- **Port conflict** — if port 3000 or 5432 is in use by another process, the container will fail to bind. Change `HOST_PORT` or `AI_SERVICE_FORWARD_PORT` in `.env`, then restart. For PostgreSQL, you can change the host port mapping in `docker-compose.yml`.
+- **Port conflict** — if port 3000 or 5432 is in use by another process, the container will fail to bind. Change `HOST_PORT` or `AI_SERVICE_FORWARD_PORT` in `.env`, then `ps-analytics restart` (local dev) or `ps prod restart` (prod). For PostgreSQL, you can change the host port mapping in `docker-compose.yml`.
 - **Docker not running** — start Docker Desktop (macOS) or the Docker daemon (Linux), then re-run the command.
 
 ### ETL fails to connect to 4D **[Prod-applicable]**

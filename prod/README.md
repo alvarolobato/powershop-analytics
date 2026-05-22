@@ -4,4 +4,4 @@ Production architecture overview: [ARCHITECTURE.md § Production](../ARCHITECTUR
 
 Install + operations: [docs/deployment/production.md](../docs/deployment/production.md) and [docs/deployment/prod-cli.md](../docs/deployment/prod-cli.md).
 
-This directory contains only the prod-specific compose override (`docker-compose.override.prod.yml`) and the release-distributed compose file (`docker-compose.prod.yml` — the canonical prod stack definition attached to each GitHub release).
+This directory contains only the prod-specific compose override (`docker-compose.override.prod.yml`). The canonical prod stack definition (`docker-compose.prod.yml`) is a GitHub release asset — it is downloaded to the prod Mac by `deploy/install-prod.sh` and is not checked into this directory.

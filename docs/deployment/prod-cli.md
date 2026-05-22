@@ -225,6 +225,8 @@ Transfers the source knowledge Markdown files to prod and runs `scripts/wren-pus
 
 Prod has no git checkout, so the script transfers files over SSH via `tar`. A temp directory on prod is created and cleaned up automatically.
 
+> **Prerequisite**: `python3` must be available on the prod Mac. Install via Xcode Command Line Tools (`xcode-select --install`) if missing.
+
 **When to use**: after updating source knowledge MDs (instructions, SQL pairs) when no full deploy is planned. `ps prod deploy` already calls this automatically unless `--skip-knowledge` was given.
 
 **Options**:

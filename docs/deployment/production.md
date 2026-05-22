@@ -14,7 +14,7 @@ curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/ma
 # Then complete the steps in One-time install below (claude /login + launchd agent).
 ```
 
-The stack runs entirely in Docker. The prod Mac needs no git checkout, no Python virtualenv, and no source code — only Docker Desktop and the files that `install-prod.sh` downloads.
+The app stack runs entirely in Docker — no git checkout, no Python virtualenv. `install-prod.sh` downloads everything the stack needs. The launchd token-sync agent (Step 3) requires fetching one additional script from the repo (see Step 3 below).
 
 ---
 
@@ -83,6 +83,17 @@ Add the developer's SSH public key to `~/.ssh/authorized_keys` on the prod Mac. 
 ssh your-prod-user@your-prod-host echo ok
 ```
 
+### Python 3
+
+Python 3 is required on the prod Mac for the token-sync launchd agent and for `ps prod push-knowledge` (which runs `scripts/wren-push-metadata.py` on prod).
+
+macOS 14/15 ships with Python 3 via Xcode Command Line Tools. Install if missing:
+
+```bash
+xcode-select --install   # installs Xcode CLT (includes python3)
+python3 --version        # must print 3.8 or later
+```
+
 ### Disk space
 
 Plan for at least 50 GB free for Docker images + `./data/` growth over time (Postgres mirror, Qdrant vectors, WrenAI SQLite).
@@ -106,8 +117,6 @@ The script:
 4. Prompts for credentials (4D server IP/user/password, OpenRouter key, Postgres password) and writes them to `~/powershop/.env` with mode `0600`. **These credentials never leave the host.**
 5. Writes `~/powershop/.version` with the installed tag.
 
-To pre-validate that the Mac is ready before running the install, use `--check-only` (available after [Phase 2](../decisions/D-034-single-track-issues.md) lands).
-
 After the script finishes, start the stack to verify it pulls images cleanly:
 
 ```bash
@@ -129,17 +138,15 @@ claude /login
 
 ### Step 3 — Install the token-sync launchd agent
 
-The agent mirrors the macOS Keychain entry `Claude Code-credentials` into `~/.claude/.credentials.json` every 5 minutes so the Dashboard container can read it without any manual intervention.
+The agent mirrors the macOS Keychain entry `Claude Code-credentials` into `~/.claude/.credentials.json` every 5 minutes (`StartInterval=300` in the plist) so the Dashboard container can read it without any manual intervention. Some older script output may still mention a 2-hour interval — that messaging is stale; the installed plist always uses 5 minutes.
 
 Run this from the **repo checkout** on the prod Mac (the bootstrap above does not clone the repo; if you are doing a fresh Mac install with no checkout, clone the repo first or transfer the scripts directory):
 
 ```bash
-# If you need the scripts (no local checkout):
-curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/scripts/install-claude-token-launchd.sh -o /tmp/install-launchd.sh
-# The script needs the full repo structure; clone minimally:
+# If you need the scripts (no local checkout), clone minimally:
 git clone --depth 1 https://github.com/alvarolobato/powershop-analytics.git /tmp/ps-repo
 bash /tmp/ps-repo/scripts/install-claude-token-launchd.sh
-rm -rf /tmp/ps-repo /tmp/install-launchd.sh
+rm -rf /tmp/ps-repo
 ```
 
 Or if you already have a checkout:
