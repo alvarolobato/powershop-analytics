@@ -14,7 +14,6 @@
 
 import { ReviewLlmOutputSchema, type ReviewLlmOutput } from "./review-schema";
 import { checkDailyBudget } from "./llm-usage";
-import { getAgenticConfig } from "./llm-tools/config";
 import { AgenticRunnerError } from "./llm-tools/runner";
 import { resetClient } from "./llm-client";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
@@ -224,66 +223,6 @@ export async function analyzeDashboard(
   );
 
   return result.text;
-}
-
-/**
- * Generate a weekly business review using the agentic runner.
- *
- * @param vars     - Query results, week description, and generation mode.
- * @param opts     - Optional request id and progress callback.
- */
-export async function generateReviewAgentic(
-  vars: { queryResults: string; reviewedWeekDescription: string; generationMode: "initial" | "refresh_data" | "alternate_angle" },
-  opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
-): Promise<{ content: ReviewLlmOutput; message: string }> {
-  const requestId = opts?.requestId ?? "req_local";
-
-  await checkDailyBudget();
-
-  const ctx: LlmAgenticContext = {
-    requestId,
-    endpoint: "generateReview",
-    onAgenticProgress: opts?.onAgenticProgress,
-    reviewResult: null,
-  };
-
-  const result = await assembleRequest(
-    "weekly",
-    vars,
-    null,
-    "Genera la revisión semanal ahora.",
-    {
-      ctx,
-      requestId,
-      endpoint: "generateReview",
-      temperature: 0.2,
-      maxOutputTokens: 4096,
-    },
-  );
-
-  if (!ctx.reviewResult) {
-    const agenticCfg = getAgenticConfig();
-    throw new AgenticRunnerError(
-      "AGENTIC_RUNNER",
-      "El modelo no llamó a `submit_weekly_review`. El JSON de la revisión debe enviarse a través de la herramienta.",
-      requestId,
-      {
-        phase: "final",
-        toolRoundsUsed: 0,
-        toolCallsUsed: 0,
-        durationMs: 0,
-        limitsAtFailure: {
-          maxRounds: agenticCfg.maxToolRounds,
-          maxToolCalls: agenticCfg.maxToolCalls,
-          toolTimeoutMs: agenticCfg.toolTimeoutMs,
-          executeRowLimit: agenticCfg.maxRows,
-          payloadCharLimit: agenticCfg.maxResultChars,
-        },
-      },
-    );
-  }
-
-  return { content: ctx.reviewResult.content, message: result.text };
 }
 
 /**
