@@ -215,6 +215,15 @@ cmd_status() {
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) ps"
     echo
 
+    # OTel Collector health
+    echo -e "${CYAN}OTel Collector:${NC}"
+    if remote "curl -fsSL --max-time 5 http://localhost:13133/ >/dev/null 2>&1"; then
+        echo -e "  Status: ${GREEN}healthy${NC}"
+    else
+        echo -e "  Status: ${YELLOW}not responding${NC}"
+    fi
+    echo
+
     cmd_token_status
 }
 
@@ -281,6 +290,15 @@ cmd_health() {
     # Dashboard
     printf "  %-20s" "Dashboard:"
     if remote "curl -fsSL --max-time 5 http://localhost:4000/api/health >/dev/null 2>&1"; then
+        echo -e "${GREEN}healthy${NC}"
+    else
+        echo -e "${YELLOW}not responding${NC}"
+        all_ok=false
+    fi
+
+    # OTel Collector — health_check extension on port 13133
+    printf "  %-20s" "OTel Collector:"
+    if remote "curl -fsSL --max-time 5 http://localhost:13133/ >/dev/null 2>&1"; then
         echo -e "${GREEN}healthy${NC}"
     else
         echo -e "${YELLOW}not responding${NC}"

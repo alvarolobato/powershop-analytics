@@ -1,5 +1,5 @@
 # PowerShop Analytics — full stack
-# Services: PostgreSQL mirror + ETL (nightly scheduler) + WrenAI (5 containers)
+# Services: PostgreSQL mirror + ETL (nightly scheduler) + WrenAI (5 containers) + OTel collector
 #
 # Quick start (symlink to centralized credentials):
 #   ln -sf ~/.config/powershop-analytics/.env .env
@@ -40,6 +40,42 @@ services:
       start_period: 10s
 
   # ---------------------------------------------------------------------------
+  # OTel Collector — EDOT collector (Elastic Agent in OTel collector mode)
+  # Receives OTLP traces/metrics/logs from ETL + Dashboard, applies redaction
+  # and tail-sampling, exports to Elastic Cloud (when ELASTIC_OTLP_ENDPOINT is
+  # set) or falls back to a local JSONL file under ./otel/local/.
+  # ---------------------------------------------------------------------------
+  otel-collector:
+    image: docker.elastic.co/elastic-agent/elastic-agent:8.16.0
+    restart: unless-stopped
+    command: ["otel", "--config", "/etc/otelcol/config.yaml"]
+    environment:
+      ELASTIC_OTLP_ENDPOINT: ${ELASTIC_OTLP_ENDPOINT:-}
+      ELASTIC_OTLP_API_KEY: ${ELASTIC_OTLP_API_KEY:-}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # When ELASTIC_OTLP_ENDPOINT is set, export to Elastic Cloud; otherwise
+      # write to the local file sink. The config reads this variable directly.
+      EXPORTER_BACKEND: ${ELASTIC_OTLP_ENDPOINT:+elasticsearch}
+    volumes:
+      - ./otel/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./otel/local:/var/log/otel
+      # Docker socket gives the filelog receiver access to container stdout logs.
+      # This is the standard OTel Collector pattern for host-level log collection.
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    expose:
+      - "4317"   # OTLP gRPC
+      - "4318"   # OTLP HTTP
+      - "13133"  # health_check extension
+    networks:
+      - wren
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:13133/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
   # ETL — extracts data from 4D and loads into PostgreSQL
   # Runs in scheduler mode by default (daily at ETL_CRON_HOUR, default 02:00).
   # For a one-off sync: docker compose run --rm etl python main.py --once
@@ -59,6 +95,12 @@ services:
       # (inside the container) which does not exist.
       CONFIG_FILE: /config/config.yaml
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
+      # OTel SDK env vars — picked up automatically by opentelemetry-instrument (Phase 2)
+      OTEL_SERVICE_NAME: powershop-etl
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_LOG_LEVEL: ${OTEL_LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     volumes:
       # Mount centralized config directory (read-only; ETL only reads config)
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:ro
@@ -68,6 +110,8 @@ services:
       - wren
     depends_on:
       postgres:
+        condition: service_healthy
+      otel-collector:
         condition: service_healthy
 
   # ---------------------------------------------------------------------------
@@ -250,6 +294,14 @@ services:
       # The CLI reads this env var directly — no file mount needed (D-025 updated).
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       HOME: /home/nextjs
+      # OTel SDK env vars — picked up automatically by the Node SDK (Phase 3)
+      OTEL_SERVICE_NAME: powershop-dashboard
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      OTEL_LOG_LEVEL: ${OTEL_LOG_LEVEL:-info}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Git SHA baked at build time; available to the OTel resource as service.version
+      NEXT_PUBLIC_GIT_SHA: ${APP_GIT_DESCRIBE:-}
     volumes:
       # Mount centralized config directory (read-write; dashboard writes config.yaml)
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
@@ -273,4 +325,6 @@ services:
       start_period: 10s
     depends_on:
       postgres:
+        condition: service_healthy
+      otel-collector:
         condition: service_healthy
