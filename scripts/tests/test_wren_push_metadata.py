@@ -486,3 +486,90 @@ def test_relationships_new_entries_present():
     }
     missing = expected_new - rels
     assert not missing, f"Missing new relationships: {missing}"
+
+
+# ── main(): null-project guard and tmpdir cleanup ───────────────────────────
+
+
+def _make_minimal_sqlite(path: str) -> None:
+    """Create a SQLite DB with the WrenAI schema but no project row."""
+    import sqlite3 as _sqlite3
+
+    con = _sqlite3.connect(path)
+    con.executescript(
+        """
+        CREATE TABLE project (id INTEGER PRIMARY KEY);
+        CREATE TABLE model (id INTEGER, display_name TEXT);
+        CREATE TABLE model_column (
+            id INTEGER, model_id INTEGER,
+            source_column_name TEXT, properties TEXT
+        );
+        CREATE TABLE instruction (
+            id INTEGER, project_id INTEGER,
+            instruction TEXT, questions TEXT, is_default INTEGER
+        );
+        CREATE TABLE sql_pair (
+            id INTEGER, project_id INTEGER, sql TEXT, question TEXT
+        );
+        """
+    )
+    con.commit()
+    con.close()
+
+
+def test_null_project_raises_runtime_error(tmp_path, monkeypatch):
+    """main() raises RuntimeError (not TypeError) when project table is empty."""
+    import shutil
+    import subprocess
+    import sys
+
+    db_template = str(tmp_path / "template.sqlite3")
+    _make_minimal_sqlite(db_template)
+
+    monkeypatch.setattr(sys, "argv", ["wren-push-metadata.py"])
+    monkeypatch.setattr(wpm, "gql", lambda *a, **kw: {"data": {"listModels": []}})
+
+    def fake_run(cmd, **kwargs):
+        # First docker cp: copy our empty template to the destination path
+        if "cp" in cmd and "wren-ui:/app/data" in str(cmd):
+            dest = cmd[-1]
+            shutil.copy(db_template, dest)
+        # copy-back: not reached when RuntimeError fires — ignored in finally
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(RuntimeError, match="WrenAI project not found in SQLite"):
+        wpm.main()
+
+
+def test_tmpdir_cleaned_on_failure(tmp_path, monkeypatch):
+    """tmpdir is removed even when subprocess.run raises during docker cp."""
+    import os
+    import subprocess
+    import sys
+    import tempfile
+
+    created_dirs: list[str] = []
+    real_mkdtemp = tempfile.mkdtemp
+
+    def tracking_mkdtemp(**kwargs):
+        d = real_mkdtemp(**kwargs)
+        created_dirs.append(d)
+        return d
+
+    monkeypatch.setattr(wpm.tempfile, "mkdtemp", tracking_mkdtemp)
+    monkeypatch.setattr(sys, "argv", ["wren-push-metadata.py"])
+    monkeypatch.setattr(wpm, "gql", lambda *a, **kw: {"data": {"listModels": []}})
+
+    def failing_run(cmd, **kwargs):
+        raise subprocess.CalledProcessError(1, cmd, stderr=b"Docker not running")
+
+    monkeypatch.setattr(subprocess, "run", failing_run)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        wpm.main()
+
+    assert created_dirs, "Expected tempfile.mkdtemp to have been called"
+    for d in created_dirs:
+        assert not os.path.exists(d), f"tmpdir {d!r} was not cleaned up after failure"
