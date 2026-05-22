@@ -215,14 +215,16 @@ cmd_status() {
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) ps"
     echo
 
-    # OTel Collector health
-    echo -e "${CYAN}OTel Collector:${NC}"
-    if remote "curl -fsSL --max-time 5 http://localhost:13133/ >/dev/null 2>&1"; then
-        echo -e "  Status: ${GREEN}healthy${NC}"
-    else
-        echo -e "  Status: ${YELLOW}not responding${NC}"
+    # OTel Collector health (only when the service is in this compose stack)
+    if remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) config --services 2>/dev/null | grep -q '^otel-collector$'"; then
+        echo -e "${CYAN}OTel Collector:${NC}"
+        if remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) exec -T otel-collector curl -fsSL --max-time 5 http://localhost:13133/ >/dev/null 2>&1"; then
+            echo -e "  Status: ${GREEN}healthy${NC}"
+        else
+            echo -e "  Status: ${YELLOW}not responding${NC}"
+        fi
+        echo
     fi
-    echo
 
     cmd_token_status
 }
@@ -296,13 +298,16 @@ cmd_health() {
         all_ok=false
     fi
 
-    # OTel Collector — health_check extension on port 13133
-    printf "  %-20s" "OTel Collector:"
-    if remote "curl -fsSL --max-time 5 http://localhost:13133/ >/dev/null 2>&1"; then
-        echo -e "${GREEN}healthy${NC}"
-    else
-        echo -e "${YELLOW}not responding${NC}"
-        all_ok=false
+    # OTel Collector — health_check extension (exec into container; skipped if
+    # not present in this compose stack, e.g. prod before the collector is added)
+    if remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) config --services 2>/dev/null | grep -q '^otel-collector$'"; then
+        printf "  %-20s" "OTel Collector:"
+        if remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) exec -T otel-collector curl -fsSL --max-time 5 http://localhost:13133/ >/dev/null 2>&1"; then
+            echo -e "${GREEN}healthy${NC}"
+        else
+            echo -e "${YELLOW}not responding${NC}"
+            all_ok=false
+        fi
     fi
 
     echo

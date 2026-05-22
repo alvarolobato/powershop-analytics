@@ -50,17 +50,18 @@ services:
     restart: unless-stopped
     command: ["otel", "--config", "/etc/otelcol/config.yaml"]
     environment:
-      ELASTIC_OTLP_ENDPOINT: ${ELASTIC_OTLP_ENDPOINT:-}
-      ELASTIC_OTLP_API_KEY: ${ELASTIC_OTLP_API_KEY:-}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      # When ELASTIC_OTLP_ENDPOINT is set, export to Elastic Cloud; otherwise
-      # write to the local file sink. The config reads this variable directly.
-      EXPORTER_BACKEND: ${ELASTIC_OTLP_ENDPOINT:+elasticsearch}
+      # Pass ELASTIC_ credentials through only when set on the host so the
+      # otelcol-config.yaml fallback defaults kick in cleanly in local dev.
+      - ELASTIC_OTLP_ENDPOINT
+      - ELASTIC_OTLP_API_KEY
+      - ENVIRONMENT=${ENVIRONMENT:-development}
     volumes:
       - ./otel/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
       - ./otel/local:/var/log/otel
-      # Docker socket gives the filelog receiver access to container stdout logs.
-      # This is the standard OTel Collector pattern for host-level log collection.
+      # Bind-mounts the Docker container log directory for the filelog receiver.
+      # Linux only: on macOS with Docker Desktop this host path does not exist
+      # (containers run inside a VM) and this mount will fail — comment it out
+      # on macOS or remove the filelog receiver from otelcol-config.yaml.
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
     expose:
       - "4317"   # OTLP gRPC

@@ -62,6 +62,7 @@ describe("OTel env-var contract", () => {
   });
 
   it("OTEL_EXPORTER_OTLP_ENDPOINT defaults point to otel-collector service", () => {
+    delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
     const endpoint = process.env.OTEL_EXPORTER_OTLP_ENDPOINT ?? "http://otel-collector:4317";
     expect(endpoint).toMatch(/^http:\/\//);
     expect(endpoint).not.toContain("localhost");

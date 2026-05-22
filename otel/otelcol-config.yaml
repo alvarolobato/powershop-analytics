@@ -66,8 +66,8 @@ processors:
         action: upsert
 
   # Attributes processor — PII and secret redaction.
-  # Denylist matches patterns from dashboard/lib/llm-provider/sanitize.ts.
-  # Keys matching (?i)(password|api_key|secret|token|authorization) are dropped.
+  # Deletes a fixed set of exact attribute keys known to carry credentials.
+  # Mirrors the denylist in dashboard/lib/llm-provider/sanitize.ts.
   attributes/redact:
     actions:
       - key: http.request.header.authorization

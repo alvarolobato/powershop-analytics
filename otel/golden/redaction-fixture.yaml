@@ -1,8 +1,8 @@
 # Golden fixture — sample span attributes that the collector's attributes/redact
 # processor MUST strip before export.
 #
-# Used by otel/tests/test_collector_health.sh to verify that PII / secret
-# attributes are removed from exported spans.
+# Documents the PII / secret attributes that must not appear in exported spans.
+# Intended for use by a future integration test harness (not yet implemented).
 #
 # Format: each entry is an OTLP span attribute that should NOT appear in the
 # exported telemetry after the redaction processor runs.
