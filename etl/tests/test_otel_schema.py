@@ -12,7 +12,9 @@ import pytest
 def _postgres_available() -> bool:
     if os.environ.get("POSTGRES_DSN", "").strip():
         return True
-    return bool(os.environ.get("POSTGRES_USER", "") and os.environ.get("POSTGRES_DB", ""))
+    return bool(
+        os.environ.get("POSTGRES_USER", "") and os.environ.get("POSTGRES_DB", "")
+    )
 
 
 EXPECTED_COLUMNS = [
@@ -50,7 +52,9 @@ def test_trace_column_exists(pg_conn, table, column):
             (table, column),
         )
         row = cur.fetchone()
-    assert row is not None, f"Column {table}.{column} is missing — run init.sql migration"
+    assert row is not None, (
+        f"Column {table}.{column} is missing — run init.sql migration"
+    )
 
 
 @pytest.mark.skipif(not _postgres_available(), reason="PostgreSQL not configured")
