@@ -1,5 +1,7 @@
 # Getting Started
 
+> **This guide is for local development.** For production setup on a dedicated Mac, see [production.md](production.md).
+
 Deploy PowerShop Analytics in 10 minutes.
 
 ## Prerequisites

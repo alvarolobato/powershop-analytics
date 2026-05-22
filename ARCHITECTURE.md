@@ -136,43 +136,15 @@ User: "Añade el margen por familia"
 
 ## Production
 
-Production runs the same Docker Compose stack on a dedicated Mac (configured
-via `PROD_HOST` and `PROD_PATH` in `.env`). It is a flat Docker Hub
-deployment — no git checkout. The directory contains only
-`docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `data/`
-bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub.
+Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) contains only `docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `./data/` bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub (`alvarolobato264/powershop-etl`, `alvarolobato264/powershop-dashboard`). WrenAI images come from `ghcr.io/canner/*`.
 
-### Routine updates
+`PROD_HOST` and `PROD_PATH` in `~/.config/powershop-analytics/.env` are **local-operator** config — they tell the `ps prod *` CLI on your local Mac where to SSH. The prod Mac itself doesn't need these variables.
 
-All `ps prod` commands run over SSH — no source code needed on prod:
+The launchd agent (`scripts/launchd/com.powershop.claude-token-sync.plist.template`) mirrors the macOS Keychain entry `Claude Code-credentials` into `~/.claude/.credentials.json` every 5 minutes so the dashboard container can read it without any manual intervention. See [D-025](docs/decisions/D-025-oauth-single-refresher.md) for the single-refresher constraint.
 
-- **`ps prod deploy`** — pulls latest Docker Hub images and restarts the stack.
-- **`ps prod update`** — downloads new compose/config from the latest GitHub
-  release, then deploys. Use when compose or config changes are needed.
-- **`ps prod status`** — container status + version + health checks + token state.
-- **`ps prod health`** — runs health checks against all prod services.
-- **`ps prod push-config`** — uploads local `wren-config.yaml` to prod and
-  restarts `wren-ai-service`.
-
-### Claude OAuth token sync (D-025)
-
-Both local and prod Macs run the same launchd agent
-(`scripts/launchd/com.powershop.claude-token-sync.plist.template`) every 2 h
-to mirror the macOS Keychain entry `Claude Code-credentials` into
-`~/.claude/.credentials.json` so the dashboard container can read it. The
-container never refreshes the token. When the access token actually expires
-and host claude can't refresh through Cloudflare, run `ps prod login` from
-local to open an interactive ssh session and `claude /login` once on prod;
-the next launchd cycle (within 2 h) syncs the new token automatically.
-
-### CLI commands for prod
-
-`ps prod {deploy, update, restart, status, logs, version, health,
-push-config, token-status, login, ssh}` — driven by `PROD_HOST` and
-`PROD_PATH` env vars (set in `~/.config/powershop-analytics/.env`). All
-routine ops happen from your local machine; no
-manual ssh is needed except for the one-time `claude /login` after a token
-expiry.
+**Full install + operations documentation:**
+- [docs/deployment/production.md](docs/deployment/production.md) — cold-start install, prerequisites, backup, disaster recovery, upgrades, monitoring
+- [docs/deployment/prod-cli.md](docs/deployment/prod-cli.md) — `ps prod *` CLI reference (all 12 subcommands)
 
 ## Technology Decisions
 
