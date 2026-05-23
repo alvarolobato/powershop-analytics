@@ -1,3 +1,17 @@
+# Proposal: Fix ai-etl-health.yml turn exhaustion (Issue #698)
+
+**Status**: Pending human commit (D-029 constraint — AI worker cannot write under `.github/workflows/`)
+
+**Owner action required**: Copy the YAML below into `.github/workflows/ai-etl-health.yml` and commit.
+
+## Changes
+
+- Removed `Load knowledge bundle` step and its `${{ steps.load-knowledge.outputs.bundle }}` prompt reference. The ETL health agent reads source files directly and does not need ~7K tokens of retail/wholesale business rules.
+- Increased `--max-turns` from 15 to 25 to give the agent sufficient budget for 4 audit areas across multiple files.
+
+## Proposed `.github/workflows/ai-etl-health.yml`
+
+```yaml
 name: AI ETL Health Monitor
 on:
   schedule:
@@ -61,3 +75,4 @@ jobs:
             - Suggest fixes
 
             If everything looks healthy, do NOT create an issue. Silence is golden.
+```
