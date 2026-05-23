@@ -71,6 +71,27 @@ If an EC item has no test and is not marked `Human-only`, it is incomplete. The 
 - Include at least one Playwright or integration test criterion per feature that touches the UI or API
 </format rules>
 
+### Writing EC items the EC validator can verify (D-038)
+
+The EC validator (`ai-ec-validator.yml`) runs automatically on final-phase merges. It parses each `**EC-N**` item and dispatches verification based on the `*Verified by*` annotation. Write items so the validator can act on them:
+
+| Pattern | What the validator does |
+|---------|------------------------|
+| `*Verified by*: path/file.test.ts → "test name"` | Checks file exists at merge SHA + CI run passed |
+| `*Verified by*: some-job CI job` | Checks a CI run on the merge SHA succeeded |
+| `*Verified by*: file diff in this PR` | Runs `git show <merge-sha> --stat -- <path>` |
+| `*Human-only*` | Never auto-verified; listed for owner action |
+| No annotation | Treated as `Human-only` with a warning |
+| Shell command in `*Verified by*` | Refused for security; treated as `Human-only` |
+
+**Key rules:**
+- Prefer `*Verified by*: path/test.ts → "test name"` — the validator checks the file at the merge SHA and confirms a CI run passed.
+- Use `*Human-only*` for anything requiring real hardware, a production environment, or human judgment (screenshots, screen recordings, UX quality assessment).
+- Never put a shell command like `wc -l foo.md` in `*Verified by*` — the validator refuses to execute arbitrary text. Use `*Verified by*: file diff` instead and describe what to check.
+- Every item without `*Verified by*` or `*Human-only*` generates a warning in the validator comment and is treated as human-only.
+
+The validator adds `fact-awaiting-human-validation` to the issue when any human-only items remain, and closes the issue automatically when all items are verified or ticked by the owner. The owner can re-trigger the validator by adding the `ai-validate-ec` label.
+
 ## Additional Context
 <append-only notes: discoveries, links, decisions, gotchas found during execution>
 ```
