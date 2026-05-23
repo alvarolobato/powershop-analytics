@@ -32,6 +32,10 @@ jobs:
       - name: Use role-specific CLAUDE.md
         run: |
           cp .claude-contexts/audit.md CLAUDE.md
+          # Hide the swap from git so workflows that commit/push
+          # (worker, address-feedback, ci-remediation) don't sweep
+          # it into commits, and `git rebase` (mergeability) isn't
+          # blocked by an uncommitted tracked-file change.
           git update-index --skip-worktree CLAUDE.md
 
       - name: ETL Health Check
