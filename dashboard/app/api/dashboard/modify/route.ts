@@ -45,7 +45,7 @@ import {
   AgenticRunnerError,
 } from "@/lib/llm";
 import { classifyLlmError } from "@/lib/llm-error-payload";
-import { loadPriorTurns } from "@/lib/conversation-context";
+import { loadPriorTurns } from "@/lib/llm-context";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import {

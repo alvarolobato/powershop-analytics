@@ -4,9 +4,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Hoisted mocks
 // ---------------------------------------------------------------------------
 
-const { mockSql, mockLlmComplete } = vi.hoisted(() => ({
+const { mockSql, mockLlmComplete, mockAssembleRequest } = vi.hoisted(() => ({
   mockSql: vi.fn(),
   mockLlmComplete: vi.fn(),
+  mockAssembleRequest: vi.fn(),
 }));
 
 vi.mock("@/lib/db-write", () => ({
@@ -15,6 +16,10 @@ vi.mock("@/lib/db-write", () => ({
 
 vi.mock("@/lib/llm-client", () => ({
   llmComplete: mockLlmComplete,
+}));
+
+vi.mock("@/lib/llm-context", () => ({
+  assembleRequest: mockAssembleRequest,
 }));
 
 // Mock crypto to produce deterministic ids in tests
@@ -184,6 +189,7 @@ describe("maybeGenerateTitle", () => {
   beforeEach(() => {
     mockSql.mockReset();
     mockLlmComplete.mockReset();
+    mockAssembleRequest.mockReset();
   });
 
   const messages = [
@@ -191,19 +197,19 @@ describe("maybeGenerateTitle", () => {
     { role: "assistant" as const, content: "Vendimos 12.345 € en total ayer." },
   ];
 
-  it("calls llmComplete and updates title when conversation has no title", async () => {
+  it("calls assembleRequest and updates title when conversation has no title", async () => {
     // getConversation returns a conv with title=null
     mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
-    mockLlmComplete.mockResolvedValue({ text: "Ventas de ayer análisis" });
+    mockAssembleRequest.mockResolvedValue({ text: "Ventas de ayer análisis", usage: {}, model: "test" });
     // updateConversationTitle INSERT
     mockSql.mockResolvedValueOnce([]);
 
     await maybeGenerateTitle("conv1", messages);
 
-    expect(mockLlmComplete).toHaveBeenCalledOnce();
-    const req = mockLlmComplete.mock.calls[0][0];
-    expect(req.flow).toBe("title");
-    expect(req.maxOutputTokens).toBe(30);
+    expect(mockAssembleRequest).toHaveBeenCalledOnce();
+    const [flow, , , , opts] = mockAssembleRequest.mock.calls[0] as [string, unknown, unknown, string, { maxOutputTokens: number }];
+    expect(flow).toBe("title");
+    expect(opts.maxOutputTokens).toBe(30);
 
     // Should have called conditional UPDATE (WHERE title IS NULL) to persist the title
     expect(mockSql).toHaveBeenCalledTimes(2);
@@ -216,24 +222,24 @@ describe("maybeGenerateTitle", () => {
   it("skips title generation when title is already set", async () => {
     mockSql.mockResolvedValueOnce([{ id: "conv1", title: "Existing title" }]);
     await maybeGenerateTitle("conv1", messages);
-    expect(mockLlmComplete).not.toHaveBeenCalled();
+    expect(mockAssembleRequest).not.toHaveBeenCalled();
   });
 
   it("skips when conversation not found", async () => {
     mockSql.mockResolvedValueOnce([]);
     await maybeGenerateTitle("conv1", messages);
-    expect(mockLlmComplete).not.toHaveBeenCalled();
+    expect(mockAssembleRequest).not.toHaveBeenCalled();
   });
 
   it("skips when messages lack both user and assistant", async () => {
     await maybeGenerateTitle("conv1", []);
     expect(mockSql).not.toHaveBeenCalled();
-    expect(mockLlmComplete).not.toHaveBeenCalled();
+    expect(mockAssembleRequest).not.toHaveBeenCalled();
   });
 
   it("strips surrounding quotes from generated title", async () => {
     mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
-    mockLlmComplete.mockResolvedValue({ text: '"Ventas ayer"' });
+    mockAssembleRequest.mockResolvedValue({ text: '"Ventas ayer"', usage: {}, model: "test" });
     mockSql.mockResolvedValueOnce([]);
 
     await maybeGenerateTitle("conv1", messages);
@@ -245,7 +251,7 @@ describe("maybeGenerateTitle", () => {
 
   it("swallows errors silently — non-blocking", async () => {
     mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
-    mockLlmComplete.mockRejectedValue(new Error("LLM is down"));
+    mockAssembleRequest.mockRejectedValue(new Error("LLM is down"));
     // Should not throw
     await expect(maybeGenerateTitle("conv1", messages)).resolves.toBeUndefined();
   });

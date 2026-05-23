@@ -47,7 +47,28 @@ Full ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview
 
 #### Dashboard App Architecture
 
-**Flow:** Browser (Dashboard view + Chat sidebar) → Next.js API routes. The agentic flows (`generate`, `modify`, `analyze`) call the LLM with read-only SQL tools and return a JSON spec; the frontend renders it via Tremor. Saved specs persist in `dashboards` / `dashboard_versions` tables. Full route map + ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview.md).
+**Flow:** Browser (Dashboard view + Chat sidebar) → Next.js API routes → `dashboard/lib/llm-context/` (central LLM assembly + execution module) → `llmComplete` / `runAgenticChat` → OpenRouter or Claude Code CLI.
+
+The agentic flows (`generate`, `modify`, `analyze`) call the LLM with read-only SQL tools and return a JSON spec; the frontend renders it via Tremor. Saved specs persist in `dashboards` / `dashboard_versions` tables. Full route map + ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview.md).
+
+#### LLM call architecture — llm-context module
+
+All LLM calls in the dashboard go through a single entry point (see [D-036](docs/decisions/D-036-llm-context-centralization.md)):
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│         dashboard/lib/llm-context/  (central LLM module)         │
+│                                                                   │
+│  assembleRequest(flow, vars, conversationId, userMessage, opts)  │
+│    → buildSystemPrompt(flow, vars)   { stable, volatile? }       │
+│    → buildHistory(conversationId)    prior messages              │
+│    → toolsForFlow(flow)              per-flow tool catalog       │
+│    → llmComplete / runAgenticChat    (only imports here)         │
+│    → AssembleResult { text, usage, model }                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+CI enforces the boundary via `dashboard/scripts/check-llm-context.sh` — no file outside `llm-context/` may import `llmComplete` or `runAgenticChat` directly. The skill reference is at [docs/skills/llm-context.md](docs/skills/llm-context.md).
 
 #### Dashboard JSON spec
 

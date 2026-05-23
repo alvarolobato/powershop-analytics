@@ -31,12 +31,10 @@ import {
   type ErrorCode,
 } from "@/lib/errors";
 import { executeReviewQueries, formatAllResults, type ReviewQueryResult } from "@/lib/review-queries";
-import { buildReviewPrompt } from "@/lib/review-prompts";
 import { generateReview, generateReviewWithProgress, BudgetExceededError, AgenticRunnerError } from "@/lib/llm";
 import type { AgenticProgressEvent } from "@/lib/llm";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
 import {
   formatCliRunnerError,
   isCliRunnerError,
@@ -126,12 +124,11 @@ async function generateAndSaveReview(params: {
     `Los resultados corresponden a la **semana ISO cerrada** del **${weekStartStr}** (lunes) al **${weekEndSundayStr}** (domingo). ` +
     `La semana en curso no se incluye (sigue en progreso).`;
 
-  const systemPrompt = buildReviewPrompt(
-    formattedResults,
+  const reviewVars = {
+    queryResults: formattedResults,
     reviewedWeekDescription,
     generationMode,
-    isAgenticToolsEnabled(),
-  );
+  };
 
   onPhase?.("Llamando al modelo");
 
@@ -140,9 +137,9 @@ async function generateAndSaveReview(params: {
   // and `message` is the model's freeform chat reply. In the legacy path, message is "".
   let llmResult: { content: import("@/lib/review-schema").ReviewLlmOutput; message: string };
   if (onProgress) {
-    llmResult = await generateReviewWithProgress(systemPrompt, { requestId, onAgenticProgress: onProgress });
+    llmResult = await generateReviewWithProgress(reviewVars, { requestId, onAgenticProgress: onProgress });
   } else {
-    llmResult = await generateReview(systemPrompt, { requestId });
+    llmResult = await generateReview(reviewVars, { requestId });
   }
 
   onPhase?.("Validando JSON");

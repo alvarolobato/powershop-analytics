@@ -8,6 +8,7 @@ This folder contains **skill documents** for AI agents working on the powershop-
 |-------|---------|----------|
 | **[dashboard-redesign.md](dashboard-redesign.md)** | Token system, component map, and guidelines for the redesigned Dashboard App (Phase A+). | Modifying or building on top of the redesigned dashboard shell — TopBar, TweaksPanel, AnalyzeLauncher, LogBlock, ChatSidebar. |
 | **[dashboard-app.md](dashboard-app.md)** | Dashboard App architecture: Next.js + Tremor, dashboard spec format, LLM orchestration, widget types, API routes. | Building, modifying, or debugging the AI dashboard generator. |
+| **[llm-context.md](llm-context.md)** | Central LLM assembly module (`dashboard/lib/llm-context/`): `assembleRequest`, `buildSystemPrompt`, `buildHistory`, `toolsForFlow`, per-flow vars. | Adding a new LLM flow, changing how prompts/history/tools are assembled, enforcing the llm-context boundary. |
 | **[data-access.md](data-access.md)** | How to connect to 4D via SQL (P4D) and SOAP (zeep). Connection patterns, query examples, gotchas. | Running SQL queries, exploring the schema, testing SOAP calls. |
 | **[4d-sql-dialect.md](4d-sql-dialect.md)** | Comprehensive 4D SQL dialect reference: data types, SELECT/JOIN/WHERE syntax, all functions, system tables, gotchas vs PostgreSQL/MySQL. | Writing SQL queries, looking up function syntax, understanding type mappings, troubleshooting 4D SQL behavior. |
 | **[cli.md](cli.md)** | CLI architecture: dispatcher, commands, load-env, adding new commands. | Modifying or extending the `ps` CLI. |
@@ -34,6 +35,7 @@ This folder contains **skill documents** for AI agents working on the powershop-
 
 - **Dashboard redesign**: Use **dashboard-redesign** for the token system, new components (TopBar, TweaksPanel, AnalyzeLauncher, LogBlock), and redesign-specific patterns.
 - **Dashboard App**: Use **dashboard-app** for building the AI dashboard generator (Next.js + Tremor).
+- **LLM context module**: Use **llm-context** when adding a new LLM flow, changing prompt/history/tools assembly, or enforcing the llm-context boundary.
 - **Data access**: Use **data-access** for connecting to 4D SQL or SOAP.
 - **SQL dialect**: Use **4d-sql-dialect** for 4D SQL syntax, functions, types, and differences from standard SQL.
 - **CLI**: Use **cli** for extending the command-line tool.

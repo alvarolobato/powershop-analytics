@@ -11,7 +11,7 @@
 
 import { randomBytes } from "crypto";
 import { sql } from "@/lib/db-write";
-import { llmComplete } from "@/lib/llm-client";
+import { assembleRequest } from "@/lib/llm-context";
 import { generateRequestId } from "@/lib/errors";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -560,19 +560,20 @@ export async function maybeGenerateTitle(
   if (!conv || conv.title !== null) return;
 
   try {
-    const response = await llmComplete({
-      flow: "title",
+    // Build prior messages for context (all turns excluding the last one)
+    const allTurns = messages.filter(
+      (m): m is { role: "user" | "assistant"; content: string } =>
+        m.role === "user" || m.role === "assistant",
+    );
+    const priorMessages = allTurns.slice(0, -1);
+    const lastMessage = allTurns.at(-1);
+    if (!lastMessage) return;
+
+    const response = await assembleRequest("title", {}, null, lastMessage.content, {
+      priorMessages,
       maxOutputTokens: 30,
-      systemPrompt: {
-        stable:
-          "Genera un título conciso de 5-7 palabras en español para esta conversación. Devuelve solo el título, sin comillas.",
-      },
-      messages: messages
-        .filter((m): m is { role: "user" | "assistant"; content: string } =>
-          m.role === "user" || m.role === "assistant",
-        )
-        .map((m) => ({ role: m.role, content: m.content })),
       requestId: generateRequestId(),
+      endpoint: "title",
     });
 
     const title = response.text.trim().replace(/^["']|["']$/g, "");

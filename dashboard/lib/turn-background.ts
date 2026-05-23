@@ -289,47 +289,32 @@ async function runFreeChatTurn(
   turnId: string,
   seq: () => number,
 ): Promise<string> {
-  const { buildFreeChatContext } = await import("@/lib/conversation-context");
-  const {
-    runAgenticChat,
-    AgenticRunnerError,
-  } = await import("@/lib/llm-tools/runner");
-  const {
-    loadDashboardLlmConfig,
-    getEffectiveDashboardModel,
-    getEffectiveOpenRouterProvider,
-  } = await import("@/lib/llm-provider/config");
-  const { createDashboardAgenticAdapter } = await import("@/lib/llm-client");
+  const { assembleRequest } = await import("@/lib/llm-context");
+  const { AgenticRunnerError } = await import("@/lib/llm-tools/runner");
 
-  const freeChatCtx = buildFreeChatContext();
-  const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg);
-  const openRouterProvider = getEffectiveOpenRouterProvider(cfg);
-  const adapter = createDashboardAgenticAdapter();
-
-  const agenticCtx = {
+  const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
     requestId,
     endpoint: "freeChat" as const,
     conversationId,
-    llmProvider: cfg.provider,
-    llmDriver: cfg.provider === "cli" ? cfg.cliDriver : null,
     onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
   };
 
   try {
-    const { content } = await runAgenticChat({
-      adapter,
-      model,
-      openRouterProvider,
-      systemPrompt: freeChatCtx.systemPrompt.stable,
-      userContent: userMessage,
-      ctx: agenticCtx,
-      temperature: 0.3,
-      maxTokens: 4096,
-      priorMessages,
-      tools: freeChatCtx.tools,
-    });
-    return content;
+    const result = await assembleRequest(
+      "chat",
+      {},
+      null,
+      userMessage,
+      {
+        ctx: agenticCtx,
+        priorMessages,
+        requestId,
+        endpoint: "freeChat",
+        temperature: 0.3,
+        maxOutputTokens: 4096,
+      },
+    );
+    return result.text;
   } catch (err) {
     if (err instanceof AgenticRunnerError) {
       await emitTurnEvent(conversationId, turnId, seq(), "log", {
@@ -444,18 +429,20 @@ async function runGenericTurn(
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
 ): Promise<string> {
-  const { llmComplete } = await import("@/lib/llm-client");
+  const { assembleRequest } = await import("@/lib/llm-context");
   const flowRaw = conversation.mode ?? "chat";
-  const resp = await llmComplete({
-    flow: flowRaw,
-    systemPrompt: { stable: "" },
-    messages: [
-      ...priorMessages,
-      { role: "user" as const, content: userMessage },
-    ],
-    requestId,
-  });
-  return resp.text;
+  const result = await assembleRequest(
+    flowRaw,
+    {},
+    null,
+    userMessage,
+    {
+      priorMessages,
+      requestId,
+      endpoint: flowRaw,
+    },
+  );
+  return result.text;
 }
 
 // ── Context snapshot builder ───────────────────────────────────────────────────

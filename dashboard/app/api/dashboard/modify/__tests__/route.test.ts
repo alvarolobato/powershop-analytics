@@ -7,7 +7,7 @@ const { mockModifyDashboard, mockLoadPriorTurns } = vi.hoisted(() => ({
   mockLoadPriorTurns: vi.fn(),
 }));
 
-vi.mock("@/lib/conversation-context", () => ({
+vi.mock("@/lib/llm-context", () => ({
   loadPriorTurns: mockLoadPriorTurns,
 }));
 

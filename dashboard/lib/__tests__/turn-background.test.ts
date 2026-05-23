@@ -34,13 +34,9 @@ vi.mock("@/lib/errors", () => ({
 // ── Dynamic import mocks ───────────────────────────────────────────────────────
 
 const mockRunAgenticChat = vi.fn();
+const mockAssembleRequest = vi.fn();
 
-vi.mock("@/lib/conversation-context", () => ({
-  buildFreeChatContext: () => ({
-    systemPrompt: { stable: "You are a helpful assistant." },
-    tools: [],
-  }),
-}));
+vi.mock("@/lib/conversation-context", () => ({}));
 
 vi.mock("@/lib/llm-tools/runner", () => ({
   runAgenticChat: (...a: unknown[]) => mockRunAgenticChat(...a),
@@ -55,7 +51,11 @@ vi.mock("@/lib/llm-provider/config", () => ({
 
 vi.mock("@/lib/llm-client", () => ({
   createDashboardAgenticAdapter: () => ({}),
-  llmComplete: vi.fn().mockResolvedValue({ text: "Generic LLM reply" }),
+  llmComplete: vi.fn().mockResolvedValue({ text: "Generic LLM reply", usage: {}, model: "m" }),
+}));
+
+vi.mock("@/lib/llm-context", () => ({
+  assembleRequest: (...a: unknown[]) => mockAssembleRequest(...a),
 }));
 
 const mockSql = vi.fn();
@@ -109,6 +109,7 @@ beforeEach(() => {
   mockMaybeGenerateTitle.mockResolvedValue(undefined);
   mockTouchConversation.mockResolvedValue(undefined);
   mockRunAgenticChat.mockResolvedValue({ content: "LLM reply" });
+  mockAssembleRequest.mockResolvedValue({ text: "LLM reply", usage: {}, model: "m" });
   mockSql.mockResolvedValue([]);
   mockAnalyzeDashboard.mockResolvedValue("Analysis result");
   mockModifyDashboard.mockResolvedValue("Modify result");
@@ -168,7 +169,7 @@ describe("runTurnBackground — free-chat path", () => {
 
 describe("runTurnBackground — error path", () => {
   it("marks turn as error when LLM throws", async () => {
-    mockRunAgenticChat.mockRejectedValue(new Error("LLM unavailable"));
+    mockAssembleRequest.mockRejectedValue(new Error("LLM unavailable"));
 
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
@@ -184,7 +185,7 @@ describe("runTurnBackground — error path", () => {
   });
 
   it("stores error event with message and timestamp", async () => {
-    mockRunAgenticChat.mockRejectedValue(new Error("boom"));
+    mockAssembleRequest.mockRejectedValue(new Error("boom"));
 
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
@@ -276,13 +277,12 @@ describe("runTurnBackground — dashboard modify path", () => {
 });
 
 describe("runTurnBackground — generic fallback path", () => {
-  it("uses llmComplete for non-chat, non-analyze, non-modify modes", async () => {
-    const { llmComplete } = await import("@/lib/llm-client");
+  it("uses assembleRequest for non-chat, non-analyze, non-modify modes", async () => {
     const conv = makeConv({ mode: "view", context_kind: "dashboard" });
 
     await runTurnBackground(TURN_ID, conv, "show me the data");
 
-    expect(llmComplete).toHaveBeenCalledOnce();
+    expect(mockAssembleRequest).toHaveBeenCalledOnce();
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
   });
 });

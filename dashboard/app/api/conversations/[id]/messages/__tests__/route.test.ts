@@ -35,8 +35,11 @@ const mockBuildFreeChatInitialContextSnapshot = vi.fn(() => ({
   config: { flow: "chat", tool_rounds_max: 8, tool_calls_max: 24, tool_timeout_ms: 15000 },
 }));
 
-vi.mock("@/lib/conversation-context", () => ({
+vi.mock("@/lib/llm-context", () => ({
   buildFreeChatContext: () => mockBuildFreeChatContext(),
+}));
+
+vi.mock("@/lib/conversation-context", () => ({
   buildFreeChatInitialContextSnapshot: () => mockBuildFreeChatInitialContextSnapshot(),
 }));
 

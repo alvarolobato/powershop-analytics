@@ -13,6 +13,7 @@
     "start": "next start -p ${DASHBOARD_PORT:-4000}",
     "lint": "next lint",
     "lint:conversation-dedup": "bash scripts/lint-conversation-dedup.sh",
+    "lint:llm-context": "bash scripts/check-llm-context.sh",
     "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",

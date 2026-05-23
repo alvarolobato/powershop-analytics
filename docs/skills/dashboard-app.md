@@ -37,6 +37,12 @@ dashboard/
 └── tailwind.config.ts
 ```
 
+## LLM Call Architecture
+
+All LLM calls go through `dashboard/lib/llm-context/assemble.ts` via `assembleRequest(flow, vars, conversationId, userMessage, opts)`. This is the **only** file allowed to import `llmComplete` or `runAgenticChat` — CI enforces this via `dashboard/scripts/check-llm-context.sh`. See [docs/skills/llm-context.md](llm-context.md) for the full API reference and [D-036](../decisions/D-036-llm-context-centralization.md) for the rationale.
+
+`lib/llm.ts` is now a thin wrapper: each exported function calls `assembleRequest` then returns `result.text`. No prompt assembly happens in `llm.ts`.
+
 ## Key Patterns
 
 ### Dashboard Spec Generation
@@ -45,7 +51,7 @@ It returns: a JSON spec with `title`, `description`, `widgets[]`.
 Each widget has: `type`, `title`, `sql`, and type-specific config (x/y for charts, format for KPIs).
 
 ### Agentic tools (generate / modify / analyze)
-When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `lib/llm.ts` routes those three flows through `lib/llm-tools/runner.ts`. With **`DASHBOARD_LLM_PROVIDER=openrouter`** (default), rounds use native OpenRouter function calling. With **`DASHBOARD_LLM_PROVIDER=cli`**, rounds use the Claude Code JSON step protocol (see D-019). The model can list/describe `ps_*` tables, validate or run read-only SQL, and inspect saved dashboards before the final JSON or markdown answer. Hard limits and telemetry are documented in [docs/dashboard-agentic-tools.md](../dashboard-agentic-tools.md).
+When `DASHBOARD_AGENTIC_TOOLS_ENABLED=true` (default), `assembleRequest` in `lib/llm-context/assemble.ts` routes those three flows through `lib/llm-tools/runner.ts`. With **`DASHBOARD_LLM_PROVIDER=openrouter`** (default), rounds use native OpenRouter function calling. With **`DASHBOARD_LLM_PROVIDER=cli`**, rounds use the Claude Code JSON step protocol (see D-019). The model can list/describe `ps_*` tables, validate or run read-only SQL, and inspect saved dashboards before the final JSON or markdown answer. Hard limits and telemetry are documented in [docs/dashboard-agentic-tools.md](../dashboard-agentic-tools.md).
 
 ### Dashboard Modification
 User sends: current spec JSON + modification prompt.
