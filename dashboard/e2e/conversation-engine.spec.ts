@@ -120,7 +120,7 @@ test("AC-6: logs persist after full page reload", async ({ page }) => {
     .locator('[data-testid="log-block"]')
     .first()
     .waitFor({ state: "attached", timeout: 5_000 })
-    .catch(() => {});
+    .catch(() => { console.warn("AC-6: log-block not found before reload — count comparison may be vacuous"); });
 
   const logsBefore = await page.locator('[data-testid="log-block"]').count();
 
@@ -131,7 +131,7 @@ test("AC-6: logs persist after full page reload", async ({ page }) => {
     .locator('[data-testid="log-block"]')
     .first()
     .waitFor({ state: "attached", timeout: 5_000 })
-    .catch(() => {});
+    .catch(() => { console.warn("AC-6: log-block not found after reload"); });
 
   const logsAfter = await page.locator('[data-testid="log-block"]').count();
   expect(logsAfter).toEqual(logsBefore);
