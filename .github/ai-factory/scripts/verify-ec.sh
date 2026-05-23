@@ -14,7 +14,9 @@
 #     "verified": true|false,
 #     "human_only": true|false,
 #     "evidence": "URL or description of evidence",
-#     "reason": null | "human-only" | "no-annotation" | "command-refused" | "test-not-found" | "ci-run-not-found" | "ci-run-failed" | "file-not-changed" | "error"
+#     "reason": null | "human-only" | "no-annotation" | "command-refused" | "test-not-found"
+#            | "ci-run-not-found" | "ci-run-failed" | "ci-job-failed"
+#            | "file-not-changed" | "unrecognized-annotation" | "error"
 #   }
 #
 # Verification dispatch table (by verified_by shape):
@@ -24,7 +26,7 @@
 #   - "job-name job" / "step-name step"  → query latest CI run on merge SHA, check job/step
 #   - "file diff in this PR" / "git show"→ check git show --stat for the merge SHA
 #   - anything else with "→"             → treat as test reference
-#   - anything not matching above        → if looks like a shell command, refuse; else treat as CI job
+#   - anything not matching above        → if looks like a shell command, refuse; else unrecognized-annotation (human must verify)
 #
 # Security: NEVER execute arbitrary text from the EC item. Only call known GitHub API
 # and git commands. Refuse any verified_by that looks like a shell command.
@@ -49,10 +51,20 @@ ALREADY_CHECKED=$(printf '%s' "$EC_JSON" | jq -r '.checked')
 
 emit() {
   local verified="$1" evidence="$2" reason="$3"
-  printf '{"id":"%s","verified":%s,"human_only":%s,"evidence":"%s","reason":%s}\n' \
-    "$EC_ID" "$verified" "$HUMAN_ONLY" \
-    "$(printf '%s' "$evidence" | sed 's/"/\\"/g')" \
-    "$( [ "$reason" = "null" ] && echo "null" || printf '"%s"' "$reason" )"
+  if [ "$reason" = "null" ]; then
+    jq -cn --arg id "$EC_ID" \
+           --argjson verified "$verified" \
+           --argjson human_only "$HUMAN_ONLY" \
+           --arg evidence "$evidence" \
+           '{id:$id,verified:$verified,human_only:$human_only,evidence:$evidence,reason:null}'
+  else
+    jq -cn --arg id "$EC_ID" \
+           --argjson verified "$verified" \
+           --argjson human_only "$HUMAN_ONLY" \
+           --arg evidence "$evidence" \
+           --arg reason "$reason" \
+           '{id:$id,verified:$verified,human_only:$human_only,evidence:$evidence,reason:$reason}'
+  fi
 }
 
 # Already checked → treat as verified (the issue body says it was).
@@ -85,7 +97,6 @@ fi
 # Matches: contains "→" and the left side looks like a file path (has . in it).
 if printf '%s' "$VERIFIED_BY" | grep -qE '.+\..+ → .+'; then
   TEST_REF=$(printf '%s' "$VERIFIED_BY" | sed 's/ → .*//')
-  TEST_NAME=$(printf '%s' "$VERIFIED_BY" | sed 's/.*→ //')
 
   # Query the latest workflow runs on this merge SHA.
   RUNS=$(gh api "repos/$REPO/actions/runs?head_sha=$MERGE_SHA&per_page=10" 2>/dev/null || true)
@@ -150,7 +161,7 @@ if printf '%s' "$VERIFIED_BY" | grep -qiE '\bjob\b|\bstep\b|dashboard-test|CI ';
     if [ "$JOB_CONCLUSION" = "success" ]; then
       emit "true" "$RUN_URL (job: $JOB_NAME passed)" "null"
     elif [ -n "$JOB_CONCLUSION" ]; then
-      emit "false" "$RUN_URL (job: $JOB_NAME — $JOB_CONCLUSION)" "ci-run-not-found"
+      emit "false" "$RUN_URL (job: $JOB_NAME — $JOB_CONCLUSION)" "ci-job-failed"
     else
       # Named job not found separately; accept overall run success as evidence.
       emit "true" "$RUN_URL (overall run passed)" "null"
@@ -185,17 +196,8 @@ if printf '%s' "$VERIFIED_BY" | grep -qiE 'file diff|git show|wc -l'; then
   exit 0
 fi
 
-# Strategy 4: Fallback — treat as a CI job/check reference.
-RUNS=$(gh api "repos/$REPO/actions/runs?head_sha=$MERGE_SHA&per_page=10" 2>/dev/null || true)
-if [ -z "$RUNS" ]; then
-  emit "false" "" "ci-run-not-found"
-  exit 0
-fi
-
-RUN_URL=$(printf '%s' "$RUNS" | jq -r '.workflow_runs | map(select(.conclusion == "success")) | .[0].html_url // empty')
-if [ -n "$RUN_URL" ]; then
-  emit "true" "$RUN_URL" "null"
-else
-  RUN_URL=$(printf '%s' "$RUNS" | jq -r '.workflow_runs[0].html_url // empty')
-  emit "false" "${RUN_URL:-no CI run found}" "ci-run-not-found"
-fi
+# Strategy 4: Fallback — unrecognized verified_by pattern.
+# D-038: only shell scripts decide "verified"; the LLM is scribe only.
+# Auto-verifying an unrecognized annotation would let arbitrary text bypass the
+# deterministic judge, so we always reject here and require a human to check.
+emit "false" "Unrecognized verified_by pattern: $VERIFIED_BY" "unrecognized-annotation"
