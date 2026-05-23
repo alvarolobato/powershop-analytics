@@ -22,4 +22,4 @@ date: 2026-05-11
 - **Use a fine-grained PAT with `workflow` OAuth scope** stored as a secret: same risk profile (delegated trust to the worker for self-modifying writes), plus a secret to rotate and lose.
 - **Leave the line in and ship a follow-up fix later**: not viable — the factory is unusable while the line is present.
 **Rationale**: The factory needs to be live more than it needs to auto-ship new workflow files. Workflow YAML changes are infrequent (#558 is the first in months) and the human-copy step is a 30-second cost. The original error in #564 was a real problem but PR #568 fixed it with the wrong knob and a worse problem.
-**See**: `.github/workflows/ai-worker.yml` (permissions block), `AGENTS.md` "No worker writes to `.github/workflows/`", issues #558 / #564 / #568 / #580.
+**See**: `.github/workflows/ai-worker.yml` (permissions block), `AGENTS.md` "No worker writes to `.github/workflows/`", issues #558 / #564 / #568 / #580 / #729 (same class of bug — CI-remediation commits masking Copilot review in the watchdog's `LATEST_BOT_ACTIVITY` signal).
