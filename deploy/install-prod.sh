@@ -133,8 +133,11 @@ preflight_check() {
   local macos_ver macos_major
   macos_ver="$(sw_vers -productVersion 2>/dev/null || true)"
   macos_major="${macos_ver%%.*}"
-  if [ -n "$macos_major" ] && [ "$macos_major" -lt "$MIN_MACOS_MAJOR" ] 2>/dev/null; then
-    printf '\033[1;31m[ERROR]\033[0m macOS %s is below the minimum supported version (macOS %s). See docs/deployment/production.md#macos-version\n' "$macos_ver" "$MIN_MACOS_MAJOR" >&2
+  if [ -z "$macos_major" ]; then
+    printf '\033[1;31m[ERROR]\033[0m Cannot determine macOS version. See https://github.com/alvarolobato/powershop-analytics/blob/main/docs/deployment/production.md#macos-version\n' >&2
+    errors=$((errors + 1))
+  elif [ "$macos_major" -lt "$MIN_MACOS_MAJOR" ] 2>/dev/null; then
+    printf '\033[1;31m[ERROR]\033[0m macOS %s is below the minimum supported version (macOS %s). See https://github.com/alvarolobato/powershop-analytics/blob/main/docs/deployment/production.md#macos-version\n' "$macos_ver" "$MIN_MACOS_MAJOR" >&2
     errors=$((errors + 1))
   else
     success "macOS version: ${macos_ver}"
@@ -146,7 +149,7 @@ preflight_check() {
   if [ "$arch" = "arm64" ]; then
     success "Architecture: Apple Silicon (arm64)"
   else
-    warn "Architecture: ${arch} (Intel). Intel is not tested — proceed with caution. See docs/deployment/production.md#apple-silicon-vs-intel"
+    warn "Architecture: ${arch} (Intel). Intel is not tested — proceed with caution. See https://github.com/alvarolobato/powershop-analytics/blob/main/docs/deployment/production.md#apple-silicon-vs-intel"
     # Not a hard failure — Intel may work; the operator has been warned.
   fi
 
@@ -173,7 +176,7 @@ preflight_check() {
       printf '\033[1;31m[ERROR]\033[0m Cannot reach the Docker daemon. Start Docker Desktop and retry.\n' >&2
       errors=$((errors + 1))
     elif [ "$docker_major" -lt "$MIN_DOCKER_MAJOR" ] 2>/dev/null; then
-      printf '\033[1;31m[ERROR]\033[0m Docker engine %s is below the minimum (%s). Upgrade Docker Desktop. See docs/deployment/production.md#docker-desktop\n' "$docker_ver" "$MIN_DOCKER_MAJOR" >&2
+      printf '\033[1;31m[ERROR]\033[0m Docker engine %s is below the minimum (%s). Upgrade Docker Desktop. See https://github.com/alvarolobato/powershop-analytics/blob/main/docs/deployment/production.md#docker-desktop\n' "$docker_ver" "$MIN_DOCKER_MAJOR" >&2
       errors=$((errors + 1))
     else
       success "Docker engine: ${docker_ver}"
@@ -182,6 +185,7 @@ preflight_check() {
     # 5. Docker Compose v2
     local compose_ver compose_maj compose_min
     compose_ver="$(docker compose version --short 2>/dev/null || true)"
+    compose_ver="${compose_ver#v}"
     compose_maj="${compose_ver%%.*}"
     compose_min="${compose_ver#*.}"; compose_min="${compose_min%%.*}"
     if [ -z "$compose_ver" ]; then
@@ -204,7 +208,7 @@ preflight_check() {
   if [ -z "$free_gb" ]; then
     warn "Could not determine free disk space on ${install_base} — ensure at least ${MIN_FREE_GB} GB is available."
   elif [ "$free_gb" -lt "$MIN_FREE_GB" ]; then
-    warn "Only ${free_gb} GB free on ${install_base}. At least ${MIN_FREE_GB} GB is recommended for data growth. See docs/deployment/production.md#disk-space"
+    warn "Only ${free_gb} GB free on ${install_base}. At least ${MIN_FREE_GB} GB is recommended for data growth. See https://github.com/alvarolobato/powershop-analytics/blob/main/docs/deployment/production.md#disk-space"
     # Warn only — not a hard failure; operator may know what they're doing.
   else
     success "Disk space: ${free_gb} GB free (≥ ${MIN_FREE_GB} GB required)"

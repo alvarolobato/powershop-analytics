@@ -129,7 +129,7 @@ Exit 0 means the Mac is ready; exit non-zero means at least one hard-fail check 
 
 ### Step 1 — Run the bootstrap script
 
-> Optionally run `--check-only` first (see [Prerequisites](#pre-validate-with---check-only)) to confirm the Mac is ready before making any changes.
+> Optionally run `--check-only` first (see [Pre-validate with `--check-only`](#pre-validate-with---check-only)) to confirm the Mac is ready before making any changes.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install-prod.sh | bash
