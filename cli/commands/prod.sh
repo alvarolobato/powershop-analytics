@@ -352,20 +352,15 @@ cmd_push_knowledge() {
         esac
     done
 
-    # Source MDs must match scripts/wren-push-metadata.py SOURCE_MDS list
-    local source_mds=(
-        docs/etl-sync-strategy.md
-        docs/architecture/sales.md
-        docs/architecture/wholesale.md
-        docs/architecture/stock-logistics.md
-        docs/architecture/purchasing.md
-        docs/architecture/products.md
-        docs/architecture/customers.md
-        docs/architecture/stores-hr.md
-        docs/skills/4d-sql-dialect.md
-        docs/skills/data-access.md
-        docs/dashboard/sql-pairs.md
-    )
+    # Source MDs are derived from docs/knowledge-sources.yml — the single source of truth.
+    # This avoids drift; wren-push-metadata.py reads the same manifest at import time.
+    local -a source_mds
+    mapfile -t source_mds < <(python3 -c "
+import yaml
+data = yaml.safe_load(open('$REPO_ROOT/docs/knowledge-sources.yml'))
+for s in data['sources']:
+    print(s['path'])
+")
 
     echo -e "${CYAN}Pushing WrenAI knowledge to $PROD_HOST...${NC}"
 
@@ -383,7 +378,7 @@ cmd_push_knowledge() {
     echo -e "${DIM}Transferring script and source MDs...${NC}"
     (
         set -o pipefail
-        tar -czf - -C "$REPO_ROOT" scripts/wren-push-metadata.py "${source_mds[@]}" \
+        tar -czf - -C "$REPO_ROOT" scripts/wren-push-metadata.py docs/knowledge-sources.yml "${source_mds[@]}" \
             | ssh "$PROD_HOST" "bash -lc $(printf '%q' "mkdir -p $(printf %q "$tmpdir") && tar -xzf - -C $(printf %q "$tmpdir")")" \
                 2> >(grep -v 'tput: No value for \$TERM' >&2)
     )
