@@ -25,6 +25,9 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Install Python dependencies
+      shell: bash
+      run: python3 -m pip install --quiet PyYAML
     - name: Extract knowledge bundle
       id: extract
       shell: bash

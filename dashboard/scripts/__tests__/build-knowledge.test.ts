@@ -29,9 +29,10 @@ describe("build-knowledge", () => {
 
   it("knowledge.ts INSTRUCTIONS include content from docs/data-decisions.md (EC-7)", () => {
     const content = fs.readFileSync(KNOWLEDGE_TS, "utf8");
-    // Stable marker string from data-decisions.md § "Data store: ps_* tables in PostgreSQL"
-    // This string exists ONLY in data-decisions.md, not in any other source MD.
-    expect(content).toContain("ps_lineas_ventas");
+    // "no activa or anulada field" appears only in data-decisions.md's LLM:rules JSON.
+    // Other source MDs do not contain this exact phrase, so its presence in INSTRUCTIONS
+    // proves data-decisions.md actually contributed to knowledge.ts (not just other sources).
+    expect(content).toContain("no activa or anulada field");
   });
 
   it("knowledge-sources.yml lists exactly 12 sources and all paths exist", () => {

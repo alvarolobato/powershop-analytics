@@ -10,6 +10,27 @@ Non-data operational and infrastructure decisions are **not** recorded here — 
 
 ## LLM:rules
 
+```json
+[
+  {
+    "instruction": "All analytics SQL must target the PostgreSQL mirror (ps_* tables). Never reference 4D ERP source tables directly in dashboard SQL. The mirror is the sole analytics target; ETL is the only writer.",
+    "questions": ["¿Qué tablas usar para SQL?", "¿Se puede consultar 4D directamente?", "¿Dónde están los datos analíticos?", "¿Cuáles son las tablas del mirror?"]
+  },
+  {
+    "instruction": "ps_tiendas columns: reg_tienda, codigo, fecha_modifica — there is no activa or anulada field. To exclude the central warehouse filter WHERE tienda <> '99'. Store 97 is the online store with different purchasing patterns.",
+    "questions": ["¿Cómo filtrar tiendas activas?", "¿Hay campo activa en ps_tiendas?", "¿Qué campos tiene ps_tiendas?", "¿Cómo excluir el almacén central?"]
+  },
+  {
+    "instruction": "ps_stock_tienda reflects the last completed nightly ETL run, not real-time inventory. Stock values show stock as of the previous night. ps_articulos has 379 columns — always specify columns explicitly, never SELECT *.",
+    "questions": ["¿El stock es tiempo real?", "¿Cuándo se actualiza el stock?", "¿Puedo hacer SELECT * en ps_articulos?", "¿Por qué no usar SELECT * en artículos?"]
+  },
+  {
+    "instruction": "ps_stock_tienda.stock can be negative — this is a valid business state (returns, inter-store adjustments). Do not treat negative stock as a data error. ps_stock_central.stock is decoded the same way.",
+    "questions": ["¿Puede el stock ser negativo?", "¿Qué significa stock negativo?", "¿Hay errores en el stock?", "¿Es normal el stock negativo?"]
+  }
+]
+```
+
 ### Data store: `ps_*` tables in PostgreSQL
 
 All analytics SQL runs against the **PostgreSQL mirror**, not the live 4D ERP.
