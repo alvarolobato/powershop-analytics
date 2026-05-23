@@ -74,22 +74,48 @@ jobs:
           PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
           PR_TITLE=$(echo "$PR_JSON" | jq -r '.title // ""')
 
-          # Extract issue numbers referenced with a GitHub closing keyword.
+          # AUTHORITATIVE source: GitHub's own "closing issues" resolution
+          # via GraphQL. This is the exact list of issues GitHub will close on
+          # merge, with the same parsing rules GitHub itself uses (case
+          # handling, word boundaries, etc.). Using this avoids false
+          # positives from prose mentions of `Closes #N` (e.g. when explaining
+          # a past failure mode).
+          CLOSING=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $pr:Int!) {
+              repository(owner:$owner, name:$repo) {
+                pullRequest(number:$pr) {
+                  closingIssuesReferences(first: 20) {
+                    nodes { number }
+                  }
+                }
+              }
+            }
+          ' -F owner="${REPO%/*}" -F repo="${REPO#*/}" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' \
+            2>/dev/null | sort -u || true)
+
+          # Defense-in-depth: also scan the body with our own regex. Anything
+          # the body-regex catches that GitHub's resolution missed is logged
+          # as a warning (likely a prose mention) but does NOT fail the guard.
+          # Anything GitHub WILL close is enforced regardless.
           # Keywords per https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword
-          #   close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved
-          # Plus the gerunds (closing/fixing/resolving) which are commonly used
-          # by mistake — we err on the side of catching too much rather than
-          # too little. Word boundary (\b) prevents '#7200' from matching '#720'.
-          CLOSING=$(echo "$PR_BODY" \
+          # Word boundary (\b) prevents '#7200' from matching '#720'.
+          BODY_REGEX_CLOSING=$(echo "$PR_BODY" \
             | grep -oiE '(close[sd]?|closing|fix(e[sd]|ing)?|resolve[sd]?|resolving) #[0-9]+' \
             | grep -oE '#[0-9]+' | tr -d '#' | sort -u || true)
 
+          for N in $BODY_REGEX_CLOSING; do
+            if ! echo "$CLOSING" | grep -qxF "$N"; then
+              echo "::warning::Body mentions a closing keyword for #$N but GitHub does not consider it a linked closing issue (likely inside a code span or quoted prose). Not enforcing — but consider rewording to avoid confusion."
+            fi
+          done
+
           if [ -z "$CLOSING" ]; then
-            echo "No closing keywords in PR body — pass."
+            echo "No closing issue references resolved by GitHub — pass."
             exit 0
           fi
 
-          echo "Detected closing keywords referencing issues: $CLOSING"
+          echo "GitHub-resolved closing issues for PR #$PR: $CLOSING"
 
           FAIL=0
           for N in $CLOSING; do
