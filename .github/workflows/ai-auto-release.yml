@@ -18,6 +18,7 @@ permissions:
   contents: write
   issues: read
   pull-requests: read
+  actions: read  # required by the Check CI status step's actions/workflows/ci.yml/runs query
 
 jobs:
   release:
