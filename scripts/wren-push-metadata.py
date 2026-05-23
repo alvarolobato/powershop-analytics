@@ -911,91 +911,92 @@ def main():
 
         db = sqlite3.connect(db_path)
         db.row_factory = sqlite3.Row
+        try:
+            # Map alias -> model_id
+            alias_to_id = {}
+            for row in db.execute("SELECT id, display_name FROM model"):
+                alias_to_id[row["display_name"]] = row["id"]
 
-        # Map alias -> model_id
-        alias_to_id = {}
-        for row in db.execute("SELECT id, display_name FROM model"):
-            alias_to_id[row["display_name"]] = row["id"]
+            col_updated = 0
+            for alias, columns in COLUMN_META.items():
+                mid = alias_to_id.get(alias)
+                if not mid:
+                    continue
+                for row in db.execute(
+                    "SELECT id, source_column_name, properties FROM model_column WHERE model_id = ?",
+                    (mid,),
+                ):
+                    col_name = row["source_column_name"]
+                    if col_name in columns:
+                        display, desc = columns[col_name]
+                        props = json.loads(row["properties"]) if row["properties"] else {}
+                        props["description"] = desc
+                        db.execute(
+                            "UPDATE model_column SET display_name = ?, properties = ? WHERE id = ?",
+                            (display, json.dumps(props), row["id"]),
+                        )
+                        col_updated += 1
+            print(f"  Updated {col_updated} column metadata entries")
 
-        col_updated = 0
-        for alias, columns in COLUMN_META.items():
-            mid = alias_to_id.get(alias)
-            if not mid:
-                continue
-            for row in db.execute(
-                "SELECT id, source_column_name, properties FROM model_column WHERE model_id = ?",
-                (mid,),
-            ):
-                col_name = row["source_column_name"]
-                if col_name in columns:
-                    display, desc = columns[col_name]
-                    props = json.loads(row["properties"]) if row["properties"] else {}
-                    props["description"] = desc
-                    db.execute(
-                        "UPDATE model_column SET display_name = ?, properties = ? WHERE id = ?",
-                        (display, json.dumps(props), row["id"]),
-                    )
-                    col_updated += 1
-        print(f"  Updated {col_updated} column metadata entries")
+            # ── 4. SQLite: Instructions (knowledge rules) — merge strategy ──
+            print("\n═══ Step 4: Instructions / Knowledge (SQLite) — merge strategy ═══")
+            row = db.execute("SELECT id FROM project LIMIT 1").fetchone()
+            if row is None:
+                raise RuntimeError(
+                    "WrenAI project not found in SQLite — is WrenAI initialised?"
+                )
+            project_id = row["id"]
 
-        # ── 4. SQLite: Instructions (knowledge rules) — merge strategy ──
-        print("\n═══ Step 4: Instructions / Knowledge (SQLite) — merge strategy ═══")
-        row = db.execute("SELECT id FROM project LIMIT 1").fetchone()
-        if row is None:
-            raise RuntimeError(
-                "WrenAI project not found in SQLite — is WrenAI initialised?"
-            )
-        project_id = row["id"]
-
-        # Delete only source-managed instructions (is_default=1).
-        # User-created instructions (is_default=0, created via WrenAI UI) are preserved.
-        deleted = db.execute(
-            "DELETE FROM instruction WHERE project_id = ? AND is_default = 1",
-            (project_id,),
-        ).rowcount
-        for inst in INSTRUCTIONS:
-            db.execute(
-                "INSERT INTO instruction (project_id, instruction, questions, is_default) VALUES (?, ?, ?, 1)",
-                (project_id, inst["instruction"], json.dumps(inst["questions"])),
-            )
-        user_count = db.execute(
-            "SELECT COUNT(*) FROM instruction WHERE project_id = ? AND is_default = 0",
-            (project_id,),
-        ).fetchone()[0]
-        print(f"  Deleted {deleted} old source instructions (is_default=1)")
-        print(f"  Inserted {len(INSTRUCTIONS)} source instructions")
-        print(f"  Preserved {user_count} user instructions (is_default=0)")
-
-        # ── 5. SQLite: SQL Pairs (example queries for RAG) — merge strategy
-        print("\n═══ Step 5: SQL Pairs / Examples (SQLite) — merge strategy ═══")
-        # For sql_pair there is no is_default field. Use question text to track source pairs.
-        # Delete ALL pairs (including duplicates) whose question matches any source question.
-        # User pairs with different questions survive.
-        total_before = db.execute(
-            "SELECT COUNT(*) FROM sql_pair WHERE project_id = ?", (project_id,)
-        ).fetchone()[0]
-        if SOURCE_QUESTIONS:
-            placeholders = ",".join("?" for _ in SOURCE_QUESTIONS)
-            params = [project_id, *SOURCE_QUESTIONS]
-            source_deleted = db.execute(
-                f"DELETE FROM sql_pair WHERE project_id = ? AND question IN ({placeholders})",
-                params,
+            # Delete only source-managed instructions (is_default=1).
+            # User-created instructions (is_default=0, created via WrenAI UI) are preserved.
+            deleted = db.execute(
+                "DELETE FROM instruction WHERE project_id = ? AND is_default = 1",
+                (project_id,),
             ).rowcount
-        else:
-            source_deleted = 0
-        user_pairs_kept = total_before - source_deleted
+            for inst in INSTRUCTIONS:
+                db.execute(
+                    "INSERT INTO instruction (project_id, instruction, questions, is_default) VALUES (?, ?, ?, 1)",
+                    (project_id, inst["instruction"], json.dumps(inst["questions"])),
+                )
+            user_count = db.execute(
+                "SELECT COUNT(*) FROM instruction WHERE project_id = ? AND is_default = 0",
+                (project_id,),
+            ).fetchone()[0]
+            print(f"  Deleted {deleted} old source instructions (is_default=1)")
+            print(f"  Inserted {len(INSTRUCTIONS)} source instructions")
+            print(f"  Preserved {user_count} user instructions (is_default=0)")
 
-        for question, sql in SQL_PAIRS:
-            db.execute(
-                "INSERT INTO sql_pair (project_id, sql, question) VALUES (?, ?, ?)",
-                (project_id, sql, question),
-            )
-        print(f"  Deleted {source_deleted} old source SQL pairs")
-        print(f"  Inserted {len(SQL_PAIRS)} source SQL pairs")
-        print(f"  Preserved {user_pairs_kept} user SQL pairs")
+            # ── 5. SQLite: SQL Pairs (example queries for RAG) — merge strategy
+            print("\n═══ Step 5: SQL Pairs / Examples (SQLite) — merge strategy ═══")
+            # For sql_pair there is no is_default field. Use question text to track source pairs.
+            # Delete ALL pairs (including duplicates) whose question matches any source question.
+            # User pairs with different questions survive.
+            total_before = db.execute(
+                "SELECT COUNT(*) FROM sql_pair WHERE project_id = ?", (project_id,)
+            ).fetchone()[0]
+            if SOURCE_QUESTIONS:
+                placeholders = ",".join("?" for _ in SOURCE_QUESTIONS)
+                params = [project_id, *SOURCE_QUESTIONS]
+                source_deleted = db.execute(
+                    f"DELETE FROM sql_pair WHERE project_id = ? AND question IN ({placeholders})",
+                    params,
+                ).rowcount
+            else:
+                source_deleted = 0
+            user_pairs_kept = total_before - source_deleted
 
-        db.commit()
-        db.close()
+            for question, sql in SQL_PAIRS:
+                db.execute(
+                    "INSERT INTO sql_pair (project_id, sql, question) VALUES (?, ?, ?)",
+                    (project_id, sql, question),
+                )
+            print(f"  Deleted {source_deleted} old source SQL pairs")
+            print(f"  Inserted {len(SQL_PAIRS)} source SQL pairs")
+            print(f"  Preserved {user_pairs_kept} user SQL pairs")
+
+            db.commit()
+        finally:
+            db.close()
 
         # Copy DB back
         subprocess.run(
