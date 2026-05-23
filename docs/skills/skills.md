@@ -24,6 +24,12 @@ This folder contains **skill documents** for AI agents working on the powershop-
 | **[../architecture/](../architecture/)** | Per-domain ER diagrams, row counts, field notes, and ETL sync sections. | Understanding table relationships, planning queries, checking field names. |
 | **[../deployment/production.md](../deployment/production.md)** | Production install guide: cold-start, prerequisites, backup/restore, disaster recovery, upgrades, monitoring. | Setting up or operating the production Mac; answering "how do I stand up a second prod instance". |
 | **[../deployment/prod-cli.md](../deployment/prod-cli.md)** | `ps prod *` CLI reference: all 12 subcommands with synopsis, side effects, examples. | Looking up what a `ps prod` command does or when to use deploy vs update. |
+| **[../sample-queries.md](../sample-queries.md)** | 10-domain ready-to-use SQL cookbook: schema discovery, retail sales, wholesale, stock, customers, payments, margins, transfers, M-prefix filtering, stock movement formula. | Starting a query for any business domain — don't write from scratch, grab a template here first. |
+| **[../sql-views.md](../sql-views.md)** | Catalog of 100 4D SQL views (`*_SQL` + `*_BI`) with column counts and detailed structure for key views (Ventas_SQL 150 cols, Exportaciones_SQL 161 cols). | Knowing which views exist, what columns they expose, and which view to query for a given domain. |
+| **[../schema-discovery.md](../schema-discovery.md)** | Full table inventory by domain (Products, Retail Sales, Customers, Wholesale, Purchasing, Stock, Finance, HR) plus D-011 extraction session notes. | Getting a bird's-eye view of the 4D schema or locating a table by business domain. |
+| **[../data-dictionary.md](../data-dictionary.md)** | Spanish/English glossary, module prefixes, `.99` PK pattern, `Total` vs `TotalSI` semantics, Libre custom-field convention. | Decoding field names, understanding naming conventions, or checking what a prefix like `GC` or `JO` means. |
+| **[../schema-raw/README.md](../schema-raw/README.md)** | Queryable JSON dumps of `_USER_COLUMNS`, FK/PK constraints, indexed columns, view schemas, and WSDL methods from the live 4D server. | Raw structural lookups: column types, indexes, FK relationships, available SOAP methods. |
+| **[../deployment/getting-started.md](../deployment/getting-started.md)** | Local dev environment setup: prerequisites, stack startup, first query, WrenAI data source config, access URLs. | Getting a local dev environment running for the first time. |
 
 ## Meta Skills
 

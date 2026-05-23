@@ -2,6 +2,12 @@
 
 **Use when**: Writing SQL queries against the 4D database, understanding type mappings, looking up function syntax, or troubleshooting query behavior that differs from PostgreSQL/MySQL.
 
+## Related reference docs
+
+- **[`../sample-queries.md`](../sample-queries.md)** — 10-domain ready-to-use SQL cookbook (schema discovery, retail sales, wholesale, stock, customers, payments, margins, transfers, M-prefix filtering, stock movement formula). Reach for this when you need a starting query for any business domain.
+- **[`../sql-views.md`](../sql-views.md)** — catalog of 100 4D SQL views (`*_SQL` + `*_BI`) with column counts, domains, and detailed structure for key views (Ventas_SQL 150 cols, Exportaciones_SQL 161 cols with the 34-slot matrix). Use when you need to know which views exist and what columns they expose.
+- **[`../schema-discovery.md`](../schema-discovery.md)** — full table inventory by domain (Products, Retail Sales, Customers, Wholesale, Purchasing, Stock, Finance, HR) plus the D-011 extraction session notes. Use when you need a bird's-eye view of the 4D schema or want to locate a table by domain.
+
 ---
 
 ## SQL Compliance

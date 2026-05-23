@@ -148,6 +148,8 @@ The previous day's summary is closed automatically. Read this, label a few issue
 
 All scheduled workflows support manual triggering via `workflow_dispatch`. All follow the **"silence is golden"** principle — they only create issues when they find something genuinely worth reporting.
 
+Two workflows remain disabled (`ai-docs-patrol.yml.disabled`, `ai-security-audit.yml.disabled`). See [disabled-actions-report.md](disabled-actions-report.md) for their cost tier, rationale, and the tier framework to use when evaluating new periodic LLM workflows.
+
 ## Lifecycle in detail
 
 > This section traces every state an issue passes through, from creation to merged code. It lists the workflows that drive each transition, the labels that signal state, and — most importantly — every moment a human is expected to step in.
@@ -600,7 +602,7 @@ The parallel-sub-issue pattern was invisible to per-PR CI because each branch wa
 
 Wrong API response shape is caught by keeping existing unit/integration tests green — not by this smoke gate. Playwright / browser automation is explicitly deferred.
 
-**Trigger _(planned — see issue #585)_:** the smoke will run as a `post-merge-smoke` GitHub Actions workflow on every push to `main`. It runs in < 3 minutes. On failure it comments on the most recently merged PR and applies `fact-ci-failing` so the watchdog picks it up. The `fact-ci-failing` label is created as part of the same issue. Until the workflow is committed, the build check and curl smoke can be run manually.
+**Trigger _(planned — see issue #585)_:** the smoke will run as a `post-merge-smoke` GitHub Actions workflow on every push to `main`. It runs in < 3 minutes. On failure it comments on the most recently merged PR and applies `fact-ci-failing` so the watchdog picks it up. The `fact-ci-failing` label is created as part of the same issue. Until the workflow is committed, the build check and curl smoke can be run manually. See [post-merge-smoke.md](post-merge-smoke.md) for the full spec and manual steps.
 
 ### Test-deletion guardrail
 
