@@ -4,29 +4,28 @@
 Reads INPUT_SLICES (comma-separated slice names) and GITHUB_WORKSPACE,
 extracts all LLM-marked sections from each requested file, and writes
 a concatenated bundle to GITHUB_OUTPUT.
+
+The slice-to-path mapping is loaded from docs/knowledge-sources.yml
+(single source of truth shared with dashboard/scripts/build-knowledge.ts
+and scripts/wren-push-metadata.py).
 """
 
 import os
 import re
 import sys
 
-SLICE_MAP = {
-    "data-decisions": "docs/data-decisions.md",
-    "etl-sync-strategy": "docs/etl-sync-strategy.md",
-    "architecture-sales": "docs/architecture/sales.md",
-    "architecture-wholesale": "docs/architecture/wholesale.md",
-    "architecture-stock": "docs/architecture/stock-logistics.md",
-    "architecture-purchasing": "docs/architecture/purchasing.md",
-    "architecture-products": "docs/architecture/products.md",
-    "architecture-customers": "docs/architecture/customers.md",
-    "architecture-stores": "docs/architecture/stores-hr.md",
-    "4d-sql-dialect": "docs/skills/4d-sql-dialect.md",
-    "data-access": "docs/skills/data-access.md",
-    "sql-pairs": "docs/dashboard/sql-pairs.md",
-}
+import yaml
 
 LLM_HEADING = re.compile(r"^## LLM:(\w[\w-]*)$")
 ANY_H2 = re.compile(r"^## ")
+
+
+def load_slice_map(workspace: str) -> dict[str, str]:
+    """Return {slice_name: rel_path} from docs/knowledge-sources.yml."""
+    manifest = os.path.join(workspace, "docs", "knowledge-sources.yml")
+    with open(manifest, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return {entry["slice"]: entry["path"] for entry in data["sources"]}
 
 
 def extract_llm_sections(source: str):
@@ -61,20 +60,24 @@ def main() -> None:
     workspace = os.environ.get("GITHUB_WORKSPACE", ".")
     github_output = os.environ.get("GITHUB_OUTPUT", "")
 
+    slice_map = load_slice_map(workspace)
     slices = [s.strip() for s in raw_slices.split(",") if s.strip()]
 
     bundle_parts = []
 
     for slice_name in slices:
-        if slice_name not in SLICE_MAP:
+        if slice_name not in slice_map:
             print(f"WARNING: unknown slice '{slice_name}' — skipping", file=sys.stderr)
             continue
 
-        rel_path = SLICE_MAP[slice_name]
+        rel_path = slice_map[slice_name]
         abs_path = os.path.join(workspace, rel_path)
 
         if not os.path.isfile(abs_path):
-            print(f"WARNING: file not found '{abs_path}' for slice '{slice_name}' — skipping", file=sys.stderr)
+            print(
+                f"WARNING: file not found '{abs_path}' for slice '{slice_name}' — skipping",
+                file=sys.stderr,
+            )
             continue
 
         with open(abs_path, encoding="utf-8") as f:
@@ -93,7 +96,9 @@ def main() -> None:
             bundle_parts.append("\n\n".join(file_parts))
 
     if bundle_parts:
-        bundle = "## Data Platform Knowledge\n\n" + "\n\n".join(bundle_parts) + "\n\n---"
+        bundle = (
+            "## Data Platform Knowledge\n\n" + "\n\n".join(bundle_parts) + "\n\n---"
+        )
     else:
         bundle = ""
 

@@ -37,6 +37,8 @@ import sys
 import tempfile
 import urllib.request
 
+import yaml
+
 
 def gql(url, query):
     req = urllib.request.Request(
@@ -52,12 +54,8 @@ def gql(url, query):
 # KNOWLEDGE: MD parser — reads instructions + SQL pairs from source MDs
 # ═══════════════════════════════════════════════════════════════════════
 #
-# Source MDs (same list as dashboard/scripts/build-knowledge.ts):
-#   - docs/etl-sync-strategy.md          — ## LLM:rules (JSON instructions)
-#   - docs/architecture/*.md             — ## LLM:tables / ## LLM:relationships
-#   - docs/skills/4d-sql-dialect.md      — ## LLM:rules (JSON instructions)
-#   - docs/skills/data-access.md         — ## LLM:rules (JSON instructions)
-#   - docs/dashboard/sql-pairs.md        — ## LLM:sql-pairs (### heading + ```sql```)
+# Source MDs loaded from docs/knowledge-sources.yml (single source of truth).
+# To add a new source, edit that file — this script picks it up automatically.
 #
 # Date placeholder transform (dashboard syntax → PostgreSQL native):
 #   :curr_from  → DATE_TRUNC('month', CURRENT_DATE)
@@ -67,19 +65,16 @@ def gql(url, query):
 
 _REPO_ROOT = pathlib.Path(__file__).parent.parent
 
-SOURCE_MDS = [
-    "docs/etl-sync-strategy.md",
-    "docs/architecture/sales.md",
-    "docs/architecture/wholesale.md",
-    "docs/architecture/stock-logistics.md",
-    "docs/architecture/purchasing.md",
-    "docs/architecture/products.md",
-    "docs/architecture/customers.md",
-    "docs/architecture/stores-hr.md",
-    "docs/skills/4d-sql-dialect.md",
-    "docs/skills/data-access.md",
-    "docs/dashboard/sql-pairs.md",
-]
+
+def _load_source_mds() -> list[str]:
+    """Load the source MD path list from docs/knowledge-sources.yml."""
+    manifest = _REPO_ROOT / "docs" / "knowledge-sources.yml"
+    with open(manifest, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return [entry["path"] for entry in data["sources"]]
+
+
+SOURCE_MDS = _load_source_mds()
 
 _LLM_HEADING = re.compile(r"^## LLM:([\w][\w-]*)$")
 _ANY_H2 = re.compile(r"^## ")
@@ -929,7 +924,9 @@ def main():
                     col_name = row["source_column_name"]
                     if col_name in columns:
                         display, desc = columns[col_name]
-                        props = json.loads(row["properties"]) if row["properties"] else {}
+                        props = (
+                            json.loads(row["properties"]) if row["properties"] else {}
+                        )
                         props["description"] = desc
                         db.execute(
                             "UPDATE model_column SET display_name = ?, properties = ? WHERE id = ?",
@@ -939,7 +936,9 @@ def main():
             print(f"  Updated {col_updated} column metadata entries")
 
             # ── 4. SQLite: Instructions (knowledge rules) — merge strategy ──
-            print("\n═══ Step 4: Instructions / Knowledge (SQLite) — merge strategy ═══")
+            print(
+                "\n═══ Step 4: Instructions / Knowledge (SQLite) — merge strategy ═══"
+            )
             row = db.execute("SELECT id FROM project LIMIT 1").fetchone()
             if row is None:
                 raise RuntimeError(

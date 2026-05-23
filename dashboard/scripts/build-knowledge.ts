@@ -4,24 +4,26 @@
 
 import fs from "fs";
 import path from "path";
+import { parse as parseYaml } from "yaml";
 
-// ─── Source MD list ───────────────────────────────────────────────────────────
+// ─── Source MD list (loaded from docs/knowledge-sources.yml) ─────────────────
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 
-const SOURCE_MDS: string[] = [
-  "docs/etl-sync-strategy.md",
-  "docs/architecture/sales.md",
-  "docs/architecture/wholesale.md",
-  "docs/architecture/stock-logistics.md",
-  "docs/architecture/purchasing.md",
-  "docs/architecture/products.md",
-  "docs/architecture/customers.md",
-  "docs/architecture/stores-hr.md",
-  "docs/skills/4d-sql-dialect.md",
-  "docs/skills/data-access.md",
-  "docs/dashboard/sql-pairs.md",
-];
+interface KnowledgeSource {
+  slice: string;
+  path: string;
+  markers: string[];
+}
+
+function loadSourceMDs(): string[] {
+  const manifestPath = path.join(REPO_ROOT, "docs", "knowledge-sources.yml");
+  const content = fs.readFileSync(manifestPath, "utf8");
+  const data = parseYaml(content) as { sources: KnowledgeSource[] };
+  return data.sources.map((s) => s.path);
+}
+
+const SOURCE_MDS: string[] = loadSourceMDs();
 
 const OUTPUT_FILE = path.resolve(__dirname, "../lib/knowledge.ts");
 
