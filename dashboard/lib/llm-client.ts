@@ -30,7 +30,7 @@ import {
 import { createDashboardAgenticAdapter } from "./llm-provider/registry";
 import { logUsage } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
-import type { DashboardLlmFlow } from "./llm-provider/types";
+import type { DashboardLlmFlow, DashboardLlmProviderId } from "./llm-provider/types";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 // Re-exports for callers that previously imported directly from provider modules.
@@ -102,7 +102,7 @@ export interface LlmRequest {
 export interface LlmResponse {
   text: string;
   usage: NormalizedUsage;
-  provider: "openrouter" | "cli";
+  provider: Exclude<DashboardLlmProviderId, "e2e-stub">;
   driver?: string | null;
 }
 

@@ -102,7 +102,7 @@ test("suggestion pill click sends message immediately", async ({ page }) => {
   await expect(page.getByTestId("suggestion-pills")).toBeVisible({ timeout: 5_000 });
 
   // Input should be empty (no pre-filled prompt)
-  const textarea = page.getByPlaceholderText("Escribe un mensaje…");
+  const textarea = page.getByPlaceholder("Escribe un mensaje…");
   await expect(textarea).toHaveValue("");
 
   // Click the first suggestion pill
