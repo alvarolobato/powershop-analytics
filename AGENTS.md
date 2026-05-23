@@ -415,6 +415,8 @@ If you discover something during a session — a null field, an unexpected table
 
 ## Knowledge file maintenance — [data-decisions.md](docs/data-decisions.md) and source MDs
 
+**Single source of truth for the knowledge bundle**: [`docs/knowledge-sources.yml`](docs/knowledge-sources.yml). To add a new source MD, add one entry to that file — all three consumers (`extract.py`, `build-knowledge.ts`, `wren-push-metadata.py`) pick it up automatically. Do not edit the consumers directly.
+
 **Both LLM consumers draw from the same source MDs:**
 - **Dashboard runtime LLM** (`dashboard/lib/knowledge.ts`) — compiled by `npm run build:knowledge` from the `## LLM:*` marker sections.
 - **WrenAI** (instructions + SQL pairs in SQLite + qdrant) — loaded by `scripts/wren-push-metadata.py` from the same `## LLM:rules` / `## LLM:sql-pairs` marker sections.
