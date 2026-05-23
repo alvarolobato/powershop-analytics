@@ -143,14 +143,31 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          CI_STATUS=$(gh api repos/${{ github.repository }}/commits/main/status --jq '.state' 2>/dev/null || echo "unknown")
-          echo "ci_status=${CI_STATUS}" >> $GITHUB_OUTPUT
+          # Why workflow_runs (ci.yml) and not commits/<sha>/check-runs:
+          # The legacy Commit Status API (gh api .../commits/main/status) returns
+          # 'pending' with total_count=0 because this repo's CI runs only as
+          # Check Runs, never as Commit Statuses.
+          # The Check Runs API on main HEAD also doesn't work cleanly: this
+          # repo runs many factory workflows (review, address, resolve, scan,
+          # ...) that fire continuously on PR events and leave check-runs in
+          # 'in_progress' or 'failure' on main HEAD. A bare `commits/main/check-runs`
+          # query would always return 'pending' or 'failure' even when the real
+          # CI workflow (ci.yml) is fully green.
+          # The robust query is "what was the latest ci.yml workflow run on main?"
+          # — that ignores all other workflows by design.
+          CI_STATUS=$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=${{ github.event.repository.default_branch }}&per_page=1" \
+            --jq '.workflow_runs[0] // {} |
+                  if (.status // "") != "completed" then "pending"
+                  elif .conclusion == "success" then "success"
+                  else "failure"
+                  end' 2>/dev/null || echo "unknown")
+          echo "ci_status=${CI_STATUS}" >> "$GITHUB_OUTPUT"
           if [ "$CI_STATUS" != "success" ]; then
-            echo "CI status is '${CI_STATUS}' on main (expected 'success'). Skipping release."
-            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Latest ci.yml run on main is '${CI_STATUS}' (expected 'success'). Skipping release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "CI status: ${CI_STATUS}. Proceeding with release."
-            echo "skip=false" >> $GITHUB_OUTPUT
+            echo "Latest ci.yml run on main: success. Proceeding with release."
+            echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create release
