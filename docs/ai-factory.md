@@ -341,7 +341,7 @@ flowchart TD
 1. The sub-issue carries both `fact-task` and `ai-work`. The implement job fires.
 2. The implement agent reads the sub-issue, **then the parent** (body + comments — architectural rationale lives there, per #517).
 3. **Sibling-PR pre-flight check**: if any sibling sub-issue already has a PR that covers the same work, the agent closes this sub-issue with a "covered by PR #X" comment.
-4. Otherwise: branch, code, test, commit, push, open PR with `Closes #<N>` in the body.
+4. Otherwise: branch, code, test, commit, push, open PR with the correct closing-keyword form per [D-037](decisions/D-037-multi-phase-no-auto-close.md) — `Closes #<N>` for single-phase issues; `Part of #<N> (Phase X of Y)` for any non-final phase or a final phase with unverified EC items.
 5. Idempotency guard and Copilot request same as single-track path.
 
 **Human checkpoints (legacy path)**
@@ -368,7 +368,7 @@ flowchart LR
 
     AF2 --> OP1[fact-o-after-1<br/>Remove fact-phase-opus<br/>Clear fact-ready-for-review<br/>Add ai-awaiting-owner]
 
-    OP1 -->|"👤 Human reviews + merges"| MR([Merged ✅<br/>Issue/sub-issue closes via 'Closes #N'])
+    OP1 -->|"👤 Human reviews + merges"| MR([Merged ✅<br/>Single-phase: closes via 'Closes #N'<br/>Multi-phase: 'Part of #N' per D-037])
 ```
 
 **Walkthrough**
@@ -376,7 +376,7 @@ flowchart LR
 1. **Round 1 — Copilot.** The worker's `Handle success` step requested Copilot when the PR was created. Copilot reviews and posts inline comments. The `address-feedback` workflow detects the new review, dispatches the agent, who replies to every comment (with a code change or an inline reply explaining why it doesn't apply), pushes, and transitions labels: add `fact-cp-after-1`, remove `fact-phase-copilot`, add `fact-phase-opus`. Dispatch `ai-pr-review.yml` for the Opus pass.
 2. **Round 2 — Opus.** `ai-pr-review.yml` runs the Opus review **with no prior conversation context** (a fresh Claude Code session, per D-021), so the review is independent of the implementation history. Opus posts a review with inline comments. **Per #519, the Opus prompt explicitly does NOT request another Copilot review** — `requested_reviewers` is never POSTed from this step. Address-feedback fires again, addresses the Opus comments, lands `fact-o-after-1`.
 3. **Convergence.** Both `fact-cp-after-1` and `fact-o-after-1` are on the PR. Address-feedback removes the phase labels, clears `fact-ready-for-review`, adds `ai-awaiting-owner`. The PR is now waiting for a human merge.
-4. **Human merge.** The owner reviews the PR (the AI's review history is captured inline), checks CI is green, clicks **Merge**. The PR's `Closes #<issue>` body trailer closes the issue (or sub-issue). When all phases of a parent issue are merged, the owner closes the parent.
+4. **Human merge.** The owner reviews the PR (the AI's review history is captured inline), checks CI is green, clicks **Merge**. For single-phase issues, the PR's `Closes #<issue>` body trailer closes the issue (or sub-issue). For multi-phase issues, the PR uses `Part of #<issue> (Phase X of Y)` so the parent stays open until the final phase merges with all EC items verified (see [D-037](decisions/D-037-multi-phase-no-auto-close.md)).
 
 **Why exactly two reviews and not more** — per [D-021](decisions/D-021-two-review-rounds.md), iterating "until there are no comments" produced long loops where late nit-pick rounds blocked merges without meaningfully improving the code. Two independent reviews each run once is the cap. Genuinely blocking issues from a later round are escalated to the human owner rather than triggering a third round.
 
@@ -648,7 +648,7 @@ This is the canonical list of human touchpoints across the entire lifecycle. **O
 3. Implementer walks Phase 1's 2 tasks sequentially (~5 min). Ticks both checkboxes. Opens one PR. Requests Copilot.
 4. Copilot reviews the PR (~5 min). Address-feedback dispatches Opus.
 5. Opus reviews the PR (~5 min). Address-feedback converges to `ai-awaiting-owner`.
-6. Owner reviews and merges the PR. Issue closes via `Closes #N`.
+6. Owner reviews and merges the PR. Issue closes via `Closes #N` (single-phase issues only — see [D-037](decisions/D-037-multi-phase-no-auto-close.md) for multi-phase rules).
 7. **Total wall time: ~18–25 minutes. Owner effort: ~5 minutes** (reading + clicking merge).
 
 #### Recovered failure — transient flake

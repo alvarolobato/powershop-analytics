@@ -1,0 +1,161 @@
+name: AI Multi-Phase Closes Guard
+# Pre-merge gate (D-037 layer 2 of 3). Blocks merging a non-final-phase PR
+# that uses a GitHub closing keyword (Closes/Fixes/Resolves #N and variants)
+# against a multi-phase parent issue, or a final-phase PR with unverified EC
+# items.
+#
+# Layer 1 (worker self-check) lives in ai-worker.yml.
+# Layer 3 (post-merge reopen) lives in ai-post-merge-verify.yml.
+#
+# Failure mode this addresses: PR #730 (Phase 1 of 4 of issue #720) used
+# `Closes #720` and the merge auto-closed the parent before Phases 2-4
+# completed. See D-037 for full context.
+run-name: >-
+  AI Multi-Phase Closes Guard — PR #${{ github.event.pull_request.number }}
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: ai-multi-phase-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test-patterns:
+    # Regression coverage for the regex patterns used by both this workflow
+    # and ai-post-merge-verify.yml. Catches future drift between the patterns
+    # and the fixture issue bodies under .github/ai-factory/fixtures/.
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run pattern test suite
+        run: bash .github/ai-factory/tests/test-pr-body-rules.sh
+
+  guard:
+    needs: test-patterns
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR: ${{ github.event.pull_request.number }}
+      BRANCH: ${{ github.event.pull_request.head.ref }}
+    steps:
+      - name: Check closing keywords vs phase count
+        run: |
+          set -uo pipefail
+
+          # Skip non-factory branches (mirrors ai-post-merge-verify.yml).
+          # The guard still applies to any factory branch; human PRs against
+          # multi-phase issues should follow the same rule.
+          case "$BRANCH" in
+            ai/*|conversation-engine-*|fix/*|feat/*|refactor/*) ;;
+            *)
+              echo "Branch '$BRANCH' is not a factory branch — skipping guard."
+              exit 0
+              ;;
+          esac
+
+          # Skip PRs explicitly tagged no-ai.
+          PR_LABELS=$(gh pr view "$PR" --repo "$REPO" --json labels \
+            --jq '[.labels[].name]|join(",")' 2>/dev/null || echo "")
+          if echo ",$PR_LABELS," | grep -q ',no-ai,'; then
+            echo "no-ai label — skipping guard."
+            exit 0
+          fi
+
+          PR_JSON=$(gh pr view "$PR" --repo "$REPO" --json body,title 2>/dev/null || echo '{}')
+          PR_BODY=$(echo "$PR_JSON" | jq -r '.body // ""')
+          PR_TITLE=$(echo "$PR_JSON" | jq -r '.title // ""')
+
+          # AUTHORITATIVE source: GitHub's own "closing issues" resolution
+          # via GraphQL. This is the exact list of issues GitHub will close on
+          # merge, with the same parsing rules GitHub itself uses (case
+          # handling, word boundaries, etc.). Using this avoids false
+          # positives from prose mentions of `Closes #N` (e.g. when explaining
+          # a past failure mode).
+          CLOSING=$(gh api graphql -f query='
+            query($owner:String!, $repo:String!, $pr:Int!) {
+              repository(owner:$owner, name:$repo) {
+                pullRequest(number:$pr) {
+                  closingIssuesReferences(first: 20) {
+                    nodes { number }
+                  }
+                }
+              }
+            }
+          ' -F owner="${REPO%/*}" -F repo="${REPO#*/}" -F pr="$PR" \
+            --jq '.data.repository.pullRequest.closingIssuesReferences.nodes[].number' \
+            2>/dev/null | sort -u || true)
+
+          # Defense-in-depth: also scan the body with our own regex. Anything
+          # the body-regex catches that GitHub's resolution missed is logged
+          # as a warning (likely a prose mention) but does NOT fail the guard.
+          # Anything GitHub WILL close is enforced regardless.
+          # Keywords per https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword
+          # Word boundary (\b) prevents '#7200' from matching '#720'.
+          BODY_REGEX_CLOSING=$(echo "$PR_BODY" \
+            | grep -oiE '(close[sd]?|closing|fix(e[sd]|ing)?|resolve[sd]?|resolving) #[0-9]+' \
+            | grep -oE '#[0-9]+' | tr -d '#' | sort -u || true)
+
+          for N in $BODY_REGEX_CLOSING; do
+            if ! echo "$CLOSING" | grep -qxF "$N"; then
+              echo "::warning::Body mentions a closing keyword for #$N but GitHub does not consider it a linked closing issue (likely inside a code span or quoted prose). Not enforcing — but consider rewording to avoid confusion."
+            fi
+          done
+
+          if [ -z "$CLOSING" ]; then
+            echo "No closing issue references resolved by GitHub — pass."
+            exit 0
+          fi
+
+          echo "GitHub-resolved closing issues for PR #$PR: $CLOSING"
+
+          FAIL=0
+          for N in $CLOSING; do
+            ISSUE_BODY=$(gh issue view "$N" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
+            if [ -z "$ISSUE_BODY" ]; then
+              echo "Issue #$N not readable — skipping."
+              continue
+            fi
+
+            # Phase count = number of "## Phase N" headings in issue body.
+            TOTAL_PHASES=$(printf '%s' "$ISSUE_BODY" | grep -cE '^## Phase [0-9]+' || true)
+            # Phase number on this PR — first "Phase N" reference in title or body.
+            PHASE_N=$(echo "$PR_TITLE $PR_BODY" \
+              | grep -oiE 'Phase [0-9]+' | head -1 \
+              | grep -oE '[0-9]+' || true)
+            # Unverified Exit Criteria items (the anchored regex from D-037).
+            UNCHECKED_EC=$(printf '%s' "$ISSUE_BODY" | grep -cE '^- \[ \] \*\*EC-[0-9]' || true)
+
+            echo "Issue #$N: total_phases=$TOTAL_PHASES this_phase=${PHASE_N:-unknown} unchecked_ec=$UNCHECKED_EC"
+
+            if [ "${TOTAL_PHASES:-0}" -gt 1 ]; then
+              # Multi-phase issue. Closing keyword is only OK for the final
+              # phase AND when all EC items are verified.
+              if [ -z "$PHASE_N" ] || [ "$PHASE_N" -lt "$TOTAL_PHASES" ]; then
+                echo "::error title=Multi-phase auto-close::PR #$PR closes issue #$N with a closing keyword, but issue #$N has $TOTAL_PHASES phases and this PR is Phase ${PHASE_N:-?}. Edit the PR body to use 'Part of #$N (Phase ${PHASE_N:-N} of $TOTAL_PHASES)' instead of any of: Closes/Fixes/Resolves #$N. See D-037: docs/decisions/D-037-multi-phase-no-auto-close.md"
+                FAIL=1
+              elif [ "${UNCHECKED_EC:-0}" -gt 0 ]; then
+                echo "::error title=Unverified Exit Criteria::PR #$PR closes issue #$N (final phase), but issue #$N has $UNCHECKED_EC unverified Exit Criteria item(s). Either tick each '**EC-' checkbox with concrete evidence (test output, CI run link, or screenshot) in the issue body before merging, or change 'Closes #$N' to 'Part of #$N (Final phase — EC pending)'. See D-037."
+                FAIL=1
+              else
+                echo "Issue #$N: final phase + all EC verified → ok."
+              fi
+            else
+              echo "Issue #$N: single-phase → ok."
+            fi
+          done
+
+          if [ "$FAIL" -ne 0 ]; then
+            echo
+            echo "Guard failed. See annotations above. Edit the PR body and the guard re-runs automatically (pull_request: edited)."
+            exit 1
+          fi
+          echo "All closing keywords valid."
