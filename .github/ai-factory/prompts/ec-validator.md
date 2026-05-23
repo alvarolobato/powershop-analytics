@@ -13,6 +13,16 @@ The workflow passes the following as shell variables:
 
 ## What to do
 
+### Step 0 — Resolve MERGE_SHA for label-triggered runs
+
+```bash
+# MERGE_SHA is empty for label-triggered runs; derive from the default branch head.
+if [ -z "${MERGE_SHA:-}" ]; then
+  DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq '.default_branch')
+  MERGE_SHA=$(gh api "repos/$REPO/commits/$DEFAULT_BRANCH" --jq '.sha' 2>/dev/null || echo "")
+fi
+```
+
 ### Step 1 — Idempotency check
 
 Before doing anything else, check whether this issue already has a validation comment from this exact run (identified by `MERGE_SHA` or today's date for label-triggered runs):
@@ -60,10 +70,10 @@ For each EC item in `EC_ITEMS`, call `verify-ec.sh`:
 
 ```bash
 RESULTS="[]"
-for item in $(printf '%s' "$EC_ITEMS" | jq -c '.[]'); do
+while IFS= read -r item; do
   result=$(bash .github/ai-factory/scripts/verify-ec.sh "$item" "$MERGE_SHA" "$REPO")
   RESULTS=$(printf '%s' "$RESULTS" | jq ". + [$result]")
-done
+done < <(printf '%s' "$EC_ITEMS" | jq -c '.[]')
 ```
 
 ### Step 5 — Compute summary counts

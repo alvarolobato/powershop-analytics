@@ -42,11 +42,11 @@ BEGIN {
 
   # Extract the EC id: **EC-N**
   ec_id = ""
-  if (match(line, /\*\*EC-[0-9]+\*\*/, arr)) {
-    ec_id = arr[0]
+  if (match(line, /\*\*EC-[0-9]+\*\*/)) {
+    ec_id = substr(line, RSTART, RLENGTH)
     gsub(/\*\*/, "", ec_id)
-  } else if (match(line, /\*\*EC-[0-9]+/, arr)) {
-    ec_id = arr[0]
+  } else if (match(line, /\*\*EC-[0-9]+/)) {
+    ec_id = substr(line, RSTART, RLENGTH)
     gsub(/\*\*/, "", ec_id)
   }
 
@@ -64,8 +64,8 @@ BEGIN {
 
   # Extract verified_by clause (text after "*Verified by*:").
   verified_by = ""
-  if (match(line, /\*Verified by\*: (.+)/, vb)) {
-    verified_by = vb[1]
+  if (match(line, /\*Verified by\*: /)) {
+    verified_by = substr(line, RSTART + RLENGTH)
     # Strip trailing " — *Human-only*..." if present (edge case).
     sub(/ — \*Human-only\*.*$/, "", verified_by)
     # Strip trailing whitespace.
@@ -83,7 +83,7 @@ BEGIN {
   # Remove **EC-N**: prefix.
   sub(/\*\*EC-[0-9]+\*\*: /, "", text)
   # Take only up to the first " — *" separator.
-  if (match(text, / — \*/, sep)) {
+  if (match(text, / — \*/)) {
     text = substr(text, 1, RSTART - 1)
   }
   sub(/[[:space:]]+$/, "", text)

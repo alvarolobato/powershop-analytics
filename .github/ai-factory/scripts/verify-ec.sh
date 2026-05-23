@@ -14,7 +14,7 @@
 #     "verified": true|false,
 #     "human_only": true|false,
 #     "evidence": "URL or description of evidence",
-#     "reason": null | "human-only" | "no-annotation" | "command-refused" | "test-not-found" | "ci-run-not-found" | "file-not-changed" | "error"
+#     "reason": null | "human-only" | "no-annotation" | "command-refused" | "test-not-found" | "ci-run-not-found" | "ci-run-failed" | "file-not-changed" | "error"
 #   }
 #
 # Verification dispatch table (by verified_by shape):
@@ -42,7 +42,8 @@ REPO="$3"
 
 # Extract fields from the EC item JSON.
 EC_ID=$(printf '%s' "$EC_JSON" | jq -r '.id')
-VERIFIED_BY=$(printf '%s' "$EC_JSON" | jq -r '.verified_by')
+# Strip Markdown inline-code backticks so patterns like `wc -l foo.md` work.
+VERIFIED_BY=$(printf '%s' "$EC_JSON" | jq -r '.verified_by' | tr -d '`')
 HUMAN_ONLY=$(printf '%s' "$EC_JSON" | jq -r '.human_only')
 ALREADY_CHECKED=$(printf '%s' "$EC_JSON" | jq -r '.checked')
 
@@ -71,8 +72,9 @@ if [ "$HUMAN_ONLY" = "true" ]; then
 fi
 
 # Security check: refuse if verified_by looks like an arbitrary shell command.
-# Heuristics: contains pipe (|), semicolon (;), backtick, $(...), or starts with a shell built-in.
-if printf '%s' "$VERIFIED_BY" | grep -qE '(\|;|`|\$\(|^(bash|sh|python|node|curl|wget|rm|mv|cp|chmod) )'; then
+# Heuristics: contains pipe+semicolon sequence, $(...), or starts with a shell built-in.
+# Backticks are already stripped above (Markdown inline-code), so they are not checked here.
+if printf '%s' "$VERIFIED_BY" | grep -qE '(\|;|\$\(|^(bash|sh|python|node|curl|wget|rm|mv|cp|chmod) )'; then
   emit "false" "" "command-refused"
   exit 0
 fi
@@ -104,7 +106,7 @@ if printf '%s' "$VERIFIED_BY" | grep -qE '.+\..+ → .+'; then
       emit "false" "" "ci-run-not-found"
       exit 0
     fi
-    emit "false" "$RUN_URL (conclusion: $RUN_CONCLUSION)" "test-not-found"
+    emit "false" "$RUN_URL (conclusion: $RUN_CONCLUSION)" "ci-run-failed"
     exit 0
   fi
 
@@ -127,13 +129,34 @@ if printf '%s' "$VERIFIED_BY" | grep -qiE '\bjob\b|\bstep\b|dashboard-test|CI ';
     exit 0
   fi
 
+  RUN_ID=$(printf '%s' "$RUNS" | jq -r '.workflow_runs | map(select(.conclusion == "success")) | .[0].id // empty')
   RUN_URL=$(printf '%s' "$RUNS" | jq -r '.workflow_runs | map(select(.conclusion == "success")) | .[0].html_url // empty')
-  if [ -n "$RUN_URL" ]; then
-    emit "true" "$RUN_URL" "null"
-  else
+
+  if [ -z "$RUN_ID" ]; then
     RUN_URL=$(printf '%s' "$RUNS" | jq -r '.workflow_runs[0].html_url // empty')
     RUN_CONCLUSION=$(printf '%s' "$RUNS" | jq -r '.workflow_runs[0].conclusion // "unknown"')
     emit "false" "$RUN_URL (conclusion: $RUN_CONCLUSION)" "ci-run-not-found"
+    exit 0
+  fi
+
+  # Extract the job/step name from verified_by (text before the " job", " step", or " CI" keyword).
+  JOB_NAME=$(printf '%s' "$VERIFIED_BY" | sed -E 's/[[:space:]]+(job|step|CI job|CI step).*$//i' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+
+  # Query the run's jobs to verify the named job/step conclusion.
+  JOBS=$(gh api "repos/$REPO/actions/runs/$RUN_ID/jobs?per_page=50" 2>/dev/null || true)
+  if [ -n "$JOBS" ] && [ -n "$JOB_NAME" ]; then
+    JOB_CONCLUSION=$(printf '%s' "$JOBS" | jq -r --arg name "$JOB_NAME" \
+      '[.jobs[] | select(.name | ascii_downcase | contains($name | ascii_downcase))] | .[0].conclusion // empty')
+    if [ "$JOB_CONCLUSION" = "success" ]; then
+      emit "true" "$RUN_URL (job: $JOB_NAME passed)" "null"
+    elif [ -n "$JOB_CONCLUSION" ]; then
+      emit "false" "$RUN_URL (job: $JOB_NAME — $JOB_CONCLUSION)" "ci-run-not-found"
+    else
+      # Named job not found separately; accept overall run success as evidence.
+      emit "true" "$RUN_URL (overall run passed)" "null"
+    fi
+  else
+    emit "true" "$RUN_URL" "null"
   fi
   exit 0
 fi

@@ -80,14 +80,15 @@ The EC validator (`ai-ec-validator.yml`) runs automatically on final-phase merge
 | `*Verified by*: path/file.test.ts → "test name"` | Checks file exists at merge SHA + CI run passed |
 | `*Verified by*: some-job CI job` | Checks a CI run on the merge SHA succeeded |
 | `*Verified by*: file diff in this PR` | Runs `git show <merge-sha> --stat -- <path>` |
+| `*Verified by*: wc -l path/to/file.md` | Same as file diff — checks file changed in merge commit |
 | `*Human-only*` | Never auto-verified; listed for owner action |
 | No annotation | Treated as `Human-only` with a warning |
-| Shell command in `*Verified by*` | Refused for security; treated as `Human-only` |
+| Shell metacharacters in `*Verified by*` (pipes, `$(...)`, builtins like `bash`/`curl`) | Refused for security; treated as `Human-only` |
 
 **Key rules:**
 - Prefer `*Verified by*: path/test.ts → "test name"` — the validator checks the file at the merge SHA and confirms a CI run passed.
 - Use `*Human-only*` for anything requiring real hardware, a production environment, or human judgment (screenshots, screen recordings, UX quality assessment).
-- Never put a shell command like `wc -l foo.md` in `*Verified by*` — the validator refuses to execute arbitrary text. Use `*Verified by*: file diff` instead and describe what to check.
+- Patterns like `wc -l path/to/file.md` work: the validator strips Markdown backticks, then dispatches to the file-diff strategy (`git show`) — it never executes the command. Actual shell metacharacters (pipes `|`, `$(...)`, builtins such as `bash` or `curl`) are refused for security.
 - Every item without `*Verified by*` or `*Human-only*` generates a warning in the validator comment and is treated as human-only.
 
 The validator adds `fact-awaiting-human-validation` to the issue when any human-only items remain, and closes the issue automatically when all items are verified or ticked by the owner. The owner can re-trigger the validator by adding the `ai-validate-ec` label.
