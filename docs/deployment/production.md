@@ -98,6 +98,29 @@ python3 --version        # must print 3.8 or later
 
 Plan for at least 50 GB free for Docker images + `./data/` growth over time (Postgres mirror, Qdrant vectors, WrenAI SQLite).
 
+### Pre-validate with `--check-only`
+
+Before running the full install, you can verify that this Mac meets all prerequisites without making any changes:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install-prod.sh -o /tmp/install-prod.sh
+bash /tmp/install-prod.sh --check-only
+```
+
+The script checks and reports:
+
+| Check | Minimum | Hard fail? |
+|-------|---------|------------|
+| macOS (Darwin) | — | Yes — Linux/other unsupported |
+| macOS version | 14 (Sonoma) | Yes |
+| CPU architecture | arm64 (Apple Silicon) | Warn only (Intel untested) |
+| Docker engine | 25.0 | Yes |
+| Docker Compose v2 | 2.20 | Yes |
+| Free disk space | 50 GB | Warn only |
+| SSH / Remote Login | enabled | Warn only |
+
+Exit 0 means the Mac is ready; exit non-zero means at least one hard-fail check failed with a clear error message.
+
 ---
 
 ## One-time install on the prod Mac
@@ -106,12 +129,14 @@ Plan for at least 50 GB free for Docker images + `./data/` growth over time (Pos
 
 ### Step 1 — Run the bootstrap script
 
+> Optionally run `--check-only` first (see [Pre-validate with `--check-only`](#pre-validate-with---check-only)) to confirm the Mac is ready before making any changes.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alvarolobato/powershop-analytics/main/deploy/install-prod.sh | bash
 ```
 
 The script:
-1. Checks Docker is installed and the daemon is running.
+1. Runs preflight checks (macOS version, architecture, Docker version, disk space, SSH).
 2. Creates `~/powershop/` (or `$PS_PROD_HOME` if set) with `data/{postgres,qdrant,wren}/` subdirs.
 3. Downloads `docker-compose.yml` and `wren-config.yaml` from the latest GitHub release.
 4. Prompts for credentials (4D server IP/user/password, OpenRouter key, Postgres password) and writes them to `~/powershop/.env` with mode `0600`. **These credentials never leave the host.**
