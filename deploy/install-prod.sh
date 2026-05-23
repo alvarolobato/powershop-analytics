@@ -445,6 +445,7 @@ main() {
   for arg in "$@"; do
     case "$arg" in
       --check-only) check_only=1 ;;
+      --*) die "Unknown flag: $arg" ;;
     esac
   done
 
