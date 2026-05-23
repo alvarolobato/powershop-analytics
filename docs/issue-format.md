@@ -237,7 +237,8 @@ Phases live as `## Phase N — <name>` headings **inside the issue body**. They 
 - Phase 1 starts when `ai-work` is added to the issue.
 - The implementer finds the next un-merged phase (checks whether each phase's branch has a merged PR via `gh pr list --search "head:<branch>" --state merged`).
 - Phase N+1 starts only after Phase N's PR is **merged and `main` is green**.
-- The owner adds `ai-work` again to trigger Phase N+1 (or the watchdog re-triggers if `fact-in-progress` is stalled with unchecked tasks remaining).
+- **Auto-kickoff**: when a phase PR (branch `ai/issue-<N>-p<K>`) merges and the issue still has unmerged phases, `ai-post-merge-verify.yml` auto-adds `ai-work` to the issue, triggering Phase K+1. The owner does not need to re-label per phase. The auto-kick is skipped if the issue has `no-ai`, `needs-human-approval`, `fact-parent-incomplete`, `ai-blocked`, `ai-work`, or `fact-in-progress`. Final-phase PRs (`Closes #N`) never kick.
+- To pause between phases, add `ai-blocked` after merging Phase K — auto-kickoff respects it.
 
 **Single phase** (default): issue has one `## Phase 1` block. The implementer walks its `### Tasks` checklist, commits per task, ticks checkboxes via `gh issue edit --body`, opens one PR.
 

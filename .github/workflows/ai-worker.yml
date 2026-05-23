@@ -437,10 +437,24 @@ jobs:
           set -euo pipefail
           # Look for a PR whose head branch follows ai/issue-<N>-... OR whose
           # body contains "Closes #<N>".
-          PR_BY_BRANCH=$(gh pr list --state all --search "head:ai/issue-${ISSUE_NUMBER}-" \
-            --json number,state --jq '.[0].number // empty')
-          PR_BY_BODY=$(gh pr list --state all --search "Closes #${ISSUE_NUMBER} in:body" \
-            --json number,state --jq '.[0].number // empty')
+          #
+          # `--state open` is intentional: this step is asking "did THIS
+          # worker run produce a PR?". A merged PR from a previous phase
+          # satisfies the same branch-prefix search (e.g. ai/issue-721-p1
+          # is matched by `head:ai/issue-721-` even after Phase 1 was
+          # merged) and would make the verify step report `pr_created` on
+          # a Phase 2 run that actually failed without opening anything —
+          # the success path then re-fires on the merged Phase 1 PR and
+          # the failure path also fires, producing the confusing dual
+          # comment seen on #721 (2026-05-22 20:50). Only open PRs count.
+          # Sort newest first so a stale open PR on a different phase
+          # branch never wins over the just-pushed one.
+          PR_BY_BRANCH=$(gh pr list --state open --search "head:ai/issue-${ISSUE_NUMBER}-" \
+            --json number,state,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[0].number // empty')
+          PR_BY_BODY=$(gh pr list --state open --search "Closes #${ISSUE_NUMBER} in:body" \
+            --json number,state,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[0].number // empty')
           PR_NUMBER="${PR_BY_BRANCH:-$PR_BY_BODY}"
 
           # Also check if the issue was closed by the worker (deliberate no-op).

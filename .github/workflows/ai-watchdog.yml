@@ -97,7 +97,13 @@ jobs:
             fi
 
             # Determine which phase to dispatch.
-            if echo ",$LABELS," | grep -q ",fact-task,"; then
+            # `fact-task` → legacy sub-task (path B) → implement.
+            # `fact-planned` (without fact-task) → D-034 single-track phased
+            #   issue → implement. The planner already rewrote the body and
+            #   set `fact-planned`; re-dispatching `plan` here would just
+            #   loop on an already-planned issue (#721 hit this).
+            # Neither → first-time planning → plan.
+            if echo ",$LABELS," | grep -qE ",(fact-task|fact-planned),"; then
               PHASE="implement"
             else
               PHASE="plan"
@@ -996,8 +1002,14 @@ jobs:
             gh issue comment "$NUM" --repo "$REPO_FULL" \
               --body "🔄 AI Factory watchdog: auto-retrying (attempt $ATTEMPT of $MAX_RETRIES) after transient failure. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})." || true
 
-            # Determine phase: sub-tasks (fact-task) → implement, parents → plan
-            if echo ",$LABELS," | grep -q ",fact-task,"; then
+            # Determine phase: sub-tasks (fact-task) or already-planned
+            # single-track phased issues (fact-planned without fact-task) →
+            # implement; otherwise first-time planning → plan. Without the
+            # fact-planned check this loop would keep re-dispatching the
+            # planner on an issue that was already planned (#721 hit this
+            # after Phase 1 merged: subsequent transient failures kept being
+            # retried with phase=plan, which kept failing).
+            if echo ",$LABELS," | grep -qE ",(fact-task|fact-planned),"; then
               PHASE="implement"
             else
               PHASE="plan"
