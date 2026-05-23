@@ -1,6 +1,6 @@
 # AI workflow cost tiers — and the 2 workflows still disabled
 
-> Análisis de coste y tiers para los workflows AI. Fecha original: 2026-05-07. Las 19 de 21 workflows desactivadas han sido reactivadas; quedan 2.
+> Análisis de coste y tiers para los workflows AI. Fecha original: 2026-05-07. Los 19 de 21 workflows desactivados han sido reactivados; quedan 2.
 >
 > Asume Claude vía `anthropics/claude-code-action@v1` con OpenRouter (Sonnet 4 ≈ $3/M input + $15/M output; Opus ≈ $15/M + $75/M; Haiku ≈ $0.80/M + $4/M).
 

@@ -9,6 +9,7 @@ Run: pytest scripts/tests/test_doc_graph.py
 """
 
 import re
+from collections import deque
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -75,7 +76,7 @@ def _expand_path(p: Path) -> list[Path]:
 def _build_reachable_set(entry_points: list[Path]) -> set[Path]:
     """BFS from entry points, following @-imports and markdown links."""
     reachable: set[Path] = set()
-    queue: list[Path] = []
+    queue: deque[Path] = deque()
 
     for ep in entry_points:
         for p in _expand_path(ep):
@@ -84,7 +85,7 @@ def _build_reachable_set(entry_points: list[Path]) -> set[Path]:
                 queue.append(p)
 
     while queue:
-        current = queue.pop()
+        current = queue.popleft()
         for link_target in _collect_links(current):
             for p in _expand_path(link_target):
                 if p not in reachable:
