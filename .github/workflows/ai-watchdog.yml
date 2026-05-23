@@ -552,17 +552,16 @@ jobs:
               continue
             fi
 
-            # Latest claude[bot] activity on the PR (commit, review, or comment)
-            # Only count claude[bot] activity as "bot addressed feedback".
-            # github-actions[bot] posts status notifications (CI remediation,
-            # review-started banners, etc.) that are NOT responses to reviewer
-            # feedback — including them caused a masking bug where a CI-remediation
-            # comment posted AFTER a Copilot review prevented the watchdog from
-            # ever dispatching address-feedback (PR #687, 2026-05-18).
+            # Latest claude[bot] activity on the PR (PR comments or review comments only).
+            # Commits are EXCLUDED because CI-remediation, rebases, and other
+            # automated processes produce claude[bot] commits that are NOT
+            # responses to reviewer feedback. Including them masked unaddressed
+            # Copilot reviews (PR #725, 2026-05-23; same class as the
+            # github-actions[bot] masking bug fixed in PR #687, 2026-05-18).
+            # address-feedback always posts a PR comment when it addresses
+            # feedback, so commits are redundant as an activity signal.
             LATEST_BOT_ACTIVITY=$(
               {
-                gh api "repos/$REPO_FULL/pulls/$NUM/commits" --paginate \
-                  --jq '.[] | select(.commit.author.email | contains("claude")) | .commit.committer.date'
                 gh api "repos/$REPO_FULL/issues/$NUM/comments" --paginate \
                   --jq '.[] | select(.user.login == "claude[bot]") | .updated_at'
                 gh api "repos/$REPO_FULL/pulls/$NUM/comments" --paginate \
