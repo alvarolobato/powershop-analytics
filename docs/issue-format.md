@@ -173,6 +173,69 @@ Phase 3 cannot start until Phase 2 merges (consumes API shape).
 - [ ] 5) Opus review
 ```
 
+## PR body: closing keywords (single-phase vs multi-phase)
+
+GitHub auto-closes a linked issue when a merged PR's body contains a [closing
+keyword](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue#linking-a-pull-request-to-an-issue-using-a-keyword)
+followed by `#<issue>` — `Closes #N`, `Fixes #N`, `Resolves #N`, and their
+variants (`Closed`, `Closing`, `Fixed`, `Fixing`, `Resolved`, `Resolving`).
+This is the right default for **single-phase** issues, but a foot-gun for
+**multi-phase** issues: Phase 1's PR would prematurely close the parent even
+though Phases 2…N are still pending.
+
+Per [D-037](decisions/D-037-multi-phase-no-auto-close.md), the rule is:
+
+| PR for… | Use in body | Use NOT |
+|---------|-------------|---------|
+| Single-phase issue (default) | `Closes #N` | `Part of #N` (wastes the auto-close) |
+| Multi-phase issue, Phase N < TOTAL_PHASES | `Part of #N (Phase X of Y)` | **NEVER** `Closes #N` / `Fixes #N` / `Resolves #N` |
+| Multi-phase issue, final phase, **all `**EC-` items ticked with evidence** | `Closes #N` | — |
+| Multi-phase issue, final phase, **any `**EC-` item unticked** | `Part of #N (Final phase — EC pending)` | **NEVER** `Closes #N` |
+
+**Examples**
+
+✅ Correct — Phase 2 of a 4-phase issue:
+
+```markdown
+## Summary
+- Adds the structured conversation-history reader.
+- ...
+
+Part of #720 (Phase 2 of 4)
+```
+
+✅ Correct — final phase, all EC verified:
+
+```markdown
+## Summary
+- Adds the 8 memory tools and tag-wraps results.
+- All 12 EC items ticked in the issue body with linked test runs.
+
+Closes #720
+```
+
+❌ Wrong — Phase 1 of a 4-phase issue (this is the #720 → PR #730 failure mode):
+
+```markdown
+## Summary
+- Phase 1 ships the llm-context module.
+
+Closes #720
+```
+
+This is enforced by three layers ([D-037](decisions/D-037-multi-phase-no-auto-close.md)):
+
+1. **Worker self-check** — the AI worker's pre-`gh pr create` shell guard
+   refuses to create a PR whose body contains a forbidden closing keyword.
+2. **Pre-merge CI gate** — `ai-multi-phase-guard.yml` fails the build on
+   any PR that violates the table above. Required check — blocks merge.
+3. **Post-merge reopen** — `ai-post-merge-verify.yml` reopens the issue
+   with `fact-parent-incomplete` if a PR slipped through and the parent has
+   unverified EC items.
+
+Human contributors who create PRs against multi-phase issues should follow the
+same rule; the CI gate applies uniformly to AI and human PRs.
+
 ## Branch naming — REQUIRED for the AI factory
 
 The AI worker enforces branch names via `branch_prefix: "ai/issue-NNN-"` in the workflow. **All implementation branches must follow this pattern:**

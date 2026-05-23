@@ -370,29 +370,50 @@ jobs:
             git push -u origin BRANCH
             ```
 
-            Determine the correct issue reference for the PR body:
-            - Count total `## Phase N` headings in the issue body (TOTAL_PHASES)
-            - This is Phase N
-            - If N < TOTAL_PHASES: use `Part of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)` — do NOT close the issue
-            - If N == TOTAL_PHASES (last phase):
-              FIRST check whether the issue has unchecked Exit Criteria items:
+            Determine the correct issue reference for the PR body
+            (full rules in [D-037](docs/decisions/D-037-multi-phase-no-auto-close.md)):
+            - Count total `## Phase N` headings in the issue body (TOTAL_PHASES).
+            - This is Phase N.
+            - If TOTAL_PHASES > 1 and N < TOTAL_PHASES: use `Part of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)` — do NOT use any closing keyword (Closes/Fixes/Resolves).
+            - If TOTAL_PHASES == 1 (single-phase issue): use `Closes #${{ env.ISSUE_NUMBER }}`.
+            - If N == TOTAL_PHASES (multi-phase, last phase):
+              FIRST check whether the issue has unchecked Exit Criteria items
+              (the anchored regex per D-037 — the original `grep -cF` form was buggy):
               ```bash
               EC_UNCHECKED=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq '.body' \
-                | grep -cF '- [ ] **EC-' || true)
+                | grep -cE '^- \[ \] \*\*EC-[0-9]' || true)
               ```
-              - If EC_UNCHECKED == 0: use `Closes #${{ env.ISSUE_NUMBER }}` — this closes the issue on merge
+              - If EC_UNCHECKED == 0: use `Closes #${{ env.ISSUE_NUMBER }}` — this closes the issue on merge.
               - If EC_UNCHECKED > 0: use `Part of #${{ env.ISSUE_NUMBER }} (Final phase — Exit Criteria pending verification)` — do NOT close the issue yet.
                 Also post a comment on the issue:
                 ```bash
                 gh issue comment ${{ env.ISSUE_NUMBER }} --body "⚠️ Phase N (final) complete — **$EC_UNCHECKED Exit Criteria item(s) are still unverified**. Not auto-closing this issue. Please tick each \`**EC-\` checkbox with concrete evidence (test output, screenshot, CI run link) before closing manually."
                 ```
 
+            **MANDATORY pre-`gh pr create` self-check** (D-037 layer 1 of 3):
+            after composing the PR body in a file `$PR_BODY_FILE`, run this
+            shell guard. If it fails, fix the body and rerun. Do NOT bypass.
+
+            ```bash
+            ISSUE_BODY=$(gh issue view ${{ env.ISSUE_NUMBER }} --json body --jq '.body')
+            TOTAL_PHASES=$(printf '%s' "$ISSUE_BODY" | grep -cE '^## Phase [0-9]+' || true)
+            # PHASE_N is the phase you are submitting (you know this).
+            if [ "${TOTAL_PHASES:-0}" -gt 1 ] && [ "${PHASE_N:-0}" -lt "${TOTAL_PHASES:-0}" ]; then
+              if grep -qiE "(close[sd]?|closing|fix(e[sd]|ing)?|resolve[sd]?|resolving) #${{ env.ISSUE_NUMBER }}\b" "$PR_BODY_FILE"; then
+                echo "::error::PR body contains a closing keyword for issue #${{ env.ISSUE_NUMBER }} but this is Phase $PHASE_N of $TOTAL_PHASES. Replace with 'Part of #${{ env.ISSUE_NUMBER }} (Phase $PHASE_N of $TOTAL_PHASES)'. See D-037."
+                exit 1
+              fi
+            fi
+            ```
+
             ```bash
             gh pr create \
               --title "<feature> (Phase N: <phase name>)" \
-              --body "$(printf '## Summary\n...\n\nPart of #${{ env.ISSUE_NUMBER }} (Phase N of TOTAL_PHASES)')"
+              --body-file "$PR_BODY_FILE"
             ```
-            **One PR per phase. Only the LAST phase PR should say `Closes #ISSUE`, and only when all EC items are verified.**
+            **One PR per phase. Only the LAST phase PR should say `Closes #ISSUE`, and only when all EC items are verified.** The pre-merge CI gate
+            `ai-multi-phase-guard.yml` (D-037 layer 2 of 3) blocks merge if this
+            rule is violated — your self-check above is the first line of defense.
 
             ### If you cannot finish
             Tick whatever tasks completed. Post a blocking comment tagging @alvarolobato.

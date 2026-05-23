@@ -78,20 +78,56 @@ jobs:
             ISSUE_STATE=$(echo "$ISSUE_JSON" | jq -r '.state')
             BODY=$(echo "$ISSUE_JSON" | jq -r '.body')
 
-            # Count unchecked Exit Criteria lines: "- [ ] **EC-"
-            UNCHECKED_EC=$(printf '%s' "$BODY" | grep -cF '- [ ] **EC-' || true)
+            # Count unchecked Exit Criteria lines: "- [ ] **EC-N"
+            # D-037: anchored regex, NOT fixed-string. The original
+            #   grep -cF '- [ ] **EC-'
+            # was silently returning 0 because the leading '-' was parsed as a
+            # CLI option by GNU grep (the error was swallowed by `|| true`),
+            # so the post-merge guard never reopened issue #720 after PR #730
+            # merged. Use the regex form anchored to start-of-line so the
+            # pattern can never collide with grep option parsing.
+            UNCHECKED_EC=$(printf '%s' "$BODY" | grep -cE '^- \[ \] \*\*EC-[0-9]' || true)
+            # Count total ## Phase headings (used for multi-phase broadening below).
+            TOTAL_PHASES=$(printf '%s' "$BODY" | grep -cE '^## Phase [0-9]+' || true)
             # Count unchecked regular task checkboxes (numbered tasks)
             UNCHECKED_TASKS=$(printf '%s' "$BODY" | grep -cE '^- \[ \] [0-9]' || true)
 
-            echo "Issue #$ISSUE_NUM: state=$ISSUE_STATE unchecked_ec=$UNCHECKED_EC unchecked_tasks=$UNCHECKED_TASKS"
+            echo "Issue #$ISSUE_NUM: state=$ISSUE_STATE total_phases=$TOTAL_PHASES unchecked_ec=$UNCHECKED_EC unchecked_tasks=$UNCHECKED_TASKS"
 
-            if [ "${UNCHECKED_EC:-0}" -gt 0 ]; then
-              # EC items unverified — this is a hard stop.
+            # Diagnostic: if the body mentions 'EC-' but the count is 0,
+            # something is wrong with the regex or body shape. Log a head
+            # excerpt so future failures are easier to diagnose.
+            if [ "${UNCHECKED_EC:-0}" -eq 0 ] && printf '%s' "$BODY" | grep -q 'EC-'; then
+              echo "::warning::Issue #$ISSUE_NUM mentions 'EC-' but UNCHECKED_EC=0. Body head follows for debugging:"
+              printf '%s' "$BODY" | head -c 4000
+              echo
+              echo "(end of body excerpt)"
+            fi
+
+            # D-037: also reopen on multi-phase issues where many tasks remain
+            # unchecked across other phases — defends against a future
+            # regression where EC detection misfires. The threshold (5) is
+            # tuned so a final-phase merge with all phases done (which still
+            # leaves ~4-5 untouched boxes from earlier Copilot/Opus rows that
+            # the worker didn't tick) doesn't trigger a false reopen.
+            MULTI_PHASE_INCOMPLETE=0
+            if [ "${TOTAL_PHASES:-0}" -gt 1 ] && [ "${UNCHECKED_TASKS:-0}" -gt 5 ]; then
+              MULTI_PHASE_INCOMPLETE=1
+              echo "Issue #$ISSUE_NUM: multi-phase with $UNCHECKED_TASKS unchecked tasks (>5) — treating as incomplete."
+            fi
+
+            if [ "${UNCHECKED_EC:-0}" -gt 0 ] || [ "${MULTI_PHASE_INCOMPLETE:-0}" -eq 1 ]; then
+              # EC items unverified OR multi-phase issue with substantial
+              # unchecked work remaining — this is a hard stop.
 
               # Re-open if the merge auto-closed it.
               if [ "$ISSUE_STATE" = "CLOSED" ]; then
                 gh issue reopen "$ISSUE_NUM" --repo "$REPO" 2>/dev/null || true
-                echo "Re-opened issue #$ISSUE_NUM ($UNCHECKED_EC EC items unverified)."
+                if [ "${UNCHECKED_EC:-0}" -gt 0 ]; then
+                  echo "Re-opened issue #$ISSUE_NUM ($UNCHECKED_EC EC items unverified)."
+                else
+                  echo "Re-opened issue #$ISSUE_NUM (multi-phase with $UNCHECKED_TASKS unchecked tasks across $TOTAL_PHASES phases)."
+                fi
               fi
 
               # Label: fact-parent-incomplete. Create if missing.
@@ -105,22 +141,32 @@ jobs:
               gh api -X DELETE "repos/$REPO/issues/$ISSUE_NUM/labels/ai-awaiting-owner" \
                 >/dev/null 2>&1 || true
 
-              # Build EC list for the comment.
-              EC_LINES=$(printf '%s' "$BODY" | grep -F '- [ ] **EC-' \
+              # Build EC list for the comment (anchored regex — matches the
+              # detection pattern above; the original fixed-string form
+              # silently failed, see D-037).
+              EC_LINES=$(printf '%s' "$BODY" | grep -E '^- \[ \] \*\*EC-' \
                 | sed 's/^- \[ \] /- /' | head -20)
+              if [ -z "$EC_LINES" ]; then
+                EC_LINES="_(no Exit Criteria section found — multi-phase reopen triggered by $UNCHECKED_TASKS unchecked tasks across $TOTAL_PHASES phases; add an Exit Criteria section per docs/issue-format.md)_"
+              fi
 
               REOPEN_NOTE=""
               if [ "$ISSUE_STATE" = "CLOSED" ]; then
-                REOPEN_NOTE=" The issue was auto-closed by the PR merge and has been **re-opened**."
+                REOPEN_NOTE=" The issue was auto-closed by the PR merge and has been **re-opened** (see D-037: docs/decisions/D-037-multi-phase-no-auto-close.md)."
+              fi
+
+              REASON="**$UNCHECKED_EC Exit Criteria item(s) are still unverified**"
+              if [ "${UNCHECKED_EC:-0}" -eq 0 ]; then
+                REASON="multi-phase issue with **$UNCHECKED_TASKS unchecked task(s) across $TOTAL_PHASES phases** — work appears incomplete"
               fi
 
               gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "$(cat <<EOF
-          ⚠️ **AI Factory — Post-Merge EC Check**: PR #$PR merged but **$UNCHECKED_EC Exit Criteria item(s) are still unverified**.$REOPEN_NOTE
+          ⚠️ **AI Factory — Post-Merge EC Check**: PR #$PR merged but $REASON.$REOPEN_NOTE
 
-          **Unverified items:**
+          **Items requiring attention:**
           $EC_LINES
 
-          Each item requires **concrete evidence** before the issue can be considered done: test output, a CI run link, a screenshot, or a short screen recording — not "manually verified".
+          Each Exit Criteria item requires **concrete evidence** before the issue can be considered done: test output, a CI run link, a screenshot, or a short screen recording — not "manually verified".
 
           Once all EC items are ticked, close this issue manually.
           cc @alvarolobato
