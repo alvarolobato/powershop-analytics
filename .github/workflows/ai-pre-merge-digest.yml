@@ -1,0 +1,127 @@
+name: AI Pre-Merge Digest
+# Posts one structured "pre-merge digest" comment on every PR that lands
+# ai-awaiting-owner. The digest summarises both Copilot and Opus review rounds
+# so the owner can decide merge/hold/discuss in under 2 minutes.
+#
+# Idempotency: the comment is tagged <!-- digest:sha:<HEAD_SHA> -->.
+# A new digest is posted only when the head SHA changes (force-push or new commit).
+#
+# D-029: this file was committed by a Claude Code on the Web session, not the
+# in-repo claude-code-action worker.
+run-name: >-
+  AI Pre-Merge Digest — PR #${{ github.event.pull_request.number || inputs.pr_number }}
+on:
+  pull_request:
+    types: [labeled]
+  pull_request_target:
+    types: [synchronize]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to post digest for"
+        required: true
+        type: number
+
+concurrency:
+  group: ai-pre-merge-digest-${{ github.event.pull_request.number || inputs.pr_number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: read
+  id-token: write
+
+jobs:
+  digest:
+    # Fire on label events only when the label is ai-awaiting-owner.
+    # Fire on synchronize only when the PR already has ai-awaiting-owner
+    # (so a new commit after convergence also gets a fresh digest).
+    if: >-
+      (
+        github.event_name == 'workflow_dispatch'
+      ) || (
+        github.event_name == 'pull_request' &&
+        github.event.action == 'labeled' &&
+        github.event.label.name == 'ai-awaiting-owner' &&
+        !contains(github.event.pull_request.labels.*.name, 'no-ai') &&
+        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      ) || (
+        github.event_name == 'pull_request_target' &&
+        github.event.action == 'synchronize' &&
+        contains(github.event.pull_request.labels.*.name, 'ai-awaiting-owner') &&
+        !contains(github.event.pull_request.labels.*.name, 'no-ai') &&
+        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+    steps:
+      - name: Resolve head SHA
+        id: resolve
+        run: |
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Idempotency check
+        id: idem
+        env:
+          HEAD_SHA: ${{ steps.resolve.outputs.head_sha }}
+        run: |
+          EXISTING=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json comments \
+            --jq "[.comments[].body | select(contains(\"<!-- digest:sha:${HEAD_SHA} -->\"))] | length" \
+            2>/dev/null || echo "0")
+          if [ "${EXISTING:-0}" -gt 0 ]; then
+            echo "Digest already posted for SHA $HEAD_SHA — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.idem.outputs.skip != 'true'
+        with:
+          fetch-depth: 0
+
+      - name: Load digest prompt
+        id: prompt
+        if: steps.idem.outputs.skip != 'true'
+        run: |
+          {
+            echo 'CONTENT<<DIGEST_PROMPT_EOF'
+            cat .github/ai-factory/prompts/pre-merge-digest.md
+            echo
+            echo 'DIGEST_PROMPT_EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Post pre-merge digest
+        if: steps.idem.outputs.skip != 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-haiku-4-5-20251001 --permission-mode bypassPermissions --max-turns 20"
+          allowed_bots: "claude[bot],github-actions[bot],copilot-pull-request-reviewer[bot]"
+          use_sticky_comment: "false"
+          prompt: |
+            ${{ steps.prompt.outputs.CONTENT }}
+
+            Environment variables already set:
+            - PR_NUMBER=${{ env.PR_NUMBER }}
+            - REPO=${{ env.REPO }}
+            - HEAD_SHA=${{ steps.resolve.outputs.head_sha }}
+
+            Run the steps in the prompt above. Use the `gh` CLI for all GitHub API calls.
+            Post the digest comment and exit.
+
+      - name: Handle failure
+        if: failure()
+        run: |
+          gh pr comment "$PR_NUMBER" --repo "$REPO" \
+            --body "⚠️ **AI Factory**: Pre-merge digest failed for PR #$PR_NUMBER. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). You can re-run manually via \`gh workflow run ai-pre-merge-digest.yml --field pr_number=$PR_NUMBER\`." || true
