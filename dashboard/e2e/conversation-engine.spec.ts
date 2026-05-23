@@ -133,6 +133,13 @@ test("AC-6: logs persist after full page reload", async ({ page }) => {
     .waitFor({ state: "attached", timeout: 5_000 })
     .catch(() => { console.warn("AC-6: log-block not found after reload"); });
 
+  // SSE replays historical log events asynchronously after reconnect. The assistant
+  // bubble appears from loadConversation (before SSE replay finishes), so we must
+  // wait explicitly for log-blocks to render before asserting.
+  if (logsBefore > 0) {
+    await page.waitForSelector('[data-testid="log-block"]', { timeout: 15_000 });
+  }
+
   const logsAfter = await page.locator('[data-testid="log-block"]').count();
   expect(logsAfter).toEqual(logsBefore);
 });

@@ -2,6 +2,11 @@
 
 **Use when**: Connecting to 4D, running SQL queries, exploring the schema, or calling SOAP web services.
 
+## Reference data
+
+- **[`../data-dictionary.md`](../data-dictionary.md)** — Spanish/English glossary, module prefixes (CC = Central, GC = Gestion Comercial, JO = Jewelry, OP = Optical, FA = Fabrication), the `.99` suffix PK pattern, `Total` vs `TotalSI` vs `TotalBruto` semantics, Libre custom-field convention. Use when you need to understand what a field name means or how naming conventions work.
+- **[`../schema-raw/README.md`](../schema-raw/README.md)** — queryable JSON dumps of `_USER_COLUMNS`, FK/PK constraints, indexed columns, view schemas, and WSDL methods extracted from the live 4D server. Use when you need raw structural data (column types, indexes, FK relationships, available SOAP methods) that you can grep or parse programmatically.
+
 ## 4D SQL via P4D
 
 ### Connection
