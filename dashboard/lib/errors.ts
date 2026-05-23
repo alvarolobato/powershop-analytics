@@ -8,6 +8,8 @@
  *   - generateRequestId() — produces a short correlation ID for log tracing
  */
 
+import type { DashboardLlmProviderId } from "./llm-provider/types";
+
 // ---------------------------------------------------------------------------
 // Error codes
 // ---------------------------------------------------------------------------
@@ -50,8 +52,8 @@ export type ErrorCode =
 export interface AgenticErrorDiagnostic {
   /** Inner LLM/CLI failure code (e.g. LLM_CLI_AUTH, LLM_CLI_EXIT). */
   subError: string;
-  /** OpenRouter HTTP transport vs local CLI. */
-  provider: "openrouter" | "cli";
+  /** LLM provider that produced this error. */
+  provider: DashboardLlmProviderId;
   /** CLI driver id (claude_code) when provider=cli, else null. */
   driver: string | null;
   /** Effective model id sent to the upstream backend. */
