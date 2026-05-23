@@ -273,6 +273,8 @@ Every PR gets **exactly two review rounds, in order, each run only once**:
 
 After each round: address every comment with either a code change or an inline reply, then move on. **Do not re-request the same reviewer.** Iterating "until there are no comments" is no longer the policy — it was too much. If a later round surfaces a genuinely blocking issue, use judgement and escalate to the human owner rather than looping. See [D-021](decisions/D-021-two-review-rounds.md).
 
+Once both rounds are complete and `ai-awaiting-owner` is applied, the **pre-merge digest** agent fires automatically (`ai-pre-merge-digest.yml`). It posts one comment summarising both review rounds — a recommendation (merge / hold / discuss), a reviewer table with themes, and bulleted addressed/open lists — so the owner can make a merge decision without reading each thread individually. Skipped if the PR carries `no-ai` or `no-pr-review`.
+
 Rules:
 - Every piece of work goes through a PR, even solo work.
 - **Round 1 — Copilot.** Request via the REST API:
