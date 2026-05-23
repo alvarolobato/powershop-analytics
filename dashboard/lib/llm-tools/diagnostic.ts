@@ -38,11 +38,16 @@ export function buildAgenticErrorDiagnostic(
         }
       : undefined;
 
+  // Coerce e2e-stub → openrouter for both provider label and model derivation
+  // so the two fields are always consistent in the diagnostic output.
+  const effectiveCfg: typeof cfg =
+    cfg.provider === "e2e-stub" ? { ...cfg, provider: "openrouter" } : cfg;
+
   return {
     subError: `${err.code}: ${sanitize(err.message)}`,
-    provider: cfg.provider,
+    provider: effectiveCfg.provider,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
-    model: getEffectiveDashboardModel(cfg),
+    model: getEffectiveDashboardModel(effectiveCfg),
     phase,
     durationMs: err.diagnostic?.durationMs ?? 0,
     toolRoundsUsed: err.diagnostic?.toolRoundsUsed ?? 0,
