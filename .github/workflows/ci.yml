@@ -51,6 +51,8 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
+      - name: knowledge.ts drift guard
+        run: npm run build:knowledge && git diff --exit-code lib/knowledge.ts
       - run: npm test
       - run: npm run test:coverage
       - uses: actions/upload-artifact@v4
