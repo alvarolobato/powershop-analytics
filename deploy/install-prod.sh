@@ -27,6 +27,13 @@
 
 set -euo pipefail
 
+# Minimum supported versions — bump here when raising the floor.
+MIN_MACOS_MAJOR=14        # Sonoma
+MIN_DOCKER_MAJOR=25       # Engine 25.0
+MIN_COMPOSE_MAJOR=2
+MIN_COMPOSE_MINOR=20      # Compose 2.20
+MIN_FREE_GB=50
+
 REPO="alvarolobato/powershop-analytics"
 RELEASE_BASE="https://github.com/${REPO}/releases/download"
 API_BASE="https://api.github.com/repos/${REPO}"
@@ -106,6 +113,121 @@ dotenv_quote() {
     *$'\n'*) die "${label} contains a newline — not supported in .env values." ;;
   esac
   printf "'%s'" "$v"
+}
+
+preflight_check() {
+  local check_only="${1:-0}"
+  local errors=0
+
+  info "Running preflight checks..."
+
+  # 1. macOS only
+  local os
+  os="$(uname -s)"
+  if [ "$os" != "Darwin" ]; then
+    die "This installer is for macOS only. See https://github.com/alvarolobato/powershop-analytics/blob/main/docs/deployment/production.md"
+  fi
+  success "OS: macOS (Darwin)"
+
+  # 2. macOS version floor
+  local macos_ver macos_major
+  macos_ver="$(sw_vers -productVersion 2>/dev/null || true)"
+  macos_major="${macos_ver%%.*}"
+  if [ -n "$macos_major" ] && [ "$macos_major" -lt "$MIN_MACOS_MAJOR" ] 2>/dev/null; then
+    printf '\033[1;31m[ERROR]\033[0m macOS %s is below the minimum supported version (macOS %s). See docs/deployment/production.md#macos-version\n' "$macos_ver" "$MIN_MACOS_MAJOR" >&2
+    errors=$((errors + 1))
+  else
+    success "macOS version: ${macos_ver}"
+  fi
+
+  # 3. Architecture — Apple Silicon is fully supported; Intel is a warning
+  local arch
+  arch="$(uname -m)"
+  if [ "$arch" = "arm64" ]; then
+    success "Architecture: Apple Silicon (arm64)"
+  else
+    warn "Architecture: ${arch} (Intel). Intel is not tested — proceed with caution. See docs/deployment/production.md#apple-silicon-vs-intel"
+    # Not a hard failure — Intel may work; the operator has been warned.
+  fi
+
+  # 4. Docker Desktop on macOS ships its CLI under /Applications but doesn't
+  #    put it on non-login-shell PATH. If `docker` isn't found, look there
+  #    before failing.
+  if ! command -v docker >/dev/null 2>&1; then
+    local mac_docker="/Applications/Docker.app/Contents/Resources/bin"
+    if [ -x "${mac_docker}/docker" ]; then
+      export PATH="${mac_docker}:$PATH"
+      info "Using Docker Desktop CLI at ${mac_docker}"
+    else
+      printf '\033[1;31m[ERROR]\033[0m Docker is not installed. Install from https://www.docker.com/products/docker-desktop/ (minimum Docker Desktop 4.28 / engine %s)\n' "$MIN_DOCKER_MAJOR" >&2
+      errors=$((errors + 1))
+    fi
+  fi
+
+  if command -v docker >/dev/null 2>&1; then
+    # 4b. Docker engine version
+    local docker_ver docker_major
+    docker_ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null || true)"
+    docker_major="${docker_ver%%.*}"
+    if [ -z "$docker_major" ]; then
+      printf '\033[1;31m[ERROR]\033[0m Cannot reach the Docker daemon. Start Docker Desktop and retry.\n' >&2
+      errors=$((errors + 1))
+    elif [ "$docker_major" -lt "$MIN_DOCKER_MAJOR" ] 2>/dev/null; then
+      printf '\033[1;31m[ERROR]\033[0m Docker engine %s is below the minimum (%s). Upgrade Docker Desktop. See docs/deployment/production.md#docker-desktop\n' "$docker_ver" "$MIN_DOCKER_MAJOR" >&2
+      errors=$((errors + 1))
+    else
+      success "Docker engine: ${docker_ver}"
+    fi
+
+    # 5. Docker Compose v2
+    local compose_ver compose_maj compose_min
+    compose_ver="$(docker compose version --short 2>/dev/null || true)"
+    compose_maj="${compose_ver%%.*}"
+    compose_min="${compose_ver#*.}"; compose_min="${compose_min%%.*}"
+    if [ -z "$compose_ver" ]; then
+      printf '\033[1;31m[ERROR]\033[0m docker compose v2 plugin not found. Upgrade Docker Desktop.\n' >&2
+      errors=$((errors + 1))
+    elif [ "$compose_maj" -lt "$MIN_COMPOSE_MAJOR" ] 2>/dev/null || \
+         { [ "$compose_maj" -eq "$MIN_COMPOSE_MAJOR" ] && [ "$compose_min" -lt "$MIN_COMPOSE_MINOR" ] 2>/dev/null; }; then
+      printf '\033[1;31m[ERROR]\033[0m docker compose %s is below the minimum (%s.%s). Upgrade Docker Desktop.\n' "$compose_ver" "$MIN_COMPOSE_MAJOR" "$MIN_COMPOSE_MINOR" >&2
+      errors=$((errors + 1))
+    else
+      success "Docker Compose: ${compose_ver}"
+    fi
+  fi
+
+  # 6. Disk space — free bytes on the install directory's filesystem
+  local install_base free_gb
+  install_base="$(dirname "${PS_PROD_HOME:-$HOME/powershop}")"
+  # `df -k` prints 1K-blocks; field 4 is Available
+  free_gb="$(df -k "$install_base" 2>/dev/null | awk 'NR==2 {printf "%d", $4/1024/1024}')"
+  if [ -z "$free_gb" ]; then
+    warn "Could not determine free disk space on ${install_base} — ensure at least ${MIN_FREE_GB} GB is available."
+  elif [ "$free_gb" -lt "$MIN_FREE_GB" ]; then
+    warn "Only ${free_gb} GB free on ${install_base}. At least ${MIN_FREE_GB} GB is recommended for data growth. See docs/deployment/production.md#disk-space"
+    # Warn only — not a hard failure; operator may know what they're doing.
+  else
+    success "Disk space: ${free_gb} GB free (≥ ${MIN_FREE_GB} GB required)"
+  fi
+
+  # 7. SSH server (Remote Login) — best-effort check on macOS
+  if launchctl print system/com.openssh.sshd >/dev/null 2>&1; then
+    success "SSH server: Remote Login is enabled"
+  else
+    warn "Remote Login (SSH) does not appear to be enabled. Enable it in System Settings → General → Sharing → Remote Login so 'ps prod *' commands can connect from developer machines."
+    # Warn only — the install may still complete; ops will be broken until SSH is on.
+  fi
+
+  # Summary
+  if [ "$errors" -gt 0 ]; then
+    printf '\033[1;31m[ERROR]\033[0m %d preflight check(s) failed. Fix the issues above before retrying.\n' "$errors" >&2
+    exit 1
+  fi
+
+  if [ "$check_only" = "1" ]; then
+    success "Preflight checks passed — this Mac is ready for installation."
+    exit 0
+  fi
 }
 
 check_prerequisites() {
@@ -315,13 +437,23 @@ EOF
 }
 
 main() {
+  local check_only=0
+  for arg in "$@"; do
+    case "$arg" in
+      --check-only) check_only=1 ;;
+    esac
+  done
+
   echo ""
   echo "=================================================="
   echo "  PowerShop Analytics — production installer"
   echo "  Channel: ${CHANNEL}"
   echo "  Project dir: ${PROJECT_DIR}"
+  [ "$check_only" = "1" ] && echo "  Mode: preflight check only (--check-only)"
   echo "=================================================="
   echo ""
+
+  preflight_check "$check_only"
 
   check_prerequisites
 
