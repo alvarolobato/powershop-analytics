@@ -102,7 +102,7 @@ export interface LlmRequest {
 export interface LlmResponse {
   text: string;
   usage: NormalizedUsage;
-  provider: DashboardLlmProviderId;
+  provider: Exclude<DashboardLlmProviderId, "e2e-stub">;
   driver?: string | null;
 }
 

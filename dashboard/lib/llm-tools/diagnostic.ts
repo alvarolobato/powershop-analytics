@@ -42,10 +42,12 @@ export function buildAgenticErrorDiagnostic(
   // so the two fields are always consistent in the diagnostic output.
   const effectiveCfg: typeof cfg =
     cfg.provider === "e2e-stub" ? { ...cfg, provider: "openrouter" } : cfg;
+  // Narrowed separately so the return type matches Exclude<DashboardLlmProviderId, "e2e-stub">.
+  const providerLabel = cfg.provider === "e2e-stub" ? ("openrouter" as const) : cfg.provider;
 
   return {
     subError: `${err.code}: ${sanitize(err.message)}`,
-    provider: effectiveCfg.provider,
+    provider: providerLabel,
     driver: cfg.provider === "cli" ? cfg.cliDriver : null,
     model: getEffectiveDashboardModel(effectiveCfg),
     phase,

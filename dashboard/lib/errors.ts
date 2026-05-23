@@ -52,8 +52,8 @@ export type ErrorCode =
 export interface AgenticErrorDiagnostic {
   /** Inner LLM/CLI failure code (e.g. LLM_CLI_AUTH, LLM_CLI_EXIT). */
   subError: string;
-  /** LLM provider that produced this error. */
-  provider: DashboardLlmProviderId;
+  /** LLM provider that produced this error (never "e2e-stub" — coerced to "openrouter" before emit). */
+  provider: Exclude<DashboardLlmProviderId, "e2e-stub">;
   /** CLI driver id (claude_code) when provider=cli, else null. */
   driver: string | null;
   /** Effective model id sent to the upstream backend. */
