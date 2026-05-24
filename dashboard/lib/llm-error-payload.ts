@@ -23,7 +23,7 @@ import {
   persistAgenticError,
 } from "@/lib/llm-tools/diagnostic";
 
-export interface ClassifiedLlmError {
+interface ClassifiedLlmError {
   status: number;
   code: ErrorCode;
   userMessage: string;
@@ -36,20 +36,14 @@ export interface ClassifiedLlmError {
  * The `requestId` parameter is accepted for call-site consistency but is not
  * used directly here; the caller is responsible for threading it into the
  * `formatApiError()` call.
+ *
+ * NOTE: AgenticRunnerError is handled upstream in buildLlmErrorPayload before
+ * this function is called, so it is not handled here.
  */
-export function classifyLlmError(
+function classifyLlmError(
   err: unknown,
   _requestId: string,
 ): ClassifiedLlmError {
-  if (err instanceof AgenticRunnerError) {
-    return {
-      status: 500,
-      code: "AGENTIC_RUNNER",
-      userMessage:
-        "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
-    };
-  }
-
   if (err instanceof BudgetExceededError) {
     return {
       status: 429,
