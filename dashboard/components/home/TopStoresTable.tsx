@@ -29,8 +29,8 @@ function sparkColor(store: Store): string {
   return store.delta >= 0 ? "var(--up)" : "var(--down)";
 }
 
-const COL_TEMPLATE = "32px 60px 1fr 110px 80px 100px";
-const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "Últ. 7 días"];
+const COL_TEMPLATE = "32px 60px 1fr 110px 80px 56px 100px";
+const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "Racha", "Últ. 7 días"];
 
 const outlineLink: React.CSSProperties = {
   fontSize: 11,
@@ -214,6 +214,35 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                 {/* Delta vs network avg */}
                 <td style={{ padding: 0, textAlign: "right" }}>
                   <Delta value={store.delta} size="sm" />
+                </td>
+
+                {/* Racha — streak weeks below YoY */}
+                <td style={{ padding: 0, textAlign: "right" }}>
+                  {store.streakWeeks >= 3 ? (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--down)",
+                      }}
+                      title={`${store.streakWeeks} semanas consecutivas por debajo del año anterior`}
+                      data-testid={`racha-${store.code}`}
+                    >
+                      {store.streakWeeks}▼
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        fontSize: 11,
+                        color: "var(--fg-subtle)",
+                      }}
+                      data-testid={`racha-${store.code}`}
+                    >
+                      —
+                    </span>
+                  )}
                 </td>
 
                 {/* 7-day sparkline */}

@@ -57,6 +57,13 @@ export type HomeViewModel = {
     yoyLabel: string;
     spark: number[];
     sparkLabels: string[];
+    /** Number of consecutive complete ISO weeks where this period's sales
+     *  were below the same ISO week of the prior year. 0 = no decline streak.
+     *  Only meaningful on the "semana" period; undefined on others. */
+    streakWeeks?: number;
+    /** Direction of the spark trend derived from a linear slope over all
+     *  spark data points. */
+    trendDirection?: "up" | "flat" | "down";
   }>;
   dailyTrend: Array<{ day: number; actual: number | null; ly: number }>;
   /** Active retail stores (excluding tienda='99' and any store with zero
@@ -71,6 +78,9 @@ export type HomeViewModel = {
     delta: number;
     spark: number[]; // last 7 days
     status: "ok" | "watch" | "alert";
+    /** Consecutive complete ISO weeks where this store's sales were below
+     *  the same ISO week of the prior year. 0 = no decline streak. */
+    streakWeeks: number;
   }>;
   /** Stores excluded from `topStores` because they had no sales in the
    *  last 30 days. Surfaced under "Ver tiendas inactivas" so they remain

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// The /api/home route fans out into ~22 parallel `query()` calls. CI
+// The /api/home route fans out into ~24 parallel `query()` calls. CI
 // has no postgres, so we stub `@/lib/db.query` with a generic mock that
 // returns an "all-null row" shape compatible with the route's
 // destructuring + safe-coerce helpers (every `num(row[i])` becomes 0,
@@ -45,6 +45,16 @@ vi.mock("@/lib/db", () => {
         return {
           rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]),
         };
+      }
+      // Business-level weekly streak query (no per-store grouping).
+      // Return empty rows → streakWeeks = 0 (no streak).
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Per-store weekly streak query (groups by s.tienda).
+      // Return empty rows → no stores have streaks.
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return { rows: [] };
       }
       // Top-stores query: 10 rows of (codigo, identificador, poblacion,
       // sales). Empty list is also valid; the route handles len < 10.
@@ -282,5 +292,175 @@ describe("GET /api/home", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.asOfDate).toBe("2026-05-03");
+  });
+
+  it("includes streakWeeks in semana period", async () => {
+    const res = await GET(makeReq());
+    const { periods } = await res.json();
+    const semana = periods.find((p: { id: string }) => p.id === "semana");
+    expect(semana).toBeDefined();
+    expect(typeof semana.streakWeeks).toBe("number");
+    // Default mock returns empty streak rows → 0 streak weeks
+    expect(semana.streakWeeks).toBe(0);
+  });
+
+  it("sets streakWeeks > 0 when consecutive declining weeks are present", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    // Inject 4 declining weeks for the business streak query (ordered DESC)
+    // Each row: [week_start, curr_sales, ly_sales]
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      // Business streak: 4 consecutive weeks below LY (curr < ly)
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return {
+          rows: [
+            ["2026-04-21", 9000, 10000], // week -1: below LY
+            ["2026-04-14", 8800, 10200], // week -2: below LY
+            ["2026-04-07", 9100, 10300], // week -3: below LY
+            ["2026-03-31", 9200, 10100], // week -4: below LY
+            ["2026-03-24", 10500, 9800], // week -5: above LY → streak stops
+          ],
+        };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res = await GET(makeReq());
+    const { periods } = await res.json();
+    const semana = periods.find((p: { id: string }) => p.id === "semana");
+    expect(semana.streakWeeks).toBe(4);
+    // Restore default mock for subsequent tests
+    queryMock.mockRestore();
+  });
+
+  it("includes streakWeeks per store", async () => {
+    const res = await GET(makeReq());
+    const { topStores } = await res.json();
+    // Default mock returns empty stores, so topStores is empty.
+    // This test verifies the field is present when stores exist via a mock.
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Per-store streak: store "611" has 0 streak, store "608" has 0 streak
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Stores main query: return two stores
+      if (sql.includes("FROM ps_tiendas") && sql.includes("LEFT JOIN")) {
+        return {
+          rows: [
+            ["611", "Valencia", "Valencia", 5000, 4500, 30000, "2026-04-30"],
+            ["608", "Montijo", "Montijo", 3000, 3200, 25000, "2026-04-30"],
+          ],
+        };
+      }
+      if (sql.includes("FROM ps_tiendas") && sql.includes("CROSS JOIN")) {
+        return { rows: [] };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res2 = await GET(makeReq());
+    const body2 = await res2.json();
+    for (const store of body2.topStores) {
+      expect(typeof store.streakWeeks).toBe("number");
+    }
+    queryMock.mockRestore();
+  });
+
+  it("escalates store status when streakWeeks >= 3", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Per-store streak: store "611" has 4 consecutive declining weeks
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return {
+          rows: [
+            // tienda, week_start, curr_sales, ly_sales — ordered by tienda, week DESC
+            ["611", "2026-04-21", 900, 1000], // week -1: below LY
+            ["611", "2026-04-14", 880, 1020], // week -2: below LY
+            ["611", "2026-04-07", 910, 1030], // week -3: below LY
+            ["611", "2026-03-31", 920, 1010], // week -4: below LY
+            ["611", "2026-03-24", 1050, 980], // week -5: above LY → break
+          ],
+        };
+      }
+      // Stores main query: store 611 with delta -2% (small daily delta)
+      // avg7 = 1000, sales = 980 → delta = 980/1000 - 1 = -0.02
+      if (sql.includes("FROM ps_tiendas") && sql.includes("LEFT JOIN")) {
+        return {
+          rows: [
+            ["611", "Valencia", "Valencia", 980, 1000, 30000, "2026-04-30"],
+          ],
+        };
+      }
+      if (sql.includes("FROM ps_tiendas") && sql.includes("CROSS JOIN")) {
+        return { rows: [] };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res = await GET(makeReq());
+    const { topStores } = await res.json();
+    const store611 = topStores.find((s: { code: string }) => s.code === "611");
+    expect(store611).toBeDefined();
+    // delta = -2% alone would be "ok" (threshold is -4%), but streakWeeks=4 ≥ 3 → "watch"
+    expect(store611.streakWeeks).toBe(4);
+    expect(store611.status).toBe("watch");
+    queryMock.mockRestore();
   });
 });

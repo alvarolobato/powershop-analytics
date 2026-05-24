@@ -15,6 +15,7 @@ interface PeriodCardProps {
 function PeriodCard({ period }: PeriodCardProps) {
   const sparkColor = period.deltaPrev >= 0 ? "var(--up)" : "var(--down)";
   const yoyIsNull = period.deltaYoY === undefined || period.deltaYoY === null;
+  const showStreakBadge = period.id === "semana" && (period.streakWeeks ?? 0) >= 3;
 
   return (
     <div
@@ -50,9 +51,40 @@ function PeriodCard({ period }: PeriodCardProps) {
             width={70}
             height={20}
             label={`Tendencia ${period.label}`}
+            trendDirection={period.trendDirection}
           />
         )}
       </div>
+
+      {/* Streak badge — shown only when semana has >= 3 consecutive declining weeks */}
+      {showStreakBadge && (
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 4,
+            background: "rgba(var(--down-rgb, 220, 38, 38), 0.10)",
+            border: "1px solid var(--down)",
+            borderRadius: 4,
+            padding: "2px 7px",
+            alignSelf: "flex-start",
+          }}
+          data-testid="streak-badge"
+          title={`${period.streakWeeks} semanas consecutivas por debajo del año anterior`}
+        >
+          <span
+            style={{
+              fontSize: 10,
+              color: "var(--down)",
+              fontFamily: "var(--font-jetbrains, monospace)",
+              fontWeight: 600,
+              letterSpacing: "0.04em",
+            }}
+          >
+            {period.streakWeeks} sem ▼
+          </span>
+        </div>
+      )}
 
       {/* Value */}
       <div

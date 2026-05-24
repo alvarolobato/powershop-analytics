@@ -64,16 +64,16 @@ const MOCK_DATA: HomeViewModel = {
     comparisonLabel: "Lunes anterior",
   },
   periods: [
-    { id: "hoy",    label: "Hoy",       value: 38420,   deltaPrev: 0.082,  prevLabel: "vs ayer",    deltaYoY: -0.114, yoyLabel: "vs lun 5 may 2025", spark: [1, 2, 3], sparkLabels: ["a"] },
-    { id: "semana", label: "Semana",    value: 218400,  deltaPrev: -0.043, prevLabel: "vs sem ant", deltaYoY: -0.092, yoyLabel: "vs sem 18 2025",    spark: [1, 2, 3], sparkLabels: ["a"] },
-    { id: "mes",    label: "Mes",       value: 134802,  deltaPrev: -0.189, prevLabel: "vs abril",   deltaYoY: -0.132, yoyLabel: "vs may 2025",       spark: [1, 2, 3], sparkLabels: ["a"] },
-    { id: "anyo",   label: "Año (YTD)", value: 1842600, deltaPrev: 0.034,  prevLabel: "vs YTD",     deltaYoY: 0.034,  yoyLabel: "vs 2025",           spark: [1, 2, 3], sparkLabels: ["a"] },
+    { id: "hoy",    label: "Hoy",       value: 38420,   deltaPrev: 0.082,  prevLabel: "vs ayer",    deltaYoY: -0.114, yoyLabel: "vs lun 5 may 2025", spark: [1, 2, 3], sparkLabels: ["a"], trendDirection: "up" },
+    { id: "semana", label: "Semana",    value: 218400,  deltaPrev: -0.043, prevLabel: "vs sem ant", deltaYoY: -0.092, yoyLabel: "vs sem 18 2025",    spark: [1, 2, 3], sparkLabels: ["a"], streakWeeks: 4, trendDirection: "down" },
+    { id: "mes",    label: "Mes",       value: 134802,  deltaPrev: -0.189, prevLabel: "vs abril",   deltaYoY: -0.132, yoyLabel: "vs may 2025",       spark: [1, 2, 3], sparkLabels: ["a"], trendDirection: "down" },
+    { id: "anyo",   label: "Año (YTD)", value: 1842600, deltaPrev: 0.034,  prevLabel: "vs YTD",     deltaYoY: 0.034,  yoyLabel: "vs 2025",           spark: [1, 2, 3], sparkLabels: ["a"], trendDirection: "flat" },
   ],
   dailyTrend: [{ day: 1, actual: 8000, ly: 8500 }, { day: 2, actual: null, ly: 9000 }],
   topStores: [
-    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, spark: [1, 2, 3], status: "ok" },
-    { code: "608", name: "Montijo", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "ok" },
-    { code: "601", name: "Badajoz", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert" },
+    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, spark: [1, 2, 3], status: "ok", streakWeeks: 0 },
+    { code: "608", name: "Montijo", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "watch", streakWeeks: 4 },
+    { code: "601", name: "Badajoz", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert", streakWeeks: 0 },
   ],
   inactiveStores: [],
   opsRetail: [
@@ -235,5 +235,57 @@ describe("InicioPage", () => {
     render(<InicioPage />);
     expect(screen.getByTestId("weekly-summary-btn")).toBeInTheDocument();
     expect(screen.getByTestId("weekly-summary-btn")).toHaveTextContent("Resumen semanal");
+  });
+
+  it("shows streak badge when streakWeeks >= 3 on Semana period", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+    });
+    // MOCK_DATA has semana.streakWeeks = 4 → badge should be visible
+    expect(screen.getByTestId("streak-badge")).toBeInTheDocument();
+    expect(screen.getByTestId("streak-badge")).toHaveTextContent("4 sem ▼");
+  });
+
+  it("hides streak badge when streakWeeks < 3", async () => {
+    const dataNoStreak: HomeViewModel = {
+      ...MOCK_DATA,
+      periods: MOCK_DATA.periods.map((p) =>
+        p.id === "semana" ? { ...p, streakWeeks: 2 } : p,
+      ),
+    };
+    globalThis.fetch = mockFetch(dataNoStreak);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("streak-badge")).not.toBeInTheDocument();
+  });
+
+  it("renders racha column in stores table", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("top-stores-table")).toBeInTheDocument();
+    });
+    // The Racha column header should be present
+    expect(screen.getByRole("columnheader", { name: /racha/i })).toBeInTheDocument();
+    // Store 608 has streakWeeks=4 → should show "4▼"
+    expect(screen.getByTestId("racha-608")).toHaveTextContent("4▼");
+    // Store 611 has streakWeeks=0 → should show "—"
+    expect(screen.getByTestId("racha-611")).toHaveTextContent("—");
+  });
+
+  it("shows trend indicator on sparklines", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+    });
+    // MOCK_DATA has trendDirection for hoy (up) and semana (down)
+    // Both should render a sparkline-with-trend wrapper
+    const trendIndicators = screen.getAllByTestId(/^trend-indicator-(up|down)$/);
+    expect(trendIndicators.length).toBeGreaterThan(0);
   });
 });
