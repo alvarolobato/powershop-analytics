@@ -196,4 +196,13 @@ describe("PeriodGrid — margin (pct format)", () => {
     const semCard = screen.getByTestId("period-card-semana");
     expect(semCard.textContent).toContain("—");
   });
+
+  it("renders em-dash for value when margin value is null (no-revenue period)", () => {
+    const periodsWithNullValue: HomeViewModel["marginPeriods"] = [
+      { ...MARGIN_PERIODS[0], value: null },
+    ];
+    render(<PeriodGrid periods={periodsWithNullValue} title="Margen bruto" format="pct" />);
+    const hoyCard = screen.getByTestId("period-card-hoy");
+    expect(hoyCard.textContent).toContain("—");
+  });
 });

@@ -256,7 +256,7 @@ describe("GET /api/home", () => {
     expect(marginIds).toEqual(expect.arrayContaining(["hoy", "semana", "mes", "anyo"]));
 
     for (const mp of marginPeriods) {
-      expect(typeof mp.value).toBe("number");
+      expect(mp.value === null || typeof mp.value === "number").toBe(true);
       expect(typeof mp.deltaPrev).toBe("number");
       expect(typeof mp.prevLabel).toBe("string");
       expect(typeof mp.yoyLabel).toBe("string");

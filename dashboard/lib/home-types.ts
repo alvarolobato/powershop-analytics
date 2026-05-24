@@ -64,8 +64,8 @@ export type HomeViewModel = {
   marginPeriods: Array<{
     id: "hoy" | "semana" | "mes" | "anyo";
     label: string;
-    /** Margin fraction, e.g. 0.521 = 52.1% */
-    value: number;
+    /** Margin fraction, e.g. 0.521 = 52.1%. Null when the period had no revenue. */
+    value: number | null;
     /** Absolute percentage-point difference vs previous period (e.g. -0.03 = -3 pp). */
     deltaPrev: number;
     prevLabel: string;

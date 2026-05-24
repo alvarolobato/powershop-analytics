@@ -90,6 +90,13 @@ function dateLabelEs(d: Date): string {
   return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+function isoWeekOf(d: Date): number {
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  return Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
 /** Choose a display label for a store: identificador → poblacion → "Tienda {codigo}". */
 function storeName(identificador: unknown, poblacion: unknown, codigo: string): string {
   const id = (identificador ?? "").toString().trim();
@@ -957,7 +964,7 @@ export async function GET(req: NextRequest) {
         deltaPrev: safeRatio(semCurr, semPrev),
         prevLabel: "vs sem ant",
         deltaYoY: semLY > 0 ? safeRatio(semCurr, semLY) : null,
-        yoyLabel: `vs sem ${asOfDateObj.getFullYear() - 1}`,
+        yoyLabel: `vs sem ${isoWeekOf(asOfDateObj)} ${asOfDateObj.getFullYear() - 1}`,
         spark: semSpark,
         sparkLabels: semSparkLabels,
       },
@@ -991,8 +998,8 @@ export async function GET(req: NextRequest) {
     // ─────────────────────────────────────────────────────────────────────
     // Margin periods
     // ─────────────────────────────────────────────────────────────────────
-    function marginFrac(rev: number, cost: number): number {
-      return rev > 0 ? (rev - cost) / rev : 0;
+    function marginFrac(rev: number, cost: number): number | null {
+      return rev > 0 ? (rev - cost) / rev : null;
     }
 
     // Hoy margin (use same date logic as ventas hoy — no cutoff for margin
@@ -1037,17 +1044,17 @@ export async function GET(req: NextRequest) {
     const mAnyoCurr = marginFrac(mAnyoCurrRev, mAnyoCurrCost);
     const mAnyoLY = marginFrac(mAnyoLYRev, mAnyoLYCost);
 
-    // Spark: compute margin fraction per bucket
-    const mHoySpark = marginHoySpark7Row.rows.map((r) => marginFrac(num(r[1]), num(r[2])));
+    // Spark: compute margin fraction per bucket; null buckets (no revenue) collapse to 0
+    const mHoySpark = marginHoySpark7Row.rows.map((r) => marginFrac(num(r[1]), num(r[2])) ?? 0);
     const mHoySparkLabels = marginHoySpark7Row.rows.map((r) => {
       const [yy, mm2, dd2] = String(r[0]).split("-").map((s) => parseInt(s, 10));
       return DAYS_ES[new Date(yy, mm2 - 1, dd2).getDay()];
     });
-    const mSemSpark = marginSemanaSpark6Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])));
+    const mSemSpark = marginSemanaSpark6Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])) ?? 0);
     const mSemSparkLabels = marginSemanaSpark6Row.rows.map((r) => `s${num(r[1])}`);
-    const mMesSpark = marginMesSpark5Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])));
+    const mMesSpark = marginMesSpark5Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])) ?? 0);
     const mMesSparkLabels = marginMesSpark5Row.rows.map((r) => MONTHS_ES[num(r[1]) - 1] || "");
-    const mAnyoSpark = marginAnyoSpark5Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])));
+    const mAnyoSpark = marginAnyoSpark5Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])) ?? 0);
     const mAnyoSparkLabels = marginAnyoSpark5Row.rows.map((r) => MONTHS_ES[num(r[1]) - 1] || "");
 
     const marginPeriods: HomeViewModel["marginPeriods"] = [
@@ -1055,9 +1062,9 @@ export async function GET(req: NextRequest) {
         id: "hoy",
         label: "Hoy",
         value: mHoyCurr,
-        deltaPrev: mHoyCurr - mHoyPrev,
+        deltaPrev: mHoyCurr !== null && mHoyPrev !== null ? mHoyCurr - mHoyPrev : 0,
         prevLabel: "vs ayer",
-        deltaYoY: mHoyLYRev > 0 ? mHoyCurr - mHoyLY : null,
+        deltaYoY: mHoyLYRev > 0 && mHoyCurr !== null ? mHoyCurr - (mHoyLY ?? 0) : null,
         yoyLabel: `vs ${dateLabelEs(lastYearSameDay)}`,
         spark: mHoySpark,
         sparkLabels: mHoySparkLabels,
@@ -1066,10 +1073,10 @@ export async function GET(req: NextRequest) {
         id: "semana",
         label: "Semana",
         value: mSemCurr,
-        deltaPrev: mSemCurr - mSemPrev,
+        deltaPrev: mSemCurr !== null && mSemPrev !== null ? mSemCurr - mSemPrev : 0,
         prevLabel: "vs sem ant",
-        deltaYoY: mSemLYRev > 0 ? mSemCurr - mSemLY : null,
-        yoyLabel: `vs sem ${asOfDateObj.getFullYear() - 1}`,
+        deltaYoY: mSemLYRev > 0 && mSemCurr !== null ? mSemCurr - (mSemLY ?? 0) : null,
+        yoyLabel: `vs sem ${isoWeekOf(asOfDateObj)} ${asOfDateObj.getFullYear() - 1}`,
         spark: mSemSpark,
         sparkLabels: mSemSparkLabels,
       },
@@ -1077,9 +1084,9 @@ export async function GET(req: NextRequest) {
         id: "mes",
         label: "Mes",
         value: mMesCurr,
-        deltaPrev: mMesCurr - mMesPrev,
+        deltaPrev: mMesCurr !== null && mMesPrev !== null ? mMesCurr - mMesPrev : 0,
         prevLabel: "vs mes ant",
-        deltaYoY: mMesLYRev > 0 ? mMesCurr - mMesLY : null,
+        deltaYoY: mMesLYRev > 0 && mMesCurr !== null ? mMesCurr - (mMesLY ?? 0) : null,
         yoyLabel: `vs ${MONTHS_ES[asOfDateObj.getMonth()]} ${asOfDateObj.getFullYear() - 1}`,
         spark: mMesSpark,
         sparkLabels: mMesSparkLabels,
@@ -1088,9 +1095,9 @@ export async function GET(req: NextRequest) {
         id: "anyo",
         label: "Año (YTD)",
         value: mAnyoCurr,
-        deltaPrev: mAnyoLYRev > 0 ? mAnyoCurr - mAnyoLY : 0,
+        deltaPrev: mAnyoLYRev > 0 && mAnyoCurr !== null ? mAnyoCurr - (mAnyoLY ?? 0) : 0,
         prevLabel: `vs YTD ${asOfDateObj.getFullYear() - 1}`,
-        deltaYoY: mAnyoLYRev > 0 ? mAnyoCurr - mAnyoLY : null,
+        deltaYoY: mAnyoLYRev > 0 && mAnyoCurr !== null ? mAnyoCurr - (mAnyoLY ?? 0) : null,
         yoyLabel: `vs ${asOfDateObj.getFullYear() - 1} mismo tramo`,
         spark: mAnyoSpark,
         sparkLabels: mAnyoSparkLabels,

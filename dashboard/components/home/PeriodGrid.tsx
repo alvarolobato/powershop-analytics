@@ -16,7 +16,10 @@ interface PeriodCardProps {
 function PeriodCard({ period, format = "eur" }: PeriodCardProps) {
   const sparkColor = period.deltaPrev >= 0 ? "var(--up)" : "var(--down)";
   const yoyIsNull = period.deltaYoY === undefined || period.deltaYoY === null;
-  const formattedValue = format === "pct" ? fmtPct(period.value) : fmtEUR0(period.value);
+  const formattedValue =
+    format === "pct"
+      ? period.value == null ? "—" : fmtPct(period.value)
+      : fmtEUR0(period.value ?? 0);
 
   return (
     <div
