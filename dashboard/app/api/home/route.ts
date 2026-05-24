@@ -482,42 +482,56 @@ export async function GET(req: NextRequest) {
       ),
 
       // Business-level weekly streak: consecutive complete ISO weeks below YoY.
-      // Returns one row per ISO week for the last 16 weeks (8 current + 8 prior
-      // year). A "complete" week ends before the ISO week that contains asOfDate,
+      // Returns one row per ISO week for the last 16 complete ISO weeks.
+      // A "complete" week ends before the ISO week that contains asOfDate,
       // so partial weeks don't generate false positives.
       // The streak is computed by the application (not SQL) from the ordered rows.
+      // LY is matched by the same ISO week number in the prior ISO year
+      // (avoids the ±7-day drift that occurs at year boundaries with -1 year).
       query(
         `WITH weeks AS (
-           SELECT week_start FROM generate_series(
-             DATE_TRUNC('week', $1::date - INTERVAL '15 weeks')::date,
+           SELECT
+             week_start,
+             (DATE_TRUNC('week', MAKE_DATE(EXTRACT(ISOYEAR FROM week_start)::int - 1, 1, 4)) +
+              INTERVAL '1 day' * ((EXTRACT(WEEK FROM week_start)::int - 1) * 7))::date AS ly_week_start
+           FROM generate_series(
+             DATE_TRUNC('week', $1::date - INTERVAL '16 weeks')::date,
              DATE_TRUNC('week', $1::date - INTERVAL '1 week')::date,
              '1 week'
            ) week_start
+         ),
+         sales_agg AS (
+           SELECT
+             DATE_TRUNC('week', fecha_creacion)::date AS sale_week,
+             SUM(total_si) AS weekly_total
+           FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion >= (DATE_TRUNC('week', $1::date - INTERVAL '16 weeks') - INTERVAL '1 year')::date
+             AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date
+           GROUP BY DATE_TRUNC('week', fecha_creacion)::date
          )
          SELECT
            w.week_start::date AS week_start,
-           COALESCE(SUM(CASE WHEN v.fecha_creacion >= w.week_start
-                              AND v.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
-                             THEN v.total_si END), 0)::numeric AS curr_sales,
-           COALESCE(SUM(CASE WHEN v.fecha_creacion >= (w.week_start - INTERVAL '1 year')::date
-                              AND v.fecha_creacion <  (w.week_start - INTERVAL '1 year' + INTERVAL '1 week')::date
-                             THEN v.total_si END), 0)::numeric AS ly_sales
+           COALESCE(cy.weekly_total, 0)::numeric AS curr_sales,
+           COALESCE(ly.weekly_total, 0)::numeric AS ly_sales
          FROM weeks w
-         LEFT JOIN ps_ventas v
-           ON v.entrada = true AND v.tienda <> '99'
-          AND v.fecha_creacion >= (w.week_start - INTERVAL '1 year')::date
-          AND v.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
-         GROUP BY w.week_start
+         LEFT JOIN sales_agg cy ON cy.sale_week = w.week_start
+         LEFT JOIN sales_agg ly ON ly.sale_week = w.ly_week_start
          ORDER BY w.week_start DESC`,
         [asOfDate],
       ),
 
       // Per-store weekly streak: same consecutive-weeks-below-YoY metric per store.
       // Returns one row per (store, week) for the last 16 complete ISO weeks.
+      // LY is matched by the same ISO week number in the prior ISO year.
       query(
         `WITH weeks AS (
-           SELECT week_start FROM generate_series(
-             DATE_TRUNC('week', $1::date - INTERVAL '15 weeks')::date,
+           SELECT
+             week_start,
+             (DATE_TRUNC('week', MAKE_DATE(EXTRACT(ISOYEAR FROM week_start)::int - 1, 1, 4)) +
+              INTERVAL '1 day' * ((EXTRACT(WEEK FROM week_start)::int - 1) * 7))::date AS ly_week_start
+           FROM generate_series(
+             DATE_TRUNC('week', $1::date - INTERVAL '16 weeks')::date,
              DATE_TRUNC('week', $1::date - INTERVAL '1 week')::date,
              '1 week'
            ) week_start
@@ -526,25 +540,27 @@ export async function GET(req: NextRequest) {
            SELECT DISTINCT tienda FROM ps_ventas
            WHERE entrada = true AND tienda <> '99'
              AND fecha_creacion >= ($1::date - INTERVAL '30 days')::date
+         ),
+         sales_agg AS (
+           SELECT
+             tienda,
+             DATE_TRUNC('week', fecha_creacion)::date AS sale_week,
+             SUM(total_si) AS weekly_total
+           FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion >= (DATE_TRUNC('week', $1::date - INTERVAL '16 weeks') - INTERVAL '1 year')::date
+             AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date
+           GROUP BY tienda, DATE_TRUNC('week', fecha_creacion)::date
          )
          SELECT
            s.tienda,
            w.week_start::date AS week_start,
-           COALESCE(SUM(CASE WHEN v.fecha_creacion >= w.week_start
-                              AND v.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
-                              AND v.tienda = s.tienda
-                             THEN v.total_si END), 0)::numeric AS curr_sales,
-           COALESCE(SUM(CASE WHEN v.fecha_creacion >= (w.week_start - INTERVAL '1 year')::date
-                              AND v.fecha_creacion <  (w.week_start - INTERVAL '1 year' + INTERVAL '1 week')::date
-                              AND v.tienda = s.tienda
-                             THEN v.total_si END), 0)::numeric AS ly_sales
+           COALESCE(cy.weekly_total, 0)::numeric AS curr_sales,
+           COALESCE(ly.weekly_total, 0)::numeric AS ly_sales
          FROM stores s
          CROSS JOIN weeks w
-         LEFT JOIN ps_ventas v
-           ON v.entrada = true AND v.tienda <> '99'
-          AND v.fecha_creacion >= (w.week_start - INTERVAL '1 year')::date
-          AND v.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
-         GROUP BY s.tienda, w.week_start
+         LEFT JOIN sales_agg cy ON cy.tienda = s.tienda AND cy.sale_week = w.week_start
+         LEFT JOIN sales_agg ly ON ly.tienda = s.tienda AND ly.sale_week = w.ly_week_start
          ORDER BY s.tienda, w.week_start DESC`,
         [asOfDate],
       ),
