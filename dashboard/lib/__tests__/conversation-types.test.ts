@@ -7,6 +7,11 @@ import {
 } from "@/lib/conversation-types";
 
 describe("getMessageText", () => {
+  it("returns plain string for legacy string content", () => {
+    const content: MessageContent = "legacy message";
+    expect(getMessageText(content)).toBe("legacy message");
+  });
+
   it("returns text from AssistantMessageContent with text field", () => {
     const content: MessageContent = { text: "hello world" };
     expect(getMessageText(content)).toBe("hello world");

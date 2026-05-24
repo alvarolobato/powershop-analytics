@@ -85,7 +85,8 @@ export interface AssistantMessageContent {
 
 export type MessageContent =
   | AssistantMessageContent
-  | { tool_call_id: string; tool_name: string; content: unknown };
+  | { tool_call_id: string; tool_name: string; content: unknown }
+  | string; // legacy: older persisted rows may have been stored as plain strings
 
 export interface ConversationMessage {
   id: string;
@@ -136,6 +137,7 @@ export function isToolResultContent(
 }
 
 export function getMessageText(content: MessageContent): string {
+  if (typeof content === "string") return content;
   if (isAssistantContent(content)) return content.text ?? "";
   return "";
 }

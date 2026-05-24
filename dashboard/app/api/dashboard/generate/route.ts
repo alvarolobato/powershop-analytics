@@ -308,12 +308,9 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
               .catch((e) => console.error(`[${requestId}] appendMessage(error) failed:`, e));
             await touchConversation(conversationId, "error").catch(() => {});
           }
-          send({
-            ...errPayload,
-            type: "error",
-            requestId,
-            httpStatus: errStatus,
-          });
+          // Spread payload first so its requestId is canonical (AgenticRunnerError
+          // carries its own requestId that may differ from the outer one).
+          send({ ...errPayload, type: "error", httpStatus: errStatus });
           controller.close();
           return;
         }
@@ -361,7 +358,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
             console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
           );
         }
-        // Record a success summary as a plain-string assistant message.
+        // Record a success summary as a normalized { text } assistant message.
         // Note: the dashboard itself is saved via /api/dashboards (called by the
         // frontend after this stream closes); we do not link context_ref here
         // because the dashboard ID is not yet available at this point.
