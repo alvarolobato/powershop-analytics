@@ -58,12 +58,21 @@ vi.mock("@/lib/db", () => {
       if (sql.includes("GROUP BY lv.tienda")) {
         return { rows: [["611", 5000, 2000]] }; // tienda, rev, cost → margin = 0.6
       }
+      // 30-day rolling baseline rate: returns a non-null fraction so the
+      // route populates metric.baseline (NULL would suppress the field).
+      if (sql.includes("rate_30d")) {
+        return { rows: [[0.035]] };
+      }
       // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (no CROSS JOIN).
       if (sql.includes("ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, null]] };
       }
       // Store spark query (ps_tiendas CROSS JOIN days): return empty rows
       if (sql.includes("ps_tiendas") && sql.includes("CROSS JOIN")) {
+        return { rows: [] };
+      }
+      // OpsRetail per-store query: FROM ps_ventas ... GROUP BY tienda
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };
       }
       // etl_sync_runs is checked with rows.length > 0 — empty bypasses
@@ -122,9 +131,9 @@ describe("GET /api/home", () => {
         return { rows: [["611", 5000, 2000]] };
       }
       // Top-stores query (ps_tiendas LEFT JOINs, no CROSS JOIN): one active store.
-      // 8 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly.
+      // 9 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly, returns_rate.
       if (sql.includes("FROM ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, 0.032]] };
       }
       if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };

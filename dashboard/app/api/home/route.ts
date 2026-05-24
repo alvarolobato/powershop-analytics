@@ -1411,7 +1411,8 @@ export async function GET(req: NextRequest) {
     // Return rate: today's rate and 30-day rolling baseline (both as fractions)
     const todayRate = gross > 0 ? devolu / gross : 0;
     const prevDayRate = grossPrev > 0 ? devoluPrev / grossPrev : 0;
-    const baseline30d = num(baseline30dRow.rows[0]?.[0]);
+    const baseline30dRaw = baseline30dRow.rows[0]?.[0];
+    const baseline30d = baseline30dRaw != null ? num(baseline30dRaw) : null;
     const devoluSubEur = new Intl.NumberFormat("es-ES", {
       maximumFractionDigits: 0,
     }).format(devolu) + " €";
@@ -1453,7 +1454,7 @@ export async function GET(req: NextRequest) {
         delta: prevDayRate > 0 ? safeRatio(todayRate, prevDayRate) : null,
         inverted: true,
         sub: devoluSubEur,
-        baseline: { value: baseline30d, label: "media 30d" },
+        baseline: baseline30d !== null ? { value: baseline30d, label: "media 30d" } : undefined,
       },
     ];
 
