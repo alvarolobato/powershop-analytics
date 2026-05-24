@@ -261,21 +261,42 @@ describe("GET /api/home", () => {
     const { opsRetail } = await res.json();
     expect(opsRetail).toHaveLength(4);
     const ids = opsRetail.map((m: { id: string }) => m.id);
-    expect(ids).toEqual(["ticket", "tickets", "margen", "devolu"]);
+    expect(ids).toEqual(["ticket", "tickets", "margen", "tasa-devol"]);
     // Mock returns all zeros → prev data is 0 → deltas must be null, not 0
     for (const m of opsRetail) {
       expect(m.delta).toBeNull();
     }
-    // Every metric must have a non-empty sub label describing the comparison period
+    // Every metric must have a non-empty sub label or sub text
     for (const m of opsRetail) {
       expect(typeof m.sub).toBe("string");
       expect(m.sub.length).toBeGreaterThan(0);
     }
-    // Margen compares vs previous month, others compare vs yesterday
+    // Margen compares vs previous month, ticket/tickets compare vs yesterday
     const margen = opsRetail.find((m: { id: string }) => m.id === "margen");
     expect(margen.sub).toBe("vs mes ant");
     const ticket = opsRetail.find((m: { id: string }) => m.id === "ticket");
     expect(ticket.sub).toBe("vs ayer");
+  });
+
+  it("returns tasa-devol metric with pct format and baseline", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    const tasaDevol = opsRetail.find((m: { id: string }) => m.id === "tasa-devol");
+    expect(tasaDevol).toBeDefined();
+    expect(tasaDevol.format).toBe("pct");
+    expect(tasaDevol.inverted).toBe(true);
+    expect(tasaDevol.baseline).toBeDefined();
+    expect(typeof tasaDevol.baseline.value).toBe("number");
+    expect(tasaDevol.baseline.label).toBe("media 30d");
+  });
+
+  it("tasa-devol sub contains EUR amount", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    const tasaDevol = opsRetail.find((m: { id: string }) => m.id === "tasa-devol");
+    expect(tasaDevol).toBeDefined();
+    // Sub should contain a euro sign — the absolute return amount in EUR
+    expect(tasaDevol.sub).toContain("€");
   });
 
   it("returns 4 periods", async () => {

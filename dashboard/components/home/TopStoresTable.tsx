@@ -48,6 +48,14 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
   const [showInactive, setShowInactive] = useState(false);
   const inactiveCount = inactiveStores?.length ?? 0;
 
+  const ratesWithValues = stores
+    .map((s) => s.returnsRate)
+    .filter((r): r is number => r !== null);
+  const networkAvgRate =
+    ratesWithValues.length > 0
+      ? ratesWithValues.reduce((sum, r) => sum + r, 0) / ratesWithValues.length
+      : null;
+
   return (
     <div
       style={{ background: "var(--bg-1)", border: "1px solid var(--border)", borderRadius: 10 }}

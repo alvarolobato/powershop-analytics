@@ -100,6 +100,23 @@ function MetricCell({ metric, isLast }: MetricCellProps) {
           </span>
         )}
       </div>
+
+      {/* Baseline reference (e.g. 30-day rolling average) */}
+      {metric.baseline && (
+        <div
+          data-testid={`metric-baseline-${metric.id}`}
+          style={{
+            fontFamily: "var(--font-jetbrains, monospace)",
+            fontSize: 10,
+            color:
+              metric.inverted && metric.value > metric.baseline.value + 0.01
+                ? "var(--down)"
+                : "var(--fg-subtle)",
+          }}
+        >
+          {metric.baseline.label}: {fmtPct(metric.baseline.value)}
+        </div>
+      )}
     </div>
   );
 }

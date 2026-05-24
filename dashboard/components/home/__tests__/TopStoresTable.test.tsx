@@ -6,16 +6,16 @@ import { TopStoresTable } from "../TopStoresTable";
 import type { HomeViewModel } from "@/lib/home-types";
 
 const STORES: HomeViewModel["topStores"] = [
-  { code: "611", name: "Madrid Serrano",      sales: 4920, delta:  0.082, deltaYoY:  0.031, spark: [3900,4100,4500,3800,4400,4300,4920], status: "ok",    margin: 0.521 },
-  { code: "622", name: "Barcelona Diagonal",  sales: 4180, delta:  0.041, deltaYoY:  0.012, spark: [3700,3900,4000,3850,4020,4100,4180], status: "ok",    margin: 0.498 },
-  { code: "608", name: "Valencia Colón",      sales: 3960, delta: -0.012, deltaYoY: -0.025, spark: [4000,4100,3950,4050,3900,4010,3960], status: "ok",    margin: 0.512 },
-  { code: "637", name: "Sevilla Nervión",     sales: 3740, delta:  0.024, deltaYoY:  0.008, spark: [3500,3650,3700,3550,3680,3620,3740], status: "ok",    margin: 0.489 },
-  { code: "606", name: "Bilbao Gran Vía",     sales: 3210, delta: -0.064, deltaYoY: -0.072, spark: [3450,3500,3380,3420,3300,3260,3210], status: "watch", margin: 0.503 },
-  { code: "612", name: "Málaga Larios",       sales: 3080, delta:  0.018, deltaYoY:  0.005, spark: [2900,2950,3000,2920,3050,3010,3080], status: "ok",    margin: 0.517 },
-  { code: "601", name: "Zaragoza Independ.",  sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [3300,3250,3100,3000,2950,2880,2820], status: "alert", margin: 0.478 },
-  { code: "645", name: "A Coruña Real",       sales: 2680, delta:  0.012, deltaYoY: null,   spark: [2600,2650,2620,2640,2660,2670,2680], status: "ok",    margin: null  },
-  { code: "157", name: "Granada Recogidas",   sales: 2540, delta: -0.034, deltaYoY: -0.018, spark: [2700,2680,2620,2580,2570,2560,2540], status: "ok",    margin: 0.491 },
-  { code: "632", name: "Murcia Trapería",     sales: 2410, delta:  0.052, deltaYoY:  0.044, spark: [2200,2280,2320,2350,2380,2390,2410], status: "ok",    margin: 0.506 },
+  { code: "611", name: "Madrid Serrano",      sales: 4920, delta:  0.082, deltaYoY:  0.031, spark: [3900,4100,4500,3800,4400,4300,4920], status: "ok",    streakWeeks: 0, margin: 0.521, returnsRate: 0.032 },
+  { code: "622", name: "Barcelona Diagonal",  sales: 4180, delta:  0.041, deltaYoY:  0.012, spark: [3700,3900,4000,3850,4020,4100,4180], status: "ok",    streakWeeks: 0, margin: 0.498, returnsRate: 0.028 },
+  { code: "608", name: "Valencia Colón",      sales: 3960, delta: -0.012, deltaYoY: -0.025, spark: [4000,4100,3950,4050,3900,4010,3960], status: "ok",    streakWeeks: 4, margin: 0.512, returnsRate: 0.041 },
+  { code: "637", name: "Sevilla Nervión",     sales: 3740, delta:  0.024, deltaYoY:  0.008, spark: [3500,3650,3700,3550,3680,3620,3740], status: "ok",    streakWeeks: 0, margin: 0.489, returnsRate: 0.035 },
+  { code: "606", name: "Bilbao Gran Vía",     sales: 3210, delta: -0.064, deltaYoY: -0.072, spark: [3450,3500,3380,3420,3300,3260,3210], status: "watch", streakWeeks: 0, margin: 0.503, returnsRate: 0.058 },
+  { code: "612", name: "Málaga Larios",       sales: 3080, delta:  0.018, deltaYoY:  0.005, spark: [2900,2950,3000,2920,3050,3010,3080], status: "ok",    streakWeeks: 0, margin: 0.517, returnsRate: 0.022 },
+  { code: "601", name: "Zaragoza Independ.",  sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [3300,3250,3100,3000,2950,2880,2820], status: "alert", streakWeeks: 0, margin: 0.478, returnsRate: 0.019 },
+  { code: "645", name: "A Coruña Real",       sales: 2680, delta:  0.012, deltaYoY: null,   spark: [2600,2650,2620,2640,2660,2670,2680], status: "ok",    streakWeeks: 0, margin: null,  returnsRate: null },
+  { code: "157", name: "Granada Recogidas",   sales: 2540, delta: -0.034, deltaYoY: -0.018, spark: [2700,2680,2620,2580,2570,2560,2540], status: "ok",    streakWeeks: 0, margin: 0.491, returnsRate: 0.031 },
+  { code: "632", name: "Murcia Trapería",     sales: 2410, delta:  0.052, deltaYoY:  0.044, spark: [2200,2280,2320,2350,2380,2390,2410], status: "ok",    streakWeeks: 0, margin: 0.506, returnsRate: 0.027 },
 ];
 
 describe("TopStoresTable", () => {
