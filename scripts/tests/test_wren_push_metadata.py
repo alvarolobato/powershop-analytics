@@ -4,9 +4,12 @@ Most tests use fixture Markdown strings (no filesystem access).
 Integration tests at the bottom load from the real SOURCE_MDS files on disk.
 """
 
+import decimal
 import importlib.util
 import pathlib
+import sys
 import types
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -573,3 +576,85 @@ def test_tmpdir_cleaned_on_failure(tmp_path, monkeypatch):
     assert created_dirs, "Expected tempfile.mkdtemp to have been called"
     for d in created_dirs:
         assert not os.path.exists(d), f"tmpdir {d!r} was not cleaned up after failure"
+
+
+# ── cross_validate ratio-check logic ─────────────────────────────────────────
+
+
+def _make_psycopg2_mock(rows, col_names):
+    """Minimal psycopg2 mock returning fixed rows for every cursor execution."""
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall.return_value = rows
+    mock_cursor.description = [(name,) for name in col_names]
+    mock_cursor.__enter__.return_value = mock_cursor
+
+    mock_conn = MagicMock()
+    mock_conn.cursor.return_value = mock_cursor
+
+    mock_psycopg2 = MagicMock()
+    mock_psycopg2.connect.return_value = mock_conn
+    return mock_psycopg2
+
+
+def test_cross_validate_two_matching_numerics_no_mismatch(monkeypatch, capsys):
+    """Two numeric cols within 5% tolerance: no mismatch reported, exits 0."""
+    rows = [(decimal.Decimal("1000000"), decimal.Decimal("1010000"))]
+    col_names = ["metric_a", "metric_b"]
+    mock_psycopg2 = _make_psycopg2_mock(rows, col_names)
+    monkeypatch.setattr(
+        wpm,
+        "CROSS_VALIDATIONS",
+        [("Two matching numerics", "SELECT 1", "note")],
+    )
+
+    with patch.dict(sys.modules, {"psycopg2": mock_psycopg2}):
+        wpm.cross_validate("postgresql://test/test")
+
+    out = capsys.readouterr().out
+    assert "MISMATCH" not in out
+    assert "within" in out
+
+
+def test_cross_validate_two_divergent_numerics_mismatch(monkeypatch, capsys):
+    """Two numeric cols with >5% divergence: mismatch detected, exits 1."""
+    rows = [(decimal.Decimal("5000000"), decimal.Decimal("12000"))]
+    col_names = ["valor_coste", "articulos"]
+    mock_psycopg2 = _make_psycopg2_mock(rows, col_names)
+    monkeypatch.setattr(
+        wpm,
+        "CROSS_VALIDATIONS",
+        [("Two divergent numerics", "SELECT 1", "note")],
+    )
+
+    with patch.dict(sys.modules, {"psycopg2": mock_psycopg2}):
+        with pytest.raises(SystemExit) as exc:
+            wpm.cross_validate("postgresql://test/test")
+
+    assert exc.value.code == 1
+    out = capsys.readouterr().out
+    assert "MISMATCH" in out
+
+
+def test_cross_validate_single_numeric_no_mismatch(monkeypatch, capsys):
+    """One numeric + one text col (fixed Q5 shape): no ratio check, exits 0.
+
+    After the ::text cast on articulos_en_stock, isinstance() rejects the
+    string value, leaving len(numeric_vals) == 1 so the ratio check is skipped.
+    The article count must still appear in the printed output.
+    """
+    rows = [(decimal.Decimal("5200000"), "12345")]
+    col_names = ["valor_coste_tiendas", "articulos_en_stock"]
+    mock_psycopg2 = _make_psycopg2_mock(rows, col_names)
+    monkeypatch.setattr(
+        wpm,
+        "CROSS_VALIDATIONS",
+        [("Stock value at cost (Q5 shape)", "SELECT 1", "note")],
+    )
+
+    with patch.dict(sys.modules, {"psycopg2": mock_psycopg2}):
+        wpm.cross_validate("postgresql://test/test")
+
+    out = capsys.readouterr().out
+    assert "MISMATCH" not in out
+    assert "articulos_en_stock" in out
+    assert "12345" in out
