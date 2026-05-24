@@ -76,7 +76,7 @@ describe("TopStoresTable", () => {
   });
 
   describe("YoY column", () => {
-    it("renders vs año ant column header and deltaYoY values", () => {
+    it("renders vs año ant column header", () => {
       render(<TopStoresTable stores={STORES} />);
       const headers = screen.getAllByRole("columnheader");
       const headerTexts = headers.map((h) => h.textContent);

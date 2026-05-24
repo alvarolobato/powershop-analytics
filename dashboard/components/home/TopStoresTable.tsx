@@ -211,26 +211,14 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                   </div>
                 </td>
 
-                {/* Delta vs network avg */}
+                {/* Δ vs media 7 días de la tienda */}
                 <td style={{ padding: 0, textAlign: "right" }}>
                   <Delta value={store.delta} size="sm" />
                 </td>
 
                 {/* YoY delta */}
                 <td style={{ padding: 0, textAlign: "right" }}>
-                  {store.deltaYoY !== null ? (
-                    <Delta value={store.deltaYoY} size="sm" />
-                  ) : (
-                    <span
-                      style={{
-                        fontFamily: "var(--font-jetbrains, monospace)",
-                        fontSize: 11,
-                        color: "var(--fg-subtle)",
-                      }}
-                    >
-                      —
-                    </span>
-                  )}
+                  <Delta value={store.deltaYoY} size="sm" />
                 </td>
 
                 {/* 7-day sparkline */}

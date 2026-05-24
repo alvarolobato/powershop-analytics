@@ -79,8 +79,31 @@ function makeReq(date?: string) {
 }
 
 describe("GET /api/home", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Re-apply the default implementation so tests that call mockImplementation
+    // don't leak their override into subsequently-added tests.
+    const { query } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    query.mockImplementation(async (sql: string) => {
+      const NULL_ROW = Array(20).fill(null);
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [NULL_ROW] };
+    });
   });
 
   it("returns 200", async () => {
