@@ -4,17 +4,19 @@ import type { HomeViewModel } from "@/lib/home-types";
 import { Delta } from "./Delta";
 import { HomeSparkline } from "./Sparkline";
 import { SectionHeader } from "./SectionHeader";
-import { fmtEUR0 } from "@/components/widgets/format";
+import { fmtEUR0, fmtPct } from "@/components/widgets/format";
 
 type Period = HomeViewModel["periods"][number];
 
 interface PeriodCardProps {
   period: Period;
+  format?: "eur" | "pct";
 }
 
-function PeriodCard({ period }: PeriodCardProps) {
+function PeriodCard({ period, format = "eur" }: PeriodCardProps) {
   const sparkColor = period.deltaPrev >= 0 ? "var(--up)" : "var(--down)";
   const yoyIsNull = period.deltaYoY === undefined || period.deltaYoY === null;
+  const formattedValue = format === "pct" ? fmtPct(period.value) : fmtEUR0(period.value);
 
   return (
     <div
@@ -65,7 +67,7 @@ function PeriodCard({ period }: PeriodCardProps) {
           color: "var(--fg)",
         }}
       >
-        {fmtEUR0(period.value)}
+        {formattedValue}
       </div>
 
       {/* Delta pair */}
@@ -123,16 +125,21 @@ function PeriodCard({ period }: PeriodCardProps) {
 }
 
 interface PeriodGridProps {
-  periods: HomeViewModel["periods"];
+  periods: HomeViewModel["periods"] | HomeViewModel["marginPeriods"];
+  title?: string;
+  subtitle?: string;
+  format?: "eur" | "pct";
 }
 
-export function PeriodGrid({ periods }: PeriodGridProps) {
+export function PeriodGrid({
+  periods,
+  title = "Comparativa por periodo",
+  subtitle = "Ventas netas — actual vs periodo anterior y vs año pasado",
+  format = "eur",
+}: PeriodGridProps) {
   return (
     <section style={{ padding: "0 24px 18px" }} data-testid="period-grid">
-      <SectionHeader
-        title="Comparativa por periodo"
-        subtitle="Ventas netas — actual vs periodo anterior y vs año pasado"
-      />
+      <SectionHeader title={title} subtitle={subtitle} />
       <div
         style={{
           display: "grid",
@@ -142,7 +149,7 @@ export function PeriodGrid({ periods }: PeriodGridProps) {
         }}
       >
         {periods.map((p) => (
-          <PeriodCard key={p.id} period={p} />
+          <PeriodCard key={p.id} period={p as Period} format={format} />
         ))}
       </div>
     </section>

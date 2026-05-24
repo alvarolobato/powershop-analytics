@@ -5,7 +5,7 @@ import type { HomeViewModel } from "@/lib/home-types";
 import { Delta } from "./Delta";
 import { HomeSparkline } from "./Sparkline";
 import { SectionHeader } from "./SectionHeader";
-import { fmtEUR0 } from "@/components/widgets/format";
+import { fmtEUR0, fmtPct } from "@/components/widgets/format";
 
 type Store = HomeViewModel["topStores"][number];
 type InactiveStore = HomeViewModel["inactiveStores"][number];
@@ -29,8 +29,8 @@ function sparkColor(store: Store): string {
   return store.delta >= 0 ? "var(--up)" : "var(--down)";
 }
 
-const COL_TEMPLATE = "32px 60px 1fr 110px 80px 100px";
-const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "Últ. 7 días"];
+const COL_TEMPLATE = "32px 60px 1fr 110px 80px 70px 100px";
+const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "Margen", "Últ. 7 días"];
 
 const outlineLink: React.CSSProperties = {
   fontSize: 11,
@@ -214,6 +214,21 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                 {/* Delta vs network avg */}
                 <td style={{ padding: 0, textAlign: "right" }}>
                   <Delta value={store.delta} size="sm" />
+                </td>
+
+                {/* Margin % */}
+                <td style={{ padding: 0, textAlign: "right" }}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-jetbrains, monospace)",
+                      fontSize: 12,
+                      fontVariantNumeric: "tabular-nums",
+                      color: "var(--fg-muted)",
+                    }}
+                    data-testid={`margin-cell-${store.code}`}
+                  >
+                    {store.margin != null ? fmtPct(store.margin) : "—"}
+                  </span>
                 </td>
 
                 {/* 7-day sparkline */}

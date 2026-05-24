@@ -58,6 +58,22 @@ export type HomeViewModel = {
     spark: number[];
     sparkLabels: string[];
   }>;
+  /** Margin period comparison: same 4 periods (hoy/semana/mes/año) but
+   *  carrying margin fractions (0–1) instead of EUR amounts. Deltas are
+   *  percentage-point differences (curr - prev), not relative ratios. */
+  marginPeriods: Array<{
+    id: "hoy" | "semana" | "mes" | "anyo";
+    label: string;
+    /** Margin fraction, e.g. 0.521 = 52.1% */
+    value: number;
+    /** Absolute percentage-point difference vs previous period (e.g. -0.03 = -3 pp). */
+    deltaPrev: number;
+    prevLabel: string;
+    deltaYoY: number | null;
+    yoyLabel: string;
+    spark: number[];
+    sparkLabels: string[];
+  }>;
   dailyTrend: Array<{ day: number; actual: number | null; ly: number }>;
   /** Active retail stores (excluding tienda='99' and any store with zero
    *  sales in the last 30 days), sorted by sales DESC for the as-of
@@ -71,6 +87,8 @@ export type HomeViewModel = {
     delta: number;
     spark: number[]; // last 7 days
     status: "ok" | "watch" | "alert";
+    /** Gross margin fraction for the as-of date. Null when no cost data. */
+    margin?: number | null;
   }>;
   /** Stores excluded from `topStores` because they had no sales in the
    *  last 30 days. Surfaced under "Ver tiendas inactivas" so they remain

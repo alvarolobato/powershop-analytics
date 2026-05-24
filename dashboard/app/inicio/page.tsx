@@ -312,8 +312,16 @@ export default function InicioPage() {
           {/* Hero */}
           <HeroToday hero={data.hero} asOf={data.asOf} />
 
-          {/* Period grid */}
+          {/* Sales period grid */}
           <PeriodGrid periods={data.periods} />
+
+          {/* Margin period grid */}
+          <PeriodGrid
+            periods={data.marginPeriods}
+            title="Margen bruto"
+            subtitle="Margen — actual vs periodo anterior y vs año pasado"
+            format="pct"
+          />
 
           {/* Daily trend (full width) */}
           <section

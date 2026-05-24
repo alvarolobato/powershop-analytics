@@ -6,16 +6,16 @@ import { TopStoresTable } from "../TopStoresTable";
 import type { HomeViewModel } from "@/lib/home-types";
 
 const STORES: HomeViewModel["topStores"] = [
-  { code: "611", name: "Madrid Serrano",      sales: 4920, delta:  0.082, spark: [3900,4100,4500,3800,4400,4300,4920], status: "ok" },
-  { code: "622", name: "Barcelona Diagonal",  sales: 4180, delta:  0.041, spark: [3700,3900,4000,3850,4020,4100,4180], status: "ok" },
-  { code: "608", name: "Valencia Colón",      sales: 3960, delta: -0.012, spark: [4000,4100,3950,4050,3900,4010,3960], status: "ok" },
-  { code: "637", name: "Sevilla Nervión",     sales: 3740, delta:  0.024, spark: [3500,3650,3700,3550,3680,3620,3740], status: "ok" },
-  { code: "606", name: "Bilbao Gran Vía",     sales: 3210, delta: -0.064, spark: [3450,3500,3380,3420,3300,3260,3210], status: "watch" },
-  { code: "612", name: "Málaga Larios",       sales: 3080, delta:  0.018, spark: [2900,2950,3000,2920,3050,3010,3080], status: "ok" },
-  { code: "601", name: "Zaragoza Independ.",  sales: 2820, delta: -0.142, spark: [3300,3250,3100,3000,2950,2880,2820], status: "alert" },
-  { code: "645", name: "A Coruña Real",       sales: 2680, delta:  0.012, spark: [2600,2650,2620,2640,2660,2670,2680], status: "ok" },
-  { code: "157", name: "Granada Recogidas",   sales: 2540, delta: -0.034, spark: [2700,2680,2620,2580,2570,2560,2540], status: "ok" },
-  { code: "632", name: "Murcia Trapería",     sales: 2410, delta:  0.052, spark: [2200,2280,2320,2350,2380,2390,2410], status: "ok" },
+  { code: "611", name: "Madrid Serrano",      sales: 4920, delta:  0.082, spark: [3900,4100,4500,3800,4400,4300,4920], status: "ok",    margin: 0.521 },
+  { code: "622", name: "Barcelona Diagonal",  sales: 4180, delta:  0.041, spark: [3700,3900,4000,3850,4020,4100,4180], status: "ok",    margin: 0.498 },
+  { code: "608", name: "Valencia Colón",      sales: 3960, delta: -0.012, spark: [4000,4100,3950,4050,3900,4010,3960], status: "ok",    margin: 0.512 },
+  { code: "637", name: "Sevilla Nervión",     sales: 3740, delta:  0.024, spark: [3500,3650,3700,3550,3680,3620,3740], status: "ok",    margin: 0.489 },
+  { code: "606", name: "Bilbao Gran Vía",     sales: 3210, delta: -0.064, spark: [3450,3500,3380,3420,3300,3260,3210], status: "watch", margin: 0.503 },
+  { code: "612", name: "Málaga Larios",       sales: 3080, delta:  0.018, spark: [2900,2950,3000,2920,3050,3010,3080], status: "ok",    margin: 0.517 },
+  { code: "601", name: "Zaragoza Independ.",  sales: 2820, delta: -0.142, spark: [3300,3250,3100,3000,2950,2880,2820], status: "alert", margin: 0.478 },
+  { code: "645", name: "A Coruña Real",       sales: 2680, delta:  0.012, spark: [2600,2650,2620,2640,2660,2670,2680], status: "ok",    margin: null  },
+  { code: "157", name: "Granada Recogidas",   sales: 2540, delta: -0.034, spark: [2700,2680,2620,2580,2570,2560,2540], status: "ok",    margin: 0.491 },
+  { code: "632", name: "Murcia Trapería",     sales: 2410, delta:  0.052, spark: [2200,2280,2320,2350,2380,2390,2410], status: "ok",    margin: 0.506 },
 ];
 
 describe("TopStoresTable", () => {
@@ -73,6 +73,24 @@ describe("TopStoresTable", () => {
     const row = screen.getByTestId("store-row-606");
     const dot = row.querySelector('[title="Estado: watch"]');
     expect(dot?.getAttribute("style")).toContain("var(--warn)");
+  });
+
+  it("renders margin column header", () => {
+    render(<TopStoresTable stores={STORES} />);
+    expect(screen.getByRole("columnheader", { name: "Margen" })).toBeInTheDocument();
+  });
+
+  it("renders margin % for stores with margin data", () => {
+    render(<TopStoresTable stores={STORES} />);
+    const cell = screen.getByTestId("margin-cell-611");
+    // Intl.NumberFormat es-ES percent style produces "52,1 %" (narrow-no-break space)
+    expect(cell.textContent).toMatch(/52[,.]1\s*%/);
+  });
+
+  it("renders em-dash for stores with null margin", () => {
+    render(<TopStoresTable stores={STORES} />);
+    const cell = screen.getByTestId("margin-cell-645");
+    expect(cell.textContent).toBe("—");
   });
 
   describe("inactive stores section", () => {
