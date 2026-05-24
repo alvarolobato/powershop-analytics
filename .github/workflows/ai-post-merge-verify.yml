@@ -20,6 +20,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: read
+  actions: write  # required to dispatch ai-ec-validator.yml via `gh workflow run`
 
 concurrency:
   group: ai-post-merge-verify-${{ github.event.pull_request.number }}
@@ -268,3 +269,40 @@ jobs:
           ⏭️ **AI Factory**: Phase $CURRENT_PHASE merged (#$PR). Auto-added \`ai-work\` to start **Phase $NEXT_PHASE of $TOTAL_PHASES**. The implementer should open the next PR shortly. If you'd rather pause here, remove \`ai-work\` and add \`ai-blocked\`.
           EOF
           )" 2>/dev/null || true
+
+      - name: Dispatch EC validator on final-phase merge
+        run: |
+          set -uo pipefail
+
+          # Only dispatch when the PR body contains a closing keyword (final-phase
+          # marker per D-037). Non-final phases use "Part of #N" and must not trigger
+          # the validator.
+          PR_BODY=$(gh pr view "$PR" --repo "$REPO" --json body --jq '.body' 2>/dev/null || echo "")
+          CLOSED_ISSUE=$(printf '%s' "$PR_BODY" \
+            | grep -oiE '(close[sd]?|closing|fix(e[sd]|ing)?|resolve[sd]?|resolving) #[0-9]+' \
+            | grep -oE '[0-9]+' | head -1 || true)
+
+          if [ -z "$CLOSED_ISSUE" ]; then
+            echo "PR #$PR has no closing keyword — not a final-phase merge. Skipping EC validator."
+            exit 0
+          fi
+
+          # Only dispatch when the issue has EC items.
+          ISSUE_BODY=$(gh issue view "$CLOSED_ISSUE" --repo "$REPO" \
+            --json body --jq '.body' 2>/dev/null || echo "")
+          EC_COUNT=$(printf '%s' "$ISSUE_BODY" | grep -cE '^- \[[ x]\] \*\*EC-[0-9]' || true)
+
+          if [ "${EC_COUNT:-0}" -eq 0 ]; then
+            echo "Issue #$CLOSED_ISSUE has no EC items — skipping EC validator."
+            exit 0
+          fi
+
+          MERGE_SHA="${{ github.event.pull_request.merge_commit_sha }}"
+          echo "Final-phase merge for issue #$CLOSED_ISSUE (${EC_COUNT} EC items). Dispatching EC validator (merge SHA: $MERGE_SHA)."
+
+          gh workflow run ai-ec-validator.yml \
+            --repo "$REPO" \
+            --field issue_number="$CLOSED_ISSUE" \
+            --field merge_sha="$MERGE_SHA" 2>/dev/null || {
+            echo "::warning::Failed to dispatch ai-ec-validator.yml — workflow may not exist yet."
+          }
