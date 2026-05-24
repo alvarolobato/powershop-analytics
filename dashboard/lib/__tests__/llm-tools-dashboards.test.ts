@@ -1,11 +1,10 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { extractDashboardSqlRefs } from "@/lib/llm-tools/dashboard-query-extractor";
 import {
   handleValidateDashboardSpec,
   handleApplyDashboardModification,
   handleSubmitDashboardAnalysis,
   handleSubmitWeeklyReview,
-  handleGetDashboardSpec,
 } from "@/lib/llm-tools/handlers/dashboards";
 import { validateReadOnly, SqlValidationError } from "@/lib/db";
 import type { DashboardSpec } from "@/lib/schema";
@@ -345,10 +344,9 @@ describe("handleSubmitWeeklyReview", () => {
   });
 });
 
-// F11: loadSpecRow routes through query() from db.ts (read-only enforcement)
-describe("loadSpecRow blocks writes", () => {
-  it("query() from db.ts throws SqlValidationError for write statements", () => {
-    // loadSpecRow calls query() which calls validateReadOnly() — verify this chain.
+// F11: validateReadOnly() rejects write SQL (read-only enforcement used by db.ts query())
+describe("validateReadOnly blocks write statements", () => {
+  it("throws SqlValidationError for UPDATE, DELETE, and INSERT", () => {
     expect(() =>
       validateReadOnly("UPDATE dashboards SET spec = '{}' WHERE id = 1"),
     ).toThrow(SqlValidationError);
