@@ -106,6 +106,10 @@ jobs:
           REPO: ${{ env.REPO }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # The post-merge dispatch (ai-post-merge-verify.yml) runs `gh workflow run`
+          # as github-actions[bot], so the workflow_dispatch actor is a bot.
+          # claude-code-action refuses bot actors unless allow-listed.
+          allowed_bots: "github-actions[bot],claude[bot]"
           claude_args: "--model claude-haiku-4-5-20251001 --permission-mode bypassPermissions --max-turns 25"
           prompt: |
             Read and follow the instructions in .github/ai-factory/prompts/ec-validator.md exactly.
