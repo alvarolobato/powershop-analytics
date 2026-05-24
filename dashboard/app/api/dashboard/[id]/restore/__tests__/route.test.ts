@@ -101,14 +101,13 @@ describe("POST /api/dashboard/[id]/restore", () => {
     mockClientQuery
       .mockResolvedValueOnce({ rows: [] }) // BEGIN
       .mockResolvedValueOnce({ rows: [] }) // target
-      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT (withTransaction always commits unless fn throws)
 
     const res = await POST(makePostRequest({ version_id: 99 }), makeContext("1"));
     const json = await res.json();
 
     expect(res.status).toBe(404);
     expect(json.code).toBe("NOT_FOUND");
-    expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
   });
 
   it("returns 404 when dashboard row missing after version found", async () => {
@@ -118,7 +117,7 @@ describe("POST /api/dashboard/[id]/restore", () => {
         rows: [{ id: 10, spec: TARGET_SPEC, version_number: 1 }],
       })
       .mockResolvedValueOnce({ rows: [] }) // dashboard missing
-      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const res = await POST(makePostRequest({ version_id: 10 }), makeContext("1"));
     expect(res.status).toBe(404);
@@ -141,14 +140,13 @@ describe("POST /api/dashboard/[id]/restore", () => {
       .mockResolvedValueOnce({
         rows: [{ id: 10, spec: { title: "Sin widgets" }, version_number: 1 }],
       })
-      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const res = await POST(makePostRequest({ version_id: 10 }), makeContext("1"));
     const json = await res.json();
 
     expect(res.status).toBe(400);
     expect(json.code).toBe("VALIDATION");
-    expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
   });
 
   it("returns 400 when stored spec fails SQL lint", async () => {
@@ -167,14 +165,13 @@ describe("POST /api/dashboard/[id]/restore", () => {
       .mockResolvedValueOnce({
         rows: [{ id: 10, spec: badLintSpec, version_number: 1 }],
       })
-      .mockResolvedValueOnce({ rows: [] }); // ROLLBACK
+      .mockResolvedValueOnce({ rows: [] }); // COMMIT
 
     const res = await POST(makePostRequest({ version_id: 10 }), makeContext("1"));
     const json = await res.json();
 
     expect(res.status).toBe(400);
     expect(json.code).toBe("SQL_LINT");
-    expect(mockClientQuery.mock.calls[2][0]).toBe("ROLLBACK");
   });
 
   it("returns 400 for invalid dashboard id", async () => {

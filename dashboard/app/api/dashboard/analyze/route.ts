@@ -51,12 +51,18 @@ import type { WidgetData } from "@/components/widgets/types";
 import {
   createInteraction,
   finishInteraction,
+  appendInteractionLines,
+  type InteractionLine,
 } from "@/lib/db-write";
 import { appendMessage, touchConversation } from "@/lib/conversations";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { isAgenticToolsEnabled, getAgenticConfig } from "@/lib/llm-tools/config";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
-import { agenticEventToLogLine, pushAgenticLogLine } from "@/lib/format-agentic-progress";
+import {
+  agenticEventToLogLine,
+  pushAgenticLogLine,
+  formatAgenticProgressLineEs,
+} from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
 import type { LogLine } from "@/components/LogBlock";
 
@@ -298,12 +304,24 @@ export async function POST(request: Request) {
   // the streaming controller installs `liveSend`, then bypass the buffer so
   // the client sees Claude thinking + writing in real time.
   const t0 = Date.now();
+  const ts = () => new Date().toISOString();
   const buffer: { type: "progress"; logLine: LogLine }[] = [];
   let liveSend: ((entry: { type: "progress"; logLine: LogLine }) => void) | null = null;
   let firstEventResolve: (() => void) | null = null;
   const firstEvent = new Promise<void>((resolve) => {
     firstEventResolve = resolve;
   });
+
+  const interactionLines: InteractionLine[] = [];
+  const flushLines = async () => {
+    if (!interactionId || interactionLines.length === 0) return;
+    const toFlush = interactionLines.splice(0);
+    try {
+      await appendInteractionLines(interactionId, toFlush);
+    } catch (e) {
+      console.error(`[${requestId}] appendInteractionLines failed:`, e);
+    }
+  };
 
   const onAgenticProgress = (ev: AgenticProgressEvent) => {
     const logLine = agenticEventToLogLine(ev, Date.now() - t0);
@@ -318,6 +336,16 @@ export async function POST(request: Request) {
       firstEventResolve();
       firstEventResolve = null;
     }
+    const text = formatAgenticProgressLineEs(ev);
+    const kind: InteractionLine["kind"] =
+      ev.type === "tool_start" || ev.type === "assistant_tools"
+        ? "tool_call"
+        : ev.type === "tool_done"
+          ? ev.ok
+            ? "tool_result"
+            : "error"
+          : "meta";
+    interactionLines.push({ kind, text, ts: ts() });
   };
 
   // Build a mutable ctx so the route can read back the side-channel after the loop.
@@ -388,6 +416,12 @@ export async function POST(request: Request) {
     if (outcome.kind === "err") {
       const { err } = outcome;
       if (interactionId) {
+        interactionLines.push({
+          kind: "error",
+          text: err instanceof Error ? err.message : "Error al analizar",
+          ts: ts(),
+        });
+        await flushLines();
         const errText = err instanceof Error ? err.message : "Error al analizar";
         await finishInteraction(interactionId, "error", errText).catch((e) =>
           console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
@@ -401,6 +435,7 @@ export async function POST(request: Request) {
     const resolved = resolveAnalysisResult(outcome.response);
     if (!resolved) {
       if (interactionId) {
+        await flushLines();
         await finishInteraction(interactionId, "error", "El modelo no llamó a submit_dashboard_analysis").catch((e) =>
           console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
         );
@@ -444,6 +479,7 @@ export async function POST(request: Request) {
     const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
     const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
     if (interactionId) {
+      await flushLines();
       await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
         console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
       );
@@ -486,6 +522,12 @@ export async function POST(request: Request) {
       if (outcome.kind === "err") {
         const { err } = outcome;
         if (interactionId) {
+          interactionLines.push({
+            kind: "error",
+            text: err instanceof Error ? err.message : "Error al analizar",
+            ts: ts(),
+          });
+          await flushLines();
           const errText = err instanceof Error ? err.message : "Error al analizar";
           await finishInteraction(interactionId, "error", errText).catch((e) =>
             console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
@@ -501,6 +543,7 @@ export async function POST(request: Request) {
       const resolved = resolveAnalysisResult(outcome.response);
       if (!resolved) {
         if (interactionId) {
+          await flushLines();
           await finishInteraction(interactionId, "error", "El modelo no llamó a submit_dashboard_analysis").catch((e) =>
             console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
           );
@@ -546,6 +589,7 @@ export async function POST(request: Request) {
       const lastExchange = `Usuario: ${prompt.trim()}\n\nAsistente: ${analysisResponse}`;
       const suggestions = await generateSuggestions(serializedData, lastExchange, { requestId });
       if (interactionId) {
+        await flushLines();
         await finishInteraction(interactionId, "completed", analysisResponse).catch((e) =>
           console.error(`[${requestId}] finishInteraction(analyze,completed) failed:`, e),
         );

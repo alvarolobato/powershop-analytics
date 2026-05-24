@@ -84,14 +84,14 @@ async function loadSpecRow(
   dashboardId: number,
   ctx: LlmAgenticContext,
 ): Promise<{ spec: DashboardSpec } | ToolResponseBody> {
-  const rows = await sql<{ spec: unknown }>(
+  const result = await query(
     `SELECT spec FROM dashboards WHERE id = $1`,
     [dashboardId],
   );
-  if (!rows.length) {
+  if (!result.rows.length) {
     return toolError("NOT_FOUND", `Dashboard ${dashboardId} not found.`, ctx);
   }
-  const parsed = DashboardSpecSchema.safeParse(rows[0].spec);
+  const parsed = DashboardSpecSchema.safeParse(result.rows[0][0]);
   if (!parsed.success) {
     return toolError("INVALID_SPEC", "Stored dashboard spec failed validation.", ctx);
   }
