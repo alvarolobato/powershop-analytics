@@ -12,9 +12,7 @@ run-name: >-
   AI Pre-Merge Digest — PR #${{ github.event.pull_request.number || inputs.pr_number }}
 on:
   pull_request:
-    types: [labeled]
-  pull_request_target:
-    types: [synchronize]
+    types: [labeled, synchronize]
   workflow_dispatch:
     inputs:
       pr_number:
@@ -31,30 +29,45 @@ permissions:
   pull-requests: write
   issues: read
   id-token: write
+  actions: write
 
 jobs:
-  digest:
-    # Fire on label events only when the label is ai-awaiting-owner.
-    # Fire on synchronize only when the PR already has ai-awaiting-owner
-    # (so a new commit after convergence also gets a fresh digest).
+  # claude-code-action's OIDC→app-token exchange fails (401) on raw
+  # pull_request / pull_request_target events in this repo. The established
+  # factory pattern (see ai-pr-review.yml + ai-address-feedback.yml) is to run
+  # claude-code-action only via workflow_dispatch and re-dispatch from event
+  # triggers. This job is the cheap re-dispatcher — it runs no LLM, just
+  # `gh workflow run`, so it has no auth problem.
+  redispatch:
     if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !contains(github.event.pull_request.labels.*.name, 'no-ai') &&
+      !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
       (
-        github.event_name == 'workflow_dispatch'
-      ) || (
-        github.event_name == 'pull_request' &&
-        github.event.action == 'labeled' &&
-        github.event.label.name == 'ai-awaiting-owner' &&
-        !contains(github.event.pull_request.labels.*.name, 'no-ai') &&
-        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
-        github.event.pull_request.head.repo.full_name == github.repository
-      ) || (
-        github.event_name == 'pull_request_target' &&
-        github.event.action == 'synchronize' &&
-        contains(github.event.pull_request.labels.*.name, 'ai-awaiting-owner') &&
-        !contains(github.event.pull_request.labels.*.name, 'no-ai') &&
-        !contains(github.event.pull_request.labels.*.name, 'no-pr-review') &&
-        github.event.pull_request.head.repo.full_name == github.repository
+        (github.event.action == 'labeled' && github.event.label.name == 'ai-awaiting-owner') ||
+        (github.event.action == 'synchronize' && contains(github.event.pull_request.labels.*.name, 'ai-awaiting-owner'))
       )
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Re-dispatch digest via workflow_dispatch
+        run: |
+          echo "PR #$PR_NUMBER landed/updated with ai-awaiting-owner — dispatching digest (workflow_dispatch auth path)."
+          gh workflow run ai-pre-merge-digest.yml \
+            --repo "$REPO" \
+            --field pr_number="$PR_NUMBER" 2>/dev/null || {
+            echo "::warning::Failed to dispatch ai-pre-merge-digest.yml for PR #$PR_NUMBER."
+          }
+
+  digest:
+    # Only the workflow_dispatch path runs claude-code-action — its OIDC
+    # app-token exchange works on workflow_dispatch but 401s on pull_request.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
