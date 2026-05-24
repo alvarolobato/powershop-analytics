@@ -1,0 +1,126 @@
+name: AI EC Validator
+# Verifies Exit Criteria items on GitHub issues after final-phase PRs merge.
+# Triggered by:
+#   (a) workflow_dispatch from ai-post-merge-verify.yml (final-phase merge)
+#   (b) issues: [labeled] filtered to ai-validate-ec (manual re-run by owner)
+#
+# Architecture (D-038): shell scripts judge (verified/not), LLM scribes (formats comment).
+# Model: claude-haiku-4-5-20251001. <=1 LLM call per run.
+#
+# D-029: this file was committed by a Claude Code on the Web session, not the
+# in-repo claude-code-action worker.
+run-name: >-
+  AI EC Validator — issue #${{ github.event.inputs.issue_number || github.event.issue.number }}
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to validate'
+        required: true
+        type: string
+      merge_sha:
+        description: 'Merge commit SHA that triggered this run'
+        required: false
+        type: string
+        default: ''
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  id-token: write
+
+concurrency:
+  group: ai-ec-validator-${{ github.event.inputs.issue_number || github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    # For label-triggered runs: only fire on ai-validate-ec label.
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.label.name == 'ai-validate-ec')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ github.event.inputs.issue_number || github.event.issue.number }}
+      MERGE_SHA: ${{ github.event.inputs.merge_sha || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check no-ai label
+        id: check_labels
+        run: |
+          LABELS=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" \
+            --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+          if echo ",$LABELS," | grep -q ",no-ai,"; then
+            echo "Issue #$ISSUE_NUMBER has no-ai — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve merge SHA + idempotency check
+        id: idempotency
+        if: steps.check_labels.outputs.skip == 'false'
+        run: |
+          SHA="${MERGE_SHA:-}"
+          if [ -z "$SHA" ]; then
+            DEFAULT_BRANCH=$(gh api "repos/$REPO" --jq '.default_branch' 2>/dev/null || echo "main")
+            SHA=$(gh api "repos/$REPO/commits/$DEFAULT_BRANCH" --jq '.sha' 2>/dev/null || echo "")
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          # Match the marker the prompt writes: <!-- ec-validated:sha:<SHA> -->
+          if [ -n "$SHA" ]; then
+            EXISTING=$(gh issue view "$ISSUE_NUMBER" --repo "$REPO" --json comments \
+              --jq "[.comments[].body | select(contains(\"<!-- ec-validated:sha:${SHA} -->\"))] | length" \
+              2>/dev/null || echo "0")
+          else
+            EXISTING=0
+          fi
+          if [ "${EXISTING:-0}" -gt 0 ]; then
+            echo "Validation already posted for SHA $SHA — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Ensure fact-awaiting-human-validation label exists
+        if: steps.check_labels.outputs.skip == 'false' && steps.idempotency.outputs.skip == 'false'
+        run: |
+          gh label create "fact-awaiting-human-validation" \
+            --color "ededed" \
+            --description "EC validator ran; human-only items remain — owner must tick and close" \
+            --repo "$REPO" 2>/dev/null || true
+
+      - name: Run EC validator
+        if: steps.check_labels.outputs.skip == 'false' && steps.idempotency.outputs.skip == 'false'
+        uses: anthropics/claude-code-action@v1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ env.ISSUE_NUMBER }}
+          MERGE_SHA: ${{ steps.idempotency.outputs.sha }}
+          REPO: ${{ env.REPO }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: "--model claude-haiku-4-5-20251001 --permission-mode bypassPermissions --max-turns 25"
+          prompt: |
+            Read and follow the instructions in .github/ai-factory/prompts/ec-validator.md exactly.
+
+            Environment variables already exported in your shell:
+            - ISSUE_NUMBER=${{ env.ISSUE_NUMBER }}
+            - MERGE_SHA=${{ steps.idempotency.outputs.sha }}
+            - REPO=${{ env.REPO }}
+
+            The parse-ec.sh and verify-ec.sh scripts are at .github/ai-factory/scripts/.
+            Run them as described in the prompt. Use the `gh` CLI for all GitHub API calls.
+            Do not skip any step.
+
+      - name: Handle failure
+        if: failure() && steps.check_labels.outputs.skip == 'false'
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$REPO" \
+            --body "⚠️ **AI Factory**: EC validator failed for issue #$ISSUE_NUMBER. See [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}). Re-run via the \`ai-validate-ec\` label or \`gh workflow run ai-ec-validator.yml --field issue_number=$ISSUE_NUMBER\`." || true
