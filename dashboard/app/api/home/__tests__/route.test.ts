@@ -46,9 +46,19 @@ vi.mock("@/lib/db", () => {
           rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]),
         };
       }
-      // Top-stores query: 10 rows of (codigo, identificador, poblacion,
-      // sales). Empty list is also valid; the route handles len < 10.
-      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+      // Per-store margin query: SELECT lv.tienda ... FROM ps_lineas_ventas lv JOIN ps_ventas v
+      // ... GROUP BY lv.tienda. Returns one row so topStores[0].margin can be asserted.
+      if (sql.includes("GROUP BY lv.tienda")) {
+        return { rows: [["611", 5000, 2000]] }; // tienda, rev, cost → margin = 0.6
+      }
+      // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (subqueries contain ps_ventas/GROUP BY tienda)
+      // Return one active store row matching the margin row above so topStores is non-empty.
+      if (sql.includes("ps_tiendas") && !sql.includes("CROSS JOIN")) {
+        // [codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date]
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03"]] };
+      }
+      // Store spark query (ps_tiendas CROSS JOIN days): return empty rows
+      if (sql.includes("ps_tiendas") && sql.includes("CROSS JOIN")) {
         return { rows: [] };
       }
       // etl_sync_runs is checked with rows.length > 0 — empty bypasses
@@ -256,15 +266,16 @@ describe("GET /api/home", () => {
       expect(mp.deltaYoY === null || typeof mp.deltaYoY === "number").toBe(true);
     }
 
-    // topStores each have a margin field (number or null/undefined)
-    // The mock returns no stores (empty rows), so topStores is [] — just
-    // assert the key exists at the model level via the type check above.
-    // When stores are present, each must carry margin.
+    // topStores has at least one entry (the mock returns store "611")
+    expect(topStores.length).toBeGreaterThan(0);
+    // Every store must carry a margin field (number when cost data exists, null otherwise)
     for (const s of topStores) {
-      expect(Object.prototype.hasOwnProperty.call(s, "margin") || s.margin === undefined).toBe(
-        true,
-      );
+      expect(typeof s.margin === "number" || s.margin === null).toBe(true);
     }
+    // Store "611" has rev=5000, cost=2000 in the mock → margin = (5000-2000)/5000 = 0.6
+    const store611 = topStores.find((s: { code: string }) => s.code === "611");
+    expect(store611).toBeDefined();
+    expect(store611.margin).toBeCloseTo(0.6, 5);
   });
 
   it("returns dailyTrend entries with day, actual, ly", async () => {

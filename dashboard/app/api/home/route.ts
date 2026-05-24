@@ -725,10 +725,12 @@ export async function GET(req: NextRequest) {
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM generate_series(($1::date - INTERVAL '6 days')::date, $1::date, '1 day') day
-         LEFT JOIN ps_lineas_ventas lv
-           ON lv.fecha_creacion = day::date
-          AND lv.tienda <> '99' AND lv.total_si > 0
-         LEFT JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada=true
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion = day::date
          GROUP BY day ORDER BY day`,
         [asOfDate],
       ),
@@ -747,11 +749,13 @@ export async function GET(req: NextRequest) {
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM weeks w
-         LEFT JOIN ps_lineas_ventas lv
-           ON lv.fecha_creacion >= w.week_start
-          AND lv.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
-          AND lv.tienda <> '99' AND lv.total_si > 0
-         LEFT JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada=true
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion >= w.week_start
+              AND lv.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
          GROUP BY w.week_start ORDER BY w.week_start`,
         [asOfDate],
       ),
@@ -770,11 +774,13 @@ export async function GET(req: NextRequest) {
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM months m
-         LEFT JOIN ps_lineas_ventas lv
-           ON lv.fecha_creacion >= m.month_start
-          AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
-          AND lv.tienda <> '99' AND lv.total_si > 0
-         LEFT JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada=true
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion >= m.month_start
+              AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
          GROUP BY m.month_start ORDER BY m.month_start`,
         [asOfDate],
       ),
@@ -793,11 +799,13 @@ export async function GET(req: NextRequest) {
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM months m
-         LEFT JOIN ps_lineas_ventas lv
-           ON lv.fecha_creacion >= m.month_start
-          AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
-          AND lv.tienda <> '99' AND lv.total_si > 0
-         LEFT JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada=true
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion >= m.month_start
+              AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
          GROUP BY m.month_start ORDER BY m.month_start`,
         [asOfDate],
       ),
@@ -1080,7 +1088,7 @@ export async function GET(req: NextRequest) {
         id: "anyo",
         label: "Año (YTD)",
         value: mAnyoCurr,
-        deltaPrev: mAnyoCurr - mAnyoLY,
+        deltaPrev: mAnyoLYRev > 0 ? mAnyoCurr - mAnyoLY : 0,
         prevLabel: `vs YTD ${asOfDateObj.getFullYear() - 1}`,
         deltaYoY: mAnyoLYRev > 0 ? mAnyoCurr - mAnyoLY : null,
         yoyLabel: `vs ${asOfDateObj.getFullYear() - 1} mismo tramo`,

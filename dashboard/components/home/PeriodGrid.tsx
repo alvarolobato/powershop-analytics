@@ -6,10 +6,10 @@ import { HomeSparkline } from "./Sparkline";
 import { SectionHeader } from "./SectionHeader";
 import { fmtEUR0, fmtPct } from "@/components/widgets/format";
 
-type Period = HomeViewModel["periods"][number];
+type PeriodLike = HomeViewModel["periods"][number] | HomeViewModel["marginPeriods"][number];
 
 interface PeriodCardProps {
-  period: Period;
+  period: PeriodLike;
   format?: "eur" | "pct";
 }
 
@@ -82,7 +82,7 @@ function PeriodCard({ period, format = "eur" }: PeriodCardProps) {
         }}
       >
         <div>
-          <Delta value={period.deltaPrev} size="sm" />
+          <Delta value={period.deltaPrev} size="sm" unit={format === "pct" ? "pp" : undefined} />
           <div
             style={{
               fontFamily: "var(--font-jetbrains, monospace)",
@@ -106,7 +106,7 @@ function PeriodCard({ period, format = "eur" }: PeriodCardProps) {
               —
             </span>
           ) : (
-            <Delta value={period.deltaYoY} size="sm" />
+            <Delta value={period.deltaYoY} size="sm" unit={format === "pct" ? "pp" : undefined} />
           )}
           <div
             style={{
@@ -125,7 +125,7 @@ function PeriodCard({ period, format = "eur" }: PeriodCardProps) {
 }
 
 interface PeriodGridProps {
-  periods: HomeViewModel["periods"] | HomeViewModel["marginPeriods"];
+  periods: PeriodLike[];
   title?: string;
   subtitle?: string;
   format?: "eur" | "pct";
@@ -149,7 +149,7 @@ export function PeriodGrid({
         }}
       >
         {periods.map((p) => (
-          <PeriodCard key={p.id} period={p as Period} format={format} />
+          <PeriodCard key={p.id} period={p} format={format} />
         ))}
       </div>
     </section>

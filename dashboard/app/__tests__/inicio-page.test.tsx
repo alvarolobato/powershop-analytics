@@ -157,7 +157,7 @@ describe("InicioPage", () => {
     await waitFor(() => {
       // Two period grids: sales (Comparativa por periodo) and margin (Margen bruto)
       const grids = screen.getAllByTestId("period-grid");
-      expect(grids.length).toBeGreaterThanOrEqual(1);
+      expect(grids).toHaveLength(2);
     });
   });
 
