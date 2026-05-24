@@ -84,7 +84,6 @@ export interface AssistantMessageContent {
 }
 
 export type MessageContent =
-  | string
   | AssistantMessageContent
   | { tool_call_id: string; tool_name: string; content: unknown };
 
@@ -137,7 +136,6 @@ export function isToolResultContent(
 }
 
 export function getMessageText(content: MessageContent): string {
-  if (typeof content === "string") return content;
   if (isAssistantContent(content)) return content.text ?? "";
   return "";
 }
