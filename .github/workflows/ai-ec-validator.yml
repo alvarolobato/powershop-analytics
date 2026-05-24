@@ -110,7 +110,10 @@ jobs:
           # as github-actions[bot], so the workflow_dispatch actor is a bot.
           # claude-code-action refuses bot actors unless allow-listed.
           allowed_bots: "github-actions[bot],claude[bot]"
-          claude_args: "--model claude-haiku-4-5-20251001 --permission-mode bypassPermissions --max-turns 25"
+          # Budget scales with EC-item count: parse (1) + verify-ec.sh per item
+          # + tick + comment + close/label. 25 turns exhausted on #751 (4 items);
+          # large issues like #720 (12 items) need substantially more headroom.
+          claude_args: "--model claude-haiku-4-5-20251001 --permission-mode bypassPermissions --max-turns 50"
           prompt: |
             Read and follow the instructions in .github/ai-factory/prompts/ec-validator.md exactly.
 
