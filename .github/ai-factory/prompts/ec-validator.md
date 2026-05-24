@@ -105,21 +105,35 @@ The validator **MUST NOT** close the issue when any `human_only=true` item is un
 
 ### Step 7 — Tick verified items in the issue body
 
-For each EC item where `verify-ec.sh` returned `verified=true` AND the item is not already checked:
+**Do NOT edit the body with a manual `sed`/string replacement.** EC lines can
+contain `&`, `|`, `/`, `$`, and backticks; a `sed s///` replacement misinterprets
+them (e.g. `&` expands to the whole matched line) and corrupts the body — this
+happened on issue #704 (see #751). Use the deterministic ticker script instead.
+
+Collect the ids of every EC item where `verify-ec.sh` returned `verified=true`,
+then run the script — it flips only `- [ ] **EC-N**` → `- [x] **EC-N**` for the
+exact ids given (EC-1 never matches EC-10), leaving all other content
+byte-identical:
 
 ```bash
+# Build the list of verified, not-already-checked ids from RESULTS + EC_ITEMS.
+VERIFIED_IDS=$(printf '%s' "$RESULTS" | jq -r '.[] | select(.verified == true) | .id')
+
 BODY=$(gh issue view "$ISSUE_NUMBER" --json body --jq '.body')
-# For each verified item EC-N, replace '- [ ] **EC-N**' with '- [x] **EC-N**' globally
-# Do this only for items where the script said verified=true.
+BODY_FILE=$(mktemp /tmp/issue-body-XXXXXX.md)
+printf '%s' "$BODY" > "$BODY_FILE"
+
+if [ -n "$VERIFIED_IDS" ]; then
+  NEW_BODY=$(bash .github/ai-factory/scripts/tick-ec.sh "$BODY_FILE" $VERIFIED_IDS)
+  printf '%s' "$NEW_BODY" > "$BODY_FILE"
+  gh issue edit "$ISSUE_NUMBER" --body-file "$BODY_FILE"
+fi
+rm -f "$BODY_FILE"
 ```
 
-After updating all verified items, write the new body back:
-```bash
-TMP=$(mktemp /tmp/issue-body.XXXXXX)
-printf '%s' "$UPDATED_BODY" > "$TMP"
-gh issue edit "$ISSUE_NUMBER" --body-file "$TMP"
-rm -f "$TMP"
-```
+`tick-ec.sh` is metacharacter-safe (awk-based, no `sed s///`) and only flips
+unchecked boxes for the named ids — never the reverse, never a partial-number
+match.
 
 ### Step 8 — Build the validation comment
 
