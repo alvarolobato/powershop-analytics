@@ -86,6 +86,20 @@ function statusFromDelta(delta: number): "ok" | "watch" | "alert" {
   return "ok";
 }
 
+/** YoY-aware semaphore: uses deltaYoY as primary signal when available,
+ *  falls back to the 7-day delta (statusFromDelta) when YoY is null. */
+function statusFromDeltas(
+  delta7d: number,
+  deltaYoY: number | null,
+): "ok" | "watch" | "alert" {
+  if (deltaYoY !== null) {
+    if (deltaYoY <= -0.15) return "alert";
+    if (deltaYoY <= -0.05) return "watch";
+    return "ok";
+  }
+  return statusFromDelta(delta7d);
+}
+
 function dateLabelEs(d: Date): string {
   return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
 }
@@ -491,7 +505,8 @@ export async function GET(req: NextRequest) {
                 COALESCE(s.sales, 0)::numeric AS sales,
                 COALESCE(avg7.avg7, 0)::numeric AS avg7,
                 COALESCE(s30.total_30d, 0)::numeric AS total_30d,
-                last_sale.last_sale_date::text AS last_sale_date
+                last_sale.last_sale_date::text AS last_sale_date,
+                ly.sales_ly::numeric AS sales_ly
          FROM ps_tiendas t
          LEFT JOIN (
            SELECT tienda, SUM(total_si) AS sales
@@ -532,6 +547,13 @@ export async function GET(req: NextRequest) {
            WHERE entrada=true AND tienda<>'99'
            GROUP BY tienda
          ) last_sale ON last_sale.tienda = t.codigo
+         LEFT JOIN (
+           SELECT tienda, SUM(total_si) AS sales_ly
+           FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99'
+             AND fecha_creacion = ($1::date - INTERVAL '1 year')::date
+           GROUP BY tienda
+         ) ly ON ly.tienda = t.codigo
          WHERE t.codigo <> '99'
          ORDER BY COALESCE(s.sales, 0) DESC, t.codigo`,
         [asOfDate],
@@ -819,14 +841,17 @@ export async function GET(req: NextRequest) {
       const avg7 = num(r[4]);
       const total30d = num(r[5]);
       const lastSaleDate = r[6] ? String(r[6]) : null;
+      const salesLY = r[7] !== null && r[7] !== undefined ? num(r[7]) : null;
       const delta = avg7 > 0 ? sales / avg7 - 1 : 0;
+      const deltaYoY = salesLY !== null && salesLY > 0 ? sales / salesLY - 1 : null;
       return {
         code,
         name: storeName(identificador, poblacion, code),
         sales,
         delta,
+        deltaYoY,
         spark: sparkByStore[code] ?? [],
-        status: statusFromDelta(delta),
+        status: statusFromDeltas(delta, deltaYoY),
         total30d,
         lastSaleDate,
       };

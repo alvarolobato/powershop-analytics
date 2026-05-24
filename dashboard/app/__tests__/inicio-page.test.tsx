@@ -71,9 +71,9 @@ const MOCK_DATA: HomeViewModel = {
   ],
   dailyTrend: [{ day: 1, actual: 8000, ly: 8500 }, { day: 2, actual: null, ly: 9000 }],
   topStores: [
-    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, spark: [1, 2, 3], status: "ok" },
-    { code: "608", name: "Montijo", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "ok" },
-    { code: "601", name: "Badajoz", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert" },
+    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, deltaYoY: 0.031,  spark: [1, 2, 3], status: "ok" },
+    { code: "608", name: "Montijo",            sales: 3960, delta: -0.012, deltaYoY: -0.025, spark: [1, 2, 3], status: "ok" },
+    { code: "601", name: "Badajoz",            sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [1, 2, 3], status: "alert" },
   ],
   inactiveStores: [],
   opsRetail: [

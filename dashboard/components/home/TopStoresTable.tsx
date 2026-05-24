@@ -29,8 +29,8 @@ function sparkColor(store: Store): string {
   return store.delta >= 0 ? "var(--up)" : "var(--down)";
 }
 
-const COL_TEMPLATE = "32px 60px 1fr 110px 80px 100px";
-const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "Últ. 7 días"];
+const COL_TEMPLATE = "32px 60px 1fr 110px 80px 80px 100px";
+const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "vs año ant", "Últ. 7 días"];
 
 const outlineLink: React.CSSProperties = {
   fontSize: 11,
@@ -65,7 +65,7 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
       >
         <SectionHeader
           title={`Tiendas (${stores.length}) — ordenadas por ventas`}
-          subtitle="Ventas del día seleccionado · evolución últimos 7 días"
+          subtitle="Ventas del día seleccionado · comparativa interanual · evolución últimos 7 días"
         />
         <a href="/paneles" style={outlineLink} aria-label="Ver todos los paneles">
           Ver paneles →
@@ -214,6 +214,23 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                 {/* Delta vs network avg */}
                 <td style={{ padding: 0, textAlign: "right" }}>
                   <Delta value={store.delta} size="sm" />
+                </td>
+
+                {/* YoY delta */}
+                <td style={{ padding: 0, textAlign: "right" }}>
+                  {store.deltaYoY !== null ? (
+                    <Delta value={store.deltaYoY} size="sm" />
+                  ) : (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        fontSize: 11,
+                        color: "var(--fg-subtle)",
+                      }}
+                    >
+                      —
+                    </span>
+                  )}
                 </td>
 
                 {/* 7-day sparkline */}
