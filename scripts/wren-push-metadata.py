@@ -671,7 +671,7 @@ CROSS_VALIDATIONS = [
         """
         SELECT
             SUM(s.stock * a.precio_coste) AS valor_coste_tiendas,
-            COUNT(DISTINCT s.codigo) AS articulos_en_stock
+            COUNT(DISTINCT s.codigo)::text AS articulos_en_stock
         FROM ps_stock_tienda s
         JOIN ps_articulos a ON s.codigo = a.codigo
         WHERE s.stock > 0 AND a.anulado = false AND s.tienda <> '99'
