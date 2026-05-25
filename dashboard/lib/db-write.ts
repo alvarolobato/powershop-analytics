@@ -6,7 +6,8 @@
  * (dashboards, dashboard_versions tables).
  */
 
-import { Pool, type PoolConfig, type QueryResultRow } from "pg";
+import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { buildPgPoolConfig } from "./db-shared";
 
 // ─── llm_interactions types ─────────────────────────────────────────────────
 
@@ -35,39 +36,40 @@ export interface TraceContext {
 
 // ─── Pool configuration ─────────────────────────────────────────────────────
 
-const STATEMENT_TIMEOUT_MS = 30_000;
-const CONNECTION_TIMEOUT_MS = 5_000;
-
-function getPoolConfig(): PoolConfig {
-  const dsn = process.env.POSTGRES_DSN;
-  if (dsn) {
-    return {
-      connectionString: dsn,
-      max: 5,
-      statement_timeout: STATEMENT_TIMEOUT_MS,
-      connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
-    };
-  }
-
-  return {
-    host: process.env.POSTGRES_HOST || "localhost",
-    port: parseInt(process.env.POSTGRES_PORT || "5432", 10),
-    user: process.env.POSTGRES_USER || "postgres",
-    password: process.env.POSTGRES_PASSWORD || "",
-    database: process.env.POSTGRES_DB || "powershop",
-    max: 5,
-    statement_timeout: STATEMENT_TIMEOUT_MS,
-    connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
-  };
-}
-
 let _pool: Pool | null = null;
 
 export function getPool(): Pool {
   if (!_pool) {
-    _pool = new Pool(getPoolConfig());
+    _pool = new Pool(buildPgPoolConfig({ max: 5 }));
   }
   return _pool;
+}
+
+// ─── Transaction helper ──────────────────────────────────────────────────────
+
+/**
+ * Run `fn` inside a BEGIN/COMMIT transaction on the write pool.
+ * Rolls back and rethrows on any error; always releases the client.
+ */
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (err) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // ignore rollback errors
+    }
+    throw err;
+  } finally {
+    client.release();
+  }
 }
 
 /**

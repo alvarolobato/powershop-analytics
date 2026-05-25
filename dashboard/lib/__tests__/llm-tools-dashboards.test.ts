@@ -6,6 +6,7 @@ import {
   handleSubmitDashboardAnalysis,
   handleSubmitWeeklyReview,
 } from "@/lib/llm-tools/handlers/dashboards";
+import { validateReadOnly, SqlValidationError } from "@/lib/db";
 import type { DashboardSpec } from "@/lib/schema";
 import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
@@ -340,5 +341,20 @@ describe("handleSubmitWeeklyReview", () => {
     );
     expect(out.ok).toBe(false);
     if (!out.ok) expect(out.code).toBe("INVALID_ARGS");
+  });
+});
+
+// F11: validateReadOnly() rejects write SQL (read-only enforcement used by db.ts query())
+describe("validateReadOnly blocks write statements", () => {
+  it("throws SqlValidationError for UPDATE, DELETE, and INSERT", () => {
+    expect(() =>
+      validateReadOnly("UPDATE dashboards SET spec = '{}' WHERE id = 1"),
+    ).toThrow(SqlValidationError);
+    expect(() =>
+      validateReadOnly("DELETE FROM dashboards WHERE id = 1"),
+    ).toThrow(SqlValidationError);
+    expect(() =>
+      validateReadOnly("INSERT INTO dashboards (spec) VALUES ('{}')"),
+    ).toThrow(SqlValidationError);
   });
 });

@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { getPool } from "@/lib/db-write";
+import { withTransaction } from "@/lib/db-write";
 import {
   formatApiError,
   generateRequestId,
@@ -82,151 +82,146 @@ export async function POST(
     );
   }
 
-  let client;
-  try {
-    client = await getPool().connect();
-  } catch (err) {
-    console.error(
-      `[${requestId}] Error de conexión al restaurar dashboard ${dashboardId}:`,
-      err,
-    );
-    return NextResponse.json(
-      formatApiError(
-        "No se pudo conectar a la base de datos. Inténtalo de nuevo.",
-        "DB_CONNECTION",
-        sanitizeErrorMessage(err),
-        requestId,
-      ),
-      { status: 503 },
-    );
-  }
+  type RestoreOutcome =
+    | { kind: "version_not_found" }
+    | { kind: "validation_error"; zodError: ZodError }
+    | { kind: "sql_lint_error"; issues: string[] }
+    | { kind: "dashboard_not_found" }
+    | { kind: "ok"; row: unknown };
 
   try {
-    await client.query("BEGIN");
-
-    const targetResult = await client.query<{
-      id: number;
-      spec: unknown;
-      version_number: string | number;
-    }>(
-      `SELECT id, spec, version_number
-       FROM (
-         SELECT id,
-                spec,
-                ROW_NUMBER() OVER (
-                  PARTITION BY dashboard_id ORDER BY created_at ASC, id ASC
-                ) AS version_number
-         FROM dashboard_versions
-         WHERE dashboard_id = $1
-       ) sub
-       WHERE id = $2`,
-      [dashboardId, versionId],
-    );
-
-    if (targetResult.rows.length === 0) {
-      await client.query("ROLLBACK");
-      return NextResponse.json(
-        formatApiError(
-          "Versión no encontrada.",
-          "NOT_FOUND",
-          "La versión indicada no existe o no pertenece a este dashboard.",
-          requestId,
-        ),
-        { status: 404 },
+    const outcome = await withTransaction<RestoreOutcome>(async (client) => {
+      const targetResult = await client.query<{
+        id: number;
+        spec: unknown;
+        version_number: string | number;
+      }>(
+        `SELECT id, spec, version_number
+         FROM (
+           SELECT id,
+                  spec,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY dashboard_id ORDER BY created_at ASC, id ASC
+                  ) AS version_number
+           FROM dashboard_versions
+           WHERE dashboard_id = $1
+         ) sub
+         WHERE id = $2`,
+        [dashboardId, versionId],
       );
-    }
 
-    const targetRow = targetResult.rows[0];
-    const versionNumber = Number(targetRow.version_number);
+      if (targetResult.rows.length === 0) {
+        return { kind: "version_not_found" };
+      }
 
-    let validatedSpec: ReturnType<typeof validateSpec>;
-    try {
-      validatedSpec = validateSpec(targetRow.spec);
-    } catch (err) {
-      await client.query("ROLLBACK");
-      if (err instanceof ZodError) {
+      const targetRow = targetResult.rows[0];
+      const versionNumber = Number(targetRow.version_number);
+
+      let validatedSpec: ReturnType<typeof validateSpec>;
+      try {
+        validatedSpec = validateSpec(targetRow.spec);
+      } catch (err) {
+        if (err instanceof ZodError) {
+          return { kind: "validation_error", zodError: err };
+        }
+        throw err;
+      }
+
+      const sqlLint = lintDashboardSpec(validatedSpec);
+      if (sqlLint.length > 0) {
+        return { kind: "sql_lint_error", issues: sqlLint };
+      }
+
+      const existingResult = await client.query<{ spec: unknown }>(
+        `SELECT spec FROM dashboards WHERE id = $1 FOR UPDATE`,
+        [dashboardId],
+      );
+
+      if (existingResult.rows.length === 0) {
+        return { kind: "dashboard_not_found" };
+      }
+
+      const currentSpec = existingResult.rows[0].spec;
+
+      await client.query(
+        `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
+         VALUES ($1, $2, $3)`,
+        [
+          dashboardId,
+          JSON.stringify(currentSpec),
+          `Restauración a versión ${versionNumber}`,
+        ],
+      );
+
+      const updateResult = await client.query(
+        `UPDATE dashboards
+         SET spec = $1, updated_at = NOW()
+         WHERE id = $2
+         RETURNING id, name, description, spec, created_at, updated_at`,
+        [JSON.stringify(validatedSpec), dashboardId],
+      );
+
+      return { kind: "ok", row: updateResult.rows[0] ?? null };
+    });
+
+    switch (outcome.kind) {
+      case "version_not_found":
+        return NextResponse.json(
+          formatApiError(
+            "Versión no encontrada.",
+            "NOT_FOUND",
+            "La versión indicada no existe o no pertenece a este dashboard.",
+            requestId,
+          ),
+          { status: 404 },
+        );
+      case "validation_error":
         return NextResponse.json(
           formatApiError(
             "La versión seleccionada no cumple el esquema actual del dashboard.",
             "VALIDATION",
-            err.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+            outcome.zodError.issues
+              .map((i) => `${i.path.join(".")}: ${i.message}`)
+              .join("; "),
             requestId,
           ),
           { status: 400 },
         );
-      }
-      throw err;
+      case "sql_lint_error":
+        return NextResponse.json(
+          formatApiError(
+            "Las consultas SQL de la versión restaurada contienen patrones inválidos para PostgreSQL.",
+            "SQL_LINT",
+            outcome.issues.join(" | "),
+            requestId,
+          ),
+          { status: 400 },
+        );
+      case "dashboard_not_found":
+        return NextResponse.json(
+          formatApiError(
+            "Dashboard no encontrado.",
+            "NOT_FOUND",
+            `No existe ningún dashboard con ID ${dashboardId}.`,
+            requestId,
+          ),
+          { status: 404 },
+        );
+      case "ok":
+        if (!outcome.row) {
+          return NextResponse.json(
+            formatApiError(
+              "Dashboard no encontrado.",
+              "NOT_FOUND",
+              `No existe ningún dashboard con ID ${dashboardId}.`,
+              requestId,
+            ),
+            { status: 404 },
+          );
+        }
+        return NextResponse.json(outcome.row);
     }
-
-    const sqlLint = lintDashboardSpec(validatedSpec);
-    if (sqlLint.length > 0) {
-      await client.query("ROLLBACK");
-      return NextResponse.json(
-        formatApiError(
-          "Las consultas SQL de la versión restaurada contienen patrones inválidos para PostgreSQL.",
-          "SQL_LINT",
-          sqlLint.join(" | "),
-          requestId,
-        ),
-        { status: 400 },
-      );
-    }
-
-    const existingResult = await client.query<{ spec: unknown }>(
-      `SELECT spec FROM dashboards WHERE id = $1 FOR UPDATE`,
-      [dashboardId],
-    );
-
-    if (existingResult.rows.length === 0) {
-      await client.query("ROLLBACK");
-      return NextResponse.json(
-        formatApiError(
-          "Dashboard no encontrado.",
-          "NOT_FOUND",
-          `No existe ningún dashboard con ID ${dashboardId}.`,
-          requestId,
-        ),
-        { status: 404 },
-      );
-    }
-
-    const currentSpec = existingResult.rows[0].spec;
-
-    await client.query(
-      `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
-       VALUES ($1, $2, $3)`,
-      [
-        dashboardId,
-        JSON.stringify(currentSpec),
-        `Restauración a versión ${versionNumber}`,
-      ],
-    );
-
-    const updateResult = await client.query(
-      `UPDATE dashboards
-       SET spec = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, name, description, spec, created_at, updated_at`,
-      [JSON.stringify(validatedSpec), dashboardId],
-    );
-
-    await client.query("COMMIT");
-
-    if (updateResult.rows.length === 0) {
-      return NextResponse.json(
-        formatApiError(
-          "Dashboard no encontrado.",
-          "NOT_FOUND",
-          `No existe ningún dashboard con ID ${dashboardId}.`,
-          requestId,
-        ),
-        { status: 404 },
-      );
-    }
-
-    return NextResponse.json(updateResult.rows[0]);
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
     console.error(`[${requestId}] Error al restaurar dashboard ${dashboardId}:`, err);
     return NextResponse.json(
       formatApiError(
@@ -237,7 +232,5 @@ export async function POST(
       ),
       { status: 500 },
     );
-  } finally {
-    client.release();
   }
 }

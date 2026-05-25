@@ -18,18 +18,14 @@
  */
 
 import { NextResponse } from "next/server";
-import {
-  generateDashboard,
-  AgenticRunnerError,
-} from "@/lib/llm";
-import { classifyLlmError } from "@/lib/llm-error-payload";
+import { generateDashboard } from "@/lib/llm";
+import { buildLlmErrorPayload } from "@/lib/llm-error-payload";
 import { validateSpec, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import {
   formatApiError,
   generateRequestId,
-  sanitizeErrorMessage,
 } from "@/lib/errors";
 import {
   createInteraction,
@@ -45,7 +41,6 @@ import {
 import { formatAgenticProgressLineEs } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
-import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 
 function extractJson(raw: string): string {
   const trimmed = raw.trim();
@@ -124,36 +119,6 @@ function finishGenerateFromRawLlm(rawResponse: string, requestId: string): Gener
   }
 }
 
-function mapGenerateLlmError(err: unknown, requestId: string): GenerateFinishErr {
-  if (err instanceof AgenticRunnerError) {
-    const cfg = loadDashboardLlmConfig();
-    const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
-    persistAgenticError("generate", err, diagnostic);
-    return {
-      ok: false,
-      status: 500,
-      payload: formatApiError(
-        "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el prompt o inténtalo de nuevo.",
-        "AGENTIC_RUNNER",
-        diagnostic.subError,
-        err.requestId,
-        diagnostic,
-      ) as unknown as Record<string, unknown>,
-    };
-  }
-  const { status, code, userMessage } = classifyLlmError(err, requestId);
-  console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
-  return {
-    ok: false,
-    status,
-    payload: formatApiError(
-      userMessage,
-      code as Parameters<typeof formatApiError>[1],
-      sanitizeErrorMessage(err),
-      requestId,
-    ) as unknown as Record<string, unknown>,
-  };
-}
 
 const WIDGET_ALLOWED_FIELDS: Record<string, string[]> = {
   kpi_row: ["id", "type", "items"],
@@ -280,9 +245,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           llm_driver: llmDriver ?? undefined,
         }).then(async (conv) => {
           conversationId = conv.id;
-          // Record the full prompt as the first user message (plain string so
-          // the conversation viewer renders it without special handling).
-          await appendMessage(conv.id, "user", prompt);
+          await appendMessage(conv.id, "user", { text: prompt });
           // Send the conversation URL so the frontend can show a link immediately.
           // last_status starts NULL (in-progress); success/failure paths update it.
           send({ type: "conversation", requestId, conversationId: conv.id, c_url: conv.c_url });
@@ -326,11 +289,8 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
             },
           });
         } catch (err: unknown) {
-          const mapped = mapGenerateLlmError(err, requestId);
-          const errText =
-            typeof mapped.payload["error"] === "string"
-              ? mapped.payload["error"]
-              : "Error al generar";
+          const { status: errStatus, payload: errPayload } = buildLlmErrorPayload(err, requestId, cfg, "generate");
+          const errText = errPayload.error || "Error al generar";
           pushLine({ kind: "error", text: errText, ts: ts() });
           await flushLines();
           if (interactionId) {
@@ -338,23 +298,19 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
               console.error(`[${requestId}] finishInteraction(error) failed:`, e),
             );
           }
-          // Save the error as a plain-string assistant message so the conversation
-          // viewer renders it correctly (getMessageText handles string content).
+          console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
           await conversationPromise;
           if (conversationId) {
-            const errContent = typeof mapped.payload["details"] === "string"
-              ? `${errText}\n\nDetalle: ${mapped.payload["details"]}`
+            const errContent = errPayload.details
+              ? `${errText}\n\nDetalle: ${errPayload.details}`
               : errText;
-            await appendMessage(conversationId, "assistant", errContent)
+            await appendMessage(conversationId, "assistant", { text: errContent })
               .catch((e) => console.error(`[${requestId}] appendMessage(error) failed:`, e));
             await touchConversation(conversationId, "error").catch(() => {});
           }
-          send({
-            type: "error",
-            requestId,
-            httpStatus: mapped.status,
-            ...mapped.payload,
-          });
+          // Spread payload first so its requestId is canonical (AgenticRunnerError
+          // carries its own requestId that may differ from the outer one).
+          send({ ...errPayload, type: "error", httpStatus: errStatus });
           controller.close();
           return;
         }
@@ -377,7 +333,7 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           }
           await conversationPromise;
           if (conversationId) {
-            await appendMessage(conversationId, "assistant", errText)
+            await appendMessage(conversationId, "assistant", { text: errText })
               .catch((e) => console.error(`[${requestId}] appendMessage(validation error) failed:`, e));
             await touchConversation(conversationId, "error").catch(() => {});
           }
@@ -402,14 +358,14 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
             console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
           );
         }
-        // Record a success summary as a plain-string assistant message.
+        // Record a success summary as a normalized { text } assistant message.
         // Note: the dashboard itself is saved via /api/dashboards (called by the
         // frontend after this stream closes); we do not link context_ref here
         // because the dashboard ID is not yet available at this point.
         await conversationPromise;
         if (conversationId) {
           const successText = `Panel generado: "${finish.spec.title ?? "Sin título"}"`;
-          await appendMessage(conversationId, "assistant", successText)
+          await appendMessage(conversationId, "assistant", { text: successText })
             .catch((e) => console.error(`[${requestId}] appendMessage(success) failed:`, e));
           await touchConversation(conversationId, "ok").catch(() => {});
         }
@@ -452,15 +408,14 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
       endpoint: "generateDashboard",
     });
   } catch (err: unknown) {
-    const mapped = mapGenerateLlmError(err, requestId);
+    const { status, payload } = buildLlmErrorPayload(err, requestId, cfg, "generate");
     if (interactionId) {
-      const errText =
-        typeof mapped.payload["error"] === "string" ? mapped.payload["error"] : "Error al generar";
-      await finishInteraction(interactionId, "error", errText).catch((e) =>
+      await finishInteraction(interactionId, "error", payload.error).catch((e) =>
         console.error(`[${requestId}] finishInteraction(error) failed:`, e),
       );
     }
-    return NextResponse.json(mapped.payload, { status: mapped.status });
+    console.error(`[${requestId}] Error al generar dashboard con LLM:`, err);
+    return NextResponse.json(payload, { status });
   }
 
   const finish = finishGenerateFromRawLlm(rawResponse, requestId);

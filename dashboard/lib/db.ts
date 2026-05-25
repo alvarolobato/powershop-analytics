@@ -6,7 +6,8 @@
  * before reaching the database — see AGENTS.md read-only policy.
  */
 
-import { Pool, type PoolConfig } from "pg";
+import { Pool } from "pg";
+import { buildPgPoolConfig } from "./db-shared";
 
 // ─── SQL Safety ─────────────────────────────────────────────────────────────
 
@@ -130,38 +131,12 @@ export class ConnectionError extends Error {
 // ─── Pool configuration ─────────────────────────────────────────────────────
 
 const QUERY_TIMEOUT_MS = 30_000;
-const CONNECTION_TIMEOUT_MS = 5_000;
-
-function getPoolConfig(): PoolConfig {
-  // POSTGRES_DSN takes priority (single connection string).
-  // Falls back to individual POSTGRES_* env vars.
-  const dsn = process.env.POSTGRES_DSN;
-  if (dsn) {
-    return {
-      connectionString: dsn,
-      max: 10,
-      statement_timeout: QUERY_TIMEOUT_MS,
-      connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
-    };
-  }
-
-  return {
-    host: process.env.POSTGRES_HOST || "localhost",
-    port: parseInt(process.env.POSTGRES_PORT || "5432", 10),
-    user: process.env.POSTGRES_USER || "postgres",
-    password: process.env.POSTGRES_PASSWORD || "",
-    database: process.env.POSTGRES_DB || "powershop",
-    max: 10,
-    statement_timeout: QUERY_TIMEOUT_MS,
-    connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
-  };
-}
 
 let _pool: Pool | null = null;
 
 function getPool(): Pool {
   if (!_pool) {
-    _pool = new Pool(getPoolConfig());
+    _pool = new Pool(buildPgPoolConfig({ max: 10 }));
   }
   return _pool;
 }

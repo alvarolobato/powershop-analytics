@@ -85,6 +85,9 @@ export type HomeViewModel = {
     sales: number;
     /** Δ vs the same store's own 7-day average (excluding the as-of day). */
     delta: number;
+    /** Δ vs the same calendar date one year ago. `null` when the store had
+     *  no sales on that date last year (new store or closed last year). */
+    deltaYoY: number | null;
     spark: number[]; // last 7 days
     status: "ok" | "watch" | "alert";
     /** Gross margin fraction for the as-of date. Null when no cost data. */
