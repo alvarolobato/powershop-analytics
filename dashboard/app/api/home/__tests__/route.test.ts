@@ -121,6 +121,10 @@ describe("GET /api/home", () => {
       if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
       }
+      // 30-day rolling return-rate baseline (PR #761): non-null → metric.baseline set.
+      if (sql.includes("rate_30d")) {
+        return { rows: [[0.035]] };
+      }
       // Weekly streak queries (PR #760), business + per-store. Empty → 0 streak.
       if (sql.includes("curr_sales") && sql.includes("ly_sales")) {
         return { rows: [] };
