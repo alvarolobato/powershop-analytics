@@ -28,27 +28,11 @@
 import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { sql } from "@/lib/db-write";
+import { SYNC_NAMES_WITH_WATERMARK } from "@/lib/etl-sync-names";
 
 const STALE_RUN_HOURS = 4;
 
-// Must mirror SYNC_NAMES_WITH_WATERMARK in etl/main.py. Kept inline because
-// the dashboard cannot import from Python; add a CI check if these ever
-// drift (see issue #398 for the registry).
-const ALLOWED_FORCE_TABLES: ReadonlySet<string> = new Set([
-  "articulos",
-  "clientes",
-  "ccstock",
-  "facturas",
-  "ventas",
-  "lineas_ventas",
-  "pagos_ventas",
-  "gc_albaranes",
-  "gc_lin_albarane",
-  "gc_facturas",
-  "gc_lin_facturas",
-  "stock",
-  "traspasos",
-]);
+const ALLOWED_FORCE_TABLES: ReadonlySet<string> = new Set(SYNC_NAMES_WITH_WATERMARK);
 
 interface TriggerBody {
   forceFull: boolean;

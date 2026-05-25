@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { sql, getPool } from "@/lib/db-write";
+import { sql, withTransaction } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
@@ -212,35 +212,50 @@ export async function PUT(
 
   const normalizedPrompt =
     typeof prompt === "string" ? prompt.trim() || null : null;
+  const trimmedName = typeof name === "string" ? name.trim() : null;
 
   // Use a transaction to ensure version insert + dashboard update are atomic
-  let client;
   try {
-    client = await getPool().connect();
-  } catch (err) {
-    console.error(`[${requestId}] Error de conexión al actualizar dashboard ${id}:`, err);
-    return NextResponse.json(
-      formatApiError(
-        "No se pudo conectar a la base de datos. Inténtalo de nuevo.",
-        "DB_CONNECTION",
-        sanitizeErrorMessage(err),
-        requestId,
-      ),
-      { status: 503 },
-    );
-  }
+    const updateResult = await withTransaction(async (client) => {
+      // Fetch existing dashboard (lock row for update)
+      const existingResult = await client.query(
+        `SELECT id, spec FROM dashboards WHERE id = $1 FOR UPDATE`,
+        [id],
+      );
 
-  try {
-    await client.query("BEGIN");
+      if (existingResult.rows.length === 0) return null;
 
-    // Fetch existing dashboard (lock row for update)
-    const existingResult = await client.query(
-      `SELECT id, spec FROM dashboards WHERE id = $1 FOR UPDATE`,
-      [id],
-    );
+      // Save old spec as a version (skip for name-only changes)
+      if (!skipVersion) {
+        await client.query(
+          `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
+           VALUES ($1, $2, $3)`,
+          [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
+        );
+      }
 
-    if (existingResult.rows.length === 0) {
-      await client.query("ROLLBACK");
+      // Build dynamic SET clause and parameters
+      const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
+      const params: unknown[] = [JSON.stringify(validatedSpec), id];
+      let paramIdx = 3;
+
+      if (trimmedName) {
+        setClauses.push(`name = $${paramIdx}`);
+        params.push(trimmedName);
+        paramIdx++;
+      }
+
+      const res = await client.query(
+        `UPDATE dashboards
+         SET ${setClauses.join(", ")}
+         WHERE id = $2
+         RETURNING id, name, description, spec, created_at, updated_at`,
+        params,
+      );
+      return res.rows[0] ?? null;
+    });
+
+    if (updateResult === null) {
       return NextResponse.json(
         formatApiError(
           "Dashboard no encontrado.",
@@ -252,54 +267,8 @@ export async function PUT(
       );
     }
 
-    // Save old spec as a version (skip for name-only changes)
-    if (!skipVersion) {
-      await client.query(
-        `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
-         VALUES ($1, $2, $3)`,
-        [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
-      );
-    }
-
-    // Update the dashboard (include name if provided)
-    const trimmedName = typeof name === "string" ? name.trim() : null;
-
-    // Build dynamic SET clause and parameters
-    const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
-    const params: unknown[] = [JSON.stringify(validatedSpec), id];
-    let paramIdx = 3;
-
-    if (trimmedName) {
-      setClauses.push(`name = $${paramIdx}`);
-      params.push(trimmedName);
-      paramIdx++;
-    }
-
-    const updateResult = await client.query(
-      `UPDATE dashboards
-       SET ${setClauses.join(", ")}
-       WHERE id = $2
-       RETURNING id, name, description, spec, created_at, updated_at`,
-      params,
-    );
-
-    await client.query("COMMIT");
-
-    if (updateResult.rows.length === 0) {
-      return NextResponse.json(
-        formatApiError(
-          "Dashboard no encontrado.",
-          "NOT_FOUND",
-          `No existe ningún dashboard con ID ${id}.`,
-          requestId,
-        ),
-        { status: 404 },
-      );
-    }
-
-    return NextResponse.json(updateResult.rows[0]);
+    return NextResponse.json(updateResult);
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
     console.error(`[${requestId}] Error al actualizar dashboard ${id}:`, err);
     return NextResponse.json(
       formatApiError(
@@ -310,8 +279,6 @@ export async function PUT(
       ),
       { status: 500 },
     );
-  } finally {
-    client.release();
   }
 }
 
