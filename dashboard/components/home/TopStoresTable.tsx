@@ -263,6 +263,7 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                       —
                     </span>
                   )}
+                </td>
 
                 {/* 7-day sparkline */}
                 <td style={{ padding: 0 }}>
