@@ -69,11 +69,17 @@ const MOCK_DATA: HomeViewModel = {
     { id: "mes",    label: "Mes",       value: 134802,  deltaPrev: -0.189, prevLabel: "vs abril",   deltaYoY: -0.132, yoyLabel: "vs may 2025",       spark: [1, 2, 3], sparkLabels: ["a"], trendDirection: "down" },
     { id: "anyo",   label: "Año (YTD)", value: 1842600, deltaPrev: 0.034,  prevLabel: "vs YTD",     deltaYoY: 0.034,  yoyLabel: "vs 2025",           spark: [1, 2, 3], sparkLabels: ["a"], trendDirection: "flat" },
   ],
+  marginPeriods: [
+    { id: "hoy",    label: "Hoy",       value: 0.521, deltaPrev: -0.03, prevLabel: "vs ayer",    deltaYoY: -0.015, yoyLabel: "vs lun 5 may 2025", spark: [0.52, 0.53, 0.521], sparkLabels: ["a"] },
+    { id: "semana", label: "Semana",    value: 0.48,  deltaPrev: 0.01,  prevLabel: "vs sem ant", deltaYoY: null,   yoyLabel: "vs sem 18 2025",    spark: [0.47, 0.48, 0.48],  sparkLabels: ["a"] },
+    { id: "mes",    label: "Mes",       value: 0.502, deltaPrev: -0.02, prevLabel: "vs abril",   deltaYoY: -0.01,  yoyLabel: "vs may 2025",       spark: [0.51, 0.50, 0.502], sparkLabels: ["a"] },
+    { id: "anyo",   label: "Año (YTD)", value: 0.495, deltaPrev: 0.005, prevLabel: "vs YTD",     deltaYoY: 0.005,  yoyLabel: "vs 2025",           spark: [0.49, 0.50, 0.495], sparkLabels: ["a"] },
+  ],
   dailyTrend: [{ day: 1, actual: 8000, ly: 8500 }, { day: 2, actual: null, ly: 9000 }],
   topStores: [
-    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, spark: [1, 2, 3], status: "ok", streakWeeks: 0 },
-    { code: "608", name: "Montijo", sales: 3960, delta: -0.012, spark: [1, 2, 3], status: "watch", streakWeeks: 4 },
-    { code: "601", name: "Badajoz", sales: 2820, delta: -0.142, spark: [1, 2, 3], status: "alert", streakWeeks: 0 },
+    { code: "611", name: "Valencia Alcantara", sales: 4920, delta: 0.082, deltaYoY: 0.031,  spark: [1, 2, 3], status: "ok",    streakWeeks: 0 },
+    { code: "608", name: "Montijo",            sales: 3960, delta: -0.012, deltaYoY: -0.025, spark: [1, 2, 3], status: "watch", streakWeeks: 4 },
+    { code: "601", name: "Badajoz",            sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [1, 2, 3], status: "alert", streakWeeks: 0 },
   ],
   inactiveStores: [],
   opsRetail: [
@@ -149,7 +155,9 @@ describe("InicioPage", () => {
     globalThis.fetch = mockFetch(MOCK_DATA);
     render(<InicioPage />);
     await waitFor(() => {
-      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+      // Two period grids: sales (Comparativa por periodo) and margin (Margen bruto)
+      const grids = screen.getAllByTestId("period-grid");
+      expect(grids).toHaveLength(2);
     });
   });
 

@@ -84,9 +84,9 @@ export interface AssistantMessageContent {
 }
 
 export type MessageContent =
-  | string
   | AssistantMessageContent
-  | { tool_call_id: string; tool_name: string; content: unknown };
+  | { tool_call_id: string; tool_name: string; content: unknown }
+  | string; // legacy: older persisted rows may have been stored as plain strings
 
 export interface ConversationMessage {
   id: string;

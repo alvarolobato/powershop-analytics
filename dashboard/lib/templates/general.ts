@@ -300,29 +300,80 @@ ORDER BY mes`,
     {
       id: "general-top-familias",
       type: "table",
-      title: "Top 10 Familias por Ventas (período seleccionado)",
-      sql: `SELECT fm."fami_grup_marc" AS "Familia",
-       COALESCE(SUM(lv."total_si"), 0) AS "Ventas Netas",
-       COALESCE(SUM(lv."unidades"), 0) AS "Unidades",
-       ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
-         / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %"
-FROM "public"."ps_lineas_ventas" lv
-JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
-JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
-JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE v."entrada" = true
-  AND lv."tienda" <> '99'
-  AND lv."total_si" > 0
-  AND lv."fecha_creacion" >= :curr_from
-  AND lv."fecha_creacion" <= :curr_to
-  AND __gf_tienda__
-  AND __gf_familia__
-  AND __gf_temporada__
-  AND __gf_marca__
-  AND __gf_sexo__
-  AND __gf_departamento__
-GROUP BY fm."fami_grup_marc"
-ORDER BY "Ventas Netas" DESC
+      title: "Top 10 Familias — Ventas, Mix y Comparativa",
+      sql: `WITH curr AS (
+  SELECT fm."fami_grup_marc" AS familia,
+         COALESCE(SUM(lv."total_si"), 0) AS ventas,
+         COALESCE(SUM(lv."unidades"), 0) AS unidades,
+         COALESCE(SUM(lv."total_coste_si"), 0) AS coste
+  FROM "public"."ps_lineas_ventas" lv
+  JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+  JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+  JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+  WHERE v."entrada" = true
+    AND lv."tienda" <> '99'
+    AND lv."total_si" > 0
+    AND lv."fecha_creacion" >= :curr_from
+    AND lv."fecha_creacion" <= :curr_to
+    AND __gf_tienda__
+    AND __gf_familia__
+    AND __gf_temporada__
+    AND __gf_marca__
+    AND __gf_sexo__
+    AND __gf_departamento__
+  GROUP BY fm."fami_grup_marc"
+),
+prev AS (
+  SELECT fm."fami_grup_marc" AS familia,
+         COALESCE(SUM(lv."total_si"), 0) AS ventas
+  FROM "public"."ps_lineas_ventas" lv
+  JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+  JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+  JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+  WHERE v."entrada" = true
+    AND lv."tienda" <> '99'
+    AND lv."total_si" > 0
+    AND lv."fecha_creacion" >= :curr_from::date - (:curr_to::date - :curr_from::date + 1)
+    AND lv."fecha_creacion" <= :curr_from::date - INTERVAL '1 day'
+    AND __gf_tienda__
+    AND __gf_familia__
+    AND __gf_temporada__
+    AND __gf_marca__
+    AND __gf_sexo__
+    AND __gf_departamento__
+  GROUP BY fm."fami_grup_marc"
+),
+yoy AS (
+  SELECT fm."fami_grup_marc" AS familia,
+         COALESCE(SUM(lv."total_si"), 0) AS ventas
+  FROM "public"."ps_lineas_ventas" lv
+  JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+  JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+  JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+  WHERE v."entrada" = true
+    AND lv."tienda" <> '99'
+    AND lv."total_si" > 0
+    AND lv."fecha_creacion" >= :curr_from::date - INTERVAL '1 year'
+    AND lv."fecha_creacion" <= :curr_to::date - INTERVAL '1 year'
+    AND __gf_tienda__
+    AND __gf_familia__
+    AND __gf_temporada__
+    AND __gf_marca__
+    AND __gf_sexo__
+    AND __gf_departamento__
+  GROUP BY fm."fami_grup_marc"
+)
+SELECT c.familia AS "Familia",
+       ROUND(c.ventas, 2) AS "Ventas Netas",
+       c.unidades AS "Unidades",
+       ROUND((c.ventas - c.coste) / NULLIF(c.ventas, 0) * 100, 1) AS "Margen %",
+       ROUND(c.ventas / NULLIF(SUM(c.ventas) OVER (), 0) * 100, 1) AS "Mix %",
+       ROUND((c.ventas - p.ventas) / NULLIF(ABS(p.ventas), 0) * 100, 1) AS "Δ Per. Ant. %",
+       ROUND((c.ventas - y.ventas) / NULLIF(ABS(y.ventas), 0) * 100, 1) AS "Δ Año Ant. %"
+FROM curr c
+LEFT JOIN prev p ON c.familia = p.familia
+LEFT JOIN yoy y ON c.familia = y.familia
+ORDER BY c.ventas DESC
 LIMIT 10`,
     },
     {

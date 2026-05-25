@@ -13,9 +13,13 @@ export interface DeltaProps {
   value: number | null | undefined;
   size?: "sm" | "md" | "lg";
   inverted?: boolean;
+  /** "pp" renders as percentage-point difference (e.g. -0.03 → "-3.0 pp")
+   *  instead of the default relative-percent format ("-3.0%"). Use for
+   *  margin deltas where the value is already an absolute pp difference. */
+  unit?: "pp";
 }
 
-export function Delta({ value, size = "md", inverted = false }: DeltaProps) {
+export function Delta({ value, size = "md", inverted = false, unit }: DeltaProps) {
   if (value === null || value === undefined) {
     return (
       <span
@@ -46,7 +50,7 @@ export function Delta({ value, size = "md", inverted = false }: DeltaProps) {
   const pct = `${value > 0 ? "+" : ""}${(value * 100).toLocaleString("es-ES", {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
-  })}%`;
+  })}${unit === "pp" ? " pp" : "%"}`;
 
   return (
     <span

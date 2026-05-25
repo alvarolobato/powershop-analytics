@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { PeriodGrid } from "../PeriodGrid";
 import type { HomeViewModel } from "@/lib/home-types";
@@ -90,5 +90,119 @@ describe("PeriodGrid", () => {
     ];
     render(<PeriodGrid periods={periodsWithMissingYoY} />);
     expect(screen.getByTestId("period-card-hoy").textContent).toContain("—");
+  });
+
+  it("renders custom title and subtitle when provided", () => {
+    render(
+      <PeriodGrid
+        periods={PERIODS}
+        title="Margen bruto"
+        subtitle="Margen — actual vs periodo anterior y vs año pasado"
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Margen bruto" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Margen — actual vs periodo anterior y vs año pasado"),
+    ).toBeInTheDocument();
+  });
+});
+
+const MARGIN_PERIODS: HomeViewModel["marginPeriods"] = [
+  {
+    id: "hoy",
+    label: "Hoy",
+    value: 0.521,
+    deltaPrev: -0.03,
+    prevLabel: "vs ayer",
+    deltaYoY: -0.015,
+    yoyLabel: "vs lun 5 may 2025",
+    spark: [0.54, 0.53, 0.52, 0.51, 0.52, 0.53, 0.521],
+    sparkLabels: ["mar", "mié", "jue", "vie", "sáb", "dom", "hoy"],
+  },
+  {
+    id: "semana",
+    label: "Semana",
+    value: 0.48,
+    deltaPrev: 0.01,
+    prevLabel: "vs sem ant",
+    deltaYoY: null,
+    yoyLabel: "vs sem 18 2025",
+    spark: [0.47, 0.48, 0.49, 0.48, 0.47, 0.48],
+    sparkLabels: ["s14", "s15", "s16", "s17", "s18", "s19"],
+  },
+  {
+    id: "mes",
+    label: "Mes",
+    value: 0.502,
+    deltaPrev: -0.02,
+    prevLabel: "vs abril",
+    deltaYoY: -0.01,
+    yoyLabel: "vs may 2025",
+    spark: [0.51, 0.51, 0.50, 0.50, 0.502],
+    sparkLabels: ["ene", "feb", "mar", "abr", "may"],
+  },
+  {
+    id: "anyo",
+    label: "Año (YTD)",
+    value: 0.495,
+    deltaPrev: 0.005,
+    prevLabel: "vs YTD 2025",
+    deltaYoY: 0.005,
+    yoyLabel: "vs 2025 mismo tramo",
+    spark: [0.49, 0.49, 0.50, 0.50, 0.495],
+    sparkLabels: ["ene", "feb", "mar", "abr", "may"],
+  },
+];
+
+describe("PeriodGrid — margin (pct format)", () => {
+  it("renders margin PeriodGrid with pct format", () => {
+    render(
+      <PeriodGrid
+        periods={MARGIN_PERIODS}
+        title="Margen bruto"
+        subtitle="Margen — actual vs periodo anterior y vs año pasado"
+        format="pct"
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "Margen bruto" })).toBeInTheDocument();
+    expect(screen.getByTestId("period-card-hoy")).toBeInTheDocument();
+    expect(screen.getByTestId("period-card-semana")).toBeInTheDocument();
+    expect(screen.getByTestId("period-card-mes")).toBeInTheDocument();
+    expect(screen.getByTestId("period-card-anyo")).toBeInTheDocument();
+  });
+
+  it("renders value as percentage for pct format (52,1 %)", () => {
+    render(
+      <PeriodGrid periods={MARGIN_PERIODS} title="Margen bruto" format="pct" />,
+    );
+    const hoyCard = screen.getByTestId("period-card-hoy");
+    // Intl.NumberFormat es-ES percent style produces "52,1 %" (narrow-no-break space before %)
+    expect(hoyCard.textContent).toMatch(/52[,.]1\s*%/);
+  });
+
+  it("renders sparkline in margin cards", () => {
+    render(
+      <PeriodGrid periods={MARGIN_PERIODS} title="Margen bruto" format="pct" />,
+    );
+    // Each card with a non-empty spark array renders a HomeSparkline (aria-label on svg)
+    const hoyCard = screen.getByTestId("period-card-hoy");
+    expect(within(hoyCard).getByLabelText("Tendencia Hoy")).toBeInTheDocument();
+  });
+
+  it("renders em-dash when deltaYoY is null in margin card", () => {
+    render(
+      <PeriodGrid periods={MARGIN_PERIODS} title="Margen bruto" format="pct" />,
+    );
+    const semCard = screen.getByTestId("period-card-semana");
+    expect(semCard.textContent).toContain("—");
+  });
+
+  it("renders em-dash for value when margin value is null (no-revenue period)", () => {
+    const periodsWithNullValue: HomeViewModel["marginPeriods"] = [
+      { ...MARGIN_PERIODS[0], value: null },
+    ];
+    render(<PeriodGrid periods={periodsWithNullValue} title="Margen bruto" format="pct" />);
+    const hoyCard = screen.getByTestId("period-card-hoy");
+    expect(hoyCard.textContent).toContain("—");
   });
 });

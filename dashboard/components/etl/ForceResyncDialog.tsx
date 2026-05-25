@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { SYNC_NAMES_WITH_WATERMARK } from "@/lib/etl-sync-names";
 
 /**
  * Modal letting the user trigger an ETL sync with optional force-resync
@@ -13,24 +14,27 @@ export interface ForceResyncOptions {
   tables: string[];
 }
 
-// Must mirror SYNC_NAMES_WITH_WATERMARK in etl/main.py and
-// ALLOWED_FORCE_TABLES in /api/etl/run/route.ts.
+const TABLE_LABELS: Record<string, string> = {
+  articulos: "Artículos",
+  clientes: "Clientes",
+  ccstock: "Stock central (CCStock)",
+  facturas: "Facturas",
+  stock: "Stock (Exportaciones)",
+  ventas: "Ventas",
+  lineas_ventas: "Líneas de ventas",
+  pagos_ventas: "Pagos de ventas",
+  gc_albaranes: "Albaranes mayorista",
+  gc_lin_albarane: "Líneas albaranes mayorista",
+  gc_facturas: "Facturas mayorista",
+  gc_lin_facturas: "Líneas facturas mayorista",
+  traspasos: "Traspasos",
+};
+
 export const RESYNCABLE_TABLES: ReadonlyArray<{ name: string; label: string }> =
-  [
-    { name: "articulos", label: "Artículos" },
-    { name: "clientes", label: "Clientes" },
-    { name: "ccstock", label: "Stock central (CCStock)" },
-    { name: "facturas", label: "Facturas" },
-    { name: "stock", label: "Stock (Exportaciones)" },
-    { name: "ventas", label: "Ventas" },
-    { name: "lineas_ventas", label: "Líneas de ventas" },
-    { name: "pagos_ventas", label: "Pagos de ventas" },
-    { name: "gc_albaranes", label: "Albaranes mayorista" },
-    { name: "gc_lin_albarane", label: "Líneas albaranes mayorista" },
-    { name: "gc_facturas", label: "Facturas mayorista" },
-    { name: "gc_lin_facturas", label: "Líneas facturas mayorista" },
-    { name: "traspasos", label: "Traspasos" },
-  ];
+  SYNC_NAMES_WITH_WATERMARK.map((name) => ({
+    name,
+    label: TABLE_LABELS[name] ?? name,
+  }));
 
 const DEFAULT_SELECTED = new Set(["stock", "ventas", "lineas_ventas"]);
 

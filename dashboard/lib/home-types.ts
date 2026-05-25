@@ -65,6 +65,22 @@ export type HomeViewModel = {
      *  spark data points. */
     trendDirection?: "up" | "flat" | "down";
   }>;
+  /** Margin period comparison: same 4 periods (hoy/semana/mes/año) but
+   *  carrying margin fractions (0–1) instead of EUR amounts. Deltas are
+   *  percentage-point differences (curr - prev), not relative ratios. */
+  marginPeriods: Array<{
+    id: "hoy" | "semana" | "mes" | "anyo";
+    label: string;
+    /** Margin fraction, e.g. 0.521 = 52.1%. Null when the period had no revenue. */
+    value: number | null;
+    /** Absolute percentage-point difference vs previous period (e.g. -0.03 = -3 pp). */
+    deltaPrev: number;
+    prevLabel: string;
+    deltaYoY: number | null;
+    yoyLabel: string;
+    spark: number[];
+    sparkLabels: string[];
+  }>;
   dailyTrend: Array<{ day: number; actual: number | null; ly: number }>;
   /** Active retail stores (excluding tienda='99' and any store with zero
    *  sales in the last 30 days), sorted by sales DESC for the as-of
@@ -76,11 +92,16 @@ export type HomeViewModel = {
     sales: number;
     /** Δ vs the same store's own 7-day average (excluding the as-of day). */
     delta: number;
+    /** Δ vs the same calendar date one year ago. `null` when the store had
+     *  no sales on that date last year (new store or closed last year). */
+    deltaYoY: number | null;
     spark: number[]; // last 7 days
     status: "ok" | "watch" | "alert";
     /** Consecutive complete ISO weeks where this store's sales were below
      *  the same ISO week of the prior year. 0 = no decline streak. */
     streakWeeks: number;
+    /** Gross margin fraction for the as-of date. Null when no cost data. */
+    margin?: number | null;
   }>;
   /** Stores excluded from `topStores` because they had no sales in the
    *  last 30 days. Surfaced under "Ver tiendas inactivas" so they remain

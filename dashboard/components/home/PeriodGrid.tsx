@@ -4,18 +4,23 @@ import type { HomeViewModel } from "@/lib/home-types";
 import { Delta } from "./Delta";
 import { HomeSparkline } from "./Sparkline";
 import { SectionHeader } from "./SectionHeader";
-import { fmtEUR0 } from "@/components/widgets/format";
+import { fmtEUR0, fmtPct } from "@/components/widgets/format";
 
-type Period = HomeViewModel["periods"][number];
+type PeriodLike = HomeViewModel["periods"][number] | HomeViewModel["marginPeriods"][number];
 
 interface PeriodCardProps {
-  period: Period;
+  period: PeriodLike;
+  format?: "eur" | "pct";
 }
 
-function PeriodCard({ period }: PeriodCardProps) {
+function PeriodCard({ period, format = "eur" }: PeriodCardProps) {
   const sparkColor = period.deltaPrev >= 0 ? "var(--up)" : "var(--down)";
   const yoyIsNull = period.deltaYoY === undefined || period.deltaYoY === null;
   const showStreakBadge = period.id === "semana" && (period.streakWeeks ?? 0) >= 3;
+  const formattedValue =
+    format === "pct"
+      ? period.value == null ? "—" : fmtPct(period.value)
+      : fmtEUR0(period.value ?? 0);
 
   return (
     <div
@@ -97,7 +102,7 @@ function PeriodCard({ period }: PeriodCardProps) {
           color: "var(--fg)",
         }}
       >
-        {fmtEUR0(period.value)}
+        {formattedValue}
       </div>
 
       {/* Delta pair */}
@@ -112,7 +117,7 @@ function PeriodCard({ period }: PeriodCardProps) {
         }}
       >
         <div>
-          <Delta value={period.deltaPrev} size="sm" />
+          <Delta value={period.deltaPrev} size="sm" unit={format === "pct" ? "pp" : undefined} />
           <div
             style={{
               fontFamily: "var(--font-jetbrains, monospace)",
@@ -136,7 +141,7 @@ function PeriodCard({ period }: PeriodCardProps) {
               —
             </span>
           ) : (
-            <Delta value={period.deltaYoY} size="sm" />
+            <Delta value={period.deltaYoY} size="sm" unit={format === "pct" ? "pp" : undefined} />
           )}
           <div
             style={{
@@ -155,16 +160,21 @@ function PeriodCard({ period }: PeriodCardProps) {
 }
 
 interface PeriodGridProps {
-  periods: HomeViewModel["periods"];
+  periods: PeriodLike[];
+  title?: string;
+  subtitle?: string;
+  format?: "eur" | "pct";
 }
 
-export function PeriodGrid({ periods }: PeriodGridProps) {
+export function PeriodGrid({
+  periods,
+  title = "Comparativa por periodo",
+  subtitle = "Ventas netas — actual vs periodo anterior y vs año pasado",
+  format = "eur",
+}: PeriodGridProps) {
   return (
     <section style={{ padding: "0 24px 18px" }} data-testid="period-grid">
-      <SectionHeader
-        title="Comparativa por periodo"
-        subtitle="Ventas netas — actual vs periodo anterior y vs año pasado"
-      />
+      <SectionHeader title={title} subtitle={subtitle} />
       <div
         style={{
           display: "grid",
@@ -174,7 +184,7 @@ export function PeriodGrid({ periods }: PeriodGridProps) {
         }}
       >
         {periods.map((p) => (
-          <PeriodCard key={p.id} period={p} />
+          <PeriodCard key={p.id} period={p} format={format} />
         ))}
       </div>
     </section>
