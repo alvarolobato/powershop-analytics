@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// The /api/home route fans out into ~22 parallel `query()` calls. CI
+// The /api/home route fans out into ~24 parallel `query()` calls. CI
 // has no postgres, so we stub `@/lib/db.query` with a generic mock that
 // returns an "all-null row" shape compatible with the route's
 // destructuring + safe-coerce helpers (every `num(row[i])` becomes 0,
@@ -46,16 +46,21 @@ vi.mock("@/lib/db", () => {
           rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]),
         };
       }
-      // Per-store margin query: SELECT lv.tienda ... FROM ps_lineas_ventas lv JOIN ps_ventas v
-      // ... GROUP BY lv.tienda. Returns one row so topStores[0].margin can be asserted.
+      // Business-level weekly streak query (no per-store grouping). Empty → 0.
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Per-store weekly streak query (groups by s.tienda). Empty → no streaks.
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Per-store margin query: SELECT lv.tienda ... GROUP BY lv.tienda.
       if (sql.includes("GROUP BY lv.tienda")) {
         return { rows: [["611", 5000, 2000]] }; // tienda, rev, cost → margin = 0.6
       }
-      // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (subqueries contain ps_ventas/GROUP BY tienda)
-      // Return one active store row matching the margin row above so topStores is non-empty.
+      // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (no CROSS JOIN).
       if (sql.includes("ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        // [codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date]
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03"]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
       }
       // Store spark query (ps_tiendas CROSS JOIN days): return empty rows
       if (sql.includes("ps_tiendas") && sql.includes("CROSS JOIN")) {
@@ -106,6 +111,10 @@ describe("GET /api/home", () => {
       }
       if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      // Weekly streak queries (PR #760), business + per-store. Empty → 0 streak.
+      if (sql.includes("curr_sales") && sql.includes("ly_sales")) {
+        return { rows: [] };
       }
       // Per-store margin query (PR #759): SELECT lv.tienda ... GROUP BY lv.tienda.
       // Returns one row so topStores[0].margin can be asserted (rev/cost → 0.6).
@@ -362,15 +371,175 @@ describe("GET /api/home", () => {
     expect(body.asOfDate).toBe("2026-05-03");
   });
 
-  it("topStores entries include deltaYoY field of type number or null", async () => {
-    // The default mock returns empty rows for the stores query (GROUP BY tienda)
-    // so topStores is []. We verify the route returns the correct shape by
-    // checking with a store-row mock that includes sales_ly.
+  it("includes streakWeeks in semana period", async () => {
+    const res = await GET(makeReq());
+    const { periods } = await res.json();
+    const semana = periods.find((p: { id: string }) => p.id === "semana");
+    expect(semana).toBeDefined();
+    expect(typeof semana.streakWeeks).toBe("number");
+    // Default mock returns empty streak rows → 0 streak weeks
+    expect(semana.streakWeeks).toBe(0);
+  });
+
+  it("sets streakWeeks > 0 when consecutive declining weeks are present", async () => {
     const { query: queryMock } = (await import("@/lib/db")) as unknown as {
       query: ReturnType<typeof vi.fn>;
     };
-    // Override: the stores query (ps_tiendas LEFT JOINs) returns one active store
-    // with sales=1000, avg7=800, total_30d=5000, last_sale_date="2026-04-30", sales_ly=900.
+    // Inject 4 declining weeks for the business streak query (ordered DESC).
+    // Each row: [week_start, curr_sales, ly_sales]
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      // Business streak: 4 consecutive weeks below LY (curr < ly).
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return {
+          rows: [
+            ["2026-04-21", 9000, 10000],
+            ["2026-04-14", 8800, 10200],
+            ["2026-04-07", 9100, 10300],
+            ["2026-03-31", 9200, 10100],
+            ["2026-03-24", 10500, 9800],
+          ],
+        };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res = await GET(makeReq());
+    const { periods } = await res.json();
+    const semana = periods.find((p: { id: string }) => p.id === "semana");
+    expect(semana.streakWeeks).toBe(4);
+    queryMock.mockRestore();
+  });
+
+  it("includes streakWeeks per store", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Stores main query: return two stores.
+      if (sql.includes("FROM ps_tiendas") && sql.includes("LEFT JOIN")) {
+        return {
+          rows: [
+            ["611", "Valencia", "Valencia", 5000, 4500, 30000, "2026-04-30"],
+            ["608", "Montijo", "Montijo", 3000, 3200, 25000, "2026-04-30"],
+          ],
+        };
+      }
+      if (sql.includes("FROM ps_tiendas") && sql.includes("CROSS JOIN")) {
+        return { rows: [] };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res2 = await GET(makeReq());
+    const body2 = await res2.json();
+    for (const store of body2.topStores) {
+      expect(typeof store.streakWeeks).toBe("number");
+    }
+    queryMock.mockRestore();
+  });
+
+  it("escalates store status when streakWeeks >= 3", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && !sql.includes("s.tienda")) {
+        return { rows: [] };
+      }
+      // Per-store streak: store "611" has 4 consecutive declining weeks.
+      if (sql.includes("curr_sales") && sql.includes("ly_sales") && sql.includes("s.tienda")) {
+        return {
+          rows: [
+            ["611", "2026-04-21", 900, 1000],
+            ["611", "2026-04-14", 880, 1020],
+            ["611", "2026-04-07", 910, 1030],
+            ["611", "2026-03-31", 920, 1010],
+            ["611", "2026-03-24", 1050, 980],
+          ],
+        };
+      }
+      // Stores main query: store 611 with delta -2% (small daily delta).
+      // avg7 = 1000, sales = 980 → delta = 980/1000 - 1 = -0.02
+      if (sql.includes("FROM ps_tiendas") && sql.includes("LEFT JOIN")) {
+        return {
+          rows: [
+            ["611", "Valencia", "Valencia", 980, 1000, 30000, "2026-04-30"],
+          ],
+        };
+      }
+      if (sql.includes("FROM ps_tiendas") && sql.includes("CROSS JOIN")) {
+        return { rows: [] };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res = await GET(makeReq());
+    const { topStores } = await res.json();
+    const store611 = topStores.find((s: { code: string }) => s.code === "611");
+    expect(store611).toBeDefined();
+    // delta = -2% alone would be "ok" (threshold is -4%), but streakWeeks=4 ≥ 3 → "watch"
+    expect(store611.streakWeeks).toBe(4);
+    expect(store611.status).toBe("watch");
+    queryMock.mockRestore();
+  });
+
+  it("topStores entries include deltaYoY field of type number or null", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    // Stores query (ps_tiendas LEFT JOINs) returns one active store with
+    // sales=1000, avg7=800, total_30d=5000, last_sale_date="2026-04-30", sales_ly=900.
     queryMock.mockImplementation(async (sql: string) => {
       if (sql.includes("max_synced") && sql.includes("today_madrid")) {
         return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
@@ -381,11 +550,13 @@ describe("GET /api/home", () => {
       if (sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
       }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales")) {
+        return { rows: [] };
+      }
       // Stores query: returns one row for tienda "611" with all 8 columns.
       if (sql.includes("FROM ps_tiendas") && sql.includes("sales_ly")) {
         return { rows: [["611", "Madrid Serrano", null, "1000", "800", "5000", "2026-04-30", "900"]] };
       }
-      // Spark query: one row per day for store 611.
       if (sql.includes("CROSS JOIN days") && sql.includes("t.codigo")) {
         return { rows: [["611", "2026-04-30", "1000"]] };
       }
@@ -407,6 +578,7 @@ describe("GET /api/home", () => {
       expect(typeof topStores[0].deltaYoY).toBe("number");
       expect(topStores[0].deltaYoY).toBeCloseTo(1000 / 900 - 1, 5);
     }
+    queryMock.mockRestore();
   });
 
   it("statusFromDeltas uses YoY when available: ≤-15% → alert, ≤-5% → watch, else → ok", async () => {
@@ -425,6 +597,9 @@ describe("GET /api/home", () => {
       }
       if (sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales")) {
+        return { rows: [] };
       }
       if (sql.includes("FROM ps_tiendas") && sql.includes("sales_ly")) {
         // sales_ly chosen so deltaYoY hits each threshold:
@@ -457,5 +632,6 @@ describe("GET /api/home", () => {
     expect(byCode["611"].status).toBe("alert");
     expect(byCode["622"].status).toBe("watch");
     expect(byCode["608"].status).toBe("ok");
+    queryMock.mockRestore();
   });
 });

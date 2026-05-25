@@ -80,24 +80,55 @@ function fmtSyncAge(seconds: number): string {
   return `${d} d`;
 }
 
-function statusFromDelta(delta: number): "ok" | "watch" | "alert" {
-  if (delta <= -0.10) return "alert";
-  if (delta <= -0.04) return "watch";
+function statusFromDelta(delta: number, streakWeeks = 0): "ok" | "watch" | "alert" {
+  if (delta <= -0.10 || streakWeeks >= 5) return "alert";
+  if (delta <= -0.04 || streakWeeks >= 3) return "watch";
   return "ok";
 }
 
-/** YoY-aware semaphore: uses deltaYoY as primary signal when available,
- *  falls back to the 7-day delta (statusFromDelta) when YoY is null. */
+function trendDirectionFromSpark(spark: number[]): "up" | "flat" | "down" {
+  if (spark.length < 2) return "flat";
+  // Linear regression slope: positive = up, negative = down
+  const n = spark.length;
+  let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
+  for (let i = 0; i < n; i++) {
+    sumX += i;
+    sumY += spark[i];
+    sumXY += i * spark[i];
+    sumX2 += i * i;
+  }
+  const denom = n * sumX2 - sumX * sumX;
+  if (!denom) return "flat";
+  const slope = (n * sumXY - sumX * sumY) / denom;
+  const meanY = sumY / n;
+  if (!meanY) return "flat";
+  const relSlope = slope / meanY;
+  if (relSlope > 0.02) return "up";
+  if (relSlope < -0.02) return "down";
+  return "flat";
+}
+
+/** YoY-aware semaphore: uses deltaYoY as the primary signal when available,
+ *  falls back to the 7-day delta when YoY is null. A sustained weekly
+ *  streak (per-store consecutive weeks below YoY) is additive — it can
+ *  only raise severity, never lower it. */
 function statusFromDeltas(
   delta7d: number,
   deltaYoY: number | null,
+  streakWeeks = 0,
 ): "ok" | "watch" | "alert" {
+  let base: "ok" | "watch" | "alert";
   if (deltaYoY !== null) {
-    if (deltaYoY <= -0.15) return "alert";
-    if (deltaYoY <= -0.05) return "watch";
-    return "ok";
+    if (deltaYoY <= -0.15) base = "alert";
+    else if (deltaYoY <= -0.05) base = "watch";
+    else base = "ok";
+  } else {
+    base = statusFromDelta(delta7d);
   }
-  return statusFromDelta(delta7d);
+  const streakStatus: "ok" | "watch" | "alert" =
+    streakWeeks >= 5 ? "alert" : streakWeeks >= 3 ? "watch" : "ok";
+  const rank = { ok: 0, watch: 1, alert: 2 } as const;
+  return rank[streakStatus] > rank[base] ? streakStatus : base;
 }
 
 function dateLabelEs(d: Date): string {
@@ -245,6 +276,8 @@ export async function GET(req: NextRequest) {
       semanaSpark6Row,
       mesSpark5Row,
       anyoSpark5Row,
+      businessStreakRow,
+      storeStreakRow,
       dailyTrendRow,
       storesRow,
       storesSparkRow,
@@ -484,6 +517,90 @@ export async function GET(req: NextRequest) {
           AND v.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
           AND v.entrada = true AND v.tienda <> '99'
          GROUP BY m.month_start ORDER BY m.month_start`,
+        [asOfDate],
+      ),
+
+      // Business-level weekly streak: consecutive complete ISO weeks below YoY.
+      // Returns one row per ISO week for the last 16 complete ISO weeks.
+      // A "complete" week ends before the ISO week that contains asOfDate,
+      // so partial weeks don't generate false positives.
+      // The streak is computed by the application (not SQL) from the ordered rows.
+      // LY is matched by the same ISO week number in the prior ISO year
+      // (avoids the ±7-day drift that occurs at year boundaries with -1 year).
+      query(
+        `WITH weeks AS (
+           SELECT
+             week_start,
+             (DATE_TRUNC('week', MAKE_DATE(EXTRACT(ISOYEAR FROM week_start)::int - 1, 1, 4)) +
+              INTERVAL '1 day' * ((EXTRACT(WEEK FROM week_start)::int - 1) * 7))::date AS ly_week_start
+           FROM generate_series(
+             DATE_TRUNC('week', $1::date - INTERVAL '16 weeks')::date,
+             DATE_TRUNC('week', $1::date - INTERVAL '1 week')::date,
+             '1 week'
+           ) week_start
+         ),
+         sales_agg AS (
+           SELECT
+             DATE_TRUNC('week', fecha_creacion)::date AS sale_week,
+             SUM(total_si) AS weekly_total
+           FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion >= (DATE_TRUNC('week', $1::date - INTERVAL '16 weeks') - INTERVAL '1 year')::date
+             AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date
+           GROUP BY DATE_TRUNC('week', fecha_creacion)::date
+         )
+         SELECT
+           w.week_start::date AS week_start,
+           COALESCE(cy.weekly_total, 0)::numeric AS curr_sales,
+           COALESCE(ly.weekly_total, 0)::numeric AS ly_sales
+         FROM weeks w
+         LEFT JOIN sales_agg cy ON cy.sale_week = w.week_start
+         LEFT JOIN sales_agg ly ON ly.sale_week = w.ly_week_start
+         ORDER BY w.week_start DESC`,
+        [asOfDate],
+      ),
+
+      // Per-store weekly streak: same consecutive-weeks-below-YoY metric per store.
+      // Returns one row per (store, week) for the last 16 complete ISO weeks.
+      // LY is matched by the same ISO week number in the prior ISO year.
+      query(
+        `WITH weeks AS (
+           SELECT
+             week_start,
+             (DATE_TRUNC('week', MAKE_DATE(EXTRACT(ISOYEAR FROM week_start)::int - 1, 1, 4)) +
+              INTERVAL '1 day' * ((EXTRACT(WEEK FROM week_start)::int - 1) * 7))::date AS ly_week_start
+           FROM generate_series(
+             DATE_TRUNC('week', $1::date - INTERVAL '16 weeks')::date,
+             DATE_TRUNC('week', $1::date - INTERVAL '1 week')::date,
+             '1 week'
+           ) week_start
+         ),
+         stores AS (
+           SELECT DISTINCT tienda FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion >= ($1::date - INTERVAL '30 days')::date
+         ),
+         sales_agg AS (
+           SELECT
+             tienda,
+             DATE_TRUNC('week', fecha_creacion)::date AS sale_week,
+             SUM(total_si) AS weekly_total
+           FROM ps_ventas
+           WHERE entrada = true AND tienda <> '99'
+             AND fecha_creacion >= (DATE_TRUNC('week', $1::date - INTERVAL '16 weeks') - INTERVAL '1 year')::date
+             AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date
+           GROUP BY tienda, DATE_TRUNC('week', fecha_creacion)::date
+         )
+         SELECT
+           s.tienda,
+           w.week_start::date AS week_start,
+           COALESCE(cy.weekly_total, 0)::numeric AS curr_sales,
+           COALESCE(ly.weekly_total, 0)::numeric AS ly_sales
+         FROM stores s
+         CROSS JOIN weeks w
+         LEFT JOIN sales_agg cy ON cy.tienda = s.tienda AND cy.sale_week = w.week_start
+         LEFT JOIN sales_agg ly ON ly.tienda = s.tienda AND ly.sale_week = w.ly_week_start
+         ORDER BY s.tienda, w.week_start DESC`,
         [asOfDate],
       ),
 
@@ -963,6 +1080,39 @@ export async function GET(req: NextRequest) {
     const anyoSpark = anyoSpark5Row.rows.map((r) => num(r[2]));
     const anyoSparkLabels = anyoSpark5Row.rows.map((r) => MONTHS_ES[num(r[1]) - 1] || "");
 
+    // Compute business-level streak: rows are ordered DESC by week_start
+    // (most recent complete week first). Count consecutive weeks where
+    // curr_sales < ly_sales, stopping at the first non-declining week.
+    let businessStreakWeeks = 0;
+    for (const r of businessStreakRow.rows) {
+      const curr = num(r[1]);
+      const ly = num(r[2]);
+      if (ly > 0 && curr < ly) {
+        businessStreakWeeks++;
+      } else {
+        break;
+      }
+    }
+
+    // Compute per-store streak: group storeStreakRow by tienda, then count
+    // consecutive declining weeks (rows already ordered DESC by week_start
+    // within each tienda group).
+    const storeStreakMap: Record<string, number> = {};
+    const storeWeeksSeen: Record<string, boolean> = {};
+    for (const r of storeStreakRow.rows) {
+      const tienda = String(r[0]);
+      const curr = num(r[2]);
+      const ly = num(r[3]);
+      // Once a non-declining week is seen for a store, stop counting for it.
+      if (storeWeeksSeen[tienda]) continue;
+      if (!(tienda in storeStreakMap)) storeStreakMap[tienda] = 0;
+      if (ly > 0 && curr < ly) {
+        storeStreakMap[tienda]++;
+      } else {
+        storeWeeksSeen[tienda] = true;
+      }
+    }
+
     const periods: HomeViewModel["periods"] = [
       {
         id: "hoy",
@@ -978,6 +1128,7 @@ export async function GET(req: NextRequest) {
           : `vs ${dateLabelEs(lastYearSameDay)}`,
         spark: hoySpark,
         sparkLabels: hoySparkLabels,
+        trendDirection: trendDirectionFromSpark(hoySpark),
       },
       {
         id: "semana",
@@ -989,6 +1140,8 @@ export async function GET(req: NextRequest) {
         yoyLabel: `vs sem ${isoWeekOf(asOfDateObj)} ${asOfDateObj.getFullYear() - 1}`,
         spark: semSpark,
         sparkLabels: semSparkLabels,
+        streakWeeks: businessStreakWeeks,
+        trendDirection: trendDirectionFromSpark(semSpark),
       },
       {
         id: "mes",
@@ -1000,6 +1153,7 @@ export async function GET(req: NextRequest) {
         yoyLabel: `vs ${MONTHS_ES[asOfDateObj.getMonth()]} ${asOfDateObj.getFullYear() - 1}`,
         spark: mesSpark,
         sparkLabels: mesSparkLabels,
+        trendDirection: trendDirectionFromSpark(mesSpark),
       },
       {
         id: "anyo",
@@ -1014,6 +1168,7 @@ export async function GET(req: NextRequest) {
         yoyLabel: `vs ${asOfDateObj.getFullYear() - 1} mismo tramo`,
         spark: anyoSpark,
         sparkLabels: anyoSparkLabels,
+        trendDirection: trendDirectionFromSpark(anyoSpark),
       },
     ];
 
@@ -1170,6 +1325,7 @@ export async function GET(req: NextRequest) {
       const lastSaleDate = r[6] ? String(r[6]) : null;
       const salesLY = r[7] !== null && r[7] !== undefined ? num(r[7]) : null;
       const delta = avg7 > 0 ? sales / avg7 - 1 : 0;
+      const streakWeeks = storeStreakMap[code] ?? 0;
       const deltaYoY = salesLY !== null && salesLY > 0 ? sales / salesLY - 1 : null;
       return {
         code,
@@ -1178,7 +1334,8 @@ export async function GET(req: NextRequest) {
         delta,
         deltaYoY,
         spark: sparkByStore[code] ?? [],
-        status: statusFromDeltas(delta, deltaYoY),
+        status: statusFromDeltas(delta, deltaYoY, streakWeeks),
+        streakWeeks,
         total30d,
         lastSaleDate,
         margin: marginByStore[code] ?? null,
@@ -1193,7 +1350,7 @@ export async function GET(req: NextRequest) {
     const inactiveRaw = allStoreRows.filter((s) => s.total30d <= 0);
 
     const topStores: HomeViewModel["topStores"] = activeRaw.map(
-      ({ total30d: _t, lastSaleDate: _l, ...rest }) => rest,
+      ({ total30d: _t, lastSaleDate: _l, ...rest }) => rest as HomeViewModel["topStores"][number],
     );
 
     const inactiveStores: HomeViewModel["inactiveStores"] = inactiveRaw.map(
