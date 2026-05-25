@@ -35,7 +35,7 @@ import {
   generateSuggestions,
   AgenticRunnerError,
 } from "@/lib/llm";
-import { classifyLlmError } from "@/lib/llm-error-payload";
+import { buildLlmErrorPayload } from "@/lib/llm-error-payload";
 import { loadPriorTurns } from "@/lib/llm-context";
 import { DashboardSpecSchema } from "@/lib/schema";
 import { serializeWidgetData } from "@/lib/data-serializer";
@@ -44,7 +44,6 @@ import { VALID_ANALYZE_ACTIONS } from "@/lib/analyze-prompts";
 import {
   formatApiError,
   generateRequestId,
-  sanitizeErrorMessage,
   type ApiErrorResponse,
 } from "@/lib/errors";
 import type { WidgetData } from "@/components/widgets/types";
@@ -114,41 +113,6 @@ function deserializeWidgetData(
   return map;
 }
 
-/**
- * Build the LLM error response payload (ApiErrorResponse shape) AND the
- * HTTP status that should accompany it. Centralized so the JSON-only path
- * and the NDJSON error frame stay in lock-step.
- */
-function buildLlmErrorPayload(
-  err: unknown,
-  requestId: string,
-  cfg: ReturnType<typeof loadDashboardLlmConfig>,
-): { status: number; payload: ApiErrorResponse } {
-  if (err instanceof AgenticRunnerError) {
-    const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
-    persistAgenticError("analyze", err, diagnostic);
-    return {
-      status: 500,
-      payload: formatApiError(
-        "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Inténtalo de nuevo.",
-        "AGENTIC_RUNNER",
-        diagnostic.subError,
-        err.requestId,
-        diagnostic,
-      ),
-    };
-  }
-  const { status, code, userMessage } = classifyLlmError(err, requestId);
-  return {
-    status,
-    payload: formatApiError(
-      userMessage,
-      code as Parameters<typeof formatApiError>[1],
-      sanitizeErrorMessage(err),
-      requestId,
-    ),
-  };
-}
 
 // ─── Route handler ────────────────────────────────────────────────────────────
 
@@ -393,7 +357,7 @@ export async function POST(request: Request) {
           console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
         );
       }
-      const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
+      const { status, payload } = buildLlmErrorPayload(err, requestId, cfg, "analyze");
       console.error(`[${requestId}] Error al analizar dashboard con LLM:`, err);
       return NextResponse.json(payload, { status });
     }
@@ -491,7 +455,7 @@ export async function POST(request: Request) {
             console.error(`[${requestId}] finishInteraction(analyze,error) failed:`, e),
           );
         }
-        const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
+        const { status, payload } = buildLlmErrorPayload(err, requestId, cfg, "analyze");
         console.error(`[${requestId}] Error al analizar dashboard con LLM (mid-stream):`, err);
         send({ ...payload, type: "error", httpStatus: status });
         controller.close();

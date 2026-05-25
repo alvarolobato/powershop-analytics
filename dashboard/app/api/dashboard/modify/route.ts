@@ -40,18 +40,14 @@
  * `summary` are additive and will not collide with DashboardSpec field names.
  */
 import { NextResponse } from "next/server";
-import {
-  modifyDashboard,
-  AgenticRunnerError,
-} from "@/lib/llm";
-import { classifyLlmError } from "@/lib/llm-error-payload";
+import { modifyDashboard, AgenticRunnerError } from "@/lib/llm";
+import { buildLlmErrorPayload } from "@/lib/llm-error-payload";
 import { loadPriorTurns } from "@/lib/llm-context";
 import { validateSpec, DashboardSpecSchema, type DashboardSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import {
   formatApiError,
   generateRequestId,
-  sanitizeErrorMessage,
   type ApiErrorResponse,
 } from "@/lib/errors";
 import {
@@ -78,41 +74,6 @@ function extractJson(raw: string): string {
   return raw.trim();
 }
 
-/**
- * Build the LLM error response payload (ApiErrorResponse shape) AND the
- * HTTP status that should accompany it. Centralized so the JSON-only path
- * and the NDJSON error frame stay in lock-step.
- */
-function buildLlmErrorPayload(
-  err: unknown,
-  requestId: string,
-  cfg: ReturnType<typeof loadDashboardLlmConfig>,
-): { status: number; payload: ApiErrorResponse } {
-  if (err instanceof AgenticRunnerError) {
-    const diagnostic = buildAgenticErrorDiagnostic(err, cfg);
-    persistAgenticError("modify", err, diagnostic);
-    return {
-      status: 500,
-      payload: formatApiError(
-        "El flujo de IA con herramientas alcanzó un límite o no pudo completarse. Reformula el cambio o inténtalo de nuevo.",
-        "AGENTIC_RUNNER",
-        diagnostic.subError,
-        err.requestId,
-        diagnostic,
-      ),
-    };
-  }
-  const { status, code, userMessage } = classifyLlmError(err, requestId);
-  return {
-    status,
-    payload: formatApiError(
-      userMessage,
-      code as Parameters<typeof formatApiError>[1],
-      sanitizeErrorMessage(err),
-      requestId,
-    ),
-  };
-}
 
 export async function POST(request: Request) {
   const requestId = generateRequestId();
@@ -435,7 +396,7 @@ export async function POST(request: Request) {
           console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
         );
       }
-      const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
+      const { status, payload } = buildLlmErrorPayload(err, requestId, cfg, "modify");
       console.error(`[${requestId}] Error al modificar dashboard con LLM:`, err);
       return NextResponse.json(payload, { status });
     }
@@ -508,7 +469,7 @@ export async function POST(request: Request) {
             console.error(`[${requestId}] finishInteraction(modify,error) failed:`, e),
           );
         }
-        const { status, payload } = buildLlmErrorPayload(err, requestId, cfg);
+        const { status, payload } = buildLlmErrorPayload(err, requestId, cfg, "modify");
         console.error(`[${requestId}] Error al modificar dashboard con LLM (mid-stream):`, err);
         // Spread payload first so its `requestId` is canonical.
         send({ ...payload, type: "error", httpStatus: status });
