@@ -79,8 +79,31 @@ function makeReq(date?: string) {
 }
 
 describe("GET /api/home", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Re-apply the default implementation so tests that call mockImplementation
+    // don't leak their override into subsequently-added tests.
+    const { query } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    query.mockImplementation(async (sql: string) => {
+      const NULL_ROW = Array(20).fill(null);
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [NULL_ROW] };
+    });
   });
 
   it("returns 200", async () => {
@@ -282,5 +305,102 @@ describe("GET /api/home", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.asOfDate).toBe("2026-05-03");
+  });
+
+  it("topStores entries include deltaYoY field of type number or null", async () => {
+    // The default mock returns empty rows for the stores query (GROUP BY tienda)
+    // so topStores is []. We verify the route returns the correct shape by
+    // checking with a store-row mock that includes sales_ly.
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    // Override: the stores query (ps_tiendas LEFT JOINs) returns one active store
+    // with sales=1000, avg7=800, total_30d=5000, last_sale_date="2026-04-30", sales_ly=900.
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      // Stores query: returns one row for tienda "611" with all 8 columns.
+      if (sql.includes("FROM ps_tiendas") && sql.includes("sales_ly")) {
+        return { rows: [["611", "Madrid Serrano", null, "1000", "800", "5000", "2026-04-30", "900"]] };
+      }
+      // Spark query: one row per day for store 611.
+      if (sql.includes("CROSS JOIN days") && sql.includes("t.codigo")) {
+        return { rows: [["611", "2026-04-30", "1000"]] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      const NULL_ROW = Array(20).fill(null);
+      return { rows: [NULL_ROW] };
+    });
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const { topStores } = await res.json();
+    expect(Array.isArray(topStores)).toBe(true);
+    for (const store of topStores) {
+      expect("deltaYoY" in store).toBe(true);
+      expect(store.deltaYoY === null || typeof store.deltaYoY === "number").toBe(true);
+    }
+    // Verify deltaYoY value: sales=1000, salesLY=900 → 1000/900-1 ≈ 0.111
+    if (topStores.length > 0) {
+      expect(typeof topStores[0].deltaYoY).toBe("number");
+      expect(topStores[0].deltaYoY).toBeCloseTo(1000 / 900 - 1, 5);
+    }
+  });
+
+  it("statusFromDeltas uses YoY when available: ≤-15% → alert, ≤-5% → watch, else → ok", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    // Three stores: one with YoY ≤-15% (alert), one with YoY ≤-5% (watch),
+    // one with YoY >-5% (ok). delta7d is "ok" for all three to confirm YoY
+    // overrides the 7-day signal.
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("FROM ps_tiendas") && sql.includes("sales_ly")) {
+        // sales_ly chosen so deltaYoY hits each threshold:
+        // Store 611: sales=1000, salesLY=1200 → YoY=-0.1667 (alert)
+        // Store 622: sales=1000, salesLY=1080 → YoY=-0.0741 (watch)
+        // Store 608: sales=1000, salesLY=1000 → YoY=0 (ok)
+        // avg7=1000 for all → delta7d=0 (ok)
+        return {
+          rows: [
+            ["611", "Alert Store", null, "1000", "1000", "5000", "2026-04-30", "1200"],
+            ["622", "Watch Store", null, "1000", "1000", "5000", "2026-04-30", "1080"],
+            ["608", "Ok Store",    null, "1000", "1000", "5000", "2026-04-30", "1000"],
+          ],
+        };
+      }
+      if (sql.includes("CROSS JOIN days") && sql.includes("t.codigo")) {
+        return { rows: [] };
+      }
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      const NULL_ROW = Array(20).fill(null);
+      return { rows: [NULL_ROW] };
+    });
+    const res = await GET(makeReq());
+    const { topStores } = await res.json();
+    expect(topStores).toHaveLength(3);
+    const byCode = Object.fromEntries(
+      topStores.map((s: { code: string; status: string; deltaYoY: number | null }) => [s.code, s]),
+    );
+    expect(byCode["611"].status).toBe("alert");
+    expect(byCode["622"].status).toBe("watch");
+    expect(byCode["608"].status).toBe("ok");
   });
 });
