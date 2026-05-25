@@ -129,6 +129,7 @@ function statusFromDeltas(
     streakWeeks >= 5 ? "alert" : streakWeeks >= 3 ? "watch" : "ok";
   const rank = { ok: 0, watch: 1, alert: 2 } as const;
   return rank[streakStatus] > rank[base] ? streakStatus : base;
+}
 
 function dateLabelEs(d: Date): string {
   return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
