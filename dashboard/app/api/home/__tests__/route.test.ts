@@ -107,6 +107,16 @@ describe("GET /api/home", () => {
       if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
       }
+      // Per-store margin query (PR #759): SELECT lv.tienda ... GROUP BY lv.tienda.
+      // Returns one row so topStores[0].margin can be asserted (rev/cost → 0.6).
+      if (sql.includes("GROUP BY lv.tienda")) {
+        return { rows: [["611", 5000, 2000]] };
+      }
+      // Top-stores query (ps_tiendas LEFT JOINs, no CROSS JOIN): one active store.
+      // 8 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly.
+      if (sql.includes("FROM ps_tiendas") && !sql.includes("CROSS JOIN")) {
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
+      }
       if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };
       }
