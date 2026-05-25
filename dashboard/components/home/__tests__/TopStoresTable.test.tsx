@@ -116,12 +116,43 @@ describe("TopStoresTable", () => {
       expect(row.textContent).toContain("—");
     });
 
-    it("table has 9 column headers: #, Cód, Tienda, Ventas hoy, vs media, vs año ant, Margen, Racha, Últ. 7 días", () => {
+    it("table has 10 column headers: #, Cód, Tienda, Ventas hoy, % Devol, vs media, vs año ant, Margen, Racha, Últ. 7 días", () => {
       render(<TopStoresTable stores={STORES} />);
       const headers = screen.getAllByRole("columnheader");
-      expect(headers).toHaveLength(9);
+      expect(headers).toHaveLength(10);
       const texts = headers.map((h) => h.textContent);
-      expect(texts).toEqual(["#", "Cód", "Tienda", "Ventas hoy", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"]);
+      expect(texts).toEqual(["#", "Cód", "Tienda", "Ventas hoy", "% Devol", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"]);
+    });
+  });
+
+  describe("% Devol column (returnsRate)", () => {
+    it("renders the '% Devol' column header", () => {
+      render(<TopStoresTable stores={STORES} />);
+      expect(screen.getByRole("columnheader", { name: "% Devol" })).toBeInTheDocument();
+    });
+
+    it("renders returnsRate cell for stores with data", () => {
+      render(<TopStoresTable stores={STORES} />);
+      // Madrid Serrano has returnsRate=0.032 → should show 3.2%
+      const cell = screen.getByTestId("returns-rate-611");
+      expect(cell).toBeInTheDocument();
+      expect(cell.textContent).toMatch(/3[,.]2/); // locale-aware: "3,2 %" or "3.2 %"
+    });
+
+    it("renders dash for stores with null returnsRate", () => {
+      render(<TopStoresTable stores={STORES} />);
+      // A Coruña has returnsRate=null
+      const cell = screen.getByTestId("returns-rate-645");
+      expect(cell.textContent).toContain("—");
+    });
+
+    it("flags stores above network average by >1pp with down color", () => {
+      // Bilbao has rate 5.8%; network avg ~0.033 (mean of non-null rates)
+      // 0.058 - avg > 0.01 → should be flagged
+      render(<TopStoresTable stores={STORES} />);
+      const cell = screen.getByTestId("returns-rate-606");
+      const span = cell.querySelector("span");
+      expect(span?.getAttribute("style")).toContain("var(--down)");
     });
   });
 

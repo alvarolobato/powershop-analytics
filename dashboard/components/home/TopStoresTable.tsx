@@ -29,8 +29,8 @@ function sparkColor(store: Store): string {
   return store.delta >= 0 ? "var(--up)" : "var(--down)";
 }
 
-const COL_TEMPLATE = "32px 60px 1fr 110px 80px 80px 70px 56px 100px";
-const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"];
+const COL_TEMPLATE = "32px 60px 1fr 110px 70px 80px 80px 70px 56px 100px";
+const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "% Devol", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"];
 
 const outlineLink: React.CSSProperties = {
   fontSize: 11,
@@ -217,6 +217,36 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                       {fmtEUR0(store.sales)}
                     </span>
                   </div>
+                </td>
+
+                {/* Return rate % (vs network average) */}
+                <td style={{ padding: 0, textAlign: "right" }} data-testid={`returns-rate-${store.code}`}>
+                  {store.returnsRate !== null ? (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        fontSize: 12,
+                        fontVariantNumeric: "tabular-nums",
+                        color:
+                          networkAvgRate !== null &&
+                          store.returnsRate > networkAvgRate + 0.01
+                            ? "var(--down)"
+                            : "var(--fg-muted)",
+                      }}
+                    >
+                      {fmtPct(store.returnsRate)}
+                    </span>
+                  ) : (
+                    <span
+                      style={{
+                        fontFamily: "var(--font-jetbrains, monospace)",
+                        fontSize: 12,
+                        color: "var(--fg-subtle)",
+                      }}
+                    >
+                      —
+                    </span>
+                  )}
                 </td>
 
                 {/* Δ vs media 7 días de la tienda */}
