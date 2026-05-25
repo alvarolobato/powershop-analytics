@@ -11,21 +11,19 @@ interface OperationsRowProps {
   metrics: Metric[];
 }
 
-function formatMetricValue(metric: Metric): string {
-  switch (metric.format) {
-    case "eur":
-      return fmtEUR0(metric.value);
-    case "eur2":
-      return fmtEUR2(metric.value);
-    case "int":
-      return fmtInt(metric.value);
-    case "pct":
-      return fmtPct(metric.value);
-    case "x":
-      return fmtX(metric.value);
-    default:
-      return String(metric.value);
+function formatValue(value: number, format: Metric["format"]): string {
+  switch (format) {
+    case "eur":  return fmtEUR0(value);
+    case "eur2": return fmtEUR2(value);
+    case "int":  return fmtInt(value);
+    case "pct":  return fmtPct(value);
+    case "x":    return fmtX(value);
+    default:     return String(value);
   }
+}
+
+function formatMetricValue(metric: Metric): string {
+  return formatValue(metric.value, metric.format);
 }
 
 interface MetricCellProps {
@@ -100,6 +98,25 @@ function MetricCell({ metric, isLast }: MetricCellProps) {
           </span>
         )}
       </div>
+
+      {/* Baseline reference (e.g. 30-day rolling average) */}
+      {metric.baseline && (
+        <div
+          data-testid={`metric-baseline-${metric.id}`}
+          style={{
+            fontFamily: "var(--font-jetbrains, monospace)",
+            fontSize: 10,
+            color:
+              metric.inverted &&
+              metric.format === "pct" &&
+              metric.value > metric.baseline.value + 0.01
+                ? "var(--down)"
+                : "var(--fg-subtle)",
+          }}
+        >
+          {metric.baseline.label}: {formatValue(metric.baseline.value, metric.format)}
+        </div>
+      )}
     </div>
   );
 }

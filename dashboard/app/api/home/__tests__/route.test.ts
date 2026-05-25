@@ -58,12 +58,21 @@ vi.mock("@/lib/db", () => {
       if (sql.includes("GROUP BY lv.tienda")) {
         return { rows: [["611", 5000, 2000]] }; // tienda, rev, cost → margin = 0.6
       }
+      // 30-day rolling baseline rate: returns a non-null fraction so the
+      // route populates metric.baseline (NULL would suppress the field).
+      if (sql.includes("rate_30d")) {
+        return { rows: [[0.035]] };
+      }
       // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (no CROSS JOIN).
       if (sql.includes("ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, null]] };
       }
       // Store spark query (ps_tiendas CROSS JOIN days): return empty rows
       if (sql.includes("ps_tiendas") && sql.includes("CROSS JOIN")) {
+        return { rows: [] };
+      }
+      // OpsRetail per-store query: FROM ps_ventas ... GROUP BY tienda
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };
       }
       // etl_sync_runs is checked with rows.length > 0 — empty bypasses
@@ -112,6 +121,10 @@ describe("GET /api/home", () => {
       if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
       }
+      // 30-day rolling return-rate baseline (PR #761): non-null → metric.baseline set.
+      if (sql.includes("rate_30d")) {
+        return { rows: [[0.035]] };
+      }
       // Weekly streak queries (PR #760), business + per-store. Empty → 0 streak.
       if (sql.includes("curr_sales") && sql.includes("ly_sales")) {
         return { rows: [] };
@@ -122,9 +135,9 @@ describe("GET /api/home", () => {
         return { rows: [["611", 5000, 2000]] };
       }
       // Top-stores query (ps_tiendas LEFT JOINs, no CROSS JOIN): one active store.
-      // 8 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly.
+      // 9 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly, returns_rate.
       if (sql.includes("FROM ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, 0.032]] };
       }
       if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };
@@ -261,21 +274,42 @@ describe("GET /api/home", () => {
     const { opsRetail } = await res.json();
     expect(opsRetail).toHaveLength(4);
     const ids = opsRetail.map((m: { id: string }) => m.id);
-    expect(ids).toEqual(["ticket", "tickets", "margen", "devolu"]);
+    expect(ids).toEqual(["ticket", "tickets", "margen", "tasa-devol"]);
     // Mock returns all zeros → prev data is 0 → deltas must be null, not 0
     for (const m of opsRetail) {
       expect(m.delta).toBeNull();
     }
-    // Every metric must have a non-empty sub label describing the comparison period
+    // Every metric must have a non-empty sub label or sub text
     for (const m of opsRetail) {
       expect(typeof m.sub).toBe("string");
       expect(m.sub.length).toBeGreaterThan(0);
     }
-    // Margen compares vs previous month, others compare vs yesterday
+    // Margen compares vs previous month, ticket/tickets compare vs yesterday
     const margen = opsRetail.find((m: { id: string }) => m.id === "margen");
     expect(margen.sub).toBe("vs mes ant");
     const ticket = opsRetail.find((m: { id: string }) => m.id === "ticket");
     expect(ticket.sub).toBe("vs ayer");
+  });
+
+  it("returns tasa-devol metric with pct format and baseline", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    const tasaDevol = opsRetail.find((m: { id: string }) => m.id === "tasa-devol");
+    expect(tasaDevol).toBeDefined();
+    expect(tasaDevol.format).toBe("pct");
+    expect(tasaDevol.inverted).toBe(true);
+    expect(tasaDevol.baseline).toBeDefined();
+    expect(typeof tasaDevol.baseline.value).toBe("number");
+    expect(tasaDevol.baseline.label).toBe("media 30d");
+  });
+
+  it("tasa-devol sub contains EUR amount", async () => {
+    const res = await GET(makeReq());
+    const { opsRetail } = await res.json();
+    const tasaDevol = opsRetail.find((m: { id: string }) => m.id === "tasa-devol");
+    expect(tasaDevol).toBeDefined();
+    // Sub should contain a euro sign — the absolute return amount in EUR
+    expect(tasaDevol.sub).toContain("€");
   });
 
   it("returns 4 periods", async () => {

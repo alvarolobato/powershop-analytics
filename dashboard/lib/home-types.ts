@@ -106,6 +106,9 @@ export type HomeViewModel = {
     streakWeeks: number;
     /** Gross margin fraction for the as-of date. Null when no cost data. */
     margin?: number | null;
+    /** Return rate for the store on the as-of date (returns / gross sales).
+     *  null when the store had no gross sales that day. */
+    returnsRate: number | null;
   }>;
   /** Stores excluded from `topStores` because they had no sales in the
    *  last 30 days. Surfaced under "Ver tiendas inactivas" so they remain
@@ -144,4 +147,7 @@ export type Metric = {
   inverted?: boolean; // true for "lower is better"
   sub?: string;
   suffix?: string;
+  /** Rolling baseline reference (e.g. 30-day average). Value is in the same
+   *  unit as `value` (fraction for pct metrics). Rendered below the delta. */
+  baseline?: { value: number; label: string };
 };

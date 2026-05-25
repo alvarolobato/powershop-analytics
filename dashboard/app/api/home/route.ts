@@ -285,6 +285,7 @@ export async function GET(req: NextRequest) {
       retailMonthRow,
       opsRetailPrevDayRow,
       retailPrevMonthRow,
+      baseline30dRow,
       etlRunRow,
       anomaliesRow,
       lastWatermarkRow,
@@ -631,6 +632,8 @@ export async function GET(req: NextRequest) {
       // total_30d = 0 don't appear in the main table — they live in the
       // separate "tiendas inactivas" list. LEFT JOIN keeps stores that
       // are open today but had a slow as-of day.
+      // Column order: codigo[0], identificador[1], poblacion[2], sales[3],
+      // avg7[4], total_30d[5], last_sale_date[6], returns_rate[7].
       query(
         `SELECT t.codigo,
                 t.identificador,
@@ -639,7 +642,8 @@ export async function GET(req: NextRequest) {
                 COALESCE(avg7.avg7, 0)::numeric AS avg7,
                 COALESCE(s30.total_30d, 0)::numeric AS total_30d,
                 last_sale.last_sale_date::text AS last_sale_date,
-                ly.sales_ly::numeric AS sales_ly
+                ly.sales_ly::numeric AS sales_ly,
+                store_ret.returns_rate
          FROM ps_tiendas t
          LEFT JOIN (
            SELECT tienda, SUM(total_si) AS sales
@@ -687,6 +691,14 @@ export async function GET(req: NextRequest) {
              AND fecha_creacion = ($1::date - INTERVAL '1 year')::date
            GROUP BY tienda
          ) ly ON ly.tienda = t.codigo
+         LEFT JOIN (
+           SELECT tienda,
+                  COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric
+                    / NULLIF(COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0), 0) AS returns_rate
+           FROM ps_ventas
+           WHERE fecha_creacion = $1::date AND tienda <> '99'
+           GROUP BY tienda
+         ) store_ret ON store_ret.tienda = t.codigo
          WHERE t.codigo <> '99'
          ORDER BY COALESCE(s.sales, 0) DESC, t.codigo`,
         [asOfDate],
@@ -757,6 +769,20 @@ export async function GET(req: NextRequest) {
          WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
            AND lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 month')::date
            AND lv.fecha_creacion < DATE_TRUNC('month', $1::date)::date`,
+        [asOfDate],
+      ),
+
+      // 30-day rolling return rate baseline (returns / gross sales).
+      // Result is a fraction (0..1) stored in rows[0][0]; null when no
+      // gross sales in the period (avoids div-by-zero via NULLIF).
+      query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric
+             / NULLIF(COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0), 0) AS rate_30d
+         FROM ps_ventas
+         WHERE tienda<>'99'
+           AND fecha_creacion >= ($1::date - INTERVAL '29 days')::date
+           AND fecha_creacion <= $1::date`,
         [asOfDate],
       ),
 
@@ -1324,6 +1350,8 @@ export async function GET(req: NextRequest) {
       const total30d = num(r[5]);
       const lastSaleDate = r[6] ? String(r[6]) : null;
       const salesLY = r[7] !== null && r[7] !== undefined ? num(r[7]) : null;
+      const returnsRate =
+        r[8] !== null && r[8] !== undefined ? num(r[8]) : null;
       const delta = avg7 > 0 ? sales / avg7 - 1 : 0;
       const streakWeeks = storeStreakMap[code] ?? 0;
       const deltaYoY = salesLY !== null && salesLY > 0 ? sales / salesLY - 1 : null;
@@ -1339,6 +1367,7 @@ export async function GET(req: NextRequest) {
         total30d,
         lastSaleDate,
         margin: marginByStore[code] ?? null,
+        returnsRate,
       };
     });
 
@@ -1379,6 +1408,15 @@ export async function GET(req: NextRequest) {
     const prevMonthCost = num(retailPrevMonthRow.rows[0][1]);
     const prevMargenPct = prevMonthRev > 0 ? (prevMonthRev - prevMonthCost) / prevMonthRev : 0;
 
+    // Return rate: today's rate and 30-day rolling baseline (both as fractions)
+    const todayRate = gross > 0 ? devolu / gross : 0;
+    const prevDayRate = grossPrev > 0 ? devoluPrev / grossPrev : 0;
+    const baseline30dRaw = baseline30dRow.rows[0]?.[0];
+    const baseline30d = baseline30dRaw != null ? num(baseline30dRaw) : null;
+    const devoluSubEur = new Intl.NumberFormat("es-ES", {
+      maximumFractionDigits: 0,
+    }).format(devolu) + " €";
+
     const dayCompLabel = cutoffActive
       ? `vs ayer (hasta las ${String(cutoffHour).padStart(2, "0")}:00)`
       : "vs ayer";
@@ -1409,13 +1447,14 @@ export async function GET(req: NextRequest) {
         sub: "vs mes ant",
       },
       {
-        id: "devolu",
-        label: "Devoluciones",
-        value: devolu,
-        format: "eur",
-        delta: devoluPrev > 0 ? safeRatio(devolu, devoluPrev) : null,
+        id: "tasa-devol",
+        label: "Tasa devol.",
+        value: todayRate,
+        format: "pct",
+        delta: prevDayRate > 0 ? safeRatio(todayRate, prevDayRate) : null,
         inverted: true,
-        sub: dayCompLabel,
+        sub: devoluSubEur,
+        baseline: baseline30d !== null ? { value: baseline30d, label: "media 30d" } : undefined,
       },
     ];
 
