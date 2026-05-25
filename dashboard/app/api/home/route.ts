@@ -104,6 +104,13 @@ function dateLabelEs(d: Date): string {
   return `${DAYS_ES[d.getDay()]} ${d.getDate()} ${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+function isoWeekOf(d: Date): number {
+  const tmp = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  tmp.setUTCDate(tmp.getUTCDate() + 4 - (tmp.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(tmp.getUTCFullYear(), 0, 1));
+  return Math.ceil((((tmp.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
 /** Choose a display label for a store: identificador → poblacion → "Tienda {codigo}". */
 function storeName(identificador: unknown, poblacion: unknown, codigo: string): string {
   const id = (identificador ?? "").toString().trim();
@@ -248,6 +255,15 @@ export async function GET(req: NextRequest) {
       etlRunRow,
       anomaliesRow,
       lastWatermarkRow,
+      marginHoyRow,
+      marginSemanaRow,
+      marginMesRow,
+      marginAnyoRow,
+      marginHoySpark7Row,
+      marginSemanaSpark6Row,
+      marginMesSpark5Row,
+      marginAnyoSpark5Row,
+      storesMarginRow,
     ] = await Promise.all([
       // Hero today / yesterday / LY same day. Returns BOTH a full-day SUM
       // and a same-hour-cutoff SUM for yesterday and LY. The route picks
@@ -643,6 +659,198 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT MAX(last_sync_at) AS last FROM etl_watermarks`,
       ),
+
+      // Margin period: hoy
+      query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion = $1::date
+                            THEN lv.total_si END), 0)::numeric AS rev_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion = $1::date
+                            THEN lv.total_coste_si END), 0)::numeric AS cost_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion = ($1::date - INTERVAL '1 day')::date
+                            THEN lv.total_si END), 0)::numeric AS rev_prev,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion = ($1::date - INTERVAL '1 day')::date
+                            THEN lv.total_coste_si END), 0)::numeric AS cost_prev,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion = ($1::date - INTERVAL '1 year')::date
+                            THEN lv.total_si END), 0)::numeric AS rev_ly,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion = ($1::date - INTERVAL '1 year')::date
+                            THEN lv.total_coste_si END), 0)::numeric AS cost_ly
+         FROM ps_lineas_ventas lv
+         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+           AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 days')::date
+           AND lv.fecha_creacion <= $1::date`,
+        [asOfDate],
+      ),
+
+      // Margin period: semana
+      query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', $1::date)::date
+                              AND lv.fecha_creacion <= $1::date THEN lv.total_si END), 0)::numeric AS rev_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', $1::date)::date
+                              AND lv.fecha_creacion <= $1::date THEN lv.total_coste_si END), 0)::numeric AS cost_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 week'))::date
+                              AND lv.fecha_creacion <  DATE_TRUNC('week', $1::date)::date THEN lv.total_si END), 0)::numeric AS rev_prev,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 week'))::date
+                              AND lv.fecha_creacion <  DATE_TRUNC('week', $1::date)::date THEN lv.total_coste_si END), 0)::numeric AS cost_prev,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 year'))::date
+                              AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_si END), 0)::numeric AS rev_ly,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 year'))::date
+                              AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
+         FROM ps_lineas_ventas lv
+         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+           AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 weeks')::date
+           AND lv.fecha_creacion <= $1::date`,
+        [asOfDate],
+      ),
+
+      // Margin period: mes
+      query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date)::date
+                              AND lv.fecha_creacion <= $1::date THEN lv.total_si END), 0)::numeric AS rev_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date)::date
+                              AND lv.fecha_creacion <= $1::date THEN lv.total_coste_si END), 0)::numeric AS cost_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 month')::date
+                              AND lv.fecha_creacion <  DATE_TRUNC('month', $1::date)::date THEN lv.total_si END), 0)::numeric AS rev_prev,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 month')::date
+                              AND lv.fecha_creacion <  DATE_TRUNC('month', $1::date)::date THEN lv.total_coste_si END), 0)::numeric AS cost_prev,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 year')::date
+                              AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_si END), 0)::numeric AS rev_ly,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 year')::date
+                              AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
+         FROM ps_lineas_ventas lv
+         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+           AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 months')::date
+           AND lv.fecha_creacion <= $1::date`,
+        [asOfDate],
+      ),
+
+      // Margin period: año YTD
+      query(
+        `SELECT
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('year', $1::date)::date
+                              AND lv.fecha_creacion <= $1::date THEN lv.total_si END), 0)::numeric AS rev_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('year', $1::date)::date
+                              AND lv.fecha_creacion <= $1::date THEN lv.total_coste_si END), 0)::numeric AS cost_curr,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('year', $1::date - INTERVAL '1 year')::date
+                              AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_si END), 0)::numeric AS rev_ly,
+           COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('year', $1::date - INTERVAL '1 year')::date
+                              AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
+         FROM ps_lineas_ventas lv
+         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+           AND lv.fecha_creacion >= ($1::date - INTERVAL '2 years')::date
+           AND lv.fecha_creacion <= $1::date`,
+        [asOfDate],
+      ),
+
+      // Margin hoy spark: last 7 days daily margin
+      query(
+        `SELECT day::date AS day,
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+         FROM generate_series(($1::date - INTERVAL '6 days')::date, $1::date, '1 day') day
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion = day::date
+         GROUP BY day ORDER BY day`,
+        [asOfDate],
+      ),
+
+      // Margin semana spark: 6 ISO weeks ending this week
+      query(
+        `WITH weeks AS (
+           SELECT week_start FROM generate_series(
+             DATE_TRUNC('week', $1::date - INTERVAL '5 weeks')::date,
+             DATE_TRUNC('week', $1::date)::date,
+             '1 week'
+           ) week_start
+         )
+         SELECT w.week_start::date AS week_start,
+                EXTRACT(WEEK FROM w.week_start)::int AS iso_week,
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+         FROM weeks w
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion >= w.week_start
+              AND lv.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
+         GROUP BY w.week_start ORDER BY w.week_start`,
+        [asOfDate],
+      ),
+
+      // Margin mes spark: last 5 months
+      query(
+        `WITH months AS (
+           SELECT month_start FROM generate_series(
+             DATE_TRUNC('month', $1::date - INTERVAL '4 months')::date,
+             DATE_TRUNC('month', $1::date)::date,
+             '1 month'
+           ) month_start
+         )
+         SELECT m.month_start::date AS month_start,
+                EXTRACT(MONTH FROM m.month_start)::int AS mon,
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+         FROM months m
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion >= m.month_start
+              AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
+         GROUP BY m.month_start ORDER BY m.month_start`,
+        [asOfDate],
+      ),
+
+      // Margin año spark: YTD by month current year
+      query(
+        `WITH months AS (
+           SELECT month_start FROM generate_series(
+             DATE_TRUNC('year', $1::date)::date,
+             DATE_TRUNC('month', $1::date)::date,
+             '1 month'
+           ) month_start
+         )
+         SELECT m.month_start::date AS month_start,
+                EXTRACT(MONTH FROM m.month_start)::int AS mon,
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+         FROM months m
+         LEFT JOIN (
+           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           FROM ps_lineas_ventas lv
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
+           WHERE lv.tienda <> '99' AND lv.total_si > 0
+         ) lv ON lv.fecha_creacion >= m.month_start
+              AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
+         GROUP BY m.month_start ORDER BY m.month_start`,
+        [asOfDate],
+      ),
+
+      // Per-store margin for the as-of date
+      query(
+        `SELECT lv.tienda,
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+         FROM ps_lineas_ventas lv
+         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+           AND lv.fecha_creacion = $1::date
+         GROUP BY lv.tienda`,
+        [asOfDate],
+      ),
     ]);
 
     // ─────────────────────────────────────────────────────────────────────
@@ -778,7 +986,7 @@ export async function GET(req: NextRequest) {
         deltaPrev: safeRatio(semCurr, semPrev),
         prevLabel: "vs sem ant",
         deltaYoY: semLY > 0 ? safeRatio(semCurr, semLY) : null,
-        yoyLabel: `vs sem ${asOfDateObj.getFullYear() - 1}`,
+        yoyLabel: `vs sem ${isoWeekOf(asOfDateObj)} ${asOfDateObj.getFullYear() - 1}`,
         spark: semSpark,
         sparkLabels: semSparkLabels,
       },
@@ -810,6 +1018,115 @@ export async function GET(req: NextRequest) {
     ];
 
     // ─────────────────────────────────────────────────────────────────────
+    // Margin periods
+    // ─────────────────────────────────────────────────────────────────────
+    function marginFrac(rev: number, cost: number): number | null {
+      return rev > 0 ? (rev - cost) / rev : null;
+    }
+
+    // Hoy margin (use same date logic as ventas hoy — no cutoff for margin
+    // since we lack hora_creacion on lineas_ventas)
+    const mHoyCurrRev = num(marginHoyRow.rows[0][0]);
+    const mHoyCurrCost = num(marginHoyRow.rows[0][1]);
+    const mHoyPrevRev = num(marginHoyRow.rows[0][2]);
+    const mHoyPrevCost = num(marginHoyRow.rows[0][3]);
+    const mHoyLYRev = num(marginHoyRow.rows[0][4]);
+    const mHoyLYCost = num(marginHoyRow.rows[0][5]);
+    const mHoyCurr = marginFrac(mHoyCurrRev, mHoyCurrCost);
+    const mHoyPrev = marginFrac(mHoyPrevRev, mHoyPrevCost);
+    const mHoyLY = marginFrac(mHoyLYRev, mHoyLYCost);
+
+    // Semana margin
+    const mSemCurrRev = num(marginSemanaRow.rows[0][0]);
+    const mSemCurrCost = num(marginSemanaRow.rows[0][1]);
+    const mSemPrevRev = num(marginSemanaRow.rows[0][2]);
+    const mSemPrevCost = num(marginSemanaRow.rows[0][3]);
+    const mSemLYRev = num(marginSemanaRow.rows[0][4]);
+    const mSemLYCost = num(marginSemanaRow.rows[0][5]);
+    const mSemCurr = marginFrac(mSemCurrRev, mSemCurrCost);
+    const mSemPrev = marginFrac(mSemPrevRev, mSemPrevCost);
+    const mSemLY = marginFrac(mSemLYRev, mSemLYCost);
+
+    // Mes margin
+    const mMesCurrRev = num(marginMesRow.rows[0][0]);
+    const mMesCurrCost = num(marginMesRow.rows[0][1]);
+    const mMesPrevRev = num(marginMesRow.rows[0][2]);
+    const mMesPrevCost = num(marginMesRow.rows[0][3]);
+    const mMesLYRev = num(marginMesRow.rows[0][4]);
+    const mMesLYCost = num(marginMesRow.rows[0][5]);
+    const mMesCurr = marginFrac(mMesCurrRev, mMesCurrCost);
+    const mMesPrev = marginFrac(mMesPrevRev, mMesPrevCost);
+    const mMesLY = marginFrac(mMesLYRev, mMesLYCost);
+
+    // Año margin YTD
+    const mAnyoCurrRev = num(marginAnyoRow.rows[0][0]);
+    const mAnyoCurrCost = num(marginAnyoRow.rows[0][1]);
+    const mAnyoLYRev = num(marginAnyoRow.rows[0][2]);
+    const mAnyoLYCost = num(marginAnyoRow.rows[0][3]);
+    const mAnyoCurr = marginFrac(mAnyoCurrRev, mAnyoCurrCost);
+    const mAnyoLY = marginFrac(mAnyoLYRev, mAnyoLYCost);
+
+    // Spark: compute margin fraction per bucket; null buckets (no revenue) collapse to 0
+    const mHoySpark = marginHoySpark7Row.rows.map((r) => marginFrac(num(r[1]), num(r[2])) ?? 0);
+    const mHoySparkLabels = marginHoySpark7Row.rows.map((r) => {
+      const [yy, mm2, dd2] = String(r[0]).split("-").map((s) => parseInt(s, 10));
+      return DAYS_ES[new Date(yy, mm2 - 1, dd2).getDay()];
+    });
+    const mSemSpark = marginSemanaSpark6Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])) ?? 0);
+    const mSemSparkLabels = marginSemanaSpark6Row.rows.map((r) => `s${num(r[1])}`);
+    const mMesSpark = marginMesSpark5Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])) ?? 0);
+    const mMesSparkLabels = marginMesSpark5Row.rows.map((r) => MONTHS_ES[num(r[1]) - 1] || "");
+    const mAnyoSpark = marginAnyoSpark5Row.rows.map((r) => marginFrac(num(r[2]), num(r[3])) ?? 0);
+    const mAnyoSparkLabels = marginAnyoSpark5Row.rows.map((r) => MONTHS_ES[num(r[1]) - 1] || "");
+
+    const marginPeriods: HomeViewModel["marginPeriods"] = [
+      {
+        id: "hoy",
+        label: "Hoy",
+        value: mHoyCurr,
+        deltaPrev: mHoyCurr !== null && mHoyPrev !== null ? mHoyCurr - mHoyPrev : 0,
+        prevLabel: "vs ayer",
+        deltaYoY: mHoyLYRev > 0 && mHoyCurr !== null ? mHoyCurr - (mHoyLY ?? 0) : null,
+        yoyLabel: `vs ${dateLabelEs(lastYearSameDay)}`,
+        spark: mHoySpark,
+        sparkLabels: mHoySparkLabels,
+      },
+      {
+        id: "semana",
+        label: "Semana",
+        value: mSemCurr,
+        deltaPrev: mSemCurr !== null && mSemPrev !== null ? mSemCurr - mSemPrev : 0,
+        prevLabel: "vs sem ant",
+        deltaYoY: mSemLYRev > 0 && mSemCurr !== null ? mSemCurr - (mSemLY ?? 0) : null,
+        yoyLabel: `vs sem ${isoWeekOf(asOfDateObj)} ${asOfDateObj.getFullYear() - 1}`,
+        spark: mSemSpark,
+        sparkLabels: mSemSparkLabels,
+      },
+      {
+        id: "mes",
+        label: "Mes",
+        value: mMesCurr,
+        deltaPrev: mMesCurr !== null && mMesPrev !== null ? mMesCurr - mMesPrev : 0,
+        prevLabel: "vs mes ant",
+        deltaYoY: mMesLYRev > 0 && mMesCurr !== null ? mMesCurr - (mMesLY ?? 0) : null,
+        yoyLabel: `vs ${MONTHS_ES[asOfDateObj.getMonth()]} ${asOfDateObj.getFullYear() - 1}`,
+        spark: mMesSpark,
+        sparkLabels: mMesSparkLabels,
+      },
+      {
+        id: "anyo",
+        label: "Año (YTD)",
+        value: mAnyoCurr,
+        deltaPrev: mAnyoLYRev > 0 && mAnyoCurr !== null ? mAnyoCurr - (mAnyoLY ?? 0) : 0,
+        prevLabel: `vs YTD ${asOfDateObj.getFullYear() - 1}`,
+        deltaYoY: mAnyoLYRev > 0 && mAnyoCurr !== null ? mAnyoCurr - (mAnyoLY ?? 0) : null,
+        yoyLabel: `vs ${asOfDateObj.getFullYear() - 1} mismo tramo`,
+        spark: mAnyoSpark,
+        sparkLabels: mAnyoSparkLabels,
+      },
+    ];
+
+    // ─────────────────────────────────────────────────────────────────────
     // Daily trend
     // ─────────────────────────────────────────────────────────────────────
     const dailyTrend: HomeViewModel["dailyTrend"] = dailyTrendRow.rows.map((r) => {
@@ -833,6 +1150,16 @@ export async function GET(req: NextRequest) {
       if (!sparkByStore[code]) sparkByStore[code] = [];
       sparkByStore[code].push(num(r[2]));
     }
+
+    // Per-store margin map: tienda → margin fraction
+    const marginByStore: Record<string, number> = {};
+    for (const r of storesMarginRow.rows) {
+      const code = String(r[0]);
+      const rev = num(r[1]);
+      const cost = num(r[2]);
+      if (rev > 0) marginByStore[code] = (rev - cost) / rev;
+    }
+
     const allStoreRows = storesRow.rows.map((r) => {
       const code = String(r[0]);
       const identificador = r[1];
@@ -854,6 +1181,7 @@ export async function GET(req: NextRequest) {
         status: statusFromDeltas(delta, deltaYoY),
         total30d,
         lastSaleDate,
+        margin: marginByStore[code] ?? null,
       };
     });
 
@@ -867,6 +1195,7 @@ export async function GET(req: NextRequest) {
     const topStores: HomeViewModel["topStores"] = activeRaw.map(
       ({ total30d: _t, lastSaleDate: _l, ...rest }) => rest,
     );
+
     const inactiveStores: HomeViewModel["inactiveStores"] = inactiveRaw.map(
       ({ code, name, lastSaleDate }) => ({ code, name, lastSaleDate }),
     );
@@ -972,6 +1301,7 @@ export async function GET(req: NextRequest) {
       maxAvailableDate,
       hero,
       periods,
+      marginPeriods,
       dailyTrend,
       topStores,
       inactiveStores,

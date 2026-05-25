@@ -46,9 +46,19 @@ vi.mock("@/lib/db", () => {
           rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]),
         };
       }
-      // Top-stores query: 10 rows of (codigo, identificador, poblacion,
-      // sales). Empty list is also valid; the route handles len < 10.
-      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
+      // Per-store margin query: SELECT lv.tienda ... FROM ps_lineas_ventas lv JOIN ps_ventas v
+      // ... GROUP BY lv.tienda. Returns one row so topStores[0].margin can be asserted.
+      if (sql.includes("GROUP BY lv.tienda")) {
+        return { rows: [["611", 5000, 2000]] }; // tienda, rev, cost → margin = 0.6
+      }
+      // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (subqueries contain ps_ventas/GROUP BY tienda)
+      // Return one active store row matching the margin row above so topStores is non-empty.
+      if (sql.includes("ps_tiendas") && !sql.includes("CROSS JOIN")) {
+        // [codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date]
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03"]] };
+      }
+      // Store spark query (ps_tiendas CROSS JOIN days): return empty rows
+      if (sql.includes("ps_tiendas") && sql.includes("CROSS JOIN")) {
         return { rows: [] };
       }
       // etl_sync_runs is checked with rows.length > 0 — empty bypasses
@@ -97,6 +107,16 @@ describe("GET /api/home", () => {
       if (sql.includes("dailyTrend") || sql.includes("AS day,")) {
         return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
       }
+      // Per-store margin query (PR #759): SELECT lv.tienda ... GROUP BY lv.tienda.
+      // Returns one row so topStores[0].margin can be asserted (rev/cost → 0.6).
+      if (sql.includes("GROUP BY lv.tienda")) {
+        return { rows: [["611", 5000, 2000]] };
+      }
+      // Top-stores query (ps_tiendas LEFT JOINs, no CROSS JOIN): one active store.
+      // 8 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly.
+      if (sql.includes("FROM ps_tiendas") && !sql.includes("CROSS JOIN")) {
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null]] };
+      }
       if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };
       }
@@ -119,6 +139,7 @@ describe("GET /api/home", () => {
     expect(body).toHaveProperty("maxAvailableDate");
     expect(body).toHaveProperty("hero");
     expect(body).toHaveProperty("periods");
+    expect(body).toHaveProperty("marginPeriods");
     expect(body).toHaveProperty("dailyTrend");
     expect(body).toHaveProperty("topStores");
     expect(body).toHaveProperty("inactiveStores");
@@ -254,6 +275,40 @@ describe("GET /api/home", () => {
     expect(periods).toHaveLength(4);
     const ids = periods.map((p: { id: string }) => p.id);
     expect(ids).toEqual(expect.arrayContaining(["hoy", "semana", "mes", "anyo"]));
+  });
+
+  it("returns marginPeriods and per-store margin", async () => {
+    const res = await GET(makeReq());
+    const body = await res.json();
+
+    // marginPeriods: array of 4 with the right shape
+    const { marginPeriods, topStores } = body;
+    expect(Array.isArray(marginPeriods)).toBe(true);
+    expect(marginPeriods).toHaveLength(4);
+    const marginIds = marginPeriods.map((p: { id: string }) => p.id);
+    expect(marginIds).toEqual(expect.arrayContaining(["hoy", "semana", "mes", "anyo"]));
+
+    for (const mp of marginPeriods) {
+      expect(mp.value === null || typeof mp.value === "number").toBe(true);
+      expect(typeof mp.deltaPrev).toBe("number");
+      expect(typeof mp.prevLabel).toBe("string");
+      expect(typeof mp.yoyLabel).toBe("string");
+      expect(Array.isArray(mp.spark)).toBe(true);
+      expect(Array.isArray(mp.sparkLabels)).toBe(true);
+      // deltaYoY is number or null
+      expect(mp.deltaYoY === null || typeof mp.deltaYoY === "number").toBe(true);
+    }
+
+    // topStores has at least one entry (the mock returns store "611")
+    expect(topStores.length).toBeGreaterThan(0);
+    // Every store must carry a margin field (number when cost data exists, null otherwise)
+    for (const s of topStores) {
+      expect(typeof s.margin === "number" || s.margin === null).toBe(true);
+    }
+    // Store "611" has rev=5000, cost=2000 in the mock → margin = (5000-2000)/5000 = 0.6
+    const store611 = topStores.find((s: { code: string }) => s.code === "611");
+    expect(store611).toBeDefined();
+    expect(store611.margin).toBeCloseTo(0.6, 5);
   });
 
   it("returns dailyTrend entries with day, actual, ly", async () => {
