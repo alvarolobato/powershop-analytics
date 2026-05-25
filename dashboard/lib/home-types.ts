@@ -80,6 +80,10 @@ export type HomeViewModel = {
     yoyLabel: string;
     spark: number[];
     sparkLabels: string[];
+    /** Not produced for margin periods; present so the shared PeriodGrid
+     *  (`PeriodLike` union with `periods`) type-checks. Always undefined. */
+    streakWeeks?: number;
+    trendDirection?: "up" | "flat" | "down";
   }>;
   dailyTrend: Array<{ day: number; actual: number | null; ly: number }>;
   /** Active retail stores (excluding tienda='99' and any store with zero
