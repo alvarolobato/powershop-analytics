@@ -249,7 +249,7 @@ describe("InicioPage", () => {
     globalThis.fetch = mockFetch(MOCK_DATA);
     render(<InicioPage />);
     await waitFor(() => {
-      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+      expect(screen.getAllByTestId("period-grid")[0]).toBeInTheDocument();
     });
     // MOCK_DATA has semana.streakWeeks = 4 → badge should be visible
     expect(screen.getByTestId("streak-badge")).toBeInTheDocument();
@@ -266,7 +266,7 @@ describe("InicioPage", () => {
     globalThis.fetch = mockFetch(dataNoStreak);
     render(<InicioPage />);
     await waitFor(() => {
-      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+      expect(screen.getAllByTestId("period-grid")[0]).toBeInTheDocument();
     });
     expect(screen.queryByTestId("streak-badge")).not.toBeInTheDocument();
   });
@@ -289,7 +289,7 @@ describe("InicioPage", () => {
     globalThis.fetch = mockFetch(MOCK_DATA);
     render(<InicioPage />);
     await waitFor(() => {
-      expect(screen.getByTestId("period-grid")).toBeInTheDocument();
+      expect(screen.getAllByTestId("period-grid")[0]).toBeInTheDocument();
     });
     // MOCK_DATA has trendDirection for hoy (up) and semana (down)
     // Both should render a sparkline-with-trend wrapper
