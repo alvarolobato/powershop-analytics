@@ -116,12 +116,12 @@ describe("TopStoresTable", () => {
       expect(row.textContent).toContain("—");
     });
 
-    it("table has 8 column headers: #, Cód, Tienda, Ventas hoy, vs media, vs año ant, Margen, Últ. 7 días", () => {
+    it("table has 9 column headers: #, Cód, Tienda, Ventas hoy, vs media, vs año ant, Margen, Racha, Últ. 7 días", () => {
       render(<TopStoresTable stores={STORES} />);
       const headers = screen.getAllByRole("columnheader");
-      expect(headers).toHaveLength(8);
+      expect(headers).toHaveLength(9);
       const texts = headers.map((h) => h.textContent);
-      expect(texts).toEqual(["#", "Cód", "Tienda", "Ventas hoy", "vs media", "vs año ant", "Margen", "Últ. 7 días"]);
+      expect(texts).toEqual(["#", "Cód", "Tienda", "Ventas hoy", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"]);
     });
   });
 
