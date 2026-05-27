@@ -31,14 +31,15 @@ desired list used ``Nombre`` which does not exist; this has been corrected.
 
 from __future__ import annotations
 
-import logging
 from decimal import Decimal
 from typing import Any
 
 from etl.db.fourd import _validate_identifier, safe_fetch
 from etl.db.postgres import truncate_and_insert
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -146,10 +147,10 @@ def sync_clientes(conn_4d, conn_pg, since=None) -> int:
     cols_to_query = [c for c in _CLIENTES_DESIRED if c in safe_cols]
 
     if not cols_to_query:
-        logger.error("sync_clientes: no queryable columns found in Clientes — aborting")
+        log.error("sync_clientes: no queryable columns found in Clientes — aborting")
         return 0
     if "RegCliente" not in cols_to_query:
-        logger.error(
+        log.error(
             "sync_clientes: required PK column RegCliente not available in Clientes — aborting"
         )
         return 0
@@ -157,7 +158,7 @@ def sync_clientes(conn_4d, conn_pg, since=None) -> int:
     where = ""
     if since is not None:
         if "FechaModifica" not in safe_cols:
-            logger.warning(
+            log.warning(
                 "sync_clientes: delta requested but FechaModifica missing — falling back to full refresh"
             )
         else:
@@ -168,9 +169,9 @@ def sync_clientes(conn_4d, conn_pg, since=None) -> int:
             where = f" WHERE FechaModifica >= {{d '{date_str}'}}"
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Clientes{where}"
-    logger.info("sync_clientes: querying 4D — %s", sql)
+    log.info("sync_clientes: querying 4D — %s", sql)
     rows_4d = safe_fetch(conn_4d, sql)
-    logger.info("sync_clientes: fetched %d rows from 4D", len(rows_4d))
+    log.info("sync_clientes: fetched %d rows from 4D", len(rows_4d))
 
     pg_rows: list[dict] = []
     for row in rows_4d:
@@ -195,13 +196,13 @@ def sync_clientes(conn_4d, conn_pg, since=None) -> int:
 
     if since is None or not where:
         count = truncate_and_insert(conn_pg, "ps_clientes", pg_rows)
-        logger.info("sync_clientes: inserted %d rows into ps_clientes", count)
+        log.info("sync_clientes: inserted %d rows into ps_clientes", count)
         return count
 
     if not pg_rows:
         return 0
     count = upsert(conn_pg, "ps_clientes", pg_rows, pk_cols=["reg_cliente"])
-    logger.info("sync_clientes: upserted %d rows into ps_clientes", count)
+    log.info("sync_clientes: upserted %d rows into ps_clientes", count)
     return count
 
 
@@ -244,19 +245,19 @@ def sync_tiendas(conn_4d, conn_pg) -> int:
     cols_to_query = [c for c in _TIENDAS_DESIRED if c in safe_cols]
 
     if not cols_to_query:
-        logger.error("sync_tiendas: no queryable columns found in Tiendas — aborting")
+        log.error("sync_tiendas: no queryable columns found in Tiendas — aborting")
         return 0
     if "RegTienda" not in cols_to_query:
-        logger.error(
+        log.error(
             "sync_tiendas: required PK column RegTienda is not available or not selected "
             "from Tiendas — aborting to avoid violating ps_tiendas.reg_tienda PRIMARY KEY"
         )
         return 0
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Tiendas"
-    logger.info("sync_tiendas: querying 4D — %s", sql)
+    log.info("sync_tiendas: querying 4D — %s", sql)
     rows_4d = safe_fetch(conn_4d, sql)
-    logger.info("sync_tiendas: fetched %d rows from 4D", len(rows_4d))
+    log.info("sync_tiendas: fetched %d rows from 4D", len(rows_4d))
 
     pg_rows: list[dict] = []
     for row in rows_4d:
@@ -270,7 +271,7 @@ def sync_tiendas(conn_4d, conn_pg) -> int:
         pg_rows.append(mapped)
 
     count = truncate_and_insert(conn_pg, "ps_tiendas", pg_rows)
-    logger.info("sync_tiendas: inserted %d rows into ps_tiendas", count)
+    log.info("sync_tiendas: inserted %d rows into ps_tiendas", count)
     return count
 
 
@@ -351,12 +352,12 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
     pk_col = _discover_pk_proveedores(conn_4d)
     if pk_col is None:
         pk_col = "RegProveedor"
-        logger.warning(
+        log.warning(
             "sync_proveedores: could not discover Reg* PK column — defaulting to %s",
             pk_col,
         )
     else:
-        logger.info("sync_proveedores: discovered PK column: %s", pk_col)
+        log.info("sync_proveedores: discovered PK column: %s", pk_col)
 
     # Build desired list with the discovered PK.
     # If the discovered PK differs from the default (RegProveedor), remove the
@@ -371,12 +372,12 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
     cols_to_query = [c for c in desired if c in safe_cols]
 
     if not cols_to_query:
-        logger.error(
+        log.error(
             "sync_proveedores: no queryable columns found in Proveedores — aborting"
         )
         return 0
     if pk_col not in cols_to_query:
-        logger.error(
+        log.error(
             "sync_proveedores: primary key column %s is not queryable in Proveedores — aborting",
             pk_col,
         )
@@ -388,16 +389,16 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
         try:
             _validate_identifier(col)
         except ValueError:
-            logger.error(
+            log.error(
                 "sync_proveedores: invalid column name %r discovered from metadata — aborting",
                 col,
             )
             return 0
 
     sql = f"SELECT {', '.join(cols_to_query)} FROM Proveedores"
-    logger.info("sync_proveedores: querying 4D — %s", sql)
+    log.info("sync_proveedores: querying 4D — %s", sql)
     rows_4d = safe_fetch(conn_4d, sql)
-    logger.info("sync_proveedores: fetched %d rows from 4D", len(rows_4d))
+    log.info("sync_proveedores: fetched %d rows from 4D", len(rows_4d))
 
     # Build a dynamic map that accounts for the discovered PK column name.
     pk_lower = pk_col.lower()
@@ -417,7 +418,7 @@ def sync_proveedores(conn_4d, conn_pg) -> int:
         pg_rows.append(mapped)
 
     count = truncate_and_insert(conn_pg, "ps_proveedores", pg_rows)
-    logger.info("sync_proveedores: inserted %d rows into ps_proveedores", count)
+    log.info("sync_proveedores: inserted %d rows into ps_proveedores", count)
     return count
 
 
@@ -448,9 +449,9 @@ def sync_gc_comerciales(conn_4d, conn_pg) -> int:
         "SELECT RegComercial, Comercial, CIF, ZonaComercial, "
         "Comision1, Comision2, email, Movil FROM GCComerciales"
     )
-    logger.info("sync_gc_comerciales: querying 4D — %s", sql)
+    log.info("sync_gc_comerciales: querying 4D — %s", sql)
     rows_4d = safe_fetch(conn_4d, sql)
-    logger.info("sync_gc_comerciales: fetched %d rows from 4D", len(rows_4d))
+    log.info("sync_gc_comerciales: fetched %d rows from 4D", len(rows_4d))
 
     pg_rows: list[dict] = []
     for row in rows_4d:
@@ -464,5 +465,5 @@ def sync_gc_comerciales(conn_4d, conn_pg) -> int:
         pg_rows.append(mapped)
 
     count = truncate_and_insert(conn_pg, "ps_gc_comerciales", pg_rows)
-    logger.info("sync_gc_comerciales: inserted %d rows into ps_gc_comerciales", count)
+    log.info("sync_gc_comerciales: inserted %d rows into ps_gc_comerciales", count)
     return count

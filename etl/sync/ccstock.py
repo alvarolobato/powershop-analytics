@@ -32,14 +32,15 @@ ps_stock_central schema (see etl/schema/init.sql):
 
 from __future__ import annotations
 
-import logging
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from etl.db.fourd import decode_signed_int16_word, safe_fetch
 from etl.db.postgres import truncate_and_insert, upsert
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 # Number of slot columns in CCStock (same 34-slot system as Exportaciones).
 _MAX_SLOT = 34
@@ -108,13 +109,13 @@ def sync_ccstock(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
         date_str = since.strftime("%Y-%m-%d")
         where = f" WHERE FechaModifica >= {{d '{date_str}'}}"
     sql = f"SELECT {_CCSTOCK_COLUMNS} FROM CCStock{where}"
-    logger.info(
+    log.info(
         "sync_ccstock: fetching %s rows from CCStock ...",
         "delta" if since is not None else "all",
     )
 
     raw_rows = safe_fetch(conn_4d, sql)
-    logger.info("sync_ccstock: fetched %d source rows", len(raw_rows))
+    log.info("sync_ccstock: fetched %d source rows", len(raw_rows))
 
     pg_rows: list[dict[str, Any]] = []
     skipped = 0
@@ -126,17 +127,17 @@ def sync_ccstock(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
         pg_rows.append(mapped)
 
     if skipped:
-        logger.warning(
+        log.warning(
             "sync_ccstock: skipped %d rows with missing/zero NumArticulo", skipped
         )
 
     if since is None:
         count = truncate_and_insert(conn_pg, "ps_stock_central", pg_rows)
-        logger.info("sync_ccstock: inserted %d rows into ps_stock_central", count)
+        log.info("sync_ccstock: inserted %d rows into ps_stock_central", count)
         return count
 
     if not pg_rows:
         return 0
     count = upsert(conn_pg, "ps_stock_central", pg_rows, pk_cols=["num_articulo"])
-    logger.info("sync_ccstock: upserted %d rows into ps_stock_central", count)
+    log.info("sync_ccstock: upserted %d rows into ps_stock_central", count)
     return count

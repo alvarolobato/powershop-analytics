@@ -44,7 +44,6 @@ initial load twice will not cause PK violations or update existing rows.
 
 from __future__ import annotations
 
-import logging
 import re
 from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -52,7 +51,9 @@ from decimal import ROUND_HALF_UP, Decimal
 from etl.db.fourd import decode_signed_int16_word, safe_fetch
 from etl.db.postgres import insert_ignore, upsert
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 # Number of source rows to fetch per SQL query (Exportaciones is wide format —
 # each row expands to ~5 normalized rows on average; Traspasos uses same constant).
@@ -104,7 +105,7 @@ def _validate_since(since: datetime, name: str = "since") -> None:
         or since.second != 0
         or since.microsecond != 0
     ):
-        logger.debug(
+        log.debug(
             "%s=%r has a non-zero time component — only the date portion "
             "(YYYY-MM-DD) will be used in the 4D SQL filter.",
             name,
@@ -250,7 +251,7 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     where = _build_expo_where(since, include_nulls=include_nulls)
 
     total_source = _count_expo(conn_4d, where)
-    logger.info(
+    log.info(
         "sync_stock: %d source rows to process %s",
         total_source,
         f"({where})" if where else "(full)",
@@ -258,14 +259,14 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
 
     # Get all store codes and process one store at a time (progressive)
     stores = _get_store_codes(conn_4d)
-    logger.info("sync_stock: processing %d stores progressively", len(stores))
+    log.info("sync_stock: processing %d stores progressively", len(stores))
 
     total_processed = 0
     for store_idx, store_code in enumerate(stores):
         # Validate store code before interpolating into SQL (defense-in-depth).
         # ERP codes are numeric or alphanumeric with optional slashes/dashes.
         if not re.match(r"^[A-Za-z0-9/_-]+$", store_code):
-            logger.warning(
+            log.warning(
                 "sync_stock: skipping store with unexpected code format: %r",
                 store_code,
             )
@@ -302,7 +303,7 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
             store_processed += attempted
 
         total_processed += store_processed
-        logger.info(
+        log.info(
             "sync_stock: store %s (%d/%d): %d source rows → %d normalized rows (total: %d)",
             store_code,
             store_idx + 1,
@@ -312,7 +313,7 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
             total_processed,
         )
 
-    logger.info(
+    log.info(
         "sync_stock: done — %d normalized rows processed across %d stores",
         total_processed,
         len(stores),
@@ -428,7 +429,7 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
     # COUNT is used for progress logging only — loop termination is driven by
     # empty-batch detection to avoid missing rows added after this initial count.
     total_source = _count_traspasos(conn_4d, where)
-    logger.info(
+    log.info(
         "sync_traspasos: %d rows to process %s",
         total_source,
         f"({where})" if where else "(full)",
@@ -455,12 +456,12 @@ def sync_traspasos(conn_4d, conn_pg, since: datetime | None = None) -> int:
         )
         total_attempted += attempted
         offset += len(batch)
-        logger.debug(
+        log.debug(
             "sync_traspasos: fetched %d rows so far (est. total %d, batch attempted: %d)",
             offset,
             total_source,
             attempted,
         )
 
-    logger.info("sync_traspasos: done — %d rows attempted", total_attempted)
+    log.info("sync_traspasos: done — %d rows attempted", total_attempted)
     return total_attempted

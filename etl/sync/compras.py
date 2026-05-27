@@ -39,11 +39,12 @@ FK link to ps_compras and ps_proveedores.
 
 from __future__ import annotations
 
-import logging
 from decimal import Decimal
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +258,7 @@ def sync_facturas(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
     where = ""
     if since is not None:
         if "fechamodifica" not in queryable_lower:
-            logger.warning(
+            log.warning(
                 "sync_facturas: delta requested but FechaModifica missing — falling back to full refresh"
             )
         else:

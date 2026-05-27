@@ -523,6 +523,8 @@ def record_table_sync(
     watermark_from: datetime | None = None,
     watermark_to: datetime | None = None,
     error_msg: str | None = None,
+    trace_id: str | None = None,
+    span_id: str | None = None,
 ) -> None:
     """Insert a per-table sync record into etl_sync_run_tables."""
     try:
@@ -532,8 +534,8 @@ def record_table_sync(
                 INSERT INTO etl_sync_run_tables
                     (run_id, table_name, rows_synced, duration_ms, status,
                      started_at, finished_at, sync_method, rows_total_after,
-                     watermark_from, watermark_to, error_msg)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     watermark_from, watermark_to, error_msg, trace_id, span_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     run_id,
@@ -548,7 +550,34 @@ def record_table_sync(
                     watermark_from,
                     watermark_to,
                     error_msg,
+                    trace_id,
+                    span_id,
                 ),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
+def update_run_trace_context(
+    conn,
+    run_id: int,
+    trace_id: str | None,
+    span_id: str | None,
+) -> None:
+    """Persist OTel trace_id and span_id on an etl_sync_runs row.
+
+    Called immediately after create_run() once the parent span is active.
+    Silently no-ops if both values are None (SDK not initialised).
+    """
+    if trace_id is None and span_id is None:
+        return
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE etl_sync_runs SET trace_id = %s, span_id = %s WHERE id = %s",
+                (trace_id, span_id, run_id),
             )
         conn.commit()
     except Exception:

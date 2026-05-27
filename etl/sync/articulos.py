@@ -21,11 +21,12 @@ decimal.Decimal before being passed to the PostgreSQL insert helpers.
 
 from __future__ import annotations
 
-import logging
 from decimal import Decimal
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -299,7 +300,7 @@ def sync_articulos(conn_4d: Any, conn_pg: Any, since: Any = None) -> int:
             conn_pg.commit()
         except Exception as exc:
             conn_pg.rollback()
-            logger.warning(
+            log.warning(
                 "sync_articulos: safety-net DELETE failed "
                 "(data already loaded cleanly): %s",
                 exc,

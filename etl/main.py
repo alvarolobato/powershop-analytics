@@ -15,19 +15,24 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-logging.basicConfig(
-    format="%(asctime)s %(levelname)s %(message)s",
-    level=logging.INFO,
-    datefmt="%Y-%m-%dT%H:%M:%S",
-)
-logger = logging.getLogger("etl")
+from contextlib import contextmanager
+
+from etl.observability.log import get_logger
+
+log = get_logger("etl")
+
+
+@contextmanager
+def _noop_span_cm():
+    """No-op context manager yielding None — used when the OTel SDK is unavailable."""
+    yield None
+
 
 # Number of consecutive _is_run_active failures before the process exits so
 # Docker can restart it with a fresh postgres connection. At 10-second poll
@@ -45,10 +50,10 @@ def _parse_cron_hour(raw: str | None) -> int:
     try:
         value = int(raw or "2")
     except ValueError:
-        logger.warning("ETL_CRON_HOUR=%r is not an integer; defaulting to 2", raw)
+        log.warning("ETL_CRON_HOUR=%r is not an integer; defaulting to 2", raw)
         return 2
     if not (0 <= value <= 23):
-        logger.warning("ETL_CRON_HOUR=%d out of range; defaulting to 2", value)
+        log.warning("ETL_CRON_HOUR=%d out of range; defaulting to 2", value)
         return 2
     return value
 
@@ -58,12 +63,10 @@ def _parse_cron_minute(raw: str | None) -> int:
     try:
         value = int(raw or "0")
     except ValueError:
-        logger.warning(
-            "ETL_DELTA_CRON_MINUTE=%r is not an integer; defaulting to 0", raw
-        )
+        log.warning("ETL_DELTA_CRON_MINUTE=%r is not an integer; defaulting to 0", raw)
         return 0
     if not (0 <= value <= 59):
-        logger.warning("ETL_DELTA_CRON_MINUTE=%d out of range; defaulting to 0", value)
+        log.warning("ETL_DELTA_CRON_MINUTE=%d out of range; defaulting to 0", value)
         return 0
     return value
 
@@ -73,12 +76,12 @@ def _parse_lookback_days(raw: str | None) -> int:
     try:
         value = int(raw or "1")
     except ValueError:
-        logger.warning(
+        log.warning(
             "ETL_DELTA_LOOKBACK_DAYS=%r is not an integer; defaulting to 1", raw
         )
         return 1
     if value < 0:
-        logger.warning("ETL_DELTA_LOOKBACK_DAYS=%d is negative; defaulting to 1", value)
+        log.warning("ETL_DELTA_LOOKBACK_DAYS=%d is negative; defaulting to 1", value)
         return 1
     return value
 
@@ -96,7 +99,7 @@ def _init_schema(conn_pg) -> None:
     with conn_pg.cursor() as cur:
         cur.execute(sql)
     conn_pg.commit()
-    logger.info("Schema initialised (init.sql applied)")
+    log.info("Schema initialised (init.sql applied)")
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +129,7 @@ def _get_table_row_estimate(conn_pg, table_name: str) -> int | None:
             return None
         return int(row[0])
     except Exception as exc:
-        logger.debug("rows_total_after lookup failed for %s: %s", table_name, exc)
+        log.debug("rows_total_after lookup failed for %s: %s", table_name, exc)
         try:
             conn_pg.rollback()
         except Exception:
@@ -164,6 +167,14 @@ def _run_sync(
     n_live_tup estimate is recorded as etl_sync_run_tables.rows_total_after.
     """
     from etl.db.postgres import get_watermark, set_watermark
+    from etl.observability.metrics import record_sync_complete, record_sync_error
+
+    try:
+        from opentelemetry import trace as _trace
+
+        _tracer = _trace.get_tracer("powershop.etl")
+    except ImportError:
+        _tracer = None
 
     start = time.time()
     started_at = datetime.now(timezone.utc)
@@ -173,31 +184,74 @@ def _run_sync(
     err: str | None = None
     wm_from: datetime | None = None
     wm_to: datetime | None = None
-    try:
-        if uses_watermark:
-            since = None if kind == "full" else get_watermark(conn_pg, name)
-            if since is not None and kind == "delta" and lookback_days > 0:
-                since = since - timedelta(days=lookback_days)
-            wm_from = since
-            rows = sync_fn(conn_4d, conn_pg, since)
-        else:
-            rows = sync_fn(conn_4d, conn_pg)
-        duration_ms = int((time.time() - start) * 1000)
-        now = datetime.now(timezone.utc)
-        if uses_watermark:
-            wm_to = now
-        set_watermark(conn_pg, name, now, rows, "ok")
-        logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
-    except Exception as exc:
-        duration_ms = int((time.time() - start) * 1000)
-        ok = False
-        err = str(exc)[:2000]
-        wm_to = datetime.now(timezone.utc)
+
+    span_ctx: tuple[str | None, str | None] = (None, None)
+    span_mgr = (
+        _tracer.start_as_current_span(
+            f"etl.sync.{name}",
+            attributes={"table_name": name, "sync_kind": kind},
+        )
+        if _tracer is not None
+        else _noop_span_cm()
+    )
+
+    with span_mgr as span:
         try:
-            set_watermark(conn_pg, name, wm_to, 0, "error", err)
-        except Exception as wm_exc:
-            logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
-        logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
+            if uses_watermark:
+                since = None if kind == "full" else get_watermark(conn_pg, name)
+                if since is not None and kind == "delta" and lookback_days > 0:
+                    since = since - timedelta(days=lookback_days)
+                wm_from = since
+                rows = sync_fn(conn_4d, conn_pg, since)
+            else:
+                rows = sync_fn(conn_4d, conn_pg)
+            duration_ms = int((time.time() - start) * 1000)
+            now = datetime.now(timezone.utc)
+            if uses_watermark:
+                wm_to = now
+            set_watermark(conn_pg, name, now, rows, "ok")
+            log.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
+            record_sync_complete(name, rows=rows, duration_ms=duration_ms)
+            if span is not None:
+                try:
+                    span.set_attribute("rows_synced", rows)
+                    span.set_attribute("duration_ms", duration_ms)
+                    span.set_attribute("status", "ok")
+                except Exception:
+                    pass
+        except Exception as exc:
+            duration_ms = int((time.time() - start) * 1000)
+            ok = False
+            err = str(exc)[:2000]
+            wm_to = datetime.now(timezone.utc)
+            try:
+                set_watermark(conn_pg, name, wm_to, 0, "error", err)
+            except Exception as wm_exc:
+                log.error("Failed to write error watermark for %s: %s", name, wm_exc)
+            log.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
+            record_sync_error(name, duration_ms=duration_ms)
+            if span is not None:
+                try:
+                    span.set_attribute("status", "failed")
+                    span.set_attribute("error", err or "")
+                    span.record_exception(exc)
+                except Exception:
+                    pass
+
+        # Capture span context for DB persistence
+        try:
+            if _tracer is not None:
+                from opentelemetry import trace as _t2
+
+                active_span = _t2.get_current_span()
+                ctx = active_span.get_span_context()
+                if ctx and ctx.is_valid:
+                    span_ctx = (
+                        format(ctx.trace_id, "032x"),
+                        format(ctx.span_id, "016x"),
+                    )
+        except Exception:
+            pass
 
     # In a "full" nightly run a watermark-backed sync still does truncate-
     # and-reinsert (since=None), so log it as full_refresh — not the
@@ -228,11 +282,11 @@ def _run_sync(
                 watermark_from=wm_from,
                 watermark_to=wm_to,
                 error_msg=err,
+                trace_id=span_ctx[0],
+                span_id=span_ctx[1],
             )
         except Exception as mon_exc:
-            logger.error(
-                "Monitoring: record_table_sync failed for %s: %s", name, mon_exc
-            )
+            log.error("Monitoring: record_table_sync failed for %s: %s", name, mon_exc)
 
     return rows, ok
 
@@ -276,10 +330,10 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
 
     ma_codes = get_ma_article_codes(conn_4d)
     if not ma_codes:
-        logger.info("MA cleanup: no MA article codes found — nothing to clean up")
+        log.info("MA cleanup: no MA article codes found — nothing to clean up")
         return
 
-    logger.info(
+    log.info(
         "MA cleanup: %d MA article codes to remove from line tables", len(ma_codes)
     )
 
@@ -301,7 +355,7 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
                 )
                 cur.execute(stmt, (ma_codes_list,))
                 deleted = cur.rowcount
-                logger.info("MA cleanup: deleted %d rows from %s", deleted, table)
+                log.info("MA cleanup: deleted %d rows from %s", deleted, table)
         conn_pg.commit()
     except Exception:
         conn_pg.rollback()
@@ -331,7 +385,7 @@ def _get_rows_total(conn_pg) -> dict[str, int] | None:
                 totals[table] = cur.fetchone()[0]
         return totals
     except Exception as exc:
-        logger.warning("Could not fetch row totals: %s", exc)
+        log.warning("Could not fetch row totals: %s", exc)
         return None
 
 
@@ -448,7 +502,7 @@ def _is_run_active(conn_pg) -> bool:
         return is_active
     except Exception as exc:
         _is_run_active_failures += 1
-        logger.warning(
+        log.warning(
             "_is_run_active query failed (%d/%d): %s",
             _is_run_active_failures,
             _IS_RUN_ACTIVE_MAX_FAILURES,
@@ -511,6 +565,24 @@ def run_full_sync(
         release_run_lock,
         reset_watermarks,
         try_acquire_run_lock,
+        update_run_trace_context,
+    )
+    from etl.observability.metrics import record_run_complete
+
+    try:
+        from opentelemetry import trace as _otel_trace
+
+        _tracer_run = _otel_trace.get_tracer("powershop.etl")
+    except ImportError:
+        _tracer_run = None
+
+    run_span_cm = (
+        _tracer_run.start_as_current_span(
+            "etl.run",
+            attributes={"trigger": trigger, "kind": kind},
+        )
+        if _tracer_run is not None
+        else _noop_span_cm()
     )
 
     # Cross-process exclusion. _is_run_active (row check) can race with
@@ -520,7 +592,7 @@ def run_full_sync(
     # the authoritative gate. Session-scoped: auto-released on connection
     # close, so a crashed container leaves no zombie lock.
     if not try_acquire_run_lock(conn_pg):
-        logger.warning(
+        log.warning(
             "Another ETL run is already in progress (advisory lock held) — skipping %s sync",
             kind,
         )
@@ -552,8 +624,10 @@ def run_full_sync(
     from etl.sync.stock import sync_stock, sync_traspasos
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
 
+    _run_span_obj = run_span_cm.__enter__()
+
     try:
-        logger.info("=== %s sync started ===", "Delta" if kind == "delta" else "Full")
+        log.info("=== %s sync started ===", "Delta" if kind == "delta" else "Full")
         pipeline_start = time.time()
 
         # ------------------------------------------------------------------
@@ -576,20 +650,20 @@ def run_full_sync(
                         conn_pg, trigger_id
                     )
                 except Exception:
-                    logger.exception(
+                    log.exception(
                         "Trigger %d: could not read force flags — running incrementally",
                         trigger_id,
                     )
                     force_full, force_tables, triggered_by = False, [], None
 
-            logger.info(
+            log.info(
                 "Trigger %d: triggered_by=%r",
                 trigger_id,
                 triggered_by if triggered_by else "unknown",
             )
 
             if force_full:
-                logger.warning(
+                log.warning(
                     "Trigger %d requested force_full=True — clearing ALL watermarks "
                     "for %d tables (this can dramatically increase sync duration)",
                     trigger_id,
@@ -597,13 +671,13 @@ def run_full_sync(
                 )
                 try:
                     deleted = reset_watermarks(conn_pg, list(SYNC_NAMES_WITH_WATERMARK))
-                    logger.info(
+                    log.info(
                         "Trigger %d: reset_watermarks(force_full) deleted %d rows",
                         trigger_id,
                         deleted,
                     )
                 except Exception:
-                    logger.exception(
+                    log.exception(
                         "Trigger %d: force_full watermark reset failed; continuing",
                         trigger_id,
                     )
@@ -614,26 +688,26 @@ def run_full_sync(
                 valid = [t for t in force_tables if t in SYNC_NAMES_WITH_WATERMARK]
                 unknown = sorted(set(force_tables) - set(valid))
                 if unknown:
-                    logger.warning(
+                    log.warning(
                         "Trigger %d: ignoring unknown force_tables %s (not in registry)",
                         trigger_id,
                         unknown,
                     )
                 if valid:
-                    logger.info(
+                    log.info(
                         "Trigger %d: force_tables=%s — resetting watermarks",
                         trigger_id,
                         valid,
                     )
                     try:
                         deleted = reset_watermarks(conn_pg, valid)
-                        logger.info(
+                        log.info(
                             "Trigger %d: reset_watermarks deleted %d row(s)",
                             trigger_id,
                             deleted,
                         )
                     except Exception:
-                        logger.exception(
+                        log.exception(
                             "Trigger %d: reset_watermarks failed; continuing incrementally",
                             trigger_id,
                         )
@@ -642,14 +716,32 @@ def run_full_sync(
         try:
             run_id = create_run(conn_pg, trigger, kind=kind)
         except Exception:
-            logger.exception(
+            log.exception(
                 "Monitoring: create_run failed; continuing without run tracking"
             )
             if trigger == "manual" and trigger_id is not None:
-                logger.warning(
+                log.warning(
                     "Manual trigger %d will complete but run_id tracking is unavailable",
                     trigger_id,
                 )
+
+        # Persist parent span's trace context to etl_sync_runs so the dashboard
+        # admin UI can click through to Kibana APM.
+        if run_id is not None:
+            try:
+                from opentelemetry import trace as _t_ctx
+
+                _active = _t_ctx.get_current_span()
+                _sctx = _active.get_span_context()
+                if _sctx and _sctx.is_valid:
+                    update_run_trace_context(
+                        conn_pg,
+                        run_id,
+                        format(_sctx.trace_id, "032x"),
+                        format(_sctx.span_id, "016x"),
+                    )
+            except Exception:
+                pass  # never let trace context write block the sync
 
         results: list[bool] = []
         total_rows = 0
@@ -752,14 +844,12 @@ def run_full_sync(
             try:
                 _cleanup_ma_linked_rows(conn_4d, conn_pg)
             except Exception:
-                logger.exception(
-                    "MA cleanup failed; continuing with pipeline completion"
-                )
+                log.exception("MA cleanup failed; continuing with pipeline completion")
                 ma_ok = False
             results.append(ma_ok)
 
         total_ms = int((time.time() - pipeline_start) * 1000)
-        logger.info(
+        log.info(
             "=== %s sync completed in %d ms ===",
             "Delta" if kind == "delta" else "Full",
             total_ms,
@@ -767,7 +857,7 @@ def run_full_sync(
 
         rows_total = _get_rows_total(conn_pg)
         if rows_total:
-            logger.info("Post-sync row totals: %s", rows_total)
+            log.info("Post-sync row totals: %s", rows_total)
 
         if run_id is not None:
             tables_ok = sum(results)
@@ -791,7 +881,8 @@ def run_full_sync(
                     total_rows_synced=total_rows,
                 )
             except Exception:
-                logger.exception("Monitoring: finish_run failed")
+                log.exception("Monitoring: finish_run failed")
+            record_run_complete(status)
 
             if trigger == "manual" and trigger_id is not None:
                 from etl.db.postgres import update_trigger_run_id
@@ -799,9 +890,13 @@ def run_full_sync(
                 try:
                     update_trigger_run_id(conn_pg, trigger_id, run_id)
                 except Exception:
-                    logger.warning("Could not update trigger run_id — non-fatal")
+                    log.warning("Could not update trigger run_id — non-fatal")
     finally:
         release_run_lock(conn_pg)
+        try:
+            run_span_cm.__exit__(None, None, None)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -819,11 +914,14 @@ def _try_connect_4d(config) -> tuple[object, str | None]:
 
     try:
         conn = fourd.get_connection(config)
-        logger.info("4D connection established")
+        log.info("4D connection established")
         return conn, None
     except Exception as exc:
         msg = f"Cannot connect to 4D: {exc}"
-        logger.error(msg)
+        log.error(msg)
+        from etl.observability.metrics import record_connection_error
+
+        record_connection_error("4d")
         return None, msg
 
 
@@ -871,7 +969,7 @@ def _record_connection_failure(
     try:
         run_id = create_run(conn_pg, trigger)
     except Exception:
-        logger.exception(
+        log.exception(
             "Could not create failed-run row; trigger will not be visible in dashboard"
         )
         return None
@@ -890,18 +988,18 @@ def _record_connection_failure(
             error_msg=err_msg[:2000],
         )
     except Exception:
-        logger.exception("Could not record connection-failure table row")
+        log.exception("Could not record connection-failure table row")
 
     try:
         finish_run(conn_pg, run_id, "failed", 0, 1, total_rows_synced=0)
     except Exception:
-        logger.exception("Could not finish failed run row")
+        log.exception("Could not finish failed run row")
 
     if trigger == "manual" and trigger_id is not None:
         try:
             update_trigger_run_id(conn_pg, trigger_id, run_id)
         except Exception:
-            logger.warning(
+            log.warning(
                 "Could not link trigger %d to failed run %d", trigger_id, run_id
             )
 
@@ -946,9 +1044,7 @@ def _run_scheduler_loop(
         # Skip overlapping firings (a delta could land while the previous
         # full or delta is still running).
         if _is_run_active(conn_pg):
-            logger.info(
-                "Skipping scheduled %s sync — a run is already in progress", kind
-            )
+            log.info("Skipping scheduled %s sync — a run is already in progress", kind)
             return
         # Avoid the back-to-back full+delta pair at the nightly minute. Both
         # jobs are due at cron_hour:delta_minute; the daily full runs first
@@ -959,7 +1055,7 @@ def _run_scheduler_loop(
         if kind == "delta":
             now = datetime.now(timezone.utc)
             if now.hour == cron_hour and now.minute == delta_minute:
-                logger.info(
+                log.info(
                     "Skipping delta at %02d:%02d — daily full just ran in this slot",
                     cron_hour,
                     delta_minute,
@@ -980,7 +1076,7 @@ def _run_scheduler_loop(
                 lookback_days=lookback_days,
             )
         except Exception:
-            logger.exception(
+            log.exception(
                 "Scheduled %s run_full_sync raised; dropping 4D connection for retry",
                 kind,
             )
@@ -1000,7 +1096,7 @@ def _run_scheduler_loop(
 
     # Initial sync at startup so we don't wait an hour the first time. Use a
     # full sync so the operator gets a clean baseline immediately after deploy.
-    logger.info("Running initial full sync on startup ...")
+    log.info("Running initial full sync on startup ...")
     _job(kind="full")
 
     while True:
@@ -1009,7 +1105,7 @@ def _run_scheduler_loop(
             try:
                 trigger_id = check_and_consume_trigger(conn_pg)
             except Exception:
-                logger.exception(
+                log.exception(
                     "Failed to poll manual ETL trigger; will retry on next tick"
                 )
                 trigger_id = None
@@ -1034,7 +1130,7 @@ def _run_scheduler_loop(
                 try:
                     flags = get_trigger_force_flags(conn_pg, trigger_id)
                 except Exception as exc:
-                    logger.exception(
+                    log.exception(
                         "Failed to read force flags for trigger %d — "
                         "recording failed run instead of guessing kind",
                         trigger_id,
@@ -1049,7 +1145,7 @@ def _run_scheduler_loop(
                     continue
                 force_full, force_tables, _triggered_by = flags
                 manual_kind = "full" if (force_full or bool(force_tables)) else "delta"
-                logger.info(
+                log.info(
                     "Manual trigger %d detected — starting %s sync "
                     "(force_full=%s, force_tables=%s)",
                     trigger_id,
@@ -1079,7 +1175,7 @@ def _run_scheduler_loop(
                             lookback_days=lookback_days,
                         )
                     except Exception:
-                        logger.exception(
+                        log.exception(
                             "run_full_sync raised; dropping 4D connection for retry"
                         )
                         try:
@@ -1109,7 +1205,7 @@ def main() -> None:
     try:
         config = Config()
     except ValueError as exc:
-        logger.error("Configuration error: %s", exc)
+        log.error("Configuration error: %s", exc)
         sys.exit(1)
 
     # ETL_CRON_HOUR / ETL_DELTA_CRON_MINUTE are env-only; cron schedule
@@ -1124,18 +1220,18 @@ def main() -> None:
 
     from etl.db import postgres
 
-    logger.info("Connecting to PostgreSQL ...")
+    log.info("Connecting to PostgreSQL ...")
     try:
         conn_pg = postgres.get_connection(config)
-        logger.info("PostgreSQL connection OK")
+        log.info("PostgreSQL connection OK")
     except Exception as exc:
-        logger.error("Cannot connect to PostgreSQL: %s", exc)
+        log.error("Cannot connect to PostgreSQL: %s", exc)
         sys.exit(1)
 
     try:
         _init_schema(conn_pg)
     except Exception:
-        logger.exception("Schema initialisation failed")
+        log.exception("Schema initialisation failed")
         try:
             conn_pg.close()
         except Exception:
@@ -1147,22 +1243,22 @@ def main() -> None:
     try:
         n_orphan = fail_orphan_running_runs(conn_pg)
         if n_orphan:
-            logger.warning(
+            log.warning(
                 "Reconciled %d orphan etl_sync_runs row(s) stuck in running — "
                 "likely a previous ETL process exited before finish_run",
                 n_orphan,
             )
     except Exception:
-        logger.exception(
+        log.exception(
             "Could not reconcile orphan etl_sync_runs rows; continuing anyway"
         )
 
-    logger.info("Testing 4D connection to %s:%d ...", config.p4d_host, config.p4d_port)
+    log.info("Testing 4D connection to %s:%d ...", config.p4d_host, config.p4d_port)
     conn_4d, conn_err = _try_connect_4d(config)
     if conn_4d is None:
         if args.once:
             # --once is for CI / manual one-shots; without 4D it cannot do anything useful.
-            logger.error("--once requires a working 4D connection; %s", conn_err)
+            log.error("--once requires a working 4D connection; %s", conn_err)
             try:
                 conn_pg.close()
             except Exception:
@@ -1173,7 +1269,7 @@ def main() -> None:
         # triggers that fire while 4D is unreachable. This avoids the
         # crash-loop pattern where Docker restarts the container every 20s
         # and pending triggers in etl_manual_trigger never get consumed.
-        logger.warning(
+        log.warning(
             "Entering scheduler loop without 4D — manual triggers will produce "
             "visible failed runs in the dashboard until 4D becomes reachable."
         )
@@ -1182,7 +1278,7 @@ def main() -> None:
         if args.once:
             run_full_sync(conn_4d, conn_pg, trigger="cli", kind="full")
         else:
-            logger.info(
+            log.info(
                 "Scheduler mode: hourly delta at :%02d, nightly full at %02d:%02d, lookback_days=%d",
                 delta_cron_minute,
                 cron_hour,

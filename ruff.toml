@@ -1,0 +1,19 @@
+# Ruff configuration for the ETL and scripts.
+# See https://docs.astral.sh/ruff/configuration/
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "T201", # flake8-print (bans print())
+]
+
+# Allow print() only in the structured-log helper itself (it uses print for
+# stdout emission) and in test files.
+[lint.per-file-ignores]
+"etl/observability/log.py" = ["T201"]
+"etl/observability/tests/*.py" = ["T201"]
+"etl/tests/*.py" = ["T201"]
+"scripts/*.py" = ["T201"]

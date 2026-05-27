@@ -29,12 +29,13 @@ memory usage stays bounded.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 # Number of rows fetched and upserted per round-trip.
 # Tuned to balance memory usage vs. round-trip overhead.
@@ -121,9 +122,9 @@ def _sync_table(
     from etl.db.postgres import upsert
 
     full_sql = f"{sql_base} WHERE {where_clause}"
-    logger.info("Fetching from 4D: %s", full_sql[:200])
+    log.info("Fetching from 4D: %s", full_sql[:200])
     all_rows = safe_fetch(conn_4d, full_sql)
-    logger.info("Fetched %d rows from 4D", len(all_rows))
+    log.info("Fetched %d rows from 4D", len(all_rows))
 
     total = 0
     for i in range(0, len(all_rows), BATCH_SIZE):
@@ -131,7 +132,7 @@ def _sync_table(
         pg_rows = [_map_row(r, mapping, numeric_keys) for r in batch]
         total += upsert(conn_pg, pg_table, pg_rows, pk_cols_pg)
         if (i + BATCH_SIZE) % 50_000 == 0:
-            logger.info("%s: upserted %d / %d rows", pg_table, total, len(all_rows))
+            log.info("%s: upserted %d / %d rows", pg_table, total, len(all_rows))
     return total
 
 

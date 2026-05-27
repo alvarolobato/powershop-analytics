@@ -281,30 +281,26 @@ def test_ma_cleanup_failure_does_not_abort_pipeline():
 # ---------------------------------------------------------------------------
 
 
-def test_cron_hour_out_of_range_defaults_to_2(caplog):
+def test_cron_hour_out_of_range_defaults_to_2(capsys):
     """ETL_CRON_HOUR outside [0, 23] defaults to 2 with a warning."""
-    import logging
-
     from etl.main import _parse_cron_hour
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_cron_hour("99")
+    result = _parse_cron_hour("99")
+    captured = capsys.readouterr()
 
     assert result == 2
-    assert "ETL_CRON_HOUR=99 out of range" in caplog.text
+    assert "ETL_CRON_HOUR=99 out of range" in captured.out
 
 
-def test_cron_hour_negative_defaults_to_2(caplog):
+def test_cron_hour_negative_defaults_to_2(capsys):
     """Negative ETL_CRON_HOUR defaults to 2 with a warning."""
-    import logging
-
     from etl.main import _parse_cron_hour
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_cron_hour("-1")
+    result = _parse_cron_hour("-1")
+    captured = capsys.readouterr()
 
     assert result == 2
-    assert "ETL_CRON_HOUR=-1 out of range" in caplog.text
+    assert "ETL_CRON_HOUR=-1 out of range" in captured.out
 
 
 def test_cron_hour_valid_values_unchanged():
@@ -323,60 +319,52 @@ def test_cron_hour_none_defaults_to_2():
     assert _parse_cron_hour(None) == 2
 
 
-def test_cron_hour_non_integer_defaults_to_2(caplog):
+def test_cron_hour_non_integer_defaults_to_2(capsys):
     """Non-integer ETL_CRON_HOUR defaults to 2 with a warning."""
-    import logging
-
     from etl.main import _parse_cron_hour
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_cron_hour("abc")
+    result = _parse_cron_hour("abc")
+    captured = capsys.readouterr()
 
     assert result == 2
-    assert "not an integer" in caplog.text
+    assert "not an integer" in captured.out
 
 
 # Tests: ETL_DELTA_CRON_MINUTE validation (_parse_cron_minute helper)
 # ---------------------------------------------------------------------------
 
 
-def test_delta_cron_minute_non_integer_defaults_to_0(caplog):
+def test_delta_cron_minute_non_integer_defaults_to_0(capsys):
     """Non-integer ETL_DELTA_CRON_MINUTE defaults to 0 with a warning."""
-    import logging
-
     from etl.main import _parse_cron_minute
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_cron_minute("abc")
+    result = _parse_cron_minute("abc")
+    captured = capsys.readouterr()
 
     assert result == 0
-    assert "not an integer" in caplog.text
+    assert "not an integer" in captured.out
 
 
-def test_delta_cron_minute_out_of_range_defaults_to_0(caplog):
+def test_delta_cron_minute_out_of_range_defaults_to_0(capsys):
     """ETL_DELTA_CRON_MINUTE outside [0, 59] defaults to 0 with a warning."""
-    import logging
-
     from etl.main import _parse_cron_minute
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_cron_minute("99")
+    result = _parse_cron_minute("99")
+    captured = capsys.readouterr()
 
     assert result == 0
-    assert "out of range" in caplog.text
+    assert "out of range" in captured.out
 
 
-def test_delta_cron_minute_negative_defaults_to_0(caplog):
+def test_delta_cron_minute_negative_defaults_to_0(capsys):
     """Negative ETL_DELTA_CRON_MINUTE defaults to 0 with a warning."""
-    import logging
-
     from etl.main import _parse_cron_minute
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_cron_minute("-1")
+    result = _parse_cron_minute("-1")
+    captured = capsys.readouterr()
 
     assert result == 0
-    assert "out of range" in caplog.text
+    assert "out of range" in captured.out
 
 
 def test_delta_cron_minute_valid_values_unchanged():
@@ -417,30 +405,26 @@ def test_lookback_days_valid_values_unchanged():
     assert _parse_lookback_days("7") == 7
 
 
-def test_lookback_days_negative_defaults_to_1(caplog):
+def test_lookback_days_negative_defaults_to_1(capsys):
     """Negative ETL_DELTA_LOOKBACK_DAYS defaults to 1 with a warning."""
-    import logging
-
     from etl.main import _parse_lookback_days
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_lookback_days("-1")
+    result = _parse_lookback_days("-1")
+    captured = capsys.readouterr()
 
     assert result == 1
-    assert "is negative" in caplog.text
+    assert "is negative" in captured.out
 
 
-def test_lookback_days_non_integer_defaults_to_1(caplog):
+def test_lookback_days_non_integer_defaults_to_1(capsys):
     """Non-integer ETL_DELTA_LOOKBACK_DAYS defaults to 1 with a warning."""
-    import logging
-
     from etl.main import _parse_lookback_days
 
-    with caplog.at_level(logging.WARNING, logger="etl"):
-        result = _parse_lookback_days("abc")
+    result = _parse_lookback_days("abc")
+    captured = capsys.readouterr()
 
     assert result == 1
-    assert "not an integer" in caplog.text
+    assert "not an integer" in captured.out
 
 
 # ---------------------------------------------------------------------------

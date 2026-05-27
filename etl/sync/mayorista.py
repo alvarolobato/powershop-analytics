@@ -36,7 +36,6 @@ loss in PostgreSQL NUMERIC columns.
 
 from __future__ import annotations
 
-import logging
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -44,7 +43,9 @@ from typing import Any
 from etl.db.fourd import safe_fetch
 from etl.db.postgres import truncate_and_insert, upsert
 
-logger = logging.getLogger(__name__)
+from etl.observability.log import get_logger
+
+log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -330,19 +331,19 @@ def sync_gc_albaranes(
     """
     if since is None:
         sql = _SQL_ALBARANES_ALL
-        logger.info("sync_gc_albaranes: initial load (no watermark)")
+        log.info("sync_gc_albaranes: initial load (no watermark)")
     else:
         sql = _SQL_ALBARANES_DELTA.format(since=_format_since(since))
-        logger.info("sync_gc_albaranes: delta load since %s", since.date())
+        log.info("sync_gc_albaranes: delta load since %s", since.date())
 
     raw_rows = safe_fetch(conn_4d, sql)
     if not raw_rows:
-        logger.info("sync_gc_albaranes: no new/modified rows")
+        log.info("sync_gc_albaranes: no new/modified rows")
         return 0
 
     pg_rows = [_map_row(r, _ALBARANES_MAPPING) for r in raw_rows]
     count = upsert(conn_pg, "ps_gc_albaranes", pg_rows, pk_cols=["reg_albaran"])
-    logger.info("sync_gc_albaranes: upserted %d rows", count)
+    log.info("sync_gc_albaranes: upserted %d rows", count)
     return count
 
 
@@ -364,19 +365,19 @@ def sync_gc_facturas(
     """
     if since is None:
         sql = _SQL_FACTURAS_ALL
-        logger.info("sync_gc_facturas: initial load (no watermark)")
+        log.info("sync_gc_facturas: initial load (no watermark)")
     else:
         sql = _SQL_FACTURAS_DELTA.format(since=_format_since(since))
-        logger.info("sync_gc_facturas: delta load since %s", since.date())
+        log.info("sync_gc_facturas: delta load since %s", since.date())
 
     raw_rows = safe_fetch(conn_4d, sql)
     if not raw_rows:
-        logger.info("sync_gc_facturas: no new/modified rows")
+        log.info("sync_gc_facturas: no new/modified rows")
         return 0
 
     pg_rows = [_map_row(r, _FACTURAS_MAPPING) for r in raw_rows]
     count = upsert(conn_pg, "ps_gc_facturas", pg_rows, pk_cols=["reg_factura"])
-    logger.info("sync_gc_facturas: upserted %d rows", count)
+    log.info("sync_gc_facturas: upserted %d rows", count)
     return count
 
 
@@ -407,25 +408,25 @@ def sync_gc_lin_albarane(
         Number of line rows inserted.
     """
     if since is None:
-        logger.info("sync_gc_lin_albarane: initial load (full truncate+insert)")
+        log.info("sync_gc_lin_albarane: initial load (full truncate+insert)")
         raw_rows = safe_fetch(conn_4d, _SQL_LIN_ALBARANE_ALL)
         pg_rows = [_map_row(r, _LIN_ALBARANE_MAPPING) for r in raw_rows]
         count = truncate_and_insert(conn_pg, "ps_gc_lin_albarane", pg_rows)
-        logger.info("sync_gc_lin_albarane: inserted %d rows (full refresh)", count)
+        log.info("sync_gc_lin_albarane: inserted %d rows (full refresh)", count)
         return count
 
     # Delta path: find parent IDs modified since watermark
     parent_sql = _SQL_LIN_ALBARANE_PARENT_IDS.format(since=_format_since(since))
     parent_rows = safe_fetch(conn_4d, parent_sql)
     if not parent_rows:
-        logger.info(
+        log.info(
             "sync_gc_lin_albarane: no parent albaranes modified since %s", since.date()
         )
         return 0
 
     # NAlbaran values from 4D — may be float; convert to Decimal for PG
     parent_ids = [_to_decimal(r["nalbaran"]) for r in parent_rows]
-    logger.info(
+    log.info(
         "sync_gc_lin_albarane: %d parent albaranes modified since %s",
         len(parent_ids),
         since.date(),
@@ -448,7 +449,7 @@ def sync_gc_lin_albarane(
                 (list(parent_ids),),
             )
             deleted = cur.rowcount
-            logger.info("sync_gc_lin_albarane: deleted %d stale lines", deleted)
+            log.info("sync_gc_lin_albarane: deleted %d stale lines", deleted)
 
             if pg_lines:
                 columns = list(pg_lines[0].keys())
@@ -467,7 +468,7 @@ def sync_gc_lin_albarane(
         raise
 
     count = len(pg_lines)
-    logger.info("sync_gc_lin_albarane: inserted %d lines", count)
+    log.info("sync_gc_lin_albarane: inserted %d lines", count)
     return count
 
 
@@ -498,25 +499,25 @@ def sync_gc_lin_facturas(
         Number of line rows inserted.
     """
     if since is None:
-        logger.info("sync_gc_lin_facturas: initial load (full truncate+insert)")
+        log.info("sync_gc_lin_facturas: initial load (full truncate+insert)")
         raw_rows = safe_fetch(conn_4d, _SQL_LIN_FACTURAS_ALL)
         pg_rows = [_map_row(r, _LIN_FACTURAS_MAPPING) for r in raw_rows]
         count = truncate_and_insert(conn_pg, "ps_gc_lin_facturas", pg_rows)
-        logger.info("sync_gc_lin_facturas: inserted %d rows (full refresh)", count)
+        log.info("sync_gc_lin_facturas: inserted %d rows (full refresh)", count)
         return count
 
     # Delta path: find parent NFactura IDs modified since watermark
     parent_sql = _SQL_LIN_FACTURAS_PARENT_IDS.format(since=_format_since(since))
     parent_rows = safe_fetch(conn_4d, parent_sql)
     if not parent_rows:
-        logger.info(
+        log.info(
             "sync_gc_lin_facturas: no parent facturas modified since %s", since.date()
         )
         return 0
 
     # NFactura values from 4D — may be float; convert to Decimal for PG
     parent_ids = [_to_decimal(r["nfactura"]) for r in parent_rows]
-    logger.info(
+    log.info(
         "sync_gc_lin_facturas: %d parent facturas modified since %s",
         len(parent_ids),
         since.date(),
@@ -539,7 +540,7 @@ def sync_gc_lin_facturas(
                 (list(parent_ids),),
             )
             deleted = cur.rowcount
-            logger.info("sync_gc_lin_facturas: deleted %d stale lines", deleted)
+            log.info("sync_gc_lin_facturas: deleted %d stale lines", deleted)
 
             if pg_lines:
                 columns = list(pg_lines[0].keys())
@@ -558,7 +559,7 @@ def sync_gc_lin_facturas(
         raise
 
     count = len(pg_lines)
-    logger.info("sync_gc_lin_facturas: inserted %d lines", count)
+    log.info("sync_gc_lin_facturas: inserted %d lines", count)
     return count
 
 
@@ -574,11 +575,11 @@ def sync_gc_pedidos(conn_4d: Any, conn_pg: Any) -> int:
     Returns:
         Number of rows inserted.
     """
-    logger.info("sync_gc_pedidos: full refresh")
+    log.info("sync_gc_pedidos: full refresh")
     raw_rows = safe_fetch(conn_4d, _SQL_PEDIDOS_ALL)
     pg_rows = [_map_row(r, _PEDIDOS_MAPPING) for r in raw_rows]
     count = truncate_and_insert(conn_pg, "ps_gc_pedidos", pg_rows)
-    logger.info("sync_gc_pedidos: inserted %d rows", count)
+    log.info("sync_gc_pedidos: inserted %d rows", count)
     return count
 
 
@@ -597,11 +598,11 @@ def sync_gc_lin_pedidos(conn_4d: Any, conn_pg: Any) -> int:
     Returns:
         Number of rows inserted.
     """
-    logger.info("sync_gc_lin_pedidos: full refresh")
+    log.info("sync_gc_lin_pedidos: full refresh")
     try:
         raw_rows = safe_fetch(conn_4d, _SQL_LIN_PEDIDOS_ALL)
     except Exception as exc:
-        logger.warning(
+        log.warning(
             "sync_gc_lin_pedidos: explicit column query failed (%s); "
             "retrying with get_queryable_columns",
             exc,
@@ -622,5 +623,5 @@ def sync_gc_lin_pedidos(conn_4d: Any, conn_pg: Any) -> int:
 
     pg_rows = [_map_row(r, _LIN_PEDIDOS_MAPPING) for r in raw_rows]
     count = truncate_and_insert(conn_pg, "ps_gc_lin_pedidos", pg_rows)
-    logger.info("sync_gc_lin_pedidos: inserted %d rows", count)
+    log.info("sync_gc_lin_pedidos: inserted %d rows", count)
     return count
