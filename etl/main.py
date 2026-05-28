@@ -205,7 +205,7 @@ def _run_sync(
                 span.set_attribute("duration_ms", duration_ms)
                 span.set_attribute("status", "ok")
             except Exception:
-                pass
+                logger.debug("OTel span attribute write failed", exc_info=True)
         except Exception as exc:
             duration_ms = int((time.time() - start) * 1000)
             ok = False
@@ -221,7 +221,7 @@ def _run_sync(
                 span.set_attribute("error", err or "")
                 span.record_exception(exc)
             except Exception:
-                pass
+                logger.debug("OTel span error recording failed", exc_info=True)
 
         # Capture span context for DB persistence after the span exits
         try:
@@ -233,7 +233,7 @@ def _run_sync(
                     format(ctx.span_id, "016x"),
                 )
         except Exception:
-            pass
+            logger.debug("OTel span context capture failed", exc_info=True)
 
     # In a "full" nightly run a watermark-backed sync still does truncate-
     # and-reinsert (since=None), so log it as full_refresh — not the
@@ -552,11 +552,6 @@ def run_full_sync(
         update_run_trace_context,
     )
 
-    run_span_cm = _otel_trace.get_tracer("powershop.etl").start_as_current_span(
-        "etl.run",
-        attributes={"trigger": trigger, "kind": kind},
-    )
-
     # Cross-process exclusion. _is_run_active (row check) can race with
     # create_run when a manual trigger and a cron firing land close in
     # time, letting two runs proceed in parallel. The advisory lock is
@@ -595,6 +590,11 @@ def run_full_sync(
     from etl.sync.ccstock import sync_ccstock
     from etl.sync.stock import sync_stock, sync_traspasos
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
+
+    run_span_cm = _otel_trace.get_tracer("powershop.etl").start_as_current_span(
+        "etl.run",
+        attributes={"trigger": trigger, "kind": kind},
+    )
 
     try:
         run_span_cm.__enter__()
@@ -710,7 +710,7 @@ def run_full_sync(
                         format(_sctx.span_id, "016x"),
                     )
             except Exception:
-                pass  # never let trace context write block the sync
+                logger.debug("OTel trace context write failed", exc_info=True)
 
         results: list[bool] = []
         total_rows = 0
