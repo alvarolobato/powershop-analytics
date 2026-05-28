@@ -19,9 +19,10 @@ import logging
 import os
 import sys
 import time
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from opentelemetry import trace as _otel_trace
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)s %(message)s",
@@ -29,12 +30,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger("etl")
-
-
-@contextmanager
-def _noop_span_cm():
-    """No-op context manager yielding None — used when the OTel SDK is unavailable."""
-    yield None
 
 
 # Number of consecutive _is_run_active failures before the process exits so
@@ -173,12 +168,7 @@ def _run_sync(
     """
     from etl.db.postgres import get_watermark, set_watermark
 
-    try:
-        from opentelemetry import trace as _trace
-
-        _tracer = _trace.get_tracer("powershop.etl")
-    except ImportError:
-        _tracer = None
+    _tracer = _otel_trace.get_tracer("powershop.etl")
 
     start = time.time()
     started_at = datetime.now(timezone.utc)
@@ -190,16 +180,11 @@ def _run_sync(
     wm_to: datetime | None = None
 
     span_ctx: tuple[str | None, str | None] = (None, None)
-    span_mgr = (
-        _tracer.start_as_current_span(
-            f"etl.sync.{name}",
-            attributes={"table_name": name, "sync_kind": kind},
-        )
-        if _tracer is not None
-        else _noop_span_cm()
-    )
 
-    with span_mgr as span:
+    with _tracer.start_as_current_span(
+        f"etl.sync.{name}",
+        attributes={"table_name": name, "sync_kind": kind},
+    ) as span:
         try:
             if uses_watermark:
                 since = None if kind == "full" else get_watermark(conn_pg, name)
@@ -215,13 +200,12 @@ def _run_sync(
                 wm_to = now
             set_watermark(conn_pg, name, now, rows, "ok")
             logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
-            if span is not None:
-                try:
-                    span.set_attribute("rows_synced", rows)
-                    span.set_attribute("duration_ms", duration_ms)
-                    span.set_attribute("status", "ok")
-                except Exception:
-                    pass
+            try:
+                span.set_attribute("rows_synced", rows)
+                span.set_attribute("duration_ms", duration_ms)
+                span.set_attribute("status", "ok")
+            except Exception:
+                pass
         except Exception as exc:
             duration_ms = int((time.time() - start) * 1000)
             ok = False
@@ -232,26 +216,22 @@ def _run_sync(
             except Exception as wm_exc:
                 logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
             logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
-            if span is not None:
-                try:
-                    span.set_attribute("status", "failed")
-                    span.set_attribute("error", err or "")
-                    span.record_exception(exc)
-                except Exception:
-                    pass
+            try:
+                span.set_attribute("status", "failed")
+                span.set_attribute("error", err or "")
+                span.record_exception(exc)
+            except Exception:
+                pass
 
         # Capture span context for DB persistence after the span exits
         try:
-            if _tracer is not None:
-                from opentelemetry import trace as _t2
-
-                active_span = _t2.get_current_span()
-                ctx = active_span.get_span_context()
-                if ctx and ctx.is_valid:
-                    span_ctx = (
-                        format(ctx.trace_id, "032x"),
-                        format(ctx.span_id, "016x"),
-                    )
+            active_span = _otel_trace.get_current_span()
+            ctx = active_span.get_span_context()
+            if ctx and ctx.is_valid:
+                span_ctx = (
+                    format(ctx.trace_id, "032x"),
+                    format(ctx.span_id, "016x"),
+                )
         except Exception:
             pass
 
@@ -572,20 +552,9 @@ def run_full_sync(
         update_run_trace_context,
     )
 
-    try:
-        from opentelemetry import trace as _otel_trace
-
-        _tracer_run = _otel_trace.get_tracer("powershop.etl")
-    except ImportError:
-        _tracer_run = None
-
-    run_span_cm = (
-        _tracer_run.start_as_current_span(
-            "etl.run",
-            attributes={"trigger": trigger, "kind": kind},
-        )
-        if _tracer_run is not None
-        else _noop_span_cm()
+    run_span_cm = _otel_trace.get_tracer("powershop.etl").start_as_current_span(
+        "etl.run",
+        attributes={"trigger": trigger, "kind": kind},
     )
 
     # Cross-process exclusion. _is_run_active (row check) can race with
@@ -600,9 +569,6 @@ def run_full_sync(
             kind,
         )
         return
-
-    # Enter the parent span manually so the existing try/finally can handle cleanup.
-    _run_span_obj = run_span_cm.__enter__()
 
     from etl.sync.articulos import sync_articulos
     from etl.sync.compras import (
@@ -631,6 +597,7 @@ def run_full_sync(
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
 
     try:
+        run_span_cm.__enter__()
         logger.info("=== %s sync started ===", "Delta" if kind == "delta" else "Full")
         pipeline_start = time.time()
 
@@ -733,9 +700,7 @@ def run_full_sync(
         # admin UI can click through to Kibana APM.
         if run_id is not None:
             try:
-                from opentelemetry import trace as _t_ctx
-
-                _active = _t_ctx.get_current_span()
+                _active = _otel_trace.get_current_span()
                 _sctx = _active.get_span_context()
                 if _sctx and _sctx.is_valid:
                     update_run_trace_context(
@@ -897,7 +862,7 @@ def run_full_sync(
                 except Exception:
                     logger.warning("Could not update trigger run_id — non-fatal")
     finally:
-        run_span_cm.__exit__(None, None, None)
+        run_span_cm.__exit__(*sys.exc_info())
         release_run_lock(conn_pg)
 
 

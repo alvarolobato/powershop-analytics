@@ -15,4 +15,4 @@ RUN CFLAGS="-Wno-incompatible-pointer-types" pip install --no-cache-dir -r requi
     opentelemetry-bootstrap -a install
 COPY . etl/
 
-CMD ["opentelemetry-instrument", "python", "-u", "main.py"]
+CMD ["opentelemetry-instrument", "python", "-u", "-m", "etl.main"]
