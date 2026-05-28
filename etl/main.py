@@ -19,6 +19,7 @@ import logging
 import os
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -28,6 +29,13 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
 logger = logging.getLogger("etl")
+
+
+@contextmanager
+def _noop_span_cm():
+    """No-op context manager yielding None — used when the OTel SDK is unavailable."""
+    yield None
+
 
 # Number of consecutive _is_run_active failures before the process exits so
 # Docker can restart it with a fresh postgres connection. At 10-second poll
@@ -165,6 +173,13 @@ def _run_sync(
     """
     from etl.db.postgres import get_watermark, set_watermark
 
+    try:
+        from opentelemetry import trace as _trace
+
+        _tracer = _trace.get_tracer("powershop.etl")
+    except ImportError:
+        _tracer = None
+
     start = time.time()
     started_at = datetime.now(timezone.utc)
     rows = 0
@@ -173,31 +188,72 @@ def _run_sync(
     err: str | None = None
     wm_from: datetime | None = None
     wm_to: datetime | None = None
-    try:
-        if uses_watermark:
-            since = None if kind == "full" else get_watermark(conn_pg, name)
-            if since is not None and kind == "delta" and lookback_days > 0:
-                since = since - timedelta(days=lookback_days)
-            wm_from = since
-            rows = sync_fn(conn_4d, conn_pg, since)
-        else:
-            rows = sync_fn(conn_4d, conn_pg)
-        duration_ms = int((time.time() - start) * 1000)
-        now = datetime.now(timezone.utc)
-        if uses_watermark:
-            wm_to = now
-        set_watermark(conn_pg, name, now, rows, "ok")
-        logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
-    except Exception as exc:
-        duration_ms = int((time.time() - start) * 1000)
-        ok = False
-        err = str(exc)[:2000]
-        wm_to = datetime.now(timezone.utc)
+
+    span_ctx: tuple[str | None, str | None] = (None, None)
+    span_mgr = (
+        _tracer.start_as_current_span(
+            f"etl.sync.{name}",
+            attributes={"table_name": name, "sync_kind": kind},
+        )
+        if _tracer is not None
+        else _noop_span_cm()
+    )
+
+    with span_mgr as span:
         try:
-            set_watermark(conn_pg, name, wm_to, 0, "error", err)
-        except Exception as wm_exc:
-            logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
-        logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
+            if uses_watermark:
+                since = None if kind == "full" else get_watermark(conn_pg, name)
+                if since is not None and kind == "delta" and lookback_days > 0:
+                    since = since - timedelta(days=lookback_days)
+                wm_from = since
+                rows = sync_fn(conn_4d, conn_pg, since)
+            else:
+                rows = sync_fn(conn_4d, conn_pg)
+            duration_ms = int((time.time() - start) * 1000)
+            now = datetime.now(timezone.utc)
+            if uses_watermark:
+                wm_to = now
+            set_watermark(conn_pg, name, now, rows, "ok")
+            logger.info("%s rows=%d duration_ms=%d", name, rows, duration_ms)
+            if span is not None:
+                try:
+                    span.set_attribute("rows_synced", rows)
+                    span.set_attribute("duration_ms", duration_ms)
+                    span.set_attribute("status", "ok")
+                except Exception:
+                    pass
+        except Exception as exc:
+            duration_ms = int((time.time() - start) * 1000)
+            ok = False
+            err = str(exc)[:2000]
+            wm_to = datetime.now(timezone.utc)
+            try:
+                set_watermark(conn_pg, name, wm_to, 0, "error", err)
+            except Exception as wm_exc:
+                logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
+            logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
+            if span is not None:
+                try:
+                    span.set_attribute("status", "failed")
+                    span.set_attribute("error", err or "")
+                    span.record_exception(exc)
+                except Exception:
+                    pass
+
+        # Capture span context for DB persistence after the span exits
+        try:
+            if _tracer is not None:
+                from opentelemetry import trace as _t2
+
+                active_span = _t2.get_current_span()
+                ctx = active_span.get_span_context()
+                if ctx and ctx.is_valid:
+                    span_ctx = (
+                        format(ctx.trace_id, "032x"),
+                        format(ctx.span_id, "016x"),
+                    )
+        except Exception:
+            pass
 
     # In a "full" nightly run a watermark-backed sync still does truncate-
     # and-reinsert (since=None), so log it as full_refresh — not the
@@ -228,6 +284,8 @@ def _run_sync(
                 watermark_from=wm_from,
                 watermark_to=wm_to,
                 error_msg=err,
+                trace_id=span_ctx[0],
+                span_id=span_ctx[1],
             )
         except Exception as mon_exc:
             logger.error(
@@ -511,6 +569,23 @@ def run_full_sync(
         release_run_lock,
         reset_watermarks,
         try_acquire_run_lock,
+        update_run_trace_context,
+    )
+
+    try:
+        from opentelemetry import trace as _otel_trace
+
+        _tracer_run = _otel_trace.get_tracer("powershop.etl")
+    except ImportError:
+        _tracer_run = None
+
+    run_span_cm = (
+        _tracer_run.start_as_current_span(
+            "etl.run",
+            attributes={"trigger": trigger, "kind": kind},
+        )
+        if _tracer_run is not None
+        else _noop_span_cm()
     )
 
     # Cross-process exclusion. _is_run_active (row check) can race with
@@ -525,6 +600,9 @@ def run_full_sync(
             kind,
         )
         return
+
+    # Enter the parent span manually so the existing try/finally can handle cleanup.
+    _run_span_obj = run_span_cm.__enter__()
 
     from etl.sync.articulos import sync_articulos
     from etl.sync.compras import (
@@ -650,6 +728,24 @@ def run_full_sync(
                     "Manual trigger %d will complete but run_id tracking is unavailable",
                     trigger_id,
                 )
+
+        # Persist parent span's trace context to etl_sync_runs so the dashboard
+        # admin UI can click through to Kibana APM.
+        if run_id is not None:
+            try:
+                from opentelemetry import trace as _t_ctx
+
+                _active = _t_ctx.get_current_span()
+                _sctx = _active.get_span_context()
+                if _sctx and _sctx.is_valid:
+                    update_run_trace_context(
+                        conn_pg,
+                        run_id,
+                        format(_sctx.trace_id, "032x"),
+                        format(_sctx.span_id, "016x"),
+                    )
+            except Exception:
+                pass  # never let trace context write block the sync
 
         results: list[bool] = []
         total_rows = 0
@@ -801,6 +897,7 @@ def run_full_sync(
                 except Exception:
                     logger.warning("Could not update trigger run_id — non-fatal")
     finally:
+        run_span_cm.__exit__(None, None, None)
         release_run_lock(conn_pg)
 
 
