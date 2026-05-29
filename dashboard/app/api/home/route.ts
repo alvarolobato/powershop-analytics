@@ -645,10 +645,10 @@ export async function GET(req: NextRequest) {
                 last_sale.last_sale_date::text AS last_sale_date,
                 ly.sales_ly::numeric AS sales_ly,
                 store_ret.returns_rate,
-                COALESCE(tix.tickets, 0)::int AS tickets
+                COALESCE(s.tickets, 0)::int AS tickets
          FROM ps_tiendas t
          LEFT JOIN (
-           SELECT tienda, SUM(total_si) AS sales
+           SELECT tienda, SUM(total_si) AS sales, COUNT(DISTINCT reg_ventas)::int AS tickets
            FROM ps_ventas
            WHERE entrada=true AND tienda<>'99' AND fecha_creacion = $1::date
            GROUP BY tienda
@@ -701,12 +701,6 @@ export async function GET(req: NextRequest) {
            WHERE fecha_creacion = $1::date AND tienda <> '99'
            GROUP BY tienda
          ) store_ret ON store_ret.tienda = t.codigo
-         LEFT JOIN (
-           SELECT tienda, COUNT(DISTINCT reg_ventas)::int AS tickets
-           FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99' AND fecha_creacion = $1::date
-           GROUP BY tienda
-         ) tix ON tix.tienda = t.codigo
          WHERE t.codigo <> '99'
          ORDER BY COALESCE(s.sales, 0) DESC, t.codigo`,
         [asOfDate],
