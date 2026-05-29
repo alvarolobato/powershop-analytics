@@ -6,16 +6,16 @@ import { TopStoresTable } from "../TopStoresTable";
 import type { HomeViewModel } from "@/lib/home-types";
 
 const STORES: HomeViewModel["topStores"] = [
-  { code: "611", name: "Madrid Serrano",      sales: 4920, delta:  0.082, deltaYoY:  0.031, spark: [3900,4100,4500,3800,4400,4300,4920], status: "ok",    streakWeeks: 0, margin: 0.521, returnsRate: 0.032 },
-  { code: "622", name: "Barcelona Diagonal",  sales: 4180, delta:  0.041, deltaYoY:  0.012, spark: [3700,3900,4000,3850,4020,4100,4180], status: "ok",    streakWeeks: 0, margin: 0.498, returnsRate: 0.028 },
-  { code: "608", name: "Valencia Colón",      sales: 3960, delta: -0.012, deltaYoY: -0.025, spark: [4000,4100,3950,4050,3900,4010,3960], status: "ok",    streakWeeks: 4, margin: 0.512, returnsRate: 0.041 },
-  { code: "637", name: "Sevilla Nervión",     sales: 3740, delta:  0.024, deltaYoY:  0.008, spark: [3500,3650,3700,3550,3680,3620,3740], status: "ok",    streakWeeks: 0, margin: 0.489, returnsRate: 0.035 },
-  { code: "606", name: "Bilbao Gran Vía",     sales: 3210, delta: -0.064, deltaYoY: -0.072, spark: [3450,3500,3380,3420,3300,3260,3210], status: "watch", streakWeeks: 0, margin: 0.503, returnsRate: 0.058 },
-  { code: "612", name: "Málaga Larios",       sales: 3080, delta:  0.018, deltaYoY:  0.005, spark: [2900,2950,3000,2920,3050,3010,3080], status: "ok",    streakWeeks: 0, margin: 0.517, returnsRate: 0.022 },
-  { code: "601", name: "Zaragoza Independ.",  sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [3300,3250,3100,3000,2950,2880,2820], status: "alert", streakWeeks: 0, margin: 0.478, returnsRate: 0.019 },
-  { code: "645", name: "A Coruña Real",       sales: 2680, delta:  0.012, deltaYoY: null,   spark: [2600,2650,2620,2640,2660,2670,2680], status: "ok",    streakWeeks: 0, margin: null,  returnsRate: null },
-  { code: "157", name: "Granada Recogidas",   sales: 2540, delta: -0.034, deltaYoY: -0.018, spark: [2700,2680,2620,2580,2570,2560,2540], status: "ok",    streakWeeks: 0, margin: 0.491, returnsRate: 0.031 },
-  { code: "632", name: "Murcia Trapería",     sales: 2410, delta:  0.052, deltaYoY:  0.044, spark: [2200,2280,2320,2350,2380,2390,2410], status: "ok",    streakWeeks: 0, margin: 0.506, returnsRate: 0.027 },
+  { code: "611", name: "Madrid Serrano",      sales: 4920, delta:  0.082, deltaYoY:  0.031, spark: [3900,4100,4500,3800,4400,4300,4920], status: "ok",    streakWeeks: 0, margin: 0.521, returnsRate: 0.032, tickets: 42,  ticketMedio: 117.14 },
+  { code: "622", name: "Barcelona Diagonal",  sales: 4180, delta:  0.041, deltaYoY:  0.012, spark: [3700,3900,4000,3850,4020,4100,4180], status: "ok",    streakWeeks: 0, margin: 0.498, returnsRate: 0.028, tickets: 38,  ticketMedio: 110.00 },
+  { code: "608", name: "Valencia Colón",      sales: 3960, delta: -0.012, deltaYoY: -0.025, spark: [4000,4100,3950,4050,3900,4010,3960], status: "ok",    streakWeeks: 4, margin: 0.512, returnsRate: 0.041, tickets: 35,  ticketMedio: 113.14 },
+  { code: "637", name: "Sevilla Nervión",     sales: 3740, delta:  0.024, deltaYoY:  0.008, spark: [3500,3650,3700,3550,3680,3620,3740], status: "ok",    streakWeeks: 0, margin: 0.489, returnsRate: 0.035, tickets: 33,  ticketMedio: 113.33 },
+  { code: "606", name: "Bilbao Gran Vía",     sales: 3210, delta: -0.064, deltaYoY: -0.072, spark: [3450,3500,3380,3420,3300,3260,3210], status: "watch", streakWeeks: 0, margin: 0.503, returnsRate: 0.058, tickets: 30,  ticketMedio: 107.00 },
+  { code: "612", name: "Málaga Larios",       sales: 3080, delta:  0.018, deltaYoY:  0.005, spark: [2900,2950,3000,2920,3050,3010,3080], status: "ok",    streakWeeks: 0, margin: 0.517, returnsRate: 0.022, tickets: 28,  ticketMedio: 110.00 },
+  { code: "601", name: "Zaragoza Independ.",  sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [3300,3250,3100,3000,2950,2880,2820], status: "alert", streakWeeks: 0, margin: 0.478, returnsRate: 0.019, tickets: 26,  ticketMedio: 108.46 },
+  { code: "645", name: "A Coruña Real",       sales: 2680, delta:  0.012, deltaYoY: null,   spark: [2600,2650,2620,2640,2660,2670,2680], status: "ok",    streakWeeks: 0, margin: null,  returnsRate: null,  tickets: 0,   ticketMedio: 0 },
+  { code: "157", name: "Granada Recogidas",   sales: 2540, delta: -0.034, deltaYoY: -0.018, spark: [2700,2680,2620,2580,2570,2560,2540], status: "ok",    streakWeeks: 0, margin: 0.491, returnsRate: 0.031, tickets: 24,  ticketMedio: 105.83 },
+  { code: "632", name: "Murcia Trapería",     sales: 2410, delta:  0.052, deltaYoY:  0.044, spark: [2200,2280,2320,2350,2380,2390,2410], status: "ok",    streakWeeks: 0, margin: 0.506, returnsRate: 0.027, tickets: 22,  ticketMedio: 109.55 },
 ];
 
 describe("TopStoresTable", () => {
@@ -116,12 +116,58 @@ describe("TopStoresTable", () => {
       expect(row.textContent).toContain("—");
     });
 
-    it("table has 10 column headers: #, Cód, Tienda, Ventas hoy, % Devol, vs media, vs año ant, Margen, Racha, Últ. 7 días", () => {
+    it("table has 12 column headers including Tickets and Tk medio", () => {
       render(<TopStoresTable stores={STORES} />);
       const headers = screen.getAllByRole("columnheader");
-      expect(headers).toHaveLength(10);
+      expect(headers).toHaveLength(12);
       const texts = headers.map((h) => h.textContent);
-      expect(texts).toEqual(["#", "Cód", "Tienda", "Ventas hoy", "% Devol", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"]);
+      expect(texts).toEqual(["#", "Cód", "Tienda", "Ventas hoy", "Tickets", "Tk medio", "% Devol", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"]);
+    });
+  });
+
+  describe("Tickets column", () => {
+    it("renders tickets column header", () => {
+      render(<TopStoresTable stores={STORES} />);
+      expect(screen.getByRole("columnheader", { name: "Tickets" })).toBeInTheDocument();
+    });
+
+    it("renders tickets column with integer values", () => {
+      render(<TopStoresTable stores={STORES} />);
+      // Store "611" has tickets=42
+      const cell = screen.getByTestId("tickets-611");
+      expect(cell).toBeInTheDocument();
+      expect(cell.textContent).toMatch(/42/);
+    });
+
+    it("renders 0 tickets as integer for store with no sales", () => {
+      render(<TopStoresTable stores={STORES} />);
+      // Store "645" has tickets=0
+      const cell = screen.getByTestId("tickets-645");
+      expect(cell.textContent).toMatch(/0/);
+    });
+  });
+
+  describe("Tk medio column", () => {
+    it("renders ticket medio column header", () => {
+      render(<TopStoresTable stores={STORES} />);
+      expect(screen.getByRole("columnheader", { name: "Tk medio" })).toBeInTheDocument();
+    });
+
+    it("renders ticket medio column with EUR values", () => {
+      render(<TopStoresTable stores={STORES} />);
+      // Store "611" has ticketMedio=117.14 → should show a EUR value
+      const cell = screen.getByTestId("ticket-medio-611");
+      expect(cell).toBeInTheDocument();
+      expect(cell.textContent).toMatch(/€|—/);
+      // Should NOT show dash (tickets=42 > 0)
+      expect(cell.textContent).not.toBe("—");
+    });
+
+    it("renders dash when tickets is 0", () => {
+      render(<TopStoresTable stores={STORES} />);
+      // Store "645" has tickets=0
+      const cell = screen.getByTestId("ticket-medio-645");
+      expect(cell.textContent).toBe("—");
     });
   });
 

@@ -5,7 +5,7 @@ import type { HomeViewModel } from "@/lib/home-types";
 import { Delta } from "./Delta";
 import { HomeSparkline } from "./Sparkline";
 import { SectionHeader } from "./SectionHeader";
-import { fmtEUR0, fmtPct } from "@/components/widgets/format";
+import { fmtEUR0, fmtInt, fmtPct } from "@/components/widgets/format";
 
 type Store = HomeViewModel["topStores"][number];
 type InactiveStore = HomeViewModel["inactiveStores"][number];
@@ -29,8 +29,8 @@ function sparkColor(store: Store): string {
   return store.delta >= 0 ? "var(--up)" : "var(--down)";
 }
 
-const COL_TEMPLATE = "32px 60px 1fr 110px 70px 80px 80px 70px 56px 100px";
-const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "% Devol", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"];
+const COL_TEMPLATE = "32px 60px 1fr 110px 70px 80px 70px 80px 80px 70px 56px 100px";
+const HEADER_COLS = ["#", "Cód", "Tienda", "Ventas hoy", "Tickets", "Tk medio", "% Devol", "vs media", "vs año ant", "Margen", "Racha", "Últ. 7 días"];
 
 const outlineLink: React.CSSProperties = {
   fontSize: 11,
@@ -217,6 +217,34 @@ export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) 
                       {fmtEUR0(store.sales)}
                     </span>
                   </div>
+                </td>
+
+                {/* Tickets */}
+                <td style={{ padding: 0, textAlign: "right" }} data-testid={`tickets-${store.code}`}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-jetbrains, monospace)",
+                      fontSize: 12,
+                      fontVariantNumeric: "tabular-nums",
+                      color: "var(--fg-muted)",
+                    }}
+                  >
+                    {fmtInt(store.tickets)}
+                  </span>
+                </td>
+
+                {/* Ticket medio */}
+                <td style={{ padding: 0, textAlign: "right" }} data-testid={`ticket-medio-${store.code}`}>
+                  <span
+                    style={{
+                      fontFamily: "var(--font-jetbrains, monospace)",
+                      fontSize: 12,
+                      fontVariantNumeric: "tabular-nums",
+                      color: "var(--fg-muted)",
+                    }}
+                  >
+                    {store.tickets > 0 ? fmtEUR0(store.ticketMedio) : "—"}
+                  </span>
                 </td>
 
                 {/* Return rate % (vs network average) */}

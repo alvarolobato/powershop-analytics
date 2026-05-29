@@ -633,7 +633,8 @@ export async function GET(req: NextRequest) {
       // separate "tiendas inactivas" list. LEFT JOIN keeps stores that
       // are open today but had a slow as-of day.
       // Column order: codigo[0], identificador[1], poblacion[2], sales[3],
-      // avg7[4], total_30d[5], last_sale_date[6], returns_rate[7].
+      // avg7[4], total_30d[5], last_sale_date[6], sales_ly[7],
+      // returns_rate[8], tickets[9].
       query(
         `SELECT t.codigo,
                 t.identificador,
@@ -643,7 +644,8 @@ export async function GET(req: NextRequest) {
                 COALESCE(s30.total_30d, 0)::numeric AS total_30d,
                 last_sale.last_sale_date::text AS last_sale_date,
                 ly.sales_ly::numeric AS sales_ly,
-                store_ret.returns_rate
+                store_ret.returns_rate,
+                COALESCE(tix.tickets, 0)::int AS tickets
          FROM ps_tiendas t
          LEFT JOIN (
            SELECT tienda, SUM(total_si) AS sales
@@ -699,6 +701,12 @@ export async function GET(req: NextRequest) {
            WHERE fecha_creacion = $1::date AND tienda <> '99'
            GROUP BY tienda
          ) store_ret ON store_ret.tienda = t.codigo
+         LEFT JOIN (
+           SELECT tienda, COUNT(DISTINCT reg_ventas)::int AS tickets
+           FROM ps_ventas
+           WHERE entrada=true AND tienda<>'99' AND fecha_creacion = $1::date
+           GROUP BY tienda
+         ) tix ON tix.tienda = t.codigo
          WHERE t.codigo <> '99'
          ORDER BY COALESCE(s.sales, 0) DESC, t.codigo`,
         [asOfDate],
@@ -1352,6 +1360,8 @@ export async function GET(req: NextRequest) {
       const salesLY = r[7] !== null && r[7] !== undefined ? num(r[7]) : null;
       const returnsRate =
         r[8] !== null && r[8] !== undefined ? num(r[8]) : null;
+      const tickets = r[9] !== null && r[9] !== undefined ? num(r[9]) : 0;
+      const ticketMedio = tickets > 0 ? sales / tickets : 0;
       const delta = avg7 > 0 ? sales / avg7 - 1 : 0;
       const streakWeeks = storeStreakMap[code] ?? 0;
       const deltaYoY = salesLY !== null && salesLY > 0 ? sales / salesLY - 1 : null;
@@ -1368,6 +1378,8 @@ export async function GET(req: NextRequest) {
         lastSaleDate,
         margin: marginByStore[code] ?? null,
         returnsRate,
+        tickets,
+        ticketMedio,
       };
     });
 

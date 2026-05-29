@@ -64,8 +64,9 @@ vi.mock("@/lib/db", () => {
         return { rows: [[0.035]] };
       }
       // Top-stores query: FROM ps_tiendas t LEFT JOIN ... (no CROSS JOIN).
+      // 10 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly, returns_rate, tickets.
       if (sql.includes("ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, null]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, null, 20]] };
       }
       // Store spark query (ps_tiendas CROSS JOIN days): return empty rows
       if (sql.includes("ps_tiendas") && sql.includes("CROSS JOIN")) {
@@ -135,9 +136,9 @@ describe("GET /api/home", () => {
         return { rows: [["611", 5000, 2000]] };
       }
       // Top-stores query (ps_tiendas LEFT JOINs, no CROSS JOIN): one active store.
-      // 9 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly, returns_rate.
+      // 10 cols: codigo, identificador, poblacion, sales, avg7, total_30d, last_sale_date, sales_ly, returns_rate, tickets.
       if (sql.includes("FROM ps_tiendas") && !sql.includes("CROSS JOIN")) {
-        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, 0.032]] };
+        return { rows: [["611", "ALCANTARA", "Valencia", 5000, 4000, 6000, "2026-05-03", null, 0.032, 25]] };
       }
       if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) {
         return { rows: [] };
@@ -352,6 +353,60 @@ describe("GET /api/home", () => {
     const store611 = topStores.find((s: { code: string }) => s.code === "611");
     expect(store611).toBeDefined();
     expect(store611.margin).toBeCloseTo(0.6, 5);
+  });
+
+  it("topStores items include tickets and ticketMedio", async () => {
+    const res = await GET(makeReq());
+    const { topStores } = await res.json();
+    expect(topStores.length).toBeGreaterThan(0);
+    for (const s of topStores) {
+      expect(typeof s.tickets).toBe("number");
+      expect(typeof s.ticketMedio).toBe("number");
+    }
+    // Store "611" has sales=5000, tickets=25 in the mock → ticketMedio = 200
+    const store611 = topStores.find((s: { code: string }) => s.code === "611");
+    expect(store611).toBeDefined();
+    expect(store611.tickets).toBe(25);
+    expect(store611.ticketMedio).toBeCloseTo(5000 / 25, 5);
+  });
+
+  it("topStores ticketMedio is 0 when no tickets", async () => {
+    const { query: queryMock } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    queryMock.mockImplementation(async (sql: string) => {
+      if (sql.includes("max_synced") && sql.includes("today_madrid")) {
+        return { rows: [["2026-04-30", "2024-01-01", "2026-05-03", "2026-05-03T07:00:00Z", null, 0]] };
+      }
+      if (sql.includes("generate_series(0, 23)")) {
+        return { rows: Array.from({ length: 24 }, (_, h) => [h, 0, false]) };
+      }
+      if (sql.includes("AS day,")) {
+        return { rows: Array.from({ length: 30 }, (_, i) => [i + 1, null, 0]) };
+      }
+      if (sql.includes("curr_sales") && sql.includes("ly_sales")) {
+        return { rows: [] };
+      }
+      if (sql.includes("rate_30d")) return { rows: [[0.035]] };
+      if (sql.includes("GROUP BY lv.tienda")) return { rows: [] };
+      // Store "611" with tickets=0 at col[9]
+      if (sql.includes("FROM ps_tiendas") && !sql.includes("CROSS JOIN")) {
+        return { rows: [["611", "ALCANTARA", "Valencia", 3000, 2000, 5000, "2026-04-30", null, null, 0]] };
+      }
+      if (sql.includes("FROM ps_tiendas") && sql.includes("CROSS JOIN")) return { rows: [] };
+      if (sql.includes("FROM ps_ventas") && sql.includes("GROUP BY tienda")) return { rows: [] };
+      if (sql.includes("etl_sync_runs")) return { rows: [] };
+      if (sql.includes("etl_watermarks")) return { rows: [[null]] };
+      return { rows: [Array(20).fill(null)] };
+    });
+
+    const res = await GET(makeReq());
+    const { topStores } = await res.json();
+    const store611 = topStores.find((s: { code: string }) => s.code === "611");
+    expect(store611).toBeDefined();
+    expect(store611.tickets).toBe(0);
+    expect(store611.ticketMedio).toBe(0);
+    queryMock.mockRestore();
   });
 
   it("returns dailyTrend entries with day, actual, ly", async () => {
