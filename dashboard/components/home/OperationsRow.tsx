@@ -85,7 +85,7 @@ function MetricCell({ metric, isLast }: MetricCellProps) {
 
       {/* Delta + sub-text */}
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <Delta value={metric.delta} inverted={metric.inverted} size="sm" />
+        <Delta value={metric.delta} inverted={metric.inverted} size="sm" unit={metric.deltaUnit} />
         {metric.sub && (
           <span
             style={{

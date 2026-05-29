@@ -84,6 +84,8 @@ const MOCK_DATA: HomeViewModel = {
   inactiveStores: [],
   opsRetail: [
     { id: "ticket", label: "Ticket medio", value: 26.55, format: "eur2", delta: 0 },
+    { id: "margen", label: "Margen mes", value: 0.52, format: "pct", delta: 0.02, deltaUnit: "pp" as const, sub: "vs mes ant" },
+    { id: "tasa-devol", label: "Tasa devol.", value: 0.031, format: "pct", delta: -0.05, inverted: true, sub: "120 €" },
   ],
   health: { syncAge: "12 min", lastEtl: "11:30 · OK", anomalies: 2, rows: 1842600 },
 };
@@ -295,5 +297,42 @@ describe("InicioPage", () => {
     // Both should render a sparkline-with-trend wrapper
     const trendIndicators = screen.getAllByTestId(/^trend-indicator-(up|down)$/);
     expect(trendIndicators.length).toBeGreaterThan(0);
+  });
+
+  it("margen delta uses pp semantics", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("metric-cell-margen")).toBeInTheDocument();
+    });
+    const margenCell = screen.getByTestId("metric-cell-margen");
+    // delta=0.02 with unit="pp" → "+2.0 pp" (absolute pp difference, not relative %)
+    expect(margenCell).toHaveTextContent("2,0 pp");
+  });
+
+  it("margen delta renders pp unit", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("metric-cell-margen")).toBeInTheDocument();
+    });
+    const margenCell = screen.getByTestId("metric-cell-margen");
+    // The Delta chip has aria-label="delta +2,0 pp" for pp units
+    const deltaChip = margenCell.querySelector('[aria-label^="delta "]');
+    expect(deltaChip?.getAttribute("aria-label")).toMatch(/pp$/);
+    expect(deltaChip?.getAttribute("aria-label")).not.toMatch(/%$/);
+  });
+
+  it("tasa-devol delta renders relative percent", async () => {
+    globalThis.fetch = mockFetch(MOCK_DATA);
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("metric-cell-tasa-devol")).toBeInTheDocument();
+    });
+    const tasaCell = screen.getByTestId("metric-cell-tasa-devol");
+    // The Delta chip has aria-label="delta -5,0%" for relative % units (no deltaUnit)
+    const deltaChip = tasaCell.querySelector('[aria-label^="delta "]');
+    expect(deltaChip?.getAttribute("aria-label")).toMatch(/%$/);
+    expect(deltaChip?.getAttribute("aria-label")).not.toMatch(/pp$/);
   });
 });

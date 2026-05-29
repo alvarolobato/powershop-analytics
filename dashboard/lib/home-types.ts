@@ -144,6 +144,8 @@ export type Metric = {
   format: "eur" | "eur2" | "int" | "pct" | "x";
   /** Signed fraction vs previous period, or null when no comparison data. */
   delta: number | null;
+  /** "pp" for absolute percentage-point delta (margin); omit for relative ratio. */
+  deltaUnit?: "pp";
   inverted?: boolean; // true for "lower is better"
   sub?: string;
   suffix?: string;
