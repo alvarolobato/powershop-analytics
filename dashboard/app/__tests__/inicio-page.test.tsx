@@ -319,8 +319,9 @@ describe("InicioPage", () => {
     const margenCell = screen.getByTestId("metric-cell-margen");
     // The Delta chip has aria-label="delta +2,0 pp" for pp units
     const deltaChip = margenCell.querySelector('[aria-label^="delta "]');
-    expect(deltaChip?.getAttribute("aria-label")).toMatch(/pp$/);
-    expect(deltaChip?.getAttribute("aria-label")).not.toMatch(/%$/);
+    expect(deltaChip).not.toBeNull();
+    expect(deltaChip!.getAttribute("aria-label")).toMatch(/pp$/);
+    expect(deltaChip!.getAttribute("aria-label")).not.toMatch(/%$/);
   });
 
   it("tasa-devol delta renders relative percent", async () => {
@@ -332,7 +333,8 @@ describe("InicioPage", () => {
     const tasaCell = screen.getByTestId("metric-cell-tasa-devol");
     // The Delta chip has aria-label="delta -5,0%" for relative % units (no deltaUnit)
     const deltaChip = tasaCell.querySelector('[aria-label^="delta "]');
-    expect(deltaChip?.getAttribute("aria-label")).toMatch(/%$/);
-    expect(deltaChip?.getAttribute("aria-label")).not.toMatch(/pp$/);
+    expect(deltaChip).not.toBeNull();
+    expect(deltaChip!.getAttribute("aria-label")).toMatch(/%$/);
+    expect(deltaChip!.getAttribute("aria-label")).not.toMatch(/pp$/);
   });
 });

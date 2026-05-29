@@ -142,7 +142,11 @@ export type Metric = {
   label: string;
   value: number;
   format: "eur" | "eur2" | "int" | "pct" | "x";
-  /** Signed fraction vs previous period, or null when no comparison data. */
+  /**
+   * When `deltaUnit` is absent: signed fraction vs previous period (e.g. 0.05 = +5%).
+   * When `deltaUnit` is `"pp"`: absolute percentage-point difference (e.g. 0.05 = +5 pp).
+   * Null when no comparison data is available.
+   */
   delta: number | null;
   /** "pp" for absolute percentage-point delta (margin); omit for relative ratio. */
   deltaUnit?: "pp";
