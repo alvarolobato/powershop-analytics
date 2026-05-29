@@ -20,8 +20,8 @@ labels:
   no_ai: "no-ai"              # Human-only
   no_review: "no-pr-review"   # Skip AI PR review on this PR
   awaiting_owner: "ai-awaiting-owner"  # Automated review cycle done — owner merges when ready
-  ci_failing: "ai-ci-failing"            # CI workflow red; AI CI remediation may run
-  ready_for_review: "ai-ready-for-review"  # Address-feedback finished; trigger next PR review
+  ci_failing: "fact-ci-failing"            # CI workflow red; AI CI remediation may run
+  ready_for_review: "fact-ready-for-review"  # Address-feedback finished; trigger next PR review
 
   # Priority (highest first)
   priorities:
@@ -47,10 +47,10 @@ labels:
   # AI Factory — phased PR review (see ai-worker / ai-pr-review / ai-address-feedback)
   # Per D-021, exactly 1 Copilot pass + 1 Opus pass. No multi-round retries.
   review_phases:
-    - "ai-phase-copilot"   # Awaiting / in Copilot review (before Opus)
-    - "ai-cp-after-1"      # Addressed feedback after Copilot review
-    - "ai-phase-opus"      # In Opus review pass
-    - "ai-o-after-1"       # Addressed after Opus review (terminal for AI review)
+    - "fact-phase-copilot"   # Awaiting / in Copilot review (before Opus)
+    - "fact-cp-after-1"      # Addressed feedback after Copilot review
+    - "fact-phase-opus"      # In Opus review pass
+    - "fact-o-after-1"       # Addressed after Opus review (terminal for AI review)
 
   # Auto-managed by ai-pr-mergeability.yml (created on demand)
   mergeability:
