@@ -349,6 +349,7 @@ export default function InicioPage() {
             <TopStoresTable
               stores={data.topStores}
               inactiveStores={data.inactiveStores}
+              networkReturnRate={data.networkReturnRate30d}
             />
           </section>
 

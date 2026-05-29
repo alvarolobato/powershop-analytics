@@ -120,6 +120,10 @@ export type HomeViewModel = {
      *  to 30 days). `null` when the mirror has no record at all. */
     lastSaleDate: string | null;
   }>;
+  /** Volume-weighted 30-day rolling network return rate (returns / gross sales
+   *  across all stores). Used as the coloring threshold in TopStoresTable.
+   *  null when the baseline query returns no data. */
+  networkReturnRate30d: number | null;
   opsRetail: Metric[];
   health: { syncAge: string; lastEtl: string; anomalies: number; rows: number };
 };
