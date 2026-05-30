@@ -553,18 +553,22 @@ jobs:
               gh pr comment "$PR" --repo "$REPO" --body "$1" || true
               return 0
             fi
-            labels_remove "$PR" ai-awaiting-owner
             if [ "$hs" = "failing" ]; then
+              labels_remove "$PR" ai-awaiting-owner
               labels_add "$PR" fact-ci-failing
               gh pr comment "$PR" --repo "$REPO" \
                 --body "⚠️ **AI Factory**: Automated review is done, but **CI is failing** — not marking \`ai-awaiting-owner\`. Added \`fact-ci-failing\`. An **AI CI remediation** workflow will run (or re-run \`ai-ci-remediation.yml\` manually)." || true
               gh workflow run ai-ci-remediation.yml --repo "$REPO" --field pr_number="$PR" || true
             else
-              # hs is "running" or "unknown" — do NOT add fact-ci-failing.
-              # Leave the label as-is (if previously set by a real failure, it
-              # stays; if not, we don't stamp it speculatively).
+              # hs is "running" or "unknown" — transient. Do NOT add
+              # fact-ci-failing AND do NOT strip ai-awaiting-owner: a prior
+              # converged pass may have legitimately set it (both rounds done +
+              # CI green). Stripping on a transient read un-converges the PR and
+              # forces a watchdog recovery loop (observed on PR #781). The
+              # `ready` branch above re-affirms ai-awaiting-owner on the next
+              # pass once CI greens. See D-039.
               gh pr comment "$PR" --repo "$REPO" \
-                --body "⏳ **AI Factory**: Automated review is done, but **CI is still running or not reported yet** — not marking \`ai-awaiting-owner\`. Re-check after CI finishes." || true
+                --body "⏳ **AI Factory**: Automated review is done, CI not green *yet* — leaving labels as-is; will re-check after CI finishes." || true
             fi
           }
 
