@@ -572,20 +572,22 @@ jobs:
             fi
           }
 
-          converge_comment() {
-            labels_remove "$PR" fact-ready-for-review ai-blocked fact-auto-retry
-            owner_handoff_or_ci_gate "✅ Review cycle converged — no new changes required. PR is ready for human merge decision."
-          }
-
+          # #783: "no commits pushed" does NOT mean the review cycle converged.
+          # When Copilot leaves zero inline comments there is nothing to push,
+          # but the Opus round may still be pending. Both the no-commit and the
+          # commit path therefore fall through to the phase state machine below,
+          # which advances strictly by LABEL state: ai-awaiting-owner is granted
+          # only once fact-cp-after-1 + fact-o-after-1 are BOTH present — never
+          # merely because this round produced no code changes. A no-commit
+          # Copilot round still transitions to fact-phase-opus and dispatches
+          # Opus. (Enforces D-021; see D-039.)
           if [ "$CURRENT_SHA" = "$INITIAL_SHA" ]; then
-            echo "No commits pushed — nothing to re-review."
+            echo "No commits pushed — advancing review phase by label state (D-021/#783)."
             echo "pushed=false" >> "$GITHUB_OUTPUT"
-            converge_comment
-            exit 0
+          else
+            echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA)."
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
           fi
-
-          echo "Commits pushed ($INITIAL_SHA → $CURRENT_SHA)."
-          echo "pushed=true" >> "$GITHUB_OUTPUT"
 
           # Phased: 1× Copilot then 1× Opus — see ai-worker.yml / ai-pr-review.yml
           # Ensure phase/handoff labels exist; if any are missing, the single

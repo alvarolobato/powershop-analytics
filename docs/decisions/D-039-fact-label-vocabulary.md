@@ -19,6 +19,7 @@ date: 2026-05-30
    - **Internal state labels are `fact-*`**: `fact-planned`, `fact-in-progress`, `fact-task`, `fact-needs-rewrite`, `fact-auto-retry`, `fact-phase-copilot`, `fact-cp-after-1`, `fact-phase-opus`, `fact-o-after-1`, `fact-ready-for-review`, `fact-ci-failing`.
    - **The labels that stay `ai-*`** are the human-/trigger-facing ones the owner acts on: `ai-work`, `ai-blocked`, `ai-plan`, `ai-decompose`, `ai-validate-ec`, `ai-awaiting-owner`, `ai-bug`, `ai-idea`, `ai-merge-conflict`, `ai-stale-base`.
 2. `owner_handoff_or_ci_gate` in `ai-address-feedback.yml` MUST strip `ai-awaiting-owner` **only** when CI state is `failing`. On a transient `running`/`unknown` read it MUST leave labels as-is — a prior converged pass may have legitimately set `ai-awaiting-owner` (both rounds done + CI green), and the next `ready` pass re-affirms it.
+3. Convergence to `ai-awaiting-owner` in `ai-address-feedback.yml` is gated on **label state** (`fact-cp-after-1` + `fact-o-after-1` both present), **never** on "this round produced no code changes." A Copilot round with zero inline comments pushes no commits but is **not** converged — it MUST still advance to `fact-phase-opus` and dispatch the Opus round (#783). The no-commit and commit paths therefore both fall through to the same phase state machine.
 
 **Alternatives rejected**:
 - *Make the factory-manager read label names from a live source instead of `config.yml`* — larger change; the single-source-of-truth file is fine as long as it stays in sync.
@@ -26,4 +27,4 @@ date: 2026-05-30
 
 **Rationale**: `config.yml` is a verbatim prompt input, so it is effectively executable configuration — drift between it and the workflows silently mis-labels PRs. Stripping the handoff label only on a confirmed CI failure (never on a transient unknown) keeps a converged PR converged through CI re-runs.
 
-**See**: `.github/ai-factory/config.yml`, `.github/workflows/ai-address-feedback.yml` (`owner_handoff_or_ci_gate`), `.github/workflows/ai-pr-review.yml`, `.github/workflows/ai-watchdog.yml`; PRs #778, #779, #781; [D-031](D-031-copilot-opus-sequencing.md), [D-035](D-035-action-required-bot-gating.md).
+**See**: `.github/ai-factory/config.yml`, `.github/workflows/ai-address-feedback.yml` (`owner_handoff_or_ci_gate` + phase state machine), `.github/workflows/ai-pr-review.yml`, `.github/workflows/ai-watchdog.yml`; issues #783 (Opus-skip), #784 (config drift); PRs #778, #779, #781; [D-021](D-021-two-review-rounds.md), [D-031](D-031-copilot-opus-sequencing.md), [D-035](D-035-action-required-bot-gating.md).
