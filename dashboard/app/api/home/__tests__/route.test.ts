@@ -168,9 +168,17 @@ describe("GET /api/home", () => {
     expect(body).toHaveProperty("inactiveStores");
     expect(body).toHaveProperty("opsRetail");
     expect(body).toHaveProperty("health");
+    expect(body).toHaveProperty("networkReturnRate30d");
     // Removed in PR #458 (the home page is retail-only and dropped alerts).
     expect(body).not.toHaveProperty("alerts");
     expect(body).not.toHaveProperty("opsWholesale");
+  });
+
+  it("includes networkReturnRate30d as number or null", async () => {
+    const res = await GET(makeReq());
+    const body = await res.json();
+    // The mock stub returns { rows: [[0.035]] } for the rate_30d query.
+    expect(body.networkReturnRate30d).toBe(0.035);
   });
 
   it("returns hero with required fields including comparisonLabel", async () => {

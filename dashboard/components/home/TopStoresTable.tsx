@@ -15,6 +15,11 @@ interface TopStoresTableProps {
   /** Stores hidden from the active list because they had no sales in the
    *  last 30 days. Surfaced under a "Ver tiendas inactivas" toggle. */
   inactiveStores?: HomeViewModel["inactiveStores"];
+  /** Volume-weighted 30-day network return-rate baseline from the API.
+   *  Used as the coloring threshold for the % Devol column. When absent
+   *  or null, falls back to a volume-weighted mean computed from the
+   *  current store list. */
+  networkReturnRate?: number | null;
 }
 
 function statusDotColor(status: Store["status"]): string {
@@ -43,18 +48,24 @@ const outlineLink: React.CSSProperties = {
   display: "inline-block",
 };
 
-export function TopStoresTable({ stores, inactiveStores }: TopStoresTableProps) {
+export function TopStoresTable({ stores, inactiveStores, networkReturnRate }: TopStoresTableProps) {
   const maxSales = Math.max(...stores.map((s) => s.sales), 1);
   const [showInactive, setShowInactive] = useState(false);
   const inactiveCount = inactiveStores?.length ?? 0;
 
-  const ratesWithValues = stores
-    .map((s) => s.returnsRate)
-    .filter((r): r is number => r !== null);
-  const networkAvgRate =
-    ratesWithValues.length > 0
-      ? ratesWithValues.reduce((sum, r) => sum + r, 0) / ratesWithValues.length
-      : null;
+  // Use the API-provided 30-day volume-weighted baseline when available;
+  // fall back to a volume-weighted mean from the current store list so that
+  // outlier low-volume stores (e.g. 1 sale + 1 return = 100%) don't skew
+  // the threshold the way the old equal-weight arithmetic mean did.
+  const networkAvgRate: number | null = (() => {
+    if (networkReturnRate != null) return networkReturnRate;
+    const storesWithData = stores.filter(
+      (s): s is typeof s & { returnsRate: number } => s.returnsRate !== null && s.sales > 0
+    );
+    if (storesWithData.length === 0) return null;
+    const totalSales = storesWithData.reduce((sum, s) => sum + s.sales, 0);
+    return storesWithData.reduce((sum, s) => sum + s.returnsRate * s.sales, 0) / totalSales;
+  })();
 
   return (
     <div

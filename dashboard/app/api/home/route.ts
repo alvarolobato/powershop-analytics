@@ -1508,6 +1508,7 @@ export async function GET(req: NextRequest) {
       dailyTrend,
       topStores,
       inactiveStores,
+      networkReturnRate30d: baseline30d,
       opsRetail,
       health,
     };

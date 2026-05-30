@@ -82,6 +82,7 @@ const MOCK_DATA: HomeViewModel = {
     { code: "601", name: "Badajoz",            sales: 2820, delta: -0.142, deltaYoY: -0.200, spark: [1, 2, 3], status: "alert", streakWeeks: 0, margin: 0.478, returnsRate: null,  tickets: 0,  ticketMedio: 0 },
   ],
   inactiveStores: [],
+  networkReturnRate30d: 0.035,
   opsRetail: [
     { id: "ticket", label: "Ticket medio", value: 26.55, format: "eur2", delta: 0 },
     { id: "margen", label: "Margen mes", value: 0.52, format: "pct", delta: 0.02, deltaUnit: "pp" as const, sub: "vs mes ant" },

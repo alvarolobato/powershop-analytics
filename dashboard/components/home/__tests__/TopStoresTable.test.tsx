@@ -200,6 +200,57 @@ describe("TopStoresTable", () => {
       const span = cell.querySelector("span");
       expect(span?.getAttribute("style")).toContain("var(--down)");
     });
+
+    it("uses networkReturnRate prop as threshold", () => {
+      // With networkReturnRate=0.05, Bilbao (0.058) exceeds it by <1pp → no red
+      render(<TopStoresTable stores={STORES} networkReturnRate={0.05} />);
+      const cell = screen.getByTestId("returns-rate-606");
+      const span = cell.querySelector("span");
+      expect(span?.getAttribute("style")).not.toContain("var(--down)");
+
+      // With networkReturnRate=0.02, Bilbao (0.058) exceeds by >1pp → red
+      const { unmount } = render(<TopStoresTable stores={STORES} networkReturnRate={0.02} />);
+      const cells = document.querySelectorAll('[data-testid="returns-rate-606"]');
+      const lastCell = cells[cells.length - 1];
+      const lastSpan = lastCell.querySelector("span");
+      expect(lastSpan?.getAttribute("style")).toContain("var(--down)");
+      unmount();
+    });
+
+    it("falls back to volume-weighted mean when networkReturnRate prop is null", () => {
+      // 3 stores: A (sales=1000, rate=0.10), B (sales=9000, rate=0.01)
+      // Volume-weighted mean = (1000*0.10 + 9000*0.01) / 10000 = 0.019
+      // Store A (0.10) exceeds 0.019 + 0.01 = 0.029 → red
+      // Store B (0.01) does NOT exceed 0.029 → muted
+      const stores: HomeViewModel["topStores"] = [
+        { code: "A01", name: "Store A", sales: 1000, delta: 0, deltaYoY: null, spark: [], status: "ok", streakWeeks: 0, margin: null, returnsRate: 0.10 },
+        { code: "B01", name: "Store B", sales: 9000, delta: 0, deltaYoY: null, spark: [], status: "ok", streakWeeks: 0, margin: null, returnsRate: 0.01 },
+      ];
+      render(<TopStoresTable stores={stores} networkReturnRate={null} />);
+      const cellA = screen.getByTestId("returns-rate-A01");
+      const cellB = screen.getByTestId("returns-rate-B01");
+      expect(cellA.querySelector("span")?.getAttribute("style")).toContain("var(--down)");
+      expect(cellB.querySelector("span")?.getAttribute("style")).not.toContain("var(--down)");
+    });
+
+    it("outlier store does not suppress red flagging when using weighted approach", () => {
+      // Outlier: 1 sale, 100% return rate (would pull arithmetic mean up to ~50%)
+      // hiding genuinely elevated stores. With volume weighting the outlier
+      // contributes negligibly.
+      const stores: HomeViewModel["topStores"] = [
+        { code: "OUT", name: "Outlier",   sales: 1,    delta: 0, deltaYoY: null, spark: [], status: "ok", streakWeeks: 0, margin: null, returnsRate: 1.00 },
+        { code: "BAD", name: "Bad store", sales: 5000, delta: 0, deltaYoY: null, spark: [], status: "ok", streakWeeks: 0, margin: null, returnsRate: 0.08 },
+        { code: "OK1", name: "Normal 1",  sales: 4000, delta: 0, deltaYoY: null, spark: [], status: "ok", streakWeeks: 0, margin: null, returnsRate: 0.02 },
+        { code: "OK2", name: "Normal 2",  sales: 4000, delta: 0, deltaYoY: null, spark: [], status: "ok", streakWeeks: 0, margin: null, returnsRate: 0.02 },
+      ];
+      // Weighted mean ≈ (1*1.0 + 5000*0.08 + 4000*0.02 + 4000*0.02) / 13001
+      //              ≈ (1 + 400 + 80 + 80) / 13001 ≈ 0.0431
+      // BAD (0.08) exceeds 0.0431 + 0.01 = 0.0531 → no, 0.08 > 0.0531 → red
+      // Actually 0.08 - 0.0431 = 0.0369 > 0.01 → red flag
+      render(<TopStoresTable stores={stores} networkReturnRate={null} />);
+      const badCell = screen.getByTestId("returns-rate-BAD");
+      expect(badCell.querySelector("span")?.getAttribute("style")).toContain("var(--down)");
+    });
   });
 
   describe("inactive stores section", () => {
