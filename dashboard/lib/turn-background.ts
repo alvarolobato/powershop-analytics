@@ -122,6 +122,50 @@ function makeProgressHandler(
   };
 }
 
+// ── System-prompt capture handler ──────────────────────────────────────────────
+
+/**
+ * Creates an `onSystemPromptReady` callback that emits a "context" turn event
+ * carrying the EXACT system prompt + tools sent to the LLM. assembleRequest()
+ * invokes this once it has assembled the request (before the first LLM call),
+ * so the conversation UI can show "Contexto original" live AND on resume (the
+ * event is persisted in turn_events and replayed by the stream route).
+ *
+ * Wired for every conversation mode (free-chat, analyze/modify, generic) so the
+ * full context is captured uniformly — see D-036.
+ */
+function makeSystemPromptReadyHandler(
+  conversation: ConversationRow,
+  mode: string,
+  userMessage: string,
+  priorMessages: Array<{ role: string; content: string }>,
+  requestId: string,
+  conversationId: string,
+  turnId: string,
+  seq: () => number,
+): (
+  systemPrompt: string,
+  tools?: Array<{ name: string; schema: Record<string, unknown> }>,
+) => void {
+  return (systemPrompt, tools) => {
+    const priorPreview = buildPriorPreview(priorMessages);
+    void emitTurnEvent(conversationId, turnId, seq(), "context", {
+      context: {
+        model: resolveModelName(),
+        provider: conversation.llm_provider ?? "unknown",
+        driver: conversation.llm_driver ?? null,
+        flow: mode,
+        seed_prompt: userMessage,
+        prior_messages: priorMessages.length,
+        ...(priorPreview && { prior_messages_preview: priorPreview }),
+        system_prompt_stable: systemPrompt,
+        ...(tools && tools.length > 0 && { tools }),
+      },
+      requestId,
+    }).catch(() => {});
+  };
+}
+
 // ── Sequential event counter per turn ─────────────────────────────────────────
 
 function makeSeq(): () => number {
@@ -211,6 +255,7 @@ export async function runTurnBackground(
       assistantText = `[e2e-stub] Respuesta a: "${userMessage.slice(0, 80)}"`;
     } else if (isFreeChatConv) {
       assistantText = await runFreeChatTurn(
+        conversation,
         userMessage,
         priorMessages,
         requestId,
@@ -245,6 +290,9 @@ export async function runTurnBackground(
         userMessage,
         priorMessages,
         requestId,
+        conversationId,
+        turnId,
+        seq,
       );
     }
 
@@ -282,6 +330,7 @@ export async function runTurnBackground(
 // ── LLM dispatch helpers ───────────────────────────────────────────────────────
 
 async function runFreeChatTurn(
+  conversation: ConversationRow,
   userMessage: string,
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
@@ -297,6 +346,17 @@ async function runFreeChatTurn(
     endpoint: "freeChat" as const,
     conversationId,
     onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
+    // Emit the exact prompt + tools sent to the LLM as a "context" turn event.
+    onSystemPromptReady: makeSystemPromptReadyHandler(
+      conversation,
+      "chat",
+      userMessage,
+      priorMessages,
+      requestId,
+      conversationId,
+      turnId,
+      seq,
+    ),
   };
 
   try {
@@ -356,26 +416,18 @@ async function runDashboardTurn(
     // modes — analyze/modify always end with a tool call (submit_dashboard_analysis
     // or apply_dashboard_modification), never prose, so model_text_delta is JSON.
     onAgenticProgress: makeProgressHandler(conversationId, turnId, seq, true),
-    // Callback from analyzeDashboard/modifyDashboard once the system prompt is built.
-    // Emits an updated context event so the UI can show the full prompt sent to the LLM.
-    onSystemPromptReady: (systemPrompt: string, tools?: Array<{ name: string; schema: Record<string, unknown> }>) => {
-      const resolvedModel = resolveModelName();
-      const priorPreview = buildPriorPreview(priorMessages);
-      void emitTurnEvent(conversationId, turnId, seq(), "context", {
-        context: {
-          model: resolvedModel,
-          provider: conversation.llm_provider ?? "unknown",
-          driver: conversation.llm_driver ?? null,
-          flow: mode,
-          seed_prompt: userMessage,
-          prior_messages: priorMessages.length,
-          ...(priorPreview && { prior_messages_preview: priorPreview }),
-          system_prompt_stable: systemPrompt,
-          ...(tools && tools.length > 0 && { tools }),
-        },
-        requestId,
-      }).catch(() => {});
-    },
+    // Emit the exact prompt + tools sent to the LLM as a "context" turn event so
+    // the UI can show the full context live and on resume.
+    onSystemPromptReady: makeSystemPromptReadyHandler(
+      conversation,
+      mode,
+      userMessage,
+      priorMessages,
+      requestId,
+      conversation.id,
+      turnId,
+      seq,
+    ),
   };
 
   let currentSpec = "";
@@ -428,6 +480,9 @@ async function runGenericTurn(
   userMessage: string,
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
+  conversationId: string,
+  turnId: string,
+  seq: () => number,
 ): Promise<string> {
   const { assembleRequest } = await import("@/lib/llm-context");
   const flowRaw = conversation.mode ?? "chat";
@@ -440,6 +495,22 @@ async function runGenericTurn(
       priorMessages,
       requestId,
       endpoint: flowRaw,
+      // Capture the exact prompt sent to the LLM as a "context" turn event.
+      ctx: {
+        requestId,
+        endpoint: flowRaw,
+        conversationId,
+        onSystemPromptReady: makeSystemPromptReadyHandler(
+          conversation,
+          flowRaw,
+          userMessage,
+          priorMessages,
+          requestId,
+          conversationId,
+          turnId,
+          seq,
+        ),
+      },
     },
   );
   return result.text;

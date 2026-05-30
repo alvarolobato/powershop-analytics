@@ -165,6 +165,36 @@ describe("runTurnBackground — free-chat path", () => {
     const contextPayload = mockInsertTurnEvent.mock.calls[0][3] as Record<string, unknown>;
     expect((contextPayload.context as Record<string, unknown>).model).toBe("custom-model");
   });
+
+  // Regression guard (issue: llm-context-missing): the free-chat turn must wire
+  // ctx.onSystemPromptReady so the EXACT prompt + tools sent to the LLM are emitted
+  // (and persisted) as a "context" turn event — visible live and on resume.
+  it("emits a context event with the exact system prompt + tools via onSystemPromptReady", async () => {
+    mockAssembleRequest.mockImplementationOnce(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: { onSystemPromptReady?: (p: string, t?: unknown[]) => void };
+      };
+      opts?.ctx?.onSystemPromptReady?.("FULL SYSTEM PROMPT", [
+        { name: "execute_query", schema: {} },
+      ]);
+      return { text: "LLM reply", usage: {}, model: "m" };
+    });
+
+    await runTurnBackground(TURN_ID, makeConv(), "hello");
+
+    const promptCtxCall = mockInsertTurnEvent.mock.calls.find(([, , type, payload]) => {
+      if (type !== "context") return false;
+      const ctx = (payload as Record<string, unknown>).context as
+        | Record<string, unknown>
+        | undefined;
+      return ctx?.system_prompt_stable === "FULL SYSTEM PROMPT";
+    });
+    expect(promptCtxCall).toBeDefined();
+    const ctx = (promptCtxCall![3] as Record<string, unknown>).context as Record<string, unknown>;
+    expect(ctx.tools).toEqual([{ name: "execute_query", schema: {} }]);
+    expect(ctx.flow).toBe("chat");
+    expect(ctx.seed_prompt).toBe("hello");
+  });
 });
 
 describe("runTurnBackground — error path", () => {
