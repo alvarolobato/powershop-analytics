@@ -309,6 +309,10 @@ services:
       ENVIRONMENT: ${ENVIRONMENT:-development}
       # Git SHA baked at build time; available to the OTel resource as service.version
       NEXT_PUBLIC_GIT_SHA: ${APP_GIT_DESCRIBE:-}
+      # Conversation context logs (the exact payload sent to the LLM per turn) are
+      # written to files under this dir; the DB stores only the pointer. The dir is
+      # a bind-mounted volume (below) so the logs survive container recreation.
+      DASHBOARD_CONTEXT_DIR: /app/data/conversations
     volumes:
       # Mount centralized config directory (read-write; dashboard writes config.yaml)
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
@@ -319,6 +323,8 @@ services:
       # (idempotent — CREATE TABLE IF NOT EXISTS). Both ETL and Dashboard
       # apply the same file; init.sql is the single source of schema truth.
       - ./etl/schema/init.sql:/app/schema/init.sql:ro
+      # Per-turn conversation context logs (D-002 bind mount; survives restarts).
+      - ./data/dashboard/conversations:/app/data/conversations:rw
       # Note: CLAUDE_CODE_OAUTH_TOKEN is passed via env (above). No file mount needed.
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"

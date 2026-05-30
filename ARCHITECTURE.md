@@ -145,6 +145,7 @@ User: "Añade el margen por familia"
 | `DASHBOARD_LLM_CLI_*` | Dashboard App | CLI binary, driver, timeout, capture cap — see `.env.example` |
 | `DASHBOARD_AGENTIC_*` | Dashboard App | Tool-calling limits and kill switch — see [docs/dashboard-agentic-tools.md](docs/dashboard-agentic-tools.md) |
 | `DASHBOARD_PORT` | Dashboard App | HTTP port (default: 4000) |
+| `DASHBOARD_CONTEXT_DIR` | Dashboard App | Dir for per-turn context-log files (default `/app/data/conversations`; bind-mounted) — see [D-039](docs/decisions/D-039-context-log-files.md) |
 
 ## Data Persistence
 
@@ -154,6 +155,12 @@ User: "Añade el margen por familia"
 | Qdrant vectors | `./data/qdrant/` | Yes | Yes (bind mount) |
 | WrenAI config/SQLite | `./data/wren/` | Yes | Yes (bind mount) |
 | Dashboard data | PostgreSQL tables | Yes | Yes (in PG bind mount) |
+| Conversation context logs | `./data/dashboard/conversations/` | Yes | Yes (bind mount) |
+
+Per-turn context logs (the exact payload sent to the LLM) live in files on the
+dashboard's data volume — one folder per conversation, one file per turn. Postgres
+stores only the pointer (`conversation_turns.context_file`); the UI lazy-loads the
+file when "Contexto original" is expanded. See [D-039](docs/decisions/D-039-context-log-files.md).
 
 ## Production
 

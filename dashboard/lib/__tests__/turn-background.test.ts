@@ -9,10 +9,17 @@ import { describe, it, vi, expect, beforeEach } from "vitest";
 
 const mockUpdateTurnStatus = vi.fn();
 const mockInsertTurnEvent = vi.fn();
+const mockSetTurnContextFile = vi.fn();
 
 vi.mock("@/lib/turn-events", () => ({
   updateTurnStatus: (...a: unknown[]) => mockUpdateTurnStatus(...a),
   insertTurnEvent: (...a: unknown[]) => mockInsertTurnEvent(...a),
+  setTurnContextFile: (...a: unknown[]) => mockSetTurnContextFile(...a),
+}));
+
+const mockWriteTurnContext = vi.fn();
+vi.mock("@/lib/conversation-context-store", () => ({
+  writeTurnContext: (...a: unknown[]) => mockWriteTurnContext(...a),
 }));
 
 const mockAppendMessage = vi.fn();
@@ -104,12 +111,22 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockUpdateTurnStatus.mockResolvedValue(undefined);
   mockInsertTurnEvent.mockResolvedValue(undefined);
+  mockSetTurnContextFile.mockResolvedValue(undefined);
+  mockWriteTurnContext.mockResolvedValue("abcdef012345/turn-1.json");
   mockLoadMessages.mockResolvedValue([]);
   mockAppendMessage.mockResolvedValue({ id: "msg-001" });
   mockMaybeGenerateTitle.mockResolvedValue(undefined);
   mockTouchConversation.mockResolvedValue(undefined);
   mockRunAgenticChat.mockResolvedValue({ content: "LLM reply" });
-  mockAssembleRequest.mockResolvedValue({ text: "LLM reply", usage: {}, model: "m" });
+  // Default: invoke onSystemPromptReady so the context-log file write path runs,
+  // mirroring how assembleRequest surfaces the assembled prompt.
+  mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
+    const opts = args[4] as {
+      ctx?: { onSystemPromptReady?: (p: string, t?: unknown[]) => void };
+    };
+    opts?.ctx?.onSystemPromptReady?.("SYSTEM PROMPT", []);
+    return { text: "LLM reply", usage: {}, model: "m" };
+  });
   mockSql.mockResolvedValue([]);
   mockAnalyzeDashboard.mockResolvedValue("Analysis result");
   mockModifyDashboard.mockResolvedValue("Modify result");
@@ -125,19 +142,37 @@ describe("runTurnBackground — free-chat path", () => {
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
   });
 
-  it("emits context event as first turn_event", async () => {
+  it("writes the context log to a file (not Postgres) and records the pointer", async () => {
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    const [, seq, type] = mockInsertTurnEvent.mock.calls[0] as [string, number, string];
-    expect(seq).toBe(0);
-    expect(type).toBe("context");
+    // The heavy context goes to a file…
+    expect(mockWriteTurnContext).toHaveBeenCalledTimes(1);
+    const [convId, turnId, ctx] = mockWriteTurnContext.mock.calls[0] as [
+      string,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(convId).toBe("abcdef012345");
+    expect(turnId).toBe(TURN_ID);
+    expect(ctx.system_prompt_stable).toBe("SYSTEM PROMPT");
+    // …and the pointer is recorded on the turn.
+    expect(mockSetTurnContextFile).toHaveBeenCalledWith(TURN_ID, "abcdef012345/turn-1.json");
+    // No heavy "context" event is stored in Postgres — only a lightweight ref.
+    const types = mockInsertTurnEvent.mock.calls.map((c) => c[2]);
+    expect(types).not.toContain("context");
+    expect(types).toContain("context_ref");
   });
 
-  it("includes requestId in context payload", async () => {
+  it("emits a lightweight context_ref event pointing at the file", async () => {
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    const contextPayload = mockInsertTurnEvent.mock.calls[0][3] as Record<string, unknown>;
-    expect(contextPayload.requestId).toBe("req_test");
+    const refCall = mockInsertTurnEvent.mock.calls.find((c) => c[2] === "context_ref");
+    expect(refCall).toBeDefined();
+    const payload = refCall![3] as Record<string, unknown>;
+    expect(payload.file).toBe("abcdef012345/turn-1.json");
+    expect(payload.requestId).toBe("req_test");
+    // The heavy fields (system prompt, tools, history) are NOT in the DB payload.
+    expect(payload.system_prompt_stable).toBeUndefined();
   });
 
   it("persists user message to conversation_messages before LLM call", async () => {
@@ -158,12 +193,25 @@ describe("runTurnBackground — free-chat path", () => {
     expect(assistantCall?.[2]).toEqual({ text: "LLM reply" });
   });
 
-  it("uses initial_context when set", async () => {
-    const ctx: InitialContext = { model: "custom-model", provider: "cli" };
-    await runTurnBackground(TURN_ID, makeConv({ initial_context: ctx }), "hi");
+  it("writes the full untruncated prior history into the context-log file", async () => {
+    mockLoadMessages.mockResolvedValueOnce([
+      { role: "user", content: { text: "primera pregunta" } },
+      { role: "assistant", content: { text: "primera respuesta" } },
+    ]);
 
-    const contextPayload = mockInsertTurnEvent.mock.calls[0][3] as Record<string, unknown>;
-    expect((contextPayload.context as Record<string, unknown>).model).toBe("custom-model");
+    await runTurnBackground(TURN_ID, makeConv(), "segunda pregunta");
+
+    const ctx = mockWriteTurnContext.mock.calls[0][2] as {
+      seed_prompt: string;
+      prior_messages: number;
+      prior_messages_preview: Array<{ role: string; content: string }>;
+    };
+    expect(ctx.seed_prompt).toBe("segunda pregunta");
+    expect(ctx.prior_messages).toBe(2);
+    expect(ctx.prior_messages_preview).toEqual([
+      { role: "user", content: "primera pregunta" },
+      { role: "assistant", content: "primera respuesta" },
+    ]);
   });
 
   // Tool-result preservation: tool calls the model made this turn are persisted
@@ -214,10 +262,9 @@ describe("runTurnBackground — free-chat path", () => {
     expect(content.tool_calls).toBeUndefined();
   });
 
-  // Regression guard (issue: llm-context-missing): the free-chat turn must wire
-  // ctx.onSystemPromptReady so the EXACT prompt + tools sent to the LLM are emitted
-  // (and persisted) as a "context" turn event — visible live and on resume.
-  it("emits a context event with the exact system prompt + tools via onSystemPromptReady", async () => {
+  // The free-chat turn must wire ctx.onSystemPromptReady so the EXACT prompt + tools
+  // sent to the LLM are written to the turn's context-log file.
+  it("writes the exact system prompt + tools to the context-log file via onSystemPromptReady", async () => {
     mockAssembleRequest.mockImplementationOnce(async (...args: unknown[]) => {
       const opts = args[4] as {
         ctx?: { onSystemPromptReady?: (p: string, t?: unknown[]) => void };
@@ -230,15 +277,9 @@ describe("runTurnBackground — free-chat path", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    const promptCtxCall = mockInsertTurnEvent.mock.calls.find(([, , type, payload]) => {
-      if (type !== "context") return false;
-      const ctx = (payload as Record<string, unknown>).context as
-        | Record<string, unknown>
-        | undefined;
-      return ctx?.system_prompt_stable === "FULL SYSTEM PROMPT";
-    });
-    expect(promptCtxCall).toBeDefined();
-    const ctx = (promptCtxCall![3] as Record<string, unknown>).context as Record<string, unknown>;
+    expect(mockWriteTurnContext).toHaveBeenCalledTimes(1);
+    const ctx = mockWriteTurnContext.mock.calls[0][2] as Record<string, unknown>;
+    expect(ctx.system_prompt_stable).toBe("FULL SYSTEM PROMPT");
     expect(ctx.tools).toEqual([{ name: "execute_query", schema: {} }]);
     expect(ctx.flow).toBe("chat");
     expect(ctx.seed_prompt).toBe("hello");
