@@ -21,6 +21,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    shm_size: 1gb
     command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
@@ -50,19 +51,24 @@ services:
     restart: unless-stopped
     command: ["otel", "--config", "/etc/otelcol/config.yaml"]
     environment:
+      # Required: tells the Elastic Agent entrypoint to run in OTel collector
+      # mode (elastic-agent otel) instead of Fleet mode (elastic-agent container).
+      # Without this the health endpoint on port 13133 never binds.
+      ELASTIC_AGENT_OTEL: "true"
       # Pass ELASTIC_ credentials through only when set on the host so the
       # otelcol-config.yaml fallback defaults kick in cleanly in local dev.
-      - ELASTIC_OTLP_ENDPOINT
-      - ELASTIC_OTLP_API_KEY
-      - ENVIRONMENT=${ENVIRONMENT:-development}
+      ELASTIC_OTLP_ENDPOINT:
+      ELASTIC_OTLP_API_KEY:
+      ENVIRONMENT: ${ENVIRONMENT:-development}
     volumes:
       - ./otel/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
       - ./otel/local:/var/log/otel
-      # Bind-mounts the Docker container log directory for the filelog receiver.
-      # Linux only: on macOS with Docker Desktop this host path does not exist
-      # (containers run inside a VM) and this mount will fail — comment it out
-      # on macOS or remove the filelog receiver from otelcol-config.yaml.
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      # Filelog bind-mount (Linux only): commented out so `docker compose up -d`
+      # works on macOS / Docker Desktop where /var/lib/docker/containers is inside
+      # a VM and the host path does not exist. On Linux, enable via the override:
+      #   docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
+      # The filelog receiver in otelcol-config.yaml is always compiled in; without
+      # this mount it simply idles (no files to tail) — no errors, no crash.
     expose:
       - "4317"   # OTLP gRPC
       - "4318"   # OTLP HTTP

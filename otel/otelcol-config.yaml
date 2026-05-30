@@ -62,7 +62,7 @@ processors:
   resource:
     attributes:
       - key: deployment.environment
-        value: "${ENVIRONMENT}"
+        value: "${env:ENVIRONMENT}"
         action: upsert
 
   # Attributes processor — PII and secret redaction.
@@ -127,9 +127,9 @@ exporters:
   # ELASTIC_OTLP_ENDPOINT is not set; retry exhausts and drops silently,
   # so the file exporter captures all data in local dev without errors.
   otlphttp/elasticsearch:
-    endpoint: "${ELASTIC_OTLP_ENDPOINT:-http://localhost:1}"
+    endpoint: "${env:ELASTIC_OTLP_ENDPOINT:-http://localhost:1}"
     headers:
-      Authorization: "ApiKey ${ELASTIC_OTLP_API_KEY:-placeholder}"
+      Authorization: "ApiKey ${env:ELASTIC_OTLP_API_KEY:-placeholder}"
     compression: gzip
     timeout: 10s
     retry_on_failure:
