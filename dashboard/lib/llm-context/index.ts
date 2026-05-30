@@ -30,7 +30,11 @@ export {
   VALID_ANALYZE_ACTIONS,
 } from "./system-prompt";
 
-export { buildHistory } from "./history";
+export {
+  buildHistory,
+  flattenStoredMessage,
+  formatToolCallsForHistory,
+} from "./history";
 export { loadPriorTurns, summariseOldTurns } from "./history";
 
 export { toolsForFlow } from "./tools";

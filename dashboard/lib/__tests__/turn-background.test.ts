@@ -166,6 +166,54 @@ describe("runTurnBackground — free-chat path", () => {
     expect((contextPayload.context as Record<string, unknown>).model).toBe("custom-model");
   });
 
+  // Tool-result preservation: tool calls the model made this turn are persisted
+  // on the assistant message (DB ToolCallRecord shape) so later turns retain them.
+  it("persists tool calls captured during the turn onto the assistant message", async () => {
+    mockAssembleRequest.mockImplementationOnce(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: { toolCalls?: Array<Record<string, unknown>> };
+      };
+      // Simulate the runner capturing a tool round-trip into ctx.toolCalls.
+      if (opts.ctx) {
+        opts.ctx.toolCalls = [
+          {
+            id: "call_1",
+            name: "execute_query",
+            arguments: '{"sql":"SELECT 1"}',
+            result: '{"rows":[{"n":1}]}',
+            ok: true,
+            ms: 12,
+          },
+        ];
+      }
+      return { text: "Hecho.", usage: {}, model: "m" };
+    });
+
+    await runTurnBackground(TURN_ID, makeConv(), "consulta algo");
+
+    const assistantCall = mockAppendMessage.mock.calls.find(([, role]) => role === "assistant");
+    expect(assistantCall).toBeDefined();
+    const content = assistantCall?.[2] as { text: string; tool_calls?: Array<Record<string, unknown>> };
+    expect(content.text).toBe("Hecho.");
+    expect(content.tool_calls).toHaveLength(1);
+    expect(content.tool_calls?.[0]).toMatchObject({
+      id: "call_1",
+      name: "execute_query",
+      // Raw JSON args are parsed to an object for storage.
+      arguments: { sql: "SELECT 1" },
+      result: '{"rows":[{"n":1}]}',
+      success: true,
+      duration_ms: 12,
+    });
+  });
+
+  it("omits tool_calls on the assistant message when the turn made none", async () => {
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+    const assistantCall = mockAppendMessage.mock.calls.find(([, role]) => role === "assistant");
+    const content = assistantCall?.[2] as { text: string; tool_calls?: unknown };
+    expect(content.tool_calls).toBeUndefined();
+  });
+
   // Regression guard (issue: llm-context-missing): the free-chat turn must wire
   // ctx.onSystemPromptReady so the EXACT prompt + tools sent to the LLM are emitted
   // (and persisted) as a "context" turn event — visible live and on resume.

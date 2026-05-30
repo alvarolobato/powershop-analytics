@@ -46,6 +46,24 @@ export type AgenticProgressEvent =
     }
   | { type: "finalizing"; messageChars: number };
 
+/**
+ * A single tool round-trip captured during an agentic run. Collected by the
+ * runner into `ctx.toolCalls` so the caller can persist the "interesting part"
+ * (which tool ran, with what arguments, and the result the model saw) on the
+ * assistant message — preserving it as conversation context for later turns.
+ * `result` is the already-truncated payload the model received.
+ */
+export interface AgenticToolCallRecord {
+  id: string;
+  name: string;
+  /** Raw JSON arguments string as emitted by the model. */
+  arguments: string;
+  /** Tool result payload the model received (already truncated to maxResultChars). */
+  result: string;
+  ok: boolean;
+  ms: number;
+}
+
 export interface LlmAgenticContext {
   /** API correlation id (also sent to the model in tool error payloads). */
   requestId: string;
@@ -91,6 +109,14 @@ export interface LlmAgenticContext {
    * Set by `handleSubmitWeeklyReview`; read by the review/generate route.
    */
   reviewResult?: { content: ReviewLlmOutput; summary: string } | null;
+
+  /**
+   * Tool calls captured during the agentic run, in execution order. Populated
+   * by the runner; read by the caller AFTER the run to persist the tool context
+   * on the assistant message so later turns can see what was queried. The runner
+   * appends to this array — callers should not pre-populate it.
+   */
+  toolCalls?: AgenticToolCallRecord[];
 }
 
 export interface AgenticUsageTotals {
