@@ -195,6 +195,34 @@ describe("runTurnBackground — free-chat path", () => {
     expect(ctx.flow).toBe("chat");
     expect(ctx.seed_prompt).toBe("hello");
   });
+  // Regression guard: a follow-up reply must send the FULL prior conversation
+  // (the user's past comments AND the assistant's past replies) to the LLM, so it
+  // has the conversation context — not just the latest message.
+  it("forwards full prior conversation history to assembleRequest on a follow-up", async () => {
+    mockLoadMessages.mockResolvedValueOnce([
+      { role: "user", content: { text: "¿Cuánto vendimos ayer?" } },
+      { role: "assistant", content: { text: "Ayer vendisteis 12.345 €." } },
+      { role: "tool", content: { tool_name: "execute_query", content: "…" } },
+      { role: "user", content: { text: "¿Y la semana pasada?" } },
+      { role: "assistant", content: { text: "La semana pasada 80.123 €." } },
+    ]);
+
+    await runTurnBackground(TURN_ID, makeConv(), "¿Y este mes?");
+
+    const opts = mockAssembleRequest.mock.calls[0][4] as {
+      priorMessages: Array<{ role: string; content: string }>;
+    };
+    // All user + assistant turns are forwarded (tool messages flattened out),
+    // in order — the current message is appended separately by assembleRequest.
+    expect(opts.priorMessages).toEqual([
+      { role: "user", content: "¿Cuánto vendimos ayer?" },
+      { role: "assistant", content: "Ayer vendisteis 12.345 €." },
+      { role: "user", content: "¿Y la semana pasada?" },
+      { role: "assistant", content: "La semana pasada 80.123 €." },
+    ]);
+    // The current user message is passed as the 4th positional arg, not inside history.
+    expect(mockAssembleRequest.mock.calls[0][3]).toBe("¿Y este mes?");
+  });
 });
 
 describe("runTurnBackground — error path", () => {
