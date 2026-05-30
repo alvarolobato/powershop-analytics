@@ -340,20 +340,67 @@ jobs:
             gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
           done
 
-      - name: Dispatch address-feedback
+      - name: Advance Opus round — converge inline, or dispatch for inline comments
         if: success() && steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          # Explicitly dispatch address-feedback so it runs via workflow_dispatch,
-          # which gets full OIDC permissions. We cannot rely on pull_request_review
-          # events from claude[bot] to trigger it — GitHub withholds id-token for
-          # bot-actor review events, causing the OIDC exchange to fail.
-          gh workflow run ai-address-feedback.yml \
-            --repo "${{ github.repository }}" \
-            --field pr_number="$PR_NUMBER" \
-            --field reason="post-review: addressing claude[bot] review comments" || true
-          echo "Dispatched address-feedback for PR #$PR_NUMBER."
+          set -uo pipefail
+          # The Opus round is complete the moment claude[bot] submits its review
+          # (D-021: no third round). What happens next depends on whether Opus
+          # left actionable inline comments:
+          #   • zero inline comments (the common LGTM case) → nothing for
+          #     address-feedback to change, so converge INLINE here. This removes
+          #     the dependency on a separately dispatched workflow_dispatch run
+          #     actually starting — the gap that stranded #778/#779/#781 behind a
+          #     slow watchdog recovery (D-035 bot-actor gating). See D-039.
+          #   • ≥1 inline comment → dispatch address-feedback (full OIDC via
+          #     workflow_dispatch) to apply the fixes; it owns convergence after
+          #     pushing commits. We can't rely on the bot-actor pull_request_review
+          #     event to trigger it — GitHub withholds id-token for bot reviews.
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
+          OPUS_INLINE=$(gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" --paginate \
+            --jq "[.[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\")] | length" 2>/dev/null || echo "0")
+
+          if [ "${OPUS_INLINE:-0}" -gt 0 ]; then
+            echo "Opus left $OPUS_INLINE inline comment(s) on $HEAD_SHA — dispatching address-feedback to apply fixes."
+            # Leave fact-phase-opus in place: if this dispatch is dropped, the
+            # watchdog's `Stuck fact-phase-opus` step re-dispatches address-feedback.
+            gh workflow run ai-address-feedback.yml \
+              --repo "$REPO" \
+              --field pr_number="$PR_NUMBER" \
+              --field reason="post-review: addressing claude[bot] inline comments" || true
+            echo "Dispatched address-feedback for PR #$PR_NUMBER."
+            exit 0
+          fi
+
+          echo "Opus left no inline comments — converging inline (D-021 both rounds done)."
+          # Mark the Opus round complete and clear in-flight phase labels. REST
+          # API (gh pr edit exits non-zero on the projectCards deprecation, #611).
+          gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" \
+            -f 'labels[]=fact-cp-after-1' -f 'labels[]=fact-o-after-1' >/dev/null || true
+          for l in fact-phase-copilot fact-phase-opus fact-ready-for-review; do
+            gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
+          done
+          # CI-gated owner handoff — identical logic to the d021 step above and to
+          # owner_handoff_or_ci_gate in ai-address-feedback.yml: only mark
+          # ai-awaiting-owner when CI is green; never claim merge-ready on a red or
+          # in-flight CI. If CI isn't ready yet, the watchdog reconcile
+          # (fact-o-after-1 + CI ready) hands off on the next cycle.
+          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')
+          CI_STATE=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" \
+            --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
+            2>/dev/null || echo "unknown")
+          if echo ",$LABELS," | grep -q ",fact-ci-failing,"; then CI_STATE="failing"; fi
+          if [ "$CI_STATE" = "ready" ]; then
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus) — no changes required. PR is ready for human merge decision." || true
+          else
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). **Not marking \`ai-awaiting-owner\`** yet — CI is \`$CI_STATE\`. The watchdog will hand off once CI greens (\`fact-o-after-1\` + CI ready)." || true
+          fi
 
       - name: Handle failure
         # Run even if an earlier step (including checkout) failed, so the
