@@ -305,6 +305,21 @@ export async function runTurnBackground(
         text: "[e2e-stub] respuesta generada sin LLM real",
         ts: new Date().toISOString(),
       });
+      // Exercise the real context-log path (write file + emit context_ref) so the
+      // UI still shows "Contexto original" without a real LLM call.
+      const stubHandle: ContextWriteHandle = { done: Promise.resolve() };
+      makeSystemPromptReadyHandler(
+        conversation,
+        mode,
+        userMessage,
+        priorMessages,
+        requestId,
+        conversationId,
+        turnId,
+        seq,
+        stubHandle,
+      )("[e2e-stub] system prompt", []);
+      await stubHandle.done;
       assistantText = `[e2e-stub] Respuesta a: "${userMessage.slice(0, 80)}"`;
     } else if (isFreeChatConv) {
       const res = await runFreeChatTurn(
