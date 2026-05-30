@@ -109,6 +109,10 @@ export type HomeViewModel = {
     /** Return rate for the store on the as-of date (returns / gross sales).
      *  null when the store had no gross sales that day. */
     returnsRate: number | null;
+    /** Count of distinct tickets (reg_ventas with entrada=true) for the as-of date. */
+    tickets: number;
+    /** Average basket value (sales / tickets). 0 when tickets = 0. */
+    ticketMedio: number;
   }>;
   /** Stores excluded from `topStores` because they had no sales in the
    *  last 30 days. Surfaced under "Ver tiendas inactivas" so they remain
