@@ -1,10 +1,10 @@
 ---
-id: D-039
+id: D-040
 title: Conversation context logs live in files on a volume, not Postgres
 date: 2026-05-30
 ---
 
-# D-039: Conversation context logs live in files on a volume, not Postgres
+# D-040: Conversation context logs live in files on a volume, not Postgres
 
 *Decided: 2026-05-30*
 
