@@ -100,4 +100,4 @@ manager:
   model: "claude-opus-4-7"             # latest Opus; was claude-opus-4-6 in #558 spec
   max_turns: 80
   kill_switch_label: "no-ai-manager"
-  tracking_label: "factory-manager-tracking"
+  tracking_label: "fact-manager-tracking"

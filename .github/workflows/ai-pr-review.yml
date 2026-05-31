@@ -360,8 +360,11 @@ jobs:
           #     pushing commits. We can't rely on the bot-actor pull_request_review
           #     event to trigger it — GitHub withholds id-token for bot reviews.
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
+          # --paginate prints one length per page, so sum them (awk) instead of
+          # reading a multi-line "100\n2" value that would break the -gt test.
           OPUS_INLINE=$(gh api "repos/$REPO/pulls/$PR_NUMBER/comments?per_page=100" --paginate \
-            --jq "[.[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\")] | length" 2>/dev/null || echo "0")
+            --jq "[.[] | select(.user.login == \"claude[bot]\" and .commit_id == \"$HEAD_SHA\")] | length" 2>/dev/null \
+            | awk '{s+=$1} END{print s+0}')
 
           if [ "${OPUS_INLINE:-0}" -gt 0 ]; then
             echo "Opus left $OPUS_INLINE inline comment(s) on $HEAD_SHA — dispatching address-feedback to apply fixes."
@@ -383,23 +386,28 @@ jobs:
           for l in fact-phase-copilot fact-phase-opus fact-ready-for-review; do
             gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
           done
-          # CI-gated owner handoff — identical logic to the d021 step above and to
-          # owner_handoff_or_ci_gate in ai-address-feedback.yml: only mark
-          # ai-awaiting-owner when CI is green; never claim merge-ready on a red or
-          # in-flight CI. If CI isn't ready yet, the watchdog reconcile
-          # (fact-o-after-1 + CI ready) hands off on the next cycle.
-          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')
+          # CI-gated owner handoff. The current head's check-runs are the source
+          # of truth (NOT a possibly-stale fact-ci-failing label from an earlier
+          # commit): only mark ai-awaiting-owner when this head is green; never
+          # claim merge-ready on a red or in-flight CI. Mirrors
+          # owner_handoff_or_ci_gate in ai-address-feedback.yml.
           CI_STATE=$(gh api "repos/$REPO/commits/$HEAD_SHA/check-runs" \
             --jq '[.check_runs[] | .conclusion] | if length == 0 then "running" elif any(. == null) then "running" elif all(. == "success" or . == "skipped" or . == "neutral") then "ready" else "failing" end' \
             2>/dev/null || echo "unknown")
-          if echo ",$LABELS," | grep -q ",fact-ci-failing,"; then CI_STATE="failing"; fi
           if [ "$CI_STATE" = "ready" ]; then
+            # Current head is green — clear any stale failure flag from an earlier commit.
+            gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/fact-ci-failing" >/dev/null 2>&1 || true
             gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
               --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus) — no changes required. PR is ready for human merge decision." || true
+          elif [ "$CI_STATE" = "failing" ]; then
+            gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=fact-ci-failing" >/dev/null 2>&1 || true
+            gh pr comment "$PR_NUMBER" --repo "$REPO" \
+              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus), but **CI is failing** on the head SHA — not marking \`ai-awaiting-owner\`. AI CI remediation will run." || true
+            gh workflow run ai-ci-remediation.yml --repo "$REPO" --field pr_number="$PR_NUMBER" || true
           else
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). **Not marking \`ai-awaiting-owner\`** yet — CI is \`$CI_STATE\`. The watchdog will hand off once CI greens (\`fact-o-after-1\` + CI ready)." || true
+              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). **Not marking \`ai-awaiting-owner\`** yet — CI is \`$CI_STATE\`. The watchdog reconcile hands off once CI greens (\`fact-o-after-1\` + CI ready)." || true
           fi
 
       - name: Handle failure
