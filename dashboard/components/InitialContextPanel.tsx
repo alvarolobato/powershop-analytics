@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useEffect, type ReactNode } from "react";
 import type { InitialContext } from "@/lib/conversation-types";
 
 interface InitialContextPanelProps {
@@ -245,15 +245,15 @@ function ContextBody({ context }: { context: InitialContext }) {
       )}
 
       {/* Conversation history preview */}
-      {context.prior_messages_preview && context.prior_messages_preview.length > 0 && (
+      {context.prior_messages_history && context.prior_messages_history.length > 0 && (
         <CollapsibleSection
-          label={`Historial de la conversación (${context.prior_messages_preview.length} mensajes)`}
+          label={`Historial de la conversación (${context.prior_messages_history.length} mensajes)`}
         >
           <div
             data-testid="history-preview"
             style={{ display: "flex", flexDirection: "column", gap: 4 }}
           >
-            {context.prior_messages_preview.map((msg, i) => (
+            {context.prior_messages_history.map((msg, i) => (
               <div
                 key={i}
                 style={{
@@ -367,23 +367,22 @@ export function InitialContextPanel({ context, load }: InitialContextPanelProps)
   const [error, setError] = useState<string | null>(null);
 
   const handleToggle = useCallback(() => {
-    setOpen((wasOpen) => {
-      const next = !wasOpen;
-      // Lazy-load the heavy context log from its file on first expand.
-      if (next && !loaded && !loading && load) {
-        setLoading(true);
-        setError(null);
-        load()
-          .then((c) => {
-            if (c) setLoaded(c);
-            else setError("No hay contexto disponible para este turno.");
-          })
-          .catch(() => setError("No se pudo cargar el contexto."))
-          .finally(() => setLoading(false));
-      }
-      return next;
-    });
-  }, [loaded, loading, load]);
+    setOpen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (open && !loaded && !loading && load) {
+      setLoading(true);
+      setError(null);
+      load()
+        .then((c) => {
+          if (c) setLoaded(c);
+          else setError("No hay contexto disponible para este turno.");
+        })
+        .catch(() => setError("No se pudo cargar el contexto."))
+        .finally(() => setLoading(false));
+    }
+  }, [open, loaded, loading, load]);
 
   return (
     <div

@@ -203,7 +203,7 @@ function makeSystemPromptReadyHandler(
         flow: mode,
         seed_prompt: userMessage,
         prior_messages: priorMessages.length,
-        prior_messages_preview: priorMessages.map((m) => ({
+        prior_messages_history: priorMessages.map((m) => ({
           role: m.role,
           content: m.content,
         })),

@@ -123,13 +123,13 @@ describe("InitialContextPanel", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // EC-7 — prior_messages_preview rendered as collapsible history
+  // EC-7 — prior_messages_history rendered as collapsible history
   // ---------------------------------------------------------------------------
 
-  it("renders prior_messages_preview as collapsible history (EC-7)", () => {
+  it("renders prior_messages_history as collapsible history (EC-7)", () => {
     const ctx = makeContext({
       prior_messages: 3,
-      prior_messages_preview: [
+      prior_messages_history: [
         { role: "user", content: "Hola, muéstrame ventas" },
         { role: "assistant", content: "Aquí tienes las ventas del mes" },
         { role: "user", content: "¿Y del año anterior?" },
@@ -151,7 +151,7 @@ describe("InitialContextPanel", () => {
     expect(screen.getByText(/Aquí tienes las ventas del mes/)).toBeInTheDocument();
   });
 
-  it("does not render history section when prior_messages_preview is absent (EC-7)", () => {
+  it("does not render history section when prior_messages_history is absent (EC-7)", () => {
     const ctx = makeContext({ prior_messages: 5 });
     render(<InitialContextPanel context={ctx} />);
     openPanel();
@@ -169,7 +169,7 @@ describe("InitialContextPanel", () => {
       provider: "cli",
       driver: "claude_code",
       prior_messages: 2,
-      prior_messages_preview: [
+      prior_messages_history: [
         { role: "user", content: "prev message" },
         { role: "assistant", content: "prev response" },
       ],

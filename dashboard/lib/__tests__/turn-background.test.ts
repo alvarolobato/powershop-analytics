@@ -204,11 +204,11 @@ describe("runTurnBackground — free-chat path", () => {
     const ctx = mockWriteTurnContext.mock.calls[0][2] as {
       seed_prompt: string;
       prior_messages: number;
-      prior_messages_preview: Array<{ role: string; content: string }>;
+      prior_messages_history: Array<{ role: string; content: string }>;
     };
     expect(ctx.seed_prompt).toBe("segunda pregunta");
     expect(ctx.prior_messages).toBe(2);
-    expect(ctx.prior_messages_preview).toEqual([
+    expect(ctx.prior_messages_history).toEqual([
       { role: "user", content: "primera pregunta" },
       { role: "assistant", content: "primera respuesta" },
     ]);
