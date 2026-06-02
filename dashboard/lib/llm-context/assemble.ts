@@ -29,7 +29,10 @@ import {
 import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
 import type { LlmAgenticContext, AgenticProgressEvent } from "@/lib/llm-tools/types";
 import type { NormalizedUsage } from "@/lib/llm-client";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from "openai/resources/chat/completions";
 
 import { buildSystemPrompt } from "./system-prompt";
 import { buildHistory, type HistoryMessage } from "./history";
@@ -108,10 +111,35 @@ export async function assembleRequest(
     content: m.content,
   }));
 
-  // 4. Execute — only route through agentic when the flow has tools; single-shot
+  // 4. Resolve tools + the exact system prompt that will be sent. Single-shot
   // flows (suggest/gap/summary/title/weekly) return [] from toolsForFlow and
   // must stay on the llmComplete path to preserve strict JSON-only outputs.
   const tools = toolsForFlow(flow);
+  const fullSystemPrompt = volatile ? `${stable}\n\n${volatile}` : stable;
+
+  // Surface the exact request being sent to the LLM (system prompt + tools) so
+  // the conversation UI can render "Contexto original" and persist it for resume.
+  // This is the single capture point now that every flow routes through
+  // assembleRequest — callers wire ctx.onSystemPromptReady to emit/persist a
+  // "context" turn event. Must run for BOTH execution paths and never throw.
+  if (opts?.ctx?.onSystemPromptReady) {
+    const toolSchemas = tools
+      .filter(
+        (t): t is Extract<ChatCompletionTool, { type: "function" }> =>
+          t.type === "function",
+      )
+      .map((t) => ({
+        name: t.function.name,
+        schema: t.function as unknown as Record<string, unknown>,
+      }));
+    try {
+      opts.ctx.onSystemPromptReady(fullSystemPrompt, toolSchemas);
+    } catch {
+      /* context emission is best-effort — never break the LLM call */
+    }
+  }
+
+  // 5. Execute — only route through agentic when the flow has tools.
   if (isAgenticToolsEnabled() && tools.length > 0) {
     const adapter = createDashboardAgenticAdapter();
 
@@ -130,8 +158,6 @@ export async function assembleRequest(
       cfg.provider === "openrouter"
         ? buildCachedSystemMessage(stable, volatile)
         : undefined;
-
-    const fullSystemPrompt = volatile ? `${stable}\n\n${volatile}` : stable;
 
     const { content, usage } = await callWithCircuitBreaker(() =>
       runAgenticChat({

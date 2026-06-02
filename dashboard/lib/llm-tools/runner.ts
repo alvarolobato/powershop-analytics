@@ -482,6 +482,17 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
         tool_call_id: tc.id,
         content: payload,
       });
+
+      // Capture the round-trip so the caller can persist it as conversation
+      // context for later turns (the "interesting part": tool, args, result).
+      (ctx.toolCalls ??= []).push({
+        id: tc.id,
+        name: name || "(missing)",
+        arguments: rawArgs,
+        result: payload,
+        ok: body.ok,
+        ms: latency,
+      });
     }
   }
 

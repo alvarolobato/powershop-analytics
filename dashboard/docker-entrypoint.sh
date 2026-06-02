@@ -37,4 +37,15 @@ else
   echo "[claude-auth] CLAUDE_CODE_OAUTH_TOKEN not set — CLI provider will be unavailable."
 fi
 
+# Conversation context-log volume. Per-turn context files (the exact payload sent
+# to the LLM) are written here. Best-effort: the app degrades gracefully if the
+# volume isn't writable (conversations still work, only the context log is skipped).
+CTX_DIR="${DASHBOARD_CONTEXT_DIR:-/app/data/conversations}"
+if mkdir -p "$CTX_DIR" 2>/dev/null && [ -w "$CTX_DIR" ]; then
+  echo "[context-store] context dir ready: $CTX_DIR"
+else
+  echo "[context-store] WARNING: $CTX_DIR is not writable by uid $(id -u) — context logs will be skipped."
+  echo "[context-store] Fix on host: mkdir -p ./data/dashboard/conversations && chown -R 1001:1001 ./data/dashboard/conversations"
+fi
+
 exec "$@"

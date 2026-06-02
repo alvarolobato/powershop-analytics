@@ -15,6 +15,8 @@ export interface TurnRow {
   started_at: string | null;
   completed_at: string | null;
   error: string | null;
+  /** Relative path to this turn's context-log file (conversation-context-store), or null. */
+  context_file: string | null;
   created_at: string;
 }
 
@@ -109,6 +111,32 @@ export async function insertTurnEvent(
   );
   if (!rows[0]?.id) throw new Error("insertTurnEvent: RETURNING id returned no rows");
   return rows[0].id;
+}
+
+/** Record the relative path of a turn's context-log file (see conversation-context-store). */
+export async function setTurnContextFile(turnId: string, contextFile: string): Promise<void> {
+  await sql(
+    `UPDATE conversation_turns SET context_file = $2 WHERE id = $1`,
+    [turnId, contextFile],
+  );
+}
+
+/**
+ * Resolve a turn's context-file path, scoped to its conversation so a caller
+ * can only read context for a turn that belongs to the given conversation.
+ * Returns null when the turn doesn't exist, belongs to another conversation,
+ * or has no context file.
+ */
+export async function getTurnContextFile(
+  conversationId: string,
+  turnId: string,
+): Promise<string | null> {
+  const rows = await sql<{ context_file: string | null }>(
+    `SELECT context_file FROM conversation_turns
+      WHERE id = $1 AND conversation_id = $2`,
+    [turnId, conversationId],
+  );
+  return rows[0]?.context_file ?? null;
 }
 
 export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents | null> {

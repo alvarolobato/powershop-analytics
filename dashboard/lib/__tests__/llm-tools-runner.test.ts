@@ -170,6 +170,51 @@ describe("runAgenticChat", () => {
     );
   });
 
+  it("captures tool round-trips into ctx.toolCalls for later persistence", async () => {
+    const create = vi
+      .fn()
+      .mockReturnValueOnce(
+        makeToolCallStream(
+          [{ id: "call_1", function: { name: "list_ps_tables", arguments: "{}" } }],
+          { prompt_tokens: 5, completion_tokens: 0, total_tokens: 5 },
+        ),
+      )
+      .mockReturnValueOnce(
+        makeTextStream("listo", { prompt_tokens: 2, completion_tokens: 3, total_tokens: 5 }),
+      );
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
+
+    // Fresh ctx (not a spread of the shared one) so the runner-mutated
+    // toolCalls array starts empty and isn't polluted by other tests.
+    const runCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
+      requestId: "req_runner_test",
+      endpoint: "testEndpoint",
+      llmProvider: "openrouter",
+      llmDriver: null,
+    };
+    await runAgenticChat({
+      adapter,
+      model: "m",
+      systemPrompt: "sys",
+      userContent: "hi",
+      ctx: runCtx,
+      temperature: 0,
+      maxTokens: 200,
+    });
+
+    expect(runCtx.toolCalls).toHaveLength(1);
+    expect(runCtx.toolCalls?.[0]).toMatchObject({
+      id: "call_1",
+      name: "list_ps_tables",
+      arguments: "{}",
+      ok: true,
+    });
+    // The result payload the model received is captured (contains the tool output).
+    expect(runCtx.toolCalls?.[0].result).toContain("ps_ventas");
+    expect(typeof runCtx.toolCalls?.[0].ms).toBe("number");
+  });
+
   it("throws AgenticRunnerError when max tool rounds is exceeded", async () => {
     vi.stubEnv("DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS", "1");
     const create = vi.fn().mockReturnValue(

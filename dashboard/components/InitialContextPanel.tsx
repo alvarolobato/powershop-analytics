@@ -1,10 +1,17 @@
 "use client";
 
-import { useState, useCallback, type ReactNode } from "react";
+import { useState, useCallback, useEffect, type ReactNode } from "react";
 import type { InitialContext } from "@/lib/conversation-types";
 
 interface InitialContextPanelProps {
-  context: InitialContext;
+  /** Eager context (already loaded). Use this OR `load`, not both. */
+  context?: InitialContext;
+  /**
+   * Lazy loader. When provided (and no eager `context`), the panel fetches the
+   * context the first time it is expanded — the heavy context log lives in a file
+   * on the data volume and is only loaded on demand.
+   */
+  load?: () => Promise<InitialContext | null>;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -207,13 +214,175 @@ function ToolEntry({ name, schema }: ToolEntryProps) {
   );
 }
 
-export function InitialContextPanel({ context }: InitialContextPanelProps) {
-  const [open, setOpen] = useState(false);
-
+function ContextBody({ context }: { context: InitialContext }) {
   const providerLabel =
     context.provider === "cli"
       ? `Claude CLI (${context.driver ?? "claude_code"})`
       : "OpenRouter";
+
+  return (
+    <div
+      style={{
+        padding: "12px 14px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 14,
+        borderTop: "1px solid var(--border)",
+      }}
+    >
+      {/* Modelo y proveedor */}
+      <FieldRow label="Modelo y proveedor">
+        <span>
+          {context.model} via {providerLabel}
+        </span>
+      </FieldRow>
+
+      {/* Prior messages in context */}
+      {context.prior_messages !== undefined && (
+        <FieldRow label="Mensajes previos en contexto">
+          <span>{context.prior_messages} mensaje{context.prior_messages !== 1 ? "s" : ""}</span>
+        </FieldRow>
+      )}
+
+      {/* Conversation history preview */}
+      {context.prior_messages_history && context.prior_messages_history.length > 0 && (
+        <CollapsibleSection
+          label={`Historial de la conversación (${context.prior_messages_history.length} mensajes)`}
+        >
+          <div
+            data-testid="history-preview"
+            style={{ display: "flex", flexDirection: "column", gap: 4 }}
+          >
+            {context.prior_messages_history.map((msg, i) => (
+              <div
+                key={i}
+                style={{
+                  fontSize: 11,
+                  fontFamily: "var(--font-jetbrains, monospace)",
+                  padding: "4px 6px",
+                  background: "var(--bg-1)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 3,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
+              >
+                <span style={{ color: "var(--fg-muted)", fontWeight: 600 }}>
+                  {msg.role}:{" "}
+                </span>
+                <span style={{ color: "var(--fg)" }}>{msg.content}</span>
+              </div>
+            ))}
+          </div>
+        </CollapsibleSection>
+      )}
+
+      {/* Prompt inicial */}
+      {context.seed_prompt && (
+        <FieldRow label="Prompt inicial del usuario">
+          <span
+            style={{
+              fontFamily: "var(--font-jetbrains, monospace)",
+              fontSize: 12,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {context.seed_prompt}
+          </span>
+        </FieldRow>
+      )}
+
+      {/* System prompts */}
+      {context.system_prompt_stable && (
+        <PromptBlock label="System prompt — Estable (cacheado)" text={context.system_prompt_stable} />
+      )}
+      {context.system_prompt_volatile && (
+        <PromptBlock label="System prompt — Volátil" text={context.system_prompt_volatile} />
+      )}
+
+      {/* Tools */}
+      {context.tools && context.tools.length > 0 && (
+        <div>
+          <p
+            style={{
+              margin: "0 0 6px",
+              fontSize: 10,
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+              color: "var(--fg-muted)",
+            }}
+          >
+            Herramientas disponibles ({context.tools.length})
+          </p>
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {context.tools.map((tool) => (
+              <ToolEntry key={tool.name} name={tool.name} schema={tool.schema} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Config — only show readable fields, not raw dashboard spec JSON */}
+      {context.config && Object.keys(context.config).length > 0 && (
+        <FieldRow label="Configuración">
+          <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+            {Object.entries(context.config)
+              .filter(([, v]) => typeof v !== "string" || v.length < 200)
+              .map(([k, v]) => (
+                <span key={k} style={{ fontSize: 11, fontFamily: "var(--font-jetbrains, monospace)" }}>
+                  <span style={{ color: "var(--fg-muted)" }}>{k}: </span>
+                  <span style={{ color: "var(--fg)" }}>
+                    {typeof v === "string" ? v : JSON.stringify(v)}
+                  </span>
+                </span>
+              ))}
+          </div>
+        </FieldRow>
+      )}
+    </div>
+  );
+}
+
+function StatusRow({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        padding: "12px 14px",
+        borderTop: "1px solid var(--border)",
+        fontSize: 12,
+        color: "var(--fg-muted)",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+export function InitialContextPanel({ context, load }: InitialContextPanelProps) {
+  const [open, setOpen] = useState(false);
+  const [loaded, setLoaded] = useState<InitialContext | null>(context ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleToggle = useCallback(() => {
+    setOpen((prev) => !prev);
+  }, []);
+
+  useEffect(() => {
+    if (open && !loaded && !loading && load) {
+      setLoading(true);
+      setError(null);
+      load()
+        .then((c) => {
+          if (c) setLoaded(c);
+          else setError("No hay contexto disponible para este turno.");
+        })
+        .catch(() => setError("No se pudo cargar el contexto."))
+        .finally(() => setLoading(false));
+    }
+  }, [open, loaded, loading, load]);
 
   return (
     <div
@@ -226,7 +395,7 @@ export function InitialContextPanel({ context }: InitialContextPanelProps) {
     >
       {/* Toggle row */}
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={handleToggle}
         style={{
           display: "flex",
           alignItems: "center",
@@ -249,127 +418,9 @@ export function InitialContextPanel({ context }: InitialContextPanelProps) {
         Contexto original
       </button>
 
-      {open && (
-        <div
-          style={{
-            padding: "12px 14px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-            borderTop: "1px solid var(--border)",
-          }}
-        >
-          {/* Modelo y proveedor */}
-          <FieldRow label="Modelo y proveedor">
-            <span>
-              {context.model} via {providerLabel}
-            </span>
-          </FieldRow>
-
-          {/* Prior messages in context */}
-          {context.prior_messages !== undefined && (
-            <FieldRow label="Mensajes previos en contexto">
-              <span>{context.prior_messages} mensaje{context.prior_messages !== 1 ? "s" : ""}</span>
-            </FieldRow>
-          )}
-
-          {/* Conversation history preview */}
-          {context.prior_messages_preview && context.prior_messages_preview.length > 0 && (
-            <CollapsibleSection
-              label={`Historial de la conversación (${context.prior_messages_preview.length} mensajes)`}
-            >
-              <div
-                data-testid="history-preview"
-                style={{ display: "flex", flexDirection: "column", gap: 4 }}
-              >
-                {context.prior_messages_preview.map((msg, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      fontSize: 11,
-                      fontFamily: "var(--font-jetbrains, monospace)",
-                      padding: "4px 6px",
-                      background: "var(--bg-1)",
-                      border: "1px solid var(--border)",
-                      borderRadius: 3,
-                    }}
-                  >
-                    <span style={{ color: "var(--fg-muted)", fontWeight: 600 }}>
-                      {msg.role}:{" "}
-                    </span>
-                    <span style={{ color: "var(--fg)" }}>{msg.content}</span>
-                  </div>
-                ))}
-              </div>
-            </CollapsibleSection>
-          )}
-
-          {/* Prompt inicial */}
-          {context.seed_prompt && (
-            <FieldRow label="Prompt inicial del usuario">
-              <span
-                style={{
-                  fontFamily: "var(--font-jetbrains, monospace)",
-                  fontSize: 12,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                }}
-              >
-                {context.seed_prompt}
-              </span>
-            </FieldRow>
-          )}
-
-          {/* System prompts */}
-          {context.system_prompt_stable && (
-            <PromptBlock label="System prompt — Estable (cacheado)" text={context.system_prompt_stable} />
-          )}
-          {context.system_prompt_volatile && (
-            <PromptBlock label="System prompt — Volátil" text={context.system_prompt_volatile} />
-          )}
-
-          {/* Tools */}
-          {context.tools && context.tools.length > 0 && (
-            <div>
-              <p
-                style={{
-                  margin: "0 0 6px",
-                  fontSize: 10,
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  color: "var(--fg-muted)",
-                }}
-              >
-                Herramientas disponibles ({context.tools.length})
-              </p>
-              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                {context.tools.map((tool) => (
-                  <ToolEntry key={tool.name} name={tool.name} schema={tool.schema} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Config — only show readable fields, not raw dashboard spec JSON */}
-          {context.config && Object.keys(context.config).length > 0 && (
-            <FieldRow label="Configuración">
-              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                {Object.entries(context.config)
-                  .filter(([, v]) => typeof v !== "string" || v.length < 200)
-                  .map(([k, v]) => (
-                    <span key={k} style={{ fontSize: 11, fontFamily: "var(--font-jetbrains, monospace)" }}>
-                      <span style={{ color: "var(--fg-muted)" }}>{k}: </span>
-                      <span style={{ color: "var(--fg)" }}>
-                        {typeof v === "string" ? v : JSON.stringify(v)}
-                      </span>
-                    </span>
-                  ))}
-              </div>
-            </FieldRow>
-          )}
-        </div>
-      )}
+      {open && loading && <StatusRow text="Cargando contexto…" />}
+      {open && !loading && error && <StatusRow text={error} />}
+      {open && loaded && <ContextBody context={loaded} />}
     </div>
   );
 }

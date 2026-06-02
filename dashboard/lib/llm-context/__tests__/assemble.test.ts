@@ -140,4 +140,39 @@ describe("assembleRequest", () => {
     const callArgs = mockLlmComplete.mock.calls[0]?.[0];
     expect(callArgs?.flow).toBe("suggest");
   });
+
+  // Regression guard (issue: llm-context-missing): every flow must surface the
+  // EXACT prompt + tools it sends to the LLM via ctx.onSystemPromptReady, so the
+  // conversation UI can render "Contexto original" and persist it for resume.
+  // Before the fix this callback was dead — assembleRequest never invoked it.
+  it("invokes ctx.onSystemPromptReady with the assembled system prompt + tools", async () => {
+    const onSystemPromptReady = vi.fn();
+    await assembleRequest("generate", {}, null, "Crear dashboard de ventas", {
+      ctx: { requestId: "req_1", endpoint: "generate", onSystemPromptReady },
+    });
+
+    expect(onSystemPromptReady).toHaveBeenCalledTimes(1);
+    const [systemPrompt, tools] = onSystemPromptReady.mock.calls[0];
+    // Full prompt = stable (+ volatile) — must match what was sent to the LLM.
+    expect(typeof systemPrompt).toBe("string");
+    expect(systemPrompt).toContain("dashboard generator");
+    const sent = mockLlmComplete.mock.calls[0]?.[0]?.systemPrompt;
+    const expectedFull = sent?.volatile
+      ? `${sent.stable}\n\n${sent.volatile}`
+      : sent?.stable;
+    expect(systemPrompt).toBe(expectedFull);
+    expect(Array.isArray(tools)).toBe(true);
+  });
+
+  it("does not throw when ctx.onSystemPromptReady itself throws", async () => {
+    const onSystemPromptReady = vi.fn(() => {
+      throw new Error("boom");
+    });
+    await expect(
+      assembleRequest("generate", {}, null, "Crear dashboard", {
+        ctx: { requestId: "req_2", endpoint: "generate", onSystemPromptReady },
+      }),
+    ).resolves.toHaveProperty("text", "mocked response");
+    expect(onSystemPromptReady).toHaveBeenCalled();
+  });
 });

@@ -9,8 +9,10 @@
 import {
   updateTurnStatus,
   insertTurnEvent,
+  setTurnContextFile,
   type TurnRow,
 } from "@/lib/turn-events";
+import { writeTurnContext } from "@/lib/conversation-context-store";
 import {
   appendMessage,
   loadMessages,
@@ -21,9 +23,38 @@ import {
 import { publish } from "@/lib/sse-pubsub";
 import { generateRequestId } from "@/lib/errors";
 import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
+import { flattenStoredMessage } from "@/lib/llm-context/history";
+import type { AgenticToolCallRecord } from "@/lib/llm-tools/types";
+import type { AssistantMessageContent, ToolCallRecord } from "@/lib/conversation-types";
 
 // Re-export for use in tests without importing from route
 export type { ConversationRow };
+
+// ── Tool-call persistence ──────────────────────────────────────────────────────
+
+/** Best-effort parse of a raw JSON arguments string into an object for storage. */
+function parseToolArgs(raw: string): Record<string, unknown> {
+  try {
+    const v = JSON.parse(raw);
+    return v && typeof v === "object" && !Array.isArray(v)
+      ? (v as Record<string, unknown>)
+      : { _raw: raw };
+  } catch {
+    return { _raw: raw };
+  }
+}
+
+/** Map runner-captured tool calls to the persisted conversation_messages shape. */
+function toDbToolCalls(calls: AgenticToolCallRecord[] | undefined): ToolCallRecord[] {
+  return (calls ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    arguments: parseToolArgs(c.arguments),
+    result: c.result,
+    success: c.ok,
+    duration_ms: c.ms,
+  }));
+}
 
 // ── Tool arg formatting ────────────────────────────────────────────────────────
 
@@ -122,6 +153,84 @@ function makeProgressHandler(
   };
 }
 
+// ── Context-log capture handler ────────────────────────────────────────────────
+
+/**
+ * Creates an `onSystemPromptReady` callback that writes the EXACT payload sent to
+ * the LLM (system prompt, tool catalog, full prior history, user message) to this
+ * turn's context-log file on the data volume, records the pointer on the turn, and
+ * emits a lightweight "context_ref" turn event so the UI can show a collapsed
+ * "Contexto original" entry and lazy-load the file when expanded.
+ *
+ * assembleRequest() invokes this once it has assembled the request (before the
+ * first LLM call). The heavy payload never touches Postgres — only the pointer
+ * does. Best-effort: a write/DB failure must not break the turn.
+ *
+ * Wired for every conversation mode (free-chat, analyze/modify, generic).
+ */
+/** Mutable holder so the caller can await the (async) context-log write. */
+interface ContextWriteHandle {
+  done: Promise<void>;
+}
+
+function makeSystemPromptReadyHandler(
+  conversation: ConversationRow,
+  mode: string,
+  userMessage: string,
+  priorMessages: Array<{ role: string; content: string }>,
+  requestId: string,
+  conversationId: string,
+  turnId: string,
+  seq: () => number,
+  handle: ContextWriteHandle,
+): (
+  systemPrompt: string,
+  tools?: Array<{ name: string; schema: Record<string, unknown> }>,
+) => void {
+  return (systemPrompt, tools) => {
+    // Allocate the seq synchronously so event ordering stays deterministic even
+    // though the file write + DB update + emit happen asynchronously below.
+    const eventSeq = seq();
+    // Kick off the write now (so live viewers get the context_ref early via the
+    // SSE publish) and record the promise so the turn awaits it before completing.
+    handle.done = (async () => {
+      // The context log: an exact copy of what was sent to the LLM this turn.
+      // Full, untruncated history — it lives in a file, not the DB.
+      const context = {
+        model: resolveModelName(),
+        provider: conversation.llm_provider ?? "unknown",
+        driver: conversation.llm_driver ?? null,
+        flow: mode,
+        seed_prompt: userMessage,
+        prior_messages: priorMessages.length,
+        prior_messages_history: priorMessages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+        system_prompt_stable: systemPrompt,
+        ...(tools && tools.length > 0 && { tools }),
+      };
+      const file = await writeTurnContext(conversationId, turnId, context);
+      if (!file) return; // best-effort — skip the pointer/ref on write failure
+      try {
+        await setTurnContextFile(turnId, file);
+      } catch (err) {
+        console.warn(`[turn-background] setTurnContextFile failed for ${turnId}:`, err);
+      }
+      await emitTurnEvent(conversationId, turnId, eventSeq, "context_ref", {
+        turnId,
+        file,
+        model: context.model,
+        provider: context.provider,
+        driver: context.driver,
+        flow: mode,
+        prior_messages: priorMessages.length,
+        requestId,
+      }).catch(() => {});
+    })();
+  };
+}
+
 // ── Sequential event counter per turn ─────────────────────────────────────────
 
 function makeSeq(): () => number {
@@ -159,37 +268,25 @@ export async function runTurnBackground(
     // Load prior messages first so the context snapshot includes the message count.
     // Must be loaded before appending the current user message.
     const prior = await loadMessages(conversationId);
+    // Flatten to history lines — assistant turns carry their tool calls folded in
+    // as a compact block so tool results stay in context across turns.
     const priorMessages = prior
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => {
-        const c = m.content;
-        const text =
-          typeof c === "string"
-            ? c
-            : c !== null &&
-                typeof c === "object" &&
-                !Array.isArray(c) &&
-                typeof (c as Record<string, unknown>).text === "string"
-              ? ((c as Record<string, unknown>).text as string)
-              : JSON.stringify(c);
-        return { role: m.role as "user" | "assistant", content: text };
-      });
+      .map((m) => flattenStoredMessage(m))
+      .filter((m): m is { role: "user" | "assistant"; content: string } => m !== null);
 
-    // Emit context snapshot now that we know how many prior messages exist.
-    const contextPayload = buildContextPayload(
-      conversation,
-      requestId,
-      userMessage,
-      priorMessages.length,
-      priorMessages,
-    );
-    await emitTurnEvent(conversationId, turnId, seq(), "context", contextPayload);
+    // The context log (exact payload sent to the LLM) is written to this turn's
+    // file and announced via a lightweight "context_ref" event from
+    // makeSystemPromptReadyHandler once assembleRequest() assembles the request —
+    // it is NOT stored in Postgres.
 
     // Persist user message so future turns can reconstruct full history.
     await appendMessage(conversationId, "user", { text: userMessage });
 
     // Dispatch to the appropriate LLM path based on conversation mode.
     let assistantText: string;
+    // Tool calls the model made this turn — persisted on the assistant message so
+    // later turns retain the tool context (which query ran, with what result).
+    let assistantToolCalls: AgenticToolCallRecord[] = [];
     const mode = conversation.mode;
     const isFreeChatConv = conversation.context_kind === "global" || mode === "chat";
 
@@ -208,9 +305,25 @@ export async function runTurnBackground(
         text: "[e2e-stub] respuesta generada sin LLM real",
         ts: new Date().toISOString(),
       });
+      // Exercise the real context-log path (write file + emit context_ref) so the
+      // UI still shows "Contexto original" without a real LLM call.
+      const stubHandle: ContextWriteHandle = { done: Promise.resolve() };
+      makeSystemPromptReadyHandler(
+        conversation,
+        mode,
+        userMessage,
+        priorMessages,
+        requestId,
+        conversationId,
+        turnId,
+        seq,
+        stubHandle,
+      )("[e2e-stub] system prompt", []);
+      await stubHandle.done;
       assistantText = `[e2e-stub] Respuesta a: "${userMessage.slice(0, 80)}"`;
     } else if (isFreeChatConv) {
-      assistantText = await runFreeChatTurn(
+      const res = await runFreeChatTurn(
+        conversation,
         userMessage,
         priorMessages,
         requestId,
@@ -218,6 +331,8 @@ export async function runTurnBackground(
         turnId,
         seq,
       );
+      assistantText = res.text;
+      assistantToolCalls = res.toolCalls;
     } else if (mode === "analyze" || mode === "modify") {
       const dashResult = await runDashboardTurn(
         mode,
@@ -230,6 +345,7 @@ export async function runTurnBackground(
         seq,
       );
       assistantText = dashResult.text;
+      assistantToolCalls = dashResult.toolCalls;
       // Notify SSE clients when a modify turn produced a new dashboard spec.
       if (dashResult.spec) {
         await emitTurnEvent(conversationId, turnId, seq(), "spec_update", {
@@ -240,18 +356,29 @@ export async function runTurnBackground(
       }
     } else {
       // Fallback: generic single-shot chat completion.
-      assistantText = await runGenericTurn(
+      const res = await runGenericTurn(
         conversation,
         userMessage,
         priorMessages,
         requestId,
+        conversationId,
+        turnId,
+        seq,
       );
+      assistantText = res.text;
+      assistantToolCalls = res.toolCalls;
     }
 
-    // Persist final assistant message to conversation_messages.
-    const assistantMsg = await appendMessage(conversationId, "assistant", {
-      text: assistantText,
-    });
+    // Persist final assistant message to conversation_messages — including the
+    // tool calls made this turn so later turns retain the tool context.
+    const assistantContent: AssistantMessageContent = { text: assistantText };
+    const dbToolCalls = toDbToolCalls(assistantToolCalls);
+    if (dbToolCalls.length > 0) assistantContent.tool_calls = dbToolCalls;
+    const assistantMsg = await appendMessage(
+      conversationId,
+      "assistant",
+      assistantContent,
+    );
     await touchConversation(conversationId, "ok");
 
     // Emit the complete event with the assistant message for SSE clients.
@@ -281,22 +408,42 @@ export async function runTurnBackground(
 
 // ── LLM dispatch helpers ───────────────────────────────────────────────────────
 
+/** Text reply plus any tool calls the model made, for persistence. */
+interface TurnReply {
+  text: string;
+  toolCalls: AgenticToolCallRecord[];
+}
+
 async function runFreeChatTurn(
+  conversation: ConversationRow,
   userMessage: string,
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
   conversationId: string,
   turnId: string,
   seq: () => number,
-): Promise<string> {
+): Promise<TurnReply> {
   const { assembleRequest } = await import("@/lib/llm-context");
   const { AgenticRunnerError } = await import("@/lib/llm-tools/runner");
 
+  const ctxWrite: ContextWriteHandle = { done: Promise.resolve() };
   const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
     requestId,
     endpoint: "freeChat" as const,
     conversationId,
     onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
+    // Write the exact payload sent to the LLM to this turn's context-log file.
+    onSystemPromptReady: makeSystemPromptReadyHandler(
+      conversation,
+      "chat",
+      userMessage,
+      priorMessages,
+      requestId,
+      conversationId,
+      turnId,
+      seq,
+      ctxWrite,
+    ),
   };
 
   try {
@@ -314,7 +461,8 @@ async function runFreeChatTurn(
         maxOutputTokens: 4096,
       },
     );
-    return result.text;
+    await ctxWrite.done; // ensure the context-log file + pointer are persisted
+    return { text: result.text, toolCalls: agenticCtx.toolCalls ?? [] };
   } catch (err) {
     if (err instanceof AgenticRunnerError) {
       await emitTurnEvent(conversationId, turnId, seq(), "log", {
@@ -329,6 +477,8 @@ async function runFreeChatTurn(
 
 interface DashboardTurnResult {
   text: string;
+  /** Tool calls the model made this turn (execute_query, describe_table, …). */
+  toolCalls: AgenticToolCallRecord[];
   /** Set when apply_dashboard_modification tool staged a new spec. */
   spec?: import("@/lib/schema").DashboardSpec;
   summary?: string;
@@ -345,6 +495,7 @@ async function runDashboardTurn(
   seq: () => number,
 ): Promise<DashboardTurnResult> {
   const { sql } = await import("@/lib/db-write");
+  const ctxWrite: ContextWriteHandle = { done: Promise.resolve() };
   // agenticCtx is mutated in-place by tool handlers (modifyResult, analyzeResult).
   const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
     requestId,
@@ -356,26 +507,18 @@ async function runDashboardTurn(
     // modes — analyze/modify always end with a tool call (submit_dashboard_analysis
     // or apply_dashboard_modification), never prose, so model_text_delta is JSON.
     onAgenticProgress: makeProgressHandler(conversationId, turnId, seq, true),
-    // Callback from analyzeDashboard/modifyDashboard once the system prompt is built.
-    // Emits an updated context event so the UI can show the full prompt sent to the LLM.
-    onSystemPromptReady: (systemPrompt: string, tools?: Array<{ name: string; schema: Record<string, unknown> }>) => {
-      const resolvedModel = resolveModelName();
-      const priorPreview = buildPriorPreview(priorMessages);
-      void emitTurnEvent(conversationId, turnId, seq(), "context", {
-        context: {
-          model: resolvedModel,
-          provider: conversation.llm_provider ?? "unknown",
-          driver: conversation.llm_driver ?? null,
-          flow: mode,
-          seed_prompt: userMessage,
-          prior_messages: priorMessages.length,
-          ...(priorPreview && { prior_messages_preview: priorPreview }),
-          system_prompt_stable: systemPrompt,
-          ...(tools && tools.length > 0 && { tools }),
-        },
-        requestId,
-      }).catch(() => {});
-    },
+    // Write the exact payload sent to the LLM to this turn's context-log file.
+    onSystemPromptReady: makeSystemPromptReadyHandler(
+      conversation,
+      mode,
+      userMessage,
+      priorMessages,
+      requestId,
+      conversation.id,
+      turnId,
+      seq,
+      ctxWrite,
+    ),
   };
 
   let currentSpec = "";
@@ -400,10 +543,13 @@ async function runDashboardTurn(
       agenticCtx,
       priorMessages,
     );
-    return { text };
+    await ctxWrite.done; // ensure the context-log file + pointer are persisted
+    return { text, toolCalls: agenticCtx.toolCalls ?? [] };
   } else {
     const { modifyDashboard } = await import("@/lib/llm");
     const text = await modifyDashboard(currentSpec, userMessage, agenticCtx, priorMessages);
+    await ctxWrite.done; // ensure the context-log file + pointer are persisted
+    const toolCalls = agenticCtx.toolCalls ?? [];
 
     // If the agentic runner called apply_dashboard_modification, persist the new spec.
     if (agenticCtx.modifyResult && dashId !== undefined && Number.isFinite(dashId)) {
@@ -413,13 +559,13 @@ async function runDashboardTurn(
           JSON.stringify(spec),
           dashId,
         ]);
-        return { text, spec, summary };
+        return { text, toolCalls, spec, summary };
       } catch (err) {
         console.error(`[turn-background] spec persist failed for dashboard ${dashId}:`, err);
       }
     }
 
-    return { text };
+    return { text, toolCalls };
   }
 }
 
@@ -428,9 +574,31 @@ async function runGenericTurn(
   userMessage: string,
   priorMessages: Array<{ role: "user" | "assistant"; content: string }>,
   requestId: string,
-): Promise<string> {
+  conversationId: string,
+  turnId: string,
+  seq: () => number,
+): Promise<TurnReply> {
   const { assembleRequest } = await import("@/lib/llm-context");
   const flowRaw = conversation.mode ?? "chat";
+  const ctxWrite: ContextWriteHandle = { done: Promise.resolve() };
+  // agenticCtx is captured so we can read back any tool calls after the run.
+  const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
+    requestId,
+    endpoint: flowRaw,
+    conversationId,
+    // Write the exact payload sent to the LLM to this turn's context-log file.
+    onSystemPromptReady: makeSystemPromptReadyHandler(
+      conversation,
+      flowRaw,
+      userMessage,
+      priorMessages,
+      requestId,
+      conversationId,
+      turnId,
+      seq,
+      ctxWrite,
+    ),
+  };
   const result = await assembleRequest(
     flowRaw,
     {},
@@ -440,19 +608,14 @@ async function runGenericTurn(
       priorMessages,
       requestId,
       endpoint: flowRaw,
+      ctx: agenticCtx,
     },
   );
-  return result.text;
+  await ctxWrite.done; // ensure the context-log file + pointer are persisted
+  return { text: result.text, toolCalls: agenticCtx.toolCalls ?? [] };
 }
 
-// ── Context snapshot builder ───────────────────────────────────────────────────
-
-function buildPriorPreview(
-  messages: Array<{ role: string; content: string }>,
-): Array<{ role: string; content: string }> | undefined {
-  if (messages.length === 0) return undefined;
-  return messages.slice(-10).map((m) => ({ role: m.role, content: m.content.slice(0, 200) }));
-}
+// ── Helpers ────────────────────────────────────────────────────────────────────
 
 function resolveModelName(): string {
   try {
@@ -461,39 +624,4 @@ function resolveModelName(): string {
   } catch {
     return "unknown";
   }
-}
-
-function buildContextPayload(
-  conversation: ConversationRow,
-  requestId: string,
-  userMessage?: string,
-  priorMessageCount?: number,
-  priorMessagesArray?: Array<{ role: string; content: string }>,
-): Record<string, unknown> {
-  const seed_prompt = userMessage?.trim() || undefined;
-  const priorMsgMeta = priorMessageCount !== undefined
-    ? { prior_messages: priorMessageCount }
-    : undefined;
-  const preview = priorMessagesArray ? buildPriorPreview(priorMessagesArray) : undefined;
-  const previewMeta = preview ? { prior_messages_preview: preview } : undefined;
-
-  if (conversation.initial_context) {
-    return {
-      context: { ...conversation.initial_context, seed_prompt, ...priorMsgMeta, ...previewMeta },
-      requestId,
-    };
-  }
-  const resolvedModel = resolveModelName();
-  return {
-    context: {
-      model: resolvedModel,
-      provider: conversation.llm_provider ?? "unknown",
-      driver: conversation.llm_driver ?? null,
-      flow: conversation.mode ?? "chat",
-      seed_prompt,
-      ...priorMsgMeta,
-      ...previewMeta,
-    },
-    requestId,
-  };
 }

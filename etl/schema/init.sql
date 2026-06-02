@@ -863,6 +863,11 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
     CONSTRAINT uq_conversation_turns_conv_index UNIQUE (conversation_id, turn_index)
 );
 
+-- Relative path to this turn's context-log file (the exact payload sent to the
+-- LLM). The heavy context lives on the dashboard's data volume, not in Postgres;
+-- only this pointer is stored. See dashboard/lib/conversation-context-store.ts.
+ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS context_file TEXT;
+
 -- Ordered log/token/context events emitted during a turn.
 -- Clients replay from seq=0 on connect; Last-Event-ID resumes from seq N.
 CREATE TABLE IF NOT EXISTS turn_events (

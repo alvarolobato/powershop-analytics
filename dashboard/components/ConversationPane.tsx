@@ -22,12 +22,24 @@ import type { DashboardSpec } from "@/lib/schema";
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface TurnData {
-  context: InitialContext | null;
+  /**
+   * True once a "context_ref" event arrived for this turn — the heavy context log
+   * lives in a file and is lazy-loaded from /context/:turnId when expanded.
+   */
+  hasContext: boolean;
   thinking: string | null; // final extended-thinking text (persisted after complete)
   logs: LogLine[];
   complete: boolean;
   error: string | null;
 }
+
+const EMPTY_TURN: TurnData = {
+  hasContext: false,
+  thinking: null,
+  logs: [],
+  complete: false,
+  error: null,
+};
 
 export interface NewConversationConfig {
   conversationMode: "modify" | "analyze" | "chat";
@@ -495,6 +507,22 @@ export function ConversationPane({
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [prefillId, prefillText, onPrefillConsumed]);
 
+  // Lazy-load a turn's context log (the exact payload sent to the LLM) from its
+  // file on the data volume. Called only when the user expands "Contexto original".
+  const fetchContext = useCallback(
+    async (turnId: string): Promise<InitialContext | null> => {
+      if (!convId) return null;
+      try {
+        const r = await fetch(`/api/conversations/${convId}/context/${turnId}`);
+        if (!r.ok) return null;
+        return (await r.json()) as InitialContext;
+      } catch {
+        return null;
+      }
+    },
+    [convId],
+  );
+
   // Handle spec_update SSE event
   const handleSpecUpdateEvent = useCallback(
     (payload: Record<string, unknown>, prompt: string) => {
@@ -521,31 +549,20 @@ export function ConversationPane({
       const eventType = data.eventType as string;
       const payload = data.payload as Record<string, unknown>;
 
-      if (eventType === "context") {
-        const ctx = (payload.context ?? payload) as InitialContext;
+      if (eventType === "context_ref") {
+        // The heavy context log lives in a file — just record that one exists so
+        // the panel renders collapsed and lazy-loads on expand.
         setTurns((prev) => {
           const map = new Map(prev);
-          const existing = map.get(turnId) ?? {
-            context: null,
-            thinking: null,
-            logs: [],
-            complete: false,
-            error: null,
-          };
-          return map.set(turnId, { ...existing, context: ctx });
+          const existing = map.get(turnId) ?? EMPTY_TURN;
+          return map.set(turnId, { ...existing, hasContext: true });
         });
       } else if (eventType === "log") {
         const logLine = payloadToLogLine(payload);
         if (logLine) {
           setTurns((prev) => {
             const map = new Map(prev);
-            const existing = map.get(turnId) ?? {
-              context: null,
-              thinking: null,
-              logs: [],
-              complete: false,
-              error: null,
-            };
+            const existing = map.get(turnId) ?? EMPTY_TURN;
             return map.set(turnId, {
               ...existing,
               logs: [...existing.logs, logLine],
@@ -571,13 +588,7 @@ export function ConversationPane({
         const messageId = payload.messageId as string | undefined;
         setTurns((prev) => {
           const map = new Map(prev);
-          const existing = map.get(turnId) ?? {
-            context: null,
-            thinking: null,
-            logs: [],
-            complete: false,
-            error: null,
-          };
+          const existing = map.get(turnId) ?? EMPTY_TURN;
           // Persist final thinking text into TurnData so it survives after complete.
           const finalThinking = thinkingTextRef.current || null;
           return map.set(turnId, { ...existing, complete: true, thinking: finalThinking });
@@ -611,13 +622,7 @@ export function ConversationPane({
         const errText = (payload.message as string | undefined) ?? "Error desconocido";
         setTurns((prev) => {
           const map = new Map(prev);
-          const existing = map.get(turnId) ?? {
-            context: null,
-            thinking: null,
-            logs: [],
-            complete: false,
-            error: null,
-          };
+          const existing = map.get(turnId) ?? EMPTY_TURN;
           return map.set(turnId, { ...existing, error: errText });
         });
         if (pendingTurnIdRef.current === turnId) {
@@ -822,10 +827,10 @@ export function ConversationPane({
         const isErr =
           isAssistantContent(msg.content) && (msg.content.is_error ?? false);
 
-        if (turnData?.context) {
+        if (turnData?.hasContext && turnId) {
           items.push(
             <div key={`ctx-${msgId}`} data-testid="context-panel" style={{ marginBottom: 4 }}>
-              <InitialContextPanel context={turnData.context} />
+              <InitialContextPanel load={() => fetchContext(turnId)} />
             </div>,
           );
         }
@@ -873,24 +878,14 @@ export function ConversationPane({
     const turnData = turns.get(pendingTurnId);
     const hasLogs = turnData && turnData.logs.length > 0;
 
-    // Fallback: derive basic context from the conversation object immediately
-    // (before the SSE context event arrives). The SSE event replaces this once
-    // received. Prevents the blank context-panel window in standalone view.
-    const displayContext: InitialContext | null = turnData?.context ?? (conv
-      ? {
-          model: conv.llm_driver ?? conv.llm_provider ?? "unknown",
-          provider: conv.llm_provider ?? "unknown",
-          config: { flow: conv.mode ?? "chat" },
-          seed_prompt: pendingUserMsg || undefined,
-        }
-      : null);
-
     return (
       <>
         {pendingUserMsg && <UserBubble text={pendingUserMsg} />}
-        {displayContext && (
+        {/* Context log is announced via a "context_ref" event once assembleRequest
+            has written the file; the panel then lazy-loads it on expand. */}
+        {turnData?.hasContext && (
           <div data-testid="context-panel" style={{ marginBottom: 4 }}>
-            <InitialContextPanel context={displayContext} />
+            <InitialContextPanel load={() => fetchContext(pendingTurnId)} />
           </div>
         )}
         {hasLogs && (
