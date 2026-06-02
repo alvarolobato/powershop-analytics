@@ -164,7 +164,7 @@ file when "Contexto original" is expanded. See [D-039](docs/decisions/D-039-cont
 
 ## Production
 
-Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) contains only `docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `./data/` bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub (`alvarolobato264/powershop-etl`, `alvarolobato264/powershop-dashboard`). WrenAI images come from `ghcr.io/canner/*`.
+Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) contains only `docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `./data/` bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub (`alobato/powershop-etl`, `alobato/powershop-dashboard`). WrenAI images come from `ghcr.io/canner/*`.
 
 `PROD_HOST` and `PROD_PATH` in `~/.config/powershop-analytics/.env` are **local-operator** config — they tell the `ps prod *` CLI on your local Mac where to SSH. The prod Mac itself doesn't need these variables.
 

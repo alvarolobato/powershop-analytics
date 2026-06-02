@@ -18,7 +18,7 @@ Versions live as **git tags + GitHub releases**. Production tracks the running v
 
 Publishing a GitHub release fires two workflows automatically (via the `release: published` event):
 
-- **`release-docker.yml`** — builds and pushes `alvarolobato264/powershop-etl` and `alvarolobato264/powershop-dashboard` for `linux/amd64,linux/arm64`. Tags: `:<version>` always, plus `:latest` (stable) or `:beta` (pre-release). Takes ~18 min.
+- **`release-docker.yml`** — builds and pushes `alobato/powershop-etl` and `alobato/powershop-dashboard` for `linux/amd64,linux/arm64`. Tags: `:<version>` always, plus `:latest` (stable) or `:beta` (pre-release). Takes ~18 min.
 - **`release.yml`** — attaches `docker-compose.prod.yml`, `wren-config.yaml`, and the install scripts as release assets. `ps prod update` downloads these.
 
 ## Canonical path — stable release

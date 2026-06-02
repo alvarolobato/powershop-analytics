@@ -84,7 +84,7 @@ A successful connection shows sync progress per table. A failure shows a connect
 
 - The 4D server may be under load from ERP users during business hours.
 - The ETL runs nightly at `ETL_CRON_HOUR` (default: 2 AM) to avoid contention.
-- If timeouts occur consistently, first check 4D Server performance. Changing ETL query timeouts is not configurable via `.env` in the stock `alvarolobato264/powershop-etl` image; it requires building or pinning a custom ETL image with adjusted settings in `etl/config.py`.
+- If timeouts occur consistently, first check 4D Server performance. Changing ETL query timeouts is not configurable via `.env` in the stock `alobato/powershop-etl` image; it requires building or pinning a custom ETL image with adjusted settings in `etl/config.py`.
 
 **SQL feature not available (compiled mode)**
 
