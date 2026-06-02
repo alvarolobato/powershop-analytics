@@ -170,6 +170,10 @@ Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat
 
 The launchd agent (`scripts/launchd/com.powershop.claude-token-sync.plist.template`) mirrors the macOS Keychain entry `Claude Code-credentials` into `~/.claude/.credentials.json` every 5 minutes so the dashboard container can read it without any manual intervention. See [D-025](docs/decisions/D-025-oauth-single-refresher.md) for the single-refresher constraint.
 
+**Agent workflow skills:**
+- [docs/skills/release.md](docs/skills/release.md) — cut a release (major/minor/patch) and build the Docker images
+- [docs/skills/prod-deploy.md](docs/skills/prod-deploy.md) — push a release onto the production Mac
+
 **Full install + operations documentation:**
 - [docs/deployment/production.md](docs/deployment/production.md) — cold-start install, prerequisites, backup, disaster recovery, upgrades, monitoring
 - [docs/deployment/prod-cli.md](docs/deployment/prod-cli.md) — `ps prod *` CLI reference (all 12 subcommands)

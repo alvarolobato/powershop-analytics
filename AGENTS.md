@@ -461,18 +461,7 @@ Never hand-edit `dashboard/lib/knowledge.ts` — edit the source MDs and regener
 
 ### Prod knowledge sync
 
-`ps prod deploy` automatically pushes WrenAI knowledge after restarting containers — no manual step needed after a deployment.
-
-For mid-sprint updates (when source MDs changed but no deployment is planned):
-```bash
-ps prod push-knowledge              # push current knowledge to prod
-ps prod push-knowledge --dry-run    # verify counts without pushing
-```
-
-To skip the knowledge push during a deployment:
-```bash
-ps prod deploy --skip-knowledge
-```
+`ps prod deploy` / `ps prod update` push WrenAI knowledge automatically after restarting containers — no manual step needed after a deployment. For a knowledge-only refresh (source MDs changed, no deploy), use `ps prod push-knowledge`. Full procedure and options: **[docs/skills/prod-deploy.md](docs/skills/prod-deploy.md)**.
 
 ---
 
