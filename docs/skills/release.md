@@ -18,7 +18,7 @@ Versions live as **git tags + GitHub releases**. Production tracks the running v
 
 Publishing a GitHub release fires two workflows automatically (via the `release: published` event):
 
-- **`release-docker.yml`** — builds and pushes `alobato/powershop-etl` and `alobato/powershop-dashboard` for `linux/amd64,linux/arm64`. Tags: `:<version>` always, plus `:latest` (stable) or `:beta` (pre-release). Takes ~18 min.
+- **`release-docker.yml`** — builds and pushes the ETL + Dashboard images for `linux/amd64,linux/arm64` to the `DOCKERHUB_USERNAME` namespace (currently `alobato`, i.e. `alobato/powershop-etl` + `alobato/powershop-dashboard`; prod pulls the same namespace via `DOCKERHUB_NAMESPACE`). Tags: `:<version>` always, plus `:latest` (stable) or `:beta` (pre-release). Takes ~18 min.
 - **`release.yml`** — attaches `docker-compose.prod.yml`, `wren-config.yaml`, and the install scripts as release assets. `ps prod update` downloads these.
 
 ## Canonical path — stable release
@@ -47,11 +47,11 @@ When the build is green the images exist on Docker Hub (`:v0.5.0` + `:latest`) a
 
 ### Why create the release manually
 
-Releases created by `GITHUB_TOKEN` **do not** fire the `release: published` event (GitHub's recursion guard). So a release made by `ai-auto-release.yml` / `release-beta.yml` would *not* trigger `release-docker.yml` on its own — those workflows dispatch the image build explicitly to compensate. Creating the release from your interactive `gh` (a user token) is the simplest path that builds images with no extra step.
+Releases created by `GITHUB_TOKEN` **do not** fire the `release: published` event (GitHub's recursion guard). So a release made by `ai-auto-release.yml` / `release-beta.yml` triggers **neither** `release-docker.yml` (images) **nor** `release.yml` (compose + install assets) on its own. `release-beta.yml` dispatches the image build explicitly to compensate — but still skips the asset upload. Creating the release from your interactive `gh` (a user token) is the simplest path that fires **both** downstream workflows with no extra step.
 
 ## Changelog
 
-`ai-auto-release.yml` contains the canonical changelog recipe. To reproduce it locally, list merged PRs since the last tag and group by label (`enhancement`/`ai-idea` → Features, `bug`/`ai-bug` → Bug Fixes, rest → Other):
+`ai-auto-release.yml` contains the canonical changelog recipe — it lists merged PRs since the last tag and groups them by label (`enhancement`/`ai-idea` → Features, `bug`/`ai-bug` → Bug Fixes, rest → Other). The minimal local equivalent (flat list, no grouping) is:
 
 ```bash
 SINCE=$(gh release view "$(git tag --sort=-v:refname | grep -vE '\-beta' | head -1)" \
@@ -73,12 +73,18 @@ Beta images get `:vX.Y.Z-beta.N` + the rolling `:beta` tag.
 
 ## Automated stable release (optional)
 
-`ai-auto-release.yml` runs weekly (Sun 20:00 UTC) and can be dispatched with a bump type. It computes the next version, generates the changelog, gates on CI, and creates the release — but, per the guard above, **does not build images by itself**. If you use it, dispatch the build afterwards:
+`ai-auto-release.yml` runs weekly (Sun 20:00 UTC) and can be dispatched with a bump type. It computes the next version, generates the changelog, gates on CI, and creates the release — but, per the guard above, its `GITHUB_TOKEN` release fires **neither** downstream workflow. You must dispatch the image build **and** attach the assets yourself, or `ps prod update` (and the README install links) will break against an asset-less release:
 
 ```bash
-gh workflow run ai-auto-release.yml -f version_bump=minor   # creates the release
-gh workflow run release-docker.yml -f tag=v0.5.0            # then build the images
+gh workflow run ai-auto-release.yml -f version_bump=minor   # creates the release (no images, no assets)
+gh workflow run release-docker.yml -f tag=v0.5.0            # build + push images
+gh release upload v0.5.0 \
+  docker-compose.prod.yml wren-config.yaml \
+  deploy/install.sh deploy/install-prod.sh deploy/install.ps1 \
+  deploy/ps-analytics deploy/ps-analytics.cmd               # attach assets
 ```
+
+Because of these extra steps, **prefer the manual `gh release create` path above** for anything you intend to ship to production.
 
 ## Rebuild images for an existing tag
 
