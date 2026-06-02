@@ -382,7 +382,7 @@ ETL_VERSION=${etl_tag}
 DASHBOARD_VERSION=${dash_tag}
 
 # --- Docker Hub namespace ---
-# DOCKERHUB_NAMESPACE=alvarolobato264
+# DOCKERHUB_NAMESPACE=alobato
 
 # --- 4D source database ---
 P4D_HOST=${p4d_host_q}

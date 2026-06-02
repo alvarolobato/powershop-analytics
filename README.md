@@ -1,6 +1,6 @@
 # powershop-analytics
 
-![Docker Image](https://img.shields.io/docker/v/alvarolobato264/powershop-etl?label=Docker%20Hub)
+![Docker Image](https://img.shields.io/docker/v/alobato/powershop-etl?label=Docker%20Hub)
 
 This is an experiment project to use AI to analyze data from an SQL source, in this case a 4D database, also to create a self developing AI factory with LLM driven development and little human interaction.
 

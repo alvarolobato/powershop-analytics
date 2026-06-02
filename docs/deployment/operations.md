@@ -144,7 +144,7 @@ IBIS_SERVER_VERSION=0.22.0
 WREN_BOOTSTRAP_VERSION=0.1.5
 ```
 
-The ETL image (`alvarolobato264/powershop-etl`) is pinned to `latest` by default; the update command pulls the newest version.
+The ETL image (`alobato/powershop-etl`) is pinned to `latest` by default; the update command pulls the newest version.
 
 ## Port reference
 

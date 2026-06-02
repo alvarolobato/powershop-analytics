@@ -16,6 +16,13 @@ This folder contains **skill documents** for AI agents working on the powershop-
 | **[testing-patterns.md](testing-patterns.md)** | TDD workflow, factory patterns, mocking strategies for both Python (pytest) and TypeScript (Vitest). | Writing unit tests, integration tests, creating test factories. |
 | **[systematic-debugging.md](systematic-debugging.md)** | Four-phase debugging methodology with project-specific playbooks for ETL, WrenAI, and Dashboard App. | Investigating bugs, fixing test failures, troubleshooting pipeline issues. |
 
+## Release & Deployment Skills
+
+| Skill | Purpose | Use when |
+|-------|---------|----------|
+| **[release.md](release.md)** | Cutting a release (major/minor/patch + beta), the release workflows, the `GITHUB_TOKEN` recursion-guard gotcha, and how Docker images get built and tagged. | Creating a new version and building the ETL + Dashboard images. |
+| **[prod-deploy.md](prod-deploy.md)** | Deploying a released version to the production Mac: `ps prod update` vs `deploy`, prerequisites, knowledge push, verification. Points to the full `prod-cli.md` / `production.md` references. | Pushing a release (or new images) onto production. |
+
 ## Reference Docs (not skills, but always relevant)
 
 | Document | Purpose | Use when |
@@ -47,6 +54,8 @@ This folder contains **skill documents** for AI agents working on the powershop-
 - **CLI**: Use **cli** for extending the command-line tool.
 - **Report generation**: Use **report-generation** to reproduce the BI report or create a new snapshot.
 - **ETL sync decisions**: Read **etl-sync-strategy.md** before implementing any sync — it has validated delta fields and PKs per table.
+- **Releases**: Use **release** to cut a version (major/minor/patch) and build the Docker images.
+- **Production deploy**: Use **prod-deploy** to push a release onto the production Mac.
 - **Self-improvement**: Use **agent-efficiency** when guidance was missing.
 
 ## Agent specializations for parallel work

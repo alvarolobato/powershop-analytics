@@ -23,7 +23,7 @@ The app stack runs entirely in Docker — no git checkout, no Python virtualenv.
 Production runs the same Docker Compose stack on a dedicated Mac. Key differences from local dev:
 
 - **Flat deployment**: no git checkout. The directory (`~/powershop/` by default) contains only `docker-compose.yml`, `wren-config.yaml`, `.env`, `.version`, and `./data/` bind mounts.
-- **Images from Docker Hub**: `alvarolobato264/powershop-etl` and `alvarolobato264/powershop-dashboard` are pre-built and pinned by tag. WrenAI images come from `ghcr.io/canner/*`.
+- **Images from Docker Hub**: `alobato/powershop-etl` and `alobato/powershop-dashboard` are pre-built and pinned by tag. WrenAI images come from `ghcr.io/canner/*`.
 - **Operated remotely**: all day-to-day commands (`ps prod deploy`, `ps prod status`, etc.) run from a developer's local machine over SSH. No manual SSH is needed except for the one-time `claude /login` step.
 
 ---
