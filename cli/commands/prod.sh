@@ -354,8 +354,14 @@ cmd_push_knowledge() {
 
     # Source MDs are derived from docs/knowledge-sources.yml — the single source of truth.
     # This avoids drift; wren-push-metadata.py reads the same manifest at import time.
-    local -a source_mds
-    mapfile -t source_mds < <(python3 -c "
+    # Read line-by-line instead of `mapfile`/`readarray` — those are bash 4+
+    # builtins and macOS ships bash 3.2, where the knowledge push (run from the
+    # operator's Mac) would otherwise fail with `mapfile: command not found`.
+    local -a source_mds=()
+    local _md_path
+    while IFS= read -r _md_path; do
+        [ -n "$_md_path" ] && source_mds+=("$_md_path")
+    done < <(python3 -c "
 import yaml
 data = yaml.safe_load(open('$REPO_ROOT/docs/knowledge-sources.yml'))
 for s in data['sources']:
