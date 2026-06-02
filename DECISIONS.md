@@ -24,6 +24,7 @@
 | [D-035](docs/decisions/D-035-action-required-bot-gating.md) | GitHub gates `pull_request_review` runs as `action_required` for the `Copilot` actor; use `*/30` cron watchdog via `workflow_dispatch` as the recovery path. |
 | [D-037](docs/decisions/D-037-multi-phase-no-auto-close.md) | Multi-phase issues never auto-close from a non-final phase. Non-final-phase PRs MUST use `Part of #N (Phase X of Y)` — never `Closes/Fixes/Resolves`. Three-layer defense: worker self-check + CI gate + post-merge reopen. |
 | [D-038](docs/decisions/D-038-llm-ec-validation.md) | EC validator: shell scripts judge (verified/not); LLM scribes (formats comment). Never let the LLM decide "verified". Model: `claude-haiku-4-5-20251001`. Labels: `ai-validate-ec`, `fact-awaiting-human-validation`. |
+| [D-039](docs/decisions/D-039-fact-label-vocabulary.md) | Review-state labels are `fact-*` (only `ai-awaiting-owner` stays `ai-*`); `config.yml` must match the workflows (it's dumped verbatim into the factory-manager prompt). `owner_handoff_or_ci_gate` strips `ai-awaiting-owner` only on CI `failing`, never on transient `running`/`unknown`. |
 
 ## Runtime / infrastructure
 
