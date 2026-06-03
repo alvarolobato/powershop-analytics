@@ -32,19 +32,33 @@ const KpiFormatSchema = z.preprocess(
 /** Optional string that must be non-empty when provided. */
 const optStr = z.string().min(1).optional();
 
+/**
+ * Widget SQL must not contain positional params ($1, $2, …). DashboardRenderer
+ * executes saved widget SQL after inlining the :curr_ and :comp_ date tokens
+ * and __gf_<id>__ filter tokens — it never binds positional params, so a
+ * leftover `$1` reaches Postgres unbound and fails with "there is no parameter
+ * $1" (the review-semanal dashboards shipped this bug — see review-dashboard-seed).
+ * Reject it at the spec boundary so it can never be saved or seeded again.
+ */
+const POSITIONAL_PARAM_MSG =
+  "widget SQL must not use positional params ($1, $2, …); use :curr_from/:curr_to date tokens or __gf_<id>__ filter tokens";
+const hasNoPositionalParam = (s: string) => !/\$\d/.test(s);
+const widgetSql = z.string().min(1).refine(hasNoPositionalParam, { message: POSITIONAL_PARAM_MSG });
+const optWidgetSql = widgetSql.optional();
+
 const KpiItemSchema = z.object({
   label: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
   format: KpiFormatSchema,
   prefix: optStr,
   /** Optional SQL for trend/comparison period. Returns a single numeric value.
    *  The trend percentage is computed as (current - comparison) / abs(comparison) * 100. */
-  trend_sql: optStr,
+  trend_sql: optWidgetSql,
   /** Optional SQL for anomaly detection. Returns N rows of historical values for
    *  the same metric. The first row is the current period value; remaining rows
    *  are historical values in descending chronological order.
    *  The frontend computes a z-score client-side to detect unusual values. */
-  anomaly_sql: optStr,
+  anomaly_sql: optWidgetSql,
   /** Optional delta ratio (e.g. 0.083 = +8.3%). Overrides computed trend if provided. */
   delta: z.number().optional(),
   /** Optional absolute comparison value for display. */
@@ -69,54 +83,54 @@ const BarChartWidgetSchema = z.object({
   id: optStr,
   type: z.literal("bar_chart"),
   title: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
   x: z.string().min(1),
   y: z.string().min(1),
-  comparison_sql: optStr,
+  comparison_sql: optWidgetSql,
 }).strict();
 
 const LineChartWidgetSchema = z.object({
   id: optStr,
   type: z.literal("line_chart"),
   title: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
   x: optStr,
   y: optStr,
-  comparison_sql: optStr,
+  comparison_sql: optWidgetSql,
 }).strict();
 
 const AreaChartWidgetSchema = z.object({
   id: optStr,
   type: z.literal("area_chart"),
   title: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
   x: optStr,
   y: optStr,
-  comparison_sql: optStr,
+  comparison_sql: optWidgetSql,
 }).strict();
 
 const DonutChartWidgetSchema = z.object({
   id: optStr,
   type: z.literal("donut_chart"),
   title: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
   x: optStr,
   y: optStr,
-  comparison_sql: optStr,
+  comparison_sql: optWidgetSql,
 }).strict();
 
 const TableWidgetSchema = z.object({
   id: optStr,
   type: z.literal("table"),
   title: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
 }).strict();
 
 const NumberWidgetSchema = z.object({
   id: optStr,
   type: z.literal("number"),
   title: z.string().min(1),
-  sql: z.string().min(1),
+  sql: widgetSql,
   format: KpiFormatSchema,
   prefix: optStr,
 }).strict();
