@@ -89,28 +89,28 @@ test("all seeded dashboards render without widget error states", async ({ page }
     );
 
     // No error surfaces
-    await expect(page.locator('[data-testid="error-display"]')).toHaveCount(
-      0,
+    await expect(
+      page.locator('[data-testid="error-display"]'),
       { message: `Dashboard id=${id}: ErrorDisplay visible — widget SQL failed` },
-    );
-    await expect(page.getByText("Detalles técnicos")).toHaveCount(0, {
+    ).toHaveCount(0);
+    await expect(page.getByText("Detalles técnicos"), {
       message: `Dashboard id=${id}: "Detalles técnicos" visible`,
-    });
-    await expect(page.getByText("there is no parameter")).toHaveCount(0, {
+    }).toHaveCount(0);
+    await expect(page.getByText("there is no parameter"), {
       message: `Dashboard id=${id}: positional param error visible`,
-    });
-    await expect(page.getByText("HTTP 500")).toHaveCount(0, {
+    }).toHaveCount(0);
+    await expect(page.getByText("HTTP 500"), {
       message: `Dashboard id=${id}: HTTP 500 visible`,
-    });
-    await expect(page.getByText("Error al cargar")).toHaveCount(0, {
+    }).toHaveCount(0);
+    await expect(page.getByText("Error al cargar"), {
       message: `Dashboard id=${id}: "Error al cargar" visible`,
-    });
+    }).toHaveCount(0);
 
     // No lingering skeletons — all widgets resolved
-    await expect(page.locator('[data-testid="widget-skeleton"]')).toHaveCount(
-      0,
+    await expect(
+      page.locator('[data-testid="widget-skeleton"]'),
       { message: `Dashboard id=${id}: skeletons still present after load` },
-    );
+    ).toHaveCount(0);
   }
 });
 
