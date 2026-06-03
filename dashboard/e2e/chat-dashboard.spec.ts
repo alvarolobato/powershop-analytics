@@ -170,25 +170,30 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
   await openChatSidebar(page);
 
   const userMsg = "Mensaje de persistencia e2e";
+
+  // Register listener before sending so the response is always captured (race-free)
+  const turnRespPromise = page.waitForResponse(
+    (resp) =>
+      /\/api\/conversations\/[^/]+\/turns/.test(resp.url()) &&
+      resp.request().method() === "POST",
+    { timeout: 30_000 },
+  );
+
   await sendMessage(page, userMsg);
 
   // Wait for user bubble then assistant reply
   await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
+
+  // Extract the conversation ID from the turns request URL
+  const turnResp = await turnRespPromise;
+  const convId = turnResp.url().match(/\/api\/conversations\/([^/]+)\/turns/)?.[1];
+  expect(convId).toBeTruthy();
+
   await waitForStubReply(page, 30_000);
 
-  // Capture the conversation URL from the API — the sidebar creates the conversation
-  // in ConversationPane and we can recover it from the conversations API.
-  const convsResp = await page.request.get("/api/conversations?limit=1");
-  expect(convsResp.ok()).toBeTruthy();
-  const convsBody = await convsResp.json();
-  const convsList = Array.isArray(convsBody) ? convsBody : (convsBody.conversations ?? []);
-  expect(convsList.length).toBeGreaterThan(0);
-  const convId = (convsList[0] as { id: string }).id;
-
-  // Navigate directly to the standalone conversation view — this is the most
-  // reliable way to assert persistence without relying on the sidebar's auto-load
-  // timing after a page reload.
+  // Navigate to the standalone conversation view then reload to assert persistence
   await page.goto(`/conversations/${convId}`);
+  await page.reload();
 
   // User message reappears
   await expect(

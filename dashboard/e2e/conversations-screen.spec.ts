@@ -56,6 +56,7 @@ test.beforeAll(async ({ request }) => {
       mode: "modify",
       context_kind: "dashboard",
       context_ref: String(dashboardId),
+      first_user_prompt: TEST_MESSAGE,
     },
   });
   expect(convResp.ok()).toBeTruthy();
@@ -72,15 +73,20 @@ test.beforeAll(async ({ request }) => {
   // Wait for the turn to complete (poll up to 30s)
   const turnBody = await turnResp.json();
   const turnId = (turnBody as { turnId: string }).turnId;
+  let finalStatus: string | undefined;
   for (let i = 0; i < 15; i++) {
     const poll = await request.get(`/api/conversations/${convId}/turns/${turnId}`);
     if (poll.ok()) {
       const pollBody = await poll.json();
       const status = (pollBody as { turn?: { status?: string } }).turn?.status;
-      if (status === "complete" || status === "error") break;
+      if (status === "complete" || status === "error") {
+        finalStatus = status;
+        break;
+      }
     }
     await new Promise((r) => setTimeout(r, 2_000));
   }
+  expect(finalStatus).toBe("complete");
 });
 
 // ---------------------------------------------------------------------------
@@ -109,11 +115,10 @@ test("EC-4 + EC-5: conversation row visible with title; detail shows stored mess
   const convRow = page.locator(`[data-testid="conversation-row-${convId}"]`);
   await expect(convRow).toBeVisible({ timeout: 20_000 });
 
-  // Title cell must be visible and show a non-empty string (title or first_user_prompt)
+  // Title cell must contain the first_user_prompt set at creation
   const titleCell = page.locator(`[data-testid="title-cell-${convId}"]`);
   await expect(titleCell).toBeVisible({ timeout: 5_000 });
-  const titleText = await titleCell.textContent();
-  expect(titleText?.trim().length).toBeGreaterThan(0);
+  await expect(titleCell).toContainText(TEST_MESSAGE);
 
   // No error surfaces on the list page
   await assertNoErrors(page);
