@@ -14,6 +14,7 @@ This folder contains **skill documents** for AI agents working on the powershop-
 | **[cli.md](cli.md)** | CLI architecture: dispatcher, commands, load-env, adding new commands. | Modifying or extending the `ps` CLI. |
 | **[report-generation.md](report-generation.md)** | Full cookbook for generating the BI HTML report: all 60+ SQL queries, SOAP calls, HTML structure, design specs, action item guidelines, data quality gotchas. | Regenerating `informe-coleccion.html`, creating a new snapshot, or answering "how was the report built". |
 | **[testing-patterns.md](testing-patterns.md)** | TDD workflow, factory patterns, mocking strategies for both Python (pytest) and TypeScript (Vitest). | Writing unit tests, integration tests, creating test factories. |
+| **[e2e-testing.md](e2e-testing.md)** | Playwright e2e for the Dashboard App: repo setup, the `e2e-stub` LLM provider, the seeded-Postgres fixture (`dashboard/e2e/fixtures/`), what to assert, CI wiring. | Writing browser-level e2e tests that drive a real server + Postgres (e.g. issue #800). |
 | **[systematic-debugging.md](systematic-debugging.md)** | Four-phase debugging methodology with project-specific playbooks for ETL, WrenAI, and Dashboard App. | Investigating bugs, fixing test failures, troubleshooting pipeline issues. |
 
 ## Release & Deployment Skills
