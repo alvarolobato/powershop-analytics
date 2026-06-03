@@ -338,4 +338,28 @@ describe("InicioPage", () => {
     expect(deltaChip!.getAttribute("aria-label")).toMatch(/%$/);
     expect(deltaChip!.getAttribute("aria-label")).not.toMatch(/pp$/);
   });
+
+  it("renders structured error details (ErrorDisplay) when /api/home returns a 500", async () => {
+    const apiError = {
+      error: "No se pudo cargar el inicio.",
+      code: "DB_QUERY",
+      details: "could not resize shared memory segment",
+      timestamp: "2026-06-03T08:00:00.000Z",
+      requestId: "req_test123",
+    };
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      json: () => Promise.resolve(apiError),
+    });
+    render(<InicioPage />);
+    await waitFor(() => {
+      expect(screen.getByText("Error al cargar los datos")).toBeInTheDocument();
+    });
+    // Structured ApiErrorResponse → expandable technical details + copy-as-JSON,
+    // mirroring how widget errors render (not a bare "HTTP 500" string).
+    expect(screen.getByText("No se pudo cargar el inicio.")).toBeInTheDocument();
+    expect(screen.getByText("Detalles técnicos")).toBeInTheDocument();
+    expect(screen.getByText("Copiar como JSON")).toBeInTheDocument();
+  });
 });

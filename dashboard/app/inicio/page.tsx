@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { HomeViewModel } from "@/lib/home-types";
+import { ErrorDisplay } from "@/components/ErrorDisplay";
+import { isApiErrorResponse, type ApiErrorResponse } from "@/lib/errors";
 import { HeroToday } from "@/components/home/HeroToday";
 import { PeriodGrid } from "@/components/home/PeriodGrid";
 import { DailyTrendChart } from "@/components/home/DailyTrendChart";
@@ -70,7 +72,7 @@ export default function InicioPage() {
 
   const [data, setData] = useState<HomeViewModel | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ApiErrorResponse | string | null>(null);
 
   const load = useCallback(async (date: string | null) => {
     setLoading(true);
@@ -78,7 +80,18 @@ export default function InicioPage() {
     try {
       const url = date ? `/api/home?date=${encodeURIComponent(date)}` : "/api/home";
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        // Prefer the structured ApiErrorResponse body so the UI can show the
+        // technical details (code / id / detail) and "Copiar como JSON".
+        let body: unknown = null;
+        try {
+          body = await res.json();
+        } catch {
+          /* non-JSON error body */
+        }
+        setError(isApiErrorResponse(body) ? body : `HTTP ${res.status}`);
+        return;
+      }
       const json: HomeViewModel = await res.json();
       setData(json);
     } catch (err) {
@@ -282,25 +295,12 @@ export default function InicioPage() {
       {/* Error state                                                       */}
       {/* ──────────────────────────────────────────────────────────────── */}
       {!loading && error && (
-        <div
-          style={{
-            margin: "24px",
-            background: "var(--down-bg)",
-            border: "1px solid var(--down)",
-            borderRadius: 10,
-            padding: 20,
-            color: "var(--down)",
-          }}
-        >
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Error al cargar los datos</div>
-          <div style={{ fontSize: 13, color: "var(--fg-muted)" }}>{error}</div>
-          <button
-            type="button"
-            onClick={() => load(dateParam)}
-            style={{ ...outlineBtn, marginTop: 12 }}
-          >
-            Reintentar
-          </button>
+        <div style={{ margin: "24px" }}>
+          <ErrorDisplay
+            error={error}
+            title="Error al cargar los datos"
+            onRetry={() => load(dateParam)}
+          />
         </div>
       )}
 
