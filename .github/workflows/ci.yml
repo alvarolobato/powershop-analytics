@@ -89,6 +89,9 @@ jobs:
       POSTGRES_DB: powershop
       DASHBOARD_PORT: "4000"
       DASHBOARD_LLM_PROVIDER: e2e-stub
+      # Seeded by the "Load e2e seed data" step (and the specs' beforeAll) and
+      # read by the dashboard via the POSTGRES_* vars above — same DB.
+      E2E_DATABASE_URL: postgresql://powershop:powershop@localhost:5432/powershop
       # Schema is auto-applied by the dashboard on startup (init.sql)
     steps:
       - uses: actions/checkout@v4
@@ -98,10 +101,13 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
+      - name: Load e2e seed data into Postgres
+        working-directory: .
+        run: dashboard/e2e/fixtures/init-test-db.sh
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
       - name: Run Playwright e2e tests
-        run: npx playwright test conversation-engine
+        run: npx playwright test conversation-engine home dashboards
       - uses: actions/upload-artifact@v4
         if: always()
         with:
