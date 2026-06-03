@@ -76,7 +76,10 @@ test("home page hero-today renders real values (not skeleton)", async ({ page })
 test("home page period-grid renders real content", async ({ page }) => {
   await page.goto("/");
 
-  const grid = page.locator('[data-testid="period-grid"]');
+  // The home renders two period grids (Comparativa por periodo + Margen bruto),
+  // so the locator matches >1 element — assert the first is visible (strict mode
+  // would otherwise fail on the multi-match).
+  const grid = page.locator('[data-testid="period-grid"]').first();
   await expect(grid).toBeVisible({ timeout: 30_000 });
 
   // At least one period card must be visible — section header alone doesn't
