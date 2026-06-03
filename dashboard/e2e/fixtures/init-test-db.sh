@@ -16,10 +16,11 @@ set -euo pipefail
 DSN="${1:-${E2E_DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/powershop_e2e}}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
+SAFE_DSN=$(sed 's|//[^:@]*:[^@]*@|//<redacted>@|' <<< "$DSN")
 
 case "$DSN" in
   *prod*|*powershop:5432*|*"@${PROD_HOST:-__never__}"*)
-    echo "Refusing to seed what looks like a production DSN: $DSN" >&2; exit 1 ;;
+    echo "Refusing to seed what looks like a production DSN: $SAFE_DSN" >&2; exit 1 ;;
 esac
 
 echo "→ schema: etl/schema/init.sql"
@@ -28,4 +29,4 @@ psql "$DSN" -v ON_ERROR_STOP=1 -q -f "$REPO_ROOT/etl/schema/init.sql"
 echo "→ seed:   dashboard/e2e/fixtures/seed.sql"
 psql "$DSN" -v ON_ERROR_STOP=1 -q -f "$HERE/seed.sql"
 
-echo "✓ test DB ready: $DSN"
+echo "✓ test DB ready: $SAFE_DSN"

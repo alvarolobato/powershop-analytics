@@ -20,7 +20,7 @@ a vitest unit).
 ## The setup in this repo
 
 - **Runner**: Playwright. Config: `dashboard/playwright.config.ts`
-  (`testDir: ./e2e`, `webServer: npm run dev`, `baseURL` from `BASE_URL`).
+  (`testDir: ./e2e`, `webServer: npm run dev`, `baseURL` from `DASHBOARD_PORT` (default 4000)).
 - **Specs**: `dashboard/e2e/*.spec.ts`.
 - **CI**: the `dashboard-e2e` job (`.github/workflows/ci.yml`) starts a
   `postgres:15` service, applies the schema on dashboard startup (`init.sql`),
