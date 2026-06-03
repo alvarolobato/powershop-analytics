@@ -13,10 +13,10 @@
  * same as the app itself.
  */
 
-import { getOrCreateReviewDashboardId } from "@/lib/review-dashboard-seed";
-import { REVIEW_DASHBOARD_KEYS } from "@/lib/review-schema";
-import { sql } from "@/lib/db-write";
-import { TEMPLATES } from "@/lib/templates";
+import { getOrCreateReviewDashboardId } from "../lib/review-dashboard-seed";
+import { REVIEW_DASHBOARD_KEYS } from "../lib/review-schema";
+import { sql } from "../lib/db-write";
+import { TEMPLATES } from "../lib/templates";
 
 async function main() {
   // 1. Seed review dashboards (ventas_retail, canal_mayorista, stock, compras)
@@ -35,7 +35,11 @@ async function main() {
     [tmpl.name],
   );
   if (existing.length > 0) {
-    console.log(`template dashboard [${tmpl.slug}] → id ${existing[0].id} (already exists)`);
+    await sql(
+      `UPDATE dashboards SET description = $1, spec = $2::jsonb WHERE id = $3`,
+      [tmpl.description, JSON.stringify(tmpl.spec), existing[0].id],
+    );
+    console.log(`template dashboard [${tmpl.slug}] → id ${existing[0].id} (updated)`);
   } else {
     const created = await sql<{ id: number }>(
       `INSERT INTO dashboards (name, description, spec) VALUES ($1, $2, $3::jsonb) RETURNING id`,

@@ -52,18 +52,14 @@ test.beforeAll(async ({ request }) => {
   const seedScript = path.resolve(__dirname, "seed-dashboards.ts");
   // npx tsx resolves from the dashboard/ package root where tsx is installed
   const dashboardRoot = path.resolve(__dirname, "..");
-  execSync(`npx tsx ${seedScript}`, {
-    stdio: "inherit",
+  const seederOut = execSync(`npx tsx ${seedScript}`, {
     cwd: dashboardRoot,
     env: { ...process.env },
-  });
+  }).toString();
 
-  // 3. Discover the created dashboard IDs
-  const resp = await request.get("/api/dashboards");
-  expect(resp.ok()).toBeTruthy();
-  const dashboards = (await resp.json()) as Array<{ id: number; name: string }>;
-  expect(dashboards.length).toBeGreaterThan(0);
-  dashboardIds = dashboards.map((d) => d.id);
+  // 3. Extract only the IDs seeded by seed-dashboards.ts (lines like "→ id N")
+  dashboardIds = [...seederOut.matchAll(/→ id (\d+)/g)].map((m) => Number(m[1]));
+  expect(dashboardIds.length).toBeGreaterThan(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -111,6 +107,11 @@ test("all seeded dashboards render without widget error states", async ({ page }
       page.locator('[data-testid="widget-skeleton"]'),
       { message: `Dashboard id=${id}: skeletons still present after load` },
     ).toHaveCount(0);
+
+    // Widgets must show real data — empty-state means the seeded data wasn't reached
+    await expect(page.getByText("Sin datos"), {
+      message: `Dashboard id=${id}: "Sin datos" empty-state visible — seeded data not loaded`,
+    }).toHaveCount(0);
   }
 });
 
