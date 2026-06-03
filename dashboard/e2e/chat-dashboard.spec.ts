@@ -162,11 +162,15 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
 
   const userMsg = "Mensaje de persistencia e2e";
 
-  // Register listener before sending so the response is always captured (race-free)
+  // Register the listener before sending so the response is always captured
+  // (race-free). The first message of a NEW conversation hits POST
+  // /api/conversations (returns { id }); a follow-up message on an existing one
+  // hits POST /api/conversations/:id/turns — match either.
   const turnRespPromise = page.waitForResponse(
     (resp) =>
-      /\/api\/conversations\/[^/]+\/turns/.test(resp.url()) &&
-      resp.request().method() === "POST",
+      resp.request().method() === "POST" &&
+      (/\/api\/conversations\/[^/?]+\/turns(\?|$)/.test(resp.url()) ||
+        /\/api\/conversations(\?|$)/.test(resp.url())),
     { timeout: 30_000 },
   );
 
@@ -175,9 +179,10 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
   // Wait for user bubble then assistant reply
   await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
 
-  // Extract the conversation ID from the turns request URL
+  // Extract the conversation ID — from the /turns URL, or the create response body.
   const turnResp = await turnRespPromise;
-  const convId = turnResp.url().match(/\/api\/conversations\/([^/]+)\/turns/)?.[1];
+  const fromUrl = turnResp.url().match(/\/api\/conversations\/([^/?]+)\/turns/)?.[1];
+  const convId = fromUrl ?? ((await turnResp.json().catch(() => null)) as { id?: string } | null)?.id;
   expect(convId).toBeTruthy();
 
   await waitForStubReply(page, 30_000);
