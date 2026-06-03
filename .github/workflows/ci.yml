@@ -107,10 +107,10 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
       - name: Run Playwright e2e tests
-        # Explicit files (not substring filters): run the conversation-engine
-        # suite + the #800 home/dashboards suites. conversation-ui is a
-        # pre-existing spec never wired into CI and is out of scope here.
-        run: npx playwright test e2e/conversation-engine.spec.ts e2e/home.spec.ts e2e/dashboards.spec.ts
+        # Explicit files (not substring filters): the conversation-engine suite,
+        # the #800 home/dashboards suites, and the #804 chat/conversations
+        # suites. conversation-ui is a pre-existing spec never wired into CI.
+        run: npx playwright test e2e/conversation-engine.spec.ts e2e/home.spec.ts e2e/dashboards.spec.ts e2e/chat-dashboard.spec.ts e2e/conversations-screen.spec.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
