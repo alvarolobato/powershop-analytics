@@ -521,7 +521,7 @@ export function ConversationsTable({
                     {row.context_kind === "dashboard" ? (
                       row.context_dashboard_name != null ? (
                         <a
-                          href={`/dashboards/${row.context_ref}`}
+                          href={`/dashboard/${row.context_ref}`}
                           style={{
                             color: "var(--accent)",
                             textDecoration: "none",

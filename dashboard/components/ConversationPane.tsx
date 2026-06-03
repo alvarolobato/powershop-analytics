@@ -974,6 +974,7 @@ export function ConversationPane({
             disabled={sending || pendingTurnId !== null}
             placeholder="Escribe un mensaje…"
             rows={2}
+            data-testid="message-input"
             style={{
               flex: 1,
               resize: "none",
@@ -991,6 +992,7 @@ export function ConversationPane({
           <button
             onClick={() => void handleSend()}
             disabled={sending || pendingTurnId !== null || !input.trim()}
+            data-testid="send-btn"
             style={{
               padding: isPanel ? "8px 12px" : "9px 16px",
               background: "var(--accent)",
