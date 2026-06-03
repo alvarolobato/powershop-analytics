@@ -45,8 +45,8 @@ SEED = 42
 DAYS = 90  # sales span: CURRENT_DATE-89 .. CURRENT_DATE (today inclusive)
 
 # Store codes mimic the 3-digit production style (152–159, 60x …). "99" is the
-# special non-retail store the dashboards explicitly exclude (WHERE tienda<>'99')
-# — included so that filter actually has something to exclude.
+# special non-retail store the dashboards explicitly exclude (WHERE tienda<>'99').
+# It is present in ps_tiendas so dimension joins don't fail, but has no fact rows.
 STORE_CODES = [
     "152",
     "153",
@@ -350,7 +350,7 @@ def main() -> None:
     reg_v, reg_lv, reg_pg = 1_000_000, 5_000_000, 9_000_000
     retail_stores = [c for c in STORE_CODES if c != "99"]
     for offset in range(DAYS - 1, -1, -1):
-        # Slightly busier recent days; weekends lighter.
+        # Slightly busier recent days (no day-of-week variation).
         base = 3 if offset > 14 else 5
         for code in retail_stores:
             n = rng.randint(base, base + 4)
@@ -583,26 +583,78 @@ def main() -> None:
         gc_rows,
     )
 
+    # ---- Wholesale delivery notes (review: albaranes mayorista) ----------
+    # ps_gc_albaranes feeds the "Albaranes Recientes" widget (mayorista.ts:252)
+    # which filters WHERE abono = false AND fecha_envio within curr_from..curr_to.
+    alb_gc_rows = []
+    for i in range(1, 51):
+        offset = rng.randint(0, 20)
+        abono = rng.random() < 0.15  # ~15% credit notes so abono=false majority
+        base1 = round(rng.uniform(200, 5000) * (-1 if abono else 1), 2)
+        entregadas = rng.randint(1, 50)
+        alb_gc_rows.append(
+            ", ".join(
+                [
+                    f"{910000 + i}.99",
+                    f"{200 + i}.99",
+                    f"{3000 + rng.randint(1, N_CLIENTES)}.99",
+                    d(offset),
+                    d(max(0, offset - 2)),
+                    d(offset),
+                    f"{abs(base1)}",
+                    "0",
+                    "0",
+                    f"{entregadas}",
+                    sql_str("Transportista 01"),
+                    "NULL",
+                    sql_str(""),
+                    "true" if abono else "false",
+                ]
+            )
+        )
+    emit_insert(
+        out,
+        "ps_gc_albaranes",
+        [
+            "reg_albaran",
+            "n_albaran",
+            "num_cliente",
+            "fecha_envio",
+            "fecha_valor",
+            "modifica",
+            "base1",
+            "base2",
+            "base3",
+            "entregadas",
+            "transportista",
+            "num_comercial",
+            "temporada",
+            "abono",
+        ],
+        alb_gc_rows,
+    )
+
     # ---- Transfers (review: stock) ---------------------------------------
+    # Each physical transfer is represented as two rows (domain model from
+    # knowledge.ts): entrada=false (outgoing, source releases stock) and
+    # entrada=true (incoming, destination receives stock). The stock template
+    # filters WHERE entrada = false for "Traspasos Recientes".
     tr_rows = []
     for i in range(1, 201):
         offset = rng.randint(0, 13)
         salida, entrada_t = rng.sample(retail_stores, 2)
-        tr_rows.append(
-            ", ".join(
-                [
-                    f"{600000 + i}.99",
-                    sql_str(rng.choice(articulos)[1]),
-                    sql_str(rng.choice(TALLAS)),
-                    f"{rng.randint(1, 6)}",
-                    f"{rng.randint(1, 6)}",
-                    sql_str(salida),
-                    sql_str(entrada_t),
-                    d(offset),
-                    d(max(0, offset - 1)),
-                ]
-            )
-        )
+        codigo = sql_str(rng.choice(articulos)[1])
+        talla = sql_str(rng.choice(TALLAS))
+        us = rng.randint(1, 6)
+        ue = rng.randint(1, 6)
+        common = [
+            codigo, talla,
+            f"{us}", f"{ue}",
+            sql_str(salida), sql_str(entrada_t),
+            d(offset), d(max(0, offset - 1)),
+        ]
+        tr_rows.append(", ".join([f"{600000 + i * 2 - 1}.99"] + common + ["false"]))
+        tr_rows.append(", ".join([f"{600000 + i * 2}.99"] + common + ["true"]))
     emit_insert(
         out,
         "ps_traspasos",
@@ -616,6 +668,7 @@ def main() -> None:
             "tienda_entrada",
             "fecha_s",
             "fecha_e",
+            "entrada",
         ],
         tr_rows,
     )
