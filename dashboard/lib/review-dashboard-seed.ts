@@ -40,7 +40,9 @@ function pickSql(key: ReviewDashboardKey): { title: string; sql: string; format:
   }
 }
 
-function buildSpec(key: ReviewDashboardKey) {
+// Exported for unit tests: lets us assert the embedded widget SQL is
+// renderable by DashboardRenderer (date tokens only, no positional params).
+export function buildSpec(key: ReviewDashboardKey) {
   const { title, sql: widgetSql, format } = pickSql(key);
   // REVIEW_QUERIES use positional params ($1 = inclusive week start,
   // $2 = exclusive week end) that the weekly-review API binds. Embedded in a
