@@ -33,6 +33,12 @@ services:
   # ---------------------------------------------------------------------------
   postgres:
     image: postgres:16-alpine
+    # Default Docker /dev/shm is 64 MB; parallel-query workers (heavy home /
+    # dashboard aggregations) exhaust it and fail with "could not resize shared
+    # memory segment ... No space left on device". Must stay in sync with the
+    # dev docker-compose.yml. Do NOT drop this — `ps prod update` overwrites the
+    # prod compose from this file, so a missing line silently breaks production.
+    shm_size: 1gb
     command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
     restart: unless-stopped
     environment:

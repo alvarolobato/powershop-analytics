@@ -25,6 +25,11 @@
 
 import { NextResponse, type NextRequest } from "next/server";
 import { query } from "@/lib/db";
+import {
+  formatApiError,
+  generateRequestId,
+  sanitizeErrorMessage,
+} from "@/lib/errors";
 import type { HomeViewModel, Metric } from "@/lib/home-types";
 
 export const dynamic = "force-dynamic";
@@ -1515,9 +1520,19 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(payload);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    // Return the standard ApiErrorResponse shape (code / timestamp / requestId /
+    // sanitized details) so the home surfaces technical details + "Copiar como
+    // JSON" exactly like widget errors do. The whole view model is built from
+    // read-only queries, so DB_QUERY is the right code.
+    const requestId = generateRequestId();
+    console.error(`[api/home] failed to build view model (${requestId}):`, err);
     return NextResponse.json(
-      { error: "Failed to load home view model", details: message },
+      formatApiError(
+        "No se pudo cargar el inicio.",
+        "DB_QUERY",
+        sanitizeErrorMessage(err),
+        requestId,
+      ),
       { status: 500 },
     );
   }

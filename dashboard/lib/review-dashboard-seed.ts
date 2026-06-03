@@ -40,8 +40,20 @@ function pickSql(key: ReviewDashboardKey): { title: string; sql: string; format:
   }
 }
 
-function buildSpec(key: ReviewDashboardKey) {
+// Exported for unit tests: lets us assert the embedded widget SQL is
+// renderable by DashboardRenderer (date tokens only, no positional params).
+export function buildSpec(key: ReviewDashboardKey) {
   const { title, sql: widgetSql, format } = pickSql(key);
+  // REVIEW_QUERIES use positional params ($1 = inclusive week start,
+  // $2 = exclusive week end) that the weekly-review API binds. Embedded in a
+  // saved dashboard they are rendered by DashboardRenderer, which only
+  // substitutes :curr_from/:curr_to date tokens and passes NO positional
+  // params — so an un-mapped `$1` reaches Postgres unbound and fails with
+  // "there is no parameter $1". Map the params to the date tokens; the
+  // dashboard's default_time_range (last_7_days) supplies the actual range.
+  const embeddedSql = widgetSql
+    .replaceAll("$1", ":curr_from")
+    .replaceAll("$2", ":curr_to");
   const raw = {
     title: reviewDashboardDisplayName(key),
     description: "Dashboard de apoyo para la revisión semanal (enlace desde la revisión).",
@@ -51,7 +63,7 @@ function buildSpec(key: ReviewDashboardKey) {
         id: "review_metric",
         type: "number" as const,
         title,
-        sql: widgetSql,
+        sql: embeddedSql,
         format,
       },
     ],
