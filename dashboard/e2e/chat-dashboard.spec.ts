@@ -64,13 +64,14 @@ async function assertNoErrors(page: Page) {
   await expect(page.getByText("Error al cargar")).toHaveCount(0);
 }
 
-/** Open the chat sidebar from the collapsed state. */
+/** Open the chat on a dashboard. The dashboard renders the sidebar with
+ *  `hideWhenClosed` (so there is no floating "Abrir chat" toggle); the chat
+ *  opens in Modificar mode via the `?tab=modify` handoff param (DashboardSurface
+ *  effect: `tabParam === "modify"` → setChatOpen(true) + Modificar). */
 async function openChatSidebar(page: Page) {
-  const toggleBtn = page.getByRole("button", { name: "Abrir chat" });
-  await expect(toggleBtn).toBeVisible({ timeout: 15_000 });
-  await toggleBtn.click();
+  await page.goto(`/dashboard/${dashboardId}?tab=modify`);
   await expect(page.locator('[data-testid="chat-sidebar"]')).toBeVisible({
-    timeout: 5_000,
+    timeout: 15_000,
   });
 }
 
@@ -96,17 +97,11 @@ async function waitForStubReply(page: Page, timeout = 30_000) {
 test("EC-1: Modificar tab — sends message, stub reply visible, context toggle available", async ({
   page,
 }) => {
-  await page.goto(`/dashboard/${dashboardId}`);
-
-  // Wait for dashboard to finish loading (name input or some stable element)
-  await expect(page.locator('[data-testid="chat-sidebar"]')).toHaveCount(0); // sidebar starts closed
-
   await openChatSidebar(page);
 
-  // Modificar is the default tab — assert it is selected
+  // ?tab=modify opens the chat in Modificar mode — assert it is selected
   const modTab = page.locator('[data-testid="tab-modificar"]');
   await expect(modTab).toBeVisible({ timeout: 5_000 });
-  // The tab should be aria-selected=true
   await expect(modTab).toHaveAttribute("aria-selected", "true");
 
   await sendMessage(page, "Prueba e2e tab Modificar");
@@ -133,8 +128,6 @@ test("EC-1: Modificar tab — sends message, stub reply visible, context toggle 
 test("EC-2: Analizar tab — sends message, stub reply visible, context toggle available", async ({
   page,
 }) => {
-  await page.goto(`/dashboard/${dashboardId}`);
-
   await openChatSidebar(page);
 
   // Switch to Analizar tab
@@ -165,8 +158,6 @@ test("EC-2: Analizar tab — sends message, stub reply visible, context toggle a
 test("EC-3: messages persist after page reload — same bubbles and context toggle visible", async ({
   page,
 }) => {
-  await page.goto(`/dashboard/${dashboardId}`);
-
   await openChatSidebar(page);
 
   const userMsg = "Mensaje de persistencia e2e";
