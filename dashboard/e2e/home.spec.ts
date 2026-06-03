@@ -65,12 +65,12 @@ test("home page hero-today renders real values (not skeleton)", async ({ page })
   const hero = page.locator('[data-testid="hero-today"]');
   await expect(hero).toBeVisible({ timeout: 30_000 });
 
-  // The hero should contain a non-empty numeric value (sales total for today)
-  // Assert shape, not exact figure — the synthetic seed has today's sales.
-  const heroText = await hero.innerText();
-  expect(heroText.trim().length).toBeGreaterThan(0);
-  // Should contain a euro symbol or numeric — confirms it's not a skeleton placeholder
-  expect(heroText).toMatch(/[0-9€]/);
+  // Assert the value node directly — hero.innerText() would include label text
+  // ("Ventas hoy", "EN VIVO", etc.) and produce false positives
+  const heroValue = page.locator('[data-testid="hero-value"]');
+  await expect(heroValue).toBeVisible();
+  const valueText = await heroValue.innerText();
+  expect(valueText).toMatch(/[0-9€]/);
 });
 
 test("home page period-grid renders real content", async ({ page }) => {
@@ -79,7 +79,9 @@ test("home page period-grid renders real content", async ({ page }) => {
   const grid = page.locator('[data-testid="period-grid"]');
   await expect(grid).toBeVisible({ timeout: 30_000 });
 
-  // Grid should contain cells with data (not just empty placeholders)
-  const gridText = await grid.innerText();
-  expect(gridText.trim().length).toBeGreaterThan(0);
+  // At least one period card must be visible — section header alone doesn't
+  // prove data-backed cards rendered
+  await expect(page.locator('[data-testid^="period-card-"]').first()).toBeVisible({
+    timeout: 15_000,
+  });
 });

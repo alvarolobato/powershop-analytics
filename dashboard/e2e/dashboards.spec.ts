@@ -42,7 +42,7 @@ function buildE2eDsn(): string {
 
 let dashboardIds: number[] = [];
 
-test.beforeAll(async ({ request }) => {
+test.beforeAll(async () => {
   // 1. Load the synthetic seed (ps_* mirror tables)
   const initScript = path.resolve(__dirname, "fixtures/init-test-db.sh");
   const dsn = buildE2eDsn();
@@ -54,7 +54,7 @@ test.beforeAll(async ({ request }) => {
   const dashboardRoot = path.resolve(__dirname, "..");
   const seederOut = execSync(`npx tsx ${seedScript}`, {
     cwd: dashboardRoot,
-    env: { ...process.env },
+    env: { ...process.env, POSTGRES_DSN: dsn },
   }).toString();
 
   // 3. Extract only the IDs seeded by seed-dashboards.ts (lines like "→ id N")
