@@ -435,3 +435,50 @@ describe("DashboardSpecSchema — default_time_range", () => {
     expect(() => DashboardSpecSchema.parse(spec)).toThrow(ZodError);
   });
 });
+
+describe("validateSpec — positional param guard", () => {
+  // DashboardRenderer never binds positional params; it only inlines
+  // :curr_*/:comp_* date tokens and __gf_<id>__ filter tokens. A saved/seeded
+  // widget SQL with $1 reaches Postgres unbound ("there is no parameter $1").
+  it("rejects a widget whose sql uses a positional param ($1)", () => {
+    const spec = {
+      title: "T",
+      widgets: [
+        { type: "table", title: "W", sql: "SELECT n FROM t WHERE d >= $1::date" },
+      ],
+    };
+    expect(() => validateSpec(spec)).toThrow(ZodError);
+  });
+
+  it("rejects a positional param in comparison_sql", () => {
+    const spec = {
+      title: "T",
+      widgets: [
+        {
+          type: "bar_chart",
+          title: "W",
+          sql: "SELECT a AS label, b AS value FROM t",
+          x: "label",
+          y: "value",
+          comparison_sql: "SELECT a, b FROM t WHERE d < $2::date",
+        },
+      ],
+    };
+    expect(() => validateSpec(spec)).toThrow(ZodError);
+  });
+
+  it("accepts widget sql using :curr_from / :curr_to date tokens", () => {
+    const spec = {
+      title: "T",
+      widgets: [
+        {
+          type: "number",
+          title: "W",
+          sql: "SELECT COUNT(*) FROM t WHERE d >= :curr_from::date AND d < :curr_to::date",
+          format: "number",
+        },
+      ],
+    };
+    expect(() => validateSpec(spec)).not.toThrow();
+  });
+});
