@@ -13,6 +13,10 @@ production precisely because every unit was green in isolation (issue #800). e2e
 closes that gap: it loads real data into Postgres, boots the app, and asserts the
 home and dashboards render **without an error surface**.
 
+**[D-041](../decisions/D-041-e2e-required-for-features.md) is the binding rule**: every PR
+that adds or modifies a user-facing dashboard surface must ship a Playwright e2e test
+asserting no error surface. PRs without one are not mergeable for those areas.
+
 Reach for e2e when the risk is in the *integration* — rendering a saved/seeded
 spec, a multi-widget page, a navigation/handoff flow — not for pure logic (that's
 a vitest unit).

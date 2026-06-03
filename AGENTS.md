@@ -311,6 +311,20 @@ Concretely:
 - Legacy in-memory cache replaced by the real data source → delete the cache write, delete the cache read.
 - Migration data: write a one-time SQL block in `init.sql` under `-- One-time migration:` and mark it as run-once (idempotent via `IF NOT EXISTS` or `WHERE NOT EXISTS`). Remove the migration block once it has run on production (a follow-up PR).
 
+### E2e tests required for user-facing dashboard changes ([D-041](docs/decisions/D-041-e2e-required-for-features.md))
+
+Every PR that adds or modifies a user-facing dashboard surface (a new page, a new widget type, a new saved-dashboard seeder, or a change to existing widget SQL/rendering) **must ship a Playwright e2e test** that:
+1. Loads the seeded Postgres fixture (`dashboard/e2e/fixtures/init-test-db.sh`).
+2. Navigates to the affected page under `DASHBOARD_LLM_PROVIDER=e2e-stub`.
+3. Asserts no error surface is rendered (`ErrorDisplay`, `Detalles técnicos`, `there is no parameter`, `HTTP 500`, `Error al cargar` all absent).
+4. Asserts at least one widget or data region renders real content (not a skeleton or empty state).
+
+**Why**: The weekly-review dashboards shipped `there is no parameter $1` to production because every unit was green in isolation — they mocked Postgres and never ran the SQL. Only a full e2e run against real data catches this class of bug.
+
+The seeded fixture (`dashboard/e2e/fixtures/`) and the pattern are documented in **[docs/skills/e2e-testing.md](docs/skills/e2e-testing.md)**. The CI job does **not** yet wire new specs automatically — propose the YAML diff in the PR body for a human commit per [D-029](docs/decisions/D-029-no-worker-workflows.md).
+
+---
+
 ### Python changes and commits
 
 **Before any commit that touches Python** (`.py` under `etl/`, `scripts/`, or elsewhere in the repo), run **Ruff format** on the paths you changed so CI does not fail on style. From the repo root, typical patterns:
