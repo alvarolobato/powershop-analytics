@@ -848,6 +848,16 @@ export default function DashboardSurface({
 
             <button
               type="button"
+              onClick={handleChatToggle}
+              style={outlineBtn}
+              aria-label={chatOpen ? "Cerrar chat" : "Abrir chat"}
+              data-testid="chat-toggle-button"
+            >
+              Chat
+            </button>
+
+            <button
+              type="button"
               onClick={() =>
                 setHistoryOpen((prev) => {
                   const nextOpen = !prev;
