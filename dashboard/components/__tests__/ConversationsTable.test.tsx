@@ -444,7 +444,7 @@ describe("ConversationsTable", () => {
       );
       const link = screen.getByTestId("context-link-ctx-dash-named");
       expect(link).toBeInTheDocument();
-      expect(link).toHaveAttribute("href", "/dashboards/42");
+      expect(link).toHaveAttribute("href", "/dashboard/42");
       expect(link).toHaveTextContent("Ventas");
     });
 
