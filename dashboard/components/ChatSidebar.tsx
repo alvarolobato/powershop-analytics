@@ -126,10 +126,11 @@ export default function ChatSidebar({
         if (!list?.length) return;
         const conv = list[0];
         if (conv.archived_at) return;
-        if (apiMode === "modify" && !modifyConvId && !initialConversationId) {
-          setModifyConvId(conv.id);
-        } else if (apiMode === "analyze" && !analyzeConvId) {
-          setAnalyzeConvId(conv.id);
+        // Use functional updater to avoid stale-closure race: only set if still null.
+        if (apiMode === "modify") {
+          setModifyConvId((prev: string | null) => (prev === null ? conv.id : prev));
+        } else if (apiMode === "analyze") {
+          setAnalyzeConvId((prev: string | null) => (prev === null ? conv.id : prev));
         }
       } catch {
         // silently ignore — API not available
@@ -547,7 +548,7 @@ export default function ChatSidebar({
       >
         {activeTab === "modificar" ? (
           <ConversationPane
-            key={modifyConvId ?? "modify-new"}
+            key="modify"
             conversationId={modifyConvId}
             mode="panel"
             onSpecUpdate={onSpecUpdate}
@@ -560,7 +561,7 @@ export default function ChatSidebar({
           />
         ) : (
           <ConversationPane
-            key={analyzeConvId ?? "analyze-new"}
+            key="analyze"
             conversationId={analyzeConvId}
             mode="panel"
             newConversationConfig={analyzeConfig}

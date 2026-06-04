@@ -412,6 +412,10 @@ export function ConversationPane({
   onPrefillConsumed,
 }: ConversationPaneProps) {
   const [convId, setConvId] = useState<string | null>(initialConversationId);
+  // Ref kept in sync every render so the reset effect can read the latest convId
+  // without adding it as a dependency (which would cause unintended re-fires).
+  const convIdRef = useRef<string | null>(initialConversationId);
+  convIdRef.current = convId;
   const [conv, setConv] = useState<ConversationWithMessages | null>(null);
   // turnId → TurnData (context + logs from SSE events)
   const [turns, setTurns] = useState<Map<string, TurnData>>(new Map());
@@ -456,6 +460,9 @@ export function ConversationPane({
 
   // When conversationId prop changes from outside (e.g. parent resets for new conv)
   useEffect(() => {
+    // If the parent is just acknowledging a conversation we already created locally,
+    // skip the reset — it would wipe pendingUserMsg mid-send.
+    if (initialConversationId === convIdRef.current) return;
     setConvId(initialConversationId);
     setConv(null);
     setTurns(new Map());
