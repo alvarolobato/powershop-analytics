@@ -167,8 +167,10 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
 
   await sendMessage(page, userMsg);
 
-  // User bubble appears immediately (optimistic)
-  await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
+  // User bubble appears immediately (optimistic) — assert the specific message sent
+  await expect(
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }),
+  ).toBeVisible({ timeout: 10_000 });
 
   // Wait for assistant reply from the stub
   await waitForStubReply(page);
@@ -187,9 +189,7 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
   ).toBeVisible({ timeout: 20_000 });
 
   // Assistant reply reappears
-  await expect(
-    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: "[e2e-stub]" }),
-  ).toBeVisible({ timeout: 10_000 });
+  await waitForStubReply(page);
 
   // Context toggle is still available
   await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
