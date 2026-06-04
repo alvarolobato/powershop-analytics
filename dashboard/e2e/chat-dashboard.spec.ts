@@ -169,7 +169,7 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
 
   // User bubble appears immediately (optimistic) — assert the specific message sent
   await expect(
-    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }),
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 10_000 });
 
   // Wait for EC-3's own stub reply specifically. The stub echoes the user message:
@@ -177,7 +177,7 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
   // EC-1's pre-existing assistant bubble before EC-3's complete event has fired.
   // Only after EC-3's complete event are msgToTurn and the context toggle ready.
   await expect(
-    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }),
+    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 30_000 });
 
   // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race.
@@ -195,12 +195,12 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
 
   // User message reappears
   await expect(
-    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }),
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 20_000 });
 
   // EC-3's specific stub reply reappears
   await expect(
-    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }),
+    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 30_000 });
 
   // Context toggle is still available — replayed from SSE history after reload
