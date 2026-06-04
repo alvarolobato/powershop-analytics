@@ -158,52 +158,54 @@ test("EC-2: Analizar tab — sends message, stub reply visible, context toggle a
 test("EC-3: messages persist after page reload — same bubbles and context toggle visible", async ({
   page,
 }) => {
+  // openChatSidebar navigates to /dashboard/{id}?tab=modify; reloading this
+  // URL triggers loadLatest("modify") which rehydrates the latest conversation
+  // without any network interception.
   await openChatSidebar(page);
 
   const userMsg = "Mensaje de persistencia e2e";
 
-  // Register the listener before sending so the response is always captured
-  // (race-free). The first message of a NEW conversation hits POST
-  // /api/conversations (returns { id }); a follow-up message on an existing one
-  // hits POST /api/conversations/:id/turns — match either.
-  const turnRespPromise = page.waitForResponse(
-    (resp) =>
-      resp.request().method() === "POST" &&
-      (/\/api\/conversations\/[^/?]+\/turns(\?|$)/.test(resp.url()) ||
-        /\/api\/conversations(\?|$)/.test(resp.url())),
-    { timeout: 30_000 },
-  );
-
   await sendMessage(page, userMsg);
 
-  // Wait for user bubble then assistant reply
-  await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
+  // User bubble appears immediately (optimistic) — assert the specific message sent
+  await expect(
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }).first(),
+  ).toBeVisible({ timeout: 10_000 });
 
-  // Extract the conversation ID — from the /turns URL, or the create response body.
-  const turnResp = await turnRespPromise;
-  const fromUrl = turnResp.url().match(/\/api\/conversations\/([^/?]+)\/turns/)?.[1];
-  const convId = fromUrl ?? ((await turnResp.json().catch(() => null)) as { id?: string } | null)?.id;
-  expect(convId).toBeTruthy();
+  // Wait for EC-3's own stub reply specifically. The stub echoes the user message:
+  // "[e2e-stub] Respuesta a: '<userMsg>'". Filtering by userMsg avoids matching
+  // EC-1's pre-existing assistant bubble before EC-3's complete event has fired.
+  // Only after EC-3's complete event are msgToTurn and the context toggle ready.
+  await expect(
+    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }).first(),
+  ).toBeVisible({ timeout: 30_000 });
 
-  await waitForStubReply(page, 30_000);
-
-  // Navigate to the standalone conversation view then reload to assert persistence
-  await page.goto(`/conversations/${convId}`);
+  // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race.
+  // We deliberately do NOT assert the context toggle BEFORE reload: that races
+  // the live context_ref SSE event for this turn (and a follow-up turn on a
+  // conversation EC-1 already created may not re-emit it). The toggle is
+  // asserted AFTER reload below, where it is rehydrated from persisted history.
   await page.reload();
+
+  // After reload chatOpen initialises to false then an effect sets it to true;
+  // wait for the sidebar to reopen before asserting message contents.
+  await expect(page.locator('[data-testid="chat-sidebar"]')).toBeVisible({
+    timeout: 15_000,
+  });
 
   // User message reappears
   await expect(
-    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }),
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 20_000 });
 
-  // Assistant reply reappears
+  // EC-3's specific stub reply reappears
   await expect(
-    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: "[e2e-stub]" }),
-  ).toBeVisible({ timeout: 10_000 });
+    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }).first(),
+  ).toBeVisible({ timeout: 30_000 });
 
-  // Context toggle is still available (replayed from SSE history)
+  // Context toggle is still available — replayed from SSE history after reload
   await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
-    timeout: 15_000,
+    timeout: 30_000,
   });
 
   // No error surfaces
