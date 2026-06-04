@@ -180,13 +180,11 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
     page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }),
   ).toBeVisible({ timeout: 30_000 });
 
-  // Context toggle must be visible before reload.
-  // EC-3's complete event has fired by now, so the toggle appears immediately.
-  await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
-    timeout: 10_000,
-  });
-
-  // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race
+  // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race.
+  // We deliberately do NOT assert the context toggle BEFORE reload: that races
+  // the live context_ref SSE event for this turn (and a follow-up turn on a
+  // conversation EC-1 already created may not re-emit it). The toggle is
+  // asserted AFTER reload below, where it is rehydrated from persisted history.
   await page.reload();
 
   // After reload chatOpen initialises to false then an effect sets it to true;
