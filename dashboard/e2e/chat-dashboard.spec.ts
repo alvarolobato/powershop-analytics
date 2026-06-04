@@ -163,7 +163,7 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
   // without any network interception.
   await openChatSidebar(page);
 
-  const userMsg = "Mensaje de persistencia e2e";
+  const userMsg = `Mensaje de persistencia e2e ${Date.now()}`;
 
   await sendMessage(page, userMsg);
 
