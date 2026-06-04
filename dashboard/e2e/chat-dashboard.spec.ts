@@ -172,28 +172,42 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
     page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }),
   ).toBeVisible({ timeout: 10_000 });
 
-  // Wait for assistant reply from the stub
-  await waitForStubReply(page);
+  // Wait for EC-3's own stub reply specifically. The stub echoes the user message:
+  // "[e2e-stub] Respuesta a: '<userMsg>'". Filtering by userMsg avoids matching
+  // EC-1's pre-existing assistant bubble before EC-3's complete event has fired.
+  // Only after EC-3's complete event are msgToTurn and the context toggle ready.
+  await expect(
+    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }),
+  ).toBeVisible({ timeout: 30_000 });
 
-  // Context toggle must be visible before reload
+  // Context toggle must be visible before reload.
+  // EC-3's complete event has fired by now, so the toggle appears immediately.
   await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
-    timeout: 15_000,
+    timeout: 10_000,
   });
 
   // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race
   await page.reload();
+
+  // After reload chatOpen initialises to false then an effect sets it to true;
+  // wait for the sidebar to reopen before asserting message contents.
+  await expect(page.locator('[data-testid="chat-sidebar"]')).toBeVisible({
+    timeout: 15_000,
+  });
 
   // User message reappears
   await expect(
     page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }),
   ).toBeVisible({ timeout: 20_000 });
 
-  // Assistant reply reappears
-  await waitForStubReply(page);
+  // EC-3's specific stub reply reappears
+  await expect(
+    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }),
+  ).toBeVisible({ timeout: 30_000 });
 
-  // Context toggle is still available
+  // Context toggle is still available — replayed from SSE history after reload
   await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
-    timeout: 15_000,
+    timeout: 30_000,
   });
 
   // No error surfaces
