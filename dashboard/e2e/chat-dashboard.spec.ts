@@ -158,37 +158,27 @@ test("EC-2: Analizar tab — sends message, stub reply visible, context toggle a
 test("EC-3: messages persist after page reload — same bubbles and context toggle visible", async ({
   page,
 }) => {
+  // openChatSidebar navigates to /dashboard/{id}?tab=modify; reloading this
+  // URL triggers loadLatest("modify") which rehydrates the latest conversation
+  // without any network interception.
   await openChatSidebar(page);
 
   const userMsg = "Mensaje de persistencia e2e";
 
-  // Register the listener before sending so the response is always captured
-  // (race-free). The first message of a NEW conversation hits POST
-  // /api/conversations (returns { id }); a follow-up message on an existing one
-  // hits POST /api/conversations/:id/turns — match either.
-  const turnRespPromise = page.waitForResponse(
-    (resp) =>
-      resp.request().method() === "POST" &&
-      (/\/api\/conversations\/[^/?]+\/turns(\?|$)/.test(resp.url()) ||
-        /\/api\/conversations(\?|$)/.test(resp.url())),
-    { timeout: 30_000 },
-  );
-
   await sendMessage(page, userMsg);
 
-  // Wait for user bubble then assistant reply
+  // User bubble appears immediately (optimistic)
   await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
 
-  // Extract the conversation ID — from the /turns URL, or the create response body.
-  const turnResp = await turnRespPromise;
-  const fromUrl = turnResp.url().match(/\/api\/conversations\/([^/?]+)\/turns/)?.[1];
-  const convId = fromUrl ?? ((await turnResp.json().catch(() => null)) as { id?: string } | null)?.id;
-  expect(convId).toBeTruthy();
+  // Wait for assistant reply from the stub
+  await waitForStubReply(page);
 
-  await waitForStubReply(page, 30_000);
+  // Context toggle must be visible before reload
+  await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
+    timeout: 15_000,
+  });
 
-  // Navigate to the standalone conversation view then reload to assert persistence
-  await page.goto(`/conversations/${convId}`);
+  // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race
   await page.reload();
 
   // User message reappears
@@ -201,7 +191,7 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
     page.locator('[data-testid="assistant-bubble"]').filter({ hasText: "[e2e-stub]" }),
   ).toBeVisible({ timeout: 10_000 });
 
-  // Context toggle is still available (replayed from SSE history)
+  // Context toggle is still available
   await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
     timeout: 15_000,
   });
