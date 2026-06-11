@@ -106,8 +106,11 @@ test("EC-1: Modificar tab — sends message, stub reply visible, context toggle 
 
   await sendMessage(page, "Prueba e2e tab Modificar");
 
-  // User bubble appears immediately (optimistic)
-  await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
+  // User bubble appears immediately (optimistic). Filter + .first(): the other
+  // tab's pane may hold rehydrated bubbles from earlier tests (strict mode).
+  await expect(
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: "Prueba e2e tab Modificar" }).first(),
+  ).toBeVisible({ timeout: 10_000 });
 
   // Assistant reply from the stub
   await waitForStubReply(page);
@@ -138,7 +141,10 @@ test("EC-2: Analizar tab — sends message, stub reply visible, context toggle a
 
   await sendMessage(page, "Prueba e2e tab Analizar");
 
-  await expect(page.locator('[data-testid="user-bubble"]')).toBeVisible({ timeout: 10_000 });
+  // Filter + .first() for the same strict-mode reason as EC-1.
+  await expect(
+    page.locator('[data-testid="user-bubble"]').filter({ hasText: "Prueba e2e tab Analizar" }).first(),
+  ).toBeVisible({ timeout: 10_000 });
 
   await waitForStubReply(page);
 
@@ -172,13 +178,26 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
     page.locator('[data-testid="user-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 10_000 });
 
-  // Wait for EC-3's own stub reply specifically. The stub echoes the user message:
-  // "[e2e-stub] Respuesta a: '<userMsg>'". Filtering by userMsg avoids matching
-  // EC-1's pre-existing assistant bubble before EC-3's complete event has fired.
-  // Only after EC-3's complete event are msgToTurn and the context toggle ready.
-  await expect(
-    page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }).first(),
-  ).toBeVisible({ timeout: 30_000 });
+  // Wait for EC-3's turn to COMPLETE via the API, not via the live SSE bubble.
+  // The persistence guarantee under test is "the reply is durable across a
+  // reload" — and live SSE delivery through the `next dev` server is the known
+  // flaky part (the server persists everything in <1s; the in-flight pane can
+  // stall on 'Procesando…', see issues #811/#836). Polling the conversations
+  // API makes the setup phase deterministic: last_message_preview carries the
+  // stub echo `[e2e-stub] Respuesta a: "<userMsg>"` once the turn is done.
+  await expect
+    .poll(
+      async () => {
+        const res = await page.request.get(
+          `/api/conversations?context_kind=dashboard&context_ref=${dashboardId}`,
+        );
+        if (!res.ok()) return false;
+        const rows = (await res.json()) as Array<{ last_message_preview?: string | null }>;
+        return rows.some((r) => r.last_message_preview?.includes(userMsg) ?? false);
+      },
+      { timeout: 30_000, message: "EC-3 turn never completed server-side" },
+    )
+    .toBe(true);
 
   // Reload the same /dashboard/{id}?tab=modify URL — deterministic, no race.
   // We deliberately do NOT assert the context toggle BEFORE reload: that races
@@ -203,8 +222,11 @@ test("EC-3: messages persist after page reload — same bubbles and context togg
     page.locator('[data-testid="assistant-bubble"]').filter({ hasText: userMsg }).first(),
   ).toBeVisible({ timeout: 30_000 });
 
-  // Context toggle is still available — replayed from SSE history after reload
-  await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
+  // Context toggle is still available — replayed from SSE history after reload.
+  // With two turns on the same conversation (EC-1's + EC-3's) there are two
+  // context panels by design, one per turn — `.first()` avoids the strict-mode
+  // violation (same hardening #807 applied to the bubbles).
+  await expect(page.locator('[data-testid="initial-context-toggle"]').first()).toBeVisible({
     timeout: 30_000,
   });
 
