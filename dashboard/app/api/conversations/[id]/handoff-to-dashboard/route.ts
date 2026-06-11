@@ -131,7 +131,7 @@ export async function POST(
     }
 
     const updated = await migrateConversationToDashboard(rawId, canonicalDashboardId);
-    const redirect_url = `/dashboards/${canonicalDashboardId}`;
+    const redirect_url = `/dashboard/${canonicalDashboardId}`;
 
     return NextResponse.json({ ok: true, conversation: updated, redirect_url });
   } catch (err) {

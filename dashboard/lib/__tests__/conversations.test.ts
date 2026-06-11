@@ -84,10 +84,10 @@ describe("createConversation", () => {
       mode: "analyze",
       context_kind: "dashboard",
       context_ref: "42",
-      context_url: "/dashboards/42",
+      context_url: "/dashboard/42",
     });
     const [, params] = mockSql.mock.calls[0] as [string, unknown[]];
-    expect(params[2]).toBe("/dashboards/42");
+    expect(params[2]).toBe("/dashboard/42");
     expect(params[3]).toBe("dashboard");
     expect(params[4]).toBe("42");
   });
@@ -419,7 +419,7 @@ describe("listConversations", () => {
   it("includes LEFT JOIN to dashboards and selects context_dashboard_name", async () => {
     const fixture = {
       id: "conv1", mode: "modify", title: null, first_user_prompt: null,
-      context_url: "/dashboards/42", context_kind: "dashboard", context_ref: "42",
+      context_url: "/dashboard/42", context_kind: "dashboard", context_ref: "42",
       created_at: "2026-05-01", last_interaction_at: "2026-05-01", archived_at: null,
       last_status: null, llm_provider: null, llm_driver: null, initial_context: null,
       created_by: null, message_count: 0, tool_calls_count: 0, rounds_count: 0,
@@ -590,7 +590,7 @@ describe("migrateConversationToDashboard", () => {
       mode: "modify",
       context_kind: "dashboard",
       context_ref: "42",
-      context_url: "/dashboards/42",
+      context_url: "/dashboard/42",
       archived_at: null,
       title: null,
     };
@@ -613,7 +613,7 @@ describe("migrateConversationToDashboard", () => {
     expect(result.mode).toBe("modify");
     expect(result.context_kind).toBe("dashboard");
     expect(result.context_ref).toBe("42");
-    expect(result.context_url).toBe("/dashboards/42");
+    expect(result.context_url).toBe("/dashboard/42");
   });
 
   it("throws when conversation not found or archived (UPDATE returns 0 rows)", async () => {

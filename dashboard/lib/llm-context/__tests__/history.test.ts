@@ -1,12 +1,36 @@
 /**
  * Unit tests for history flattening — including tool-result preservation across
- * turns (flattenStoredMessage / formatToolCallsForHistory).
+ * turns (flattenStoredMessage / formatToolCallsForHistory) — and the history
+ * cap (capHistory: summarise older messages beyond HISTORY_MAX_MESSAGES).
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const mockChatCompletion = vi.fn();
+vi.mock("@/lib/llm-provider/openrouter", () => ({
+  getOpenRouterClient: () => ({}),
+  openRouterChatCompletion: (...a: unknown[]) => mockChatCompletion(...a),
+}));
+vi.mock("@/lib/llm-provider/cli/claude-code", () => ({
+  claudeCliSingleShot: vi.fn(),
+}));
+vi.mock("@/lib/llm-provider/config", () => ({
+  loadDashboardLlmConfig: () => ({ provider: "openrouter" }),
+  getEffectiveDashboardModel: () => "test-model",
+  getEffectiveOpenRouterProvider: () => null,
+}));
+vi.mock("@/lib/llm-circuit-breaker", () => ({
+  callWithCircuitBreaker: (fn: () => unknown) => fn(),
+}));
+vi.mock("@/lib/llm-usage", () => ({ logUsage: vi.fn() }));
+vi.mock("@/lib/conversations", () => ({ loadMessages: vi.fn() }));
+
 import {
   flattenStoredMessage,
   formatToolCallsForHistory,
+  capHistory,
+  HISTORY_MAX_MESSAGES,
+  type HistoryMessage,
 } from "../history";
 import type { ToolCallRecord } from "@/lib/conversation-types";
 
@@ -100,5 +124,60 @@ describe("formatToolCallsForHistory", () => {
     // Far smaller than the raw 5000-char result.
     expect(block.length).toBeLessThan(1200);
     expect(block).toContain("chars)");
+  });
+});
+
+// ── capHistory — bounded context for every conversation flow (#821) ───────────
+
+function makeMessages(n: number): HistoryMessage[] {
+  return Array.from({ length: n }, (_, i) => ({
+    role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+    content: `mensaje ${i}`,
+  }));
+}
+
+describe("capHistory", () => {
+  beforeEach(() => {
+    mockChatCompletion.mockReset();
+  });
+
+  it("returns messages unchanged (no LLM call) when within the cap", async () => {
+    const msgs = makeMessages(HISTORY_MAX_MESSAGES);
+    const result = await capHistory(msgs);
+    expect(result).toBe(msgs);
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+  });
+
+  it("summarises older messages into one synthetic assistant message when over the cap", async () => {
+    mockChatCompletion.mockResolvedValue({ content: "- pidió ventas\n- pidió margen", usage: null });
+    const msgs = makeMessages(25);
+
+    const result = await capHistory(msgs);
+
+    expect(result).toHaveLength(HISTORY_MAX_MESSAGES);
+    expect(result[0].role).toBe("assistant");
+    expect(result[0].content).toContain("Earlier in this conversation");
+    expect(result[0].content).toContain("pidió ventas");
+    // The most recent (maxMessages - 1) messages are preserved verbatim.
+    expect(result.slice(1)).toEqual(msgs.slice(25 - (HISTORY_MAX_MESSAGES - 1)));
+    expect(mockChatCompletion).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the raw user prompts when the summarisation LLM call fails", async () => {
+    mockChatCompletion.mockRejectedValue(new Error("LLM down"));
+    const msgs = makeMessages(15);
+
+    const result = await capHistory(msgs);
+
+    expect(result).toHaveLength(HISTORY_MAX_MESSAGES);
+    // Fallback embeds the older user prompts directly — turn must not fail.
+    expect(result[0].content).toContain("mensaje 0");
+  });
+
+  it("respects an explicit smaller cap", async () => {
+    mockChatCompletion.mockResolvedValue({ content: "- resumen", usage: null });
+    const result = await capHistory(makeMessages(8), 4);
+    expect(result).toHaveLength(4);
+    expect(result[0].content).toContain("resumen");
   });
 });

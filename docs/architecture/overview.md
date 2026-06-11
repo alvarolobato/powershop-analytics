@@ -65,9 +65,8 @@ This file extracts the ASCII diagrams, dashboard JSON example, and widget tables
 ┌───────────────────────────▼───────────────────────────┐
 │  Next.js API Routes                                   │
 │                                                       │
-│  POST /api/dashboard/generate  ← prompt → LLM (+ tools) → spec │
-│  POST /api/dashboard/modify    ← prompt + spec → LLM (+ tools) │
-│  POST /api/dashboard/analyze   ← spec + widget data → LLM (+ tools) │
+│  POST /api/dashboard/generate  ← prompt → LLM (+ tools) → spec (saved server-side) │
+│  POST /api/conversations/:id/turns ← modify/analyze/chat turns (turn engine) │
 │  POST /api/query               ← SQL → PG → data     │
 │  GET  /api/dashboard/:id       ← load saved spec      │
 │  POST /api/dashboard/:id/save  ← persist spec         │

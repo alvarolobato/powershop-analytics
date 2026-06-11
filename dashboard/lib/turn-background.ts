@@ -23,7 +23,7 @@ import {
 import { publish } from "@/lib/sse-pubsub";
 import { generateRequestId } from "@/lib/errors";
 import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
-import { flattenStoredMessage } from "@/lib/llm-context/history";
+import { flattenStoredMessage, capHistory } from "@/lib/llm-context/history";
 import type { AgenticToolCallRecord } from "@/lib/llm-tools/types";
 import type { AssistantMessageContent, ToolCallRecord } from "@/lib/conversation-types";
 
@@ -270,9 +270,13 @@ export async function runTurnBackground(
     const prior = await loadMessages(conversationId);
     // Flatten to history lines — assistant turns carry their tool calls folded in
     // as a compact block so tool results stay in context across turns.
-    const priorMessages = prior
+    const flattened = prior
       .map((m) => flattenStoredMessage(m))
       .filter((m): m is { role: "user" | "assistant"; content: string } => m !== null);
+    // Cap the history BEFORE the context log is written so "Contexto original"
+    // shows exactly what the LLM receives. Older messages beyond the cap are
+    // summarised into one synthetic assistant message (see capHistory).
+    const priorMessages = await capHistory(flattened);
 
     // The context log (exact payload sent to the LLM) is written to this turn's
     // file and announced via a lightweight "context_ref" event from
@@ -551,15 +555,21 @@ async function runDashboardTurn(
     await ctxWrite.done; // ensure the context-log file + pointer are persisted
     const toolCalls = agenticCtx.toolCalls ?? [];
 
-    // If the agentic runner called apply_dashboard_modification, persist the new spec.
+    // If the agentic runner called apply_dashboard_modification, persist the new
+    // spec through the single versioned writer: previous spec is snapshotted
+    // into dashboard_versions and updated_at is bumped, exactly like a manual
+    // save via PUT /api/dashboard/:id. The server is the ONLY writer for
+    // chat-driven modifications — the frontend only updates local state on
+    // the spec_update event (no second PUT).
     if (agenticCtx.modifyResult && dashId !== undefined && Number.isFinite(dashId)) {
       const { spec, summary } = agenticCtx.modifyResult;
       try {
-        await sql(`UPDATE dashboards SET spec = $1 WHERE id = $2`, [
-          JSON.stringify(spec),
-          dashId,
-        ]);
-        return { text, toolCalls, spec, summary };
+        const { updateDashboardSpecWithVersion } = await import("@/lib/db-write");
+        const persisted = await updateDashboardSpecWithVersion(dashId, spec, userMessage);
+        if (persisted !== null) {
+          return { text, toolCalls, spec, summary };
+        }
+        console.error(`[turn-background] spec persist skipped: dashboard ${dashId} not found`);
       } catch (err) {
         console.error(`[turn-background] spec persist failed for dashboard ${dashId}:`, err);
       }

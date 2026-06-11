@@ -9,7 +9,7 @@ dashboard/lib/llm-context/
 ├── index.ts          # Public API — import from here only
 ├── assemble.ts       # assembleRequest() — the single LLM entry point
 ├── system-prompt.ts  # buildSystemPrompt() dispatch + all prompt builders
-├── history.ts        # buildHistory(), loadPriorTurns(), summariseOldTurns()
+├── history.ts        # buildHistory(), capHistory() (+ flattenStoredMessage)
 ├── tools.ts          # toolsForFlow() — per-flow tool catalog selector
 ├── types.ts          # FlowVars, shared types
 └── formatters.ts     # formatSchema(), formatRelationships(), etc.
@@ -125,11 +125,11 @@ Returns the prompt split for a flow. Exported for testing and advanced usage. Fo
 
 ### `buildHistory(conversationId, opts?): Promise<HistoryMessage[]>`
 
-Loads prior messages for a conversation from the DB. Returns `[]` when `conversationId` is `null` or the conversation has no messages. Pass `opts.priorMessages` to bypass the DB load (used in `turn-background.ts`).
+Loads prior messages for a conversation from the DB and caps them via `capHistory()`. Returns `[]` when `conversationId` is `null` or the conversation has no messages. Pass `opts.priorMessages` to bypass the DB load (used in `turn-background.ts`) — the cap is applied either way.
 
-### `loadPriorTurns(conversationId): Promise<HistoryMessage[]>`
+### `capHistory(messages, maxMessages = HISTORY_MAX_MESSAGES): Promise<HistoryMessage[]>`
 
-Returns the prior turns formatted as `[{role: "user", content}, {role: "assistant", content}]` pairs. Used by API routes before calling `assembleRequest`.
+Bounds the history sent to the LLM. When over the cap, older messages are summarised (small LLM call, with a non-failing fallback) into one synthetic assistant message followed by the most recent messages. No-op when within the cap.
 
 ### `toolsForFlow(flow): ChatCompletionTool[]`
 
@@ -193,7 +193,6 @@ const mockAssembleRequest = vi.fn();
 vi.mock("@/lib/llm-context", () => ({
   assembleRequest: (...a: unknown[]) => mockAssembleRequest(...a),
   buildFreeChatContext: () => ({ systemPrompt: { stable: "..." }, tools: [] }),
-  loadPriorTurns: () => Promise.resolve([]),
 }));
 
 // In beforeEach:

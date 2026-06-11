@@ -9,6 +9,15 @@
 
 import { loadMessages } from "@/lib/conversations";
 import type { ToolCallRecord } from "@/lib/conversation-types";
+import {
+  loadDashboardLlmConfig,
+  getEffectiveDashboardModel,
+  getEffectiveOpenRouterProvider,
+} from "@/lib/llm-provider/config";
+import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
+import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
+import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
+import { logUsage } from "@/lib/llm-usage";
 
 export type HistoryMessage = { role: "user" | "assistant"; content: string };
 
@@ -16,6 +25,13 @@ export type HistoryMessage = { role: "user" | "assistant"; content: string };
 const HISTORY_TOOL_RESULT_MAX = 600;
 /** Max chars kept per tool argument string when folding it into history. */
 const HISTORY_TOOL_ARGS_MAX = 240;
+/**
+ * Max prior messages sent to the LLM per request. When a conversation exceeds
+ * this, older messages are summarised into one synthetic assistant message
+ * (see capHistory). Same cap the retired /api/dashboard/{modify,analyze}
+ * routes applied via loadPriorTurns.
+ */
+export const HISTORY_MAX_MESSAGES = 10;
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max)}… (${s.length} chars)` : s;
@@ -107,11 +123,12 @@ export function flattenStoredMessage(row: {
 }
 
 /**
- * Build conversation history for an LLM request.
+ * Build conversation history for an LLM request, capped at
+ * HISTORY_MAX_MESSAGES (older messages summarised — see capHistory).
  *
  * Priority:
- * 1. If `opts.priorMessages` is provided, return them unchanged (caller pre-loaded).
- * 2. If `conversationId` is provided, load from DB and flatten to HistoryMessage[].
+ * 1. If `opts.priorMessages` is provided, cap and return them (caller pre-loaded).
+ * 2. If `conversationId` is provided, load from DB, flatten, cap.
  * 3. Otherwise return [].
  *
  * Flattening: extracts `.text` from JSONB content objects, falls back to JSON.stringify.
@@ -122,7 +139,7 @@ export async function buildHistory(
   conversationId: string | null,
   opts?: { priorMessages?: HistoryMessage[] },
 ): Promise<HistoryMessage[]> {
-  if (opts?.priorMessages) return opts.priorMessages;
+  if (opts?.priorMessages) return capHistory(opts.priorMessages);
   if (!conversationId) return [];
 
   const rows = await loadMessages(conversationId);
@@ -133,10 +150,85 @@ export async function buildHistory(
     if (flat) messages.push(flat);
   }
 
-  return messages;
+  return capHistory(messages);
 }
 
-// Re-export legacy functions from conversation-context so callers can
-// import from @/lib/llm-context instead. Deprecated — will be the canonical
-// location once task 7 removes them from conversation-context.ts.
-export { loadPriorTurns, summariseOldTurns } from "@/lib/conversation-context";
+// ── History capping + summarisation ───────────────────────────────────────────
+
+/**
+ * Bound the history sent to the LLM. When `messages` exceeds `maxMessages`,
+ * the older ones are summarised (small LLM call) into a single synthetic
+ * assistant message followed by the (maxMessages - 1) most recent messages.
+ * No-op (and no LLM call) when the history is within the cap — callers may
+ * invoke this redundantly without cost.
+ */
+export async function capHistory(
+  messages: HistoryMessage[],
+  maxMessages: number = HISTORY_MAX_MESSAGES,
+): Promise<HistoryMessage[]> {
+  if (messages.length <= maxMessages) return messages;
+  if (maxMessages < 2) return maxMessages <= 0 ? [] : messages.slice(-1);
+
+  const recentCount = maxMessages - 1;
+  const oldMessages = messages.slice(0, messages.length - recentCount);
+  const recentMessages = messages.slice(messages.length - recentCount);
+
+  const summary = await buildSummary(oldMessages);
+  return [
+    {
+      role: "assistant",
+      content: `Earlier in this conversation the user requested: ${summary}`,
+    },
+    ...recentMessages,
+  ];
+}
+
+/**
+ * Summarise older user requests via a small LLM call. Falls back to the raw
+ * (truncated) user prompts when the LLM call fails — capping must never make
+ * a turn fail.
+ */
+async function buildSummary(messages: HistoryMessage[]): Promise<string> {
+  const userPrompts = messages
+    .filter((m) => m.role === "user")
+    .map((m) => `- ${m.content.slice(0, 200)}`)
+    .join("\n");
+
+  const prompt = `Summarise the following prior user requests in a short bulleted list (one line each, max 300 chars total). Respond with only the bullet list, no preamble.\n\n${userPrompts}`;
+
+  const cfg = loadDashboardLlmConfig();
+  const model = getEffectiveDashboardModel(cfg);
+  const provider = getEffectiveOpenRouterProvider(cfg);
+
+  if (cfg.provider === "cli") {
+    try {
+      return await callWithCircuitBreaker(() => claudeCliSingleShot({ cfg, prompt }));
+    } catch {
+      return userPrompts;
+    }
+  }
+
+  try {
+    const client = getOpenRouterClient();
+    const { content, usage } = await callWithCircuitBreaker(() =>
+      openRouterChatCompletion({
+        client,
+        model,
+        messages: [{ role: "user" as const, content: prompt }],
+        temperature: 0.1,
+        maxTokens: 200,
+        provider,
+      }),
+    );
+    if (usage) {
+      logUsage("dashboard/history/summarise", model, {
+        prompt_tokens: usage.prompt_tokens ?? 0,
+        completion_tokens: usage.completion_tokens ?? 0,
+        total_tokens: usage.total_tokens ?? 0,
+      });
+    }
+    return content || userPrompts;
+  } catch {
+    return userPrompts;
+  }
+}

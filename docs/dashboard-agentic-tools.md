@@ -51,7 +51,7 @@ This document describes the **native tool-calling** path for the Dashboard App L
 
 ## Analyze flow and `dashboardId`
 
-- The UI passes `dashboardId` in `POST /api/dashboard/analyze` when viewing a saved dashboard (`ChatSidebar` + `app/dashboard/[id]/page.tsx`).
+- Analyze turns run through `POST /api/conversations/:id/turns`; the conversation's `context_ref` carries the dashboard id (`ChatSidebar` + `app/dashboard/[id]/page.tsx`).
 - The system prompt includes the id so the model can call dashboard-scoped tools consistently.
 
 ## Troubleshooting

@@ -471,13 +471,15 @@ export default function DashboardSurface({
     setChatOpen(true);
   }, []);
 
-  const handleSpecUpdate = useCallback(
-    (newSpec: DashboardSpec, prompt: string) => {
-      setDashboard((prev) => (prev ? { ...prev, spec: newSpec } : prev));
-      saveSpec(newSpec, prompt);
-    },
-    [saveSpec],
-  );
+  // Chat-driven modifications arrive via the spec_update SSE event AFTER the
+  // server has already persisted the new spec (with a version snapshot of the
+  // previous one) through updateDashboardSpecWithVersion in turn-background.
+  // The server is the single writer for that path — here we only sync local
+  // state. Re-saving from the client would version the already-updated spec,
+  // destroying the pre-change snapshot (undo would become a no-op).
+  const handleSpecUpdate = useCallback((newSpec: DashboardSpec) => {
+    setDashboard((prev) => (prev ? { ...prev, spec: newSpec } : prev));
+  }, []);
 
 
   const handleNameSave = useCallback(async () => {

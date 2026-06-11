@@ -51,7 +51,7 @@ const MIGRATED_CONV = {
   mode: "modify",
   context_kind: "dashboard",
   context_ref: VALID_DASHBOARD_ID,
-  context_url: `/dashboards/${VALID_DASHBOARD_ID}`,
+  context_url: `/dashboard/${VALID_DASHBOARD_ID}`,
 };
 
 function params(id: string) {
@@ -204,11 +204,11 @@ describe("POST /api/conversations/:id/handoff-to-dashboard", () => {
 
       const body = await res.json();
       expect(body.ok).toBe(true);
-      expect(body.redirect_url).toBe(`/dashboards/${VALID_DASHBOARD_ID}`);
+      expect(body.redirect_url).toBe(`/dashboard/${VALID_DASHBOARD_ID}`);
       expect(body.conversation.mode).toBe("modify");
       expect(body.conversation.context_kind).toBe("dashboard");
       expect(body.conversation.context_ref).toBe(VALID_DASHBOARD_ID);
-      expect(body.conversation.context_url).toBe(`/dashboards/${VALID_DASHBOARD_ID}`);
+      expect(body.conversation.context_url).toBe(`/dashboard/${VALID_DASHBOARD_ID}`);
     });
 
     it("calls migrateConversationToDashboard with correct arguments", async () => {
@@ -237,7 +237,7 @@ describe("POST /api/conversations/:id/handoff-to-dashboard", () => {
         mode: "modify",
         context_kind: "dashboard",
         context_ref: VALID_DASHBOARD_ID,
-        context_url: `/dashboards/${VALID_DASHBOARD_ID}`,
+        context_url: `/dashboard/${VALID_DASHBOARD_ID}`,
       });
 
       const req = makeRequest(VALID_CONV_ID, { dashboard_id: VALID_DASHBOARD_ID });
