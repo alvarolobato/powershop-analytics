@@ -21,7 +21,8 @@ export type { ChatMessage };
 
 export interface ChatSidebarProps {
   spec: DashboardSpec;
-  onSpecUpdate: (newSpec: DashboardSpec, prompt: string) => void;
+  /** Spec already persisted server-side (versioned writer); sync local state only. */
+  onSpecUpdate: (newSpec: DashboardSpec) => void;
   isOpen: boolean;
   onToggle: () => void;
   /** Saved dashboard id for agentic analyze tools (optional). */
