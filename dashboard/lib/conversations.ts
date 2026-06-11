@@ -322,7 +322,7 @@ export async function listConversations(
 /**
  * Migrate a free-chat conversation to dashboard context.
  * Sets mode='modify', context_kind='dashboard', context_ref=dashboardId,
- * context_url='/dashboards/:dashboardId'. Does NOT touch initial_context or messages.
+ * context_url='/dashboard/:dashboardId'. Does NOT touch initial_context or messages.
  * Throws if the conversation is not found or is archived.
  */
 export async function migrateConversationToDashboard(
@@ -332,7 +332,7 @@ export async function migrateConversationToDashboard(
   const rows = await sql<{ id: string }>(
     `UPDATE conversations
      SET mode = 'modify', context_kind = 'dashboard',
-         context_ref = $2, context_url = '/dashboards/' || $2
+         context_ref = $2, context_url = '/dashboard/' || $2
      WHERE id = $1 AND archived_at IS NULL
      RETURNING id`,
     [convId, dashboardId],
@@ -519,17 +519,6 @@ export async function setConversationTitleOnce(id: string, title: string): Promi
 export async function setConversationArchived(id: string, archived: boolean): Promise<void> {
   const archivedAt = archived ? new Date().toISOString() : null;
   await sql(`UPDATE conversations SET archived_at = $2 WHERE id = $1`, [id, archivedAt]);
-}
-
-/** Links a free-chat conversation to a dashboard by updating context_kind / context_ref. */
-export async function linkConversationToDashboard(
-  conversationId: string,
-  dashboardId: number,
-): Promise<void> {
-  await sql(
-    `UPDATE conversations SET context_kind = 'dashboard', context_ref = $2 WHERE id = $1`,
-    [conversationId, String(dashboardId)],
-  );
 }
 
 export async function countMessages(conversationId: string): Promise<number> {

@@ -2,8 +2,9 @@
  * Handler for the `start_dashboard_generation` tool.
  *
  * Generates a new dashboard from a natural-language prompt, saves it to the
- * database, and (if a conversation is active) links the conversation to the
- * new dashboard via a direct DB update.
+ * database, and (if a conversation is active) migrates the conversation to
+ * dashboard context (mode='modify', context_kind/ref/url) so follow-up turns
+ * run on the modify path with the apply_dashboard_modification tool available.
  *
  * Returns { dashboard_id, redirect_url, summary } on success.
  */
@@ -13,7 +14,7 @@ import { validateSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
 import { sql } from "@/lib/db-write";
-import { linkConversationToDashboard } from "@/lib/conversations";
+import { migrateConversationToDashboard } from "@/lib/conversations";
 import { toolOk, toolError, type ToolResponseBody } from "@/lib/llm-tools/tool-payload";
 import type { LlmAgenticContext } from "@/lib/llm-tools/types";
 
@@ -109,16 +110,19 @@ export async function handleStartDashboardGeneration(
   }
 
   const redirectUrl = ctx.conversationId
-    ? `/dashboards/${dashboardId}?tab=modify&continue=${encodeURIComponent(ctx.conversationId)}`
-    : `/dashboards/${dashboardId}?tab=modify`;
+    ? `/dashboard/${dashboardId}?tab=modify&continue=${encodeURIComponent(ctx.conversationId)}`
+    : `/dashboard/${dashboardId}?tab=modify`;
 
-  // Link the conversation to the new dashboard via a direct DB update.
+  // Migrate the conversation to dashboard context (mode='modify', context_kind,
+  // context_ref AND context_url — same semantics as the D-032 handoff endpoint).
+  // Without the mode change, follow-up turns would still dispatch as free chat,
+  // which has no apply_dashboard_modification tool.
   // Best-effort: if it fails the dashboard was still created successfully.
   if (ctx.conversationId) {
     try {
-      await linkConversationToDashboard(ctx.conversationId, dashboardId);
+      await migrateConversationToDashboard(ctx.conversationId, String(dashboardId));
     } catch (err) {
-      console.warn(`[${ctx.requestId}] start_dashboard_generation: linkConversationToDashboard failed:`, err);
+      console.warn(`[${ctx.requestId}] start_dashboard_generation: migrateConversationToDashboard failed:`, err);
     }
   }
 

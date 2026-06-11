@@ -29,6 +29,13 @@ export interface DashboardGenerateStreamHandlers {
   onLine?: (line: GenerateProgressLine, replace?: boolean) => void;
 }
 
+/** Result of a streamed generation: the spec plus the server-saved dashboard id. */
+export interface DashboardGenerateStreamResult {
+  spec: DashboardSpec;
+  /** ID of the dashboard the server saved. Null only on legacy JSON fallback. */
+  dashboardId: number | null;
+}
+
 /**
  * Calls POST /api/dashboard/generate with `{ stream: true }` and consumes NDJSON
  * until a `result` line. Falls back to a plain JSON body if the server returns
@@ -37,7 +44,7 @@ export interface DashboardGenerateStreamHandlers {
 export async function runDashboardGenerateStream(
   prompt: string,
   handlers: DashboardGenerateStreamHandlers,
-): Promise<DashboardSpec> {
+): Promise<DashboardGenerateStreamResult> {
   const res = await fetch("/api/dashboard/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -59,7 +66,7 @@ export async function runDashboardGenerateStream(
   }
 
   if (ct.includes("application/json")) {
-    return (await res.json()) as DashboardSpec;
+    return { spec: (await res.json()) as DashboardSpec, dashboardId: null };
   }
 
   const reader = res.body?.getReader();
@@ -70,6 +77,7 @@ export async function runDashboardGenerateStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let finalSpec: DashboardSpec | null = null;
+  let finalDashboardId: number | null = null;
   // Capture the prompt so the meta handler can pass it to onMeta for the
   // expandable full-prompt section in DashboardGenerateProgressDialog.
   const currentPrompt = prompt;
@@ -136,6 +144,10 @@ export async function runDashboardGenerateStream(
 
     if (msg.type === "result" && msg.spec) {
       finalSpec = msg.spec as DashboardSpec;
+      finalDashboardId =
+        typeof msg.dashboardId === "number" && Number.isInteger(msg.dashboardId)
+          ? msg.dashboardId
+          : null;
     }
 
     if (msg.type === "error") {
@@ -172,5 +184,5 @@ export async function runDashboardGenerateStream(
   if (!finalSpec) {
     throw new Error("La generación terminó sin resultado del panel");
   }
-  return finalSpec;
+  return { spec: finalSpec, dashboardId: finalDashboardId };
 }

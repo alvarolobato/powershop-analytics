@@ -82,6 +82,78 @@ export async function resetPool(): Promise<void> {
   }
 }
 
+// ─── Dashboard spec persistence (single writer, versioned) ──────────────────
+
+/** Row shape returned by updateDashboardSpecWithVersion (matches the PUT route response). */
+export interface UpdatedDashboardRow {
+  id: number;
+  name: string;
+  description: string | null;
+  spec: unknown;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Persist a new dashboard spec with version history, atomically:
+ *   1. Lock the dashboards row (SELECT ... FOR UPDATE).
+ *   2. Snapshot the PREVIOUS spec into dashboard_versions (with the prompt
+ *      that caused the change, when available) — unless opts.skipVersion.
+ *   3. Write the new spec (and optionally the name) and bump updated_at.
+ *
+ * This is the ONLY way a dashboard spec may be updated — both the PUT
+ * /api/dashboard/:id route and the conversation-turn modify path go through
+ * here so version history and updated_at stay consistent regardless of which
+ * surface made the change.
+ *
+ * Returns the updated row, or null when the dashboard does not exist
+ * (no write performed).
+ *
+ * `opts.name`: optional new display name. `null`, `undefined`, empty or
+ * whitespace-only strings all mean "keep the current name" — same contract
+ * the PUT /api/dashboard/:id route has always had (its callers pass null for
+ * spec-only saves). The name column is never cleared through this helper.
+ */
+export async function updateDashboardSpecWithVersion(
+  dashboardId: number,
+  spec: unknown,
+  prompt: string | null,
+  opts?: { name?: string | null; skipVersion?: boolean },
+): Promise<UpdatedDashboardRow | null> {
+  return withTransaction(async (client) => {
+    const existing = await client.query(
+      `SELECT spec FROM dashboards WHERE id = $1 FOR UPDATE`,
+      [dashboardId],
+    );
+    if (existing.rows.length === 0) return null;
+
+    if (!opts?.skipVersion) {
+      await client.query(
+        `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
+         VALUES ($1, $2, $3)`,
+        [dashboardId, JSON.stringify(existing.rows[0].spec), prompt],
+      );
+    }
+
+    const setClauses = ["spec = $1", "updated_at = NOW()"];
+    const params: unknown[] = [JSON.stringify(spec), dashboardId];
+    // Explicit normalisation of the keep-current-name contract documented above.
+    const trimmedName = typeof opts?.name === "string" ? opts.name.trim() : "";
+    if (trimmedName !== "") {
+      setClauses.push(`name = $3`);
+      params.push(trimmedName);
+    }
+    const res = await client.query<UpdatedDashboardRow>(
+      `UPDATE dashboards
+       SET ${setClauses.join(", ")}
+       WHERE id = $2
+       RETURNING id, name, description, spec, created_at, updated_at`,
+      params,
+    );
+    return res.rows[0] ?? null;
+  });
+}
+
 /**
  * Execute a parameterized SQL query.
  */

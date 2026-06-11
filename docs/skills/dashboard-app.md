@@ -284,7 +284,7 @@ Free-chat system prompt is assembled in `dashboard/lib/conversation-context.ts` 
 - `flow: 'chat'`
 - `config`: agentic limits (`tool_rounds_max`, `tool_calls_max`, `tool_timeout_ms`)
 
-Prior turns are loaded via `loadPriorTurns()` in `dashboard/lib/conversation-context.ts`.
+Prior turns are loaded and capped via `buildHistory()` / `capHistory()` in `dashboard/lib/llm-context/history.ts` (older messages beyond `HISTORY_MAX_MESSAGES` are summarised into one synthetic assistant message).
 
 ## Dependencies
 

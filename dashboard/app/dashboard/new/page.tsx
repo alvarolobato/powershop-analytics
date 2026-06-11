@@ -115,21 +115,18 @@ export default function NewDashboard() {
     return data;
   };
 
+  // Client-side save — used only for templates (no LLM involved). LLM-generated
+  // dashboards are saved SERVER-SIDE by /api/dashboard/generate and arrive here
+  // already persisted (see generateFromPrompt).
   const saveAndRedirect = async (
     name: string,
     description: string | null,
     spec: DashboardSpec,
-    genReqId?: string | null,
   ) => {
     const saveRes = await fetch("/api/dashboards", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        description,
-        spec,
-        ...(genReqId ? { generateRequestId: genReqId } : {}),
-      }),
+      body: JSON.stringify({ name, description, spec }),
     });
 
     if (!saveRes.ok) {
@@ -162,11 +159,9 @@ export default function NewDashboard() {
     setAgenticPrompt(trimmed);
     setAgenticConversationUrl(null);
 
-    let capturedRequestId: string | null = null;
     try {
-      const spec = await runDashboardGenerateStream(trimmed, {
+      const result = await runDashboardGenerateStream(trimmed, {
         onMeta: (rid, lines, fullPrompt) => {
-          capturedRequestId = rid;
           setAgenticRequestId(rid);
           if (fullPrompt) setAgenticPrompt(fullPrompt);
           setAgenticLines((prev) => [...prev, ...lines.map((text) => ({ text, kind: inferKind(text) as ProgressLine["kind"] }))]);
@@ -185,9 +180,15 @@ export default function NewDashboard() {
         },
       });
 
-      const name = spec.title || "Dashboard sin título";
       dismissAgenticDialog();
-      await saveAndRedirect(name, spec.description || null, spec, capturedRequestId);
+      if (result.dashboardId !== null) {
+        // Server already saved the dashboard and linked the conversation.
+        router.push(`/dashboard/${result.dashboardId}`);
+      } else {
+        // Legacy JSON fallback (no server-side save) — persist client-side.
+        const name = result.spec.title || "Dashboard sin título";
+        await saveAndRedirect(name, result.spec.description || null, result.spec);
+      }
     } catch (err) {
       setAgenticPhase("error");
       if (isApiErrorResponse(err)) {

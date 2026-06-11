@@ -66,8 +66,11 @@ vi.mock("@/lib/llm-context", () => ({
 }));
 
 const mockSql = vi.fn();
+const mockUpdateDashboardSpecWithVersion = vi.fn();
 vi.mock("@/lib/db-write", () => ({
   sql: (...a: unknown[]) => mockSql(...a),
+  updateDashboardSpecWithVersion: (...a: unknown[]) =>
+    mockUpdateDashboardSpecWithVersion(...a),
 }));
 
 const mockAnalyzeDashboard = vi.fn();
@@ -377,6 +380,7 @@ describe("runTurnBackground — dashboard modify path", () => {
   it("emits spec_update when modifyDashboard sets modifyResult", async () => {
     const conv = makeConv({ mode: "modify", context_kind: "dashboard", context_ref: "42" });
     mockSql.mockResolvedValue([{ spec: { widgets: [] } }]);
+    mockUpdateDashboardSpecWithVersion.mockResolvedValue({ id: 42 });
     mockModifyDashboard.mockImplementation(
       (_spec: unknown, _msg: unknown, agenticCtx: Record<string, unknown>) => {
         agenticCtx.modifyResult = { spec: { widgets: [{ type: "kpi" }] }, summary: "Updated" };
@@ -386,6 +390,12 @@ describe("runTurnBackground — dashboard modify path", () => {
 
     await runTurnBackground(TURN_ID, conv, "add a KPI widget");
 
+    // Persisted through the single versioned writer with the user prompt.
+    expect(mockUpdateDashboardSpecWithVersion).toHaveBeenCalledWith(
+      42,
+      { widgets: [{ type: "kpi" }] },
+      "add a KPI widget",
+    );
     const specCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "spec_update");
     expect(specCall).toBeDefined();
     expect((specCall?.[3] as Record<string, unknown>).prompt).toBe("add a KPI widget");
@@ -403,10 +413,8 @@ describe("runTurnBackground — dashboard modify path", () => {
 
   it("completes without spec_update when DB persist fails", async () => {
     const conv = makeConv({ mode: "modify", context_kind: "dashboard", context_ref: "42" });
-    // First sql call returns current spec; second (UPDATE) throws
-    mockSql
-      .mockResolvedValueOnce([{ spec: { widgets: [] } }])
-      .mockRejectedValueOnce(new Error("DB write failure"));
+    mockSql.mockResolvedValue([{ spec: { widgets: [] } }]);
+    mockUpdateDashboardSpecWithVersion.mockRejectedValueOnce(new Error("DB write failure"));
     mockModifyDashboard.mockImplementation(
       (_spec: unknown, _msg: unknown, agenticCtx: Record<string, unknown>) => {
         agenticCtx.modifyResult = { spec: { widgets: [] }, summary: "" };

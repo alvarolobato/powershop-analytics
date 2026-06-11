@@ -22,6 +22,8 @@ vi.mock("@/lib/db-write", async () => {
   const actual = await vi.importActual<typeof import("@/lib/db-write")>("@/lib/db-write");
   return {
     ...actual,
+    // Dashboard INSERT (server-side save) + interaction link UPDATE.
+    sql: vi.fn().mockResolvedValue([{ id: 42 }]),
     createInteraction: vi.fn().mockResolvedValue("mock-interaction-id"),
     appendInteractionLines: vi.fn().mockResolvedValue(undefined),
     finishInteraction: vi.fn().mockResolvedValue(undefined),
@@ -36,6 +38,7 @@ vi.mock("@/lib/conversations", () => ({
   }),
   appendMessage: vi.fn().mockResolvedValue(undefined),
   touchConversation: vi.fn().mockResolvedValue(undefined),
+  migrateConversationToDashboard: vi.fn().mockResolvedValue({}),
 }));
 
 import { POST } from "../route";

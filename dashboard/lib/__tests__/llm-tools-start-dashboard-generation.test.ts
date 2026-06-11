@@ -13,7 +13,7 @@ vi.mock("@/lib/db-write", () => ({
 }));
 
 vi.mock("@/lib/conversations", () => ({
-  linkConversationToDashboard: vi.fn(),
+  migrateConversationToDashboard: vi.fn(),
 }));
 
 // Minimal valid spec returned by the mocked generateDashboard
@@ -153,7 +153,7 @@ describe("handleStartDashboardGeneration", () => {
     if (result.ok) {
       expect(result.data).toMatchObject({
         dashboard_id: "42",
-        redirect_url: "/dashboards/42?tab=modify",
+        redirect_url: "/dashboard/42?tab=modify",
         summary: expect.stringContaining("Panel de ventas"),
       });
     }
@@ -174,39 +174,39 @@ describe("handleStartDashboardGeneration", () => {
     if (result.ok) {
       expect(result.data).toMatchObject({
         dashboard_id: "99",
-        redirect_url: "/dashboards/99?tab=modify&continue=conv-abc123",
+        redirect_url: "/dashboard/99?tab=modify&continue=conv-abc123",
       });
     }
   });
 
-  it("calls linkConversationToDashboard when conversationId is present", async () => {
+  it("migrates the conversation to dashboard context when conversationId is present", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
 
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 77 }]);
 
-    const { linkConversationToDashboard } = await import("@/lib/conversations");
-    vi.mocked(linkConversationToDashboard).mockResolvedValueOnce(undefined);
+    const { migrateConversationToDashboard } = await import("@/lib/conversations");
+    vi.mocked(migrateConversationToDashboard).mockResolvedValueOnce({} as never);
 
     await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
       ctxWithConv,
     );
 
-    expect(linkConversationToDashboard).toHaveBeenCalledOnce();
-    expect(linkConversationToDashboard).toHaveBeenCalledWith("conv-abc123", 77);
+    expect(migrateConversationToDashboard).toHaveBeenCalledOnce();
+    expect(migrateConversationToDashboard).toHaveBeenCalledWith("conv-abc123", "77");
   });
 
-  it("still returns success when linkConversationToDashboard fails", async () => {
+  it("still returns success when migrateConversationToDashboard fails", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
 
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 55 }]);
 
-    const { linkConversationToDashboard } = await import("@/lib/conversations");
-    vi.mocked(linkConversationToDashboard).mockRejectedValueOnce(new Error("DB error"));
+    const { migrateConversationToDashboard } = await import("@/lib/conversations");
+    vi.mocked(migrateConversationToDashboard).mockRejectedValueOnce(new Error("DB error"));
 
     const result = await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
@@ -219,20 +219,20 @@ describe("handleStartDashboardGeneration", () => {
     }
   });
 
-  it("does not call linkConversationToDashboard when no conversationId", async () => {
+  it("does not migrate any conversation when no conversationId", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
 
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 10 }]);
 
-    const { linkConversationToDashboard } = await import("@/lib/conversations");
+    const { migrateConversationToDashboard } = await import("@/lib/conversations");
 
     await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
       ctx, // no conversationId
     );
-    expect(linkConversationToDashboard).not.toHaveBeenCalled();
+    expect(migrateConversationToDashboard).not.toHaveBeenCalled();
   });
 
   it("unwraps JSON fenced in markdown code block", async () => {

@@ -32,10 +32,11 @@ export {
 
 export {
   buildHistory,
+  capHistory,
   flattenStoredMessage,
   formatToolCallsForHistory,
+  HISTORY_MAX_MESSAGES,
 } from "./history";
-export { loadPriorTurns, summariseOldTurns } from "./history";
 
 export { toolsForFlow } from "./tools";
 

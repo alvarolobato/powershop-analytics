@@ -90,9 +90,10 @@ export async function assembleRequest(
   // 1. Build system prompt
   const { stable, volatile } = buildSystemPrompt(flow, vars);
 
-  // 2. Load history
+  // 2. Load history (capped; summarisation routes through this flow's model)
   const history = await buildHistory(conversationId, {
     priorMessages: opts?.priorMessages,
+    flow,
   });
 
   // 3. Resolve execution config

@@ -28,6 +28,7 @@ import {
   generateRequestId,
 } from "@/lib/errors";
 import {
+  sql,
   createInteraction,
   appendInteractionLines,
   finishInteraction,
@@ -37,6 +38,7 @@ import {
   createConversation,
   appendMessage,
   touchConversation,
+  migrateConversationToDashboard,
 } from "@/lib/conversations";
 import { formatAgenticProgressLineEs } from "@/lib/format-agentic-progress";
 import type { AgenticProgressEvent } from "@/lib/llm-tools/types";
@@ -347,9 +349,57 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
           return;
         }
 
+        // Save the dashboard SERVER-SIDE before announcing success. Previously
+        // the spec was only returned over the stream and the browser saved it
+        // via POST /api/dashboards — if that request never happened (tab
+        // closed, network error) the LLM cost was spent, the conversation said
+        // "Panel generado" and no dashboard existed.
+        send({ type: "phase", requestId, message: "Guardando el panel…" });
+        pushLine({ kind: "phase", text: "Guardando el panel…", ts: ts() });
+        let dashboardId: number;
+        try {
+          const rows = await sql<{ id: number }>(
+            `INSERT INTO dashboards (name, description, spec)
+             VALUES ($1, $2, $3::jsonb)
+             RETURNING id`,
+            [
+              finish.spec.title || "Dashboard sin título",
+              finish.spec.description ?? null,
+              JSON.stringify(finish.spec),
+            ],
+          );
+          if (!rows[0]?.id) throw new Error("INSERT dashboards did not return an id");
+          dashboardId = rows[0].id;
+        } catch (saveErr) {
+          const errText = "El panel se generó pero no se pudo guardar.";
+          console.error(`[${requestId}] dashboard save failed:`, saveErr);
+          pushLine({ kind: "error", text: errText, ts: ts() });
+          await flushLines();
+          if (interactionId) {
+            await finishInteraction(interactionId, "error", errText).catch(() => {});
+          }
+          await conversationPromise;
+          if (conversationId) {
+            await appendMessage(conversationId, "assistant", { text: errText }).catch(() => {});
+            await touchConversation(conversationId, "error").catch(() => {});
+          }
+          send({
+            ...formatApiError(errText, "DB_QUERY", undefined, requestId),
+            type: "error",
+            httpStatus: 500,
+          });
+          controller.close();
+          return;
+        }
+
         pushLine({ kind: "meta", text: "Panel generado correctamente.", ts: ts() });
         await flushLines();
         if (interactionId) {
+          // Link the interaction to the saved dashboard, then mark it done.
+          await sql(`UPDATE llm_interactions SET dashboard_id = $2 WHERE id = $1`, [
+            interactionId,
+            dashboardId,
+          ]).catch((e) => console.error(`[${requestId}] interaction link failed:`, e));
           await finishInteraction(
             interactionId,
             "completed",
@@ -358,19 +408,26 @@ export async function POST(request: Request): Promise<NextResponse | Response> {
             console.error(`[${requestId}] finishInteraction(completed) failed:`, e),
           );
         }
-        // Record a success summary as a normalized { text } assistant message.
-        // Note: the dashboard itself is saved via /api/dashboards (called by the
-        // frontend after this stream closes); we do not link context_ref here
-        // because the dashboard ID is not yet available at this point.
+        // Migrate the conversation to dashboard context (mode='modify',
+        // context_ref, context_url) and record the success message.
         await conversationPromise;
         if (conversationId) {
+          await migrateConversationToDashboard(conversationId, String(dashboardId)).catch(
+            (e) => console.error(`[${requestId}] conversation migrate failed:`, e),
+          );
           const successText = `Panel generado: "${finish.spec.title ?? "Sin título"}"`;
           await appendMessage(conversationId, "assistant", { text: successText })
             .catch((e) => console.error(`[${requestId}] appendMessage(success) failed:`, e));
           await touchConversation(conversationId, "ok").catch(() => {});
         }
 
-        send({ type: "result", requestId, spec: finish.spec });
+        send({
+          type: "result",
+          requestId,
+          spec: finish.spec,
+          dashboardId,
+          redirectUrl: `/dashboard/${dashboardId}`,
+        });
         controller.close();
       },
     });

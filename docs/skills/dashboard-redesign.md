@@ -127,8 +127,8 @@ LogBlock has two states:
 
 The sidebar has two independent message histories (`modifyMessages` / `analyzeMessages`). Switching tabs swaps histories — no cross-contamination.
 
-- **Modificar tab**: Sends to `POST /api/dashboard/modify`. On success calls `onSpecUpdate`. Persisted in `chat_messages_modify` DB column.
-- **Analizar tab**: Sends to `POST /api/dashboard/analyze`. Shows markdown response. Persisted in `chat_messages_analyze` DB column.
+- **Modificar tab**: `ConversationPane` posts to `POST /api/conversations/:id/turns`. The server persists the new spec (with a `dashboard_versions` snapshot) via `updateDashboardSpecWithVersion` and emits a `spec_update` SSE event; `onSpecUpdate` only syncs local state — it does NOT re-save.
+- **Analizar tab**: same turn engine; shows the markdown response. History lives in `conversation_messages`.
 
 The `AnalyzeLauncher` (floating rail) opens the sidebar directly in analizar mode via `initialMode="analizar"` prop.
 

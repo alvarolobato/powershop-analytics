@@ -50,7 +50,9 @@ export interface NewConversationConfig {
 export interface ConversationPaneProps {
   conversationId: string | null;
   mode: "panel" | "standalone";
-  onSpecUpdate?: (spec: DashboardSpec, prompt: string) => void;
+  /** Chat-modified specs are already persisted server-side (versioned single
+   *  writer in turn-background); this callback only syncs the caller's local state. */
+  onSpecUpdate?: (spec: DashboardSpec) => void;
   newConversationConfig?: NewConversationConfig;
   onConversationCreated?: (id: string) => void;
   onProcessingChange?: (streaming: boolean) => void;
@@ -424,7 +426,6 @@ export function ConversationPane({
   // Currently streaming turn
   const [pendingTurnId, setPendingTurnId] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState("");
-  const [pendingPrompt, setPendingPrompt] = useState("");
   // Accumulated streaming text (token events) for the active turn
   const [streamingText, setStreamingText] = useState("");
   // Accumulated extended thinking text for the active turn
@@ -438,7 +439,6 @@ export function ConversationPane({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastEventIdRef = useRef(0);
   const pendingTurnIdRef = useRef<string | null>(null);
-  const pendingPromptRef = useRef("");
   const thinkingTextRef = useRef("");
   const autosendFiredRef = useRef(false);
 
@@ -446,9 +446,6 @@ export function ConversationPane({
   useEffect(() => {
     pendingTurnIdRef.current = pendingTurnId;
   }, [pendingTurnId]);
-  useEffect(() => {
-    pendingPromptRef.current = pendingPrompt;
-  }, [pendingPrompt]);
   useEffect(() => {
     thinkingTextRef.current = thinkingText;
   }, [thinkingText]);
@@ -469,7 +466,6 @@ export function ConversationPane({
     setMsgToTurn(new Map());
     setPendingTurnId(null);
     setPendingUserMsg("");
-    setPendingPrompt("");
     setStreamingText("");
     setThinkingText("");
     lastEventIdRef.current = 0;
@@ -530,13 +526,14 @@ export function ConversationPane({
     [convId],
   );
 
-  // Handle spec_update SSE event
+  // Handle spec_update SSE event — the spec was already persisted server-side;
+  // the callback only syncs the parent surface's local state.
   const handleSpecUpdateEvent = useCallback(
-    (payload: Record<string, unknown>, prompt: string) => {
+    (payload: Record<string, unknown>) => {
       if (!onSpecUpdate) return;
       const spec = payload.spec as DashboardSpec | undefined;
       if (spec) {
-        onSpecUpdate(spec, prompt);
+        onSpecUpdate(spec);
       }
     },
     [onSpecUpdate],
@@ -590,7 +587,7 @@ export function ConversationPane({
           setStreamingText(text);
         }
       } else if (eventType === "spec_update") {
-        handleSpecUpdateEvent(payload, (payload.prompt as string | undefined) ?? pendingPromptRef.current);
+        handleSpecUpdateEvent(payload);
       } else if (eventType === "complete") {
         const messageId = payload.messageId as string | undefined;
         setTurns((prev) => {
@@ -613,7 +610,6 @@ export function ConversationPane({
             if (pendingTurnIdRef.current === turnId) {
               setPendingTurnId(null);
               setPendingUserMsg("");
-              setPendingPrompt("");
               setStreamingText("");
               setThinkingText("");
             }
@@ -635,7 +631,6 @@ export function ConversationPane({
         if (pendingTurnIdRef.current === turnId) {
           setPendingTurnId(null);
           setPendingUserMsg("");
-          setPendingPrompt("");
           setSendError(errText);
         }
       }
@@ -717,7 +712,6 @@ export function ConversationPane({
 
         // Optimistic user message
         setPendingUserMsg(text);
-        setPendingPrompt(text);
 
         // POST turn
         const res = await fetch(`/api/conversations/${currentConvId}/turns`, {
@@ -728,7 +722,6 @@ export function ConversationPane({
 
         if (!res.ok) {
           setPendingUserMsg("");
-          setPendingPrompt("");
           const errData = await res.json().catch(() => null);
           const msg =
             (errData as Record<string, string> | null)?.error ??
@@ -741,7 +734,6 @@ export function ConversationPane({
         setPendingTurnId(turnId);
       } catch {
         setPendingUserMsg("");
-        setPendingPrompt("");
         setSendError("No se pudo conectar con el servidor.");
       } finally {
         setSending(false);

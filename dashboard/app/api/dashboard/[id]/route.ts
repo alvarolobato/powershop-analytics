@@ -10,7 +10,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { sql, withTransaction } from "@/lib/db-write";
+import { sql, updateDashboardSpecWithVersion } from "@/lib/db-write";
 import { validateSpec } from "@/lib/schema";
 import { lintDashboardSpec } from "@/lib/sql-heuristics";
 import { ZodError } from "zod";
@@ -214,46 +214,14 @@ export async function PUT(
     typeof prompt === "string" ? prompt.trim() || null : null;
   const trimmedName = typeof name === "string" ? name.trim() : null;
 
-  // Use a transaction to ensure version insert + dashboard update are atomic
+  // Single versioned writer: snapshot previous spec + update, atomically.
   try {
-    const updateResult = await withTransaction(async (client) => {
-      // Fetch existing dashboard (lock row for update)
-      const existingResult = await client.query(
-        `SELECT id, spec FROM dashboards WHERE id = $1 FOR UPDATE`,
-        [id],
-      );
-
-      if (existingResult.rows.length === 0) return null;
-
-      // Save old spec as a version (skip for name-only changes)
-      if (!skipVersion) {
-        await client.query(
-          `INSERT INTO dashboard_versions (dashboard_id, spec, prompt)
-           VALUES ($1, $2, $3)`,
-          [id, JSON.stringify(existingResult.rows[0].spec), normalizedPrompt],
-        );
-      }
-
-      // Build dynamic SET clause and parameters
-      const setClauses: string[] = ["spec = $1", "updated_at = NOW()"];
-      const params: unknown[] = [JSON.stringify(validatedSpec), id];
-      let paramIdx = 3;
-
-      if (trimmedName) {
-        setClauses.push(`name = $${paramIdx}`);
-        params.push(trimmedName);
-        paramIdx++;
-      }
-
-      const res = await client.query(
-        `UPDATE dashboards
-         SET ${setClauses.join(", ")}
-         WHERE id = $2
-         RETURNING id, name, description, spec, created_at, updated_at`,
-        params,
-      );
-      return res.rows[0] ?? null;
-    });
+    const updateResult = await updateDashboardSpecWithVersion(
+      id,
+      validatedSpec,
+      normalizedPrompt,
+      { name: trimmedName, skipVersion: skipVersion === true },
+    );
 
     if (updateResult === null) {
       return NextResponse.json(
