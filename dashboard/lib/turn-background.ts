@@ -23,7 +23,11 @@ import {
 import { publish } from "@/lib/sse-pubsub";
 import { generateRequestId } from "@/lib/errors";
 import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
-import { flattenStoredMessage, capHistory } from "@/lib/llm-context/history";
+import {
+  flattenStoredMessage,
+  capHistory,
+  HISTORY_MAX_MESSAGES,
+} from "@/lib/llm-context/history";
 import type { AgenticToolCallRecord } from "@/lib/llm-tools/types";
 import type { AssistantMessageContent, ToolCallRecord } from "@/lib/conversation-types";
 
@@ -275,8 +279,13 @@ export async function runTurnBackground(
       .filter((m): m is { role: "user" | "assistant"; content: string } => m !== null);
     // Cap the history BEFORE the context log is written so "Contexto original"
     // shows exactly what the LLM receives. Older messages beyond the cap are
-    // summarised into one synthetic assistant message (see capHistory).
-    const priorMessages = await capHistory(flattened);
+    // summarised into one synthetic assistant message (see capHistory); the
+    // conversation mode doubles as the flow for per-flow model routing.
+    const priorMessages = await capHistory(
+      flattened,
+      HISTORY_MAX_MESSAGES,
+      conversation.mode ?? "chat",
+    );
 
     // The context log (exact payload sent to the LLM) is written to this turn's
     // file and announced via a lightweight "context_ref" event from

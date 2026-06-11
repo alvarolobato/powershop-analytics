@@ -108,6 +108,11 @@ export interface UpdatedDashboardRow {
  *
  * Returns the updated row, or null when the dashboard does not exist
  * (no write performed).
+ *
+ * `opts.name`: optional new display name. `null`, `undefined`, empty or
+ * whitespace-only strings all mean "keep the current name" — same contract
+ * the PUT /api/dashboard/:id route has always had (its callers pass null for
+ * spec-only saves). The name column is never cleared through this helper.
  */
 export async function updateDashboardSpecWithVersion(
   dashboardId: number,
@@ -132,9 +137,11 @@ export async function updateDashboardSpecWithVersion(
 
     const setClauses = ["spec = $1", "updated_at = NOW()"];
     const params: unknown[] = [JSON.stringify(spec), dashboardId];
-    if (opts?.name) {
+    // Explicit normalisation of the keep-current-name contract documented above.
+    const trimmedName = typeof opts?.name === "string" ? opts.name.trim() : "";
+    if (trimmedName !== "") {
       setClauses.push(`name = $3`);
-      params.push(opts.name);
+      params.push(trimmedName);
     }
     const res = await client.query<UpdatedDashboardRow>(
       `UPDATE dashboards

@@ -14,9 +14,10 @@ vi.mock("@/lib/llm-provider/openrouter", () => ({
 vi.mock("@/lib/llm-provider/cli/claude-code", () => ({
   claudeCliSingleShot: vi.fn(),
 }));
+const mockGetModel = vi.fn(() => "test-model");
 vi.mock("@/lib/llm-provider/config", () => ({
   loadDashboardLlmConfig: () => ({ provider: "openrouter" }),
-  getEffectiveDashboardModel: () => "test-model",
+  getEffectiveDashboardModel: (...a: unknown[]) => mockGetModel(...a),
   getEffectiveOpenRouterProvider: () => null,
 }));
 vi.mock("@/lib/llm-circuit-breaker", () => ({
@@ -179,5 +180,28 @@ describe("capHistory", () => {
     const result = await capHistory(makeMessages(8), 4);
     expect(result).toHaveLength(4);
     expect(result[0].content).toContain("resumen");
+  });
+
+  it("bounds the summarisation prompt for very long histories (and the fallback)", async () => {
+    mockChatCompletion.mockRejectedValue(new Error("LLM down"));
+    // 200 old user messages × 200 chars would be ~40 KB unbounded.
+    const msgs: HistoryMessage[] = Array.from({ length: 400 }, (_, i) => ({
+      role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+      content: `petición ${i} ` + "x".repeat(300),
+    }));
+
+    const result = await capHistory(msgs);
+
+    expect(result).toHaveLength(HISTORY_MAX_MESSAGES);
+    // Fallback summary (= the summariser input) stays within the char budget.
+    expect(result[0].content.length).toBeLessThan(4_600);
+    // Most recent old prompts win: the last old user message is included.
+    expect(result[0].content).toContain("petición 388");
+  });
+
+  it("routes summarisation through the caller's flow for per-flow model overrides", async () => {
+    mockChatCompletion.mockResolvedValue({ content: "- resumen", usage: null });
+    await capHistory(makeMessages(15), HISTORY_MAX_MESSAGES, "modify");
+    expect(mockGetModel).toHaveBeenCalledWith(expect.anything(), "modify");
   });
 });

@@ -137,9 +137,9 @@ export function flattenStoredMessage(row: {
  */
 export async function buildHistory(
   conversationId: string | null,
-  opts?: { priorMessages?: HistoryMessage[] },
+  opts?: { priorMessages?: HistoryMessage[]; flow?: string },
 ): Promise<HistoryMessage[]> {
-  if (opts?.priorMessages) return capHistory(opts.priorMessages);
+  if (opts?.priorMessages) return capHistory(opts.priorMessages, HISTORY_MAX_MESSAGES, opts.flow);
   if (!conversationId) return [];
 
   const rows = await loadMessages(conversationId);
@@ -150,10 +150,14 @@ export async function buildHistory(
     if (flat) messages.push(flat);
   }
 
-  return capHistory(messages);
+  return capHistory(messages, HISTORY_MAX_MESSAGES, opts?.flow);
 }
 
 // ── History capping + summarisation ───────────────────────────────────────────
+
+/** Max chars of older user prompts fed to the summarisation LLM call (and used
+ *  verbatim as the fallback summary). Keeps the bounding call itself bounded. */
+const SUMMARY_INPUT_MAX_CHARS = 4_000;
 
 /**
  * Bound the history sent to the LLM. When `messages` exceeds `maxMessages`,
@@ -161,10 +165,14 @@ export async function buildHistory(
  * assistant message followed by the (maxMessages - 1) most recent messages.
  * No-op (and no LLM call) when the history is within the cap — callers may
  * invoke this redundantly without cost.
+ *
+ * `flow` routes the summarisation call through the same per-flow model/provider
+ * overrides as the parent request (see getEffectiveDashboardModel).
  */
 export async function capHistory(
   messages: HistoryMessage[],
   maxMessages: number = HISTORY_MAX_MESSAGES,
+  flow?: string,
 ): Promise<HistoryMessage[]> {
   if (messages.length <= maxMessages) return messages;
   if (maxMessages < 2) return maxMessages <= 0 ? [] : messages.slice(-1);
@@ -173,7 +181,7 @@ export async function capHistory(
   const oldMessages = messages.slice(0, messages.length - recentCount);
   const recentMessages = messages.slice(messages.length - recentCount);
 
-  const summary = await buildSummary(oldMessages);
+  const summary = await buildSummary(oldMessages, flow);
   return [
     {
       role: "assistant",
@@ -184,21 +192,31 @@ export async function capHistory(
 }
 
 /**
- * Summarise older user requests via a small LLM call. Falls back to the raw
- * (truncated) user prompts when the LLM call fails — capping must never make
- * a turn fail.
+ * Summarise older user requests via a small LLM call. Falls back to the
+ * (bounded) raw user prompts when the LLM call fails — capping must never make
+ * a turn fail. Input is whitespace-normalised and capped at
+ * SUMMARY_INPUT_MAX_CHARS (most recent prompts win) so the summarisation
+ * request stays small regardless of conversation length.
  */
-async function buildSummary(messages: HistoryMessage[]): Promise<string> {
-  const userPrompts = messages
-    .filter((m) => m.role === "user")
-    .map((m) => `- ${m.content.slice(0, 200)}`)
-    .join("\n");
+async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<string> {
+  // Most recent old prompts are the most relevant — accumulate from the end
+  // until the char budget is spent, then restore chronological order.
+  const bullets: string[] = [];
+  let budget = SUMMARY_INPUT_MAX_CHARS;
+  const userMessages = messages.filter((m) => m.role === "user");
+  for (let i = userMessages.length - 1; i >= 0 && budget > 0; i--) {
+    const line = `- ${userMessages[i].content.replace(/\s+/g, " ").trim().slice(0, 200)}`;
+    bullets.push(line);
+    budget -= line.length + 1;
+  }
+  const userPrompts = bullets.reverse().join("\n");
 
   const prompt = `Summarise the following prior user requests in a short bulleted list (one line each, max 300 chars total). Respond with only the bullet list, no preamble.\n\n${userPrompts}`;
 
   const cfg = loadDashboardLlmConfig();
-  const model = getEffectiveDashboardModel(cfg);
-  const provider = getEffectiveOpenRouterProvider(cfg);
+  const flowArg = flow as Parameters<typeof getEffectiveDashboardModel>[1];
+  const model = getEffectiveDashboardModel(cfg, flowArg);
+  const provider = getEffectiveOpenRouterProvider(cfg, flowArg);
 
   if (cfg.provider === "cli") {
     try {
