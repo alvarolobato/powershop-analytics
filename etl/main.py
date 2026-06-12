@@ -550,6 +550,7 @@ def run_full_sync(
         reset_watermarks,
         try_acquire_run_lock,
         update_run_trace_context,
+        update_trigger_run_id,
     )
 
     # Cross-process exclusion. _is_run_active (row check) can race with
@@ -607,6 +608,26 @@ def run_full_sync(
         # watermarks is idempotent and safe: the worst case is one extra pass over
         # incremental tables on the next sync.
         # ------------------------------------------------------------------
+        def _abort_forced_run(scope: str) -> None:
+            """Record a FAILED run for an aborted force-resync (issue #828).
+
+            The operator asked for a from-scratch resync precisely because the
+            watermarks are suspect. If the reset fails, running anyway would
+            execute a normal stale-watermark sync while the dashboard reports
+            the requested force-resync as done — the data the operator wanted
+            re-pulled would still be missing, silently. Recording a failed run
+            (and linking it to the trigger row) surfaces the abort instead.
+            """
+            try:
+                aborted_run_id = create_run(conn_pg, trigger, kind=kind)
+                finish_run(conn_pg, aborted_run_id, "failed", 0, 1, total_rows_synced=0)
+                if trigger_id is not None:
+                    update_trigger_run_id(conn_pg, trigger_id, aborted_run_id)
+            except Exception:
+                logger.exception(
+                    "Could not record the aborted force-resync run (%s)", scope
+                )
+
         if trigger == "manual" and trigger_id is not None:
             if force_flags is not None:
                 # Pre-read by the scheduler loop (the normal path now). Using
@@ -649,9 +670,13 @@ def run_full_sync(
                     )
                 except Exception:
                     logger.exception(
-                        "Trigger %d: force_full watermark reset failed; continuing",
+                        "Trigger %d: force_full watermark reset FAILED — aborting "
+                        "the run (a stale-watermark sync would silently skip the "
+                        "data the operator asked to re-pull; issue #828)",
                         trigger_id,
                     )
+                    _abort_forced_run("force_full")
+                    return
             elif force_tables:
                 # Filter to known watermark-backed syncs only. A name absent from
                 # SYNC_NAMES_WITH_WATERMARK is dropped with a warning — API/UI
@@ -679,9 +704,14 @@ def run_full_sync(
                         )
                     except Exception:
                         logger.exception(
-                            "Trigger %d: reset_watermarks failed; continuing incrementally",
+                            "Trigger %d: force_tables watermark reset FAILED — "
+                            "aborting the run (a stale-watermark sync would "
+                            "silently skip the data the operator asked to "
+                            "re-pull; issue #828)",
                             trigger_id,
                         )
+                        _abort_forced_run("force_tables")
+                        return
 
         run_id: int | None = None
         try:
@@ -855,8 +885,6 @@ def run_full_sync(
                 logger.exception("Monitoring: finish_run failed")
 
             if trigger == "manual" and trigger_id is not None:
-                from etl.db.postgres import update_trigger_run_id
-
                 try:
                     update_trigger_run_id(conn_pg, trigger_id, run_id)
                 except Exception:
