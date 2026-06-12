@@ -88,17 +88,20 @@ conn.close()
     query)
         SQL="${1:?SQL query required}"
         "$VENV_PYTHON" -c "
-import p4d, os, sys, json
+import os, sys
+# Read-only allowlist guard (cli/lib/sql_guard.py — issue #832). Validate
+# BEFORE importing p4d or opening any connection to the production ERP.
+sys.path.insert(0, sys.argv[2])
+from sql_guard import validate_readonly_sql
+sql = sys.argv[1]
+err = validate_readonly_sql(sql)
+if err:
+    print(f'ERROR: {err}', file=sys.stderr)
+    sys.exit(1)
+import p4d
 conn = p4d.connect(host=os.environ['P4D_HOST'], port=int(os.environ['P4D_PORT']),
                    user=os.environ.get('P4D_USER',''), password=os.environ.get('P4D_PASSWORD',''))
 cur = conn.cursor()
-sql = sys.argv[1]
-# Safety: reject modification statements
-lower = sql.strip().lower()
-for kw in ['insert','update','delete','drop','alter','create','truncate']:
-    if lower.startswith(kw):
-        print(f'ERROR: {kw.upper()} statements are not allowed (read-only mode)')
-        sys.exit(1)
 cur.execute(sql)
 if cur.description:
     headers = [d[0] for d in cur.description]
@@ -112,7 +115,7 @@ if cur.description:
         print('\t'.join(fmt(v) for v in row))
     print(f'\n({len(rows)} rows)')
 conn.close()
-" "$SQL"
+" "$SQL" "${REPO_ROOT}/cli/lib"
         ;;
     sample)
         TABLE="${1:?Table name required}"

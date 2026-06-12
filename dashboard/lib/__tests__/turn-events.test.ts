@@ -6,18 +6,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mockSql = vi.fn();
+// withTransaction runs the callback with a fake client whose .query is mockQuery.
+const mockQuery = vi.fn();
+const fakeClient = { query: (...a: unknown[]) => mockQuery(...a) };
 
 vi.mock("@/lib/db-write", () => ({
   sql: (...a: unknown[]) => mockSql(...a),
+  withTransaction: (fn: (c: unknown) => unknown) => fn(fakeClient),
 }));
 
 import {
-  createTurn,
+  createTurnIfIdle,
   updateTurnStatus,
   insertTurnEvent,
   getTurnWithEvents,
   getConversationEvents,
-  getNextTurnIndex,
 } from "@/lib/turn-events";
 
 const CONV_ID = "abcdef012345";
@@ -58,18 +61,56 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("createTurn", () => {
-  it("returns turnId and turnIndex from INSERT RETURNING", async () => {
-    mockSql.mockResolvedValueOnce([{ id: TURN_ID, turn_index: 3 }]);
-    const result = await createTurn(CONV_ID, "test message");
-    expect(result.turnId).toBe(TURN_ID);
-    expect(result.turnIndex).toBe(3);
-    expect(mockSql).toHaveBeenCalledOnce();
+describe("createTurnIfIdle", () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it("takes the advisory lock, finds no active turn, and inserts (#823)", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // pg_advisory_xact_lock
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] }) // active-turn check
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID, turn_index: 3 }] }); // insert
+
+    const result = await createTurnIfIdle(CONV_ID, "test message");
+
+    expect(result).toEqual({ ok: true, turnId: TURN_ID, turnIndex: 3 });
+    // The lock is acquired before the check, all in one transaction.
+    expect(mockQuery.mock.calls[0][0]).toContain("pg_advisory_xact_lock");
   });
 
-  it("throws when INSERT returns no rows", async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await expect(createTurn(CONV_ID, "test")).rejects.toThrow("createTurn: no row returned");
+  it("rejects without inserting when an active turn already exists", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // lock
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ "?column?": 1 }] }); // active turn found
+
+    const result = await createTurnIfIdle(CONV_ID, "second");
+
+    expect(result).toEqual({ ok: false, reason: "active_turn" });
+    // Only the lock + the check ran — no INSERT.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("scopes the staleness cutoff so a crashed turn doesn't block forever", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID, turn_index: 0 }] });
+
+    await createTurnIfIdle(CONV_ID, "x");
+
+    const checkQuery = mockQuery.mock.calls[1][0] as string;
+    expect(checkQuery).toContain("status IN ('pending', 'streaming')");
+    expect(checkQuery).toContain("created_at >");
+  });
+
+  it("throws when the INSERT returns no row", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(createTurnIfIdle(CONV_ID, "x")).rejects.toThrow(
+      "createTurnIfIdle: no row returned",
+    );
   });
 });
 
@@ -151,19 +192,5 @@ describe("getConversationEvents", () => {
     const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(query).toContain("te.id >");
     expect(params[1]).toBe(1);
-  });
-});
-
-describe("getNextTurnIndex", () => {
-  it("returns 0 when no turns exist", async () => {
-    mockSql.mockResolvedValueOnce([{ next_index: 0 }]);
-    const idx = await getNextTurnIndex(CONV_ID);
-    expect(idx).toBe(0);
-  });
-
-  it("returns correct next index", async () => {
-    mockSql.mockResolvedValueOnce([{ next_index: 5 }]);
-    const idx = await getNextTurnIndex(CONV_ID);
-    expect(idx).toBe(5);
   });
 });

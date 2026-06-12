@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getConversation } from "@/lib/conversations";
-import { createTurn } from "@/lib/turn-events";
+import { createTurnIfIdle } from "@/lib/turn-events";
 import { runTurnBackground } from "@/lib/turn-background";
 import { formatApiError, generateRequestId } from "@/lib/errors";
 
@@ -113,9 +113,25 @@ export async function POST(
     );
   }
 
+  // Atomically reject-or-create the turn (issue #823). Concurrent turns
+  // interleave the message history nondeterministically; createTurnIfIdle does
+  // the active-turn check AND the insert under one per-conversation advisory
+  // lock so there is no TOCTOU window. Crashed turns stop counting after a
+  // staleness cutoff so a dead container never bricks the conversation.
   let turnId: string;
   try {
-    const result = await createTurn(id, rawContent);
+    const result = await createTurnIfIdle(id, rawContent);
+    if (!result.ok) {
+      return NextResponse.json(
+        formatApiError(
+          "Hay una respuesta en curso en esta conversación. Espera a que termine.",
+          "TURN_IN_PROGRESS",
+          undefined,
+          requestId,
+        ),
+        { status: 409 },
+      );
+    }
     turnId = result.turnId;
   } catch (err) {
     console.error(`[${requestId}] POST /api/conversations/${id}/turns DB error:`, err);
