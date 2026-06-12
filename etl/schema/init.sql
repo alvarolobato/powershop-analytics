@@ -1039,7 +1039,7 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM etl_one_time_migrations WHERE id = 'm827-traspasos-rekey'
   ) THEN
-    DELETE FROM ps_traspasos;
+    TRUNCATE ps_traspasos;
     DELETE FROM etl_watermarks WHERE table_name = 'traspasos';
     INSERT INTO etl_one_time_migrations (id) VALUES ('m827-traspasos-rekey');
   END IF;

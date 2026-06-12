@@ -546,6 +546,7 @@ def run_full_sync(
         create_run,
         finish_run,
         get_trigger_force_flags,
+        record_table_sync,
         release_run_lock,
         reset_watermarks,
         try_acquire_run_lock,
@@ -608,7 +609,7 @@ def run_full_sync(
         # watermarks is idempotent and safe: the worst case is one extra pass over
         # incremental tables on the next sync.
         # ------------------------------------------------------------------
-        def _abort_forced_run(scope: str) -> None:
+        def _abort_forced_run(scope: str, err_msg: str) -> None:
             """Record a FAILED run for an aborted force-resync (issue #828).
 
             The operator asked for a from-scratch resync precisely because the
@@ -617,9 +618,28 @@ def run_full_sync(
             the requested force-resync as done — the data the operator wanted
             re-pulled would still be missing, silently. Recording a failed run
             (and linking it to the trigger row) surfaces the abort instead.
+
+            A synthetic "(watermark_reset)" table row carries the error message
+            so the dashboard details view shows WHY the run aborted, mirroring
+            the "(4d_connection)" row written by _record_connection_failure.
             """
             try:
                 aborted_run_id = create_run(conn_pg, trigger, kind=kind)
+                now = datetime.now(timezone.utc)
+                try:
+                    record_table_sync(
+                        conn_pg,
+                        aborted_run_id,
+                        "(watermark_reset)",
+                        0,
+                        0,
+                        status="failed",
+                        started_at=now,
+                        finished_at=now,
+                        error_msg=f"{scope}: {err_msg}"[:2000],
+                    )
+                except Exception:
+                    logger.exception("Could not record watermark-reset failure row")
                 finish_run(conn_pg, aborted_run_id, "failed", 0, 1, total_rows_synced=0)
                 if trigger_id is not None:
                     update_trigger_run_id(conn_pg, trigger_id, aborted_run_id)
@@ -668,14 +688,14 @@ def run_full_sync(
                         trigger_id,
                         deleted,
                     )
-                except Exception:
+                except Exception as reset_exc:
                     logger.exception(
                         "Trigger %d: force_full watermark reset FAILED — aborting "
                         "the run (a stale-watermark sync would silently skip the "
                         "data the operator asked to re-pull; issue #828)",
                         trigger_id,
                     )
-                    _abort_forced_run("force_full")
+                    _abort_forced_run("force_full", str(reset_exc))
                     return
             elif force_tables:
                 # Filter to known watermark-backed syncs only. A name absent from
@@ -702,7 +722,7 @@ def run_full_sync(
                             trigger_id,
                             deleted,
                         )
-                    except Exception:
+                    except Exception as reset_exc:
                         logger.exception(
                             "Trigger %d: force_tables watermark reset FAILED — "
                             "aborting the run (a stale-watermark sync would "
@@ -710,7 +730,7 @@ def run_full_sync(
                             "re-pull; issue #828)",
                             trigger_id,
                         )
-                        _abort_forced_run("force_tables")
+                        _abort_forced_run("force_tables", str(reset_exc))
                         return
 
         run_id: int | None = None

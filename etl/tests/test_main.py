@@ -415,6 +415,13 @@ class TestForcedRunAbortsOnResetFailure:
         mocks["update_trigger_run_id"].assert_called_once()
         assert mocks["update_trigger_run_id"].call_args[0][1:] == (7, 42)
 
+        # A synthetic "(watermark_reset)" table row explains the abort in the
+        # dashboard details view (mirrors the "(4d_connection)" precedent).
+        rts_args, rts_kwargs = mocks["record_table_sync"].call_args
+        assert rts_args[2] == "(watermark_reset)"
+        assert rts_kwargs["status"] == "failed"
+        assert "pg down" in rts_kwargs["error_msg"]
+
     def test_force_tables_reset_failure_aborts_without_syncing(self):
         mocks = self._run_with_failing_reset((False, ["traspasos"], "dashboard"))
 
