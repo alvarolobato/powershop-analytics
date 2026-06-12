@@ -74,8 +74,11 @@ function completedToolRounds(messages: ChatCompletionMessageParam[]): number {
   return messages.filter((m) => m.role === "tool").length;
 }
 
-/** Pull the COUNT(*) value back out of the latest tool result, when present.
- *  Handles both result shapes: row objects (`"n":"6284"`) and the tool
+/** Pull the COUNT(*) value back out of the execute_query tool result.
+ *  Scans ALL tool messages (newest first) — in modify/analyze the most recent
+ *  tool is the terminal one (apply_dashboard_modification / submit_dashboard_
+ *  analysis), so we must keep looking past it to the earlier execute_query
+ *  round. Handles both result shapes: row objects (`"n":"6284"`) and the tool
  *  payload's columns/rows arrays (`"rows":[["6284"]]`). */
 function probeResultValue(messages: ChatCompletionMessageParam[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -86,7 +89,7 @@ function probeResultValue(messages: ChatCompletionMessageParam[]): string | null
     if (objMatch) return objMatch[1];
     const rowsMatch = raw.match(/"rows"\s*:\s*\[\s*\[\s*"?(\d+)"?/);
     if (rowsMatch) return rowsMatch[1];
-    return null;
+    // Not the probe result (e.g. an apply/submit ack) — keep scanning earlier rounds.
   }
   return null;
 }
@@ -144,9 +147,13 @@ export function mockRunStep(messages: ChatCompletionMessageParam[]): AgenticStep
     });
   }
   if (rounds === 1 && flow === "analyze") {
+    // Field names MUST match the submit_dashboard_analysis tool schema
+    // (analysis_markdown / brief_summary) or the handler returns INVALID_ARGS
+    // and nothing is staged — exactly the integration mismatch this mock exists
+    // to catch.
     return nextToolCall("submit_dashboard_analysis", {
-      markdown: "## Análisis (mock)\n\nLas ventas se mantienen estables esta semana.",
-      summary: "Ventas estables esta semana.",
+      analysis_markdown: "## Análisis (mock)\n\nLas ventas se mantienen estables esta semana.",
+      brief_summary: "Ventas estables esta semana.",
     });
   }
 

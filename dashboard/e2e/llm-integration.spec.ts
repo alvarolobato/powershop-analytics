@@ -161,8 +161,22 @@ test("analyze runs the tool loop and stores the analysis markdown", async ({ pag
   const data = await conv.json();
   const assistant = data.messages.filter((m: { role: string }) => m.role === "assistant");
   expect(assistant.length).toBeGreaterThan(0);
-  const text = JSON.stringify(assistant);
-  expect(text).toContain("Análisis");
+
+  // Assert the submit_dashboard_analysis tool actually SUCCEEDED — not merely
+  // that the markdown string appears in the persisted call args (which would
+  // pass even on INVALID_ARGS). The tool record carries success + its result.
+  const toolCalls = assistant.flatMap(
+    (m: { content?: { tool_calls?: Array<Record<string, unknown>> } }) =>
+      m.content?.tool_calls ?? [],
+  );
+  const submit = toolCalls.find((c: Record<string, unknown>) => c.name === "submit_dashboard_analysis") as
+    | { success?: boolean; arguments?: { analysis_markdown?: string } }
+    | undefined;
+  expect(submit, "submit_dashboard_analysis was never called").toBeTruthy();
+  // success=true proves the args matched the tool schema and the handler staged
+  // the result (an INVALID_ARGS mismatch would be success=false).
+  expect(submit!.success).toBe(true);
+  expect(submit!.arguments?.analysis_markdown).toContain("Análisis");
 });
 
 // ---------------------------------------------------------------------------

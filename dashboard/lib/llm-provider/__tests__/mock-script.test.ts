@@ -91,6 +91,10 @@ describe("mockRunStep — analyze flow", () => {
     expect(step.kind).toBe("tools");
     if (step.kind === "tools") {
       expect(step.tool_calls[0].function.name).toBe("submit_dashboard_analysis");
+      // Args must match the real tool schema (analysis_markdown / brief_summary).
+      const args = JSON.parse(step.tool_calls[0].function.arguments);
+      expect(typeof args.analysis_markdown).toBe("string");
+      expect(typeof args.brief_summary).toBe("string");
     }
   });
 });

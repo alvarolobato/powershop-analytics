@@ -224,7 +224,7 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
         /* ignore callback errors */
       }
     }
-    return { text, usage: { ...EMPTY_USAGE }, provider: "openrouter", driver: null };
+    return { text, usage: { ...EMPTY_USAGE }, provider: "mock", driver: null };
   }
 
   // ── OpenRouter provider ─────────────────────────────────────────────────────
