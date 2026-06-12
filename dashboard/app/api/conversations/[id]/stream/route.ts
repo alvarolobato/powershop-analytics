@@ -131,7 +131,16 @@ export async function GET(
         }
       });
 
-      // Replay historical events.
+      // Replay historical events. On a FRESH connection (no Last-Event-ID)
+      // these frames are tagged `replay: true` so the client treats them as
+      // catch-up data (accumulate state; no refetch per historical turn; no
+      // pending-turn adoption) — see ConversationPane's handleEvent and issues
+      // #825/#836. On a RESUMPTION connection (Last-Event-ID > 0) the replayed
+      // frames are live events the client missed during the disconnect —
+      // including a possible complete/error — so they are NOT tagged, letting
+      // the client run its normal refetch/settlement logic immediately instead
+      // of waiting for the liveness poll.
+      const isFreshConnection = sinceIdParam === undefined;
       let historicalEvents;
       try {
         historicalEvents = await getConversationEvents(id, sinceIdParam);
@@ -151,6 +160,7 @@ export async function GET(
               seq: ev.seq,
               eventType: ev.event_type,
               payload: ev.payload,
+              ...(isFreshConnection ? { replay: true } : {}),
             }),
           );
         } catch {
@@ -160,7 +170,11 @@ export async function GET(
         }
       }
 
-      // Flush buffered live events, skipping those already sent via history replay.
+      // Flush buffered live events, skipping those already sent via history
+      // replay. These arrived while the snapshot query ran — they are LIVE
+      // events (just slightly delayed), so they are never tagged as replay:
+      // a complete/error landing in this window must trigger the client's
+      // normal refetch/settlement logic.
       replayDone = true;
       for (const ev of liveBuffer) {
         if (ev.dbEventId <= maxReplayedId) continue;

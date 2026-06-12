@@ -57,3 +57,4 @@ otel/local/*.json
 # Playwright e2e output (local runs; CI uploads these as workflow artifacts)
 dashboard/test-results/
 dashboard/playwright-report/
+node_modules/
