@@ -52,6 +52,9 @@ const EMPTY_TURN: TurnData = {
   error: null,
 };
 
+/** Cadence of the SSE-liveness fallback poll while a turn is pending. */
+const TURN_LIVENESS_POLL_MS = 2_500;
+
 export interface NewConversationConfig {
   conversationMode: "modify" | "analyze" | "chat";
   contextKind: "dashboard" | "home" | "admin" | "global";
@@ -498,6 +501,49 @@ export function ConversationPane({
   useEffect(() => {
     if (convId) void loadConversation(convId);
   }, [convId, loadConversation]);
+
+  // Liveness fallback: SSE delivery can stall (observed with the Next.js dev
+  // server — the turn finishes server-side in <1s but the complete event never
+  // arrives, leaving the pane on "Procesando…" forever; see #836 root-cause
+  // notes). While a turn is pending, poll the conversation at a low cadence;
+  // the moment the server reports the turn finished (active_turn_id no longer
+  // ours), settle from the REST payload: messages refresh, the last assistant
+  // message is mapped to the turn (context panel/logs attach), pending state
+  // clears. SSE remains the fast path — a delivered complete event clears
+  // pendingTurnId and this effect unmounts the poll.
+  useEffect(() => {
+    if (!pendingTurnId || !convId) return;
+    const turnId = pendingTurnId;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/conversations/${convId}`);
+        if (!res.ok) return;
+        const data = (await res.json()) as ConversationWithMessages & {
+          active_turn_id?: string | null;
+        };
+        if (data.active_turn_id === turnId || pendingTurnIdRef.current !== turnId) {
+          return; // still running, or SSE already settled it
+        }
+        setConv(data);
+        const lastAssistant = [...data.messages]
+          .reverse()
+          .find((m) => m.role === "assistant");
+        if (lastAssistant) {
+          setMsgToTurn((prev) => new Map(prev).set(lastAssistant.id, turnId));
+        }
+        setTurns((prev) => {
+          const map = new Map(prev);
+          const existing = map.get(turnId) ?? EMPTY_TURN;
+          return map.set(turnId, { ...existing, complete: true });
+        });
+        setPendingTurnId(null);
+        setPendingUserMsg("");
+      } catch {
+        // transient — keep polling
+      }
+    }, TURN_LIVENESS_POLL_MS);
+    return () => clearInterval(interval);
+  }, [pendingTurnId, convId]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {

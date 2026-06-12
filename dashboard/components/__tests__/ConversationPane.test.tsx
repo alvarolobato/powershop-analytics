@@ -885,3 +885,57 @@ describe("ConversationPane — stream-state reliability", () => {
     expect(input).toHaveValue("mensaje importante");
   });
 });
+
+describe("ConversationPane — SSE liveness fallback", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("settles a pending turn via polling when SSE delivers no events at all", async () => {
+    const convId = "conv-stalled";
+    const turnId = "turn-stalled";
+    // First conversation fetch: turn still active. Later fetches: finished,
+    // with the assistant message persisted. SSE delivers NOTHING (the stall).
+    let calls = 0;
+    const running = { id: convId, mode: "chat", title: null, active_turn_id: turnId, messages: [] };
+    const finished = {
+      id: convId,
+      mode: "chat",
+      title: null,
+      active_turn_id: null,
+      messages: [
+        { id: "mu", conversation_id: convId, role: "user", content: { text: "hola" }, created_at: "2026-01-01" },
+        { id: "ma", conversation_id: convId, role: "assistant", content: { text: "[e2e-stub] Respuesta a: \"hola\"" }, created_at: "2026-01-01" },
+      ],
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          // Open stream that never produces a frame — the stall.
+          const stream = new ReadableStream<Uint8Array>({ start() {} });
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        calls++;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(calls === 1 ? running : finished),
+        } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    // The poll (2.5s cadence) must surface the persisted reply and re-enable input.
+    await waitFor(
+      () => expect(screen.getByText('[e2e-stub] Respuesta a: "hola"')).toBeInTheDocument(),
+      { timeout: 9000 },
+    );
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Escribe un mensaje…")).toBeEnabled(),
+    );
+  }, 15_000);
+});
