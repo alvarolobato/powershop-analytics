@@ -6,13 +6,17 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const mockSql = vi.fn();
+// withTransaction runs the callback with a fake client whose .query is mockQuery.
+const mockQuery = vi.fn();
+const fakeClient = { query: (...a: unknown[]) => mockQuery(...a) };
 
 vi.mock("@/lib/db-write", () => ({
   sql: (...a: unknown[]) => mockSql(...a),
+  withTransaction: (fn: (c: unknown) => unknown) => fn(fakeClient),
 }));
 
 import {
-  createTurn,
+  createTurnIfIdle,
   updateTurnStatus,
   insertTurnEvent,
   getTurnWithEvents,
@@ -58,18 +62,56 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("createTurn", () => {
-  it("returns turnId and turnIndex from INSERT RETURNING", async () => {
-    mockSql.mockResolvedValueOnce([{ id: TURN_ID, turn_index: 3 }]);
-    const result = await createTurn(CONV_ID, "test message");
-    expect(result.turnId).toBe(TURN_ID);
-    expect(result.turnIndex).toBe(3);
-    expect(mockSql).toHaveBeenCalledOnce();
+describe("createTurnIfIdle", () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it("takes the advisory lock, finds no active turn, and inserts (#823)", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // pg_advisory_xact_lock
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] }) // active-turn check
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID, turn_index: 3 }] }); // insert
+
+    const result = await createTurnIfIdle(CONV_ID, "test message");
+
+    expect(result).toEqual({ ok: true, turnId: TURN_ID, turnIndex: 3 });
+    // The lock is acquired before the check, all in one transaction.
+    expect(mockQuery.mock.calls[0][0]).toContain("pg_advisory_xact_lock");
   });
 
-  it("throws when INSERT returns no rows", async () => {
-    mockSql.mockResolvedValueOnce([]);
-    await expect(createTurn(CONV_ID, "test")).rejects.toThrow("createTurn: no row returned");
+  it("rejects without inserting when an active turn already exists", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // lock
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ "?column?": 1 }] }); // active turn found
+
+    const result = await createTurnIfIdle(CONV_ID, "second");
+
+    expect(result).toEqual({ ok: false, reason: "active_turn" });
+    // Only the lock + the check ran — no INSERT.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("scopes the staleness cutoff so a crashed turn doesn't block forever", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID, turn_index: 0 }] });
+
+    await createTurnIfIdle(CONV_ID, "x");
+
+    const checkQuery = mockQuery.mock.calls[1][0] as string;
+    expect(checkQuery).toContain("status IN ('pending', 'streaming')");
+    expect(checkQuery).toContain("created_at >");
+  });
+
+  it("throws when the INSERT returns no row", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(createTurnIfIdle(CONV_ID, "x")).rejects.toThrow(
+      "createTurnIfIdle: no row returned",
+    );
   });
 });
 
@@ -165,67 +207,5 @@ describe("getNextTurnIndex", () => {
     mockSql.mockResolvedValueOnce([{ next_index: 5 }]);
     const idx = await getNextTurnIndex(CONV_ID);
     expect(idx).toBe(5);
-  });
-});
-
-describe("createTurn — turn_index race (#823)", () => {
-  it("retries on unique violation and succeeds on the next attempt", async () => {
-    const uniqueErr = Object.assign(new Error("duplicate key"), { code: "23505" });
-    mockSql
-      .mockRejectedValueOnce(uniqueErr)
-      .mockResolvedValueOnce([{ id: TURN_ID, turn_index: 3 }]);
-
-    const result = await createTurn(CONV_ID, "hola");
-
-    expect(result).toEqual({ turnId: TURN_ID, turnIndex: 3 });
-    expect(mockSql).toHaveBeenCalledTimes(2);
-  });
-
-  it("gives up after exhausting retries on persistent unique violations", async () => {
-    mockSql.mockImplementation(async () => {
-      throw Object.assign(new Error("duplicate key"), { code: "23505" });
-    });
-
-    let caught: Error | null = null;
-    try {
-      await createTurn(CONV_ID, "hola");
-    } catch (e) {
-      caught = e as Error;
-    }
-    expect(caught?.message).toBe("duplicate key");
-    expect(mockSql).toHaveBeenCalledTimes(3);
-  });
-
-  it("does not retry non-unique-violation errors", async () => {
-    mockSql.mockImplementation(async () => {
-      throw new Error("connection refused");
-    });
-
-    let caught: Error | null = null;
-    try {
-      await createTurn(CONV_ID, "hola");
-    } catch (e) {
-      caught = e as Error;
-    }
-    expect(caught?.message).toBe("connection refused");
-    expect(mockSql).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("hasActiveTurn (#823)", () => {
-  it("returns true when a pending/streaming turn exists", async () => {
-    mockSql.mockResolvedValue([{ one: 1 }]);
-    const { hasActiveTurn } = await import("@/lib/turn-events");
-    await expect(hasActiveTurn(CONV_ID)).resolves.toBe(true);
-    const [query] = mockSql.mock.calls[0] as [string];
-    expect(query).toContain("'pending', 'streaming'");
-    // Stale-turn cutoff: a crashed turn must not block the conversation forever.
-    expect(query).toContain("created_at >");
-  });
-
-  it("returns false when no in-flight turn exists", async () => {
-    mockSql.mockResolvedValue([]);
-    const { hasActiveTurn } = await import("@/lib/turn-events");
-    await expect(hasActiveTurn(CONV_ID)).resolves.toBe(false);
   });
 });

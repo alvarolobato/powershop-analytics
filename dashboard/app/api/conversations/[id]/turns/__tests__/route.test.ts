@@ -19,12 +19,9 @@ vi.mock("@/lib/conversations", () => ({
   getConversation: (...a: unknown[]) => mockGetConversation(...a),
 }));
 
-const mockHasActiveTurn = vi.fn();
-
 vi.mock("@/lib/turn-events", () => ({
-  createTurn: (...a: unknown[]) => mockCreateTurn(...a),
+  createTurnIfIdle: (...a: unknown[]) => mockCreateTurn(...a),
   getTurnWithEvents: (...a: unknown[]) => mockGetTurnWithEvents(...a),
-  hasActiveTurn: (...a: unknown[]) => mockHasActiveTurn(...a),
 }));
 
 vi.mock("@/lib/turn-background", () => ({
@@ -125,12 +122,12 @@ describe("POST /api/conversations/:id/turns", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRunTurnBackground.mockResolvedValue(undefined);
-    mockHasActiveTurn.mockResolvedValue(false);
+    mockCreateTurn.mockResolvedValue({ ok: true, turnId: TURN_ID, turnIndex: 0 });
   });
 
   it("returns 409 TURN_IN_PROGRESS when another turn is in flight (#823)", async () => {
     mockGetConversation.mockResolvedValue(BASE_CONV);
-    mockHasActiveTurn.mockResolvedValue(true);
+    mockCreateTurn.mockResolvedValue({ ok: false, reason: "active_turn" });
 
     const [req, ctx] = makePostRequest(CONV_ID, { content: "segunda pregunta" });
     const res = await POST(req, ctx);
@@ -138,20 +135,7 @@ describe("POST /api/conversations/:id/turns", () => {
     expect(res.status).toBe(409);
     const body = await res.json();
     expect(body.code).toBe("TURN_IN_PROGRESS");
-    expect(mockCreateTurn).not.toHaveBeenCalled();
     expect(mockRunTurnBackground).not.toHaveBeenCalled();
-  });
-
-  it("proceeds when the active-turn guard itself fails (best-effort)", async () => {
-    mockGetConversation.mockResolvedValue(BASE_CONV);
-    mockHasActiveTurn.mockRejectedValue(new Error("pg hiccup"));
-    mockCreateTurn.mockResolvedValue({ turnId: TURN_ID, turnIndex: 0 });
-
-    const [req, ctx] = makePostRequest(CONV_ID, { content: "hola" });
-    const res = await POST(req, ctx);
-
-    expect(res.status).toBe(202);
-    expect(mockCreateTurn).toHaveBeenCalled();
   });
 
   it("returns 400 for invalid conversation ID", async () => {
@@ -221,7 +205,7 @@ describe("POST /api/conversations/:id/turns", () => {
 
   it("returns 202 with turnId and fires background job (AC-1 pending row)", async () => {
     mockGetConversation.mockResolvedValue(BASE_CONV);
-    mockCreateTurn.mockResolvedValue({ turnId: TURN_ID, turnIndex: 0 });
+    mockCreateTurn.mockResolvedValue({ ok: true, turnId: TURN_ID, turnIndex: 0 });
 
     const [req, ctx] = makePostRequest(CONV_ID, { content: "Hello world" });
     const res = await POST(req, ctx);

@@ -2,7 +2,7 @@
  * Turn-events data layer — CRUD for conversation_turns and turn_events.
  */
 
-import { sql } from "@/lib/db-write";
+import { sql, withTransaction } from "@/lib/db-write";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -49,66 +49,79 @@ export async function getNextTurnIndex(conversationId: string): Promise<number> 
 /**
  * Cutoff after which an in-flight turn is considered abandoned (e.g. the
  * container restarted mid-turn and the status row was never finalised).
- * hasActiveTurn ignores older turns so a crashed turn can never permanently
+ * createTurnIfIdle ignores older turns so a crashed turn can never permanently
  * block a conversation from accepting new ones.
+ *
+ * Set well above the worst-case legitimate turn so a long agentic run is never
+ * misclassified as stale (issue #846 review): the agentic limits allow up to
+ * maxToolCalls=24 × toolTimeoutMs=15s = 6 min of tool time plus several rounds
+ * of model latency, so ~10 min is plausible. 30 min leaves comfortable margin
+ * while still recovering a truly crashed turn within the same session.
  */
-const ACTIVE_TURN_STALE_MINUTES = 10;
+const ACTIVE_TURN_STALE_MINUTES = 30;
 
 /**
- * True when the conversation has a turn currently in flight
- * (status pending/streaming, started recently). Used by POST /turns to reject
- * concurrent turns (issue #823): two parallel turns interleave the message
- * history nondeterministically and race the turn_index allocation.
+ * Result of createTurnIfIdle: the created turn, or null when another turn is
+ * already in flight for the conversation.
  */
-export async function hasActiveTurn(conversationId: string): Promise<boolean> {
-  const rows = await sql<{ one: number }>(
-    `SELECT 1 AS one FROM conversation_turns
-      WHERE conversation_id = $1
-        AND status IN ('pending', 'streaming')
-        AND created_at > NOW() - ($2 || ' minutes')::interval
-      LIMIT 1`,
-    [conversationId, String(ACTIVE_TURN_STALE_MINUTES)],
-  );
-  return rows.length > 0;
-}
+export type CreateTurnResult =
+  | { ok: true; turnId: string; turnIndex: number }
+  | { ok: false; reason: "active_turn" };
 
-/** Max attempts when the MAX(turn_index)+1 allocation races a concurrent insert. */
-const CREATE_TURN_MAX_ATTEMPTS = 3;
-
-export async function createTurn(
+/**
+ * Atomically reject-or-create a turn (issue #823, hardened against the TOCTOU
+ * race the review flagged).
+ *
+ * A naive `hasActiveTurn()` check followed by a separate `createTurn()` lets
+ * two concurrent requests both pass the check before either inserts, so both
+ * proceed — exactly the interleaving the guard is meant to prevent. Here the
+ * check AND the insert run inside one transaction holding a per-conversation
+ * advisory lock (`pg_advisory_xact_lock`, auto-released on commit/rollback),
+ * so concurrent requests for the same conversation serialise: the second sees
+ * the first's pending row and is rejected.
+ *
+ * The lock also makes the MAX(turn_index)+1 allocation race-free for same-
+ * conversation inserts (no unique-violation retry needed); the unique
+ * constraint remains as a backstop.
+ */
+export async function createTurnIfIdle(
   conversationId: string,
   userMessage: string,
-): Promise<{ turnId: string; turnIndex: number }> {
-  // The turn_index is allocated with a MAX+1 subselect, which is not atomic:
-  // two concurrent inserts can read the same MAX and collide on
-  // uq_conversation_turns_conv_index. Retry on unique violation (Postgres
-  // error 23505) so the loser of the race re-reads and gets the next index
-  // instead of surfacing a 500 (issue #823).
-  let lastErr: unknown;
-  for (let attempt = 1; attempt <= CREATE_TURN_MAX_ATTEMPTS; attempt++) {
-    try {
-      const rows = await sql<{ id: string; turn_index: number }>(
-        `INSERT INTO conversation_turns (conversation_id, turn_index, user_message, status)
-         VALUES (
-           $1,
-           (SELECT COALESCE(MAX(turn_index) + 1, 0)
-              FROM conversation_turns
-             WHERE conversation_id = $1),
-           $2,
-           'pending'
-         )
-         RETURNING id, turn_index`,
-        [conversationId, userMessage],
-      );
-      if (!rows[0]) throw new Error("createTurn: no row returned");
-      return { turnId: rows[0].id, turnIndex: rows[0].turn_index };
-    } catch (err) {
-      lastErr = err;
-      const code = (err as { code?: string })?.code;
-      if (code !== "23505") throw err;
+): Promise<CreateTurnResult> {
+  return withTransaction(async (client) => {
+    // Serialise all turn creation for this conversation. hashtext → int4,
+    // implicitly widened to the bigint key pg_advisory_xact_lock expects.
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [conversationId]);
+
+    const active = await client.query(
+      `SELECT 1 FROM conversation_turns
+        WHERE conversation_id = $1
+          AND status IN ('pending', 'streaming')
+          AND created_at > NOW() - ($2 || ' minutes')::interval
+        LIMIT 1`,
+      [conversationId, String(ACTIVE_TURN_STALE_MINUTES)],
+    );
+    if ((active.rowCount ?? 0) > 0) {
+      return { ok: false, reason: "active_turn" } as const;
     }
-  }
-  throw lastErr;
+
+    const inserted = await client.query<{ id: string; turn_index: number }>(
+      `INSERT INTO conversation_turns (conversation_id, turn_index, user_message, status)
+       VALUES (
+         $1,
+         (SELECT COALESCE(MAX(turn_index) + 1, 0)
+            FROM conversation_turns
+           WHERE conversation_id = $1),
+         $2,
+         'pending'
+       )
+       RETURNING id, turn_index`,
+      [conversationId, userMessage],
+    );
+    const row = inserted.rows[0];
+    if (!row) throw new Error("createTurnIfIdle: no row returned");
+    return { ok: true, turnId: row.id, turnIndex: row.turn_index } as const;
+  });
 }
 
 export async function updateTurnStatus(
