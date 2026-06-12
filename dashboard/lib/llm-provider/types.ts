@@ -2,7 +2,7 @@
  * Dashboard LLM transport types (OpenRouter HTTP vs local CLI agents).
  */
 
-export type DashboardLlmProviderId = "openrouter" | "cli" | "e2e-stub";
+export type DashboardLlmProviderId = "openrouter" | "cli" | "e2e-stub" | "mock";
 
 /** First-class CLI driver; add new ids when wiring another binary. */
 export type DashboardCliDriverId = "claude_code";

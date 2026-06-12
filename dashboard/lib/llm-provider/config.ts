@@ -21,8 +21,12 @@ function normalizeProvider(raw: string | null | undefined): DashboardLlmProvider
   if (v === "" || v === "cli") return "cli";
   if (v === "openrouter") return "openrouter";
   if (v === "e2e-stub") return "e2e-stub";
+  // `mock` drives the FULL pipeline (assembleRequest → runner → real tool
+  // dispatch → persistence) with a scripted adapter — for e2e LLM-integration
+  // tests. `e2e-stub` short-circuits before any LLM code; `mock` does not.
+  if (v === "mock") return "mock";
   throw new Error(
-    `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "cli" or "openrouter" (or "e2e-stub" for CI only).`,
+    `Invalid DASHBOARD_LLM_PROVIDER="${raw ?? ""}". Use "cli" or "openrouter" (or "e2e-stub"/"mock" for CI only).`,
   );
 }
 

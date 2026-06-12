@@ -76,6 +76,18 @@ describe("createDashboardAgenticAdapter", () => {
     expect(adapter).toBe(fakeAdapter);
   });
 
+  it("returns the scripted mock adapter when provider is 'mock'", () => {
+    mockLoadCfg.mockReturnValue({ ...baseCfg, provider: "mock" });
+
+    const adapter = createDashboardAgenticAdapter();
+
+    // No real client/CLI adapter is constructed for the mock path.
+    expect(mockGetClient).not.toHaveBeenCalled();
+    expect(mockOrAdapter).not.toHaveBeenCalled();
+    expect(mockClaudeAdapter).not.toHaveBeenCalled();
+    expect(typeof adapter.runStep).toBe("function");
+  });
+
   it("throws when provider is 'cli' but driver is unknown", () => {
     mockLoadCfg.mockReturnValue({
       ...baseCfg,
