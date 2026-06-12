@@ -31,6 +31,7 @@ export type ErrorCode =
   | "MISSING_CONTENT"
   | "CONTENT_TOO_LONG"
   | "CONVERSATION_ARCHIVED"
+  | "TURN_IN_PROGRESS"
   | "SQL_LINT"
   | "NOT_FOUND"
   | "TIMEOUT"

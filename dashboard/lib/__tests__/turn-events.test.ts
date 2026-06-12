@@ -167,3 +167,65 @@ describe("getNextTurnIndex", () => {
     expect(idx).toBe(5);
   });
 });
+
+describe("createTurn — turn_index race (#823)", () => {
+  it("retries on unique violation and succeeds on the next attempt", async () => {
+    const uniqueErr = Object.assign(new Error("duplicate key"), { code: "23505" });
+    mockSql
+      .mockRejectedValueOnce(uniqueErr)
+      .mockResolvedValueOnce([{ id: TURN_ID, turn_index: 3 }]);
+
+    const result = await createTurn(CONV_ID, "hola");
+
+    expect(result).toEqual({ turnId: TURN_ID, turnIndex: 3 });
+    expect(mockSql).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up after exhausting retries on persistent unique violations", async () => {
+    mockSql.mockImplementation(async () => {
+      throw Object.assign(new Error("duplicate key"), { code: "23505" });
+    });
+
+    let caught: Error | null = null;
+    try {
+      await createTurn(CONV_ID, "hola");
+    } catch (e) {
+      caught = e as Error;
+    }
+    expect(caught?.message).toBe("duplicate key");
+    expect(mockSql).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not retry non-unique-violation errors", async () => {
+    mockSql.mockImplementation(async () => {
+      throw new Error("connection refused");
+    });
+
+    let caught: Error | null = null;
+    try {
+      await createTurn(CONV_ID, "hola");
+    } catch (e) {
+      caught = e as Error;
+    }
+    expect(caught?.message).toBe("connection refused");
+    expect(mockSql).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("hasActiveTurn (#823)", () => {
+  it("returns true when a pending/streaming turn exists", async () => {
+    mockSql.mockResolvedValue([{ one: 1 }]);
+    const { hasActiveTurn } = await import("@/lib/turn-events");
+    await expect(hasActiveTurn(CONV_ID)).resolves.toBe(true);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).toContain("'pending', 'streaming'");
+    // Stale-turn cutoff: a crashed turn must not block the conversation forever.
+    expect(query).toContain("created_at >");
+  });
+
+  it("returns false when no in-flight turn exists", async () => {
+    mockSql.mockResolvedValue([]);
+    const { hasActiveTurn } = await import("@/lib/turn-events");
+    await expect(hasActiveTurn(CONV_ID)).resolves.toBe(false);
+  });
+});

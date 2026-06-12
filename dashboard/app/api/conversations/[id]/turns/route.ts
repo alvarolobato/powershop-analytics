@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getConversation } from "@/lib/conversations";
-import { createTurn } from "@/lib/turn-events";
+import { createTurn, hasActiveTurn } from "@/lib/turn-events";
 import { runTurnBackground } from "@/lib/turn-background";
 import { formatApiError, generateRequestId } from "@/lib/errors";
 
@@ -111,6 +111,27 @@ export async function POST(
       ),
       { status: 409 },
     );
+  }
+
+  // Reject a new turn while one is already in flight (issue #823): concurrent
+  // turns interleave the message history nondeterministically and race the
+  // turn_index allocation. Crashed turns stop counting after a staleness
+  // cutoff (see hasActiveTurn) so a dead container never bricks the
+  // conversation. Best-effort: a guard failure must not block sends.
+  try {
+    if (await hasActiveTurn(id)) {
+      return NextResponse.json(
+        formatApiError(
+          "Hay una respuesta en curso en esta conversación. Espera a que termine.",
+          "TURN_IN_PROGRESS",
+          undefined,
+          requestId,
+        ),
+        { status: 409 },
+      );
+    }
+  } catch (err) {
+    console.error(`[${requestId}] POST /api/conversations/${id}/turns guard error:`, err);
   }
 
   let turnId: string;

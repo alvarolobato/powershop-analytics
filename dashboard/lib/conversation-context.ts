@@ -43,8 +43,8 @@ export function buildFreeChatContext(): FreeChatContext {
 
 /**
  * Build the InitialContext snapshot for a free-chat conversation. Called at
- * creation time (POST /api/conversations) and as a fallback on the first user
- * message (POST /api/conversations/:id/messages) so both paths stay in sync.
+ * creation time (POST /api/conversations). The legacy fallback on the
+ * messages endpoint is gone — that route was removed (issue #831).
  */
 export function buildFreeChatInitialContextSnapshot(): InitialContext {
   const freeChatCtx = buildFreeChatContext();
