@@ -374,6 +374,44 @@ describe("runTurnBackground — error path", () => {
 
     expect(mockPruneStreamEvents).toHaveBeenCalledWith(TURN_ID);
   });
+
+  it("flushes queued stream inserts before pruning on the error path", async () => {
+    // Queued token/thinking inserts resolve with latency; pruning must wait
+    // for them or it would delete nothing and the late inserts would
+    // resurrect the rows (Copilot review on #845).
+    const order: string[] = [];
+    mockInsertTurnEvent.mockImplementation(
+      (_turnId, _seq, type) =>
+        new Promise((resolve) =>
+          setTimeout(() => {
+            order.push(`insert:${type}`);
+            resolve(1);
+          }, 5),
+        ),
+    );
+    mockPruneStreamEvents.mockImplementation(() => {
+      order.push("prune");
+      return Promise.resolve();
+    });
+    mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: { onAgenticProgress?: (ev: Record<string, unknown>) => void };
+      };
+      opts?.ctx?.onAgenticProgress?.({ type: "model_text_delta", text: "parcial" });
+      opts?.ctx?.onAgenticProgress?.({ type: "model_thinking_delta", text: "hmm" });
+      throw new Error("mid-stream crash");
+    });
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const pruneIdx = order.indexOf("prune");
+    const tokenIdx = order.indexOf("insert:token");
+    const thinkingIdx = order.indexOf("insert:thinking");
+    expect(tokenIdx).toBeGreaterThanOrEqual(0);
+    expect(thinkingIdx).toBeGreaterThanOrEqual(0);
+    expect(pruneIdx).toBeGreaterThan(tokenIdx);
+    expect(pruneIdx).toBeGreaterThan(thinkingIdx);
+  });
 });
 
 describe("runTurnBackground — stream-state durability (#825/#834)", () => {

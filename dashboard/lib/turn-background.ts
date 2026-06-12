@@ -299,6 +299,20 @@ export async function runTurnBackground(
   const requestId = generateRequestId();
   const seq = makeSeq();
   const conversationId = conversation.id;
+  const mode = conversation.mode;
+  const isFreeChatConv = conversation.context_kind === "global" || mode === "chat";
+  // One progress emitter per turn: serialised event inserts + final thinking
+  // capture. Token streaming is suppressed for dashboard modes (analyze/modify
+  // always end with a tool call, never prose — text deltas are tool-call JSON).
+  // Declared OUTSIDE the try so the catch block can flush the insert chain
+  // before pruning — otherwise queued token/thinking inserts could land after
+  // pruneStreamEvents and resurrect the rows it just deleted.
+  const progress = makeProgressHandler(
+    conversationId,
+    turnId,
+    seq,
+    mode === "analyze" || mode === "modify",
+  );
 
   try {
     await updateTurnStatus(turnId, "streaming");
@@ -334,17 +348,6 @@ export async function runTurnBackground(
     // Tool calls the model made this turn — persisted on the assistant message so
     // later turns retain the tool context (which query ran, with what result).
     let assistantToolCalls: AgenticToolCallRecord[] = [];
-    const mode = conversation.mode;
-    const isFreeChatConv = conversation.context_kind === "global" || mode === "chat";
-    // One progress emitter per turn: serialised event inserts + final thinking
-    // capture. Token streaming is suppressed for dashboard modes (analyze/modify
-    // always end with a tool call, never prose — text deltas are tool-call JSON).
-    const progress = makeProgressHandler(
-      conversationId,
-      turnId,
-      seq,
-      mode === "analyze" || mode === "modify",
-    );
 
     await emitTurnEvent(conversationId, turnId, seq(), "log", {
       kind: "meta",
@@ -467,6 +470,10 @@ export async function runTurnBackground(
   } catch (err) {
     const errText = err instanceof Error ? err.message : String(err);
     console.error(`[${requestId}] runTurnBackground error for turn ${turnId}:`, err);
+    // Settle any queued streaming inserts BEFORE the error event and prune:
+    // without this, late token/thinking inserts could publish after the error
+    // frame and re-create rows pruneStreamEvents just deleted.
+    await progress.flush().catch(() => {});
     // Persist the error as an assistant message so the failed turn remains
     // visible after a reload — without it, an errored turn shows only the user
     // bubble with no indication anything went wrong (issue #824). The client

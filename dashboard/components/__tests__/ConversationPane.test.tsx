@@ -919,6 +919,13 @@ describe("ConversationPane — SSE liveness fallback", () => {
           const stream = new ReadableStream<Uint8Array>({ start() {} });
           return Promise.resolve({ ok: true, body: stream } as unknown as Response);
         }
+        if (u.includes(`/turns/${turnId}`)) {
+          // The per-turn status poll: the turn finished server-side.
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ turn: { status: "complete" } }),
+          } as unknown as Response);
+        }
         calls++;
         return Promise.resolve({
           ok: true,

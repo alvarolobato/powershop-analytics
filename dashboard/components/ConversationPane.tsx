@@ -516,15 +516,24 @@ export function ConversationPane({
     const turnId = pendingTurnId;
     const interval = setInterval(async () => {
       try {
+        // Poll THIS turn's status — not the conversation's active_turn_id,
+        // which is merely "the most recent in-flight turn" and would falsely
+        // report our turn as finished if another client started a newer one.
+        const turnRes = await fetch(`/api/conversations/${convId}/turns/${turnId}`);
+        if (!turnRes.ok) return;
+        const turnData = (await turnRes.json()) as { turn?: { status?: string } };
+        const status = turnData.turn?.status;
+        if (status !== "complete" && status !== "error") return; // still running
+        if (pendingTurnIdRef.current !== turnId) return; // SSE already settled it
+
         const res = await fetch(`/api/conversations/${convId}`);
         if (!res.ok) return;
-        const data = (await res.json()) as ConversationWithMessages & {
-          active_turn_id?: string | null;
-        };
-        if (data.active_turn_id === turnId || pendingTurnIdRef.current !== turnId) {
-          return; // still running, or SSE already settled it
-        }
+        const data = (await res.json()) as ConversationWithMessages;
         setConv(data);
+        // Map the last assistant message to the turn so its context panel and
+        // logs attach (the SSE complete event that normally does this never
+        // arrived). With a stalled stream, no later turn can have started from
+        // this pane, so the last assistant message belongs to this turn.
         const lastAssistant = [...data.messages]
           .reverse()
           .find((m) => m.role === "assistant");
@@ -534,7 +543,11 @@ export function ConversationPane({
         setTurns((prev) => {
           const map = new Map(prev);
           const existing = map.get(turnId) ?? EMPTY_TURN;
-          return map.set(turnId, { ...existing, complete: true });
+          return map.set(turnId, {
+            ...existing,
+            complete: status === "complete",
+            error: status === "error" ? (existing.error ?? "Error") : existing.error,
+          });
         });
         setPendingTurnId(null);
         setPendingUserMsg("");
