@@ -131,7 +131,10 @@ export async function GET(
         }
       });
 
-      // Replay historical events.
+      // Replay historical events. Frames are tagged `replay: true` so the
+      // client can distinguish catch-up data (accumulate state, no refetch,
+      // no pending-turn adoption) from genuinely live events — see
+      // ConversationPane's handleEvent and issues #825/#836.
       let historicalEvents;
       try {
         historicalEvents = await getConversationEvents(id, sinceIdParam);
@@ -151,6 +154,7 @@ export async function GET(
               seq: ev.seq,
               eventType: ev.event_type,
               payload: ev.payload,
+              replay: true,
             }),
           );
         } catch {
@@ -161,6 +165,8 @@ export async function GET(
       }
 
       // Flush buffered live events, skipping those already sent via history replay.
+      // These arrived while the snapshot query ran — they are effectively part of
+      // the catch-up batch, so they carry the replay tag too.
       replayDone = true;
       for (const ev of liveBuffer) {
         if (ev.dbEventId <= maxReplayedId) continue;
@@ -171,6 +177,7 @@ export async function GET(
               seq: ev.seq,
               eventType: ev.eventType,
               payload: ev.payload,
+              replay: true,
             }),
           );
         } catch {

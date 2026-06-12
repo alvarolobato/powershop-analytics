@@ -219,6 +219,37 @@ describe("GET /api/conversations/:id/stream", () => {
       expect(events[1].data.eventType).toBe("log");
       expect(events[2].id).toBe(3);
       expect(events[2].data.eventType).toBe("complete");
+      // Catch-up frames are tagged so the client can distinguish them from
+      // live events (no refetch / no pending-turn adoption — #825/#836).
+      for (const ev of events) {
+        expect(ev.data.replay).toBe(true);
+      }
+    });
+
+    it("live events published after replay carry no replay tag", async () => {
+      mockGetConversation.mockResolvedValue(BASE_CONV);
+      mockGetConversationEvents.mockResolvedValue([]);
+
+      const req = makeRequest(CONV_ID);
+      const res = await GET(req, makeContext(CONV_ID));
+
+      // Publish a live event once the subscription is registered.
+      await vi.waitFor(() => {
+        if (!capturedListener) throw new Error("not subscribed yet");
+      });
+      capturedListener!({
+        dbEventId: 10,
+        turnId: "t1",
+        seq: 0,
+        eventType: "token",
+        payload: { text: "hola" },
+      });
+
+      const text = await readStreamChunks(res.body as ReadableStream<Uint8Array>);
+      const events = parseSseText(text);
+      const live = events.find((e) => e.id === 10);
+      expect(live).toBeDefined();
+      expect(live!.data.replay).toBeUndefined();
     });
 
     it("calls getConversationEvents with no sinceId when no Last-Event-ID header", async () => {

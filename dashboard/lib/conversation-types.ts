@@ -81,6 +81,12 @@ export interface AssistantMessageContent {
   error_detail?: AgenticErrorDiagnostic;
   /** Agentic round number this message belongs to (1-based). */
   round?: number;
+  /**
+   * Final extended-thinking text for the turn that produced this message.
+   * Persisted here (durable) because the transient `thinking` turn_events are
+   * pruned once a turn completes — see pruneStreamEvents / issue #825.
+   */
+  thinking?: string;
 }
 
 export type MessageContent =

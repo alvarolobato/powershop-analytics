@@ -10,6 +10,7 @@ import {
   updateTurnStatus,
   insertTurnEvent,
   setTurnContextFile,
+  pruneStreamEvents,
   type TurnRow,
 } from "@/lib/turn-events";
 import { writeTurnContext } from "@/lib/conversation-context-store";
@@ -95,10 +96,28 @@ function formatToolArgs(toolName: string, argsPreview?: string): string {
 
 // ── Shared agentic progress handler ───────────────────────────────────────────
 
+/** Progress emitter handle: the callback plus turn-final accessors. */
+interface ProgressEmitter {
+  handler: (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => void;
+  /** Resolves once every queued event insert has settled (issue #834 ordering). */
+  flush: () => Promise<void>;
+  /** Latest cumulative extended-thinking text seen this turn ("" if none). */
+  thinkingText: () => string;
+}
+
 /**
  * Creates an onAgenticProgress callback that emits SSE events for streaming
  * tokens, extended thinking, and tool progress. Used by both runFreeChatTurn
  * and runDashboardTurn so behaviour is identical across conversation modes.
+ *
+ * Event inserts are serialised through a per-turn promise chain so turn_events
+ * BIGSERIAL ids match the allocated seq order (fire-and-forget inserts could
+ * previously complete out of order — issue #834). The chain never rejects:
+ * each link swallows its own error so one failed insert doesn't drop the rest.
+ *
+ * The latest cumulative thinking text is captured so the caller can persist it
+ * durably on the assistant message before the transient thinking events are
+ * pruned (issues #825/#834).
  */
 function makeProgressHandler(
   conversationId: string,
@@ -106,10 +125,22 @@ function makeProgressHandler(
   seq: () => number,
   /** When true, token streaming is suppressed (analyze/modify use tool calls for output). */
   suppressTokens = false,
-): (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => void {
+): ProgressEmitter {
   let inToolRound = false;
+  let latestThinking = "";
+  let chain: Promise<void> = Promise.resolve();
 
-  return (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => {
+  const enqueue = (eventType: string, payload: Record<string, unknown>) => {
+    // Allocate the seq synchronously so ordering is fixed at enqueue time.
+    const eventSeq = seq();
+    chain = chain.then(() =>
+      emitTurnEvent(conversationId, turnId, eventSeq, eventType, payload).catch(
+        () => {},
+      ),
+    );
+  };
+
+  const handler = (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => {
     if (event.type === "round") {
       inToolRound = false;
     } else if (event.type === "assistant_tools") {
@@ -117,14 +148,13 @@ function makeProgressHandler(
       // Clear streaming tokens that appeared before we knew this was a tool round.
       // Thinking text is preserved — it remains visible while tools execute.
       if (!suppressTokens) {
-        void emitTurnEvent(conversationId, turnId, seq(), "token", { text: "" }).catch(() => {});
+        enqueue("token", { text: "" });
       }
       return;
     } else if (event.type === "model_thinking_delta" && event.text) {
       if (!inToolRound) {
-        void emitTurnEvent(conversationId, turnId, seq(), "thinking", {
-          text: event.text,
-        }).catch(() => {});
+        latestThinking = event.text;
+        enqueue("thinking", { text: event.text });
       }
       return;
     } else if (event.type === "model_text_delta" && event.text) {
@@ -132,9 +162,7 @@ function makeProgressHandler(
       // For dashboard modes (analyze/modify), ALL text deltas are tool-call JSON —
       // suppress them so users don't see raw JSON streaming.
       if (!inToolRound && !suppressTokens) {
-        void emitTurnEvent(conversationId, turnId, seq(), "token", {
-          text: event.text,
-        }).catch(() => {});
+        enqueue("token", { text: event.text });
       }
       return;
     }
@@ -148,12 +176,18 @@ function makeProgressHandler(
       logText = `${event.ok ? "✓" : "✗"} ${event.name} (${event.ms}ms)`;
     }
     if (logText) {
-      void emitTurnEvent(conversationId, turnId, seq(), "log", {
+      enqueue("log", {
         kind: "tool",
         text: logText,
         ts: new Date().toISOString(),
-      }).catch(() => {});
+      });
     }
+  };
+
+  return {
+    handler,
+    flush: () => chain,
+    thinkingText: () => latestThinking,
   };
 }
 
@@ -302,6 +336,15 @@ export async function runTurnBackground(
     let assistantToolCalls: AgenticToolCallRecord[] = [];
     const mode = conversation.mode;
     const isFreeChatConv = conversation.context_kind === "global" || mode === "chat";
+    // One progress emitter per turn: serialised event inserts + final thinking
+    // capture. Token streaming is suppressed for dashboard modes (analyze/modify
+    // always end with a tool call, never prose — text deltas are tool-call JSON).
+    const progress = makeProgressHandler(
+      conversationId,
+      turnId,
+      seq,
+      mode === "analyze" || mode === "modify",
+    );
 
     await emitTurnEvent(conversationId, turnId, seq(), "log", {
       kind: "meta",
@@ -343,6 +386,7 @@ export async function runTurnBackground(
         conversationId,
         turnId,
         seq,
+        progress,
       );
       assistantText = res.text;
       assistantToolCalls = res.toolCalls;
@@ -356,6 +400,7 @@ export async function runTurnBackground(
         conversationId,
         turnId,
         seq,
+        progress,
       );
       assistantText = dashResult.text;
       assistantToolCalls = dashResult.toolCalls;
@@ -382,11 +427,19 @@ export async function runTurnBackground(
       assistantToolCalls = res.toolCalls;
     }
 
+    // All streamed events are inserted before the assistant message/complete
+    // event so replay ordering is deterministic (issue #834).
+    await progress.flush();
+
     // Persist final assistant message to conversation_messages — including the
-    // tool calls made this turn so later turns retain the tool context.
+    // tool calls made this turn so later turns retain the tool context, and the
+    // final thinking text so it survives reloads (the transient thinking events
+    // are pruned below — issues #825/#834).
     const assistantContent: AssistantMessageContent = { text: assistantText };
     const dbToolCalls = toDbToolCalls(assistantToolCalls);
     if (dbToolCalls.length > 0) assistantContent.tool_calls = dbToolCalls;
+    const finalThinking = progress.thinkingText();
+    if (finalThinking) assistantContent.thinking = finalThinking;
     const assistantMsg = await appendMessage(
       conversationId,
       "assistant",
@@ -401,6 +454,10 @@ export async function runTurnBackground(
 
     await updateTurnStatus(turnId, "complete");
 
+    // Drop the turn's transient token/thinking snapshots now that the durable
+    // copy lives on the assistant message (issue #834). Best-effort.
+    await pruneStreamEvents(turnId).catch(() => {});
+
     // Best-effort title generation — failure must not affect turn status.
     void maybeGenerateTitle(conversationId, [
       ...priorMessages,
@@ -410,11 +467,32 @@ export async function runTurnBackground(
   } catch (err) {
     const errText = err instanceof Error ? err.message : String(err);
     console.error(`[${requestId}] runTurnBackground error for turn ${turnId}:`, err);
+    // Persist the error as an assistant message so the failed turn remains
+    // visible after a reload — without it, an errored turn shows only the user
+    // bubble with no indication anything went wrong (issue #824). The client
+    // renders is_error content with the error styling it already supports.
+    let errorMessageId: string | null = null;
+    try {
+      const errorMsg = await appendMessage(conversationId, "assistant", {
+        text: errText,
+        is_error: true,
+      });
+      errorMessageId = errorMsg.id;
+    } catch (persistErr) {
+      console.error(
+        `[${requestId}] could not persist error message for turn ${turnId}:`,
+        persistErr,
+      );
+    }
     await emitTurnEvent(conversationId, turnId, seq(), "error", {
       message: errText,
       ts: new Date().toISOString(),
+      // Lets the client attach the turn's logs/context panel to the persisted
+      // error message, same as complete does via messageId.
+      ...(errorMessageId ? { messageId: errorMessageId } : {}),
     }).catch(() => {});
     await updateTurnStatus(turnId, "error", errText).catch(() => {});
+    await pruneStreamEvents(turnId).catch(() => {});
     await touchConversation(conversationId, "error").catch(() => {});
   }
 }
@@ -435,6 +513,7 @@ async function runFreeChatTurn(
   conversationId: string,
   turnId: string,
   seq: () => number,
+  progress: ProgressEmitter,
 ): Promise<TurnReply> {
   const { assembleRequest } = await import("@/lib/llm-context");
   const { AgenticRunnerError } = await import("@/lib/llm-tools/runner");
@@ -444,7 +523,7 @@ async function runFreeChatTurn(
     requestId,
     endpoint: "freeChat" as const,
     conversationId,
-    onAgenticProgress: makeProgressHandler(conversationId, turnId, seq),
+    onAgenticProgress: progress.handler,
     // Write the exact payload sent to the LLM to this turn's context-log file.
     onSystemPromptReady: makeSystemPromptReadyHandler(
       conversation,
@@ -506,6 +585,7 @@ async function runDashboardTurn(
   conversationId: string,
   turnId: string,
   seq: () => number,
+  progress: ProgressEmitter,
 ): Promise<DashboardTurnResult> {
   const { sql } = await import("@/lib/db-write");
   const ctxWrite: ContextWriteHandle = { done: Promise.resolve() };
@@ -516,10 +596,11 @@ async function runDashboardTurn(
       | "analyzeDashboard"
       | "modifyDashboard",
     conversationId: conversation.id,
-    // Wire agentic progress events to SSE. Suppress token streaming for dashboard
-    // modes — analyze/modify always end with a tool call (submit_dashboard_analysis
-    // or apply_dashboard_modification), never prose, so model_text_delta is JSON.
-    onAgenticProgress: makeProgressHandler(conversationId, turnId, seq, true),
+    // Wire agentic progress events to SSE. The emitter was created with token
+    // streaming suppressed for dashboard modes — analyze/modify always end with
+    // a tool call (submit_dashboard_analysis or apply_dashboard_modification),
+    // never prose, so model_text_delta is JSON.
+    onAgenticProgress: progress.handler,
     // Write the exact payload sent to the LLM to this turn's context-log file.
     onSystemPromptReady: makeSystemPromptReadyHandler(
       conversation,

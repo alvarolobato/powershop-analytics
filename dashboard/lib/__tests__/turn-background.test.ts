@@ -10,11 +10,13 @@ import { describe, it, vi, expect, beforeEach } from "vitest";
 const mockUpdateTurnStatus = vi.fn();
 const mockInsertTurnEvent = vi.fn();
 const mockSetTurnContextFile = vi.fn();
+const mockPruneStreamEvents = vi.fn();
 
 vi.mock("@/lib/turn-events", () => ({
   updateTurnStatus: (...a: unknown[]) => mockUpdateTurnStatus(...a),
   insertTurnEvent: (...a: unknown[]) => mockInsertTurnEvent(...a),
   setTurnContextFile: (...a: unknown[]) => mockSetTurnContextFile(...a),
+  pruneStreamEvents: (...a: unknown[]) => mockPruneStreamEvents(...a),
 }));
 
 const mockWriteTurnContext = vi.fn();
@@ -115,6 +117,7 @@ beforeEach(() => {
   mockUpdateTurnStatus.mockResolvedValue(undefined);
   mockInsertTurnEvent.mockResolvedValue(undefined);
   mockSetTurnContextFile.mockResolvedValue(undefined);
+  mockPruneStreamEvents.mockResolvedValue(undefined);
   mockWriteTurnContext.mockResolvedValue("abcdef012345/turn-1.json");
   mockLoadMessages.mockResolvedValue([]);
   mockAppendMessage.mockResolvedValue({ id: "msg-001" });
@@ -342,6 +345,107 @@ describe("runTurnBackground — error path", () => {
     const errCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "error");
     expect(errCall).toBeDefined();
     expect((errCall?.[3] as Record<string, unknown>).message).toBe("boom");
+  });
+
+  it("persists an is_error assistant message so the failed turn survives reloads (#824)", async () => {
+    mockAssembleRequest.mockRejectedValue(new Error("LLM exploded"));
+    mockAppendMessage.mockResolvedValue({ id: "err-msg-001" });
+
+    await runTurnBackground(TURN_ID, makeConv(), "hello");
+
+    const assistantCall = mockAppendMessage.mock.calls.find(
+      ([, role]) => role === "assistant",
+    );
+    expect(assistantCall).toBeDefined();
+    expect(assistantCall?.[2]).toMatchObject({
+      text: "LLM exploded",
+      is_error: true,
+    });
+    // The error event carries the messageId so the client can attach the
+    // turn's logs/context panel to the persisted error message.
+    const errCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "error");
+    expect((errCall?.[3] as Record<string, unknown>).messageId).toBe("err-msg-001");
+  });
+
+  it("prunes transient stream events after an errored turn (#834)", async () => {
+    mockAssembleRequest.mockRejectedValue(new Error("boom"));
+
+    await runTurnBackground(TURN_ID, makeConv(), "hello");
+
+    expect(mockPruneStreamEvents).toHaveBeenCalledWith(TURN_ID);
+  });
+});
+
+describe("runTurnBackground — stream-state durability (#825/#834)", () => {
+  it("persists the final thinking text onto the assistant message", async () => {
+    mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: {
+          onSystemPromptReady?: (p: string, t?: unknown[]) => void;
+          onAgenticProgress?: (ev: Record<string, unknown>) => void;
+        };
+      };
+      opts?.ctx?.onSystemPromptReady?.("SYSTEM PROMPT", []);
+      // Cumulative thinking deltas — the LAST one is the final text.
+      opts?.ctx?.onAgenticProgress?.({ type: "model_thinking_delta", text: "pensando…" });
+      opts?.ctx?.onAgenticProgress?.({
+        type: "model_thinking_delta",
+        text: "pensando… ya casi está",
+      });
+      return { text: "respuesta final", usage: {}, model: "m" };
+    });
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const assistantCall = mockAppendMessage.mock.calls.find(
+      ([, role]) => role === "assistant",
+    );
+    expect(assistantCall?.[2]).toMatchObject({
+      text: "respuesta final",
+      thinking: "pensando… ya casi está",
+    });
+  });
+
+  it("omits thinking on the assistant message when the turn produced none", async () => {
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const assistantCall = mockAppendMessage.mock.calls.find(
+      ([, role]) => role === "assistant",
+    );
+    expect(assistantCall?.[2]).not.toHaveProperty("thinking");
+  });
+
+  it("prunes transient stream events after a completed turn", async () => {
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
+    expect(mockPruneStreamEvents).toHaveBeenCalledWith(TURN_ID);
+  });
+
+  it("inserts streamed events in seq order even when emitted in a burst", async () => {
+    const insertedSeqs: number[] = [];
+    mockInsertTurnEvent.mockImplementation((_turnId, seq) => {
+      insertedSeqs.push(seq as number);
+      // Random-ish completion latency: without the per-turn chain these
+      // inserts could land out of order.
+      return new Promise((resolve) =>
+        setTimeout(() => resolve(undefined), insertedSeqs.length % 3),
+      );
+    });
+    mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: { onAgenticProgress?: (ev: Record<string, unknown>) => void };
+      };
+      for (let i = 1; i <= 5; i++) {
+        opts?.ctx?.onAgenticProgress?.({ type: "model_text_delta", text: `t${i}` });
+      }
+      return { text: "done", usage: {}, model: "m" };
+    });
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const sorted = [...insertedSeqs].sort((a, b) => a - b);
+    expect(insertedSeqs).toEqual(sorted);
   });
 });
 

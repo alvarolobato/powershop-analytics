@@ -675,3 +675,213 @@ describe("ConversationPane", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stream-state reliability (#825 / #836 / #811 / #808)
+// ---------------------------------------------------------------------------
+
+const enc = new TextEncoder();
+
+function sseFrame(
+  id: number,
+  turnId: string,
+  eventType: string,
+  payload: Record<string, unknown>,
+  replay = false,
+): Uint8Array {
+  const data: Record<string, unknown> = { turnId, eventType, payload };
+  if (replay) data.replay = true;
+  return enc.encode(`id: ${id}\ndata: ${JSON.stringify(data)}\n\n`);
+}
+
+describe("ConversationPane — stream-state reliability", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("#836: mid-turn resume renders replayed thinking/text even when the conversation fetch is slow", async () => {
+    const convId = "conv-resume";
+    const turnId = "turn-live";
+    // Conversation fetch resolves AFTER the SSE replay frames have been
+    // handled — the exact ordering that used to drop the replayed stream.
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: turnId, messages: [] };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          const stream = new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              ctrl.enqueue(sseFrame(1, turnId, "thinking", { text: "razonando sobre ventas" }, true));
+              ctrl.enqueue(sseFrame(2, turnId, "token", { text: "Las ventas suben" }, true));
+              // Stream stays open (turn still in flight) — no more frames.
+            },
+          });
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        return new Promise((resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                ok: true,
+                json: () => Promise.resolve(conv),
+              } as unknown as Response),
+            60,
+          ),
+        );
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    await waitFor(
+      () => {
+        expect(screen.getByTestId("thinking-block")).toBeInTheDocument();
+        expect(screen.getByText("Las ventas suben")).toBeInTheDocument();
+      },
+      { timeout: 4000 },
+    );
+  });
+
+  it("replayed complete events do not trigger per-turn refetches", async () => {
+    const convId = "conv-replay";
+    const messages = [
+      { id: "m1", conversation_id: convId, role: "user", content: { text: "hola" }, created_at: "2026-01-01" },
+      { id: "m2", conversation_id: convId, role: "assistant", content: { text: "respuesta" }, created_at: "2026-01-01" },
+    ];
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: null, messages };
+
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      const u = url as string;
+      if (u.includes("/stream")) {
+        const stream = new ReadableStream<Uint8Array>({
+          start(ctrl) {
+            ctrl.enqueue(sseFrame(1, "turn-old", "complete", { messageId: "m2" }, true));
+            // keep open
+          },
+        });
+        return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(conv) } as unknown as Response);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+    await waitFor(() => expect(screen.getByText("respuesta")).toBeInTheDocument());
+
+    // Only the initial loadConversation fetch — the replayed complete must not refetch.
+    const convFetches = fetchMock.mock.calls.filter(
+      ([u]) => (u as string).includes(`/api/conversations/${convId}`) && !(u as string).includes("/stream"),
+    );
+    expect(convFetches).toHaveLength(1);
+  });
+
+  it("#825: a passive window adopts a live turn and shows its stream", async () => {
+    const convId = "conv-passive";
+    const turnId = "turn-other-window";
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: null, messages: [] };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          const stream = new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              // LIVE frames (no replay flag): another client started this turn.
+              setTimeout(() => {
+                ctrl.enqueue(sseFrame(1, turnId, "log", { kind: "meta", text: "Procesando…", ts: "2026-01-01T00:00:00Z" }));
+                ctrl.enqueue(sseFrame(2, turnId, "token", { text: "Hola desde otra ventana" }));
+              }, 10);
+            },
+          });
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(conv) } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    await waitFor(
+      () => expect(screen.getByText("Hola desde otra ventana")).toBeInTheDocument(),
+      { timeout: 4000 },
+    );
+  });
+
+  it("#811: synthesises the assistant message locally when the post-complete refetch fails", async () => {
+    const convId = "conv-refetch-fail";
+    const turnId = "turn-x";
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: turnId, messages: [] };
+    let convFetches = 0;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string) => {
+        const u = url as string;
+        if (u.includes("/stream")) {
+          const stream = new ReadableStream<Uint8Array>({
+            start(ctrl) {
+              setTimeout(() => {
+                ctrl.enqueue(sseFrame(1, turnId, "token", { text: "Respuesta completa del modelo" }));
+                ctrl.enqueue(sseFrame(2, turnId, "complete", { messageId: "m-new" }));
+              }, 10);
+            },
+          });
+          return Promise.resolve({ ok: true, body: stream } as unknown as Response);
+        }
+        convFetches++;
+        if (convFetches === 1) {
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(conv) } as unknown as Response);
+        }
+        // Post-complete refresh fails.
+        return Promise.resolve({ ok: false, status: 500 } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+
+    // The streamed text must survive as a synthetic message — not vanish.
+    await waitFor(
+      () => expect(screen.getByText("Respuesta completa del modelo")).toBeInTheDocument(),
+      { timeout: 4000 },
+    );
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Escribe un mensaje…")).toBeEnabled(),
+    );
+  });
+
+  it("#808: restores the typed message into the input when the send fails", async () => {
+    const convId = "conv-send-fail";
+    const conv = { id: convId, mode: "chat", title: null, active_turn_id: null, messages: [] };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, opts?: RequestInit) => {
+        const u = url as string;
+        if (u.includes("/stream")) return makeStreamFetch();
+        if (u.includes("/turns") && opts?.method === "POST") {
+          return Promise.resolve({
+            ok: false,
+            status: 500,
+            json: () => Promise.resolve({ error: "Error al crear el turno." }),
+          } as unknown as Response);
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(conv) } as unknown as Response);
+      }),
+    );
+
+    render(<ConversationPane conversationId={convId} mode="standalone" />);
+    const input = screen.getByPlaceholderText("Escribe un mensaje…");
+    fireEvent.change(input, { target: { value: "mensaje importante" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() =>
+      expect(screen.getByText("Error al crear el turno.")).toBeInTheDocument(),
+    );
+    // The typed text is back in the input — not lost (issue #808).
+    expect(input).toHaveValue("mensaje importante");
+  });
+});

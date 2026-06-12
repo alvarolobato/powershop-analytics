@@ -27,7 +27,17 @@ interface TurnData {
    * lives in a file and is lazy-loaded from /context/:turnId when expanded.
    */
   hasContext: boolean;
-  thinking: string | null; // final extended-thinking text (persisted after complete)
+  /**
+   * Cumulative extended-thinking text. Accumulated per turn (NOT gated on this
+   * client having initiated the turn) so replayed events after a mid-turn
+   * reload and live events in a second window render identically — issues
+   * #825/#836. For completed turns the durable copy is `content.thinking` on
+   * the assistant message; this field also serves as the fallback for turns
+   * recorded before that field existed.
+   */
+  thinking: string | null;
+  /** Cumulative streamed answer text (token events). Same accumulation rules. */
+  streamText: string;
   logs: LogLine[];
   complete: boolean;
   error: string | null;
@@ -36,6 +46,7 @@ interface TurnData {
 const EMPTY_TURN: TurnData = {
   hasContext: false,
   thinking: null,
+  streamText: "",
   logs: [],
   complete: false,
   error: null,
@@ -426,10 +437,6 @@ export function ConversationPane({
   // Currently streaming turn
   const [pendingTurnId, setPendingTurnId] = useState<string | null>(null);
   const [pendingUserMsg, setPendingUserMsg] = useState("");
-  // Accumulated streaming text (token events) for the active turn
-  const [streamingText, setStreamingText] = useState("");
-  // Accumulated extended thinking text for the active turn
-  const [thinkingText, setThinkingText] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -439,7 +446,9 @@ export function ConversationPane({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastEventIdRef = useRef(0);
   const pendingTurnIdRef = useRef<string | null>(null);
-  const thinkingTextRef = useRef("");
+  // Mirror of the turns map so async SSE callbacks can read the latest
+  // accumulated state without stale-closure issues.
+  const turnsRef = useRef<Map<string, TurnData>>(new Map());
   const autosendFiredRef = useRef(false);
 
   // Keep refs in sync
@@ -447,8 +456,8 @@ export function ConversationPane({
     pendingTurnIdRef.current = pendingTurnId;
   }, [pendingTurnId]);
   useEffect(() => {
-    thinkingTextRef.current = thinkingText;
-  }, [thinkingText]);
+    turnsRef.current = turns;
+  }, [turns]);
 
   // Sync onProcessingChange
   useEffect(() => {
@@ -466,8 +475,6 @@ export function ConversationPane({
     setMsgToTurn(new Map());
     setPendingTurnId(null);
     setPendingUserMsg("");
-    setStreamingText("");
-    setThinkingText("");
     lastEventIdRef.current = 0;
   }, [initialConversationId]);
 
@@ -552,6 +559,33 @@ export function ConversationPane({
       const turnId = data.turnId as string;
       const eventType = data.eventType as string;
       const payload = data.payload as Record<string, unknown>;
+      // Frames sent during connect-time catch-up carry replay=true (stream
+      // route). Replay frames only rebuild per-turn state — they must not
+      // trigger refetches, clear pending state, or adopt turns.
+      const isReplay = data.replay === true;
+
+      // Adopt a turn that started elsewhere (second window / another tab) as
+      // the pending turn so its live stream renders here too (issue #825).
+      // Live events only; completed/errored turns are never adopted.
+      if (
+        !isReplay &&
+        pendingTurnIdRef.current === null &&
+        (eventType === "context_ref" ||
+          eventType === "log" ||
+          eventType === "thinking" ||
+          eventType === "token")
+      ) {
+        const known = turnsRef.current.get(turnId);
+        if (!known?.complete && !known?.error) {
+          // Set the ref synchronously: more events may arrive before React
+          // commits, and the guard above must only fire once.
+          pendingTurnIdRef.current = turnId;
+          setPendingTurnId(turnId);
+          // Refresh so the in-flight turn's user message (persisted before any
+          // event was emitted) appears above the stream.
+          if (convId) void loadConversation(convId);
+        }
+      }
 
       if (eventType === "context_ref") {
         // The heavy context log lives in a file — just record that one exists so
@@ -574,18 +608,23 @@ export function ConversationPane({
           });
         }
       } else if (eventType === "thinking") {
-        // Extended thinking — cumulative. Empty string = tool round cleared.
+        // Extended thinking — cumulative. Accumulated per turn, regardless of
+        // which client initiated it (no pending gate — issues #825/#836).
         const text = (payload.text as string | undefined) ?? "";
-        if (pendingTurnIdRef.current === turnId) {
-          setThinkingText(text);
-        }
+        setTurns((prev) => {
+          const map = new Map(prev);
+          const existing = map.get(turnId) ?? EMPTY_TURN;
+          return map.set(turnId, { ...existing, thinking: text || null });
+        });
       } else if (eventType === "token") {
         // model_text_delta.text is CUMULATIVE (full text so far, not a delta).
-        // Replace streamingText entirely. Empty string = clear (tool round detected).
+        // Replace entirely; empty string = clear (tool round detected).
         const text = (payload.text as string | undefined) ?? (payload.delta as string | undefined) ?? "";
-        if (pendingTurnIdRef.current === turnId) {
-          setStreamingText(text);
-        }
+        setTurns((prev) => {
+          const map = new Map(prev);
+          const existing = map.get(turnId) ?? EMPTY_TURN;
+          return map.set(turnId, { ...existing, streamText: text });
+        });
       } else if (eventType === "spec_update") {
         handleSpecUpdateEvent(payload);
       } else if (eventType === "complete") {
@@ -593,41 +632,77 @@ export function ConversationPane({
         setTurns((prev) => {
           const map = new Map(prev);
           const existing = map.get(turnId) ?? EMPTY_TURN;
-          // Persist final thinking text into TurnData so it survives after complete.
-          const finalThinking = thinkingTextRef.current || null;
-          return map.set(turnId, { ...existing, complete: true, thinking: finalThinking });
+          return map.set(turnId, { ...existing, complete: true });
         });
         if (messageId) {
           setMsgToTurn((prev) => new Map(prev).set(messageId, turnId));
         }
-        // Always refresh messages so passive watchers (second browser window)
-        // also pick up the newly-persisted assistant message. Clear pending-
-        // turn state only when this client initiated the turn.
+        // Replayed completes need no refetch: loadConversation already
+        // supplies the persisted messages (and refetching once per historical
+        // turn would hammer the API on every reconnect).
+        if (isReplay) return;
+        // Refresh messages so this window (initiator or watcher) picks up the
+        // newly-persisted assistant message. Clear pending-turn state only when
+        // this client is showing the turn as pending.
         void fetch(`/api/conversations/${convId}`)
-          .then((r) => (r.ok ? r.json() : null))
+          .then((r) => (r.ok ? (r.json() as Promise<ConversationWithMessages>) : Promise.reject(new Error(`HTTP ${r.status}`))))
           .then((freshConv) => {
-            if (freshConv) setConv(freshConv as ConversationWithMessages);
+            setConv(freshConv);
             if (pendingTurnIdRef.current === turnId) {
               setPendingTurnId(null);
               setPendingUserMsg("");
-              setStreamingText("");
-              setThinkingText("");
             }
           })
           .catch(() => {
+            // Refresh failed (issue #811): synthesise the assistant message
+            // locally from the turn's streamed text so the reply doesn't
+            // silently vanish. The next successful refresh replaces it.
+            const turn = turnsRef.current.get(turnId);
+            if (messageId && convId) {
+              setConv((prev) => {
+                if (!prev || prev.messages.some((m) => m.id === messageId)) return prev;
+                const content: Record<string, unknown> = {
+                  text:
+                    turn?.streamText ||
+                    "(Respuesta recibida — recarga la página para ver el contenido completo.)",
+                };
+                if (turn?.thinking) content.thinking = turn.thinking;
+                const synthetic = {
+                  id: messageId,
+                  conversation_id: convId,
+                  role: "assistant",
+                  content,
+                  created_at: new Date().toISOString(),
+                } as unknown as ConversationMessage;
+                return { ...prev, messages: [...prev.messages, synthetic] };
+              });
+            }
             if (pendingTurnIdRef.current === turnId) {
               setPendingTurnId(null);
-              setStreamingText("");
-              setThinkingText("");
+              setPendingUserMsg("");
             }
           });
       } else if (eventType === "error") {
         const errText = (payload.message as string | undefined) ?? "Error desconocido";
+        const messageId = payload.messageId as string | undefined;
         setTurns((prev) => {
           const map = new Map(prev);
           const existing = map.get(turnId) ?? EMPTY_TURN;
           return map.set(turnId, { ...existing, error: errText });
         });
+        // The error is persisted as an is_error assistant message (issue #824);
+        // map it so the turn's logs/context panel attach to it after refresh.
+        if (messageId) {
+          setMsgToTurn((prev) => new Map(prev).set(messageId, turnId));
+        }
+        if (isReplay) return;
+        // Refresh so the persisted error bubble renders from messages.
+        void fetch(`/api/conversations/${convId}`)
+          .then((r) => (r.ok ? (r.json() as Promise<ConversationWithMessages>) : null))
+          .then((freshConv) => {
+            if (freshConv) setConv(freshConv);
+          })
+          .catch(() => {});
         if (pendingTurnIdRef.current === turnId) {
           setPendingTurnId(null);
           setPendingUserMsg("");
@@ -682,6 +757,15 @@ export function ConversationPane({
       setSending(true);
       setSendError(null);
 
+      // The input is cleared optimistically above; if the send fails, restore
+      // the typed text so the user doesn't have to retype it (issue #808).
+      // Only restore when the user hasn't started typing something new.
+      const restoreInput = () => {
+        if (overrideText === undefined) {
+          setInput((current) => (current === "" ? text : current));
+        }
+      };
+
       try {
         let currentConvId = convId;
 
@@ -689,6 +773,7 @@ export function ConversationPane({
         if (!currentConvId) {
           if (!newConversationConfig) {
             setSendError("No se puede enviar sin una conversación activa.");
+            restoreInput();
             return;
           }
           const res = await fetch("/api/conversations", {
@@ -702,6 +787,7 @@ export function ConversationPane({
           });
           if (!res.ok) {
             setSendError("No se pudo crear la conversación.");
+            restoreInput();
             return;
           }
           const created = (await res.json()) as { id: string };
@@ -727,6 +813,7 @@ export function ConversationPane({
             (errData as Record<string, string> | null)?.error ??
             "Error al enviar el mensaje.";
           setSendError(msg);
+          restoreInput();
           return;
         }
 
@@ -735,6 +822,7 @@ export function ConversationPane({
       } catch {
         setPendingUserMsg("");
         setSendError("No se pudo conectar con el servidor.");
+        restoreInput();
       } finally {
         setSending(false);
       }
@@ -834,9 +922,17 @@ export function ConversationPane({
           );
         }
 
-        if (turnData?.thinking) {
+        // Thinking: the durable copy lives on the message (content.thinking,
+        // persisted at turn completion — survives reloads, issue #825).
+        // TurnData.thinking covers turns recorded before that field existed,
+        // whose thinking events are still replayed.
+        const msgThinking =
+          (isAssistantContent(msg.content) && msg.content.thinking) ||
+          turnData?.thinking ||
+          null;
+        if (msgThinking) {
           items.push(
-            <ThinkingBlock key={`think-${msgId}`} text={turnData.thinking} />,
+            <ThinkingBlock key={`think-${msgId}`} text={msgThinking} />,
           );
         }
 
@@ -870,12 +966,18 @@ export function ConversationPane({
     return items;
   };
 
-  // Streaming turn rendering
+  // Streaming turn rendering. All stream state lives in the per-turn map, so
+  // this renders identically for the initiating client, a reloaded tab
+  // resuming mid-turn (replayed events repopulate the map before or after
+  // pendingTurnId is restored — no race), and a passive second window that
+  // adopted the turn (issues #825/#836).
   const renderPendingTurn = () => {
     if (!pendingTurnId) return null;
 
     const turnData = turns.get(pendingTurnId);
     const hasLogs = turnData && turnData.logs.length > 0;
+    const liveThinking = turnData?.thinking ?? "";
+    const liveText = turnData?.streamText ?? "";
 
     return (
       <>
@@ -900,11 +1002,11 @@ export function ConversationPane({
             <LogBlock lines={turnData.logs} streaming />
           </div>
         )}
-        {thinkingText && <ThinkingBlock text={thinkingText} streaming />}
-        {streamingText && (
-          <AssistantBubble key="streaming" text={streamingText} isError={false} />
+        {liveThinking && <ThinkingBlock text={liveThinking} streaming />}
+        {liveText && (
+          <AssistantBubble key="streaming" text={liveText} isError={false} />
         )}
-        {!thinkingText && !streamingText && !turnData?.complete && !turnData?.error && <LoadingDots />}
+        {!liveThinking && !liveText && !turnData?.complete && !turnData?.error && <LoadingDots />}
         {turnData?.error && (
           <AssistantBubble text={turnData.error} isError />
         )}

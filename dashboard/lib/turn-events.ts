@@ -139,6 +139,23 @@ export async function getTurnContextFile(
   return rows[0]?.context_file ?? null;
 }
 
+/**
+ * Delete the transient streaming events (`token`, `thinking`) of a finished turn.
+ *
+ * These events carry CUMULATIVE snapshots per delta — O(n²) storage in response
+ * length — and are pure transport once the turn is complete: the final text
+ * lives on the assistant message (including its `thinking`). Pruning bounds
+ * turn_events growth and keeps SSE replay payloads small (issue #834).
+ * Durable events (log, context_ref, spec_update, complete, error) are kept.
+ */
+export async function pruneStreamEvents(turnId: string): Promise<void> {
+  await sql(
+    `DELETE FROM turn_events
+      WHERE turn_id = $1 AND event_type IN ('token', 'thinking')`,
+    [turnId],
+  );
+}
+
 export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents | null> {
   const turns = await sql<TurnRow>(
     `SELECT * FROM conversation_turns WHERE id = $1`,
