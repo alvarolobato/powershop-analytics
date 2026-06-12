@@ -48,12 +48,20 @@ def _normalize(sql: str) -> str | None:
             out.append("''")  # keep a placeholder so token boundaries survive
             i += 1
         elif ch == '"':
-            # Quoted identifier: skip to closing quote.
-            end = sql.find('"', i + 1)
-            if end == -1:
+            # Quoted identifier: skip to closing quote, honouring "" escapes
+            # (standard SQL embeds a literal " in an identifier as "").
+            i += 1
+            while i < n:
+                if sql[i] == '"' and (i + 1 < n and sql[i + 1] == '"'):
+                    i += 2
+                    continue
+                if sql[i] == '"':
+                    break
+                i += 1
+            else:
                 return None  # unterminated identifier
             out.append('""')
-            i = end + 1
+            i += 1
         elif ch == "-" and nxt == "-":
             # Line comment: drop to end of line.
             end = sql.find("\n", i)

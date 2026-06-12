@@ -21,7 +21,6 @@ import {
   insertTurnEvent,
   getTurnWithEvents,
   getConversationEvents,
-  getNextTurnIndex,
 } from "@/lib/turn-events";
 
 const CONV_ID = "abcdef012345";
@@ -193,19 +192,5 @@ describe("getConversationEvents", () => {
     const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(query).toContain("te.id >");
     expect(params[1]).toBe(1);
-  });
-});
-
-describe("getNextTurnIndex", () => {
-  it("returns 0 when no turns exist", async () => {
-    mockSql.mockResolvedValueOnce([{ next_index: 0 }]);
-    const idx = await getNextTurnIndex(CONV_ID);
-    expect(idx).toBe(0);
-  });
-
-  it("returns correct next index", async () => {
-    mockSql.mockResolvedValueOnce([{ next_index: 5 }]);
-    const idx = await getNextTurnIndex(CONV_ID);
-    expect(idx).toBe(5);
   });
 });

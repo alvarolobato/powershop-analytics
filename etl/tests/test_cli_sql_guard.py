@@ -95,3 +95,14 @@ class TestRejectsMalformed:
 
     def test_non_string_rejected(self):
         assert validate_readonly_sql(None) is not None  # type: ignore[arg-type]
+
+
+class TestQuotedIdentifierEscapes:
+    """`""` embeds a literal double-quote in a SQL identifier (#846 review)."""
+
+    def test_doubled_quote_in_identifier_accepted(self):
+        assert validate_readonly_sql('SELECT "Precio""IVA" FROM Articulos') is None
+
+    def test_doubled_quote_does_not_unbalance(self):
+        # The "" must not be read as a closing+opening quote that swallows the rest.
+        assert validate_readonly_sql('SELECT "a""b" FROM t WHERE x = 1') is None

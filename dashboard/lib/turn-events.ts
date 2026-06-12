@@ -36,16 +36,6 @@ export interface TurnWithEvents {
 
 // ── Queries ────────────────────────────────────────────────────────────────────
 
-export async function getNextTurnIndex(conversationId: string): Promise<number> {
-  const rows = await sql<{ next_index: number }>(
-    `SELECT COALESCE(MAX(turn_index) + 1, 0) AS next_index
-       FROM conversation_turns
-      WHERE conversation_id = $1`,
-    [conversationId],
-  );
-  return rows[0]?.next_index ?? 0;
-}
-
 /**
  * Cutoff after which an in-flight turn is considered abandoned (e.g. the
  * container restarted mid-turn and the status row was never finalised).
