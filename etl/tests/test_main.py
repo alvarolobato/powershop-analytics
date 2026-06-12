@@ -354,3 +354,108 @@ class TestResetWatermarksBeforeCreateRun:
             # should fire — confirms the watermark-reset block is using the
             # passed-in flags rather than the (now unread) DB row.
             mock_reset.assert_called_once()
+
+
+class TestForcedRunAbortsOnResetFailure:
+    """Issue #828: a manual force-resync whose watermark reset FAILS must abort
+    and record a failed run — not silently degrade to a stale-watermark sync
+    while the dashboard reports the requested resync as done.
+    """
+
+    def _run_with_failing_reset(
+        self, force_flags: tuple[bool, list[str], str | None]
+    ) -> dict[str, MagicMock]:
+        mocks: dict[str, MagicMock] = {}
+        with ExitStack() as stack:
+            for path in _SYNC_FN_PATHS:
+                short = path.rsplit(".", 1)[-1]
+                mocks[short] = stack.enter_context(patch(path, return_value=100))
+
+            for path in _POSTGRES_HELPER_PATHS:
+                short = path.rsplit(".", 1)[-1]
+                mocks[short] = stack.enter_context(patch(path))
+            mocks["create_run"].return_value = 42
+
+            mocks["reset_watermarks"] = stack.enter_context(
+                patch(
+                    "etl.db.postgres.reset_watermarks",
+                    side_effect=RuntimeError("pg down"),
+                )
+            )
+            mocks["update_trigger_run_id"] = stack.enter_context(
+                patch("etl.db.postgres.update_trigger_run_id")
+            )
+            stack.enter_context(
+                patch("etl.sync.articulos.get_ma_article_codes", return_value=[])
+            )
+            stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
+
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            run_full_sync(
+                conn_4d,
+                conn_pg,
+                trigger="manual",
+                trigger_id=7,
+                force_flags=force_flags,
+            )
+        return mocks
+
+    def test_force_full_reset_failure_aborts_without_syncing(self):
+        mocks = self._run_with_failing_reset((True, [], "dashboard"))
+
+        # No sync module may run — the operator's reset did not happen.
+        for path in _SYNC_FN_PATHS:
+            short = path.rsplit(".", 1)[-1]
+            assert mocks[short].call_count == 0, f"{short} ran despite aborted reset"
+
+        # A failed run is recorded and linked to the trigger row.
+        mocks["create_run"].assert_called_once()
+        args, kwargs = mocks["finish_run"].call_args
+        assert args[2] == "failed"
+        mocks["update_trigger_run_id"].assert_called_once()
+        assert mocks["update_trigger_run_id"].call_args[0][1:] == (7, 42)
+
+        # A synthetic "(watermark_reset)" table row explains the abort in the
+        # dashboard details view (mirrors the "(4d_connection)" precedent).
+        rts_args, rts_kwargs = mocks["record_table_sync"].call_args
+        assert rts_args[2] == "(watermark_reset)"
+        assert rts_kwargs["status"] == "failed"
+        assert "pg down" in rts_kwargs["error_msg"]
+
+    def test_force_tables_reset_failure_aborts_without_syncing(self):
+        mocks = self._run_with_failing_reset((False, ["traspasos"], "dashboard"))
+
+        for path in _SYNC_FN_PATHS:
+            short = path.rsplit(".", 1)[-1]
+            assert mocks[short].call_count == 0, f"{short} ran despite aborted reset"
+        args, kwargs = mocks["finish_run"].call_args
+        assert args[2] == "failed"
+
+    def test_successful_reset_still_runs_the_sync(self):
+        """Control: when the reset succeeds the pipeline proceeds as before."""
+        with ExitStack() as stack:
+            sync_mocks: dict[str, MagicMock] = {}
+            for path in _SYNC_FN_PATHS:
+                short = path.rsplit(".", 1)[-1]
+                sync_mocks[short] = stack.enter_context(patch(path, return_value=1))
+            for path in _POSTGRES_HELPER_PATHS:
+                stack.enter_context(patch(path))
+            stack.enter_context(
+                patch("etl.db.postgres.reset_watermarks", return_value=3)
+            )
+            stack.enter_context(patch("etl.db.postgres.update_trigger_run_id"))
+            stack.enter_context(
+                patch("etl.sync.articulos.get_ma_article_codes", return_value=[])
+            )
+            stack.enter_context(patch("etl.main._get_rows_total", return_value=None))
+
+            conn_4d, conn_pg = MagicMock(), MagicMock()
+            run_full_sync(
+                conn_4d,
+                conn_pg,
+                trigger="manual",
+                trigger_id=7,
+                force_flags=(True, [], "dashboard"),
+            )
+
+        assert sync_mocks["sync_stock"].call_count == 1

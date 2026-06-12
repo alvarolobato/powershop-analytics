@@ -518,3 +518,111 @@ class TestSyncStockIntegration:
             f"Traspasos count mismatch: 4D has {source_count}, "
             f"PostgreSQL has {pg_count}"
         )
+
+
+class TestMapTraspasoRowQuantization:
+    """Issue #827: RegTraspaso must be quantized to 3 decimal places.
+
+    ps_traspasos.reg_traspaso is NUMERIC(20,3) and real 4D PKs can differ only
+    in the third decimal (e.g. 4.152 vs 4.153). The previous scale-2 quantize
+    collided such pairs onto one key, silently losing rows via the append-only
+    ON CONFLICT DO NOTHING insert.
+    """
+
+    @staticmethod
+    def _src(reg: float) -> dict:
+        return {
+            "regtraspaso": reg,
+            "codigo": "144880",
+            "descripcion": "test",
+            "talla": "38",
+            "unidadess": 1,
+            "unidadese": 1,
+            "tiendasalida": "104",
+            "tiendaentrada": "105",
+            "fechas": None,
+            "fechae": None,
+            "tipo": None,
+            "concepto": None,
+            "entrada": None,
+        }
+
+    def test_three_decimal_pks_stay_distinct(self):
+        from etl.sync.stock import _map_traspaso_row
+
+        a = _map_traspaso_row(self._src(4.152))["reg_traspaso"]
+        b = _map_traspaso_row(self._src(4.153))["reg_traspaso"]
+        assert a != b, "scale-2 rounding would collide 4.152 and 4.153"
+        assert str(a) == "4.152"
+        assert str(b) == "4.153"
+
+    def test_float_artifacts_still_normalised(self):
+        from etl.sync.stock import _map_traspaso_row
+
+        v = _map_traspaso_row(self._src(10.989999999999998))["reg_traspaso"]
+        assert str(v) == "10.990"
+
+
+class TestSyncStockSkipsInvalidRows:
+    """Issue #820: a row with a missing PK component must be skipped with a
+    warning — not abort the whole multi-store sync and stall the watermark."""
+
+    @staticmethod
+    def _expo_row(codigo: str | None, tienda_codigo: str | None) -> dict:
+        row: dict = {
+            "codigo": codigo,
+            "tiendacodigo": tienda_codigo,
+            "tienda": "104",
+            "ccstock": 1.0,
+            "ststock": 1.0,
+            "fechamodifica": None,
+        }
+        for i in range(1, 35):
+            row[f"talla{i}"] = "38" if i == 1 else None
+            row[f"stock{i}"] = 2 if i == 1 else None
+        return row
+
+    def test_bad_row_is_skipped_and_good_rows_land(self, caplog):
+        conn_4d, conn_pg = MagicMock(), MagicMock()
+        rows = [
+            self._expo_row("144880", "104/169"),  # good
+            self._expo_row(None, "104/169"),  # corrupt: Codigo NULL
+            self._expo_row("144881", "104/169"),  # good
+        ]
+        with (
+            patch("etl.sync.stock._count_expo", return_value=3),
+            patch("etl.sync.stock._build_expo_where", return_value=""),
+            patch("etl.sync.stock._get_store_codes", return_value=["104"]),
+            patch("etl.sync.stock.safe_fetch", return_value=rows),
+            patch(
+                "etl.sync.stock.upsert", side_effect=lambda c, t, rs, pk_cols: len(rs)
+            ) as mock_upsert,
+        ):
+            import logging
+
+            with caplog.at_level(logging.WARNING, logger="etl.sync.stock"):
+                total = sync_stock(conn_4d, conn_pg, since=None)
+
+        # The two good source rows (one talla pair each) were upserted.
+        assert total == 2
+        assert mock_upsert.call_count == 1
+        upserted = mock_upsert.call_args[0][2]
+        assert {r["codigo"] for r in upserted} == {"144880", "144881"}
+        # The skip is loud: per-row warning + end-of-run summary.
+        assert any("skipping invalid row" in r.message for r in caplog.records)
+        assert any("skipped 1 invalid source row" in r.message for r in caplog.records)
+
+    def test_all_rows_bad_completes_with_zero(self):
+        conn_4d, conn_pg = MagicMock(), MagicMock()
+        rows = [self._expo_row(None, None)]
+        with (
+            patch("etl.sync.stock._count_expo", return_value=1),
+            patch("etl.sync.stock._build_expo_where", return_value=""),
+            patch("etl.sync.stock._get_store_codes", return_value=["104"]),
+            patch("etl.sync.stock.safe_fetch", return_value=rows),
+            patch("etl.sync.stock.upsert") as mock_upsert,
+        ):
+            total = sync_stock(conn_4d, conn_pg, since=None)
+
+        assert total == 0
+        mock_upsert.assert_not_called()

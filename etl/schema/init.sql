@@ -1019,6 +1019,32 @@ END $$;
 -- Add logs column to persist streaming log lines alongside the assistant message.
 ALTER TABLE conversation_messages ADD COLUMN IF NOT EXISTS logs JSONB DEFAULT NULL;
 
+-- Run-once destructive migrations need a marker so re-applying this file
+-- (every container start) does not repeat them.
+CREATE TABLE IF NOT EXISTS etl_one_time_migrations (
+    id         TEXT        PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- One-time migration: re-key ps_traspasos after the scale-2 → scale-3 PK
+-- quantization fix (issue #827). The pre-fix ETL rounded RegTraspaso to 2
+-- decimals: 3-decimal source PKs collided (one row lost per collision via
+-- ON CONFLICT DO NOTHING) and the survivors sit under wrong keys — which the
+-- fixed ETL would duplicate when it re-inserts them under their correct keys
+-- (ps_traspasos is append-only, never truncated). Wipe the table and clear
+-- its watermark so the next sync re-pulls everything with correct keys.
+-- Remove this block once it has run on production (follow-up PR, per AGENTS.md).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM etl_one_time_migrations WHERE id = 'm827-traspasos-rekey'
+  ) THEN
+    TRUNCATE ps_traspasos;
+    DELETE FROM etl_watermarks WHERE table_name = 'traspasos';
+    INSERT INTO etl_one_time_migrations (id) VALUES ('m827-traspasos-rekey');
+  END IF;
+END $$;
+
 -- ============================================================
 -- ANALYZE (update planner statistics after initial load)
 -- ============================================================

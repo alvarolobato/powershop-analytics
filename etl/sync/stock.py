@@ -84,8 +84,11 @@ _EXPO_COLUMNS = ", ".join(_EXPO_FIXED_COLS + _EXPO_TALLA_COLS + _EXPO_STOCK_COLS
 # Stable ORDER BY for deterministic LIMIT/OFFSET pagination.
 _EXPO_ORDER_BY = "ORDER BY Codigo, TiendaCodigo"
 
-# Quantize target for NUMERIC(20,2) PK values.
-_TWO_PLACES = Decimal("0.01")
+# Quantize target for NUMERIC(20,3) PK values. Three decimal places, matching
+# the ps_* schema convention (see etl/schema/init.sql header): some 4D Real PKs
+# carry 3-decimal values (e.g. 4.152 vs 4.153) — quantizing to 2 places made
+# them collide on the same key and silently lose rows (issue #827).
+_THREE_PLACES = Decimal("0.001")
 
 
 def _validate_since(since: datetime, name: str = "since") -> None:
@@ -261,6 +264,7 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
     logger.info("sync_stock: processing %d stores progressively", len(stores))
 
     total_processed = 0
+    total_skipped = 0
     for store_idx, store_code in enumerate(stores):
         # Validate store code before interpolating into SQL (defense-in-depth).
         # ERP codes are numeric or alphanumeric with optional slashes/dashes.
@@ -284,10 +288,23 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
         if not store_rows:
             continue
 
-        # Normalize and upsert this store's data
+        # Normalize and upsert this store's data. A row with a missing PK
+        # component (Codigo / TiendaCodigo) is logged and skipped — one corrupt
+        # source record must not abort the sync for all ~50 stores and stall
+        # the watermark in a permanent retry loop (issue #820).
         pg_buffer: list[dict] = []
+        store_skipped = 0
         for src_row in store_rows:
-            pg_buffer.extend(_normalize_expo_row(src_row))
+            try:
+                pg_buffer.extend(_normalize_expo_row(src_row))
+            except ValueError as exc:
+                store_skipped += 1
+                logger.warning(
+                    "sync_stock: skipping invalid row in store %s: %s",
+                    store_code,
+                    exc,
+                )
+        total_skipped += store_skipped
 
         # Upsert in batches
         store_processed = 0
@@ -312,6 +329,12 @@ def sync_stock(conn_4d, conn_pg, since: datetime | None = None) -> int:
             total_processed,
         )
 
+    if total_skipped > 0:
+        logger.warning(
+            "sync_stock: skipped %d invalid source row(s) across the run — "
+            "check the warnings above and fix the source data in 4D",
+            total_skipped,
+        )
     logger.info(
         "sync_stock: done — %d normalized rows processed across %d stores",
         total_processed,
@@ -337,9 +360,11 @@ _TRASPASOS_ORDER_BY = "ORDER BY RegTraspaso"
 def _map_traspaso_row(src: dict) -> dict:
     """Map a safe_fetch row (lowercase keys) to ps_traspasos column names.
 
-    4D float PKs are converted to Decimal and quantized to 2 decimal places
-    (matching the NUMERIC(20,2) PG schema) to prevent float-string artifacts
+    4D float PKs are converted to Decimal and quantized to 3 decimal places
+    (matching the NUMERIC(20,3) PG schema) to prevent float-string artifacts
     such as trailing ...99999 digits from causing unexpected key differences.
+    Scale 3 is required: real RegTraspaso values can differ only in the third
+    decimal, and rounding to 2 places collides them (issue #827).
     """
     reg = src.get("regtraspaso")
     if reg is None:
@@ -349,7 +374,7 @@ def _map_traspaso_row(src: dict) -> dict:
             f"_map_traspaso_row: source row is missing RegTraspaso "
             f"(codigo={src.get('codigo')!r}, fechas={src.get('fechas')!r})"
         )
-    reg_decimal = Decimal(str(reg)).quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
+    reg_decimal = Decimal(str(reg)).quantize(_THREE_PLACES, rounding=ROUND_HALF_UP)
     return {
         "reg_traspaso": reg_decimal,
         "codigo": src.get("codigo"),
