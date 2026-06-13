@@ -212,6 +212,21 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
     };
   }
 
+  // ── Mock provider (e2e LLM-integration tests) ───────────────────────────────
+  if (cfg.provider === "mock") {
+    const { mockSingleShotText } = await import("./llm-provider/mock/script");
+    const text = mockSingleShotText(buildMessagesOpenRouter(req));
+    logUsage(endpoint, model, EMPTY_USAGE, meta, { requestId });
+    if (req.onTextDelta && text) {
+      try {
+        req.onTextDelta(text.length, text.length);
+      } catch {
+        /* ignore callback errors */
+      }
+    }
+    return { text, usage: { ...EMPTY_USAGE }, provider: "mock", driver: null };
+  }
+
   // ── OpenRouter provider ─────────────────────────────────────────────────────
   const client = getOpenRouterClient();
   const messages = buildMessagesOpenRouter(req);

@@ -111,6 +111,15 @@ jobs:
         # the #800 home/dashboards suites, and the #804 chat/conversations
         # suites. conversation-ui is a pre-existing spec never wired into CI.
         run: npx playwright test e2e/conversation-engine.spec.ts e2e/home.spec.ts e2e/dashboards.spec.ts e2e/chat-dashboard.spec.ts e2e/conversations-screen.spec.ts
+      - name: Run LLM-integration e2e (mock provider)
+        # Separate step: the provider is read from the server env at launch, so
+        # this starts a fresh dev server with the scripted mock adapter active.
+        # Unlike e2e-stub (canned reply, no LLM code), `mock` drives the FULL
+        # pipeline — assembleRequest → agentic runner → real SQL tools against
+        # the seeded Postgres → spec validation → versioned persistence.
+        env:
+          DASHBOARD_LLM_PROVIDER: mock
+        run: npx playwright test e2e/llm-integration.spec.ts
       - uses: actions/upload-artifact@v4
         if: always()
         with:
