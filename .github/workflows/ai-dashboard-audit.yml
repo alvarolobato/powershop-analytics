@@ -1,7 +1,8 @@
 name: AI Dashboard Quality Audit
 on:
-  schedule:
-    - cron: "0 14 * * 3"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     - cron: "0 14 * * 3"
   workflow_dispatch:
 
 permissions:

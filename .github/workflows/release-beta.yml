@@ -9,9 +9,10 @@
 name: Release Beta
 
 on:
-  schedule:
-    # 01:00 UTC nightly — runs after ai-auto-release (20:00 Sunday weekly stable).
-    - cron: "0 1 * * *"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     # 01:00 UTC nightly — runs after ai-auto-release (20:00 Sunday weekly stable).
+#     - cron: "0 1 * * *"
   workflow_dispatch:
     inputs:
       base_version:

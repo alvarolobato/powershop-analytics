@@ -5,12 +5,13 @@ name: AI PR Mergeability
 # and the owner is pinged. Companion to ai-ci-remediation.yml — that one
 # fixes failing CI; this one fixes everything BEFORE CI can even run.
 on:
-  schedule:
-    # Hourly (was every 30 minutes; reduced per issue #625 to ease GitHub
-    # schedule queue pressure — see D-030). The `push` event handles the
-    # hot path (rebase on every commit to main); the cron is the fallback
-    # for PRs that haven't had push activity.
-    - cron: "0 * * * *"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     # Hourly (was every 30 minutes; reduced per issue #625 to ease GitHub
+#     # schedule queue pressure — see D-030). The `push` event handles the
+#     # hot path (rebase on every commit to main); the cron is the fallback
+#     # for PRs that haven't had push activity.
+#     - cron: "0 * * * *"
   push:
     branches: [main]
   workflow_dispatch:

@@ -1,7 +1,8 @@
 name: AI ETL Health Monitor
 on:
-  schedule:
-    - cron: "0 8 * * 1-5"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     - cron: "0 8 * * 1-5"
   workflow_dispatch:
 
 permissions:

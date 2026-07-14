@@ -1,7 +1,8 @@
 name: AI SQL Pair Validator
 on:
-  schedule:
-    - cron: "0 10 * * 1"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     - cron: "0 10 * * 1"
   workflow_dispatch:
 
 permissions:

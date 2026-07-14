@@ -1,7 +1,8 @@
 name: AI Feature Ideas
 on:
-  schedule:
-    - cron: "0 14 * * 4"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     - cron: "0 14 * * 4"
   workflow_dispatch:
 
 permissions:

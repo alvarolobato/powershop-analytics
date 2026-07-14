@@ -6,12 +6,13 @@ name: AI Factory Watchdog
 # re-queues the work, triggers the address-feedback flow, or pings the
 # owner with `ai-blocked` + a clear explanation.
 on:
-  schedule:
-    # Every 30 minutes — bumped from */15 because GitHub silently drops runs
-    # when the repo's schedule queue is saturated. With 9+ cron workflows
-    # competing for dispatch slots, */15 was observed firing every 3–4 hours.
-    # See docs/decisions/D-030-watchdog-cadence.md.
-    - cron: "*/30 * * * *"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     # Every 30 minutes — bumped from */15 because GitHub silently drops runs
+#     # when the repo's schedule queue is saturated. With 9+ cron workflows
+#     # competing for dispatch slots, */15 was observed firing every 3–4 hours.
+#     # See docs/decisions/D-030-watchdog-cadence.md.
+#     - cron: "*/30 * * * *"
   workflow_dispatch:
   # Event-driven supplement for the two most time-sensitive rules:
   # (1) the fact-phase-opus transition after Opus submits a review, and

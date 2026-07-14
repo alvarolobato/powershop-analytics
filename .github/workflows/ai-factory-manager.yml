@@ -13,8 +13,9 @@ name: AI Factory Manager
 #            credentials, override no-ai / needs-human-approval / no-ai-manager.
 
 on:
-  schedule:
-    - cron: "0 */4 * * *"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     - cron: "0 */4 * * *"
   workflow_dispatch:
 
 concurrency:

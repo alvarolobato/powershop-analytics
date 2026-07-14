@@ -1,7 +1,8 @@
 name: AI Stale Manager
 on:
-  schedule:
-    - cron: "0 16 * * 5"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     - cron: "0 16 * * 5"
   workflow_dispatch:
 
 permissions:

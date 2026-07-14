@@ -8,9 +8,10 @@ name: Business Review (Weekly Roles)
 # Diseño y prompts: docs/business-review/. Issue origen: #467.
 
 on:
-  schedule:
-    # Lunes 06:00 UTC
-    - cron: "0 6 * * 1"
+  # schedule: disabled 2026-07-14
+#   schedule:
+#     # Lunes 06:00 UTC
+#     - cron: "0 6 * * 1"
   workflow_dispatch:
     inputs:
       dry_run:
