@@ -37,15 +37,18 @@ components, since the intended design (keep 100% of error/slow traces, sample
 head sampling:
 - Pulled `docker.elastic.co/elastic-agent/elastic-agent:8.19.0` (latest at
   time of writing) and ran it against a probe config referencing both
-  `tail_sampling` and `zpages`. Same failure mode, different (still missing)
-  valid-values list:
+  `tail_sampling` and `zpages`. Same failure mode; the `processors`
+  valid-values list moved between the two pinned versions (8.16.0 above has
+  `lsminterval`, 8.19.0 has `geoip`/`cumulativetodelta` instead):
   `'processors' unknown type: "tail_sampling" ... (valid values: [memory_limiter
   elastictrace resource attributes transform filter geoip resourcedetection
-  batch cumulativetodelta k8sattributes elasticinframetrics])` /
-  `'extensions' unknown type: "zpages" ... (valid values: [file_storage
+  batch cumulativetodelta k8sattributes elasticinframetrics])`. The
+  `extensions` valid-values list is unchanged from the 8.16.0 error quoted
+  above — `'extensions' unknown type: "zpages" ... (valid values: [file_storage
   health_check bearertokenauth apikeyauth healthcheckv2 pprof k8s_observer
-  apmconfig agent_status memory_limiter])`. Neither ever ships in an
-  Elastic-Agent-flavored EDOT build — Elastic's own `elastictrace` processor is
+  apmconfig agent_status memory_limiter])` — same set at both versions.
+  Neither `tail_sampling` nor `zpages` ever ships in an Elastic-Agent-flavored
+  EDOT build at either version — Elastic's own `elastictrace` processor is
   span enrichment, not a sampler.
 - `otel/opentelemetry-collector-contrib` does ship both, but swapping the base
   image would also change the exporter/processor set the current config is
