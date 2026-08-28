@@ -17,9 +17,21 @@
  * selection) and `assembleRequest`'s agentic branch (top of the
  * `isAgenticToolsEnabled() && tools.length > 0` block, before the adapter is
  * built). CI forbids importing `llmComplete`/`runAgenticChat` anywhere else
- * (`dashboard/scripts/check-llm-context.sh`), so guarding those two call
- * sites covers the entire surface by construction — there is no third path
- * to forget.
+ * (`dashboard/scripts/check-llm-context.sh`), so guarding those two covers
+ * every call routed through them.
+ *
+ * That is NOT the whole surface, and an earlier version of this comment
+ * wrongly claimed it was ("there is no third path to forget"). There is one:
+ * `llm-context/history.ts`'s `buildSummary()` calls `claudeCliSingleShot` /
+ * `openRouterChatCompletion` directly. The boundary script cannot catch it,
+ * because it exempts files inside `llm-context/` — the very directory that
+ * exemption exists to let call the providers. That path checks
+ * `isLlmEnabled()` itself; see the comment there.
+ *
+ * So the invariant is: anything inside `llm-context/` that reaches a provider
+ * without going through `llmComplete` must call `isLlmEnabled()` explicitly.
+ * A switch you cannot trust completely is worse than none, because you stop
+ * checking.
  *
  * Read fresh on each call (via the memoized `getSystemConfig()` loader)
  * rather than captured at import time, so flipping it in `/admin/config`

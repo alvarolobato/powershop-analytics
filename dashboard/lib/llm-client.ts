@@ -170,8 +170,12 @@ function assembleSystemPrompt(req: LlmRequest): string {
  *   `volatile`, correctly). SAFE.
  * - `chat`      — `buildFreeChatContext()` takes no arguments at all. SAFE.
  * - `title`     — a fixed instruction string; no vars. SAFE.
- * - `summary`   — falls through the switch's `default` to `{ stable: "" }`;
- *   trivially vars-independent. SAFE.
+ * - `summary`   — its own explicit case, returning SUMMARY_PREAMBLE +
+ *   buildStableKnowledgePart(); neither takes per-call vars. SAFE.
+ *   (This said "falls through to `default`" while that was true; the case was
+ *   added later, and the audit is about the mechanism, not just the verdict —
+ *   someone adding vars to `summary` on the strength of a stale note is
+ *   exactly how per-call data ends up on the cache-anchoring flag.)
  * - `analyze`   — embeds `vars.serializedData` (the dashboard's actual data)
  *   and, when set, `vars.dashboardId`, directly into the single string
  *   returned as `stable` — there is no `volatile` split at all for this
