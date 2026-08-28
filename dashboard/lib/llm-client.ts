@@ -30,6 +30,7 @@ import {
 import { createDashboardAgenticAdapter } from "./llm-provider/registry";
 import { logUsage } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
+import { assertLlmEnabled } from "./llm-enabled";
 import type { DashboardLlmFlow, DashboardLlmProviderId } from "./llm-provider/types";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
@@ -215,6 +216,11 @@ function buildMessagesPlain(req: LlmRequest): ChatCompletionMessageParam[] {
  * circuit-breaker, and error propagation.
  */
 export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
+  // Master kill switch — first thing, before any provider work. See
+  // `lib/llm-enabled.ts` and D-046. The agentic path is a separate seam
+  // (`assembleRequest`'s agentic branch, which never calls this function).
+  assertLlmEnabled();
+
   const cfg = loadDashboardLlmConfig();
   const dFlow = narrowDashboardLlmFlow(req.flow);
   const model = getEffectiveDashboardModel(cfg, dFlow);
