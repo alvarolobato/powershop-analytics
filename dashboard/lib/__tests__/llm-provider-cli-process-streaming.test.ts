@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
+import { tmpdir } from "node:os";
 
 const mockSpawn = vi.fn();
 
@@ -16,7 +17,7 @@ vi.mock("node:child_process", () => ({
 import { runCliProcessStreaming } from "@/lib/llm-provider/cli/process";
 
 type MockChild = EventEmitter & {
-  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> };
   stdout: EventEmitter;
   stderr: EventEmitter;
   kill: ReturnType<typeof vi.fn>;
@@ -24,7 +25,9 @@ type MockChild = EventEmitter & {
 
 function baseChild(): MockChild {
   const child = new EventEmitter() as MockChild;
-  child.stdin = { write: vi.fn(), end: vi.fn() };
+  // `on` is needed because writeStdinSafely() registers an "error" listener
+  // on the stdin stream before writing (EPIPE guard) — see process.ts.
+  child.stdin = { write: vi.fn(), end: vi.fn(), on: vi.fn() };
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
   child.kill = vi.fn(() => {
@@ -194,5 +197,49 @@ describe("runCliProcessStreaming", () => {
     await resultPromise;
     // Blank and whitespace-only lines are skipped
     expect(lines).toEqual(["a", "b", "c"]);
+  });
+
+  it("spawns with a neutral cwd (tmpdir), not the server's own cwd", async () => {
+    const child = baseChild();
+    mockSpawn.mockReturnValue(child);
+
+    const resultPromise = runCliProcessStreaming({
+      file: "cmd",
+      args: [],
+      timeoutMs: 5000,
+      maxStdoutBytes: 100_000,
+      maxStderrBytes: 100_000,
+      onStdoutLine: () => {},
+    });
+    child.emit("close", 0);
+    await resultPromise;
+
+    const spawnOpts = mockSpawn.mock.calls[0][2] as { cwd?: string };
+    expect(spawnOpts.cwd).toBe(tmpdir());
+    expect(spawnOpts.cwd).not.toBe(process.cwd());
+  });
+
+  it("does not reject or throw when the child's stdin emits EPIPE mid-write", async () => {
+    const child = baseChild();
+    child.stdin.on.mockImplementation((event: string, handler: (err: Error) => void) => {
+      if (event === "error") {
+        queueMicrotask(() => handler(Object.assign(new Error("write EPIPE"), { code: "EPIPE" })));
+      }
+    });
+    mockSpawn.mockReturnValue(child);
+
+    const largePayload = "x".repeat(200_000); // comfortably past the ~64KB pipe buffer
+    const resultPromise = runCliProcessStreaming({
+      file: "cmd",
+      args: [],
+      stdin: largePayload,
+      timeoutMs: 5000,
+      maxStdoutBytes: 100_000,
+      maxStderrBytes: 100_000,
+      onStdoutLine: () => {},
+    });
+    child.emit("close", 1);
+
+    await expect(resultPromise).resolves.toMatchObject({ exitCode: 1 });
   });
 });
