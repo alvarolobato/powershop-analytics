@@ -270,7 +270,12 @@ def _run_sync(
             "sync (invalid/unrejectable source data — never written): "
             + " | ".join(skipped_rows[:5])
         )[:2000]
-        err = f"{err}\n{skip_note}"[:2000] if err else skip_note
+        if err:
+            budget = 2000 - len(err) - 1  # -1 for the newline separator
+            if budget > 0:
+                err = err + "\n" + skip_note[:budget]
+        else:
+            err = skip_note
         logger.warning("%s: %s", name, skip_note)
 
     # In a "full" nightly run a watermark-backed sync still does truncate-

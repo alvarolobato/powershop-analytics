@@ -191,6 +191,13 @@ def _upsert_rowwise(
                 # (NOT conn.rollback(), which would also undo every row
                 # already inserted earlier in this same call).
                 cur.execute("ROLLBACK TO SAVEPOINT etl_upsert_row")
+                from psycopg2 import IntegrityError as _PGIntegrityError  # type: ignore[import-untyped]
+
+                if not isinstance(row_exc, _PGIntegrityError):
+                    # Only constraint violations are skippable (bad source row).
+                    # Anything else (ProgrammingError, OperationalError, …)
+                    # indicates a real failure that should propagate loudly.
+                    raise
                 pk_snapshot = {c: row.get(c) for c in pk_cols}
                 msg = (
                     f"{table}: row rejected by row-by-row fallback — "
@@ -315,6 +322,13 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
         conn.commit()
     except Exception as batch_exc:
         conn.rollback()
+        from psycopg2 import IntegrityError as _PGIntegrityError  # type: ignore[import-untyped]
+
+        if not isinstance(batch_exc, _PGIntegrityError):
+            # Structural failures (ProgrammingError, OperationalError, bad SQL,
+            # missing table/column, connection issues) must fail loudly — they
+            # indicate a real problem, not a bad source row.
+            raise
         logger.warning(
             "upsert: batch insert into %s failed (%s) — falling back to "
             "row-by-row insert (%d rows) so only the offending row(s) are "
@@ -323,9 +337,10 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
             batch_exc,
             len(good_rows),
         )
-        # Layer 2: an unpredictable failure (e.g. FK violation) took the
-        # whole batch down. Retry the survivors one at a time so a single
-        # bad row can't cost us the rest — see _upsert_rowwise (D-050).
+        # Layer 2: a constraint violation (FK, NOT NULL, UNIQUE, CHECK) took
+        # the whole batch down. Retry survivors one at a time inside SAVEPOINTs
+        # so only the row(s) that actually violate a constraint are lost — see
+        # _upsert_rowwise (D-050).
         row_stmt = pgsql.SQL(
             "INSERT INTO {tbl} ({cols}) VALUES ({vals}) {on_conflict}"
         ).format(
