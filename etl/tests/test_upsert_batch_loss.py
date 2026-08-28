@@ -13,7 +13,10 @@ full incident writeup):
      constraint, so there is no world in which keeping it helps).
   2. Row-by-row fallback via SAVEPOINTs — if the batch still fails for an
      unpredictable reason (e.g. an FK violation), the surviving rows are
-     retried one at a time so only the offending row(s) are lost.
+     retried one at a time so only the offending row(s) are lost. Every
+     SAVEPOINT is RELEASEd on both the success and failure path so a batch
+     full of bad rows cannot leave thousands of unreleased subtransactions
+     open.
 
 Both layers record what they drop in the module-level skip log
 (postgres.drain_skip_log()) instead of discarding it silently — the log is
@@ -96,6 +99,58 @@ class TestDrainSkipLog:
 
 _SCRATCH_TABLE = "test_upsert_d050_child"
 _SCRATCH_PARENT = "test_upsert_d050_parent"
+
+
+class _SavepointCountingCursor:
+    """Wraps a real psycopg2 cursor and counts SAVEPOINT/RELEASE/ROLLBACK TO
+    statements — used to pin the D-050 finding-2 fix (a savepoint rolled
+    back on the failure path must also be released, or savepoints
+    accumulate unreleased for the rest of the transaction)."""
+
+    def __init__(self, real_cursor, counts: dict):
+        self._cursor = real_cursor
+        self._counts = counts
+
+    def __enter__(self):
+        self._cursor.__enter__()
+        return self
+
+    def __exit__(self, *exc_info):
+        return self._cursor.__exit__(*exc_info)
+
+    def execute(self, sql, params=None):
+        text = sql.strip().upper()
+        if text.startswith("RELEASE SAVEPOINT"):
+            self._counts["release"] += 1
+        elif text.startswith("ROLLBACK TO SAVEPOINT"):
+            self._counts["rollback_to"] += 1
+        elif text.startswith("SAVEPOINT"):
+            self._counts["savepoint"] += 1
+        if params is None:
+            return self._cursor.execute(sql)
+        return self._cursor.execute(sql, params)
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class _SavepointCountingConn:
+    """Duck-types just enough of a psycopg2 connection for _upsert_rowwise
+    (cursor()/commit()/rollback()) while counting SAVEPOINT statements
+    issued through it."""
+
+    def __init__(self, real_conn):
+        self._conn = real_conn
+        self.counts = {"savepoint": 0, "release": 0, "rollback_to": 0}
+
+    def cursor(self):
+        return _SavepointCountingCursor(self._conn.cursor(), self.counts)
+
+    def commit(self):
+        self._conn.commit()
+
+    def rollback(self):
+        self._conn.rollback()
 
 
 def _drop_scratch_tables(conn) -> None:
@@ -308,3 +363,51 @@ class TestUpsertRowwiseFallback:
         with scratch_conn.cursor() as cur:
             cur.execute("SELECT 1")
             assert cur.fetchone() == (1,)
+
+    def test_row_by_row_fallback_releases_savepoint_on_failure_too(self, scratch_conn):
+        """D-050 finding 2: ROLLBACK TO SAVEPOINT does not destroy the
+        savepoint — without an explicit RELEASE on the failure path too, a
+        large fallback batch full of bad rows nests thousands of unreleased
+        subtransactions in one transaction (pg_subtrans SLRU pressure risk
+        on an instance shared with the Dashboard App and WrenAI). Every
+        SAVEPOINT issued must be matched by exactly one RELEASE, whether the
+        row succeeded or failed.
+        """
+        _create_parent_child_scratch_tables(scratch_conn)
+        with scratch_conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {_SCRATCH_PARENT} (num_ventas) VALUES (%s)",
+                (Decimal(1),),
+            )
+        scratch_conn.commit()
+
+        # Two rows that succeed, two that FK-violate — exercises both the
+        # success-path RELEASE and the failure-path RELEASE.
+        rows = [
+            {"reg_lineas": Decimal("60.99"), "num_ventas": Decimal(1), "mes": 1},
+            {"reg_lineas": Decimal("61.99"), "num_ventas": Decimal(900), "mes": 1},
+            {"reg_lineas": Decimal("62.99"), "num_ventas": Decimal(1), "mes": 1},
+            {"reg_lineas": Decimal("63.99"), "num_ventas": Decimal(901), "mes": 1},
+        ]
+        columns = ["reg_lineas", "num_ventas", "mes"]
+        row_stmt = (
+            f"INSERT INTO {_SCRATCH_TABLE} (reg_lineas, num_ventas, mes) "
+            "VALUES (%s, %s, %s) ON CONFLICT (reg_lineas) DO UPDATE SET "
+            "num_ventas = EXCLUDED.num_ventas, mes = EXCLUDED.mes"
+        )
+
+        counting_conn = _SavepointCountingConn(scratch_conn)
+        inserted = postgres._upsert_rowwise(
+            counting_conn, _SCRATCH_TABLE, row_stmt, columns, rows, ["reg_lineas"]
+        )
+
+        assert inserted == 2
+        counts = counting_conn.counts
+        assert counts["savepoint"] == 4, "one SAVEPOINT per row"
+        assert counts["rollback_to"] == 2, "only the 2 failing rows roll back"
+        assert counts["release"] == 4, (
+            "every savepoint must be released — including the 2 that were "
+            "first rolled back — or savepoints accumulate unreleased for "
+            "the rest of the transaction"
+        )
+        postgres.drain_skip_log()

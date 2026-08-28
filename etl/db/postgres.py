@@ -177,6 +177,11 @@ def _upsert_rowwise(
     logged and appended to the module-level skip log (drained by
     etl.main._run_sync into etl_sync_run_tables.error_msg) — never silently
     dropped.
+
+    Every SAVEPOINT this issues is explicitly RELEASEd on both the success
+    and failure path (never left dangling after ROLLBACK TO SAVEPOINT) so a
+    large fallback batch does not accumulate thousands of unreleased
+    subtransactions in one transaction.
     """
     inserted = 0
     with conn.cursor() as cur:
@@ -194,10 +199,20 @@ def _upsert_rowwise(
                 from psycopg2 import IntegrityError as _PGIntegrityError  # type: ignore[import-untyped]
 
                 if not isinstance(row_exc, _PGIntegrityError):
-                    # Only constraint violations are skippable (bad source row).
-                    # Anything else (ProgrammingError, OperationalError, …)
-                    # indicates a real failure that should propagate loudly.
+                    # Only constraint violations are skippable (a bad source
+                    # row). Anything else — ProgrammingError, OperationalError
+                    # — is a real failure and must propagate loudly. No RELEASE
+                    # here on purpose: the transaction is aborting anyway.
                     raise
+                # ROLLBACK TO SAVEPOINT undoes the row's changes but does NOT
+                # destroy the savepoint — the next SAVEPOINT of the same name
+                # pushes a new one on top rather than reusing the slot. Without
+                # this release, a large fallback batch of bad rows nests
+                # thousands of unreleased subtransactions in one transaction,
+                # risking pg_subtrans SLRU pressure on an instance that also
+                # serves the Dashboard App and WrenAI. Releasing here keeps
+                # exactly one subtransaction open at a time, on both paths.
+                cur.execute("RELEASE SAVEPOINT etl_upsert_row")
                 pk_snapshot = {c: row.get(c) for c in pk_cols}
                 msg = (
                     f"{table}: row rejected by row-by-row fallback — "

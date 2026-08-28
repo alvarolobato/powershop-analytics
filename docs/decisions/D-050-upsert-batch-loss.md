@@ -54,7 +54,9 @@ digging in container logs (which don't even retain history back to the
    predict (e.g. an FK violation — 19 of them, 2026-04-18 to 2026-08-15),
    `upsert()` falls back to inserting the surviving rows **one at a time
    inside SAVEPOINTs**, so only the row(s) that actually violate a
-   constraint are lost — not their batch-mates.
+   constraint are lost — not their batch-mates. Every `SAVEPOINT` is
+   `RELEASE`d on both the success path and the failure path (see
+   "SAVEPOINT-release correction" below).
 3. Every row `upsert()` drops (either layer) is appended to a
    process-global skip log (`postgres.drain_skip_log()`/`_skip_log`) instead
    of being silently discarded. This is safe because the ETL runs as a
@@ -78,6 +80,21 @@ failed) only when Postgres itself would never accept it — NULL/NaN PK, or an
 FK/constraint violation confirmed by an actual failed INSERT attempt. Any
 other failure (e.g. the 4D connection dying mid-fetch, a genuine PostgreSQL
 outage) still fails the whole table sync loudly, exactly as before.
+
+**SAVEPOINT-release correction (2026-08-28, post-review finding 2)**:
+`_upsert_rowwise()` issued `ROLLBACK TO SAVEPOINT etl_upsert_row` on a
+failed row but never `RELEASE SAVEPOINT etl_upsert_row` on that path (only
+the success path released it). `ROLLBACK TO SAVEPOINT` undoes a
+savepoint's changes but does not destroy the savepoint — verified live:
+savepoints accumulated and were never released. A large fallback batch with
+many bad rows would nest thousands of unreleased subtransactions in one
+transaction, risking Postgres `pg_subtrans` SLRU pressure on an instance
+that also serves the Dashboard App and WrenAI. Fixed by adding
+`RELEASE SAVEPOINT etl_upsert_row` on the failure path too, immediately
+after the `ROLLBACK TO SAVEPOINT`. Pinned by
+`etl/tests/test_upsert_batch_loss.py::TestUpsertRowwiseFallback::test_row_by_row_fallback_releases_savepoint_on_failure_too`,
+which counts `SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO SAVEPOINT`
+statements and asserts every savepoint issued is released exactly once.
 
 **Decoding issue flagged, not fixed**: the garbage row's values
 (`mes = -1801453568`, a 4D `Long Real`/`mes` field far outside any plausible
