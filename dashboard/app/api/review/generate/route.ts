@@ -31,10 +31,11 @@ import {
   type ErrorCode,
 } from "@/lib/errors";
 import { executeReviewQueries, formatAllResults, type ReviewQueryResult } from "@/lib/review-queries";
-import { generateReview, generateReviewWithProgress, BudgetExceededError, AgenticRunnerError } from "@/lib/llm";
+import { generateReview, generateReviewWithProgress, AgenticRunnerError } from "@/lib/llm";
 import type { AgenticProgressEvent } from "@/lib/llm";
 import { buildAgenticErrorDiagnostic, persistAgenticError } from "@/lib/llm-tools/diagnostic";
 import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { classifyGuardError, guardErrorResponse } from "@/lib/llm-guard-response";
 import {
   formatCliRunnerError,
   isCliRunnerError,
@@ -368,6 +369,12 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
             let errCode: ErrorCode = "UNKNOWN";
             let errMessage = "Error inesperado al generar la revisión.";
             let diagnostic: import("@/lib/errors").AgenticErrorDiagnostic | undefined;
+            // BudgetExceededError → 429, CircuitBreakerOpenError → 503. This
+            // branch used to only check for the budget cap, so an open
+            // breaker fell through to the generic 500 below instead of the
+            // 503 the non-streaming catch already gave it — see
+            // llm-guard-response.ts.
+            const guard = classifyGuardError(err);
 
             if (err instanceof AgenticRunnerError) {
               const cfg = loadDashboardLlmConfig();
@@ -377,10 +384,10 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
               errCode = "AGENTIC_RUNNER";
               errMessage = "El flujo de IA alcanzó un límite o no pudo completarse. Inténtalo de nuevo.";
               diagnostic = diag;
-            } else if (err instanceof BudgetExceededError) {
-              httpStatus = 429;
-              errCode = "LLM_BUDGET_EXCEEDED";
-              errMessage = err.message;
+            } else if (guard) {
+              httpStatus = guard.status;
+              errCode = guard.code;
+              errMessage = guard.message;
             } else if (isCliRunnerError(err)) {
               const formatted = formatCliRunnerError(
                 err,
@@ -465,12 +472,8 @@ export async function POST(request: NextRequest): Promise<NextResponse | Respons
         { status: 200 },
       );
     } catch (err) {
-      if (err instanceof BudgetExceededError) {
-        return NextResponse.json(
-          formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-          { status: 429 },
-        );
-      }
+      const guardResponse = guardErrorResponse(err, requestId);
+      if (guardResponse) return guardResponse;
       if (isCliRunnerError(err)) {
         const formatted = formatCliRunnerError(
           err,
