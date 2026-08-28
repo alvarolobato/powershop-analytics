@@ -105,7 +105,13 @@ services:
       # OTel SDK env vars — picked up automatically by opentelemetry-instrument (Phase 2)
       OTEL_SERVICE_NAME: powershop-etl
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
-      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      # Sampling moved from the collector's tail_sampling processor (removed,
+      # see otel/otelcol-config.yaml) to SDK head sampling. Default 10% —
+      # parentbased_always_on would ship every trace unsampled now that
+      # nothing downstream trims volume. Override to *_always_on / arg 1.0
+      # for a debugging session where you want every trace kept.
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
       OTEL_LOG_LEVEL: ${OTEL_LOG_LEVEL:-info}
       ENVIRONMENT: ${ENVIRONMENT:-development}
     volumes:
@@ -304,7 +310,13 @@ services:
       # OTel SDK env vars — picked up automatically by the Node SDK (Phase 3)
       OTEL_SERVICE_NAME: powershop-dashboard
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
-      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_always_on}
+      # Sampling moved from the collector's tail_sampling processor (removed,
+      # see otel/otelcol-config.yaml) to SDK head sampling. Default 10% —
+      # parentbased_always_on would ship every trace unsampled now that
+      # nothing downstream trims volume. Override to *_always_on / arg 1.0
+      # for a debugging session where you want every trace kept.
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
       OTEL_LOG_LEVEL: ${OTEL_LOG_LEVEL:-info}
       ENVIRONMENT: ${ENVIRONMENT:-development}
       # Git SHA baked at build time; available to the OTel resource as service.version

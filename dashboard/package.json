@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "next dev -p ${DASHBOARD_PORT:-4000}",
     "build:knowledge": "tsx scripts/build-knowledge.ts",
+    "sync:schema": "cp ../config/schema.yaml config/schema.yaml",
     "prebuild": "[ ! -f ../docs/etl-sync-strategy.md ] || npm run build:knowledge",
     "build": "next build",
     "start": "next start -p ${DASHBOARD_PORT:-4000}",
