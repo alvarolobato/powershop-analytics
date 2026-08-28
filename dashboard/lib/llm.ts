@@ -8,12 +8,21 @@
  *
  * This file retains:
  *  - Public API contracts (function signatures, return types)
- *  - `checkDailyBudget()` gate (not inside assembleRequest)
  *  - Re-exports consumed by routes and turn-background
+ *
+ * `checkDailyBudget()` used to be called individually at the top of every
+ * function below — 8 call sites, one per flow, deliberately kept outside
+ * `assembleRequest` so a new flow would be forced to add its own check. That
+ * "forced" turned out to be "easy to forget": nothing enforced it, and a
+ * flow that skipped the call would silently bypass the daily cap. It now
+ * runs once, pre-flight, at `assembleRequest`'s own entry — see the doc
+ * comment on `assembleRequest` in `lib/llm-context/assemble.ts` ("Budget
+ * check: one seam, not eight") for why that seam is safe for the agentic
+ * path too, and `docs/decisions/D-046-cli-lean-mode-and-kill-switch.md` for
+ * the decision record superseding this file's former approach.
  */
 
 import { ReviewLlmOutputSchema, type ReviewLlmOutput } from "./review-schema";
-import { checkDailyBudget } from "./llm-usage";
 import { AgenticRunnerError } from "./llm-tools/runner";
 import { resetClient } from "./llm-client";
 import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
@@ -37,8 +46,6 @@ export async function generateDashboard(
   userPrompt: string,
   ctx?: LlmAgenticContext,
 ): Promise<string> {
-  await checkDailyBudget();
-
   const requestCtx: LlmAgenticContext = ctx ?? {
     requestId: "req_local",
     endpoint: "generateDashboard",
@@ -76,8 +83,6 @@ export async function modifyDashboard(
   ctx?: LlmAgenticContext,
   priorTurns?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
-  await checkDailyBudget();
-
   const requestCtx: LlmAgenticContext = ctx ?? {
     requestId: "req_local",
     endpoint: "modifyDashboard",
@@ -118,8 +123,6 @@ export async function suggestDashboards(
   existingDashboards: { title: string; description: string }[],
   opts?: { requestId?: string },
 ): Promise<string> {
-  await checkDailyBudget();
-
   const vars: FlowVars = { role, existingDashboards };
 
   const result = await assembleRequest(
@@ -154,8 +157,6 @@ export async function analyzeGaps(
   }[],
   opts?: { requestId?: string },
 ): Promise<string> {
-  await checkDailyBudget();
-
   const vars: FlowVars = { existingDashboards };
 
   const result = await assembleRequest(
@@ -189,8 +190,6 @@ export async function analyzeDashboard(
   ctx?: LlmAgenticContext,
   priorTurns?: ReadonlyArray<{ role: "user" | "assistant"; content: string }>,
 ): Promise<string> {
-  await checkDailyBudget();
-
   const requestCtx: LlmAgenticContext = ctx ?? {
     requestId: "req_local",
     endpoint: "analyzeDashboard",
@@ -233,8 +232,6 @@ export async function generateReviewWithProgress(
   opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
-
-  await checkDailyBudget();
 
   // Agentic path: always use assembleRequest which dispatches to runAgenticChat
   // when isAgenticToolsEnabled() is true.
@@ -296,8 +293,6 @@ export async function generateReview(
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
-  await checkDailyBudget();
-
   const result = await assembleRequest(
     "weekly",
     vars,
@@ -344,8 +339,6 @@ export async function generateSuggestions(
   opts?: { requestId?: string },
 ): Promise<string[]> {
   try {
-    await checkDailyBudget();
-
     const vars: FlowVars = { serializedData };
 
     // buildSuggestionPrompt returns a plain string used as the user message

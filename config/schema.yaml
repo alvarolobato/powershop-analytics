@@ -158,6 +158,26 @@
   requires_restart: []
   components: [dashboard]
 
+- key: dashboard.llm_cli_lean_mode
+  env: DASHBOARD_LLM_CLI_LEAN_MODE
+  type: bool
+  sensitive: false
+  default: true
+  section: "Dashboard LLM"
+  description: "Ejecuta 'claude -p' sin el contexto del harness de Claude Code (system prompt propio, catálogo de herramientas, CLAUDE.md, servidores MCP, settings) — medido en ~25k tokens de input por llamada de más. Poner en false restaura ese contexto como válvula de escape si algún flujo resulta depender de él; no afecta a --tools \"\" / --no-session-persistence, que son siempre incondicionales."
+  requires_restart: []
+  components: [dashboard]
+
+- key: dashboard.llm_enabled
+  env: DASHBOARD_LLM_ENABLED
+  type: bool
+  sensitive: false
+  default: true
+  section: "Dashboard LLM"
+  description: "Interruptor maestro de IA. En false, ninguna llamada al modelo se ejecuta (generate/modify/analyze/chat/weekly/suggest/gap, cualquier proveedor): las rutas responden 503 LLM_DISABLED. Los interruptores de scheduler existentes (p.ej. agentic_tools_enabled) solo paran su propio proceso, no esto."
+  requires_restart: []
+  components: [dashboard]
+
 - key: dashboard.llm_model_openrouter
   env: DASHBOARD_LLM_MODEL_OPENROUTER
   type: string

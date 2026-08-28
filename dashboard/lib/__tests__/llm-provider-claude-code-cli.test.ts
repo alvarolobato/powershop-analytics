@@ -32,6 +32,7 @@ const cfg: DashboardLlmConfig = {
   cliExtraArgs: ["--quiet"],
   cliTimeoutMs: 5000,
   cliMaxCaptureBytes: 1_000_000,
+  cliLeanMode: true,
 };
 
 function okResult(stdout: string) {
