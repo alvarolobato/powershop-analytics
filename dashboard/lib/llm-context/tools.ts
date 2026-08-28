@@ -6,6 +6,7 @@
 
 import { DASHBOARD_AGENTIC_TOOLS, FREE_CHAT_TOOLS } from "@/lib/llm-tools/catalog";
 import type { ChatCompletionTool } from "openai/resources/chat/completions";
+import { isLlmFlow } from "./types";
 
 // Flows that are always single-shot (JSON-only output, no tool calls needed).
 const SINGLE_SHOT_FLOWS = new Set(["suggest", "gap", "title"]);
@@ -19,9 +20,13 @@ const SINGLE_SHOT_FLOWS = new Set(["suggest", "gap", "title"]);
  *                                      prompt expects the same read-only inspection tools
  *                                      chat has, nothing more (D-045).
  * - "suggest" | "gap" | "title"     → [] (single-shot, no tools)
- * - all other flows                 → DASHBOARD_AGENTIC_TOOLS (full catalog, includes weekly)
+ * - unknown / unregistered flows    → [] (no tools — mirrors buildSystemPrompt's empty-prompt
+ *                                      behavior for unrecognised flows; prevents silent
+ *                                      capability escalation, D-045)
+ * - all other known flows           → DASHBOARD_AGENTIC_TOOLS (full catalog, includes weekly)
  */
 export function toolsForFlow(flow: string): ChatCompletionTool[] {
+  if (!isLlmFlow(flow)) return [];
   if (SINGLE_SHOT_FLOWS.has(flow)) return [];
   if (flow === "chat" || flow === "summary") return FREE_CHAT_TOOLS;
   return DASHBOARD_AGENTIC_TOOLS;
