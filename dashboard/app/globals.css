@@ -348,6 +348,31 @@ body {
 }
 
 /* ============================================================
+   Filter-bar input height (PR #894 review, also-fix item)
+   ============================================================
+   FilterBar's (app/conversations/page.tsx) search/date inputs were a
+   fixed `height: 30` in their inline style — fine at the 12px `fontSize`
+   the same style object set, but the iOS input-zoom fix directly above
+   forces `font-size: 16px !important` on every input below 768px. Border-
+   box, 5px vertical padding, 1px border each side: 30px leaves 18px of
+   content-box height, and a 16px line box (~19px) no longer fits —
+   clipped by ~1px. `height` was deleted from FilterBar's inline
+   `inputStyle` object (an inline value on the same property would always
+   beat this class — D-120) and moved here so it can grow only below the
+   breakpoint where the 16px override actually applies; desktop keeps the
+   original 30px.
+   ============================================================ */
+.filter-bar-input {
+  height: 30px;
+}
+
+@media (max-width: 767.98px) {
+  .filter-bar-input {
+    height: 34px;
+  }
+}
+
+/* ============================================================
    TopBar freshness text — one line, ellipsize on phones (mobile item 11,
    PR #894 review, finding 4)
    ============================================================

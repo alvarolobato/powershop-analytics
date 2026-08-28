@@ -218,6 +218,10 @@ function FilterBar({
   onSinceChange,
   onOnlyArchivedChange,
 }: FilterBarProps) {
+  // `height` is NOT in this object — it lives in `.filter-bar-input`
+  // (globals.css) instead, so it can grow below 768px without an inline
+  // value winning over the class (D-120). See that rule's comment: 30px
+  // clips the iOS input-zoom fix's forced 16px text by ~1px on phones.
   const inputStyle: React.CSSProperties = {
     background: "var(--bg-2)",
     border: "1px solid var(--border)",
@@ -227,7 +231,6 @@ function FilterBar({
     padding: "5px 10px",
     outline: "none",
     fontFamily: "inherit",
-    height: 30,
   };
 
   return (
@@ -253,6 +256,7 @@ function FilterBar({
         value={q}
         onChange={(e) => onQChange(e.target.value)}
         style={{ ...inputStyle, width: 180 }}
+        className="filter-bar-input"
         data-testid="search-input"
         aria-label="Buscar conversaciones"
       />
@@ -285,6 +289,7 @@ function FilterBar({
           value={since}
           onChange={(e) => onSinceChange(e.target.value)}
           style={{ ...inputStyle, width: 130 }}
+          className="filter-bar-input"
           data-testid="since-input"
           aria-label="Desde fecha"
         />
