@@ -250,7 +250,14 @@ not to call the tool again or wait.
 The detached run (`runBackgroundGeneration`):
 1. Creates a tracking `conversation_turns` row (`createBackgroundTurn` in
    `dashboard/lib/turn-events.ts` — same advisory lock as `createTurnIfIdle`, but without
-   its "reject if a turn is active" check).
+   its "reject if a turn is active" check). The row is tagged `source = 'background'`
+   (`conversation_turns.source`, `'user'` | `'background'`) so `createTurnIfIdle`'s
+   active-turn guard (`AND source = 'user'`) skips it — the tracking row sits in
+   `status = 'streaming'` for the whole 30s-2min generation, and without this tag it read
+   as a genuine in-flight user turn, rejecting every message the user sent in that window
+   with 409 `TURN_IN_PROGRESS`. If `createBackgroundTurn` itself throws (no `turnId`
+   exists yet), the failure still reaches the user via a direct `appendMessage(...,
+   { is_error: true })` — there's no turn to attach an `error` turn_event to.
 2. Calls the dashboard generation logic (same as `/api/dashboard/generate`), streaming its
    own nested tool calls onto that tracking turn as `log` events.
 3. On success: persists the new dashboard to the DB, migrates the conversation to

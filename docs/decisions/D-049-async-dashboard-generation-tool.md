@@ -45,6 +45,16 @@ The detached background task (`runBackgroundGeneration`) follows the same patter
   `createTurnIfIdle`, but WITHOUT the "reject if a turn is already active" check, since
   this is system-initiated bookkeeping running alongside whatever turn (if any) is
   currently streaming, not a second user-submitted message competing for that slot.
+- **`conversation_turns.source` (`'user'` | `'background'`, added post-review):** the
+  tracking row is inserted with `source = 'background'`, and `createTurnIfIdle`'s
+  active-turn guard now filters `AND source = 'user'`. Without this, the tracking row's
+  `status = 'streaming'` for the whole 30s-2min generation was indistinguishable from a
+  genuine in-flight user turn: any message the user sent in that window hit
+  `createTurnIfIdle`, saw the tracking row as active, and got rejected with 409
+  `TURN_IN_PROGRESS` — the chat going dead for up to two minutes, the exact opposite of
+  what this decision set out to fix. `status` keeps its normal
+  pending/streaming/complete/error meaning; SSE replay and `ConversationPane`'s
+  turn-adoption logic key on `turnId`, not `source`, so neither needed to change.
 - It emits `log` events (including the nested generation's own tool calls, e.g.
   `execute_query`) and a final `complete` or `error` event on that turn, via
   `insertTurnEvent` + `sse-pubsub.publish` — exactly what a live SSE client already knows
@@ -58,6 +68,12 @@ The detached background task (`runBackgroundGeneration`) follows the same patter
   fails silently: this codebase has a recurring pattern of swallowed background failures
   (see `runTurnBackground`'s own #824 fix), and prod has no cost/usage visibility to catch
   a silent one after the fact.
+- Even a failure to create the tracking row itself (`createBackgroundTurn` throwing —
+  e.g. a transient DB error) is surfaced: there is no `turnId` yet, so no `error`
+  turn_event is possible, but an `is_error: true` assistant message is still appended
+  directly. Before the post-review fix, this specific catch block only did
+  `console.error` — the user had already been told "se está generando" and would never
+  learn it failed.
 
 **Alternatives rejected**:
 - *Raise `toolTimeoutMs` globally or per-tool.* Rejected — see Context. A per-tool timeout
@@ -85,5 +101,6 @@ result object on `ctx` (`apply_dashboard_modification`, `submit_dashboard_analys
 inherently-long operation.
 
 **See**: `dashboard/lib/llm-tools/handlers/start-dashboard-generation.ts`,
-`dashboard/lib/turn-events.ts` (`createBackgroundTurn`), `dashboard/lib/turn-background.ts`,
+`dashboard/lib/turn-events.ts` (`createBackgroundTurn`, `createTurnIfIdle`),
+`etl/schema/init.sql` (`conversation_turns.source`), `dashboard/lib/turn-background.ts`,
 `dashboard/lib/llm-tools/runner.ts` (`withTimeout`), `dashboard/lib/llm-tools/catalog.ts`.
