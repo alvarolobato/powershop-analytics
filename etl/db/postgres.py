@@ -16,6 +16,15 @@ etl.main._run_sync into etl_sync_run_tables.error_msg. This module-level
 list is safe only because the ETL runs as a single sequential worker per
 process — see try_acquire_run_lock()/fail_orphan_running_runs() below,
 which already assume the same thing.
+
+Fetch-anomaly evidence (D-051)
+-------------------------------
+insert_fetch_anomalies() persists what etl.db.fourd.safe_fetch()'s guard
+detected (and discriminated via a same-query refetch) into
+etl_fetch_anomalies. This is a *separate* channel from the D-050 skip log
+above: rows the guard drops never reach upsert() in the first place (they
+are filtered out inside safe_fetch(), before the sync_fn's return value is
+even built), so there is no overlap between the two logs to double-report.
 """
 
 from __future__ import annotations
@@ -779,6 +788,66 @@ def finish_run(
     except Exception:
         conn.rollback()
         raise
+
+
+def insert_fetch_anomalies(
+    conn, run_id: int | None, sync_name: str, events: list[dict]
+) -> None:
+    """Persist fetch-anomaly evidence rows (D-051) — best-effort, never raises.
+
+    Called from etl.main._run_sync after every sync_fn call, once for each
+    event etl.db.fourd.drain_anomaly_log() returned. This is diagnostic-only:
+    the human-readable summary is already folded into
+    etl_sync_run_tables.error_msg by the caller regardless of whether this
+    INSERT succeeds, so a failure here (schema drift, a transient connection
+    blip) must never take the sync down with it — own try/except, own
+    rollback, swallow and log instead of propagating.
+    """
+    if not events:
+        return
+    from psycopg2.extras import Json  # type: ignore[import-untyped]
+
+    try:
+        with conn.cursor() as cur:
+            for event in events:
+                cur.execute(
+                    """
+                    INSERT INTO etl_fetch_anomalies (
+                        run_id, sync_name, sql_text, total_rows, refetch_total_rows,
+                        anomaly_count, first_index, last_index, index_ranges,
+                        page_size, page_aligned_end, kinds, sample, refetch_outcome
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        run_id,
+                        sync_name,
+                        event.get("sql_text"),
+                        event.get("total_rows"),
+                        event.get("refetch_total_rows"),
+                        event.get("anomaly_count"),
+                        event.get("first_index"),
+                        event.get("last_index"),
+                        event.get("index_ranges"),
+                        event.get("page_size"),
+                        event.get("page_aligned_end"),
+                        Json(event.get("kinds")),
+                        Json(event.get("sample")),
+                        event.get("refetch_outcome"),
+                    ),
+                )
+        conn.commit()
+    except Exception:
+        logger.error(
+            "insert_fetch_anomalies: failed to persist %d evidence row(s) for "
+            "%s — sync continues, this table is diagnostic-only",
+            len(events),
+            sync_name,
+            exc_info=True,
+        )
+        try:
+            conn.rollback()
+        except Exception:
+            logger.debug("insert_fetch_anomalies: rollback also failed", exc_info=True)
 
 
 def record_table_sync(
