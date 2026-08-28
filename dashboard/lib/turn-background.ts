@@ -695,7 +695,7 @@ async function runGenericTurn(
     // silent — a billed LLM call with no instructions. Warn so it shows up in
     // server logs. Deliberately NOT a fallback to "chat" or any other flow —
     // that would silently hand this (unknown) mode the free-chat tool grant,
-    // which is exactly the wrong instinct D-042 rejected.
+    // which is exactly the wrong instinct D-045 rejected.
     console.warn(
       `[turn-background] conversation ${conversationId} has unrecognised mode "${flowRaw}" — ` +
         "the LLM call will run with an empty system prompt and no tools",

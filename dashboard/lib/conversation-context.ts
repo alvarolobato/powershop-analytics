@@ -7,7 +7,7 @@
  *
  * `buildFreeChatContext()` here DELEGATES to `@/lib/llm-context` (the single
  * LLM entry point — D-036) instead of re-implementing the "chat" prompt/tools.
- * Before D-042 this file carried its own byte-identical copy of the "chat"
+ * Before D-045 this file carried its own byte-identical copy of the "chat"
  * preamble and knowledge assembly, so an edit to the real prompt
  * (`llm-context/system-prompt.ts`) could silently drift from what the UI's
  * "Contexto original" panel claims was sent — the two had no mechanism

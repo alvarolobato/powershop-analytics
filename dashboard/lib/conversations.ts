@@ -554,7 +554,7 @@ export async function maybeGenerateTitle(
   // E2eStubProviderError for it (see llm-client.ts) rather than silently
   // falling through to OpenRouter. Skip early here too, mirroring
   // turn-background.ts's own `DASHBOARD_LLM_PROVIDER === "e2e-stub"`
-  // short-circuit for the main turn (D-042) — otherwise every conversation's
+  // short-circuit for the main turn (D-045) — otherwise every conversation's
   // first turn under e2e-stub would hit the boundary error above and log a
   // warning for something that is expected, not a real failure.
   if (process.env.DASHBOARD_LLM_PROVIDER === "e2e-stub") return;

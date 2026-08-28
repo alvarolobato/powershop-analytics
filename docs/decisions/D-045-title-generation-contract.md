@@ -1,10 +1,10 @@
 ---
-id: D-042
+id: D-045
 title: Conversation-title generation contract, and its accepted circuit-breaker shared fate
 date: 2026-08-28
 ---
 
-# D-042: Conversation-title generation contract, and its accepted circuit-breaker shared fate
+# D-045: Conversation-title generation contract, and its accepted circuit-breaker shared fate
 
 *Decided: 2026-08-28*
 

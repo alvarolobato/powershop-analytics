@@ -10,7 +10,7 @@
  * inversion (last turn, usually the assistant's own reply, sent as the
  * "user" question) and the unbounded-history bug (every prior turn passed
  * through, tripping `capHistory`'s own extra summarisation LLM call) went
- * undetected (D-042).
+ * undetected (D-045).
  *
  * Here only the two real boundaries are mocked: the DB (`@/lib/db-write`)
  * and the network-facing leaf (`llmComplete` in `@/lib/llm-client`). Every

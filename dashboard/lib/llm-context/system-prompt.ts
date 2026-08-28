@@ -358,7 +358,7 @@ const FREE_CHAT_PREAMBLE =
 // case existed the "summary" flow fell through buildSystemPrompt's default
 // branch to an empty prompt with no tools, so every weekly-summary conversation
 // silently sent a real, billed LLM call that could not do what its own seed
-// prompt asked (D-042).
+// prompt asked (D-045).
 const SUMMARY_PREAMBLE =
   "Eres un asistente analítico de PowerShop Analytics especializado en resúmenes " +
   "ejecutivos de negocio (por ejemplo el resumen semanal). " +
@@ -855,7 +855,7 @@ export function buildSystemPrompt(
   // rather than throw. This should be unreachable in practice (conversation
   // creation validates `mode` against VALID_MODES, and turn-background.ts's
   // runGenericTurn already warns via isLlmFlow() before calling
-  // assembleRequest — see D-042), so this is the last line of defense that
+  // assembleRequest — see D-045), so this is the last line of defense that
   // keeps a stray flow name from crashing a turn instead of just producing a
   // low-quality (but billed) reply.
   if (!isLlmFlow(flow)) {
@@ -927,7 +927,7 @@ export function buildSystemPrompt(
     // seed prompt in seed-prompts.ts asks for validate_query / execute_query /
     // list_ps_tables / describe_ps_table — see toolsForFlow) but its own
     // preamble, since it is a distinct, deliberate mapping rather than a
-    // runtime fallback onto "chat" (D-042).
+    // runtime fallback onto "chat" (D-045).
     case "summary": {
       return { stable: SUMMARY_PREAMBLE + buildStableKnowledgePart() };
     }
@@ -946,7 +946,7 @@ export function buildSystemPrompt(
       // matching case here, `flow` narrows to something other than `never` at
       // this point and the assignment below fails to compile — forcing a
       // deliberate decision (write the case, or don't add the flow) instead of
-      // silently falling through to an empty prompt (D-042).
+      // silently falling through to an empty prompt (D-045).
       const _exhaustive: never = flow;
       return _exhaustive;
     }

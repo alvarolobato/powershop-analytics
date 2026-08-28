@@ -17,7 +17,7 @@ const SINGLE_SHOT_FLOWS = new Set(["suggest", "gap", "title"]);
  *                                      "summary" backs the weekly-summary conversation
  *                                      (see system-prompt.ts's SUMMARY_PREAMBLE) — its seed
  *                                      prompt expects the same read-only inspection tools
- *                                      chat has, nothing more (D-042).
+ *                                      chat has, nothing more (D-045).
  * - "suggest" | "gap" | "title"     → [] (single-shot, no tools)
  * - all other flows                 → DASHBOARD_AGENTIC_TOOLS (full catalog, includes weekly)
  */

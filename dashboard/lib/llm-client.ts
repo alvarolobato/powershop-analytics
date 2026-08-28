@@ -123,7 +123,7 @@ const EMPTY_USAGE: NormalizedUsage = {
  * to have no branch for it at all, so any OTHER caller (e.g. title generation
  * — see `maybeGenerateTitle` in conversations.ts) fell through to the
  * OpenRouter branch and failed with an unrelated "no API key" error instead of
- * a clear, typed one (D-042). `LlmResponse.provider` already excludes
+ * a clear, typed one (D-045). `LlmResponse.provider` already excludes
  * `"e2e-stub"` from its type — this makes the runtime match that contract.
  */
 export class E2eStubProviderError extends Error {

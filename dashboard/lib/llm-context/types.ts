@@ -48,7 +48,7 @@ export interface FlowVars {
  * internal switch is exhaustive over this union — see its `default` branch.
  * Adding a flow here without a matching `case` fails to compile, which is the
  * point: it forces a deliberate decision (add the prompt, or don't add the
- * flow) instead of a silent empty-prompt fallback (D-042).
+ * flow) instead of a silent empty-prompt fallback (D-045).
  */
 export const LLM_FLOWS = [
   "generate",

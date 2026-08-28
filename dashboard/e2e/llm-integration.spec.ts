@@ -115,7 +115,7 @@ test("free-chat runs the agentic tool loop and answers from real query results",
 
 // ---------------------------------------------------------------------------
 // Title generation: maybeGenerateTitle() runs the real llm-context pipeline
-// after the first turn and actually lands a title in the DB (D-042)
+// after the first turn and actually lands a title in the DB (D-045)
 // ---------------------------------------------------------------------------
 
 test("a conversation gets an auto-generated title after its first turn", async ({ page }) => {
