@@ -640,11 +640,15 @@ export default function DashboardSurface({
         </div>
       )}
 
-      {/* kMode banner: "Ver solo el panel" — only relative paths allowed to prevent open redirect */}
+      {/* kMode banner: "Ver solo el panel" — only relative paths allowed to prevent open redirect.
+          Left/right padding lives in `.dashboard-kmode-banner` (globals.css) — unconditional
+          base matches the 20px literal, phone media query narrows to `--pad-x`. */}
       {kMode && contextUrl && contextUrl.startsWith("/") && (
         <div
+          className="dashboard-kmode-banner"
           style={{
-            padding: "6px 20px",
+            paddingTop: 6,
+            paddingBottom: 6,
             background: "var(--bg-1)",
             borderBottom: "1px solid var(--border)",
             display: "flex",
@@ -669,8 +673,10 @@ export default function DashboardSurface({
         </div>
       )}
 
-      {/* Page header */}
-      <div className="no-print" style={{ padding: "24px 20px 14px" }}>
+      {/* Page header. Left/right padding lives in `.dashboard-header-pad`
+          (globals.css) — unconditional base matches the 20px literal,
+          phone media query narrows to `--pad-x`. */}
+      <div className="no-print dashboard-header-pad" style={{ paddingTop: 24, paddingBottom: 14 }}>
         <div
           style={{
             display: "flex",

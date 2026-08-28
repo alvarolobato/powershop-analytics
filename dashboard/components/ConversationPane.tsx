@@ -234,12 +234,17 @@ function UserBubble({ text }: { text: string }) {
   return (
     <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
       <div
+        className="chat-bubble"
         style={{
-          maxWidth: "85%",
+          // max-width and left/right padding live in `.chat-bubble`
+          // (globals.css) — unconditional base matches these literals
+          // exactly, then a phone media query widens/tightens them. Top/
+          // bottom padding has no phone override so it stays inline.
           background: "var(--accent-soft)",
           border: "1px solid var(--accent)",
           borderRadius: "12px 12px 2px 12px",
-          padding: "8px 12px",
+          paddingTop: 8,
+          paddingBottom: 8,
           fontSize: 13,
           color: "var(--fg)",
           whiteSpace: "pre-wrap",
@@ -265,12 +270,15 @@ function AssistantBubble({
   return (
     <div style={{ display: "flex", justifyContent: "flex-start", marginBottom: 8 }}>
       <div
+        className="chat-bubble"
         style={{
-          maxWidth: "85%",
+          // max-width and left/right padding live in `.chat-bubble`
+          // (globals.css) — see the matching comment in UserBubble above.
           background: isError ? "rgba(220,38,38,0.1)" : "var(--bg-2)",
           border: isError ? "1px solid rgba(220,38,38,0.3)" : "none",
           borderRadius: "12px 12px 12px 2px",
-          padding: "8px 12px",
+          paddingTop: 8,
+          paddingBottom: 8,
           fontSize: 13,
           color: "var(--fg)",
           lineHeight: 1.5,
@@ -310,14 +318,19 @@ function AssistantBubble({
               ),
               table: ({ ...props }) => (
                 <div style={{ overflowX: "auto", margin: "6px 0" }}>
-                  <table style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }} {...props} />
+                  {/* `scroll-x-inner` floors table width at 480px below 768px (globals.css,
+                      reused from the D-044 chart wrapper) so a narrow chat bubble scrolls
+                      the table horizontally instead of squeezing `th`/`td` below their
+                      content's natural width — which is what forced header words like
+                      "Referencia" to break mid-character before this fix. */}
+                  <table className="scroll-x-inner" style={{ borderCollapse: "collapse", fontSize: 12, width: "100%" }} {...props} />
                 </div>
               ),
               th: ({ ...props }) => (
-                <th style={{ border: "1px solid var(--border)", padding: "4px 8px", background: "var(--bg-1)", fontWeight: 600, textAlign: "left" }} {...props} />
+                <th className="chat-table-th" style={{ border: "1px solid var(--border)", paddingTop: 4, paddingBottom: 4, background: "var(--bg-1)", fontWeight: 600, textAlign: "left" }} {...props} />
               ),
               td: ({ ...props }) => (
-                <td style={{ border: "1px solid var(--border)", padding: "4px 8px" }} {...props} />
+                <td className="chat-table-td" style={{ border: "1px solid var(--border)", paddingTop: 4, paddingBottom: 4 }} {...props} />
               ),
               a: ({ ...props }) => (
                 <a style={{ color: "var(--accent)", textDecoration: "underline" }} {...props} target="_blank" rel="noopener noreferrer" />
@@ -1087,12 +1100,17 @@ export function ConversationPane({
         overflow: "hidden",
       }}
     >
-      {/* Messages area */}
+      {/* Messages area. Left/right padding lives in `.chat-msg-area` /
+          `.chat-msg-area--panel` (globals.css) — unconditional base matches
+          these top/bottom literals (16px / 12px) exactly, then a phone
+          media query narrows left/right to the shared `--pad-x` token. */}
       <div
+        className={isPanel ? "chat-msg-area chat-msg-area--panel" : "chat-msg-area"}
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: isPanel ? "12px 14px" : "16px",
+          paddingTop: isPanel ? 12 : 16,
+          paddingBottom: isPanel ? 12 : 16,
           display: "flex",
           flexDirection: "column",
         }}
