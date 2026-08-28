@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import localFont from "next/font/local";
 import ThemeProvider from "@/components/ThemeProvider";
@@ -15,6 +15,23 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "PowerShop Dashboard",
   description: "Cuadros de mando generados con inteligencia artificial para PowerShop Analytics",
+};
+
+// Mobile item 4: Next's App Router injects a default
+// `{width:"device-width", initialScale:1, ...}` viewport tag unconditionally
+// regardless of whether this file exports anything
+// (`createDefaultViewport()`/`mergeViewport()` in
+// `next/dist/lib/metadata/resolve-metadata.js`), so `width`/`initialScale`
+// below are redundant with what Next already emits — kept explicit only so
+// a reader doesn't have to go check Next's source to know what the tag
+// says. The one substantive line is `viewportFit: "cover"`: without it the
+// page never extends under a notch/home-indicator, so
+// `env(safe-area-inset-*)` (used by the mobile-shell height class below,
+// and by NewConversationDialog's backdrop) always resolves to 0 (D-123).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 // Fonts are self-hosted under public/fonts/ to avoid network fetches at Docker
@@ -93,11 +110,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: preloadScript }} />
       </head>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
+        className={`${inter.variable} ${jetbrainsMono.variable} antialiased app-shell`}
         style={{
           display: "flex",
           flexDirection: "column",
-          height: "100vh",
           background: "var(--bg)",
           color: "var(--fg)",
           fontFamily: "var(--font-inter), sans-serif",
