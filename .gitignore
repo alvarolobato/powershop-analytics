@@ -58,3 +58,6 @@ otel/local/*.json
 dashboard/test-results/
 dashboard/playwright-report/
 node_modules/
+
+# Agent worktrees created inside the repo — never commit these.
+.claude/worktrees/

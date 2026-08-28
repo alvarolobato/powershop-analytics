@@ -225,7 +225,15 @@ services:
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
+      # Required, not defaulted. This key gates the admin surfaces —
+      # /admin/*, /etl*, /api/admin/* and /api/etl/* (see dashboard/middleware.ts).
+      # Production binds 0.0.0.0 (LAN-reachable, see the port mapping below),
+      # and the middleware fails closed, so a deployment with no key set still
+      # starts — it just serves 503 "admin_not_configured" on every admin route
+      # until somebody tries to use one and notices. A forgotten key is an
+      # avoidably broken deployment rather than a caught one, so refuse the
+      # `docker compose up` instead.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:?set ADMIN_API_KEY in .env — this instance is reachable from outside the host}
       # Set true when the dashboard is served over HTTPS (behind TLS termination).
       # Leave unset on plain HTTP (e.g. LAN access by IP) so the cookie is stored.
       ADMIN_COOKIE_SECURE: ${ADMIN_COOKIE_SECURE:-}
