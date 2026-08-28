@@ -59,5 +59,7 @@ dashboard/test-results/
 dashboard/playwright-report/
 node_modules/
 
-# Agent worktrees created inside the repo — never commit these.
+# Agent git worktrees. Transient scratch checkouts created when work is
+# parallelised across agents; each is a full working copy of this repo and they
+# are removed when that work lands. Never source.
 .claude/worktrees/
