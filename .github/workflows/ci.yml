@@ -131,10 +131,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v5
+      - name: Build ETL image (no push)
+        uses: docker/build-push-action@v5
         with:
           context: ./etl
           file: ./etl/Dockerfile
           push: false
           load: true
           tags: powershop-etl:ci-test
+      # The dashboard image was NOT built here, and that gap is not cosmetic:
+      # `next build` runs ESLint, while vitest does not, `tsc --noEmit` does
+      # not, and dashboard-test never builds an image. Twice in one week a PR
+      # was green on every other gate while this image could not build — once
+      # on a type-only import tripping no-restricted-imports, which reached
+      # main and blocked cutting the release until it was fixed. This is the
+      # only check that closes that hole.
+      - name: Build dashboard image (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./dashboard
+          file: ./dashboard/Dockerfile
+          push: false
+          load: true
+          tags: powershop-dashboard:ci-test
