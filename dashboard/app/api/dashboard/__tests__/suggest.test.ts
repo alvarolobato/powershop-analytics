@@ -9,6 +9,7 @@ vi.mock("@/lib/llm", async () => {
   const actual = await vi.importActual<typeof import("@/lib/llm")>("@/lib/llm");
   return {
     BudgetExceededError: actual.BudgetExceededError,
+    CircuitBreakerOpenError: actual.CircuitBreakerOpenError,
     suggestDashboards: mockSuggestDashboards,
   };
 });

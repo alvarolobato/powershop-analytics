@@ -213,11 +213,27 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
       })
       .join("\n\n");
 
-    const text = await callWithCircuitBreaker(() =>
+    const { text, usage: cliUsage } = await callWithCircuitBreaker(() =>
       claudeCliSingleShot({ cfg, prompt: combined }),
     );
 
-    logUsage(endpoint, model, EMPTY_USAGE, meta, { requestId });
+    // Real token counts + the CLI's own `total_cost_usd`, instead of the
+    // hard-coded EMPTY_USAGE this used to log for every single CLI call —
+    // see `llm-provider/cli/usage.ts` for why the binary is trusted here.
+    const usage: NormalizedUsage = cliUsage
+      ? {
+          prompt_tokens: cliUsage.prompt_tokens,
+          completion_tokens: cliUsage.completion_tokens,
+          total_tokens: cliUsage.total_tokens,
+          cache_creation_input_tokens: cliUsage.cache_creation_input_tokens,
+          cache_read_input_tokens: cliUsage.cache_read_input_tokens,
+        }
+      : { ...EMPTY_USAGE };
+
+    logUsage(endpoint, model, usage, meta, {
+      requestId,
+      reportedCostUsd: cliUsage?.cost_usd ?? null,
+    });
 
     if (req.onTextDelta && text) {
       try {
@@ -229,7 +245,7 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
 
     return {
       text,
-      usage: { ...EMPTY_USAGE },
+      usage,
       provider: "cli",
       driver: cfg.cliDriver,
     };

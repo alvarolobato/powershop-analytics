@@ -19,6 +19,12 @@ type AgenticStepUsage = {
   cache_creation_input_tokens?: number | null;
   /** Tokens read from the Anthropic prompt cache (90% discount). */
   cache_read_input_tokens?: number | null;
+  /**
+   * Provider-reported USD cost for this step (Claude CLI `total_cost_usd`).
+   * OpenRouter adapters leave this undefined — that provider is billed from
+   * the token counts via the rate table in `lib/llm-usage.ts` instead.
+   */
+  cost_usd?: number | null;
 } | null;
 
 export type AgenticStepResult =

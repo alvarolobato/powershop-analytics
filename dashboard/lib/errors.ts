@@ -34,13 +34,28 @@ export type ErrorCode =
   | "TURN_IN_PROGRESS"
   | "SQL_LINT"
   | "NOT_FOUND"
+  // The request is well-formed but conflicts with the resource's current
+  // state, where retrying the identical request will not help without some
+  // other change first (as distinct from LLM_BUDGET_EXCEEDED/LLM_CIRCUIT_OPEN,
+  // which are transient and expected to clear on their own).
+  | "CONFLICT"
+  // All LLM use is switched off by an operator-level kill switch. No
+  // producer exists yet in this repo — reserved for the master on/off flag
+  // a later change adds; see `guardErrorResponse` in `llm-guard-response.ts`.
+  | "LLM_DISABLED"
+  // The account behind the CLI provider hit its subscription-quota cap. Like
+  // LLM_DISABLED this is a deliberate cost guard rather than a fault, and
+  // has no producer yet — reserved for the quota-poller work that follows
+  // this change.
+  | "LLM_QUOTA_EXCEEDED"
   | "TIMEOUT"
   | "COST_LIMIT"
   | "REVIEW_EXISTS"
   | "REVIEW_PERSISTENCE"
   | "UNKNOWN"
   | "AGENTIC_RUNNER"
-  | "METHOD_NOT_ALLOWED";
+  | "METHOD_NOT_ALLOWED"
+  | "RATE_LIMITED";
 
 /**
  * Rich diagnostic payload attached to AGENTIC_RUNNER errors so the UI

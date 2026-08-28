@@ -20,7 +20,7 @@
  */
 
 import { NextResponse } from "next/server";
-import { suggestDashboards, BudgetExceededError } from "@/lib/llm";
+import { suggestDashboards } from "@/lib/llm";
 import { extractJson } from "@/lib/llm-json";
 import { DASHBOARD_ROLES } from "@/lib/dashboard-roles";
 import {
@@ -28,6 +28,7 @@ import {
   generateRequestId,
   sanitizeErrorMessage,
 } from "@/lib/errors";
+import { guardErrorResponse } from "@/lib/llm-guard-response";
 
 export async function POST(request: Request): Promise<NextResponse> {
   const requestId = generateRequestId();
@@ -120,12 +121,14 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     rawResponse = await suggestDashboards(role, existingDashboards, { requestId });
   } catch (err: unknown) {
-    if (err instanceof BudgetExceededError) {
-      return NextResponse.json(
-        formatApiError(err.message, "LLM_BUDGET_EXCEEDED", undefined, requestId),
-        { status: 429 },
-      );
-    }
+    // BudgetExceededError → 429, CircuitBreakerOpenError → 503. This route
+    // used to only check for the budget cap, so an open breaker fell
+    // through to the generic 500 below instead of the 503 the
+    // generate/modify/analyze routes already gave it — see
+    // llm-guard-response.ts.
+    const guardResponse = guardErrorResponse(err, requestId);
+    if (guardResponse) return guardResponse;
+
     const message = err instanceof Error ? err.message : String(err);
     const normalizedMessage = message.toLowerCase();
     console.error(`[${requestId}] Error al obtener sugerencias del LLM:`, err);
