@@ -33,6 +33,13 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Schema file must be at /app/config/schema.yaml at runtime (resolveSchemaPath priority #2).
+# This copies dashboard/config/schema.yaml, which is a build-context copy of the
+# canonical repo-root config/schema.yaml — a COPY cannot reach outside the build
+# context, and the release workflow builds this image with ./dashboard as its
+# context. The two files are pinned byte-identical by a drift-guard test
+# (lib/__tests__/config-schema-sync.test.ts); regenerate with `npm run sync:schema`.
+# They had drifted to 26 keys vs 47, and because docker-compose.prod.yml mounts
+# nothing over this path, production was running on the stale copy.
 COPY --chown=nextjs:nodejs config/schema.yaml /app/config/schema.yaml
 COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
 # Wrapper sets keepAliveTimeout=65s before Next.js creates its HTTP server.
