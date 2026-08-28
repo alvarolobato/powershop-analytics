@@ -18,17 +18,20 @@
  * that forgot the check silently returns a generic-looking failure for what
  * is actually a deliberate cost guard.
  *
- * `LLM_DISABLED` and `LLM_QUOTA_EXCEEDED` are reserved codes in
- * `lib/errors.ts` with no producer yet — a later change adds the master
- * kill switch and the CLI subscription-quota cap. When it does, their error
- * classes get a case in `classifyGuardError` below so every call site that
- * already goes through `guardErrorResponse` (or the SSE variant) picks them
- * up without a second sweep across these routes.
+ * `LLM_DISABLED` now has a producer: `LlmDisabledError`, raised by the
+ * master kill switch (`lib/llm-enabled.ts`, D-046) at both LLM call seams.
+ * Wiring it in here means every route already going through
+ * `guardErrorResponse` (or the SSE variant) picks it up for free — no
+ * second sweep across these routes was needed.
+ *
+ * `LLM_QUOTA_EXCEEDED` remains reserved, with no producer yet — for the CLI
+ * subscription-quota cap. When that lands, it gets a case here the same way.
  */
 
 import { NextResponse } from "next/server";
 import { formatApiError, sanitizeErrorMessage, type ApiErrorResponse, type ErrorCode } from "@/lib/errors";
 import { BudgetExceededError, CircuitBreakerOpenError } from "@/lib/llm";
+import { LlmDisabledError } from "@/lib/llm-enabled";
 
 export interface ClassifiedGuardError {
   status: number;
@@ -44,6 +47,9 @@ export interface ClassifiedGuardError {
  * continues — an error this module doesn't recognise is not its concern.
  */
 export function classifyGuardError(err: unknown): ClassifiedGuardError | null {
+  if (err instanceof LlmDisabledError) {
+    return { status: 503, code: "LLM_DISABLED", message: err.message };
+  }
   if (err instanceof BudgetExceededError) {
     return { status: 429, code: "LLM_BUDGET_EXCEEDED", message: err.message };
   }
