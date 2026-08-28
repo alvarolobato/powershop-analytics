@@ -348,7 +348,7 @@ workers, and its `DECISIONS.md` is hand-maintained.
 
 ```
 implement (Sonnet, one isolated worktree per agent)
-  -> review per PR (Opus, from a clean context - it re-derives instead of agreeing with the author)
+  -> review per PR (Copilot first, then Opus from a clean context - it re-derives instead of agreeing with the author)
   -> review per phase (Fable - architecture and strategy at phase boundaries)
   -> merge (coordinator)  -> verify against real data
 ```
@@ -439,11 +439,19 @@ git raises it as a normal conflict and a human resolves it. The number collision
 is the dangerous kind, because it is silent - and reserving ranges removes it.
 
 If a collision has already happened, renumber at merge: the last branch in loses
-its number, not its content. To find one, list the decision files across every
-open branch at once:
+its number, not its content. To find one, run the following per branch you want
+to inspect (substitute the branch name), then compare the outputs:
 
 ```
 git ls-tree -r --name-only <branch> docs/decisions/ | grep -o 'D-[0-9]\{3\}'
+```
+
+To check all remote branches at once for duplicate IDs:
+
+```
+for b in $(git branch -r | grep -v HEAD); do
+  git ls-tree -r --name-only "$b" docs/decisions/ 2>/dev/null
+done | grep -o 'D-[0-9]\{3\}' | sort | uniq -d
 ```
 
 ### One worktree per agent
