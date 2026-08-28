@@ -339,6 +339,137 @@ Run this **after** your edits and **before** `git commit`. Formatting is require
 
 ---
 
+## How parallel work runs
+
+Adapted from the two projects that forked from this one (`inmo-tool`, `finanzas`),
+where several agents routinely run at once. Their conventions are here because the
+conflicts they solve are ours too: this repo's AI Factory dispatches parallel
+workers, and its `DECISIONS.md` is hand-maintained.
+
+```
+implement (Sonnet, one isolated worktree per agent)
+  -> review per PR (Opus, from a clean context - it re-derives instead of agreeing with the author)
+  -> review per phase (Fable - architecture and strategy at phase boundaries)
+  -> merge (coordinator)  -> verify against real data
+```
+
+The coordinator chains work rather than stopping to ask for confirmation between
+tasks. A report is a checkpoint, not a stopping point.
+
+### Status reports
+
+After each completed task or change, emit exactly **four sections**:
+
+1. **Next tasks** (prioritised table)
+2. **Work in progress**
+3. **Things needing the owner's decision**
+4. **Things the owner needs to know**
+
+Keep it short. Leave out agent transcripts, the implementation play-by-play, and
+problems already solved.
+
+Owner-facing items must be actionable **now**. If an item depends on work you
+haven't finished, it is your task, not the owner's - keep it off the list until it
+is genuinely their move. An empty "needs you" list is the correct output when
+nothing is truly waiting on them; never pad it.
+
+### Conflicts come from the shared files, not the code
+
+Parallel work rarely collides inside a feature - those files are disjoint. It
+collides on the files *everyone* touches.
+
+| File | Rule |
+|------|------|
+| `DECISIONS.md` | Everyone appends lines here. Add yours **inside your group's heading**, not at the end of the file, so two agents write in separate regions. See the ID rule below. |
+| `docs/decisions/D-NN-<slug>.md` | Create-only. A brand-new file never conflicts - which is why the per-decision file carries the content and the index carries one line. |
+| `dashboard/lib/knowledge.ts` | **Generated.** Never hand-edit. Edit the source MDs and run `npm run build:knowledge`; CI's drift guard fails on a stale copy. |
+| `etl/schema/init.sql` | Additive only, at the end of the relevant block, and idempotent (`IF NOT EXISTS` / `WHERE NOT EXISTS`). |
+| `config/schema.yaml` | One canonical file at the repo root. A new key goes on its own line at the end of its section. |
+| `docker-compose.yml`, `.env.example` | A new variable goes on its own line at the end of the block it belongs to. |
+| `package.json` | A new dependency on its own line. If two branches add the same one, whoever merges first wins and the other rebases. |
+| `package-lock.json` | **Never resolve by hand.** On conflict: take `main`'s version, re-apply your `package.json` change, regenerate with `npm install`. |
+| `dashboard/components/TopBar.tsx` | Central nav registry. Coordinate before adding an entry. |
+| `.github/workflows/**` | Off limits to the worker - see [D-029](docs/decisions/D-029-no-worker-workflows.md). Propose the YAML in the PR body. |
+
+### Decision IDs collide silently
+
+Two branches that each pick "the next free ID" produce files differing only by
+slug (`D-042-foo.md` vs `D-042-bar.md`), so **git merges them with no conflict
+marker** and the duplicate only surfaces when a human notices. `inmo-tool` saw
+roughly eight collisions in a single session before fixing it.
+
+So: allocate your ID **immediately before writing the file**, not at the start of
+the task, and check the open PR branches as well as the local tree - other
+branches land while you work.
+
+It happened in this repo the first time five agents ran at once (Aug 2026). `main`
+ended at `D-041`; three separate branches each read that, each picked `D-042`, and
+each wrote a differently-slugged file. Nothing failed - not the tests, not the
+merge - and the duplicate was only visible by listing `docs/decisions/` across all
+five branches at once:
+
+```
+git ls-tree -r --name-only <branch> docs/decisions/ | grep -o 'D-[0-9]\{3\}'
+```
+
+Run that across every open branch before you claim a number. When a collision has
+already happened, renumber at merge time - the last branch in loses its number,
+not its content.
+
+`inmo-tool` solved this with an allocator script plus a generated index;
+`finanzas` reserved a numeric range per phase instead and kept the index
+hand-maintained. Either works. What does not work is eyeballing `DECISIONS.md`
+on a branch that is a few hours old.
+
+### One worktree per agent
+
+Two collisions have already lost uncommitted work in the forks. Give every agent
+its own isolated git worktree. Worktrees created inside this repo live under
+`.claude/worktrees/` and are git-ignored - never commit one.
+
+### Never run `docker compose` from a worktree
+
+Two real incidents in `finanzas`, same cause: Compose resolves **relative bind
+mounts against the current directory**, and a worktree's copy of `./data/` is
+empty. One `docker compose up` from a worktree recreated the Postgres container
+and triggered an `initdb`. Applies directly here - `docker-compose.yml` bind-mounts
+`./data/postgres`, `./data/qdrant` and `./data/wren`, which hold the mirror, the
+vector store and WrenAI's SQLite.
+
+1. No `docker compose up` or `run` from a worktree. To exercise something in a
+   container, use `docker build` + `docker run`, which does not touch the
+   lifecycle of services that are already up.
+2. If you genuinely need Compose, always pass absolute paths:
+   `docker compose -f /abs/path/docker-compose.yml --project-directory /abs/path ...`
+3. Before writing to a database from a test, check where you are:
+   `SELECT current_database()`.
+
+### Running e2e without stepping on each other
+
+Two simultaneous runs against the same seeded fixture corrupt each other and give
+results that change between passes without the code changing.
+
+1. **Run Playwright synchronously.** If it does not finish, say so in the report
+   and move on - waiting without reporting is the worst of both options.
+2. **Use your own port and your own database**, derived from your agent id, never
+   the defaults - another agent may be running the same thing.
+3. **Clean up before starting**: kill stray `next` / `playwright` processes and
+   free your port. An orphaned server from an aborted run serves stale code and
+   gives phantom failures.
+4. **The seed runs once per run, not per test.** Make your tests independent
+   (own rows with an exclusive prefix, or explicit filters). Never tune an
+   expected number to whatever comes out - that turns the test into a mirror of
+   accidental state.
+
+### Verify against real data
+
+"Should work" is not verification. Green unit tests prove very little here: CI
+never exercises the CLI LLM provider (unit tests mock `llm-context`, e2e runs on
+`e2e-stub`/`mock`) even though it is the production default. Check the real
+surface before claiming a fix.
+
+---
+
 ## Self-learning and documentation
 
 When you fix a non-obvious bug or discover a gotcha, document it. Procedure: [agent-efficiency.md](docs/skills/agent-efficiency.md).
@@ -351,7 +482,7 @@ When you fix a non-obvious bug or discover a gotcha, document it. Procedure: [ag
 
 When recording a new decision:
 
-1. **Pick the next free ID.** IDs are sequential (`D-001`, `D-002`, ...). Skip IDs are fine when a decision is retired — never reuse them.
+1. **Pick the next free ID.** IDs are sequential (`D-001`, `D-002`, ...). Skip IDs are fine when a decision is retired — never reuse them. Allocate it **immediately before writing the file**, and check the open PR branches too, not just the local tree — see [How parallel work runs § Decision IDs collide silently](#decision-ids-collide-silently) for why eyeballing `DECISIONS.md` on a stale branch merges two records onto one ID with no git conflict.
 2. **Write the full file** at `docs/decisions/D-NN-<short-slug>.md`. Use this template:
    ```markdown
    ---
