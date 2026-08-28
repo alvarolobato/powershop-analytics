@@ -13,6 +13,8 @@ import { randomBytes } from "crypto";
 import { sql } from "@/lib/db-write";
 import { assembleRequest } from "@/lib/llm-context";
 import { generateRequestId } from "@/lib/errors";
+import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
+import { sanitize } from "@/lib/llm-provider/sanitize";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -531,15 +533,32 @@ export async function countMessages(conversationId: string): Promise<number> {
 
 // ── Title generation ──────────────────────────────────────────────────────────
 
+/** Matches the 100-char clamp `lib/llm-tools/runner.ts`'s `set_title` tool handler
+ *  applies (D-032) — the two title-writing paths must agree on a max length. */
+const TITLE_MAX_LENGTH = 100;
+/** Max chars of the first assistant reply carried as context for the title call. */
+const TITLE_CONTEXT_MAX_CHARS = 300;
+
 /**
  * After the first assistant reply, fire a small LLM call to generate a short
- * Spanish title for the conversation. Non-blocking — errors are swallowed.
- * Only runs when the conversation has no title yet.
+ * Spanish title for the conversation. Non-blocking — errors are logged (never
+ * thrown) so the caller's own `.catch(() => {})` can keep swallowing them
+ * without a title failure ever affecting turn status. Only runs when the
+ * conversation has no title yet.
  */
 export async function maybeGenerateTitle(
   conversationId: string,
   messages: Array<{ role: string; content: string }>,
 ): Promise<void> {
+  // e2e-stub has no real LLM behind it — llmComplete() throws a typed
+  // E2eStubProviderError for it (see llm-client.ts) rather than silently
+  // falling through to OpenRouter. Skip early here too, mirroring
+  // turn-background.ts's own `DASHBOARD_LLM_PROVIDER === "e2e-stub"`
+  // short-circuit for the main turn (D-045) — otherwise every conversation's
+  // first turn under e2e-stub would hit the boundary error above and log a
+  // warning for something that is expected, not a real failure.
+  if (process.env.DASHBOARD_LLM_PROVIDER === "e2e-stub") return;
+
   const hasContent = messages.some(
     (m) => m.role === "user" || m.role === "assistant",
   );
@@ -548,32 +567,66 @@ export async function maybeGenerateTitle(
   const conv = await getConversation(conversationId);
   if (!conv || conv.title !== null) return;
 
-  try {
-    // Build prior messages for context (all turns excluding the last one)
-    const allTurns = messages.filter(
-      (m): m is { role: "user" | "assistant"; content: string } =>
-        m.role === "user" || m.role === "assistant",
-    );
-    const priorMessages = allTurns.slice(0, -1);
-    const lastMessage = allTurns.at(-1);
-    if (!lastMessage) return;
+  const allTurns = messages.filter(
+    (m): m is { role: "user" | "assistant"; content: string } =>
+      m.role === "user" || m.role === "assistant",
+  );
+  // A title describes what the conversation is ABOUT — the opening question —
+  // never the assistant's reply to it. At most the first assistant reply
+  // rides along as one truncated prior-turn message for extra context; this
+  // also caps history at 1 message, so `capHistory` (history.ts) can never
+  // trigger its own extra summarisation LLM call just to produce a title.
+  const firstUser = allTurns.find((m) => m.role === "user");
+  if (!firstUser) return;
+  const firstAssistant = allTurns.find((m) => m.role === "assistant");
+  const priorMessages = firstAssistant
+    ? [
+        {
+          role: "assistant" as const,
+          content: firstAssistant.content.slice(0, TITLE_CONTEXT_MAX_CHARS),
+        },
+      ]
+    : [];
 
-    const response = await assembleRequest("title", {}, null, lastMessage.content, {
+  try {
+    const response = await assembleRequest("title", {}, null, firstUser.content, {
       priorMessages,
       maxOutputTokens: 30,
       requestId: generateRequestId(),
       endpoint: "title",
     });
 
-    const title = response.text.trim().replace(/^["']|["']$/g, "");
+    // The CLI provider silently ignores maxOutputTokens (no such flag exists
+    // on the CLI), and a model can ignore prompt instructions regardless of
+    // provider — so the length clamp is enforced here, unconditionally,
+    // matching the `set_title` tool handler's own clamp (D-032).
+    const title = response.text
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .slice(0, TITLE_MAX_LENGTH);
     if (!title) return;
 
     await sql(
       `UPDATE conversations SET title = $2 WHERE id = $1 AND title IS NULL`,
       [conversationId, title],
     );
-  } catch {
-    // Non-blocking: title is cosmetic — swallow errors silently
+  } catch (err) {
+    // Non-blocking: title is cosmetic to the user — the UI falls back to
+    // first_user_prompt — so this must never fail the turn, and the caller's
+    // outer .catch(() => {}) (turn-background.ts) keeps swallowing on top of
+    // this. It must stop being invisible to the OPERATOR though: log a
+    // sanitized diagnostic (D-024) so a broken title path shows up in server
+    // logs instead of vanishing silently.
+    let provider = "unknown";
+    try {
+      provider = loadDashboardLlmConfig().provider;
+    } catch {
+      /* config load failed — keep "unknown" rather than throw from a catch handler */
+    }
+    console.warn(
+      `[maybeGenerateTitle] conversation=${conversationId} flow=title provider=${provider}: ` +
+        sanitize(err instanceof Error ? err.message : String(err)),
+    );
   }
 }
 

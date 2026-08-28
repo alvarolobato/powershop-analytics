@@ -141,7 +141,8 @@ export async function handleExplainQuery(
     );
     const raw = res.rows[0]?.[0];
     return toolOk({ explain: raw });
-  } catch {
+  } catch (err) {
+    console.error(`[${ctx.requestId}] explain_query failed:`, err);
     return toolOk({
       explain: null,
       error: "EXPLAIN could not be produced for this statement.",
@@ -235,7 +236,8 @@ export async function handleListPsTables(
     const res = await query(sql);
     const names = res.rows.map((r) => String(r[0]));
     return toolOk({ tables: names });
-  } catch {
+  } catch (err) {
+    console.error(`[${ctx.requestId}] list_ps_tables failed:`, err);
     return toolError("DB_ERROR", "Could not list tables.", ctx);
   }
 }
@@ -264,7 +266,11 @@ export async function handleDescribePsTable(
       is_nullable: String(row[2]),
     }));
     return toolOk({ table: args.table, columns });
-  } catch {
+  } catch (err) {
+    console.error(
+      `[${ctx.requestId}] describe_ps_table failed (table=${args.table}):`,
+      err,
+    );
     return toolError("DB_ERROR", "Could not describe table.", ctx);
   }
 }

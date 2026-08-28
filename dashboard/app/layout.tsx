@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import localFont from "next/font/local";
 import ThemeProvider from "@/components/ThemeProvider";
@@ -15,6 +15,33 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
   title: "PowerShop Dashboard",
   description: "Cuadros de mando generados con inteligencia artificial para PowerShop Analytics",
+};
+
+// Mobile item 4: Next's App Router injects a default
+// `{width:"device-width", initialScale:1, ...}` viewport tag unconditionally
+// regardless of whether this file exports anything
+// (`createDefaultViewport()`/`mergeViewport()` in
+// `next/dist/lib/metadata/resolve-metadata.js`), so `width`/`initialScale`
+// below are redundant with what Next already emits — kept explicit only so
+// a reader doesn't have to go check Next's source to know what the tag
+// says.
+//
+// `viewportFit: "cover"` was previously set here on the theory that
+// `env(safe-area-inset-*)` (D-123) would be needed by the mobile shell
+// height and by NewConversationDialog's backdrop — it never was: neither
+// consumes it (`grep -rn safe-area-inset dashboard/` returns zero real
+// uses as of PR #894 review). Setting the flag with no compensating inset
+// padding is strictly worse than not setting it: it makes the page's CSS
+// viewport extend full-bleed under the notch / home-indicator on a
+// notched phone, so TopBar's `sticky top: 0` header and ChatSidebar's
+// `position: fixed; bottom: 0` composer panel would render partly behind
+// those cutouts instead of respecting them. Dropped until a real
+// full-bleed element needs it — re-add `viewportFit: "cover"` together
+// with `env(safe-area-inset-top/bottom)` padding on that element in the
+// same change, not ahead of it.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 // Fonts are self-hosted under public/fonts/ to avoid network fetches at Docker
@@ -93,11 +120,10 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: preloadScript }} />
       </head>
       <body
-        className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}
+        className={`${inter.variable} ${jetbrainsMono.variable} antialiased app-shell`}
         style={{
           display: "flex",
           flexDirection: "column",
-          height: "100vh",
           background: "var(--bg)",
           color: "var(--fg)",
           fontFamily: "var(--font-inter), sans-serif",

@@ -13,7 +13,18 @@ vi.mock("@/lib/db-write", () => ({
 }));
 
 vi.mock("@/lib/conversations", () => ({
+  appendMessage: vi.fn(),
   migrateConversationToDashboard: vi.fn(),
+}));
+
+vi.mock("@/lib/turn-events", () => ({
+  createBackgroundTurn: vi.fn(),
+  insertTurnEvent: vi.fn(),
+  updateTurnStatus: vi.fn(),
+}));
+
+vi.mock("@/lib/sse-pubsub", () => ({
+  publish: vi.fn(),
 }));
 
 // Minimal valid spec returned by the mocked generateDashboard
@@ -40,6 +51,31 @@ const ctxWithConv: LlmAgenticContext = {
   ...ctx,
   conversationId: "conv-abc123",
 };
+
+/** A promise plus its resolve/reject, for controlling exactly when a mock settles. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function setUpConversationMocks(turnId = "turn-1") {
+  const { createBackgroundTurn } = await import("@/lib/turn-events");
+  const { appendMessage } = await import("@/lib/conversations");
+  vi.mocked(createBackgroundTurn).mockResolvedValue(turnId);
+  vi.mocked(appendMessage).mockResolvedValue({
+    id: "msg-1",
+    conversation_id: "conv-abc123",
+    role: "assistant",
+    content: {},
+    created_at: new Date().toISOString(),
+  } as never);
+  return { createBackgroundTurn, appendMessage };
+}
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
@@ -75,183 +111,268 @@ describe("handleStartDashboardGeneration", () => {
     }
   });
 
-  it("returns GENERATE_FAILED when generateDashboard throws", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockRejectedValueOnce(new Error("LLM timeout"));
+  // ── D-049: the tool must return well before generation finishes ───────────
 
+  it("returns 'started' immediately, without waiting for generateDashboard to resolve", async () => {
+    const { generateDashboard } = await import("@/lib/llm");
+    const gen = deferred<string>();
+    vi.mocked(generateDashboard).mockReturnValueOnce(gen.promise);
+    await setUpConversationMocks();
+
+    // generateDashboard's promise is still pending — if the handler awaited
+    // it directly (the pre-D-049 bug), this call would hang forever (and the
+    // real runner would time it out at 15s). It must resolve on its own.
     const result = await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Ventas de hoy" }),
-      ctx,
+      ctxWithConv,
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("GENERATE_FAILED");
-      expect(result.message).toContain("LLM timeout");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toMatchObject({ status: "started" });
     }
+    // Never resolved — proves the assertion above didn't just get lucky with
+    // an already-resolved microtask queue.
+    gen.reject(new Error("unused"));
   });
 
-  it("returns INVALID_SPEC when generateDashboard returns invalid JSON", async () => {
+  it("does not call sql (persist) synchronously — persistence happens after the handler returns", async () => {
     const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockResolvedValueOnce("this is not json at all");
-
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Ventas de hoy" }),
-      ctx,
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("INVALID_SPEC");
-    }
-  });
-
-  it("returns INVALID_SPEC when spec fails Zod validation", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    // Missing required `widgets` field
-    vi.mocked(generateDashboard).mockResolvedValueOnce(
-      JSON.stringify({ title: "Test", description: "Desc" }),
-    );
-
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Ventas" }),
-      ctx,
-    );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("INVALID_SPEC");
-    }
-  });
-
-  it("returns DB_ERROR when sql INSERT fails", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
-
+    const gen = deferred<string>();
+    vi.mocked(generateDashboard).mockReturnValueOnce(gen.promise);
     const { sql } = await import("@/lib/db-write");
-    vi.mocked(sql).mockRejectedValueOnce(new Error("DB connection refused"));
+    await setUpConversationMocks();
 
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Ventas por tienda" }),
-      ctx,
+    await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Ventas de hoy" }),
+      ctxWithConv,
     );
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.code).toBe("DB_ERROR");
-    }
+    expect(sql).not.toHaveBeenCalled();
+    gen.resolve(VALID_SPEC_JSON);
   });
 
-  it("returns success with correct shape on happy path (no conversation)", async () => {
+  // ── D-049: background success reaches the conversation ────────────────────
+
+  it("on background success: persists an assistant message and marks the tracking turn complete", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
-
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 42 }]);
-
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Ventas por tienda" }),
-      ctx,
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({
-        dashboard_id: "42",
-        redirect_url: "/dashboard/42?tab=modify",
-        summary: expect.stringContaining("Panel de ventas"),
-      });
-    }
-  });
-
-  it("includes continue param in redirect_url when conversationId is set", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
-
-    const { sql } = await import("@/lib/db-write");
-    vi.mocked(sql).mockResolvedValueOnce([{ id: 99 }]);
-
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Ventas por tienda este mes" }),
-      ctxWithConv,
-    );
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({
-        dashboard_id: "99",
-        redirect_url: "/dashboard/99?tab=modify&continue=conv-abc123",
-      });
-    }
-  });
-
-  it("migrates the conversation to dashboard context when conversationId is present", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
-
-    const { sql } = await import("@/lib/db-write");
-    vi.mocked(sql).mockResolvedValueOnce([{ id: 77 }]);
-
     const { migrateConversationToDashboard } = await import("@/lib/conversations");
     vi.mocked(migrateConversationToDashboard).mockResolvedValueOnce({} as never);
+    const { updateTurnStatus } = await import("@/lib/turn-events");
+    const { appendMessage } = await setUpConversationMocks("turn-42");
 
     await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Panel de ventas" }),
+      JSON.stringify({ prompt: "Ventas por tienda" }),
       ctxWithConv,
     );
 
-    expect(migrateConversationToDashboard).toHaveBeenCalledOnce();
-    expect(migrateConversationToDashboard).toHaveBeenCalledWith("conv-abc123", "77");
+    await vi.waitFor(() => {
+      expect(appendMessage).toHaveBeenCalledWith(
+        "conv-abc123",
+        "assistant",
+        expect.objectContaining({ text: expect.stringContaining("Panel de ventas") }),
+      );
+    });
+    await vi.waitFor(() => {
+      expect(updateTurnStatus).toHaveBeenCalledWith("turn-42", "complete");
+    });
+    expect(migrateConversationToDashboard).toHaveBeenCalledWith("conv-abc123", "42");
   });
 
-  it("still returns success when migrateConversationToDashboard fails", async () => {
+  // ── D-049: background failures must surface, never vanish ─────────────────
+
+  it("on background failure (generateDashboard throws): persists an is_error message and marks the turn errored", async () => {
+    const { generateDashboard } = await import("@/lib/llm");
+    vi.mocked(generateDashboard).mockRejectedValueOnce(new Error("LLM timeout"));
+    const { updateTurnStatus } = await import("@/lib/turn-events");
+    const { appendMessage } = await setUpConversationMocks("turn-err");
+    const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Ventas de hoy" }),
+      ctxWithConv,
+    );
+
+    await vi.waitFor(() => {
+      expect(appendMessage).toHaveBeenCalledWith(
+        "conv-abc123",
+        "assistant",
+        expect.objectContaining({
+          text: expect.stringContaining("LLM timeout"),
+          is_error: true,
+        }),
+      );
+    });
+    await vi.waitFor(() => {
+      expect(updateTurnStatus).toHaveBeenCalledWith(
+        "turn-err",
+        "error",
+        expect.stringContaining("LLM timeout"),
+      );
+    });
+    // Not swallowed server-side either.
+    expect(consoleErr).toHaveBeenCalled();
+    consoleErr.mockRestore();
+  });
+
+  it("on background failure (invalid spec JSON): still surfaces an is_error message", async () => {
+    const { generateDashboard } = await import("@/lib/llm");
+    vi.mocked(generateDashboard).mockResolvedValueOnce("this is not json at all");
+    const { appendMessage } = await setUpConversationMocks("turn-badspec");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Ventas de hoy" }),
+      ctxWithConv,
+    );
+
+    await vi.waitFor(() => {
+      expect(appendMessage).toHaveBeenCalledWith(
+        "conv-abc123",
+        "assistant",
+        expect.objectContaining({ is_error: true }),
+      );
+    });
+  });
+
+  it("on background failure (DB insert fails): still surfaces an is_error message", async () => {
     const { generateDashboard } = await import("@/lib/llm");
     vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
+    const { sql } = await import("@/lib/db-write");
+    vi.mocked(sql).mockRejectedValueOnce(new Error("DB connection refused"));
+    const { appendMessage } = await setUpConversationMocks("turn-dberr");
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
+    await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Ventas de hoy" }),
+      ctxWithConv,
+    );
+
+    await vi.waitFor(() => {
+      expect(appendMessage).toHaveBeenCalledWith(
+        "conv-abc123",
+        "assistant",
+        expect.objectContaining({
+          text: expect.stringContaining("Failed to save the dashboard"),
+          is_error: true,
+        }),
+      );
+    });
+  });
+
+  it("still reports background success when migrateConversationToDashboard fails (non-fatal)", async () => {
+    const { generateDashboard } = await import("@/lib/llm");
+    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 55 }]);
-
     const { migrateConversationToDashboard } = await import("@/lib/conversations");
     vi.mocked(migrateConversationToDashboard).mockRejectedValueOnce(new Error("DB error"));
-
-    const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Panel de ventas" }),
-      ctxWithConv,
-    );
-    // Dashboard was created — handoff failure is non-fatal
-    expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({ dashboard_id: "55" });
-    }
-  });
-
-  it("does not migrate any conversation when no conversationId", async () => {
-    const { generateDashboard } = await import("@/lib/llm");
-    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
-
-    const { sql } = await import("@/lib/db-write");
-    vi.mocked(sql).mockResolvedValueOnce([{ id: 10 }]);
-
-    const { migrateConversationToDashboard } = await import("@/lib/conversations");
+    const { updateTurnStatus } = await import("@/lib/turn-events");
+    const { appendMessage } = await setUpConversationMocks("turn-55");
 
     await handleStartDashboardGeneration(
       JSON.stringify({ prompt: "Panel de ventas" }),
-      ctx, // no conversationId
+      ctxWithConv,
     );
-    expect(migrateConversationToDashboard).not.toHaveBeenCalled();
+
+    await vi.waitFor(() => {
+      expect(updateTurnStatus).toHaveBeenCalledWith("turn-55", "complete");
+    });
+    // Success path, not the error path — no is_error message was appended.
+    expect(appendMessage).not.toHaveBeenCalledWith(
+      "conv-abc123",
+      "assistant",
+      expect.objectContaining({ is_error: true }),
+    );
+    expect(appendMessage).toHaveBeenCalledWith(
+      "conv-abc123",
+      "assistant",
+      expect.objectContaining({ text: expect.stringContaining("Panel de ventas") }),
+    );
   });
 
   it("unwraps JSON fenced in markdown code block", async () => {
     const { generateDashboard } = await import("@/lib/llm");
-    // LLM sometimes returns ```json ... ``` fencing
     vi.mocked(generateDashboard).mockResolvedValueOnce(
       "```json\n" + VALID_SPEC_JSON + "\n```",
     );
-
     const { sql } = await import("@/lib/db-write");
     vi.mocked(sql).mockResolvedValueOnce([{ id: 33 }]);
+    const { updateTurnStatus } = await import("@/lib/turn-events");
+    await setUpConversationMocks("turn-33");
+
+    await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Panel con markdown fence" }),
+      ctxWithConv,
+    );
+
+    await vi.waitFor(() => {
+      expect(updateTurnStatus).toHaveBeenCalledWith("turn-33", "complete");
+    });
+  });
+
+  // ── Review finding: a failed tracking-turn insert must still reach the user ──
+
+  it("on createBackgroundTurn failure: still surfaces an is_error message (no turnId exists)", async () => {
+    const { createBackgroundTurn, updateTurnStatus, insertTurnEvent } = await import(
+      "@/lib/turn-events"
+    );
+    vi.mocked(createBackgroundTurn).mockRejectedValueOnce(new Error("connection refused"));
+    const { appendMessage } = await import("@/lib/conversations");
+    vi.mocked(appendMessage).mockResolvedValue({
+      id: "msg-tracking-fail",
+      conversation_id: "conv-abc123",
+      role: "assistant",
+      content: {},
+      created_at: new Date().toISOString(),
+    } as never);
+    const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const result = await handleStartDashboardGeneration(
-      JSON.stringify({ prompt: "Panel con markdown fence" }),
-      ctx,
+      JSON.stringify({ prompt: "Ventas de hoy" }),
+      ctxWithConv,
+    );
+
+    // The tool itself still returns "started" to the model/user on this turn...
+    expect(result.ok).toBe(true);
+
+    // ...but the user must also learn, via the conversation, that tracking
+    // never got off the ground — before this fix the catch only logged.
+    await vi.waitFor(() => {
+      expect(appendMessage).toHaveBeenCalledWith(
+        "conv-abc123",
+        "assistant",
+        expect.objectContaining({ is_error: true }),
+      );
+    });
+    expect(consoleErr).toHaveBeenCalled();
+
+    // No turnId was ever created, so there is nothing to emit a turn_event
+    // against or to mark complete/error.
+    expect(insertTurnEvent).not.toHaveBeenCalled();
+    expect(updateTurnStatus).not.toHaveBeenCalled();
+    consoleErr.mockRestore();
+  });
+
+  // ── No conversation attached (defensive / non-production path) ────────────
+
+  it("runs best-effort without a conversationId and does not throw", async () => {
+    const { generateDashboard } = await import("@/lib/llm");
+    vi.mocked(generateDashboard).mockResolvedValueOnce(VALID_SPEC_JSON);
+    const { sql } = await import("@/lib/db-write");
+    vi.mocked(sql).mockResolvedValueOnce([{ id: 10 }]);
+    const { createBackgroundTurn } = await import("@/lib/turn-events");
+
+    const result = await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Panel de ventas" }),
+      ctx, // no conversationId
     );
     expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.data).toMatchObject({ dashboard_id: "33" });
-    }
+
+    // No conversation to track — no tracking turn is created.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(createBackgroundTurn).not.toHaveBeenCalled();
   });
 });

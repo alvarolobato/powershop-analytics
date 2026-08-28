@@ -139,7 +139,11 @@ export function DashboardFiltersBar({
         display: "flex",
         alignItems: "center",
         gap: 10,
-        padding: "10px 20px",
+        // Left/right through --pad-x (D-044 rung 4), same token every other
+        // shared horizontal-padding layer reads — a bare "10px 20px" here
+        // was the one holdout that didn't narrow with the rest of the page
+        // below 768px.
+        padding: "10px var(--pad-x, 20px)",
         borderTop: "1px solid var(--border)",
         borderBottom: "1px solid var(--border)",
         background: "var(--bg-1)",

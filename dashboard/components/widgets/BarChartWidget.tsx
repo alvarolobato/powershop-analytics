@@ -155,8 +155,13 @@ export function BarChartWidget({
         </h3>
       </div>
 
-      {/* Chart body */}
+      {/* Chart body. Mobile item 9: at phone widths the SVG's viewBox
+          scaling shrinks the 10px axis labels below legibility (~4px at a
+          390px card) — `.scroll-x-wrapper` + `.scroll-x-inner`'s 480px
+          floor trade that for a horizontal scrollbar, a strictly better
+          failure mode than unreadable text. */}
       <div
+        className="scroll-x-wrapper"
         style={{ padding: "var(--pad, 12px)", position: "relative" }}
         role="img"
         aria-label={`Gráfico de barras: ${widget.title}. ${n} categorías.`}
@@ -164,6 +169,7 @@ export function BarChartWidget({
         <span className="sr-only">Gráfico de barras con {n} categorías.</span>
 
         <svg
+          className="scroll-x-inner"
           viewBox={`0 0 ${VW} ${VH}`}
           style={{ width: "100%", height: CHART_HEIGHT, display: "block" }}
         >

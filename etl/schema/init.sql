@@ -717,6 +717,34 @@ CREATE INDEX IF NOT EXISTS idx_llm_tool_calls_trace_id ON llm_tool_calls(trace_i
 -- One row per AgenticRunnerError surfaced from /api/dashboard/{generate,modify,analyze}.
 -- All string columns store sanitized values (see lib/llm-provider/sanitize.ts).
 -- ============================================================
+-- Widget/ad-hoc SQL failures from POST /api/query.
+--
+-- Deliberately NOT folded into llm_errors: no LLM is involved at request time,
+-- and that table's provider column is NOT NULL, so every row would have to
+-- carry a fake provider and every future query of it a filter. This is the
+-- endpoint that executes a saved widget's own SQL, i.e. where a malformed
+-- generated query surfaces in production ("there is no parameter $1", the
+-- incident behind D-041) — and until now it wrote to none of the observability
+-- tables. Its only trace was a console line that (a) the PG class-22/42 branch
+-- never even emitted and (b) lives in container stdout, which has no logging
+-- driver, no rotation and no shipper configured in production, so it dies on
+-- the next deploy. The request_id here is the same one the user is shown under
+-- "Detalles técnicos", which is what makes a reported id resolvable afterwards.
+CREATE TABLE IF NOT EXISTS query_errors (
+    id           BIGSERIAL    PRIMARY KEY,
+    request_id   TEXT         NOT NULL,
+    code         TEXT         NOT NULL,
+    pg_code      TEXT,
+    message      TEXT         NOT NULL,
+    sql_text     TEXT,
+    param_count  INTEGER,
+    duration_ms  INTEGER,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_query_errors_created_at ON query_errors (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_query_errors_request_id ON query_errors (request_id);
+
 CREATE TABLE IF NOT EXISTS llm_errors (
     id                SERIAL       PRIMARY KEY,
     request_id        TEXT         NOT NULL,
@@ -867,6 +895,19 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
 -- LLM). The heavy context lives on the dashboard's data volume, not in Postgres;
 -- only this pointer is stored. See dashboard/lib/conversation-context-store.ts.
 ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS context_file TEXT;
+
+-- 'user' (default) is a real user-submitted turn, competing for the single-
+-- active-turn slot createTurnIfIdle enforces. 'background' is a system-
+-- initiated tracking turn (createBackgroundTurn, D-049 — currently only
+-- start_dashboard_generation) that reports progress for work running
+-- alongside whatever the user is doing. Before this column, a background
+-- turn's 'streaming' status was indistinguishable from a genuine in-flight
+-- user turn: createTurnIfIdle's active-turn check matched it and rejected
+-- every message the user sent for the whole 30s-2min generation with
+-- TURN_IN_PROGRESS ("Hay una respuesta en curso... Espera a que termine") —
+-- the chat going dead for the exact scenario D-049 set out to fix.
+ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user'
+    CHECK (source IN ('user', 'background'));
 
 -- Ordered log/token/context events emitted during a turn.
 -- Clients replay from seq=0 on connect; Last-Event-ID resumes from seq N.

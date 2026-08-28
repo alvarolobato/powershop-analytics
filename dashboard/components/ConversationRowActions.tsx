@@ -13,6 +13,14 @@ export function ConversationRowActions({
   const router = useRouter();
   const isGlobal = conversation.context_kind === "global";
 
+  // Mobile item 3: these were 22x26px — well under the 44px tap-target
+  // floor — an icon-only button doesn't get a pass just because it's
+  // visually small. Applied PHONE-ONLY per D-121 (inmo-tool): `min-width`/
+  // `min-height` are static literals with no prop/state dependency, so they
+  // live on `.conv-row-action-btn` in globals.css behind
+  // `@media (max-width: 767px)` and are absent from this inline style
+  // object entirely (no specificity fight, no `!important`). Unconditional
+  // 44px would cost desktop density for no reason on a pointer device.
   const btnStyle: React.CSSProperties = {
     background: "none",
     border: "none",
@@ -23,6 +31,7 @@ export function ConversationRowActions({
     fontSize: 14,
     display: "inline-flex",
     alignItems: "center",
+    justifyContent: "center",
     gap: 3,
     fontFamily: "inherit",
     whiteSpace: "nowrap",
@@ -43,6 +52,7 @@ export function ConversationRowActions({
       <button
         type="button"
         title="Continuar conversación"
+        className="conv-row-action-btn"
         style={btnStyle}
         onClick={() => router.push(`/c/${conversation.id}`)}
         onMouseEnter={(e) =>
@@ -61,6 +71,7 @@ export function ConversationRowActions({
         <button
           type="button"
           title="Sin contexto nativo para esta conversación"
+          className="conv-row-action-btn"
           style={disabledStyle}
           disabled
           aria-label="Abrir en contexto (no disponible)"
@@ -71,6 +82,7 @@ export function ConversationRowActions({
         <button
           type="button"
           title="Abrir en contexto"
+          className="conv-row-action-btn"
           style={btnStyle}
           onClick={() => router.push(`/k/${conversation.id}`)}
           onMouseEnter={(e) =>
