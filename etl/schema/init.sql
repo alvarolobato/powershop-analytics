@@ -640,6 +640,36 @@ ALTER TABLE etl_sync_run_tables ADD COLUMN IF NOT EXISTS span_id  TEXT;
 CREATE INDEX IF NOT EXISTS idx_etl_sync_runs_trace_id       ON etl_sync_runs(trace_id)       WHERE trace_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_etl_sync_run_tables_trace_id ON etl_sync_run_tables(trace_id) WHERE trace_id IS NOT NULL;
 
+-- Fetch-anomaly evidence (D-051): etl.db.fourd.safe_fetch()'s guard detects
+-- p4d row-decode corruption (all-NULL rows, a NULL PK, a non-finite float),
+-- re-executes the query once to discriminate transient corruption from real
+-- source data, and etl.main._run_sync persists one row here per detection
+-- event via etl.db.postgres.insert_fetch_anomalies() — diagnostic evidence,
+-- not itself part of the sync's success/failure decision.
+CREATE TABLE IF NOT EXISTS etl_fetch_anomalies (
+    id               BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    occurred_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    run_id           BIGINT,
+    sync_name        TEXT,
+    sql_text         TEXT,
+    total_rows       INTEGER,
+    refetch_total_rows INTEGER,
+    anomaly_count    INTEGER,
+    first_index      INTEGER,
+    last_index       INTEGER,
+    index_ranges     TEXT,
+    page_size        INTEGER,
+    run_start_mod_100 INTEGER,
+    run_end_mod_100   INTEGER,
+    page_aligned_end BOOLEAN,
+    kinds            JSONB,
+    sample           JSONB,
+    refetch_outcome  TEXT
+);
+-- Forward-compat: add mod-100 alignment columns to existing etl_fetch_anomalies tables.
+ALTER TABLE etl_fetch_anomalies ADD COLUMN IF NOT EXISTS run_start_mod_100 INTEGER;
+ALTER TABLE etl_fetch_anomalies ADD COLUMN IF NOT EXISTS run_end_mod_100   INTEGER;
+
 -- Transport channel: dashboard writes a row here; ETL polls and picks it up.
 CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     id           SERIAL       PRIMARY KEY,

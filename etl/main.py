@@ -175,6 +175,7 @@ def _run_sync(
     etl_sync_run_tables, not just in container logs (which, per the
     2026-08-28 incident review, only retain a few months of history).
     """
+    from etl.db.fourd import drain_anomaly_log
     from etl.db.postgres import drain_skip_log, get_watermark, set_watermark
 
     _tracer = _otel_trace.get_tracer("powershop.etl")
@@ -192,6 +193,14 @@ def _run_sync(
             name,
             len(_stray),
             _stray[:3],
+        )
+    _stray_anomalies = drain_anomaly_log()
+    if _stray_anomalies:
+        logger.warning(
+            "%s: discarding %d stray fetch-anomaly event(s) left over from "
+            "before this sync started",
+            name,
+            len(_stray_anomalies),
         )
 
     start = time.time()
@@ -277,6 +286,39 @@ def _run_sync(
         else:
             err = skip_note
         logger.warning("%s: %s", name, skip_note)
+
+    # Fetch-anomaly visibility (D-051): drain what etl.db.fourd.safe_fetch()'s
+    # guard detected (and discriminated via a same-query refetch) during this
+    # sync's 4D fetch(es). This is a separate channel from the D-050 skip log
+    # above — rows the guard drops never reach upsert() in the first place
+    # (safe_fetch() filters them out before sync_fn's return value is even
+    # built), so there is nothing here that _skip_log could also report.
+    fetch_anomalies = drain_anomaly_log()
+    if fetch_anomalies:
+        anomaly_note = " | ".join(
+            f"fetch anomaly: {event.get('anomaly_count')} row(s) at idx "
+            f"{event.get('first_index')}-{event.get('last_index')} "
+            f"({event.get('refetch_outcome')}); see etl_fetch_anomalies"
+            for event in fetch_anomalies
+        )[:2000]
+        err = f"{err}\n{anomaly_note}"[:2000] if err else anomaly_note
+        logger.warning("%s: %s", name, anomaly_note)
+
+        from etl.db.postgres import insert_fetch_anomalies
+
+        try:
+            insert_fetch_anomalies(conn_pg, run_id, name, fetch_anomalies)
+        except Exception as anomaly_exc:
+            # insert_fetch_anomalies() already catches and rolls back
+            # internally (it must never fail the sync) — this is a second,
+            # cheap layer of defense in case that contract is ever violated
+            # (e.g. in a test that monkeypatches it), mirroring how
+            # record_table_sync is wrapped below.
+            logger.error(
+                "%s: insert_fetch_anomalies raised unexpectedly: %s",
+                name,
+                anomaly_exc,
+            )
 
     # In a "full" nightly run a watermark-backed sync still does truncate-
     # and-reinsert (since=None), so log it as full_refresh — not the
