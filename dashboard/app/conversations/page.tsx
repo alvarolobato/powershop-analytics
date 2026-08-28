@@ -241,7 +241,10 @@ function FilterBar({
         zIndex: 10,
         background: "var(--bg)",
         borderBottom: "1px solid var(--border)",
-        padding: "10px 20px",
+        // Left/right through --pad-x, same token as .conv-page-header /
+        // .conv-page-content on this page (D-044 rung 4) — resolves
+        // unconditionally so desktop is unchanged and phone narrows to 12px.
+        padding: "10px var(--pad-x, 20px)",
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
