@@ -108,7 +108,12 @@ def _sync_table(
     Args:
         sql_base:     SELECT ... FROM table (no WHERE/ORDER/LIMIT).
         where_clause: Already-formatted WHERE clause (e.g. "FechaModifica >= {d '...'}").
-        pk_col_4d:    4D column name used for ORDER BY (original casing). Unused now but kept for API compat.
+        pk_col_4d:    4D column name (original casing). No longer used for ORDER BY
+                      (kept for API compat) — now doubles as the fetch-anomaly guard's
+                      PK column (D-051): passed lowercased as safe_fetch(guard_pk=...)
+                      so a NULL-PK row from a corrupted fetch is caught and, if the
+                      corruption doesn't survive a refetch, dropped before it ever
+                      reaches upsert().
         pg_table:     Target PostgreSQL table name.
         pk_cols_pg:   PK column list for ON CONFLICT.
         mapping:      4D lowercase key → PG snake_case column mapping.
@@ -122,7 +127,7 @@ def _sync_table(
 
     full_sql = f"{sql_base} WHERE {where_clause}"
     logger.info("Fetching from 4D: %s", full_sql[:200])
-    all_rows = safe_fetch(conn_4d, full_sql)
+    all_rows = safe_fetch(conn_4d, full_sql, guard_pk=pk_col_4d.lower())
     logger.info("Fetched %d rows from 4D", len(all_rows))
 
     total = 0
