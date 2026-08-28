@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
+import { tmpdir } from "node:os";
 
 const mockSpawn = vi.fn();
 
@@ -10,7 +11,7 @@ vi.mock("node:child_process", () => ({
 import { runCliProcess } from "@/lib/llm-provider/cli/process";
 
 type MockChild = EventEmitter & {
-  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+  stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn>; on: ReturnType<typeof vi.fn> };
   stdout: EventEmitter;
   stderr: EventEmitter;
   kill: ReturnType<typeof vi.fn>;
@@ -18,7 +19,9 @@ type MockChild = EventEmitter & {
 
 function baseChild(): MockChild {
   const child = new EventEmitter() as MockChild;
-  child.stdin = { write: vi.fn(), end: vi.fn() };
+  // `on` is needed because writeStdinSafely() registers an "error" listener
+  // on the stdin stream before writing (EPIPE guard) — see process.ts.
+  child.stdin = { write: vi.fn(), end: vi.fn(), on: vi.fn() };
   child.stdout = new EventEmitter();
   child.stderr = new EventEmitter();
   child.kill = vi.fn(() => {
@@ -120,5 +123,54 @@ describe("runCliProcess (mocked spawn)", () => {
         maxStderrBytes: 100,
       }),
     ).rejects.toThrow("spawn ENOENT");
+  });
+
+  it("spawns with a neutral cwd (tmpdir), not the server's own cwd", async () => {
+    mockSpawn.mockImplementation(() => {
+      const child = baseChild();
+      queueMicrotask(() => child.emit("close", 0));
+      return child;
+    });
+
+    await runCliProcess({
+      file: "/bin/true",
+      args: [],
+      timeoutMs: 1000,
+      maxStdoutBytes: 100,
+      maxStderrBytes: 100,
+    });
+
+    const spawnOpts = mockSpawn.mock.calls[0][2] as { cwd?: string };
+    expect(spawnOpts.cwd).toBe(tmpdir());
+    expect(spawnOpts.cwd).not.toBe(process.cwd());
+  });
+
+  it("does not reject or throw when the child's stdin emits EPIPE mid-write", async () => {
+    mockSpawn.mockImplementation(() => {
+      const child = baseChild();
+      // Simulate the child stdin breaking (child exited before draining
+      // stdin): writeStdinSafely() must have registered an "error" listener
+      // that absorbs this instead of it propagating as an unhandled stream
+      // error.
+      child.stdin.on.mockImplementation((event: string, handler: (err: Error) => void) => {
+        if (event === "error") {
+          queueMicrotask(() => handler(Object.assign(new Error("write EPIPE"), { code: "EPIPE" })));
+        }
+      });
+      queueMicrotask(() => child.emit("close", 1));
+      return child;
+    });
+
+    const largePayload = "x".repeat(200_000); // comfortably past the ~64KB pipe buffer
+    await expect(
+      runCliProcess({
+        file: "/bin/false",
+        args: [],
+        stdin: largePayload,
+        timeoutMs: 1000,
+        maxStdoutBytes: 100,
+        maxStderrBytes: 100,
+      }),
+    ).resolves.toMatchObject({ exitCode: 1 });
   });
 });

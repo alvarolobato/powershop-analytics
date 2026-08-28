@@ -18,6 +18,7 @@ import {
   claudeCliSingleShot,
   claudeCliAgenticStep,
   parseStreamJsonLine,
+  CLI_SAFETY_ARGS,
 } from "@/lib/llm-provider/cli/claude-code";
 import { CliRunnerError } from "@/lib/llm-client";
 import type { DashboardLlmConfig } from "@/lib/llm-provider/types";
@@ -204,6 +205,24 @@ describe("claudeCliSingleShot", () => {
     expect(callArgs.timeoutMs).toBe(5000);
   });
 
+  it("always includes CLI_SAFETY_ARGS in argv, unconditionally", async () => {
+    mockRunCliProcess.mockResolvedValueOnce(okResult("hello"));
+
+    await claudeCliSingleShot({ cfg, prompt: "do the thing" });
+
+    const callArgs = mockRunCliProcess.mock.calls[0][0];
+    expect(callArgs.args).toContain("--tools");
+    // "--tools" must be immediately followed by an empty string, not just
+    // present somewhere in argv — the empty value is what actually disables
+    // the built-in tool catalog.
+    const toolsIdx = callArgs.args.indexOf("--tools");
+    expect(callArgs.args[toolsIdx + 1]).toBe("");
+    expect(callArgs.args).toContain("--no-session-persistence");
+    for (const flag of CLI_SAFETY_ARGS) {
+      expect(callArgs.args).toContain(flag);
+    }
+  });
+
   it("throws LLM_CLI_EMPTY when the CLI returns empty stdout on success", async () => {
     mockRunCliProcess.mockResolvedValueOnce(okResult("   \n  "));
 
@@ -378,5 +397,23 @@ describe("claudeCliAgenticStep", () => {
     expect(callArgs.args).toContain("stream-json");
     expect(callArgs.args).toContain("--verbose");
     expect(callArgs.args).toContain("--include-partial-messages");
+  });
+
+  it("always includes CLI_SAFETY_ARGS in argv, unconditionally", async () => {
+    const finalText = '{"kind":"final","content":"ok"}';
+    mockRunCliProcessStreaming.mockImplementation(
+      makeStreamingMock(makeStreamJsonResult(finalText)),
+    );
+
+    await claudeCliAgenticStep({ cfg, messages: [{ role: "user", content: "x" }] });
+
+    const callArgs = mockRunCliProcessStreaming.mock.calls[0][0];
+    const toolsIdx = callArgs.args.indexOf("--tools");
+    expect(toolsIdx).toBeGreaterThanOrEqual(0);
+    expect(callArgs.args[toolsIdx + 1]).toBe("");
+    expect(callArgs.args).toContain("--no-session-persistence");
+    for (const flag of CLI_SAFETY_ARGS) {
+      expect(callArgs.args).toContain(flag);
+    }
   });
 });
