@@ -358,7 +358,9 @@ def _rows_to_dicts(columns: list[str], rows: list[tuple], sql: str) -> list[dict
     result: list[dict] = []
     for idx, row in enumerate(rows):
         try:
-            result.append({k: _decode_value(v) for k, v in zip(columns, row, strict=True)})
+            result.append(
+                {k: _decode_value(v) for k, v in zip(columns, row, strict=True)}
+            )
         except ValueError as exc:
             raise RuntimeError(
                 f"safe_fetch: row arity mismatch for query {sql[:200]!r}: "
