@@ -115,8 +115,15 @@ test("EC-1: Modificar tab — sends message, stub reply visible, context toggle 
   // Assistant reply from the stub
   await waitForStubReply(page);
 
-  // Context toggle — requires context_ref SSE event to have fired
-  await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
+  // Context toggle — requires context_ref SSE event to have fired.
+  // .first(): two toggles legitimately coexist — the conversation's own
+  // initial_context (rendered by ConversationThread) and the per-turn context
+  // from the context_ref SSE event (rendered by ConversationPane). Which of
+  // them has painted when this runs is a race, so a bare locator hits Playwright
+  // strict mode with "resolved to 2 elements" on whichever run loses it. The
+  // user-bubble assertion right above already guards the same way; this one was
+  // simply missed. Observed failing intermittently across unrelated PRs.
+  await expect(page.locator('[data-testid="initial-context-toggle"]').first()).toBeVisible({
     timeout: 15_000,
   });
 
@@ -149,7 +156,10 @@ test("EC-2: Analizar tab — sends message, stub reply visible, context toggle a
   await waitForStubReply(page);
 
   // Context toggle
-  await expect(page.locator('[data-testid="initial-context-toggle"]')).toBeVisible({
+  // .first() for the same reason as EC-1 above: the conversation's own
+  // initial_context toggle and the per-turn context_ref toggle can both be
+  // present, and a bare locator trips strict mode on whichever run loses that race.
+  await expect(page.locator('[data-testid="initial-context-toggle"]').first()).toBeVisible({
     timeout: 15_000,
   });
 
