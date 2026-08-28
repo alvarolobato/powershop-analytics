@@ -22,7 +22,8 @@ import {
 } from "@/lib/knowledge";
 import { REVIEW_QUERIES } from "@/lib/review-queries";
 import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
-import type { FlowVars } from "./types";
+import { FREE_CHAT_TOOLS } from "@/lib/llm-tools/catalog";
+import { isLlmFlow, type FlowVars } from "./types";
 import {
   formatSchema,
   formatRelationships,
@@ -348,6 +349,24 @@ const FREE_CHAT_PREAMBLE =
   "Tienes acceso a herramientas para inspeccionar el modelo de datos, ejecutar consultas de solo lectura y explorar dashboards guardados. " +
   "Cuando el usuario pida crear un dashboard, usa la herramienta `start_dashboard_generation`. " +
   "En tu primera respuesta de cada conversación nueva, llama a la herramienta `set_title` con un título conciso de 5-7 palabras en español que resuma el tema.\n\n";
+
+// The "summary" flow backs the "✦ Resumen semanal" conversation (see
+// WeeklySummaryButton.tsx, conversation.mode="summary"). Its seed prompt
+// (lib/seed-prompts.ts) explicitly asks the model to call validate_query /
+// execute_query / list_ps_tables / describe_ps_table — all DATA_INSPECTION_TOOLS,
+// which is exactly what FREE_CHAT_TOOLS grants (see toolsForFlow). Before this
+// case existed the "summary" flow fell through buildSystemPrompt's default
+// branch to an empty prompt with no tools, so every weekly-summary conversation
+// silently sent a real, billed LLM call that could not do what its own seed
+// prompt asked (D-045).
+const SUMMARY_PREAMBLE =
+  "Eres un asistente analítico de PowerShop Analytics especializado en resúmenes " +
+  "ejecutivos de negocio (por ejemplo el resumen semanal). " +
+  "Tienes acceso a herramientas para inspeccionar el modelo de datos y ejecutar consultas " +
+  "de solo lectura contra las tablas ps_*. Extrae siempre las cifras directamente de las " +
+  "tablas — nunca estimes ni supongas un valor; valida cada consulta antes de ejecutarla. " +
+  "En tu primera respuesta de cada conversación nueva, llama a la herramienta `set_title` " +
+  "con un título breve (5-7 palabras, en español) que resuma el tema.\n\n";
 
 // ── Public prompt builders ────────────────────────────────────────────────────
 
@@ -806,9 +825,6 @@ export interface FreeChatContext {
 }
 
 export function buildFreeChatContext(): FreeChatContext {
-  const { FREE_CHAT_TOOLS } = require("@/lib/llm-tools/catalog") as {
-    FREE_CHAT_TOOLS: import("openai/resources/chat/completions").ChatCompletionTool[];
-  };
   return {
     systemPrompt: { stable: FREE_CHAT_PREAMBLE + buildStableKnowledgePart() },
     tools: FREE_CHAT_TOOLS,
@@ -833,6 +849,18 @@ export function buildSystemPrompt(
 ): { stable: string; volatile?: string } {
   const agenticEnabled = isAgenticToolsEnabled();
   const preamble = agenticEnabled ? `\n\n${buildAgenticToolPreamble()}` : "";
+
+  // A flow name outside the known registry (LLM_FLOWS) is not something this
+  // dispatch table can build a real prompt for — degrade to an empty prompt
+  // rather than throw. This should be unreachable in practice (conversation
+  // creation validates `mode` against VALID_MODES, and turn-background.ts's
+  // runGenericTurn already warns via isLlmFlow() before calling
+  // assembleRequest — see D-045), so this is the last line of defense that
+  // keeps a stray flow name from crashing a turn instead of just producing a
+  // low-quality (but billed) reply.
+  if (!isLlmFlow(flow)) {
+    return { stable: "" };
+  }
 
   switch (flow) {
     case "generate": {
@@ -894,13 +922,33 @@ export function buildSystemPrompt(
       return ctx.systemPrompt;
     }
 
+    // "✦ Resumen semanal" (WeeklySummaryButton.tsx creates a conversation
+    // with mode="summary"). Same free-chat-shaped tool access as "chat" (its
+    // seed prompt in seed-prompts.ts asks for validate_query / execute_query /
+    // list_ps_tables / describe_ps_table — see toolsForFlow) but its own
+    // preamble, since it is a distinct, deliberate mapping rather than a
+    // runtime fallback onto "chat" (D-045).
+    case "summary": {
+      return { stable: SUMMARY_PREAMBLE + buildStableKnowledgePart() };
+    }
+
     case "title":
       return {
         stable:
-          "Genera un título conciso de 5-7 palabras en español para esta conversación. Devuelve solo el título, sin comillas.",
+          "Genera un título conciso de 5-7 palabras en español que resuma el tema de esta " +
+          "conversación. Responde ÚNICAMENTE con el título en texto plano: sin comillas, " +
+          "sin markdown, sin puntuación final y sin explicaciones ni texto adicional.",
       };
 
-    default:
-      return { stable: "" };
+    default: {
+      // Exhaustiveness check: LLM_FLOWS has 9 entries and every one of them is
+      // handled by a case above. If a new flow is added to LLM_FLOWS without a
+      // matching case here, `flow` narrows to something other than `never` at
+      // this point and the assignment below fails to compile — forcing a
+      // deliberate decision (write the case, or don't add the flow) instead of
+      // silently falling through to an empty prompt (D-045).
+      const _exhaustive: never = flow;
+      return _exhaustive;
+    }
   }
 }

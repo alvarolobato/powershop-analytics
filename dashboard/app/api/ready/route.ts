@@ -9,6 +9,12 @@
 import { NextResponse } from "next/server";
 import { query, ConnectionError } from "@/lib/db";
 
+// Evaluate per-request — this route queries Postgres, so it must never be
+// statically rendered or ISR-cached at build time. Without this, Next's App
+// Router is free to serve a build-time snapshot for a readiness probe that
+// exists specifically to catch live Postgres/ETL-freshness state.
+export const dynamic = "force-dynamic";
+
 const STALE_THRESHOLD_HOURS = 36;
 
 function readyBudgetMs(): number {

@@ -107,7 +107,10 @@ export default function Home() {
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24, padding: "24px 20px" }}>
+    // Mobile item 2: horizontal padding moved to `.paneles-page`
+    // (globals.css) so it narrows to `--pad-x` below 768px — static
+    // literal, no prop/state dependency (D-121 rung 1).
+    <div className="paneles-page" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "var(--fg)", margin: 0, letterSpacing: "-0.02em" }}>

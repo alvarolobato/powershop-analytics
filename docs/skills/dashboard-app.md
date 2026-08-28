@@ -234,18 +234,43 @@ Defined in `dashboard/lib/llm-tools/catalog.ts` as the named export `FREE_CHAT_T
 
 Write tools (`apply_dashboard_modification`, `submit_dashboard_analysis`) are registered in `FULL_DASHBOARD_TOOLS` but **not** included in `FREE_CHAT_TOOLS`. This is intentional — see D-032.
 
-### `start_dashboard_generation` tool
+### `start_dashboard_generation` tool (async — see D-049)
 
-Input: `{ prompt: string, template?: string }`  
-Output: `{ dashboard_id: number, redirect_url: string, summary: string }`
+Input: `{ prompt: string }`
+Output (returned IMMEDIATELY, before generation finishes): `{ status: "started", message: string }`
 
-The handler (`dashboard/lib/llm-tools/handlers/start-dashboard-generation.ts`):
-1. Calls the dashboard generation logic (same as `/api/dashboard/generate`)
-2. Persists the new dashboard to the DB
-3. Calls `POST /api/conversations/:id/handoff-to-dashboard` with `{ dashboard_id }`
-4. Returns `{ dashboard_id, redirect_url: '/dashboard/:id?continue=:convId', summary }`
+A full `generateDashboard()` run is a multi-round agentic loop with several LLM calls and
+SQL exploration — it cannot fit inside the per-tool dispatch timeout every tool call gets
+(`DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS`, 15s in prod). The handler
+(`dashboard/lib/llm-tools/handlers/start-dashboard-generation.ts`) therefore does NOT await
+generation. It validates the prompt, starts the generation detached (not awaited), and
+returns an acknowledgement telling the model the panel is generating in the background and
+not to call the tool again or wait.
 
-The LLM includes the `redirect_url` as a clickable link in its reply so the user can navigate to the new dashboard.
+The detached run (`runBackgroundGeneration`):
+1. Creates a tracking `conversation_turns` row (`createBackgroundTurn` in
+   `dashboard/lib/turn-events.ts` — same advisory lock as `createTurnIfIdle`, but without
+   its "reject if a turn is active" check). The row is tagged `source = 'background'`
+   (`conversation_turns.source`, `'user'` | `'background'`) so `createTurnIfIdle`'s
+   active-turn guard (`AND source = 'user'`) skips it — the tracking row sits in
+   `status = 'streaming'` for the whole 30s-2min generation, and without this tag it read
+   as a genuine in-flight user turn, rejecting every message the user sent in that window
+   with 409 `TURN_IN_PROGRESS`. If `createBackgroundTurn` itself throws (no `turnId`
+   exists yet), the failure still reaches the user via a direct `appendMessage(...,
+   { is_error: true })` — there's no turn to attach an `error` turn_event to.
+2. Calls the dashboard generation logic (same as `/api/dashboard/generate`), streaming its
+   own nested tool calls onto that tracking turn as `log` events.
+3. On success: persists the new dashboard to the DB, migrates the conversation to
+   `mode='modify'` (same effect as the D-032 handoff, called directly rather than via the
+   `handoff-to-dashboard` HTTP endpoint), appends an assistant `conversation_messages` row
+   with the summary + link, and emits a `complete` turn_event.
+4. On failure (LLM error, invalid spec, SQL lint failure, DB error): appends an `is_error`
+   assistant message and emits an `error` turn_event — never silently dropped.
+
+A live SSE client sees the tracking turn's `log`/`complete`/`error` events exactly like any
+other turn (`ConversationPane`'s existing turn-adoption logic needs no changes); a client
+that isn't connected when it finishes sees the assistant message on next load regardless,
+since it's a normal persisted `conversation_messages` row.
 
 ### `POST /api/conversations/:id/handoff-to-dashboard` endpoint
 
