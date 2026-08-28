@@ -391,35 +391,60 @@ collides on the files *everyone* touches.
 | `dashboard/components/TopBar.tsx` | Central nav registry. Coordinate before adding an entry. |
 | `.github/workflows/**` | Off limits to the worker - see [D-029](docs/decisions/D-029-no-worker-workflows.md). Propose the YAML in the PR body. |
 
-### Decision IDs collide silently
+### Decision IDs: reserve a range, don't pick a number
 
 Two branches that each pick "the next free ID" produce files differing only by
 slug (`D-042-foo.md` vs `D-042-bar.md`), so **git merges them with no conflict
-marker** and the duplicate only surfaces when a human notices. `inmo-tool` saw
-roughly eight collisions in a single session before fixing it.
+marker** and the duplicate only surfaces when a human notices.
 
-So: allocate your ID **immediately before writing the file**, not at the start of
-the task, and check the open PR branches as well as the local tree - other
-branches land while you work.
+This is not theoretical here. The first time five agents ran at once (Aug 2026),
+`main` ended at `D-041`, three separate branches each read that, each picked
+`D-042`, and each wrote a differently-slugged file. Nothing failed - not the
+tests, not the merge.
 
-It happened in this repo the first time five agents ran at once (Aug 2026). `main`
-ended at `D-041`; three separate branches each read that, each picked `D-042`, and
-each wrote a differently-slugged file. Nothing failed - not the tests, not the
-merge - and the duplicate was only visible by listing `docs/decisions/` across all
-five branches at once:
+**The fix is to stop having agents pick numbers at all.** Before dispatching
+parallel work, the coordinator reserves a block per workstream and writes it
+down. An agent is *given* its range and never looks at `DECISIONS.md` to choose:
+
+| Workstream | Range |
+|------------|-------|
+| Coordination (owner decisions, cross-cutting architecture) | `D-001` – `D-041` (in use) |
+| Reserved per concurrent batch | allocated at dispatch, recorded below |
+
+Allocation for the fork-backport batch (Aug 2026), as a worked example of the
+shape:
+
+| Workstream | Range |
+|------------|-------|
+| P0 infra (Docker stack, prod config schema) | `D-042` |
+| P2 LLM metering and daily budget | `D-043` |
+| P5 mobile breakpoint and tokens | `D-044` |
+| P4 conversation titles | `D-045` |
+| Spare, for review findings that cross workstreams | `D-046` – `D-049` |
+
+Two more mechanisms make git merge on its own:
+
+1. **Each decision file is create-only** - `docs/decisions/D-NN-<slug>.md`. A new
+   file never conflicts. That is why the per-decision file carries the content
+   and the index carries a single line.
+2. **Append inside your group's heading in `DECISIONS.md`**, never at the end of
+   the file, so two agents write in different regions of it.
+
+`finanzas` goes one step further and partitions its index by workstream, putting
+the range in the heading itself (`## Fase 2 — Datos e importación · D-030 – D-039`),
+so the append region is separated too. Ours is grouped thematically instead, which
+is better for a reader looking a rule up but means two agents adding to the same
+group still touch the same lines. That residual collision is the acceptable kind:
+git raises it as a normal conflict and a human resolves it. The number collision
+is the dangerous kind, because it is silent - and reserving ranges removes it.
+
+If a collision has already happened, renumber at merge: the last branch in loses
+its number, not its content. To find one, list the decision files across every
+open branch at once:
 
 ```
 git ls-tree -r --name-only <branch> docs/decisions/ | grep -o 'D-[0-9]\{3\}'
 ```
-
-Run that across every open branch before you claim a number. When a collision has
-already happened, renumber at merge time - the last branch in loses its number,
-not its content.
-
-`inmo-tool` solved this with an allocator script plus a generated index;
-`finanzas` reserved a numeric range per phase instead and kept the index
-hand-maintained. Either works. What does not work is eyeballing `DECISIONS.md`
-on a branch that is a few hours old.
 
 ### One worktree per agent
 
@@ -482,7 +507,7 @@ When you fix a non-obvious bug or discover a gotcha, document it. Procedure: [ag
 
 When recording a new decision:
 
-1. **Pick the next free ID.** IDs are sequential (`D-001`, `D-002`, ...). Skip IDs are fine when a decision is retired — never reuse them. Allocate it **immediately before writing the file**, and check the open PR branches too, not just the local tree — see [How parallel work runs § Decision IDs collide silently](#decision-ids-collide-silently) for why eyeballing `DECISIONS.md` on a stale branch merges two records onto one ID with no git conflict.
+1. **Use the ID from your reserved range** — do not pick "the next free one" out of `DECISIONS.md`. Ranges are allocated per workstream before parallel work is dispatched; see [How parallel work runs § Decision IDs](#decision-ids-reserve-a-range-dont-pick-a-number). Picking by inspection is how three branches once landed on `D-042` at the same time, with no git conflict to warn anyone. Working solo with nothing else in flight, taking the next sequential ID is fine. IDs are sequential and skips are fine when a decision is retired — never reuse them.
 2. **Write the full file** at `docs/decisions/D-NN-<short-slug>.md`. Use this template:
    ```markdown
    ---
