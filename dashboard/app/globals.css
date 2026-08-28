@@ -306,15 +306,23 @@ body {
    scrollbar is a better failure mode than losing data silently. Apply to
    the widget/table's own outer wrapper — not globally — so the page body
    itself never scrolls horizontally.
+
+   Must stay inside the `max-width: 767.98px` media query: `.scroll-x-inner`'s
+   480px floor is a phone-only mitigation. Left unscoped, it also fires on a
+   1440px laptop with the chat sidebar open — a half-width chart column
+   there lands around 476–518px, under the 480px floor, so the "phone-only"
+   fix clipped desktop charts behind a scrollbar too (PR #894 review).
    ============================================================ */
-.scroll-x-wrapper {
-  overflow-x: auto;
-}
-/* Independent utility, not a child combinator — a component applies it to
-   whichever element (an <svg>, a <table>) actually needs the floor,
-   regardless of DOM nesting depth relative to .scroll-x-wrapper. */
-.scroll-x-inner {
-  min-width: 480px;
+@media (max-width: 767.98px) {
+  .scroll-x-wrapper {
+    overflow-x: auto;
+  }
+  /* Independent utility, not a child combinator — a component applies it to
+     whichever element (an <svg>, a <table>) actually needs the floor,
+     regardless of DOM nesting depth relative to .scroll-x-wrapper. */
+  .scroll-x-inner {
+    min-width: 480px;
+  }
 }
 
 /* ============================================================
