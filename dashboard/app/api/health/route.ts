@@ -7,6 +7,12 @@
 import { NextResponse } from "next/server";
 import { getCircuitState } from "@/lib/llm-circuit-breaker";
 
+// Liveness/circuit state must be read per request, never a build-time
+// snapshot — without this, Next's App Router can statically render or
+// ISR-cache this handler's output, so a Docker/orchestrator liveness probe
+// could keep getting a stale response instead of a live check.
+export const dynamic = "force-dynamic";
+
 export async function GET(): Promise<NextResponse> {
   return NextResponse.json({ status: "ok", llm_circuit: getCircuitState() });
 }

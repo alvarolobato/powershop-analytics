@@ -37,6 +37,7 @@ vi.mock("../llm-circuit-breaker", () => ({
 // Import after mocks are registered.
 import { llmComplete, resetClient } from "../llm-client";
 import { resetDashboardLlmConfigCache } from "../llm-model-config";
+import type { CliReportedUsage } from "../llm-provider/cli/usage";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -48,9 +49,14 @@ function stubOpenRouter(responseText: string) {
   });
 }
 
-function stubCli(responseText: string) {
+/**
+ * `usage` defaults to `null` (the binary reported nothing parseable) so
+ * existing call sites that don't care about accounting keep exercising that
+ * path; pass a `CliReportedUsage` explicitly to test the real-numbers case.
+ */
+function stubCli(responseText: string, usage: CliReportedUsage | null = null) {
   mockCallWithCircuitBreaker.mockImplementation((fn: () => unknown) => fn());
-  mockCliSingleShot.mockResolvedValue(responseText);
+  mockCliSingleShot.mockResolvedValue({ text: responseText, usage });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -196,9 +202,10 @@ describe("llmComplete", () => {
     );
   });
 
-  it("calls logUsage exactly once per llmComplete call (cli)", async () => {
+  it("calls logUsage exactly once per llmComplete call (cli, usage unreported)", async () => {
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
     resetDashboardLlmConfigCache();
+    // usage: null — the binary reported nothing parseable for this call.
     stubCli("cli result");
 
     await llmComplete({
@@ -216,6 +223,44 @@ describe("llmComplete", () => {
       expect.objectContaining({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 }),
       expect.objectContaining({ provider: "cli" }),
       expect.objectContaining({ requestId: "req-cli" }),
+    );
+  });
+
+  it("forwards the CLI's real token counts and total_cost_usd to logUsage", async () => {
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+    resetDashboardLlmConfigCache();
+    stubCli("cli result", {
+      prompt_tokens: 9,
+      completion_tokens: 36,
+      total_tokens: 45,
+      cache_creation_input_tokens: 7521,
+      cache_read_input_tokens: 18134,
+      cost_usd: 0.0176284,
+    });
+
+    const resp = await llmComplete({
+      flow: "analyze",
+      systemPrompt: { stable: "sys" },
+      messages: [{ role: "user", content: "q" }],
+      requestId: "req-cli-usage",
+      endpoint: "analyzeDashboard",
+    });
+
+    expect(resp.usage).toEqual(
+      expect.objectContaining({
+        prompt_tokens: 9,
+        completion_tokens: 36,
+        total_tokens: 45,
+        cache_creation_input_tokens: 7521,
+        cache_read_input_tokens: 18134,
+      }),
+    );
+    expect(mockLogUsage).toHaveBeenCalledWith(
+      "analyzeDashboard",
+      expect.any(String),
+      expect.objectContaining({ prompt_tokens: 9, completion_tokens: 36, total_tokens: 45 }),
+      expect.objectContaining({ provider: "cli" }),
+      expect.objectContaining({ requestId: "req-cli-usage", reportedCostUsd: 0.0176284 }),
     );
   });
 

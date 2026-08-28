@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { query } from "@/lib/db";
 import { type Season, parseSeason } from "@/lib/seasons";
 
+// Evaluate per-request — this route queries Postgres and its catch-all falls
+// back to `{ seasons: [] }` on any error (always HTTP 200), so Next's App
+// Router has no signal that would otherwise stop it from freezing that
+// build-time result (DB unreachable at build time) into a static response.
+export const dynamic = "force-dynamic";
+
 export async function GET(): Promise<NextResponse> {
   try {
     const result = await query(
