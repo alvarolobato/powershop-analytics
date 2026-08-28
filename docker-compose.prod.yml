@@ -40,6 +40,53 @@ networks:
 services:
 
   # ---------------------------------------------------------------------------
+  # OpenTelemetry collector — ships traces/metrics/logs to Elastic Cloud.
+  #
+  # The apps export OTLP here rather than straight to Elastic on purpose: the
+  # collector's `attributes/redact` processor strips authorization headers and
+  # openrouter.api_key from telemetry before it leaves the host. Exporting
+  # direct from each service would drop that scrubbing.
+  #
+  # Note on log coverage: the filelog receiver that tails container stdout
+  # needs /var/lib/docker/containers, which does not exist on macOS — Docker
+  # Desktop keeps it inside its VM. This host is a Mac, so filelog idles here
+  # (no files to tail, no error) and what reaches Elastic is APPLICATION
+  # telemetry over OTLP, not the stdout of postgres/wren-*. Those stay local
+  # under the json-file rotation configured above.
+  #
+  # ELASTIC_OTLP_* come from .env. When unset the exporter falls back to a
+  # refused endpoint and drops silently, so a missing credential degrades to
+  # no telemetry rather than a crash-loop — this stack has been taken down by
+  # a collector that could not start before (D-042).
+  otel-collector:
+    image: docker.elastic.co/elastic-agent/elastic-agent:${ELASTIC_AGENT_VERSION:-8.16.0}
+    restart: unless-stopped
+    command: ["otel", "--config", "/etc/otelcol/config.yaml"]
+    environment:
+      # Runs the image in OTel-collector mode rather than Fleet mode; without
+      # it the health endpoint on 13133 never binds.
+      ELASTIC_AGENT_OTEL: "true"
+      ELASTIC_OTLP_ENDPOINT:
+      ELASTIC_OTLP_API_KEY:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+    volumes:
+      - ./otel/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./otel/local:/var/log/otel
+    expose:
+      - "4317"
+      - "4318"
+      - "13133"
+    logging: *default-logging
+    networks:
+      - wren
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:13133/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
   # PostgreSQL — mirror of the 4D source data
   # pg_stat_statements required for /admin/slow-queries
   # ---------------------------------------------------------------------------
@@ -87,15 +134,22 @@ services:
       P4D_PASSWORD: ${P4D_PASSWORD:-}
       POSTGRES_DSN: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/${POSTGRES_DB:-powershop}
       ETL_CRON_HOUR: ${ETL_CRON_HOUR:-2}
-      # The image runs under `opentelemetry-instrument`, which defaults to
-      # exporting OTLP to localhost:4317. There is no collector in this stack,
-      # so every export failed and retried every ~7s: 381,000 of this
-      # container's 398,000 log lines were `Failed to export ... UNAVAILABLE`.
-      # That is ~95% of the volume, and it buries the real ETL errors — the
-      # sync failures you actually need to read are in there somewhere.
-      # Disable the SDK until a collector exists in production (issue #721);
-      # setting an endpoint would be the fix once one does.
-      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      # The image runs under `opentelemetry-instrument`. It used to export to
+      # the default localhost:4317 with no collector in the stack, which
+      # produced 381,000 of this container's 398,000 log lines as failed
+      # exports — ~95% of the volume, burying the sync errors you actually
+      # need to read. A collector now exists (see otel-collector above), so
+      # the SDK is enabled and pointed at it instead of disabled.
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+      OTEL_SERVICE_NAME: powershop-etl
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${ENVIRONMENT:-production}
+      # Python logging -> OTLP logs, so ETL log lines reach Elastic and not
+      # just container stdout (which has no shipper on this host).
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
     logging: *default-logging
     networks:
       - wren
@@ -285,6 +339,15 @@ services:
       # always empty in production. This was set in docker-compose.yml and
       # never added here.
       DASHBOARD_CONTEXT_DIR: /app/data/conversations
+      # Telemetry. service.name is set explicitly rather than left to the SDK
+      # default (`unknown_service:node`), which would make the dashboard
+      # indistinguishable from anything else in Elastic.
+      OTEL_SERVICE_NAME: powershop-dashboard
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      OTEL_TRACES_SAMPLER: ${OTEL_TRACES_SAMPLER:-parentbased_traceidratio}
+      OTEL_TRACES_SAMPLER_ARG: ${OTEL_TRACES_SAMPLER_ARG:-0.1}
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${ENVIRONMENT:-production}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
       # Credentials for DASHBOARD_LLM_PROVIDER=cli. Present in docker-compose.yml
       # but never here, so switching the provider to `cli` from /admin/config —
       # a one-click change in the UI — would have failed to authenticate with no

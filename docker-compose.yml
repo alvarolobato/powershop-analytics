@@ -104,6 +104,11 @@ services:
       CONFIG_SCHEMA_PATH: /app/config/schema.yaml
       # OTel SDK env vars — picked up automatically by opentelemetry-instrument (Phase 2)
       OTEL_SERVICE_NAME: powershop-etl
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${ENVIRONMENT:-development}
+      # Python logging -> OTLP logs, so ETL log lines reach the collector and
+      # not just container stdout.
+      OTEL_LOGS_EXPORTER: otlp
+      OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       # Sampling moved from the collector's tail_sampling processor (removed,
       # see otel/otelcol-config.yaml) to SDK head sampling. Default 10% —
@@ -309,6 +314,7 @@ services:
       HOME: /home/nextjs
       # OTel SDK env vars — picked up automatically by the Node SDK (Phase 3)
       OTEL_SERVICE_NAME: powershop-dashboard
+      OTEL_RESOURCE_ATTRIBUTES: deployment.environment=${ENVIRONMENT:-development}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
       # Sampling moved from the collector's tail_sampling processor (removed,
       # see otel/otelcol-config.yaml) to SDK head sampling. Default 10% —
