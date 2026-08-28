@@ -30,6 +30,13 @@ export interface DashboardLlmConfig {
   cliTimeoutMs: number;
   /** Max captured stdout/stderr per CLI invocation (bytes). */
   cliMaxCaptureBytes: number;
+  /**
+   * Strip the Claude Code harness context (own system prompt, tool catalog,
+   * CLAUDE.md discovery, MCP servers, settings files) from every CLI
+   * invocation. Default true; see `dashboard.llm_cli_lean_mode` in
+   * `config/schema.yaml` and `docs/decisions/D-046-cli-lean-mode-and-kill-switch.md`.
+   */
+  cliLeanMode: boolean;
 }
 
 export interface LlmUsageProviderMeta {

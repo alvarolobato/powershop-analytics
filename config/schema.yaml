@@ -158,6 +158,16 @@
   requires_restart: []
   components: [dashboard]
 
+- key: dashboard.llm_cli_lean_mode
+  env: DASHBOARD_LLM_CLI_LEAN_MODE
+  type: bool
+  sensitive: false
+  default: true
+  section: "Dashboard LLM"
+  description: "Ejecuta 'claude -p' sin el contexto del harness de Claude Code (system prompt propio, catálogo de herramientas, CLAUDE.md, servidores MCP, settings) — medido en ~25k tokens de input por llamada de más. Poner en false restaura ese contexto como válvula de escape si algún flujo resulta depender de él; no afecta a --tools \"\" / --no-session-persistence, que son siempre incondicionales."
+  requires_restart: []
+  components: [dashboard]
+
 - key: dashboard.llm_model_openrouter
   env: DASHBOARD_LLM_MODEL_OPENROUTER
   type: string

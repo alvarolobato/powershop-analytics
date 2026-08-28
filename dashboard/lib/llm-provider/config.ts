@@ -51,6 +51,14 @@ function parsePositiveInt(raw: string | number | boolean | null | undefined, fal
   return n;
 }
 
+function parseBool(raw: string | number | boolean | null | undefined, fallback: boolean): boolean {
+  if (raw === null || raw === undefined || String(raw).trim() === "") return fallback;
+  const v = String(raw).trim().toLowerCase();
+  if (v === "true" || v === "1" || v === "yes") return true;
+  if (v === "false" || v === "0" || v === "no") return false;
+  return fallback;
+}
+
 let _cached: DashboardLlmConfig | null = null;
 
 /** Reset memoized config (tests and after config writes).
@@ -164,6 +172,8 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
   const captureRaw = provider === "cli" ? cfg["dashboard.llm_cli_max_capture_bytes"]?.value : undefined;
   const cliMaxCaptureBytes = parsePositiveInt(captureRaw, 8_000_000);
 
+  const cliLeanMode = parseBool(cfg["dashboard.llm_cli_lean_mode"]?.value, true);
+
   _cached = {
     provider,
     openrouterModel,
@@ -174,6 +184,7 @@ export function loadDashboardLlmConfig(): DashboardLlmConfig {
     cliExtraArgs,
     cliTimeoutMs,
     cliMaxCaptureBytes,
+    cliLeanMode,
   };
   return _cached;
 }
