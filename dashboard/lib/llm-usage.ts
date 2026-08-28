@@ -1,7 +1,6 @@
 import { sql } from "@/lib/db-write";
 import { query } from "@/lib/db";
 import type { LlmUsageProviderMeta } from "@/lib/llm-provider/types";
-import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { getSystemConfig } from "@/lib/system-config/loader";
 
 /**
@@ -151,22 +150,22 @@ export async function checkDailyBudget(): Promise<void> {
     return;
   }
 
-  // CLI provider does not add OpenRouter-estimated spend; do not block on API budget.
-  if (loadDashboardLlmConfig().provider === "cli") {
-    return;
-  }
-
+  // The CLI provider used to be exempted here ("CLI rows always cost 0, so a
+  // sum over them can never trip the cap"). That exemption is gone: `cli`
+  // rows now carry the CLI's own `total_cost_usd` (see `logUsage`'s
+  // `reportedCostUsd`), so the daily cap finally applies to the DEFAULT
+  // provider — which is the whole point of having a cap. Rows written before
+  // this change stored 0 and simply contribute nothing retroactively.
+  //
   // TOCTOU: concurrent requests can all pass the check before any log their cost,
   // allowing overshoot by up to N×(max call cost). Acceptable for a daily soft cap.
   // CURRENT_DATE uses the PostgreSQL session timezone (default UTC); the budget
   // window resets at midnight UTC regardless of the server's local timezone.
-  // Only `openrouter` rows contribute token-derived estimated spend; CLI rows use cost 0.
   try {
     const result = await query(
       `SELECT COALESCE(SUM(estimated_cost_usd), 0)::text AS total
        FROM llm_usage
-       WHERE created_at >= CURRENT_DATE
-         AND llm_provider = 'openrouter'`,
+       WHERE created_at >= CURRENT_DATE`,
     );
     const total = parseFloat((result.rows[0]?.[0] as string | undefined) ?? "0");
     if (total >= limit) {
