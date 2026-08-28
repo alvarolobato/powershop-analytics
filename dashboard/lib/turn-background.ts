@@ -29,6 +29,7 @@ import {
   capHistory,
   HISTORY_MAX_MESSAGES,
 } from "@/lib/llm-context/history";
+import { isLlmFlow } from "@/lib/llm-context/types";
 import type { AgenticToolCallRecord } from "@/lib/llm-tools/types";
 import type { AssistantMessageContent, ToolCallRecord } from "@/lib/conversation-types";
 
@@ -687,6 +688,19 @@ async function runGenericTurn(
 ): Promise<TurnReply> {
   const { assembleRequest } = await import("@/lib/llm-context");
   const flowRaw = conversation.mode ?? "chat";
+  if (!isLlmFlow(flowRaw)) {
+    // Belt-and-braces, not the fix: buildSystemPrompt() already degrades an
+    // unrecognised flow to an empty prompt/no tools instead of throwing (see
+    // LLM_FLOWS in llm-context/types.ts), but that failure mode is otherwise
+    // silent — a billed LLM call with no instructions. Warn so it shows up in
+    // server logs. Deliberately NOT a fallback to "chat" or any other flow —
+    // that would silently hand this (unknown) mode the free-chat tool grant,
+    // which is exactly the wrong instinct D-045 rejected.
+    console.warn(
+      `[turn-background] conversation ${conversationId} has unrecognised mode "${flowRaw}" — ` +
+        "the LLM call will run with an empty system prompt and no tools",
+    );
+  }
   const ctxWrite: ContextWriteHandle = { done: Promise.resolve() };
   // agenticCtx is captured so we can read back any tool calls after the run.
   const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
