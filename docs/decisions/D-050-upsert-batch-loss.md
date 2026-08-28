@@ -1,0 +1,182 @@
+---
+id: D-050
+title: upsert() must not lose a whole batch to one bad row
+date: 2026-08-28
+---
+
+# D-050: upsert() must not lose a whole batch to one bad row
+
+*Decided: 2026-08-28*
+
+**Context**: On 2026-08-28 02:52:29 UTC the nightly sync failed with:
+
+```
+ERROR: null value in column "reg_lineas" of relation "ps_lineas_ventas" violates not-null constraint
+```
+
+The failing `execute_values` batch (`etl/db/postgres.py::upsert()`, called from
+`etl/sync/ventas.py::_sync_table()` in `BATCH_SIZE=5_000`-row chunks) contained
+one garbage row (`mes = -1801453568`, `precio_neto_si = 'NaN'::numeric`)
+followed by roughly 60 entirely-NULL rows. `upsert()` rolled back and
+re-raised on any failure, so the **entire 5,000-row batch was discarded**,
+not just the ~61 bad rows — every good row in that batch was lost.
+
+Production evidence from `etl_sync_run_tables` (full history; container logs
+only reach back to 4 June) shows two live, in-scope failure classes:
+
+| bucket | count | first | last |
+|---|---:|---|---|
+| not-null violation | 5 | 2026-05-14 | 2026-08-28 |
+| FK violation | 19 | 2026-04-18 | 2026-08-15 |
+
+(4D connectivity — 142 occurrences — is an infrastructure problem, out of
+scope here. `int(None)`/`NoneType` crashes stopped in April, also out of
+scope.)
+
+A precedent for "pre-filter, count, log" already existed in
+`etl/sync/stock.py::sync_stock()` (issue #820): rows with a missing PK
+component are validated and skipped before `upsert()` is even called, with a
+`logger.warning` count at the end of the run. That pattern only logs,
+though — it does not reach `etl_sync_run_tables`, so an operator has to go
+digging in container logs (which don't even retain history back to the
+5-May not-null incident) to find out anything was dropped.
+
+**Decision**:
+
+1. `upsert()` (`etl/db/postgres.py`) pre-filters rows whose primary key is
+   `NULL` or `NaN` **before** attempting the insert. A `NULL`/`NaN` PK can
+   never satisfy the PK's `NOT NULL` constraint — there is no outcome in
+   which inserting it succeeds, so rejecting it in Python is strictly
+   cheaper and clearer than letting Postgres reject the whole batch after
+   the fact. This directly covers the 2026-08-28 incident: the ~60 NULL
+   rows all had `reg_lineas = NULL`.
+2. If the batch insert still fails for a reason the pre-filter cannot
+   predict (e.g. an FK violation — 19 of them, 2026-04-18 to 2026-08-15),
+   `upsert()` falls back to inserting the surviving rows **one at a time
+   inside SAVEPOINTs**, so only the row(s) that actually violate a
+   constraint are lost — not their batch-mates. Every `SAVEPOINT` is
+   `RELEASE`d on both the success path and the failure path (see
+   "SAVEPOINT-release correction" below).
+3. Every row `upsert()` drops (either layer) is appended to a
+   process-global skip log (`postgres.drain_skip_log()`/`_skip_log`) instead
+   of being silently discarded. This is safe because the ETL runs as a
+   single sequential worker per process (already assumed by
+   `try_acquire_run_lock()` / `fail_orphan_running_runs()` in the same
+   file) — one table's sync always fully drains the log before the next
+   table's sync starts.
+4. `etl/main.py::_run_sync()` drains that log after every `sync_fn` call
+   (success or failure) and folds the count plus a sample of reasons into
+   `etl_sync_run_tables.error_msg` — using the existing per-table status
+   row, not a new channel. This applies to every table synced through
+   `_run_sync` (all `upsert()` callers), not just `ps_lineas_ventas`: the
+   fix lives in `upsert()` itself, the single shared implementation point.
+5. `NOT NULL` and FK constraints are **not** weakened or disabled. They are
+   doing their job — flagging genuinely bad rows. The fix is about not
+   letting a legitimate rejection take down its innocent batch-mates.
+6. If the row-by-row fallback (step 2) still ends with **zero** surviving
+   rows out of an attempted batch, `upsert()` raises
+   `UpsertBatchFailedError` instead of returning `0` — see "Total-failure
+   correction" below.
+
+**What gets skipped vs what fails the sync**: a row is skipped (counted,
+logged, and the table sync still reports `status="ok"` if nothing else
+failed) only when Postgres itself would never accept it — NULL/NaN PK, or an
+FK/constraint violation confirmed by an actual failed INSERT attempt, **and
+at least one other row in the same batch survived**. Any other failure —
+the 4D connection dying mid-fetch, a genuine PostgreSQL outage, or every row
+in the batch failing (see "Total-failure correction" below) — still fails
+the whole table sync loudly, exactly as before.
+
+**Total-failure correction (2026-08-28, post-review finding 1)**: the
+version of this fix originally shipped had a gap — when the row-by-row
+fallback rejected **every** row in a batch (a systemic problem such as a
+`NOT NULL` violation on a non-PK column, or a schema mismatch, not a
+handful of bad rows), `upsert()` returned `0` without raising. `_run_sync`
+then took the success path: `set_watermark(..., "ok")` and
+`record_table_sync(status="ok")`. Reproduced live: 5,000 all-bad rows
+against real Postgres → `status="ok"`, 0 rows inserted, watermark advanced.
+That is exactly the "silently swallows rows" outcome this decision exists
+to prevent, and a systemic schema/data problem would produce a green run
+against an empty table every night with no operator signal beyond the
+folded-in skip-log text.
+
+Fixed: `upsert()` now raises `UpsertBatchFailedError` when the row-by-row
+fallback's survivor count is `0` for a non-empty attempted batch. This
+propagates up through the `sync_*` functions (none of which catch it) into
+`_run_sync`'s existing exception handling, which already sets
+`status="error"`/`ok=False` and records the exception in `error_msg` — no
+change was needed there. The original goal is preserved exactly: a batch
+with **at least one** surviving row (the common case — one bad row among
+many good ones) still returns quietly with a positive count and
+`status="ok"`; only a batch where nothing at all got through is escalated.
+See `etl/db/postgres.py::UpsertBatchFailedError` and
+`etl/tests/test_upsert_batch_loss.py::TestUpsertRowwiseFallback::test_all_rows_fk_violate_raises_but_still_records_each`.
+
+**SAVEPOINT-release correction (2026-08-28, post-review finding 2)**:
+`_upsert_rowwise()` issued `ROLLBACK TO SAVEPOINT etl_upsert_row` on a
+failed row but never `RELEASE SAVEPOINT etl_upsert_row` on that path (only
+the success path released it). `ROLLBACK TO SAVEPOINT` undoes a
+savepoint's changes but does not destroy the savepoint — verified live:
+savepoints accumulated and were never released. A large fallback batch with
+many bad rows would nest thousands of unreleased subtransactions in one
+transaction, risking Postgres `pg_subtrans` SLRU pressure on an instance
+that also serves the Dashboard App and WrenAI. Fixed by adding
+`RELEASE SAVEPOINT etl_upsert_row` on the failure path too, immediately
+after the `ROLLBACK TO SAVEPOINT`. Pinned by
+`etl/tests/test_upsert_batch_loss.py::TestUpsertRowwiseFallback::test_row_by_row_fallback_releases_savepoint_on_failure_too`,
+which counts `SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO SAVEPOINT`
+statements and asserts every savepoint issued is released exactly once.
+
+**NaN correction (2026-08-28, post-review finding 3)**: this document and
+`_invalid_pk_reason()`'s docstring originally claimed a NaN PK "can never
+satisfy NOT NULL" — that is factually wrong. Verified live on Postgres 16:
+a NaN PK is **accepted** and upserts correctly (`NaN = NaN` is true for
+Postgres's indexing/equality purposes on `NUMERIC`/`FLOAT` types). Dropping
+NaN PKs is still the right policy, but for the real reason: a NaN primary
+key is never a legitimate business key, and in this pipeline it is the
+observed signature of a p4d row-decode failure (see the "suspected p4d
+row-decode desync" note in `docs/skills/data-access.md`) — keeping such a
+row would silently persist corrupted data under a nonsensical key rather
+than surfacing the decode problem. Behaviour is unchanged (NaN PKs are
+still dropped); only the stated rationale was corrected, in both
+`_invalid_pk_reason()`'s docstring and this file. Pinned by
+`etl/tests/test_upsert_batch_loss.py::TestNaNPkPolicyNotConstraint`.
+
+**Decoding issue flagged, not fixed**: the garbage row's values
+(`mes = -1801453568`, a 4D `Long Real`/`mes` field far outside any plausible
+month value; `precio_neto_si = NaN`) sitting immediately before ~60
+entirely-NULL rows in the same fetch is consistent with a decode/buffer
+desync somewhere in the `p4d` driver or `etl/db/fourd.py::safe_fetch()` row
+decoding — one row half-decoded into garbage, then the parser losing
+alignment and returning NULLs until the next natural row boundary. This is
+a `p4d`/4D-driver-level hypothesis that needs live 4D access and much more
+investigation to confirm; it is not fixed here (see AGENTS.md's "fix only if
+clearly in scope and low risk" — a blind fix here is neither). Tracked for
+follow-up rather than guessed at.
+
+**Alternatives rejected**:
+- *Changing `upsert()`'s return type to a result object and updating every
+  caller's return-value contract* — rejected because several `sync_*`
+  functions' plain-`int` return values are asserted directly in
+  `etl/tests/test_sync_ventas.py` (real-4D integration tests); breaking that
+  contract for no functional gain (the skip-log approach delivers the same
+  visibility without it) wasn't worth the blast radius across 8 call sites.
+- *Threading a `run_id`/skip-count parameter through every `sync_*`
+  function* — rejected for the same reason: `_run_sync()` already owns
+  `run_id` and already calls `record_table_sync()` once per table; draining
+  a log there is the smallest change that reaches every caller.
+- *Disabling or downgrading the NOT NULL / FK constraints* — rejected
+  outright; the constraints are correct, the batching behaviour was the bug.
+
+**Rationale**: The batch is an implementation detail of `execute_values()`
+for round-trip efficiency; it must not become a unit of data-loss. Silently
+dropping rows is its own hazard (this codebase has a recurring problem with
+swallowed failures), so every row `upsert()` drops is now counted and
+visible in `etl_sync_run_tables.error_msg` — the same place an operator
+already looks for sync failures — rather than only in ephemeral container
+logs.
+
+**See**: `etl/db/postgres.py::upsert()`, `etl/db/postgres.py::_upsert_rowwise()`,
+`etl/db/postgres.py::drain_skip_log()`, `etl/main.py::_run_sync()`,
+`etl/sync/ventas.py::_sync_table()`, `etl/tests/test_upsert_batch_loss.py`,
+issue #820 (the `sync_stock` precedent this generalizes).

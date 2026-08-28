@@ -165,10 +165,34 @@ def _run_sync(
 
     `target_table` is the destination ps_* table; when set, the post-sync
     n_live_tup estimate is recorded as etl_sync_run_tables.rows_total_after.
+
+    Row-skip visibility (D-050): upsert() drops rows it can never insert
+    (NULL/NaN PK, or rows that fail even its row-by-row fallback) instead of
+    letting one bad row take a whole batch down. It records what it drops in
+    a module-level log rather than raising. This function drains that log
+    after every sync_fn call — regardless of ok/failed — and folds the count
+    plus a sample of reasons into error_msg so the drop is visible in
+    etl_sync_run_tables, not just in container logs (which, per the
+    2026-08-28 incident review, only retain a few months of history).
     """
-    from etl.db.postgres import get_watermark, set_watermark
+    from etl.db.postgres import drain_skip_log, get_watermark, set_watermark
 
     _tracer = _otel_trace.get_tracer("powershop.etl")
+
+    # Defensive: the skip log should always be empty here since we drain it
+    # at the end of every previous call to this function (the ETL runs as a
+    # single sequential worker — see postgres.py's module docstring). A
+    # non-empty result means something upstream didn't go through
+    # _run_sync; log it so it isn't silently absorbed into this table's count.
+    _stray = drain_skip_log()
+    if _stray:
+        logger.warning(
+            "%s: discarding %d stray upsert skip message(s) left over from "
+            "before this sync started: %s",
+            name,
+            len(_stray),
+            _stray[:3],
+        )
 
     start = time.time()
     started_at = datetime.now(timezone.utc)
@@ -234,6 +258,25 @@ def _run_sync(
                 )
         except Exception:
             logger.debug("OTel span context capture failed", exc_info=True)
+
+    # Row-skip visibility (D-050): fold anything upsert() dropped during
+    # this sync into error_msg, regardless of whether the sync itself
+    # ultimately succeeded or failed. A sync that silently drops rows is
+    # worse than one that fails loudly — see the module docstring above.
+    skipped_rows = drain_skip_log()
+    if skipped_rows:
+        skip_note = (
+            f"{len(skipped_rows)} row(s) skipped by upsert() during this "
+            "sync (invalid/unrejectable source data — never written): "
+            + " | ".join(skipped_rows[:5])
+        )[:2000]
+        if err:
+            budget = 2000 - len(err) - 1  # -1 for the newline separator
+            if budget > 0:
+                err = err + "\n" + skip_note[:budget]
+        else:
+            err = skip_note
+        logger.warning("%s: %s", name, skip_note)
 
     # In a "full" nightly run a watermark-backed sync still does truncate-
     # and-reinsert (since=None), so log it as full_refresh — not the
