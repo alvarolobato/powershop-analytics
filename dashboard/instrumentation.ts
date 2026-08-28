@@ -3,6 +3,9 @@
  * https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
  *
  * Used to:
+ *   - Start the OpenTelemetry SDK (traces + logs over OTLP) — must run
+ *     before anything else so HTTP/undici/pg get instrumented before those
+ *     modules are first used. See docs/decisions/D-052-dashboard-otel-sdk.md.
  *   - Bootstrap config.yaml on first start (if absent).
  *   - Apply PostgreSQL migrations (etl/schema/init.sql, idempotent) so the
  *     dashboard never starts against a DB that's missing tables it requires.
@@ -14,6 +17,25 @@ export async function register() {
   // `=== "nodejs"` is more robust because NEXT_RUNTIME may be undefined outside
   // the edge runtime context.
   if (process.env.NEXT_RUNTIME !== "edge") {
+    // OTel init first and on its own try/catch boundary — a telemetry
+    // failure here must never stop config bootstrap or DB migration from
+    // running below.
+    try {
+      const { initOtel, shutdownOtel } = await import("./lib/otel/sdk");
+      initOtel();
+      // Flush the last batch of spans/logs on container stop. Registered
+      // once per process (Next.js only calls register() once per running
+      // server process; dev-mode recompiles don't re-run it).
+      process.once("SIGTERM", () => {
+        shutdownOtel().catch(() => {
+          // shutdownOtel() already catches/logs internally; this is a
+          // final backstop so a SIGTERM handler can never itself throw.
+        });
+      });
+    } catch (err) {
+      console.warn("[otel] Could not start OpenTelemetry SDK:", err);
+    }
+
     try {
       const { bootstrapConfigIfMissing } = await import(
         "./lib/system-config/loader"
