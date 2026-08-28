@@ -1,10 +1,10 @@
 ---
-id: D-042
+id: D-043
 title: Meter and budget-cap the Claude CLI provider like OpenRouter
 date: 2026-08-28
 ---
 
-# D-042: Meter and budget-cap the Claude CLI provider like OpenRouter
+# D-043: Meter and budget-cap the Claude CLI provider like OpenRouter
 
 *Decided: 2026-08-28*
 
