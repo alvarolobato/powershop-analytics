@@ -100,8 +100,11 @@ export default async function AdminUsagePage() {
         </p>
         <p className="mt-2 leading-relaxed">
           Las filas con proveedor <code className="rounded bg-black/5 px-1 dark:bg-white/10">cli</code>{" "}
-          (p. ej. Claude Code) registran tokens a cero y coste estimado <strong>0</strong>: la facturación puede
-          ser plana por suscripción y no equivale al coste por token de la API.
+          (p. ej. Claude Code) registran tokens reales y coste <strong>reportado por el propio binario</strong>{" "}
+          (<code className="rounded bg-black/5 px-1 dark:bg-white/10">total_cost_usd</code> de{" "}
+          <code className="rounded bg-black/5 px-1 dark:bg-white/10">claude -p --output-format json</code>), no
+          una estimación por tabla de tarifas. Bajo una suscripción OAuth ese importe es un precio de lista
+          nocional — puede no corresponder a ningún cargo real, porque la facturación suele ser plana.
         </p>
       </section>
 

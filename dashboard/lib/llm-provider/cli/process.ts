@@ -3,6 +3,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import type { RunProcessResult } from "./types";
 import { CliRunnerError } from "./errors";
 import { sanitize, sanitizeArgv, sanitizeTail } from "../sanitize";
@@ -50,6 +51,41 @@ class CappedBufferCollector {
 }
 
 /**
+ * Write `input` to the child's stdin without letting an EPIPE crash the server.
+ *
+ * When the CLI exits before draining stdin — a rejected flag, an auth
+ * failure, anything that fails fast — the write end breaks and Node emits
+ * `error` on the stdin stream. That is a SEPARATE emitter from
+ * `child.on("error")` below, which only covers spawn-level failures, so
+ * nothing was listening for it: an unhandled `error` on a stream takes down
+ * the whole Node process, not just this request.
+ *
+ * Not hypothetical here: prompts routinely carry a full dashboard spec plus
+ * chat history plus the agentic tool catalog, comfortably past the ~64KB
+ * pipe buffer, so the write does not always complete synchronously and the
+ * race is real on a fast-failing invocation (a bad flag, a stale auth
+ * token).
+ */
+function writeStdinSafely(
+  stdinStream: NodeJS.WritableStream | null,
+  input: string | undefined,
+): void {
+  if (!stdinStream) return;
+  // Absorb EPIPE/ECONNRESET: the child closing stdin early is normal, not
+  // fatal — the exit code (surfaced separately via assertCliSuccess) already
+  // tells the caller what happened.
+  stdinStream.on("error", () => {
+    /* child closed stdin before the write completed */
+  });
+  try {
+    if (input !== undefined) stdinStream.write(input, "utf8");
+    stdinStream.end();
+  } catch {
+    /* synchronous throw on an already-destroyed stream — same non-fatal case */
+  }
+}
+
+/**
  * Spawn `file` with `args` (no shell). Always resolves when the child exits; sets `timedOut`
  * if the watchdog fired before then. Use `assertCliSuccess` to throw on timeout, truncation,
  * or non-zero exit.
@@ -63,6 +99,15 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
       windowsHide: true,
+      // Run from a neutral directory rather than inheriting the server's
+      // cwd. Claude Code auto-discovers CLAUDE.md/AGENTS.md from the working
+      // directory and walks up looking for more — this repo's own CLAUDE.md
+      // documents real production operational rules (D-025's OAuth
+      // single-refresher constraint, workflow-file restrictions, etc.).
+      // Inheriting the dashboard container's cwd would fold all of that
+      // into every dashboard prompt for free. A neutral cwd avoids it
+      // structurally instead of relying on prompt/flag discipline elsewhere.
+      cwd: tmpdir(),
     });
 
     const stdoutAcc = new CappedBufferCollector(maxStdoutBytes);
@@ -90,12 +135,7 @@ export async function runCliProcess(params: RunCliProcessParams): Promise<RunPro
     child.stdout?.on("data", (chunk: Buffer) => stdoutAcc.push(chunk));
     child.stderr?.on("data", (chunk: Buffer) => stderrAcc.push(chunk));
 
-    if (stdin !== undefined && child.stdin) {
-      child.stdin.write(stdin, "utf8");
-      child.stdin.end();
-    } else if (child.stdin) {
-      child.stdin.end();
-    }
+    writeStdinSafely(child.stdin, stdin);
 
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -139,6 +179,8 @@ export async function runCliProcessStreaming(
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
       windowsHide: true,
+      // Neutral cwd — see the matching comment in `runCliProcess` above.
+      cwd: tmpdir(),
     });
 
     const stdoutAcc = new CappedBufferCollector(maxStdoutBytes);
@@ -186,12 +228,7 @@ export async function runCliProcessStreaming(
 
     child.stderr?.on("data", (chunk: Buffer) => stderrAcc.push(chunk));
 
-    if (stdin !== undefined && child.stdin) {
-      child.stdin.write(stdin, "utf8");
-      child.stdin.end();
-    } else if (child.stdin) {
-      child.stdin.end();
-    }
+    writeStdinSafely(child.stdin, stdin);
 
     child.on("error", (err) => {
       clearTimeout(timer);

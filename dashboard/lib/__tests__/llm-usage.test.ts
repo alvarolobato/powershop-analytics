@@ -74,7 +74,7 @@ describe("logUsage", () => {
     expect(params[8]).toBe(null);
   });
 
-  it("stores zero estimated cost for CLI provider rows", async () => {
+  it("stores zero estimated cost for CLI provider rows when no cost was reported", async () => {
     logUsage(
       "generateDashboard",
       "anthropic/claude-sonnet-4",
@@ -92,6 +92,56 @@ describe("logUsage", () => {
     // CLI rows with no cache fields: both cache columns must be NULL
     expect(params[9]).toBeNull();
     expect(params[10]).toBeNull();
+  });
+
+  it("stores the CLI's reportedCostUsd verbatim instead of estimating it", async () => {
+    // Before this option existed every `cli` row stored a hard-coded zero
+    // regardless of usage, which is what made the daily budget cap
+    // (checkDailyBudget) inert for the default production provider.
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 9, completion_tokens: 36, total_tokens: 45 },
+      { provider: "cli", driver: "claude_code" },
+      { reportedCostUsd: 0.0176284 },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.017628");
+  });
+
+  it("reportedCostUsd wins over the rate-table estimate even for openrouter rows", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "openrouter", driver: null },
+      { reportedCostUsd: 0.5 },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    // Rate-table estimate would be 0.0105 (see the first test above); the
+    // reported figure must win instead.
+    expect(params[5]).toBe("0.500000");
+  });
+
+  it("ignores a negative or non-finite reportedCostUsd and falls back to estimation", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "openrouter", driver: null },
+      { reportedCostUsd: -1 },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.010500");
   });
 
   it("persists request_id when provided in options", async () => {
@@ -296,12 +346,41 @@ describe("checkDailyBudget", () => {
     await expect(checkDailyBudget()).resolves.toBeUndefined();
   });
 
-  it("skips the PostgreSQL budget query when dashboard LLM provider is cli", async () => {
+  it("applies the same budget query when dashboard LLM provider is cli", async () => {
+    // This used to early-return before the query ran ("CLI rows always cost
+    // 0, so a sum over them can never trip the cap"). That exemption made
+    // the daily cap inert for the default production provider — CLI rows
+    // now carry the CLI's own reported cost (see logUsage's
+    // `reportedCostUsd`), so the check must run for it exactly like it does
+    // for openrouter.
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "1");
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
     mockQuery.mockClear();
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["0.50"]] });
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
-    expect(mockQuery).not.toHaveBeenCalled();
+    expect(mockQuery).toHaveBeenCalledOnce();
+  });
+
+  it("throws BudgetExceededError for the cli provider once spend reaches the limit", async () => {
+    vi.stubEnv("LLM_DAILY_BUDGET_USD", "1");
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["1.00"]] });
+
+    await expect(checkDailyBudget()).rejects.toThrow(BudgetExceededError);
+  });
+
+  it("no longer filters the spend query to llm_provider = 'openrouter'", async () => {
+    // The query must sum every provider's spend, not just openrouter's —
+    // asserted directly on the SQL text so a regression back to the old
+    // filter fails loudly instead of only showing up as "CLI spend doesn't
+    // count towards the cap" in production.
+    vi.stubEnv("LLM_DAILY_BUDGET_USD", "10");
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["1.00"]] });
+
+    await checkDailyBudget();
+
+    const [sqlText] = mockQuery.mock.calls[0];
+    expect(sqlText).not.toMatch(/llm_provider\s*=\s*'openrouter'/);
   });
 });

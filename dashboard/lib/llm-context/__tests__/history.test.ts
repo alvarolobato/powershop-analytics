@@ -11,19 +11,22 @@ vi.mock("@/lib/llm-provider/openrouter", () => ({
   getOpenRouterClient: () => ({}),
   openRouterChatCompletion: (...a: unknown[]) => mockChatCompletion(...a),
 }));
+const mockCliSingleShot = vi.fn();
 vi.mock("@/lib/llm-provider/cli/claude-code", () => ({
-  claudeCliSingleShot: vi.fn(),
+  claudeCliSingleShot: (...a: unknown[]) => mockCliSingleShot(...a),
 }));
 const mockGetModel = vi.fn(() => "test-model");
+const mockLoadConfig = vi.fn(() => ({ provider: "openrouter" }) as { provider: string; cliDriver?: string });
 vi.mock("@/lib/llm-provider/config", () => ({
-  loadDashboardLlmConfig: () => ({ provider: "openrouter" }),
+  loadDashboardLlmConfig: () => mockLoadConfig(),
   getEffectiveDashboardModel: (...a: unknown[]) => mockGetModel(...a),
   getEffectiveOpenRouterProvider: () => null,
 }));
 vi.mock("@/lib/llm-circuit-breaker", () => ({
   callWithCircuitBreaker: (fn: () => unknown) => fn(),
 }));
-vi.mock("@/lib/llm-usage", () => ({ logUsage: vi.fn() }));
+const mockLogUsage = vi.fn();
+vi.mock("@/lib/llm-usage", () => ({ logUsage: (...a: unknown[]) => mockLogUsage(...a) }));
 vi.mock("@/lib/conversations", () => ({ loadMessages: vi.fn() }));
 
 import {
@@ -140,6 +143,9 @@ function makeMessages(n: number): HistoryMessage[] {
 describe("capHistory", () => {
   beforeEach(() => {
     mockChatCompletion.mockReset();
+    mockCliSingleShot.mockReset();
+    mockLoadConfig.mockReset().mockReturnValue({ provider: "openrouter" });
+    mockLogUsage.mockReset();
   });
 
   it("returns messages unchanged (no LLM call) when within the cap", async () => {
@@ -203,5 +209,46 @@ describe("capHistory", () => {
     mockChatCompletion.mockResolvedValue({ content: "- resumen", usage: null });
     await capHistory(makeMessages(15), HISTORY_MAX_MESSAGES, "modify");
     expect(mockGetModel).toHaveBeenCalledWith(expect.anything(), "modify");
+  });
+
+  it("on the CLI provider, logs real usage from the summarisation call instead of nothing", async () => {
+    // This branch used to call claudeCliSingleShot and discard the result
+    // entirely (return text; no logUsage at all) — summarisation fires on
+    // every long conversation and was invisible to llm_usage.
+    mockLoadConfig.mockReturnValue({ provider: "cli", cliDriver: "claude_code" });
+    mockCliSingleShot.mockResolvedValue({
+      text: "- pidió ventas",
+      usage: {
+        prompt_tokens: 12,
+        completion_tokens: 5,
+        total_tokens: 17,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        cost_usd: 0.0009,
+      },
+    });
+    const msgs = makeMessages(15);
+
+    const result = await capHistory(msgs);
+
+    expect(result[0].content).toContain("pidió ventas");
+    expect(mockLogUsage).toHaveBeenCalledWith(
+      "dashboard/history/summarise",
+      "test-model",
+      expect.objectContaining({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 }),
+      { provider: "cli", driver: "claude_code" },
+      { reportedCostUsd: 0.0009 },
+    );
+  });
+
+  it("on the CLI provider, falls back to raw prompts (never logging) when the call throws", async () => {
+    mockLoadConfig.mockReturnValue({ provider: "cli", cliDriver: "claude_code" });
+    mockCliSingleShot.mockRejectedValue(new Error("CLI down"));
+    const msgs = makeMessages(15);
+
+    const result = await capHistory(msgs);
+
+    expect(result[0].content).toContain("mensaje 0");
+    expect(mockLogUsage).not.toHaveBeenCalled();
   });
 });

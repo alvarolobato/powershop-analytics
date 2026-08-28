@@ -114,6 +114,29 @@ const EMPTY_USAGE: NormalizedUsage = {
   total_tokens: 0,
 };
 
+/**
+ * Thrown when `llmComplete()` is reached with `DASHBOARD_LLM_PROVIDER=e2e-stub`.
+ *
+ * `e2e-stub` exists to short-circuit turn-background.ts's MAIN turn BEFORE any
+ * LLM code runs (see its own `DASHBOARD_LLM_PROVIDER === "e2e-stub"` branch) —
+ * it never had a real model behind it. `llmComplete`'s provider dispatch used
+ * to have no branch for it at all, so any OTHER caller (e.g. title generation
+ * — see `maybeGenerateTitle` in conversations.ts) fell through to the
+ * OpenRouter branch and failed with an unrelated "no API key" error instead of
+ * a clear, typed one (D-045). `LlmResponse.provider` already excludes
+ * `"e2e-stub"` from its type — this makes the runtime match that contract.
+ */
+export class E2eStubProviderError extends Error {
+  constructor(endpoint: string) {
+    super(
+      `llmComplete() was called under DASHBOARD_LLM_PROVIDER=e2e-stub for endpoint "${endpoint}" — ` +
+        "there is no real LLM behind this provider. Callers must skip the call entirely " +
+        "(see turn-background.ts's own e2e-stub short-circuit) rather than reach llmComplete.",
+    );
+    this.name = "E2eStubProviderError";
+  }
+}
+
 function narrowDashboardLlmFlow(flow: string | undefined): DashboardLlmFlow | undefined {
   if (flow === "generate" || flow === "modify" || flow === "analyze" || flow === "weekly") {
     return flow;
@@ -190,11 +213,27 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
       })
       .join("\n\n");
 
-    const text = await callWithCircuitBreaker(() =>
+    const { text, usage: cliUsage } = await callWithCircuitBreaker(() =>
       claudeCliSingleShot({ cfg, prompt: combined }),
     );
 
-    logUsage(endpoint, model, EMPTY_USAGE, meta, { requestId });
+    // Real token counts + the CLI's own `total_cost_usd`, instead of the
+    // hard-coded EMPTY_USAGE this used to log for every single CLI call —
+    // see `llm-provider/cli/usage.ts` for why the binary is trusted here.
+    const usage: NormalizedUsage = cliUsage
+      ? {
+          prompt_tokens: cliUsage.prompt_tokens,
+          completion_tokens: cliUsage.completion_tokens,
+          total_tokens: cliUsage.total_tokens,
+          cache_creation_input_tokens: cliUsage.cache_creation_input_tokens,
+          cache_read_input_tokens: cliUsage.cache_read_input_tokens,
+        }
+      : { ...EMPTY_USAGE };
+
+    logUsage(endpoint, model, usage, meta, {
+      requestId,
+      reportedCostUsd: cliUsage?.cost_usd ?? null,
+    });
 
     if (req.onTextDelta && text) {
       try {
@@ -206,10 +245,15 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
 
     return {
       text,
-      usage: { ...EMPTY_USAGE },
+      usage,
       provider: "cli",
       driver: cfg.cliDriver,
     };
+  }
+
+  // ── e2e-stub provider — no real LLM behind it, see E2eStubProviderError ────
+  if (cfg.provider === "e2e-stub") {
+    throw new E2eStubProviderError(endpoint);
   }
 
   // ── Mock provider (e2e LLM-integration tests) ───────────────────────────────

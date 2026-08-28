@@ -76,15 +76,22 @@ export function ConversationListSidebar({ selectedId }: ConversationListSidebarP
   }, [selectedId]);
 
   return (
+    // Mobile item 7: the list sidebar is hidden below md — there is no room
+    // for a split view on a phone, so the [id] page falls back to a
+    // single-pane detail with its own "← Conversaciones" back-link. `display`
+    // is owned by Tailwind's `hidden md:flex` here (never set inline on this
+    // element too — an inline `display` would win over the responsive class,
+    // see D-120), `flexDirection` stays inline since it's not a
+    // display/visibility toggle.
     <div
       data-testid="conversation-list-sidebar"
+      className="hidden md:flex"
       style={{
         width: 280,
         flexShrink: 0,
         borderRight: "1px solid var(--border)",
         overflowY: "auto",
         background: "var(--bg-1)",
-        display: "flex",
         flexDirection: "column",
       }}
     >
