@@ -16,6 +16,7 @@ import {
 } from "@/lib/llm-provider/config";
 import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
 import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
+import { isLlmEnabled } from "@/lib/llm-enabled";
 import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
 import { logUsage } from "@/lib/llm-usage";
 
@@ -211,9 +212,29 @@ async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<
   }
   const userPrompts = bullets.reverse().join("\n");
 
+  const cfg = loadDashboardLlmConfig();
+
+  // This function calls the providers DIRECTLY — it does not go through
+  // llmComplete or runAgenticChat — so neither the kill switch nor the
+  // e2e-stub short-circuit in turn-background reaches it. Both have to be
+  // honoured here explicitly, or they are not honoured at all:
+  //
+  //   - The master switch is meant to mean "no model calls, full stop". A
+  //     conversation past HISTORY_MAX_MESSAGES would otherwise still fire a
+  //     real, billed summarisation call with the switch off — the worst kind
+  //     of failure for a control whose whole value is that you can trust it.
+  //   - turn-background calls capHistory() unconditionally, BEFORE its
+  //     e2e-stub branch, so without this a long enough conversation would
+  //     make a real external call from CI.
+  //
+  // Returning `userPrompts` is not a new degradation path: it is the same
+  // bounded fallback both catch blocks below already use when the call fails.
+  if (!isLlmEnabled() || cfg.provider === "e2e-stub") {
+    return userPrompts;
+  }
+
   const prompt = `Summarise the following prior user requests in a short bulleted list (one line each, max 300 chars total). Respond with only the bullet list, no preamble.\n\n${userPrompts}`;
 
-  const cfg = loadDashboardLlmConfig();
   const flowArg = flow as Parameters<typeof getEffectiveDashboardModel>[1];
   const model = getEffectiveDashboardModel(cfg, flowArg);
   const provider = getEffectiveOpenRouterProvider(cfg, flowArg);
