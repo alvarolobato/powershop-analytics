@@ -31,6 +31,7 @@ export default async function ConversationSplitViewPage({ params }: PageProps) {
         marginRight: "calc(-1 * var(--pad-x, 20px))",
         width: "calc(100% + 2 * var(--pad-x, 20px))",
         height: "calc(100vh - 56px)",
+        maxHeight: "calc(100dvh - 56px)",
         overflow: "hidden",
       }}
     >

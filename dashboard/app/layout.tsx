@@ -25,9 +25,7 @@ export const metadata: Metadata = {
 // below are redundant with what Next already emits — kept explicit only so
 // a reader doesn't have to go check Next's source to know what the tag
 // says. The one substantive line is `viewportFit: "cover"`: without it the
-// page never extends under a notch/home-indicator, so
-// `env(safe-area-inset-*)` (used by the mobile-shell height class below,
-// and by NewConversationDialog's backdrop) always resolves to 0 (D-123).
+// page never extends edge-to-edge under a notch/home-indicator on iOS.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
