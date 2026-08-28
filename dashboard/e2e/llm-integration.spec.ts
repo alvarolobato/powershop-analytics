@@ -114,6 +114,36 @@ test("free-chat runs the agentic tool loop and answers from real query results",
 });
 
 // ---------------------------------------------------------------------------
+// Title generation: maybeGenerateTitle() runs the real llm-context pipeline
+// after the first turn and actually lands a title in the DB (D-045)
+// ---------------------------------------------------------------------------
+
+test("a conversation gets an auto-generated title after its first turn", async ({ page }) => {
+  // No `title` in the create body — maybeGenerateTitle() only fires while
+  // conv.title is still NULL.
+  const convId = await createConversation(page, { mode: "chat", context_kind: "global" });
+  await postTurnAndWait(page, convId, "¿Cuántas ventas hay registradas?");
+
+  // maybeGenerateTitle() runs fire-and-forget AFTER the turn is already marked
+  // complete (turn-background.ts), so poll the conversation rather than assume
+  // it lands by the time postTurnAndWait's own poll resolves.
+  await expect
+    .poll(
+      async () => {
+        const r = await page.request.get(`/api/conversations/${convId}`);
+        if (!r.ok()) return null;
+        return (await r.json()).title as string | null;
+      },
+      { timeout: 15_000, message: "title was never generated" },
+    )
+    // The mock provider (script.ts) special-cases the title flow's prompt
+    // ("título conciso") with a canned Spanish title — proves the real
+    // assembleRequest → buildSystemPrompt("title", …) → llmComplete chain ran
+    // end-to-end and the result was actually persisted, not just computed.
+    .toBe("Conversación de prueba e2e");
+});
+
+// ---------------------------------------------------------------------------
 // Modify: apply_dashboard_modification → versioned persistence (#822 path)
 // ---------------------------------------------------------------------------
 

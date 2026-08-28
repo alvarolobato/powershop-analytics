@@ -218,6 +218,10 @@ function FilterBar({
   onSinceChange,
   onOnlyArchivedChange,
 }: FilterBarProps) {
+  // `height` is NOT in this object — it lives in `.filter-bar-input`
+  // (globals.css) instead, so it can grow below 768px without an inline
+  // value winning over the class (D-120). See that rule's comment: 30px
+  // clips the iOS input-zoom fix's forced 16px text by ~1px on phones.
   const inputStyle: React.CSSProperties = {
     background: "var(--bg-2)",
     border: "1px solid var(--border)",
@@ -227,7 +231,6 @@ function FilterBar({
     padding: "5px 10px",
     outline: "none",
     fontFamily: "inherit",
-    height: 30,
   };
 
   return (
@@ -238,7 +241,10 @@ function FilterBar({
         zIndex: 10,
         background: "var(--bg)",
         borderBottom: "1px solid var(--border)",
-        padding: "10px 20px",
+        // Left/right through --pad-x, same token as .conv-page-header /
+        // .conv-page-content on this page (D-044 rung 4) — resolves
+        // unconditionally so desktop is unchanged and phone narrows to 12px.
+        padding: "10px var(--pad-x, 20px)",
         display: "flex",
         flexWrap: "wrap",
         alignItems: "center",
@@ -253,6 +259,7 @@ function FilterBar({
         value={q}
         onChange={(e) => onQChange(e.target.value)}
         style={{ ...inputStyle, width: 180 }}
+        className="filter-bar-input"
         data-testid="search-input"
         aria-label="Buscar conversaciones"
       />
@@ -285,6 +292,7 @@ function FilterBar({
           value={since}
           onChange={(e) => onSinceChange(e.target.value)}
           style={{ ...inputStyle, width: 130 }}
+          className="filter-bar-input"
           data-testid="since-input"
           aria-label="Desde fecha"
         />
@@ -480,9 +488,13 @@ function ConversationsPageContent() {
       }}
     >
       {/* Header */}
+      {/* Mobile item 2: horizontal padding moved to `.conv-page-header`
+          (globals.css) so it narrows to `--pad-x` below 768px — a static
+          literal with no prop/state dependency (D-121 rung 1). Top/bottom
+          stay inline (20px/12px), unaffected by the phone breakpoint. */}
       <div
+        className="conv-page-header"
         style={{
-          padding: "20px 20px 12px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -549,8 +561,8 @@ function ConversationsPageContent() {
         onOnlyArchivedChange={handleOnlyArchivedChange}
       />
 
-      {/* Content */}
-      <div style={{ flex: 1, overflow: "auto", padding: "12px 20px 24px" }}>
+      {/* Content — same `--pad-x` treatment as the header above. */}
+      <div className="conv-page-content" style={{ flex: 1, overflow: "auto" }}>
         {loading && (
           <div
             style={{

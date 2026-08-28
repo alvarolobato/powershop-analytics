@@ -75,7 +75,11 @@ export default async function ConversationInContextPage({ params }: PageProps) {
   return (
     <div
       style={{
-        height: "calc(100vh - 56px)",
+        // 100dvh, not 100vh (PR #894 review, finding 3): same iOS Safari
+        // address-bar fix as `.app-shell` in globals.css — this div owns
+        // its own scroll, so the stale vh literal left the composer under
+        // the fold when the browser toolbar was expanded.
+        height: "calc(100dvh - 56px)",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",

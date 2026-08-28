@@ -123,13 +123,23 @@ export function NewConversationDialog({ open, onClose }: NewConversationDialogPr
 
   return (
     <>
-      {/* Backdrop */}
+      {/* Backdrop. Mobile item 8: `top/left/right: 0` + `height: 100dvh`
+          rather than `inset: 0` — `inset: 0` behaves like `100vh` and
+          doesn't reliably track a dynamic mobile toolbar on some browsers
+          (D-123). The dialog itself is a small centered box (`min(480px,
+          95vw)`, `top/left: 50%` + translate), so D-123's other half — a
+          definite content-wrapper box instead of max-width/max-height on a
+          shrink-to-fit flex item — doesn't apply here; nothing here is a
+          full-bleed flex-centered overlay content wrapper. */}
       <div
         data-testid="new-conversation-backdrop"
         onClick={() => { if (!loading) onClose(); }}
         style={{
           position: "fixed",
-          inset: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "100dvh",
           background: "rgba(0,0,0,0.45)",
           zIndex: 100,
         }}
