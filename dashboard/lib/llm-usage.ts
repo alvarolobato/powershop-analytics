@@ -5,15 +5,21 @@ import { loadDashboardLlmConfig } from "@/lib/llm-provider/config";
 import { getSystemConfig } from "@/lib/system-config/loader";
 
 /**
- * Rate table: **estimated** USD per token used only for `llm_usage.estimated_cost_usd`.
+ * Rate table: **estimated** USD per token used for `llm_usage.estimated_cost_usd`
+ * on `llm_provider = 'openrouter'` rows.
  *
  * - Values follow public list pricing for the configured model (today: Claude Sonnet 4).
  * - OpenRouter may apply discounts, caching, or rounding; this app does **not** read
  *   OpenRouter’s billing API, so displayed costs are **indicative**, not invoice-accurate.
  * - Unknown models fall back to `DEFAULT_RATE` (same as Sonnet 4) with a console warning.
- * - Rows with `llm_provider = 'cli'` store **zero** estimated cost (flat-rate / unknown).
  * - Cache rates: Anthropic charges cache-write tokens at a 25% premium ($3.75/1M) and
  *   cache-read tokens at a 90% discount ($0.30/1M) vs the normal $3.00/1M input rate.
+ *
+ * `cli` rows do **not** use this table: the Claude CLI reports its own
+ * `total_cost_usd` per call, which `logUsage` stores verbatim via
+ * `LogUsageOptions.reportedCostUsd`. Before that plumbing existed every
+ * `cli` row stored a hard-coded zero, which is why the usage panel showed no
+ * spend at all for the default provider.
  */
 const RATES: Record<string, { prompt: number; completion: number; cacheWrite: number; cacheRead: number }> = {
   "anthropic/claude-sonnet-4": {
@@ -40,6 +46,17 @@ export class BudgetExceededError extends Error {
 /** Optional row fields for correlating `llm_usage` with `llm_tool_calls` (same endpoint + request id). */
 export type LogUsageOptions = {
   requestId?: string | null;
+  /**
+   * Cost reported by the provider itself for this call, in USD.
+   *
+   * Set by the CLI provider from `total_cost_usd` in the `claude -p` JSON
+   * envelope — a real list-price figure for the call, not an estimate
+   * derived from the rate table above. When present it wins over the rate
+   * table estimate; when absent (openrouter, or a CLI call the binary
+   * reported nothing parseable for) the row falls back to that estimator or
+   * to 0.
+   */
+  reportedCostUsd?: number | null;
 };
 
 export function logUsage(
@@ -63,8 +80,12 @@ export function logUsage(
   const cacheCreation = usage.cache_creation_input_tokens ?? null;
   const cacheRead = usage.cache_read_input_tokens ?? null;
 
+  const reportedCost = options?.reportedCostUsd;
   let estimatedCost = 0;
-  if (provider === "openrouter") {
+  if (reportedCost !== null && reportedCost !== undefined && Number.isFinite(reportedCost) && reportedCost >= 0) {
+    // Provider-reported (CLI `total_cost_usd`) — authoritative, no estimation.
+    estimatedCost = reportedCost;
+  } else if (provider === "openrouter") {
     let rate = RATES[model];
     if (!rate) {
       console.warn(`[llm-usage] Unknown model "${model}", using default rate`);
