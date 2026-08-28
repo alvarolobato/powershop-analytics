@@ -95,5 +95,16 @@ since head sampling decides before a trace's outcome/duration is known —
 acceptable for local dev with a file-sink export path, revisit if/when the
 production APM pipeline needs it.
 
+**Migration / deploy checklist**:
+- `OTEL_TRACES_SAMPLER`: docker-compose does env-var interpolation, so an
+  operator's pre-existing `~/.config/powershop-analytics/.env` — copied from
+  an older `.env.example` with `OTEL_TRACES_SAMPLER=parentbased_always_on` —
+  silently overrides the new 10% default and keeps shipping 100% of traces.
+  There is no code path that detects or migrates this; operators upgrading
+  onto this change must manually edit their existing `.env` to
+  `OTEL_TRACES_SAMPLER=parentbased_traceidratio` (and set
+  `OTEL_TRACES_SAMPLER_ARG=0.1`, or leave unset for the default) to actually
+  pick up the new sampling rate.
+
 **See**: `otel/otelcol-config.yaml` (processors + traces pipeline comments),
 `docker-compose.yml` (etl/dashboard `OTEL_TRACES_SAMPLER*` env), `.env.example`.
