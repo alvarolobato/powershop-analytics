@@ -48,13 +48,11 @@ const prod = loadCompose("docker-compose.prod.yml");
 const ENV_EXEMPT: Record<string, string> = {
   // Local mounts the schema from the repo; the prod image bakes it in.
   CONFIG_SCHEMA_PATH: "prod bakes the schema into the image",
-  // Local runs its own collector; prod has no collector service at all.
-  OTEL_SERVICE_NAME: "no collector in prod",
-  OTEL_EXPORTER_OTLP_ENDPOINT: "no collector in prod",
-  OTEL_TRACES_SAMPLER: "no collector in prod",
-  OTEL_TRACES_SAMPLER_ARG: "no collector in prod",
-  OTEL_LOG_LEVEL: "no collector in prod",
-  OTEL_SDK_DISABLED: "prod-only: silences exports to a collector that isn't there",
+  // Both stacks now run a collector shipping to Elastic Cloud (D-052), so the
+  // telemetry keys are NOT exempt any more — they are compared like the rest.
+  // Only these two genuinely differ:
+  OTEL_LOG_LEVEL: "dev-only collector verbosity knob",
+  OTEL_SDK_DISABLED: "prod-only explicit off-switch; dev relies on the SDK default",
   ENVIRONMENT: "local-only telemetry label",
   NEXT_PUBLIC_GIT_SHA: "injected at build time locally",
   // Reverse-proxy / custom-domain settings that only exist in a real deployment.
@@ -102,15 +100,31 @@ describe("docker-compose.yml vs docker-compose.prod.yml", () => {
     },
   );
 
-  it("silences OTel exports on the prod etl service", () => {
-    // The etl image runs under opentelemetry-instrument and prod has no
-    // collector; without this, 95% of that container's log lines were failed
-    // OTLP exports, burying the sync errors you actually need to read.
+  it("keeps OTel enabled on the prod etl service and names the service", () => {
+    // This used to assert the opposite — that exports were silenced — because
+    // production had no collector and the image's default localhost:4317
+    // target produced 381,000 failed-export lines. A collector now exists, so
+    // the correct invariant is that the SDK is ON and pointed at it. A bare
+    // `service.name` would land in Elastic as `unknown_service`, which is the
+    // failure this pins against.
     const env = prod.services?.etl?.environment ?? {};
-    const val = Array.isArray(env)
-      ? env.find((e: string) => e.startsWith("OTEL_SDK_DISABLED="))?.split("=")[1]
-      : env.OTEL_SDK_DISABLED;
-    expect(String(val ?? "")).toMatch(/true/);
+    const get = (k: string) =>
+      Array.isArray(env)
+        ? env.find((e: string) => e.startsWith(k + "="))?.split("=")[1]
+        : env[k];
+    expect(String(get("OTEL_SDK_DISABLED") ?? "")).not.toMatch(/true/);
+    expect(String(get("OTEL_SERVICE_NAME") ?? "")).toBe("powershop-etl");
+    expect(String(get("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "")).toContain("otel-collector");
+  });
+
+  it("names the dashboard service explicitly in both files", () => {
+    for (const [label, compose] of [["dev", dev], ["prod", prod]] as const) {
+      const env = compose.services?.dashboard?.environment ?? {};
+      const name = Array.isArray(env)
+        ? env.find((e: string) => e.startsWith("OTEL_SERVICE_NAME="))?.split("=")[1]
+        : env.OTEL_SERVICE_NAME;
+      expect(name, `${label}: dashboard must set OTEL_SERVICE_NAME`).toBe("powershop-dashboard");
+    }
   });
 
   it("backs DASHBOARD_CONTEXT_DIR with a writable mount wherever it is set", () => {
