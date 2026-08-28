@@ -74,7 +74,7 @@ describe("logUsage", () => {
     expect(params[8]).toBe(null);
   });
 
-  it("stores zero estimated cost for CLI provider rows", async () => {
+  it("stores zero estimated cost for CLI provider rows when no cost was reported", async () => {
     logUsage(
       "generateDashboard",
       "anthropic/claude-sonnet-4",
@@ -92,6 +92,56 @@ describe("logUsage", () => {
     // CLI rows with no cache fields: both cache columns must be NULL
     expect(params[9]).toBeNull();
     expect(params[10]).toBeNull();
+  });
+
+  it("stores the CLI's reportedCostUsd verbatim instead of estimating it", async () => {
+    // Before this option existed every `cli` row stored a hard-coded zero
+    // regardless of usage, which is what made the daily budget cap
+    // (checkDailyBudget) inert for the default production provider.
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 9, completion_tokens: 36, total_tokens: 45 },
+      { provider: "cli", driver: "claude_code" },
+      { reportedCostUsd: 0.0176284 },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.017628");
+  });
+
+  it("reportedCostUsd wins over the rate-table estimate even for openrouter rows", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "openrouter", driver: null },
+      { reportedCostUsd: 0.5 },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    // Rate-table estimate would be 0.0105 (see the first test above); the
+    // reported figure must win instead.
+    expect(params[5]).toBe("0.500000");
+  });
+
+  it("ignores a negative or non-finite reportedCostUsd and falls back to estimation", async () => {
+    logUsage(
+      "generateDashboard",
+      "anthropic/claude-sonnet-4",
+      { prompt_tokens: 1000, completion_tokens: 500, total_tokens: 1500 },
+      { provider: "openrouter", driver: null },
+      { reportedCostUsd: -1 },
+    );
+
+    await new Promise((r) => setTimeout(r, 0));
+
+    const params = mockSql.mock.calls[0][1];
+    expect(params[5]).toBe("0.010500");
   });
 
   it("persists request_id when provided in options", async () => {
