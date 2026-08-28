@@ -20,8 +20,6 @@ import { sanitizeErrorMessage } from "@/lib/errors";
 /** Cap on the stored SQL. Long enough to diagnose, bounded so one runaway
  *  query cannot bloat the table. */
 const SQL_TEXT_MAX = 4000;
-/** Cap on the stored message — Postgres errors carry a detail/hint tail. */
-const MESSAGE_MAX = 2000;
 
 export interface LogQueryErrorInput {
   requestId: string;
@@ -51,10 +49,7 @@ export async function logQueryError(input: LogQueryErrorInput): Promise<void> {
       typeof (input.error as { code?: unknown } | null)?.code === "string"
         ? ((input.error as { code: string }).code || null)
         : null;
-    const message = truncate(
-      sanitizeErrorMessage(input.error) || "(sin mensaje)",
-      MESSAGE_MAX,
-    );
+    const message = sanitizeErrorMessage(input.error) || "(sin mensaje)";
     await sql(
       `INSERT INTO query_errors
          (request_id, code, pg_code, message, sql_text, param_count, duration_ms)

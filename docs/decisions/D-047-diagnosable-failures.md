@@ -54,7 +54,7 @@ rotation and no shipper configured, so container stdout dies on the next
   and no LLM is involved at request time, so every row would carry a fake
   provider and every future query of that table would need a filter.
   `/admin/interactions/[request_id]` reads it expecting LLM context. A separate
-  four-column table is honest and smaller.
+  dedicated table is honest and smaller.
 - *Log every one of the 21 bare `catch` blocks in the tool handlers.* Most are
   `JSON.parse` of the model's own tool arguments, returning `INVALID_ARGS` —
   self-describing, and the arguments are already in `llm_tool_calls`. Logging a

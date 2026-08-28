@@ -252,17 +252,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     console.error(`[${requestId}] Error inesperado al ejecutar consulta SQL:`, err);
-      // Awaited, not fire-and-forget: the response is already an error, so a
-      // few ms cost nothing, and durability is the entire point — a detached
-      // promise can lose the row. logQueryError never throws.
-      await logQueryError({
-        requestId,
-        code: "UNKNOWN",
-        sqlText: sql,
-        paramCount: params.length,
-        durationMs: Date.now() - startedAt,
-        error: err,
-      });
+    // Awaited, not fire-and-forget: the response is already an error, so a
+    // few ms cost nothing, and durability is the entire point — a detached
+    // promise can lose the row. logQueryError never throws.
+    await logQueryError({
+      requestId,
+      code: "UNKNOWN",
+      sqlText: sql,
+      paramCount: params.length,
+      durationMs: Date.now() - startedAt,
+      error: err,
+    });
     return NextResponse.json(
       formatApiError(
         "Error inesperado al ejecutar la consulta.",
