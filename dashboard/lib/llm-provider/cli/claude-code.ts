@@ -13,6 +13,27 @@ import { sanitize, sanitizeArgv, sanitizeTail } from "../sanitize";
 import { triggerHostTokenSync } from "./host-token-sync";
 
 /**
+ * Flags passed on EVERY CLI invocation — a security control, not a cost
+ * optimization, so this must never be gated behind a debug/lean toggle.
+ *
+ * `--tools ""` disables Claude Code's own built-in tool catalog (Bash, Edit,
+ * Write, Read…). Prompts reaching this driver carry free-form user chat text
+ * and, in the single-shot path, LLM-generated SQL — both untrusted content by
+ * construction, delivered on stdin. With the native tools armed, a prompt
+ * injection hiding in that content could persuade the model to run a shell
+ * command or write a file on the container's host. Neither call path here
+ * needs Claude's own tools: single-shot only produces text, and the agentic
+ * protocol has the SERVER execute tools — the CLI only ever emits a JSON
+ * envelope *naming* a tool call (see `AGENTIC_PROTOCOL_INSTRUCTION` below and
+ * `dashboard/lib/llm-tools/runner.ts`, which dispatches `tc.function.name` to
+ * its own handler map) — so there is nothing lost by disabling them.
+ *
+ * `--no-session-persistence` keeps that same chat/SQL content out of
+ * on-disk session transcripts on the host running the CLI.
+ */
+export const CLI_SAFETY_ARGS: readonly string[] = ["--tools", "", "--no-session-persistence"];
+
+/**
  * Run a CLI operation and, on `LLM_CLI_AUTH` failure (typically caused by an
  * out-of-band rotation of the Keychain refresh_token while the container was
  * holding the previous access_token), trigger an on-demand sync of the host
@@ -97,6 +118,7 @@ async function claudeCliSingleShotOnce(input: ClaudeCliSingleShotInput): Promise
   const { cfg, prompt } = input;
   const args = [
     ...cfg.cliExtraArgs,
+    ...CLI_SAFETY_ARGS,
     "-p",
     SINGLE_SHOT_PRINT_ARG,
     "--model",
@@ -367,6 +389,7 @@ async function claudeCliAgenticStepOnce(input: ClaudeCliAgenticStepInput): Promi
   // and emit it as a single chunk.
   const args = [
     ...cfg.cliExtraArgs,
+    ...CLI_SAFETY_ARGS,
     "-p",
     printArg,
     "--model",
