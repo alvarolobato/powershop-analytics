@@ -73,13 +73,44 @@ digging in container logs (which don't even retain history back to the
 5. `NOT NULL` and FK constraints are **not** weakened or disabled. They are
    doing their job — flagging genuinely bad rows. The fix is about not
    letting a legitimate rejection take down its innocent batch-mates.
+6. If the row-by-row fallback (step 2) still ends with **zero** surviving
+   rows out of an attempted batch, `upsert()` raises
+   `UpsertBatchFailedError` instead of returning `0` — see "Total-failure
+   correction" below.
 
 **What gets skipped vs what fails the sync**: a row is skipped (counted,
 logged, and the table sync still reports `status="ok"` if nothing else
 failed) only when Postgres itself would never accept it — NULL/NaN PK, or an
-FK/constraint violation confirmed by an actual failed INSERT attempt. Any
-other failure (e.g. the 4D connection dying mid-fetch, a genuine PostgreSQL
-outage) still fails the whole table sync loudly, exactly as before.
+FK/constraint violation confirmed by an actual failed INSERT attempt, **and
+at least one other row in the same batch survived**. Any other failure —
+the 4D connection dying mid-fetch, a genuine PostgreSQL outage, or every row
+in the batch failing (see "Total-failure correction" below) — still fails
+the whole table sync loudly, exactly as before.
+
+**Total-failure correction (2026-08-28, post-review finding 1)**: the
+version of this fix originally shipped had a gap — when the row-by-row
+fallback rejected **every** row in a batch (a systemic problem such as a
+`NOT NULL` violation on a non-PK column, or a schema mismatch, not a
+handful of bad rows), `upsert()` returned `0` without raising. `_run_sync`
+then took the success path: `set_watermark(..., "ok")` and
+`record_table_sync(status="ok")`. Reproduced live: 5,000 all-bad rows
+against real Postgres → `status="ok"`, 0 rows inserted, watermark advanced.
+That is exactly the "silently swallows rows" outcome this decision exists
+to prevent, and a systemic schema/data problem would produce a green run
+against an empty table every night with no operator signal beyond the
+folded-in skip-log text.
+
+Fixed: `upsert()` now raises `UpsertBatchFailedError` when the row-by-row
+fallback's survivor count is `0` for a non-empty attempted batch. This
+propagates up through the `sync_*` functions (none of which catch it) into
+`_run_sync`'s existing exception handling, which already sets
+`status="error"`/`ok=False` and records the exception in `error_msg` — no
+change was needed there. The original goal is preserved exactly: a batch
+with **at least one** surviving row (the common case — one bad row among
+many good ones) still returns quietly with a positive count and
+`status="ok"`; only a batch where nothing at all got through is escalated.
+See `etl/db/postgres.py::UpsertBatchFailedError` and
+`etl/tests/test_upsert_batch_loss.py::TestUpsertRowwiseFallback::test_all_rows_fk_violate_raises_but_still_records_each`.
 
 **SAVEPOINT-release correction (2026-08-28, post-review finding 2)**:
 `_upsert_rowwise()` issued `ROLLBACK TO SAVEPOINT etl_upsert_row` on a

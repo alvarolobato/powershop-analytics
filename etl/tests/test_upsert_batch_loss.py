@@ -22,6 +22,12 @@ Both layers record what they drop in the module-level skip log
 (postgres.drain_skip_log()) instead of discarding it silently — the log is
 what etl.main._run_sync folds into etl_sync_run_tables.error_msg.
 
+Total-failure signalling (D-050 finding 1): if the row-by-row fallback
+still leaves zero survivors out of an attempted batch, that is a systemic
+failure (not "one bad row among many") and upsert() raises
+UpsertBatchFailedError instead of quietly returning 0 — see
+TestUpsertRowwiseFallback.test_all_rows_fk_violate_raises_but_still_records_each.
+
 Pure unit tests (_invalid_pk_reason, drain_skip_log) need no DB. The
 batch-loss tests use the real pg_conn fixture (skipped automatically when
 PostgreSQL is not configured, same convention as the rest of etl/tests/).
@@ -342,7 +348,16 @@ class TestUpsertRowwiseFallback:
         assert len(skipped) == 1
         assert "12.99" in skipped[0] or "reg_lineas" in skipped[0]
 
-    def test_all_rows_fk_violate_returns_zero_but_records_each(self, scratch_conn):
+    def test_all_rows_fk_violate_raises_but_still_records_each(self, scratch_conn):
+        """Total batch failure (D-050 finding 1) must be signalled, not reported ok.
+
+        Before the fix, upsert() returned 0 quietly here — indistinguishable
+        from "nothing needed inserting". That inverted the goal of D-050: a
+        systemic failure (every row in the batch is rejected, not just one
+        bad apple) must propagate so the caller (etl.main._run_sync) reports
+        the table sync as failed instead of a clean 'ok' with 0 rows and an
+        advanced watermark.
+        """
         _create_parent_child_scratch_tables(scratch_conn)
         # No parents inserted — every child row violates the FK.
         batch = [
@@ -350,11 +365,12 @@ class TestUpsertRowwiseFallback:
             {"reg_lineas": Decimal("21.99"), "num_ventas": Decimal(501), "mes": 1},
         ]
 
-        attempted = postgres.upsert(
-            scratch_conn, _SCRATCH_TABLE, batch, pk_cols=["reg_lineas"]
-        )
+        with pytest.raises(postgres.UpsertBatchFailedError):
+            postgres.upsert(scratch_conn, _SCRATCH_TABLE, batch, pk_cols=["reg_lineas"])
 
-        assert attempted == 0
+        # The individual row failures are still recorded, not lost — the
+        # exception adds a loud failure signal on top of, not instead of,
+        # the existing skip-log visibility.
         skipped = postgres.drain_skip_log()
         assert len(skipped) == 2
 
@@ -363,6 +379,40 @@ class TestUpsertRowwiseFallback:
         with scratch_conn.cursor() as cur:
             cur.execute("SELECT 1")
             assert cur.fetchone() == (1,)
+
+    def test_one_bad_row_among_many_still_returns_quietly(self, scratch_conn):
+        """The original D-050 goal must still hold: a single row that fails
+        even the row-by-row fallback must not cost its batch-mates, and must
+        NOT raise as long as at least one row survives."""
+        _create_parent_child_scratch_tables(scratch_conn)
+        with scratch_conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {_SCRATCH_PARENT} (num_ventas) VALUES (%s), (%s)",
+                (Decimal(1), Decimal(2)),
+            )
+        scratch_conn.commit()
+
+        good_rows = [
+            {"reg_lineas": Decimal(f"{i}.99"), "num_ventas": Decimal(1), "mes": 1}
+            for i in range(30, 40)
+        ]
+        fk_violation_row = {
+            "reg_lineas": Decimal("40.99"),
+            "num_ventas": Decimal(999),
+            "mes": 1,
+        }
+        batch = good_rows + [fk_violation_row]
+
+        attempted = postgres.upsert(
+            scratch_conn, _SCRATCH_TABLE, batch, pk_cols=["reg_lineas"]
+        )
+
+        assert attempted == len(good_rows)
+        with scratch_conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {_SCRATCH_TABLE}")
+            (count,) = cur.fetchone()
+        assert count == len(good_rows)
+        assert len(postgres.drain_skip_log()) == 1
 
     def test_row_by_row_fallback_releases_savepoint_on_failure_too(self, scratch_conn):
         """D-050 finding 2: ROLLBACK TO SAVEPOINT does not destroy the

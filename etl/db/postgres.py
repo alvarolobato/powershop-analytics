@@ -32,6 +32,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+class UpsertBatchFailedError(RuntimeError):
+    """Raised by upsert() when a batch fails for a reason unrelated to any
+    single row's primary key and NOT ONE row in it could be saved, even by
+    the row-by-row SAVEPOINT fallback.
+
+    This is deliberately distinct from the normal "one/some bad rows
+    skipped" outcome (which returns a row count and never raises — see
+    upsert()'s docstring, D-050). Zero survivors out of an attempted batch
+    means the failure is systemic (e.g. a NOT NULL violation on a non-PK
+    column, or a schema mismatch) rather than a handful of genuinely bad
+    rows, so it must propagate and fail the table's sync loudly instead of
+    being reported as a quiet 0-row success.
+    """
+
+
 # ---------------------------------------------------------------------------
 # Row-skip diagnostics (D-050)
 # ---------------------------------------------------------------------------
@@ -173,10 +189,12 @@ def _upsert_rowwise(
     slower than execute_values. It only runs once a batch has already
     failed, so the cost is bounded to the rare bad batch.
 
-    Returns the number of rows successfully inserted. Rows that fail are
-    logged and appended to the module-level skip log (drained by
-    etl.main._run_sync into etl_sync_run_tables.error_msg) — never silently
-    dropped.
+    Returns the number of rows successfully inserted (0 if every row failed
+    — the caller, upsert(), treats an all-zero result as a systemic failure
+    and raises UpsertBatchFailedError rather than reporting a quiet 0-row
+    success). Rows that fail are logged and appended to the module-level
+    skip log (drained by etl.main._run_sync into
+    etl_sync_run_tables.error_msg) — never silently dropped.
 
     Every SAVEPOINT this issues is explicitly RELEASEd on both the success
     and failure path (never left dangling after ROLLBACK TO SAVEPOINT) so a
@@ -269,6 +287,15 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     approximation as before. Still commits on success and rolls back and
     re-raises when even the row-by-row fallback cannot make progress (e.g.
     the connection itself is gone).
+
+    Total-failure signalling (D-050 follow-up): if the row-by-row fallback
+    runs and NOT ONE of the surviving rows can be inserted either, that is
+    not "a bad row or two" — it means the batch failure was systemic (a
+    NOT NULL violation on a non-PK column, a schema mismatch, etc.), so
+    upsert() raises UpsertBatchFailedError instead of returning 0. A batch
+    with at least one successful row (the common case: one bad row among
+    many good ones) still returns quietly, exactly as before — only a
+    100%-failed batch is escalated.
     """
     if not rows:
         return 0
@@ -366,7 +393,27 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
         )
         with conn.cursor() as cur:
             row_stmt_str = row_stmt.as_string(cur)
-        return _upsert_rowwise(conn, table, row_stmt_str, columns, good_rows, pk_cols)
+        inserted = _upsert_rowwise(
+            conn, table, row_stmt_str, columns, good_rows, pk_cols
+        )
+        if inserted == 0:
+            # Every single surviving row was rejected individually too —
+            # this is not "one bad row among many" (that case returns a
+            # positive count and is reported quietly, per D-050). Zero
+            # survivors out of an attempted batch means the batch failure
+            # was systemic (e.g. a NOT NULL violation on a non-PK column,
+            # or a schema mismatch) rather than a handful of genuinely bad
+            # rows, so it must fail the sync loudly instead of being
+            # reported as a quiet 0-row success. The dropped-row detail is
+            # already in the skip log (drain_skip_log()) for the caller to
+            # fold into its error message.
+            raise UpsertBatchFailedError(
+                f"upsert: {table} — batch insert failed ({batch_exc}) and "
+                f"the row-by-row fallback also failed for all "
+                f"{len(good_rows)} surviving row(s); treating this as a "
+                "total batch failure rather than a 0-row success."
+            ) from batch_exc
+        return inserted
     # Return len(good_rows) rather than cur.rowcount — execute_values
     # paginates by page_size (default 100) and rowcount only reflects the
     # last page.
