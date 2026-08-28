@@ -35,6 +35,76 @@ import { parseCliReportedUsage, type CliReportedUsage } from "./usage";
 export const CLI_SAFETY_ARGS: readonly string[] = ["--tools", "", "--no-session-persistence"];
 
 /**
+ * Flags that strip the Claude Code harness context from a non-interactive
+ * run — purely a cost optimization, gated by `cfg.cliLeanMode` (see
+ * `leanArgs` below) so it can be turned off to debug a flow. Safe to gate
+ * precisely because the security-relevant flags live in `CLI_SAFETY_ARGS`
+ * above, which is never gated.
+ *
+ * - `--disable-slash-commands`  skill/slash-command definitions.
+ * - `--strict-mcp-config`       ignore ambient MCP servers (we pass none).
+ * - `--setting-sources ""`      ignore user/project/local settings files.
+ *
+ * `claude -p` is an agent harness, not a bare completion endpoint: invoked
+ * with defaults it prepends its own Claude Code system prompt, the full
+ * built-in tool catalog, discovered CLAUDE.md/AGENTS.md files, MCP server
+ * definitions, and user/project settings to EVERY call. Measured on the
+ * owner's machine, identical trivial task (`reply with exactly: OK`), same
+ * binary, back to back:
+ *
+ *   default flags:     25,664 input tokens (9 input + 7,521 cache-write +
+ *                       18,134 cache-read)  →  $0.017628
+ *   CLI_LEAN_ARGS + --system-prompt:  167 input tokens  →  $0.001011
+ *
+ * 17.4x on a task whose real content is a dozen tokens. None of that
+ * harness context is useful here: the dashboard supplies its own domain
+ * prompt, and the agentic protocol has the SERVER execute tools (the model
+ * only emits a JSON envelope naming them — see `AGENTIC_PROTOCOL_INSTRUCTION`
+ * below and `dashboard/lib/llm-tools/runner.ts`), so Claude's own tools are
+ * never invoked regardless of whether the harness that would offer them is
+ * present.
+ *
+ * Deliberately NOT included: `--bare`, the CLI's own more-minimal mode. It
+ * forces `ANTHROPIC_API_KEY` auth and never reads the OAuth credentials file
+ * the launchd sync maintains (D-025) — under this project's OAuth
+ * single-refresher arrangement that would break authentication outright, not
+ * just skip a cost optimization.
+ */
+export const CLI_LEAN_ARGS: readonly string[] = [
+  "--disable-slash-commands",
+  "--strict-mcp-config",
+  "--setting-sources",
+  "",
+];
+
+/**
+ * Per-call argv prefix that strips the Claude Code harness context (when
+ * `cfg.cliLeanMode` is on) and, for the single-shot path, delivers the
+ * flow's domain content on `--system-prompt`.
+ *
+ * `systemPrompt` here is the exact value that will land in the CLI's
+ * system-prompt channel for this call — for `claudeCliSingleShotOnce` that's
+ * the caller's stable domain block (when the flow is safe to put there — see
+ * `llm-client.ts`'s `CLI_SYSTEM_PROMPT_SAFE_FLOWS`) with `SINGLE_SHOT_PRINT_ARG`
+ * appended as a suffix, or just the shim alone when the flow isn't; for the
+ * agentic path it's always just `AGENTIC_PROTOCOL_INSTRUCTION` (a fixed
+ * constant, so it never varies per call and is always safe to put here).
+ *
+ * `cfg.cliLeanMode = false` restores the previous full-harness behaviour as
+ * an escape hatch: `--system-prompt` is then omitted entirely by this
+ * function (it would REPLACE the harness default, defeating the escape
+ * hatch's whole point), so `claudeCliSingleShotOnce` instead layers the
+ * domain content on top of the harness default via `--append-system-prompt`
+ * (see its own comment).
+ */
+function leanArgs(cfg: DashboardLlmConfig, systemPrompt: string): string[] {
+  // CLI_SAFETY_ARGS is unconditional — see its own comment above. Only the
+  // cost-saving flags are gated.
+  if (!cfg.cliLeanMode) return [...CLI_SAFETY_ARGS];
+  return [...CLI_SAFETY_ARGS, ...CLI_LEAN_ARGS, "--system-prompt", systemPrompt];
+}
+
+/**
  * Run a CLI operation and, on `LLM_CLI_AUTH` failure (typically caused by an
  * out-of-band rotation of the Keychain refresh_token while the container was
  * holding the previous access_token), trigger an on-demand sync of the host
@@ -70,8 +140,27 @@ async function withAuthAutoRecovery<T>(operation: () => Promise<T>): Promise<T> 
 /** Tail size to retain on CliRunnerError details (matches process.ts). */
 const TAIL_MAX_BYTES = 4096;
 
+/**
+ * Protocol shim for the single-shot path. Always constant, always sent as
+ * the SUFFIX of the effective system-prompt content — the domain block (when
+ * present) goes first because that's what needs to be the stable, byte-
+ * identical PREFIX for the CLI's own prompt-cache breakpoint to anchor on
+ * (irrelevant to the token-count win above, which comes from stripping the
+ * harness; relevant to why order matters once a flow does put its stable
+ * block here).
+ *
+ * "Your system prompt (above this instruction)" stays literally true in
+ * every case: with a domain block it's the caller-built `cliSystemPrompt`
+ * (see `claudeCliSingleShotOnce`) delivered via `--system-prompt` (lean mode
+ * on) or `--append-system-prompt` (lean mode off); without one (an unsafe
+ * flow, or a call with no domain prompt at all) it's just this shim, and
+ * stdin's own `## system` section (built by `llm-client.ts`) carries
+ * whatever domain content didn't go on the flag.
+ */
 const SINGLE_SHOT_PRINT_ARG = `You are the dashboard assistant.
-The UTF-8 stdin contains the full multi-section prompt (## system, ## user, etc.).
+Your system prompt (above this instruction) may carry the flow's domain
+instructions. The UTF-8 stdin carries the per-call context and task (## system
+for any domain content not delivered above, ## user, ## assistant, etc.).
 Execute the task and write the answer to stdout only.`;
 
 const AGENTIC_PROTOCOL_INSTRUCTION = `You are the dashboard agentic planner. Reply with ONE JSON object only, no markdown fences, no prose.
@@ -107,8 +196,38 @@ function buildAgenticStdin(transcript: string): string {
 
 export interface ClaudeCliSingleShotInput {
   cfg: DashboardLlmConfig;
-  /** Full user-facing prompt (system + task combined when only one block is needed). */
+  /**
+   * Task body written to stdin. When `systemPrompt` is set, this is the
+   * flow's volatile context (if any) plus the conversation turns — the
+   * caller (`llm-client.ts`) strips the stable domain block out of it so it
+   * isn't sent twice. When `systemPrompt` is omitted, this is the full
+   * combined prompt exactly as before this driver supported a separate
+   * system-prompt channel.
+   */
   prompt: string;
+  /**
+   * The flow's domain system-prompt content, delivered ahead of the
+   * protocol shim via `--system-prompt` (lean mode on) or
+   * `--append-system-prompt` (lean mode off) — never silently dropped.
+   *
+   * Only ever set by the caller for flows on the
+   * `CLI_SYSTEM_PROMPT_SAFE_FLOWS` allow-list (`llm-client.ts`) — every
+   * other flow's `buildSystemPrompt().stable` was found, on audit, to
+   * interpolate per-call data (a serialized dashboard, query results, a
+   * role, an existing-dashboard list) straight into what the rest of the
+   * app treats as the cache-stable prefix. Putting per-call data on this
+   * flag would mean it lands on `--system-prompt`, the one channel this
+   * driver also uses (lean mode off) via `--append-system-prompt` — both are
+   * meant to be call-invariant, so a `--system-prompt`/`--append-system-prompt`
+   * mismatch there would be silent, not a crash. See
+   * `docs/decisions/D-046-cli-lean-mode-and-kill-switch.md`.
+   *
+   * Omit (or pass `""`) for a call with no separately-delivered domain
+   * prompt — the system-prompt channel then carries just the protocol shim
+   * (or, lean mode off, nothing beyond the harness default), and the caller
+   * is expected to have folded ALL domain content into `prompt` instead.
+   */
+  systemPrompt?: string;
 }
 
 /**
@@ -134,14 +253,34 @@ export function claudeCliSingleShot(
 async function claudeCliSingleShotOnce(
   input: ClaudeCliSingleShotInput,
 ): Promise<ClaudeCliSingleShotResult> {
-  const { cfg, prompt } = input;
+  const { cfg, prompt, systemPrompt } = input;
+  const domainPrompt = systemPrompt ?? "";
+  // The domain block (when present) is a PREFIX of the flag value, the shim
+  // a SUFFIX — see SINGLE_SHOT_PRINT_ARG's doc comment for why that ordering
+  // is what makes the block cacheable.
+  const cliSystemPrompt = domainPrompt
+    ? `${domainPrompt}\n\n${SINGLE_SHOT_PRINT_ARG}`
+    : SINGLE_SHOT_PRINT_ARG;
+  // `leanArgs` only actually emits `--system-prompt` (which REPLACES the
+  // harness's default system prompt) when `cfg.cliLeanMode` is on. The
+  // escape hatch (`cliLeanMode: false`) exists specifically to restore that
+  // harness default, so reusing `--system-prompt` here would fight the
+  // escape hatch's whole point. `--append-system-prompt` layers our domain
+  // content ON TOP of the harness default instead of replacing it, so lean
+  // mode off still gets the full harness context AND the domain prompt is
+  // never silently dropped. Only emitted when there IS a domain prompt to
+  // deliver — with none, lean-mode-off behaves exactly as before this
+  // driver supported a separate system-prompt channel at all.
+  const appendSystemPromptArgs: string[] =
+    !cfg.cliLeanMode && domainPrompt ? ["--append-system-prompt", cliSystemPrompt] : [];
   // `--output-format json` (was `text`): the JSON envelope carries `usage`
   // and `total_cost_usd` alongside `result`. The text format carries
   // neither, which is why every `cli` row in `llm_usage` used to read zero
   // tokens no matter how large the call.
   const args = [
     ...cfg.cliExtraArgs,
-    ...CLI_SAFETY_ARGS,
+    ...leanArgs(cfg, cliSystemPrompt),
+    ...appendSystemPromptArgs,
     "-p",
     SINGLE_SHOT_PRINT_ARG,
     "--model",
@@ -526,9 +665,12 @@ async function claudeCliAgenticStepOnce(input: ClaudeCliAgenticStepInput): Promi
   // (sawAnyDelta below). On older binaries that ignore --include-partial-messages
   // no deltas arrive — we then fall back to the cumulative assistant message
   // and emit it as a single chunk.
+  // AGENTIC_PROTOCOL_INSTRUCTION is a fixed constant (never interpolates
+  // per-call data), so it's always safe to hand to leanArgs — unlike the
+  // single-shot path there is no per-flow allow-list to consult here.
   const args = [
     ...cfg.cliExtraArgs,
-    ...CLI_SAFETY_ARGS,
+    ...leanArgs(cfg, printArg),
     "-p",
     printArg,
     "--model",

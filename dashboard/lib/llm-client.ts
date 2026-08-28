@@ -30,6 +30,7 @@ import {
 import { createDashboardAgenticAdapter } from "./llm-provider/registry";
 import { logUsage } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
+import { assertLlmEnabled } from "./llm-enabled";
 import type { DashboardLlmFlow, DashboardLlmProviderId } from "./llm-provider/types";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
@@ -127,6 +128,54 @@ function assembleSystemPrompt(req: LlmRequest): string {
 }
 
 /**
+ * Flows whose `buildSystemPrompt().stable` is proven independent of
+ * per-call `vars` — the only flows allowed to put their `stable` content on
+ * the CLI's `--system-prompt` / `--append-system-prompt` flag (see
+ * `claudeCliSingleShot`'s `systemPrompt` param and its own doc comment).
+ * `lib/__tests__/llm-client-cli-system-prompt-safe.test.ts` asserts the
+ * invariant for exactly this set — a flow that starts interpolating vars
+ * into `stable` fails that test immediately, before it could ever leak
+ * per-call data onto the flag.
+ *
+ * Audited 2026-08-28 while wiring lean CLI mode
+ * (`docs/decisions/D-046-cli-lean-mode-and-kill-switch.md`). Every case in
+ * `lib/llm-context/system-prompt.ts`'s `buildSystemPrompt` switch:
+ *
+ * - `generate`  — stable is a fixed role header + static knowledge; `vars`
+ *   is unused. SAFE.
+ * - `modify`    — stable never touches `vars.currentSpec` (that travels in
+ *   `volatile`, correctly). SAFE.
+ * - `chat`      — `buildFreeChatContext()` takes no arguments at all. SAFE.
+ * - `title`     — a fixed instruction string; no vars. SAFE.
+ * - `summary`   — falls through the switch's `default` to `{ stable: "" }`;
+ *   trivially vars-independent. SAFE.
+ * - `analyze`   — embeds `vars.serializedData` (the dashboard's actual data)
+ *   and, when set, `vars.dashboardId`, directly into the single string
+ *   returned as `stable` — there is no `volatile` split at all for this
+ *   flow. NOT SAFE.
+ * - `weekly`    — embeds `vars.queryResults`, `vars.reviewedWeekDescription`
+ *   and `vars.generationMode` directly into `stable`, same problem. NOT SAFE.
+ * - `suggest`   — embeds `vars.role` and `vars.existingDashboards`. NOT SAFE.
+ * - `gap`       — embeds `vars.existingDashboards`. NOT SAFE.
+ *
+ * The four unsafe flows are not fixed here (splitting them into a genuine
+ * stable/volatile shape is real surgery on business-critical prompts —
+ * weekly review, dashboard analysis — outside the scope of this change) and
+ * are simply excluded from `--system-prompt` routing: their full
+ * stable+volatile content keeps going through stdin exactly as it did
+ * before lean mode existed (see the CLI branch below). They still benefit
+ * from `CLI_LEAN_ARGS` stripping the harness, just not from the CLI's
+ * prompt-cache anchoring to a stable domain block.
+ */
+export const CLI_SYSTEM_PROMPT_SAFE_FLOWS = new Set([
+  "generate",
+  "modify",
+  "chat",
+  "title",
+  "summary",
+]);
+
+/**
  * Build messages for OpenRouter, applying `cache_control: ephemeral` to the
  * stable portion of the system prompt when non-empty. The volatile portion is
  * appended as a separate uncached text block so it does not bust the cache.
@@ -167,6 +216,11 @@ function buildMessagesPlain(req: LlmRequest): ChatCompletionMessageParam[] {
  * circuit-breaker, and error propagation.
  */
 export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
+  // Master kill switch — first thing, before any provider work. See
+  // `lib/llm-enabled.ts` and D-046. The agentic path is a separate seam
+  // (`assembleRequest`'s agentic branch, which never calls this function).
+  assertLlmEnabled();
+
   const cfg = loadDashboardLlmConfig();
   const dFlow = narrowDashboardLlmFlow(req.flow);
   const model = getEffectiveDashboardModel(cfg, dFlow);
@@ -182,7 +236,18 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
 
   // ── CLI provider ────────────────────────────────────────────────────────────
   if (cfg.provider === "cli") {
-    const messages = buildMessagesPlain(req);
+    // Safe flows: the stable domain block goes on --system-prompt (see
+    // CLI_SYSTEM_PROMPT_SAFE_FLOWS), so it must NOT also appear in stdin —
+    // that would double-bill it as tokens for no benefit. stdin then carries
+    // only the volatile part (if any) plus the conversation turns.
+    // Unsafe flows: unchanged from before lean mode existed — stable +
+    // volatile combined into stdin's system section, nothing on the flag.
+    const cliSystemPromptSafe = CLI_SYSTEM_PROMPT_SAFE_FLOWS.has(req.flow);
+    const cliSystemPrompt = cliSystemPromptSafe ? req.systemPrompt.stable : "";
+    const stdinReq: LlmRequest = cliSystemPromptSafe
+      ? { ...req, systemPrompt: { stable: "", volatile: req.systemPrompt.volatile } }
+      : req;
+    const messages = buildMessagesPlain(stdinReq);
     const combined = messages
       .map((m) => {
         const body = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
@@ -191,7 +256,7 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
       .join("\n\n");
 
     const { text, usage: cliUsage } = await callWithCircuitBreaker(() =>
-      claudeCliSingleShot({ cfg, prompt: combined }),
+      claudeCliSingleShot({ cfg, prompt: combined, systemPrompt: cliSystemPrompt }),
     );
 
     // Real token counts + the CLI's own `total_cost_usd`, instead of the

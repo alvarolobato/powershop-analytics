@@ -3,6 +3,8 @@
  *
  * `assembleRequest(flow, vars, conversationId, userMessage, opts)` is the
  * single entry point for all LLM calls in the dashboard.  It:
+ *  0. Checks the daily spend cap via `checkDailyBudget()` — pre-flight, once,
+ *     before either execution path (see the note on this below)
  *  1. Builds the system prompt via `buildSystemPrompt(flow, vars)`
  *  2. Loads conversation history via `buildHistory(conversationId, opts)`
  *  3. Resolves the tool catalog via `toolsForFlow(flow)`
@@ -12,6 +14,26 @@
  *
  * All imports of `llmComplete` and `runAgenticChat` in the dashboard must go
  * through this file.  CI enforces this via `dashboard/scripts/check-llm-context.sh`.
+ *
+ * ## Budget check: one seam, not eight
+ *
+ * `checkDailyBudget()` used to be called individually at the top of every
+ * public function in `lib/llm.ts` (`generateDashboard`, `modifyDashboard`,
+ * `suggestDashboards`, `analyzeGaps`, `analyzeDashboard`,
+ * `generateReviewWithProgress`, `generateReview`, `generateSuggestions` — 8
+ * call sites, one per flow), specifically to keep it OUTSIDE this module. A
+ * new flow that forgot to add its own call would silently bypass the daily
+ * cap — the exact class of bug this collapse removes by construction.
+ *
+ * It now runs here, pre-flight, ONCE, before either branch below — not
+ * inside `llmComplete` per call. That distinction matters for the agentic
+ * path: an agentic dashboard-generation run can make several tool-round
+ * model calls, and checking per-call would let a run that crosses the cap
+ * mid-flight die after N rounds with the spend already incurred and a
+ * half-built spec on the floor. Checking once, before either path starts,
+ * preserves the original fail-before-any-spend semantics while still
+ * covering every flow from a single call site. See
+ * `docs/decisions/D-046-cli-lean-mode-and-kill-switch.md`.
  */
 
 import {
@@ -21,7 +43,8 @@ import {
 } from "@/lib/llm-client";
 import { runAgenticChat } from "@/lib/llm-tools/runner";
 import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
-import { logUsage } from "@/lib/llm-usage";
+import { logUsage, checkDailyBudget } from "@/lib/llm-usage";
+import { assertLlmEnabled } from "@/lib/llm-enabled";
 import {
   loadDashboardLlmConfig,
   getEffectiveDashboardModel,
@@ -88,6 +111,11 @@ export async function assembleRequest(
   userMessage: string,
   opts?: AssembleExecutionOpts,
 ): Promise<AssembleResult> {
+  // 0. Daily spend cap — pre-flight, before either execution path. See the
+  // module doc comment ("Budget check: one seam, not eight") for why this
+  // lives here instead of inside llmComplete or at each lib/llm.ts call site.
+  await checkDailyBudget();
+
   // 1. Build system prompt
   const { stable, volatile } = buildSystemPrompt(flow, vars);
 
@@ -143,6 +171,11 @@ export async function assembleRequest(
 
   // 5. Execute — only route through agentic when the flow has tools.
   if (isAgenticToolsEnabled() && tools.length > 0) {
+    // Master kill switch — the second (and last) of the two seams every LLM
+    // call passes through; llmComplete guards the single-shot branch below.
+    // See `lib/llm-enabled.ts` and D-046.
+    assertLlmEnabled();
+
     const adapter = createDashboardAgenticAdapter();
 
     // Build the ctx, falling back to a minimal one if the caller didn't provide it

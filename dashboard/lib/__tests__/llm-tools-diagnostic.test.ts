@@ -24,6 +24,7 @@ const orCfg: DashboardLlmConfig = {
   cliExtraArgs: [],
   cliTimeoutMs: 5000,
   cliMaxCaptureBytes: 1_000_000,
+  cliLeanMode: true,
 };
 
 const cliCfg: DashboardLlmConfig = { ...orCfg, provider: "cli" };
