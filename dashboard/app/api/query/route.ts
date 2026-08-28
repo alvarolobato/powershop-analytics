@@ -21,6 +21,7 @@ import {
   QueryTimeoutError,
   ConnectionError,
 } from "@/lib/db";
+import { logQueryError } from "@/lib/query-errors";
 import {
   formatApiError,
   generateRequestId,
@@ -148,6 +149,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   // Execute the query
+  const startedAt = Date.now();
   try {
     const result = await query(sql, params.length > 0 ? params : undefined);
     const response = NextResponse.json(result);
@@ -167,6 +169,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (err instanceof QueryTimeoutError) {
       console.error(`[${requestId}] Timeout en consulta SQL:`, err);
+      // Awaited, not fire-and-forget: the response is already an error, so a
+      // few ms cost nothing, and durability is the entire point — a detached
+      // promise can lose the row. logQueryError never throws.
+      await logQueryError({
+        requestId,
+        code: "TIMEOUT",
+        sqlText: sql,
+        paramCount: params.length,
+        durationMs: Date.now() - startedAt,
+        error: err,
+      });
       return NextResponse.json(
         formatApiError(
           "La consulta excedió el tiempo máximo de espera.",
@@ -179,6 +192,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
     if (err instanceof ConnectionError) {
       console.error(`[${requestId}] Error de conexión a la base de datos:`, err);
+      // Awaited, not fire-and-forget: the response is already an error, so a
+      // few ms cost nothing, and durability is the entire point — a detached
+      // promise can lose the row. logQueryError never throws.
+      await logQueryError({
+        requestId,
+        code: "DB_CONNECTION",
+        sqlText: sql,
+        paramCount: params.length,
+        durationMs: Date.now() - startedAt,
+        error: err,
+      });
       return NextResponse.json(
         formatApiError(
           "No se pudo conectar a la base de datos. Inténtalo de nuevo más tarde.",
@@ -201,6 +225,21 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       (code.startsWith("22") || code.startsWith("42"));
 
     if (isClientError) {
+      // No console.error here historically — this branch is where PG class 22/42
+      // lands, i.e. exactly where "there is no parameter $1" (42P02) arrives,
+      // and it produced no trace at all. Log it AND persist it.
+      console.error(`[${requestId}] Error de consulta SQL (cliente):`, err);
+      // Awaited, not fire-and-forget: the response is already an error, so a
+      // few ms cost nothing, and durability is the entire point — a detached
+      // promise can lose the row. logQueryError never throws.
+      await logQueryError({
+        requestId,
+        code: "DB_QUERY",
+        sqlText: sql,
+        paramCount: params.length,
+        durationMs: Date.now() - startedAt,
+        error: err,
+      });
       return NextResponse.json(
         formatApiError(
           "Error en la consulta SQL. Verifica la sintaxis.",
@@ -213,6 +252,17 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     }
 
     console.error(`[${requestId}] Error inesperado al ejecutar consulta SQL:`, err);
+    // Awaited, not fire-and-forget: the response is already an error, so a
+    // few ms cost nothing, and durability is the entire point — a detached
+    // promise can lose the row. logQueryError never throws.
+    await logQueryError({
+      requestId,
+      code: "UNKNOWN",
+      sqlText: sql,
+      paramCount: params.length,
+      durationMs: Date.now() - startedAt,
+      error: err,
+    });
     return NextResponse.json(
       formatApiError(
         "Error inesperado al ejecutar la consulta.",

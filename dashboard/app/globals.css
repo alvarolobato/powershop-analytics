@@ -120,6 +120,24 @@ body {
 }
 
 /* ============================================================
+   Mobile shell height (mobile item 5)
+   ============================================================
+   layout.tsx's <body> was `height: "100vh"` inline. On iOS Safari `100vh`
+   is the address-bar-collapsed viewport, which never collapses here
+   because scrolling happens inside <main>, not the document — so the last
+   ~55px of every screen sit below the fold. `100dvh` tracks the dynamic
+   toolbar; a browser without `dvh` support keeps the `vh` declaration
+   above it (later, unsupported values are ignored, not applied as 0).
+   Lives in a class rather than inline so it never collides with a
+   responsive Tailwind display class the way an inline `display` would
+   (D-120) — not a live collision on <body> today, but the safer default.
+   ============================================================ */
+.app-shell {
+  height: 100vh;
+  height: 100dvh;
+}
+
+/* ============================================================
    Main content area — default padding; dashboard pages opt out
    ============================================================ */
 
@@ -130,6 +148,252 @@ body {
 /* Dashboard view pages manage their own internal padding */
 .main-content:has([data-no-main-padding]) {
   padding: 0;
+}
+
+/* ============================================================
+   Horizontal padding token (mobile item 2)
+   ============================================================
+   `--pad-x` ALWAYS resolves (this bare `:root` rule carries no attribute
+   selector, so it applies at every width): it defaults to whatever `--pad`
+   already is for the current density (20/14/28 comfort/compact/spacious),
+   which makes desktop pixel-identical by construction — a consumer that
+   reads `var(--pad-x)` unconditionally, not gated by its own breakpoint
+   media query, still gets the correct desktop value. Below 768px it
+   shrinks, compressed but keeping each density's original ordering
+   (compact < comfort < spacious: 14 < 20 < 28 → 10 < 12 < 16).
+
+   Every shared horizontal-padding layer reads `--pad-x` for left/right —
+   `.main-content` (below), `.admin-chrome-content`, `.conv-page-header` /
+   `.conv-page-content`, `.paneles-page` — never just the one page that
+   happened to get reported.
+
+   Every media query in this file that plays the "below md" half of the
+   breakpoint pair uses `max-width: 767.98px`, not a bare `767px`: Tailwind's
+   `md:` utilities are `min-width: 768px` with no explicit upper bound, so
+   at a fractional viewport (browser zoom or fractional device-pixel
+   scaling can genuinely produce e.g. 767.5px) a bare `max-width: 767px`
+   would miss it while `md:hidden`/`md:flex` already resolved to the mobile
+   side — the display toggle and this file's own padding/sizing rules would
+   disagree at that one width. `.98` closes that gap without ever
+   overlapping 768px itself.
+   ============================================================ */
+:root {
+  --pad-x: var(--pad);
+}
+
+@media (max-width: 767.98px) {
+  :root[data-density="compact"] {
+    --pad-x: 10px;
+  }
+  :root[data-density="comfort"],
+  :root:not([data-density]) {
+    --pad-x: 12px;
+  }
+  :root[data-density="spacious"] {
+    --pad-x: 16px;
+  }
+
+  /* `.main-content` itself: top/bottom stay on `--pad`; only left/right
+     move. */
+  .main-content {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* AdminChrome.tsx's content div — wraps every /admin/* page. Desktop stays
+   exactly `var(--pad, 20px)` on every side (unchanged); only the phone
+   media query below narrows left/right to `--pad-x`. */
+.admin-chrome-content {
+  padding: var(--pad, 20px);
+}
+
+@media (max-width: 767.98px) {
+  .admin-chrome-content {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* app/conversations/page.tsx's header + content shells. Top/bottom stay
+   the page's original literals (20/12 and 12/24); only left/right narrow
+   below 768px. */
+.conv-page-header {
+  padding: 20px 20px 12px;
+}
+@media (max-width: 767.98px) {
+  .conv-page-header {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+.conv-page-content {
+  padding: 12px 20px 24px;
+}
+@media (max-width: 767.98px) {
+  .conv-page-content {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* app/paneles/page.tsx's root shell. */
+.paneles-page {
+  padding: 24px 20px;
+}
+@media (max-width: 767.98px) {
+  .paneles-page {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* ============================================================
+   /conversations list — phone-width tap targets (mobile item 3)
+   ============================================================
+   ConversationRowActions.tsx and ConversationsTable.tsx style everything
+   with inline `style` objects. The two row-action icon buttons and the
+   bulk-action bar's buttons need the 44px tap-target floor on a touch
+   screen, but a pointer device does not — applying it unconditionally
+   would cost real desktop density. Every value below is a static literal
+   per breakpoint (nothing derived from a prop or state), so it lives here
+   rather than fighting inline-style specificity — no `!important`.
+   ============================================================ */
+
+/* Row-action icon buttons (👁 / ⊞). No desktop declaration at all — the
+   inline style's own padding/fontSize sizes them exactly as before. */
+@media (max-width: 767.98px) {
+  .conv-row-action-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* The Acciones <col>. A `tableLayout: fixed` table sizes columns purely
+   from <col> widths, so this has to track the button size above. */
+.conv-col-acciones {
+  width: 90px;
+}
+@media (max-width: 767.98px) {
+  .conv-col-acciones {
+    width: 116px;
+  }
+}
+
+/* Bulk-action bar buttons ("Archivar/Desarchivar seleccionadas",
+   "Cancelar"). Desktop keeps the compact 4px/10px padding the inline
+   styles set. */
+@media (max-width: 767.98px) {
+  .conv-bulk-btn {
+    min-height: 44px;
+    padding: 10px 14px;
+  }
+  .conv-bulk-cancel {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 10px 12px;
+  }
+}
+
+/* ============================================================
+   Wide-content horizontal scroll (mobile item 9)
+   ============================================================
+   Charts (SVG viewBox-scaled) and fixed-layout tables silently shrink or
+   truncate their content at phone widths instead of overflowing visibly —
+   at 390px a viewBox scale factor around 0.4 renders 10px axis labels at
+   ~4px, and a fixed-layout table truncates "280.000 €" to "28…". A
+   scrollbar is a better failure mode than losing data silently. Apply to
+   the widget/table's own outer wrapper — not globally — so the page body
+   itself never scrolls horizontally.
+
+   Must stay inside the `max-width: 767.98px` media query: `.scroll-x-inner`'s
+   480px floor is a phone-only mitigation. Left unscoped, it also fires on a
+   1440px laptop with the chat sidebar open — a half-width chart column
+   there lands around 476–518px, under the 480px floor, so the "phone-only"
+   fix clipped desktop charts behind a scrollbar too (PR #894 review).
+   ============================================================ */
+@media (max-width: 767.98px) {
+  .scroll-x-wrapper {
+    overflow-x: auto;
+  }
+  /* Independent utility, not a child combinator — a component applies it to
+     whichever element (an <svg>, a <table>) actually needs the floor,
+     regardless of DOM nesting depth relative to .scroll-x-wrapper. */
+  .scroll-x-inner {
+    min-width: 480px;
+  }
+}
+
+/* ============================================================
+   iOS input-zoom fix (mobile item 6)
+   ============================================================
+   iOS Safari zooms in when a form field under 16px receives focus and
+   never zooms back out on blur, leaving the page misaligned. Confirmed
+   sub-16px inline font sizes on live form controls below 768px (e.g.
+   NewConversationDialog's textarea at 13px, ConversationListSidebar's
+   search input at 12px) — `!important` is the deliberate exception here
+   (per D-121's "never !important for breakpoint divergence" — this isn't
+   a breakpoint divergence, it competes against inline styles that would
+   otherwise need editing one at a time across the whole app, and iOS's
+   auto-zoom is exactly the kind of browser default `!important` exists
+   to override).
+   ============================================================ */
+@media (max-width: 767.98px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ============================================================
+   Filter-bar input height (PR #894 review, also-fix item)
+   ============================================================
+   FilterBar's (app/conversations/page.tsx) search/date inputs were a
+   fixed `height: 30` in their inline style — fine at the 12px `fontSize`
+   the same style object set, but the iOS input-zoom fix directly above
+   forces `font-size: 16px !important` on every input below 768px. Border-
+   box, 5px vertical padding, 1px border each side: 30px leaves 18px of
+   content-box height, and a 16px line box (~19px) no longer fits —
+   clipped by ~1px. `height` was deleted from FilterBar's inline
+   `inputStyle` object (an inline value on the same property would always
+   beat this class — D-120) and moved here so it can grow only below the
+   breakpoint where the 16px override actually applies; desktop keeps the
+   original 30px.
+   ============================================================ */
+.filter-bar-input {
+  height: 30px;
+}
+
+@media (max-width: 767.98px) {
+  .filter-bar-input {
+    height: 34px;
+  }
+}
+
+/* ============================================================
+   TopBar freshness text — one line, ellipsize on phones (mobile item 11,
+   PR #894 review, finding 4)
+   ============================================================
+   The stale-data freshness string ("Datos desactualizados desde hace…")
+   is the COMMON case, not an edge case, and at 390px only ~110px of the
+   56px-tall header is left for it once the logo, cog and 44px hamburger
+   take their share. Unbounded, it wraps to 2-3 lines and clips inside the
+   fixed-height header. The e2e overflow assertion only checks
+   `scrollWidth` (horizontal), so a vertical wrap like this slips past it —
+   this rule, not a test, is the guard. Desktop has room for the full
+   string, so this only narrows below the breakpoint.
+   ============================================================ */
+@media (max-width: 767.98px) {
+  .topbar-freshness-text {
+    display: inline-block;
+    max-width: 130px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
 }
 
 /* ============================================================

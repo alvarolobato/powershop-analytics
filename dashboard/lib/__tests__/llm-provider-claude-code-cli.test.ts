@@ -18,6 +18,7 @@ import {
   claudeCliSingleShot,
   claudeCliAgenticStep,
   parseStreamJsonLine,
+  CLI_SAFETY_ARGS,
 } from "@/lib/llm-provider/cli/claude-code";
 import { CliRunnerError } from "@/lib/llm-client";
 import type { DashboardLlmConfig } from "@/lib/llm-provider/types";
@@ -152,6 +153,30 @@ describe("parseStreamJsonLine", () => {
     if (r.kind === "result") {
       expect(r.isError).toBe(false);
       expect(r.text).toBe("final output");
+      // No usage/total_cost_usd on this envelope — degrades to null, not zero.
+      expect(r.usage).toBeNull();
+    }
+  });
+
+  it("parses usage + total_cost_usd off the result line", () => {
+    const line = JSON.stringify({
+      type: "result",
+      is_error: false,
+      result: "final output",
+      total_cost_usd: 0.0176284,
+      usage: { input_tokens: 9, output_tokens: 36 },
+    });
+    const r = parseStreamJsonLine(line);
+    expect(r.kind).toBe("result");
+    if (r.kind === "result") {
+      expect(r.usage).toEqual({
+        prompt_tokens: 9,
+        completion_tokens: 36,
+        total_tokens: 45,
+        cache_creation_input_tokens: null,
+        cache_read_input_tokens: null,
+        cost_usd: 0.0176284,
+      });
     }
   });
 
@@ -188,20 +213,142 @@ describe("claudeCliSingleShot", () => {
     mockRunCliProcess.mockReset();
   });
 
-  it("invokes the CLI with the configured args and returns trimmed stdout", async () => {
+  it("invokes the CLI with the configured args and returns trimmed stdout when the output is not a JSON envelope", async () => {
+    // Plain text stdout (no result envelope) — an older binary ignoring
+    // --output-format json, or any other unrecognised shape. Must still work,
+    // just without usage.
     mockRunCliProcess.mockResolvedValueOnce(okResult("  hello world  "));
 
     const out = await claudeCliSingleShot({ cfg, prompt: "do the thing" });
-    expect(out).toBe("hello world");
+    expect(out.text).toBe("hello world");
+    expect(out.usage).toBeNull();
 
     const callArgs = mockRunCliProcess.mock.calls[0][0];
     expect(callArgs.file).toBe("claude");
     expect(callArgs.args).toContain("-p");
     expect(callArgs.args).toContain("--model");
     expect(callArgs.args).toContain("sonnet");
+    expect(callArgs.args).toContain("--output-format");
+    expect(callArgs.args).toContain("json");
     expect(callArgs.args[0]).toBe("--quiet"); // cliExtraArgs prepended
     expect(callArgs.stdin).toBe("do the thing");
     expect(callArgs.timeoutMs).toBe(5000);
+  });
+
+  it("parses the result envelope and returns real usage + total_cost_usd", async () => {
+    mockRunCliProcess.mockResolvedValueOnce(
+      okResult(
+        JSON.stringify({
+          result: "answer text",
+          total_cost_usd: 0.0176284,
+          usage: {
+            input_tokens: 9,
+            output_tokens: 36,
+            cache_creation_input_tokens: 7521,
+            cache_read_input_tokens: 18134,
+          },
+        }),
+      ),
+    );
+
+    const out = await claudeCliSingleShot({ cfg, prompt: "do the thing" });
+    expect(out.text).toBe("answer text");
+    expect(out.usage).toEqual({
+      prompt_tokens: 9,
+      completion_tokens: 36,
+      total_tokens: 45,
+      cache_creation_input_tokens: 7521,
+      cache_read_input_tokens: 18134,
+      cost_usd: 0.0176284,
+    });
+  });
+
+  it("locates the result envelope line-by-line when a stray line precedes it", async () => {
+    // Not hypothetical: a deprecation notice or update nag ahead of the JSON
+    // would break a whole-stdout JSON.parse outright.
+    const stdout = [
+      "A new version of the Claude CLI is available.",
+      JSON.stringify({ result: "answer", total_cost_usd: 0.001, usage: { input_tokens: 1, output_tokens: 2 } }),
+    ].join("\n");
+    mockRunCliProcess.mockResolvedValueOnce(okResult(stdout));
+
+    const out = await claudeCliSingleShot({ cfg, prompt: "x" });
+    expect(out.text).toBe("answer");
+    expect(out.usage).toEqual({
+      prompt_tokens: 1,
+      completion_tokens: 2,
+      total_tokens: 3,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      cost_usd: 0.001,
+    });
+  });
+
+  it("degrades to unmetered-but-working on an envelope missing usage", async () => {
+    mockRunCliProcess.mockResolvedValueOnce(
+      okResult(JSON.stringify({ result: "answer only" })),
+    );
+
+    const out = await claudeCliSingleShot({ cfg, prompt: "x" });
+    expect(out.text).toBe("answer only");
+    expect(out.usage).toBeNull();
+  });
+
+  it("degrades to unmetered-but-working on an envelope missing total_cost_usd", async () => {
+    mockRunCliProcess.mockResolvedValueOnce(
+      okResult(
+        JSON.stringify({ result: "answer", usage: { input_tokens: 5, output_tokens: 7 } }),
+      ),
+    );
+
+    const out = await claudeCliSingleShot({ cfg, prompt: "x" });
+    expect(out.text).toBe("answer");
+    expect(out.usage).toEqual({
+      prompt_tokens: 5,
+      completion_tokens: 7,
+      total_tokens: 12,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      cost_usd: null,
+    });
+  });
+
+  it("ignores extra unknown fields on the envelope without failing", async () => {
+    mockRunCliProcess.mockResolvedValueOnce(
+      okResult(
+        JSON.stringify({
+          result: "answer",
+          total_cost_usd: 0.002,
+          usage: { input_tokens: 3, output_tokens: 4 },
+          modelUsage: { "claude-x": { costUSD: 0.002 } },
+          session_id: "some-uuid",
+          unexpected_new_field: { nested: true },
+        }),
+      ),
+    );
+
+    const out = await claudeCliSingleShot({ cfg, prompt: "x" });
+    expect(out.text).toBe("answer");
+    expect(out.usage?.cost_usd).toBe(0.002);
+    expect(out.usage?.prompt_tokens).toBe(3);
+  });
+
+  it("always includes CLI_SAFETY_ARGS in argv, unconditionally", async () => {
+    mockRunCliProcess.mockResolvedValueOnce(okResult("hello"));
+
+    await claudeCliSingleShot({ cfg, prompt: "do the thing" });
+
+    const callArgs = mockRunCliProcess.mock.calls[0][0];
+    expect(callArgs.args).toContain("--tools");
+    // "--tools" must be immediately followed by an empty string, not just
+    // present somewhere in argv — the empty value is what actually disables
+    // the built-in tool catalog.
+    const toolsIdx = callArgs.args.indexOf("--tools");
+    expect(callArgs.args[toolsIdx + 1]).toBe("");
+    expect(callArgs.args).toContain("--no-session-persistence");
+    for (const flag of CLI_SAFETY_ARGS) {
+      expect(callArgs.args).toContain(flag);
+    }
   });
 
   it("throws LLM_CLI_EMPTY when the CLI returns empty stdout on success", async () => {
@@ -247,6 +394,35 @@ describe("claudeCliAgenticStep", () => {
     if (step.kind === "final") {
       expect(step.content).toBe("answer");
     }
+  });
+
+  it("forwards this round's usage from the result line onto the step", async () => {
+    const finalText = '{"kind":"final","content":"answer"}';
+    mockRunCliProcessStreaming.mockImplementation(
+      makeStreamingMock([
+        JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: finalText }] } }),
+        JSON.stringify({
+          type: "result",
+          is_error: false,
+          result: finalText,
+          total_cost_usd: 0.004,
+          usage: { input_tokens: 12, output_tokens: 8 },
+        }),
+      ]),
+    );
+
+    const step = await claudeCliAgenticStep({
+      cfg,
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(step.usage).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 8,
+      total_tokens: 20,
+      cache_creation_input_tokens: null,
+      cache_read_input_tokens: null,
+      cost_usd: 0.004,
+    });
   });
 
   it("parses a 'tools' step from stream-json result line", async () => {
@@ -378,5 +554,23 @@ describe("claudeCliAgenticStep", () => {
     expect(callArgs.args).toContain("stream-json");
     expect(callArgs.args).toContain("--verbose");
     expect(callArgs.args).toContain("--include-partial-messages");
+  });
+
+  it("always includes CLI_SAFETY_ARGS in argv, unconditionally", async () => {
+    const finalText = '{"kind":"final","content":"ok"}';
+    mockRunCliProcessStreaming.mockImplementation(
+      makeStreamingMock(makeStreamJsonResult(finalText)),
+    );
+
+    await claudeCliAgenticStep({ cfg, messages: [{ role: "user", content: "x" }] });
+
+    const callArgs = mockRunCliProcessStreaming.mock.calls[0][0];
+    const toolsIdx = callArgs.args.indexOf("--tools");
+    expect(toolsIdx).toBeGreaterThanOrEqual(0);
+    expect(callArgs.args[toolsIdx + 1]).toBe("");
+    expect(callArgs.args).toContain("--no-session-persistence");
+    for (const flag of CLI_SAFETY_ARGS) {
+      expect(callArgs.args).toContain(flag);
+    }
   });
 });

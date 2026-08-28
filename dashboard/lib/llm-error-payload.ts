@@ -6,11 +6,7 @@
  * modify, analyze) stay in lock-step without duplicating logic.
  */
 
-import {
-  AgenticRunnerError,
-  BudgetExceededError,
-  CircuitBreakerOpenError,
-} from "@/lib/llm";
+import { AgenticRunnerError } from "@/lib/llm";
 import {
   formatApiError,
   sanitizeErrorMessage,
@@ -22,6 +18,7 @@ import {
   buildAgenticErrorDiagnostic,
   persistAgenticError,
 } from "@/lib/llm-tools/diagnostic";
+import { classifyGuardError } from "@/lib/llm-guard-response";
 
 interface ClassifiedLlmError {
   status: number;
@@ -44,20 +41,12 @@ function classifyLlmError(
   err: unknown,
   _requestId: string,
 ): ClassifiedLlmError {
-  if (err instanceof BudgetExceededError) {
-    return {
-      status: 429,
-      code: "LLM_BUDGET_EXCEEDED",
-      userMessage: err.message,
-    };
-  }
-
-  if (err instanceof CircuitBreakerOpenError) {
-    return {
-      status: 503,
-      code: "LLM_CIRCUIT_OPEN",
-      userMessage: err.message,
-    };
+  // BudgetExceededError / CircuitBreakerOpenError — shared with the
+  // review/gaps/suggest routes so a guard trip classifies identically
+  // everywhere; see llm-guard-response.ts for why this was split out.
+  const guard = classifyGuardError(err);
+  if (guard) {
+    return { status: guard.status, code: guard.code, userMessage: guard.message };
   }
 
   const message = err instanceof Error ? err.message : String(err);

@@ -470,7 +470,8 @@ main() {
     "${PROJECT_DIR}" \
     "${PROJECT_DIR}/data/postgres" \
     "${PROJECT_DIR}/data/qdrant" \
-    "${PROJECT_DIR}/data/wren"
+    "${PROJECT_DIR}/data/wren" \
+    "${PROJECT_DIR}/data/dashboard/conversations"
 
   # Config dir: stores dashboard settings (config.yaml written by /admin/config UI).
   # Must exist on the host and be :rw-mounted into the dashboard container.
