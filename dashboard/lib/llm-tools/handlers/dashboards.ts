@@ -131,7 +131,10 @@ export async function handleListDashboards(
         updated_at: r.updated_at,
       })),
     });
-  } catch {
+  } catch (err) {
+    // The model only ever sees "Could not list dashboards." — without this the
+    // real Postgres error was destroyed here and existed nowhere else.
+    console.error(`[${ctx.requestId}] list_dashboards failed:`, err);
     return toolError("DB_ERROR", "Could not list dashboards.", ctx);
   }
 }
@@ -279,7 +282,16 @@ export async function handleGetDashboardWidgetRawValues(
       rows: clippedRows,
       truncated: res.rows.length > maxRows || res.columns.length > maxColumns,
     });
-  } catch {
+  } catch (err) {
+    // This runs a saved widget's own SQL, so it is exactly where a malformed
+    // generated query shows up (the "there is no parameter $1" class of bug).
+    // The model is handed a generic string on purpose; the cause has to go
+    // somewhere, or the one failure worth diagnosing is the one that leaves
+    // no trace at all.
+    console.error(
+      `[${ctx.requestId}] get_dashboard_widget_raw_values failed (label=${label}):`,
+      err,
+    );
     return toolOk({
       error: "Query execution failed.",
       label,
