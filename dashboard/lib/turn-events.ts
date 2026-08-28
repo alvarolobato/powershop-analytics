@@ -114,6 +114,47 @@ export async function createTurnIfIdle(
   });
 }
 
+/**
+ * Directly insert a `conversation_turns` row for a SYSTEM-initiated background
+ * job — currently only the `start_dashboard_generation` tool (D-049): a full
+ * `generateDashboard()` run cannot fit inside the per-tool dispatch timeout
+ * (15s in prod), so the tool starts it detached and reports progress/result
+ * through a tracking turn instead of blocking the tool call on it.
+ *
+ * Unlike `createTurnIfIdle`, this does NOT reject when another turn is active.
+ * It is not competing for the single-active-turn slot a user-submitted message
+ * uses — it is bookkeeping for work that runs alongside whatever turn (if any)
+ * is currently streaming for this conversation. It still takes the same
+ * per-conversation advisory lock so the `(conversation_id, turn_index)` unique
+ * constraint can't collide with a concurrent `createTurnIfIdle` insert.
+ */
+export async function createBackgroundTurn(
+  conversationId: string,
+  userMessage: string,
+): Promise<string> {
+  return withTransaction(async (client) => {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [conversationId]);
+
+    const inserted = await client.query<{ id: string }>(
+      `INSERT INTO conversation_turns (conversation_id, turn_index, user_message, status, started_at)
+       VALUES (
+         $1,
+         (SELECT COALESCE(MAX(turn_index) + 1, 0)
+            FROM conversation_turns
+           WHERE conversation_id = $1),
+         $2,
+         'streaming',
+         NOW()
+       )
+       RETURNING id`,
+      [conversationId, userMessage],
+    );
+    const row = inserted.rows[0];
+    if (!row?.id) throw new Error("createBackgroundTurn: no row returned");
+    return row.id;
+  });
+}
+
 export async function updateTurnStatus(
   turnId: string,
   status: "pending" | "streaming" | "complete" | "error",

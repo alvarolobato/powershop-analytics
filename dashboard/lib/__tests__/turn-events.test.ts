@@ -17,6 +17,7 @@ vi.mock("@/lib/db-write", () => ({
 
 import {
   createTurnIfIdle,
+  createBackgroundTurn,
   updateTurnStatus,
   insertTurnEvent,
   getTurnWithEvents,
@@ -110,6 +111,48 @@ describe("createTurnIfIdle", () => {
 
     await expect(createTurnIfIdle(CONV_ID, "x")).rejects.toThrow(
       "createTurnIfIdle: no row returned",
+    );
+  });
+});
+
+// D-049: background jobs (start_dashboard_generation) track progress through
+// a system-initiated turn, inserted directly rather than via createTurnIfIdle.
+describe("createBackgroundTurn", () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it("takes the advisory lock (same as createTurnIfIdle) and inserts unconditionally", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // pg_advisory_xact_lock
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID }] }); // insert
+
+    const turnId = await createBackgroundTurn(CONV_ID, "[start_dashboard_generation] Ventas de hoy");
+
+    expect(turnId).toBe(TURN_ID);
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    expect(mockQuery.mock.calls[0][0]).toContain("pg_advisory_xact_lock");
+  });
+
+  it("does NOT check for an active turn — it must succeed while one is already streaming", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] }) // lock
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID }] }); // insert
+
+    await createBackgroundTurn(CONV_ID, "x");
+
+    // Exactly lock + insert — no intervening "active turn" SELECT that could reject it.
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const insertQuery = mockQuery.mock.calls[1][0] as string;
+    expect(insertQuery).toContain("INSERT INTO conversation_turns");
+    expect(insertQuery).toContain("'streaming'");
+  });
+
+  it("throws when the INSERT returns no row", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await expect(createBackgroundTurn(CONV_ID, "x")).rejects.toThrow(
+      "createBackgroundTurn: no row returned",
     );
   });
 });
