@@ -94,6 +94,55 @@ here — this project's decisions live under its own IDs).
    `max-width: 767px` can miss a width where `md:hidden`/`md:flex` already
    resolved to the mobile side, letting the display toggle and this file's
    own padding/sizing rules disagree for that one width.
+10. **Tightening pass (2026-08-28, same-day follow-up)**: a real phone
+    screenshot of `/c/<id>` showed a results table's headers breaking
+    character-by-character ("Referencia" as "Refe / renc / ia") inside an
+    assistant chat bubble, with the table visibly inset from both screen
+    edges. Root cause: `AssistantBubble`'s `word-break: break-word`
+    (needed so long plain-text words don't overflow the bubble) inherited
+    into the markdown table's `th`, and combined with the table's
+    `width: 100%` let the browser fracture header words mid-character
+    instead of leaving them intact and scrolling. Fix, phone-only
+    (`@media (max-width: 767.98px)`, never touching desktop):
+    - `.chat-table-th` gets `white-space: nowrap` below 768px so a header
+      word can never be split; `.scroll-x-inner` (item 8 above, reused
+      as-is) on the `<table>` floors its width at 480px so the now-
+      unbreakable header forces a horizontal scrollbar instead of
+      squeezing columns to nothing.
+    - `.chat-msg-area` (the message-list padding, 16px/14px desktop)
+      narrows to `--pad-x`; `.chat-bubble` widens `max-width` from 85% to
+      92% and tightens its own padding from 12px to 8px per side.
+    - `.chat-table-th`/`.chat-table-td` cell padding narrows from 8px to
+      6px per side (repeats per column, so it gets its own literal rather
+      than reusing `--pad-x`, which is sized for a single page edge).
+    - Three more page-edge layers that never engaged `--pad-x` narrow to
+      it: `.dashboard-header-pad`, `.dashboard-kmode-banner`,
+      `.dashboard-renderer-pad` (all 20px → `--pad-x`).
+    - The `Panel` widget-card component (`.panel-header` 16px → `--pad-x`,
+      `.panel-body` `var(--pad)` → `--pad-x`) — one shared component, so
+      the tightening applies to every widget card on every dashboard at
+      once. `TableWidget.tsx` reuses `.panel-header` for its own header
+      divs (identical 16px/12px shape) and gets a new `.table-widget-cell`
+      class (12px → 8px) for its `th`/`td`.
+    - Measured impact at 390px viewport, comfort density, worst-case chat
+      nesting (assistant bubble containing a markdown table): the fixed
+      horizontal chrome around the table content dropped from 109.7px
+      (28.1% of viewport) to 69.3px (17.8%) — the table's own available
+      width grew from 280.3px to 320.7px (+14.4%). On the dashboard/paneles
+      view, the page-edge-to-widget-content inset dropped from 40px to
+      24px per side (80px → 48px combined).
+    - Deliberately left untouched: the `ThinkingBlock` max-width wrapper
+      (collapsible metadata, not data content, and it has no padding to
+      begin with — adding `.chat-bubble` there would have added padding
+      that never existed on desktop); the `/paneles` dashboard-card grid's
+      own 20px card padding (a single nested card's padding per item 4
+      above, not a `--pad-x` consumer); `WidgetGrid`'s `gap-6` (the grid is
+      always `grid-cols-1` below Tailwind's `lg:` 1024px breakpoint, so the
+      gap only adds vertical space between stacked widgets on a phone —
+      not a horizontal-budget contributor); the docked `ChatSidebar`'s
+      `marginRight: 380` vs. its own `clampSidebarWidth` floor of 280px on
+      a narrow viewport (a pre-existing mismatch, unrelated to the reported
+      bug, that deserves its own fix rather than a drive-by change here).
 
 **Alternatives rejected**: a project-specific breakpoint value (no
 evidence any screen needs a split other than phone-vs-everything-else);
@@ -122,3 +171,8 @@ don't have to be rediscovered here too.
 `dashboard/components/NewConversationDialog.tsx`,
 `dashboard/app/conversations/[id]/page.tsx`,
 `dashboard/e2e/mobile-topbar.spec.ts`, `dashboard/e2e/mobile-conversations.spec.ts`.
+Item 10 (tightening pass): `dashboard/components/ConversationPane.tsx`,
+`dashboard/components/DashboardRenderer.tsx`,
+`dashboard/components/surfaces/DashboardSurface.tsx`,
+`dashboard/components/widgets/TableWidget.tsx`,
+`dashboard/__tests__/globals-d044-tightening-mobile-only.test.ts`.

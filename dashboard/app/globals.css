@@ -397,6 +397,163 @@ body {
 }
 
 /* ============================================================
+   D-044 tightening — chat + paneles horizontal space (issue: a real
+   phone screenshot of `/c/<id>` showed a results table's headers
+   breaking character-by-character — "Referencia" as "Refe / renc / ia" —
+   while the table sat visibly inset from both screen edges)
+   ============================================================
+   Root cause of the character-break: `AssistantBubble`'s wrapper sets
+   `word-break: break-word` (needed so long plain-text words don't
+   overflow the bubble) and that inherits into the markdown table's `th`,
+   which combined with `width: 100%` let the browser fracture header words
+   like "Referencia" mid-character to fit a squeezed column instead of
+   leaving the word intact and scrolling. `.chat-table-th`'s `white-space:
+   nowrap` (phone-only, below) stops that inheritance from ever applying
+   to header text; `.scroll-x-inner` on the `<table>` itself (reused from
+   the D-044 chart wrapper above) floors its width at 480px so the
+   now-unbreakable header forces a horizontal scrollbar on the table
+   instead of squeezing columns to nothing.
+
+   Everything else here is the same D-044 pattern applied one layer
+   further in: the chat message column (`.chat-msg-area`, `.chat-bubble`)
+   and the paneles/dashboard chrome (`.dashboard-header-pad`,
+   `.dashboard-kmode-banner`, `.dashboard-renderer-pad`, `.panel-header`,
+   `.panel-body`, `.table-widget-cell`) each had a literal 16–20px
+   left/right padding that never engaged `--pad-x`. Every rule below is
+   two parts: an unconditional base that reproduces the exact desktop
+   literal (so desktop is pixel-identical to before this PR), then a
+   `max-width: 767.98px` override that narrows it — reusing `--pad-x`
+   wherever the value is a page/card edge, a dedicated tighter literal
+   where it's a repeated-per-cell cost (see `.table-widget-cell`,
+   `.chat-table-th/td` below).
+   ============================================================ */
+
+/* Chat messages column (ConversationPane.tsx). `--panel` is the docked
+   ChatSidebar variant (14px desktop); the standalone `/c/<id>` page uses
+   the bare class (16px desktop). Declaration order matters: `--panel`
+   must come after the base rule so it wins at equal specificity when
+   both classes are present together. */
+.chat-msg-area {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.chat-msg-area--panel {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+@media (max-width: 767.98px) {
+  .chat-msg-area,
+  .chat-msg-area--panel {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* Chat message bubbles (UserBubble/AssistantBubble, ConversationPane.tsx).
+   85%/12px is the current desktop shape; phone widens the cap and tightens
+   the padding so a narrow viewport spends less of its width on chrome
+   around the bubble content. */
+.chat-bubble {
+  max-width: 85%;
+  padding-left: 12px;
+  padding-right: 12px;
+}
+@media (max-width: 767.98px) {
+  .chat-bubble {
+    max-width: 92%;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+/* Chat markdown table (ConversationPane.tsx AssistantBubble). Base
+   matches the original inline "4px 8px" shorthand's 8px horizontal
+   component exactly, so desktop is unchanged. `white-space: nowrap` only
+   needs to apply below 768px because that's the only width narrow enough
+   (full-page chat at 390px, or the docked ChatSidebar panel) to ever
+   squeeze a header this hard — see the root-cause note above; scoping it
+   here keeps desktop table rendering untouched even though the underlying
+   bug is width-triggered, not breakpoint-triggered. */
+.chat-table-th,
+.chat-table-td {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+@media (max-width: 767.98px) {
+  .chat-table-th {
+    white-space: nowrap;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+  .chat-table-td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+}
+
+/* Dashboard view chrome (DashboardSurface.tsx, DashboardRenderer.tsx).
+   All three sit at the same visual left/right edge of the page (the route
+   opts out of `.main-content`'s padding via `data-no-main-padding`), so
+   all three need the same treatment or the edge would zig-zag between
+   sections when only one got fixed. */
+.dashboard-header-pad,
+.dashboard-kmode-banner,
+.dashboard-renderer-pad {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+@media (max-width: 767.98px) {
+  .dashboard-header-pad,
+  .dashboard-kmode-banner,
+  .dashboard-renderer-pad {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* Widget card chrome (`Panel` in DashboardRenderer.tsx — every widget on
+   every dashboard shares this one component, so this single pair of rules
+   tightens every card at once instead of the "fixed one card, still too
+   much margin elsewhere" pattern D-044 called out). `.panel-header` is
+   also reused by TableWidget.tsx's own header divs (identical 16px/12px
+   desktop shape). `.panel-body` mirrors `--pad`, not a literal, so it
+   tracks the density variant on desktop exactly as before. */
+.panel-header {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.panel-body {
+  padding-left: var(--pad, 12px);
+  padding-right: var(--pad, 12px);
+}
+@media (max-width: 767.98px) {
+  .panel-header {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+  .panel-body {
+    padding-left: var(--pad-x, 12px);
+    padding-right: var(--pad-x, 12px);
+  }
+}
+
+/* TableWidget.tsx cell padding. Unlike the page/card edges above, this
+   cost repeats once per column — a 4px-per-side trim compounds across a
+   wide table, so it gets its own tighter literal rather than reusing
+   `--pad-x` (which is sized for a single page edge, not N repeated
+   cells). */
+.table-widget-cell {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+@media (max-width: 767.98px) {
+  .table-widget-cell {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}
+
+/* ============================================================
    Animations
    ============================================================ */
 

@@ -604,13 +604,15 @@ export function DashboardRenderer({
 
   return (
     <div
+      // Left/right padding lives in `.dashboard-renderer-pad` (globals.css)
+      // — unconditional base matches the 20px literal, phone media query
+      // narrows to `--pad-x`.
+      className="dashboard-renderer-pad"
       style={{
         // Top padding gives breathing room between the global filters bar
         // (or page header when no filters are configured) and the first
         // widget row. Token-driven so density variants scale it.
         paddingTop: "var(--gap-section, 1.5rem)",
-        paddingLeft: 20,
-        paddingRight: 20,
         paddingBottom: 24,
       }}
     >
@@ -925,11 +927,17 @@ export function Panel({ title, subtitle, rightSlot, padded = true, tall, childre
     >
       {title && (
         <header
+          // Left/right padding lives in `.panel-header` (globals.css) —
+          // unconditional base matches the 16px literal, phone media
+          // query narrows to `--pad-x`. Every widget card shares this one
+          // component, so the tightening applies everywhere at once.
+          className="panel-header"
           style={{
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "12px 16px",
+            paddingTop: 12,
+            paddingBottom: 12,
             borderBottom: "1px solid var(--border)",
           }}
         >
@@ -946,7 +954,20 @@ export function Panel({ title, subtitle, rightSlot, padded = true, tall, childre
           {rightSlot}
         </header>
       )}
-      <div style={{ padding: padded ? "var(--pad, 12px)" : 0, flex: 1 }}>{children}</div>
+      {/* Left/right padding lives in `.panel-body` (globals.css) when
+          `padded` — unconditional base matches `var(--pad)` exactly,
+          phone media query narrows it to `--pad-x`. `padded=false`
+          (e.g. TableWidget) skips the class entirely so it stays 0. */}
+      <div
+        className={padded ? "panel-body" : undefined}
+        style={{
+          paddingTop: padded ? "var(--pad, 12px)" : 0,
+          paddingBottom: padded ? "var(--pad, 12px)" : 0,
+          flex: 1,
+        }}
+      >
+        {children}
+      </div>
     </section>
   );
 }
