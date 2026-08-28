@@ -8,9 +8,11 @@ on any failure, the whole 5,000-row batch was lost, not just the bad rows.
 
 Two layers now bound the blast radius (see upsert()'s docstring for the
 full incident writeup):
-  1. Pre-filter — rows whose PK is NULL/NaN are dropped before the insert
-     is attempted (a NULL/NaN PK can never satisfy the PK's NOT NULL
-     constraint, so there is no world in which keeping it helps).
+  1. Pre-filter — rows whose PK is NULL are dropped before the insert is
+     attempted (a NULL PK can never satisfy the PK's NOT NULL constraint).
+     A NaN PK is also dropped, but as a policy choice, not because it would
+     violate NOT NULL — Postgres actually accepts a NaN PK (see
+     TestNaNPkPolicyNotConstraint below, and D-050 finding 3).
   2. Row-by-row fallback via SAVEPOINTs — if the batch still fails for an
      unpredictable reason (e.g. an FK violation), the surviving rows are
      retried one at a time so only the offending row(s) are lost. Every
@@ -461,3 +463,51 @@ class TestUpsertRowwiseFallback:
             "the rest of the transaction"
         )
         postgres.drain_skip_log()
+
+
+class TestNaNPkPolicyNotConstraint:
+    """D-050 finding 3: the docstring used to claim a NaN PK can never
+    satisfy NOT NULL. That is false — verify Postgres actually accepts it,
+    so upsert()'s pre-filter rejects it for the real reason (a NaN PK is a
+    meaningless key and the observed signature of a p4d decode failure),
+    not a nonexistent constraint violation."""
+
+    def test_postgres_actually_accepts_a_nan_primary_key(self, scratch_conn):
+        _create_simple_scratch_table(scratch_conn)
+
+        with scratch_conn.cursor() as cur:
+            cur.execute(
+                f"INSERT INTO {_SCRATCH_TABLE} "
+                "(reg_lineas, mes, precio_neto_si) VALUES (%s, %s, %s)",
+                (Decimal("NaN"), 1, Decimal("10.00")),
+            )
+        scratch_conn.commit()
+
+        with scratch_conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {_SCRATCH_TABLE}")
+            (count,) = cur.fetchone()
+        assert count == 1, (
+            "Postgres accepts NaN as a primary key value (NaN = NaN is "
+            "true for indexing purposes) — a NaN PK does not violate NOT "
+            "NULL. upsert() still drops it, but as a policy choice against "
+            "a meaningless/corrupted key, not because the database would "
+            "reject it."
+        )
+
+    def test_upsert_still_drops_nan_pk_rows_and_good_rows_survive(self, scratch_conn):
+        _create_simple_scratch_table(scratch_conn)
+
+        batch = [
+            {"reg_lineas": Decimal("70.99"), "mes": 1, "precio_neto_si": Decimal(1)},
+            {"reg_lineas": Decimal("NaN"), "mes": 2, "precio_neto_si": Decimal(2)},
+        ]
+
+        attempted = postgres.upsert(
+            scratch_conn, _SCRATCH_TABLE, batch, pk_cols=["reg_lineas"]
+        )
+
+        assert attempted == 1
+        with scratch_conn.cursor() as cur:
+            cur.execute(f"SELECT COUNT(*) FROM {_SCRATCH_TABLE}")
+            (count,) = cur.fetchone()
+        assert count == 1

@@ -71,12 +71,23 @@ def drain_skip_log() -> list[str]:
 
 
 def _invalid_pk_reason(row: dict, pk_cols: list[str]) -> str | None:
-    """Return why *row* can never satisfy its primary key, or None if it's fine.
+    """Return why *row* is rejected before insert, or None if it's fine.
 
-    A NULL or NaN value in a PK column can never be legally inserted — the
-    column is NOT NULL by definition of being a primary key. There is no
-    point letting Postgres reject it after the fact: reject it in Python,
-    before it can take an entire execute_values() batch down with it.
+    A NULL value in a PK column can never be legally inserted — the column
+    is NOT NULL by definition of being a primary key. There is no point
+    letting Postgres reject it after the fact: reject it in Python, before
+    it can take an entire execute_values() batch down with it.
+
+    A NaN value is a different case: PostgreSQL's NUMERIC/FLOAT types treat
+    NaN as a valid, orderable value (`NaN = NaN` is true for indexing and
+    ON CONFLICT purposes), so a NaN PK does NOT violate NOT NULL — it is
+    accepted and upserts correctly (verified live on Postgres 16). We still
+    reject it, but for a different, real reason: a NaN primary key is never
+    a legitimate business key, and in this pipeline it is the observed
+    signature of a p4d row-decode failure (see the "suspected p4d
+    row-decode desync" note in docs/skills/data-access.md and D-050) —
+    keeping such a row would silently persist corrupted data under a
+    nonsensical key rather than surfacing the decode problem.
     """
     for col in pk_cols:
         value = row.get(col)
@@ -265,12 +276,16 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     Two layers now bound that blast radius to just the bad row(s):
 
       1. Pre-filter — rows whose primary key is NULL or NaN are dropped
-         before the insert is even attempted. A NULL/NaN PK can never
-         satisfy the PK's NOT NULL constraint, so there is no outcome in
-         which keeping it in the batch helps; rejecting it up front is
-         strictly cheaper than letting Postgres reject the whole batch
-         after the fact, and it covers the incident above directly (the
-         ~60 NULL rows all had reg_lineas = NULL).
+         before the insert is even attempted. A NULL PK can never satisfy
+         the PK's NOT NULL constraint. A NaN PK is different: Postgres
+         actually accepts it (NaN = NaN is true for indexing purposes), but
+         it is never a legitimate business key and is the observed
+         signature of a p4d row-decode failure (see _invalid_pk_reason()
+         and D-050), so it is still rejected — just not because of NOT
+         NULL. Rejecting either up front is strictly cheaper than letting
+         Postgres reject the whole batch after the fact, and it covers the
+         incident above directly (the ~60 NULL rows all had
+         reg_lineas = NULL).
       2. Row-by-row fallback (_upsert_rowwise) — if the batch insert still
          fails for a reason the pre-filter can't predict (e.g. an FK
          violation), retry the surviving rows one at a time inside

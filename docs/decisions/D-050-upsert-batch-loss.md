@@ -127,6 +127,21 @@ after the `ROLLBACK TO SAVEPOINT`. Pinned by
 which counts `SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO SAVEPOINT`
 statements and asserts every savepoint issued is released exactly once.
 
+**NaN correction (2026-08-28, post-review finding 3)**: this document and
+`_invalid_pk_reason()`'s docstring originally claimed a NaN PK "can never
+satisfy NOT NULL" — that is factually wrong. Verified live on Postgres 16:
+a NaN PK is **accepted** and upserts correctly (`NaN = NaN` is true for
+Postgres's indexing/equality purposes on `NUMERIC`/`FLOAT` types). Dropping
+NaN PKs is still the right policy, but for the real reason: a NaN primary
+key is never a legitimate business key, and in this pipeline it is the
+observed signature of a p4d row-decode failure (see the "suspected p4d
+row-decode desync" note in `docs/skills/data-access.md`) — keeping such a
+row would silently persist corrupted data under a nonsensical key rather
+than surfacing the decode problem. Behaviour is unchanged (NaN PKs are
+still dropped); only the stated rationale was corrected, in both
+`_invalid_pk_reason()`'s docstring and this file. Pinned by
+`etl/tests/test_upsert_batch_loss.py::TestNaNPkPolicyNotConstraint`.
+
 **Decoding issue flagged, not fixed**: the garbage row's values
 (`mes = -1801453568`, a 4D `Long Real`/`mes` field far outside any plausible
 month value; `precio_neto_si = NaN`) sitting immediately before ~60
