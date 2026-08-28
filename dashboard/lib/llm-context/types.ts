@@ -37,3 +37,34 @@ export interface FlowVars {
   /** Controls the review generation angle. */
   generationMode?: "initial" | "refresh_data" | "alternate_angle";
 }
+
+// ── Flow name registry ────────────────────────────────────────────────────────
+
+/**
+ * Every flow name `buildSystemPrompt()` / `toolsForFlow()` know how to build a
+ * real prompt/tool catalog for. `assembleRequest()`'s `flow` parameter stays a
+ * plain `string` (callers pass DB-derived values like `conversation.mode`
+ * that TypeScript cannot narrow at the call site), but `buildSystemPrompt`'s
+ * internal switch is exhaustive over this union — see its `default` branch.
+ * Adding a flow here without a matching `case` fails to compile, which is the
+ * point: it forces a deliberate decision (add the prompt, or don't add the
+ * flow) instead of a silent empty-prompt fallback (D-042).
+ */
+export const LLM_FLOWS = [
+  "generate",
+  "modify",
+  "analyze",
+  "suggest",
+  "gap",
+  "weekly",
+  "chat",
+  "summary",
+  "title",
+] as const;
+
+export type LlmFlow = (typeof LLM_FLOWS)[number];
+
+/** Narrows a raw string (e.g. `conversation.mode`) to `LlmFlow`. */
+export function isLlmFlow(flow: string): flow is LlmFlow {
+  return (LLM_FLOWS as readonly string[]).includes(flow);
+}
