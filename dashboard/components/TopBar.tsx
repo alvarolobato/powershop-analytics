@@ -191,7 +191,16 @@ export function TopBar({
               flexShrink: 0,
             }}
           />
+          {/* Mobile item 11 (PR #894 review, finding 4): freshness text is
+              the COMMON case, not an edge case — a stale-data message ("Datos
+              desactualizados desde hace…") easily exceeds the ~110px left
+              for it at 390px once the logo, cog and 44px hamburger take
+              their share of the row. Unbounded, it wraps to 2-3 lines
+              inside the fixed 56px header and clips. `.topbar-freshness-
+              text` (globals.css, phone-only) caps it to one line with an
+              ellipsis instead; desktop keeps the full string. */}
           <span
+            className="topbar-freshness-text"
             style={{
               fontSize: 11,
               color: "var(--fg-muted)",

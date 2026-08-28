@@ -348,6 +348,30 @@ body {
 }
 
 /* ============================================================
+   TopBar freshness text — one line, ellipsize on phones (mobile item 11,
+   PR #894 review, finding 4)
+   ============================================================
+   The stale-data freshness string ("Datos desactualizados desde hace…")
+   is the COMMON case, not an edge case, and at 390px only ~110px of the
+   56px-tall header is left for it once the logo, cog and 44px hamburger
+   take their share. Unbounded, it wraps to 2-3 lines and clips inside the
+   fixed-height header. The e2e overflow assertion only checks
+   `scrollWidth` (horizontal), so a vertical wrap like this slips past it —
+   this rule, not a test, is the guard. Desktop has room for the full
+   string, so this only narrows below the breakpoint.
+   ============================================================ */
+@media (max-width: 767.98px) {
+  .topbar-freshness-text {
+    display: inline-block;
+    max-width: 130px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+  }
+}
+
+/* ============================================================
    Animations
    ============================================================ */
 
