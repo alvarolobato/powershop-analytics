@@ -7,16 +7,71 @@ and rollback on failure so the connection is always in a clean state.
 Watermark helpers (get_watermark, set_watermark) follow the same pattern.
 _ensure_watermarks_table() does NOT commit — it is always called as part of a
 surrounding operation that owns the commit/rollback.
+
+Row-skip visibility (D-050)
+----------------------------
+upsert() never lets one malformed row take a whole batch down (see its
+docstring). Rows it drops are recorded in a module-level log drained by
+etl.main._run_sync into etl_sync_run_tables.error_msg. This module-level
+list is safe only because the ETL runs as a single sequential worker per
+process — see try_acquire_run_lock()/fail_orphan_running_runs() below,
+which already assume the same thing.
 """
 
 from __future__ import annotations
 
+import logging
+import math
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence
 
 if TYPE_CHECKING:
     from etl.config import Config
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Row-skip diagnostics (D-050)
+# ---------------------------------------------------------------------------
+# upsert() appends one message per row it drops (either pre-filtered because
+# the PK can never be valid, or rejected individually by the row-by-row
+# fallback after a batch insert failed). etl.main._run_sync drains this after
+# every sync_fn call and folds it into etl_sync_run_tables.error_msg so an
+# operator sees the count and a sample of reasons instead of the rows just
+# vanishing. See docs/decisions/D-050-upsert-batch-loss.md for the incident
+# that prompted this (2026-08-28 02:52:29 UTC: one garbage row plus ~60
+# NULL rows in a single execute_values() batch destroyed ~5,000 good
+# ps_lineas_ventas rows because the batch rolled back as a whole).
+_skip_log: list[str] = []
+
+
+def drain_skip_log() -> list[str]:
+    """Return and clear the rows upsert() has dropped since the last drain."""
+    global _skip_log
+    msgs, _skip_log = _skip_log, []
+    return msgs
+
+
+def _invalid_pk_reason(row: dict, pk_cols: list[str]) -> str | None:
+    """Return why *row* can never satisfy its primary key, or None if it's fine.
+
+    A NULL or NaN value in a PK column can never be legally inserted — the
+    column is NOT NULL by definition of being a primary key. There is no
+    point letting Postgres reject it after the fact: reject it in Python,
+    before it can take an entire execute_values() batch down with it.
+    """
+    for col in pk_cols:
+        value = row.get(col)
+        if value is None:
+            return f"NULL primary key column {col!r}"
+        if isinstance(value, Decimal) and value.is_nan():
+            return f"NaN primary key column {col!r}"
+        if isinstance(value, float) and math.isnan(value):
+            return f"NaN primary key column {col!r}"
+    return None
+
 
 # Single source of truth for the etl_watermarks DDL: loaded from init.sql so
 # the in-memory definition never drifts from the file applied to the database.
@@ -96,17 +151,102 @@ def get_connection(config: "Config"):
 # ---------------------------------------------------------------------------
 
 
+def _upsert_rowwise(
+    conn,
+    table: str,
+    row_stmt: str,
+    columns: list[str],
+    rows: list[dict],
+    pk_cols: list[str],
+) -> int:
+    """Insert *rows* one at a time, each isolated in its own SAVEPOINT.
+
+    Fallback path used only after a batched execute_values() insert has
+    already failed for a reason the pre-filter in upsert() could not
+    predict — e.g. an FK violation (19 recorded in etl_sync_run_tables
+    between 2026-04-18 and 2026-08-15, see D-050). A SAVEPOINT before each
+    row lets a single row's constraint violation be rolled back on its own,
+    instead of aborting the whole transaction and losing every row that
+    would otherwise have succeeded.
+
+    Deliberately not the default path: one round trip per row is much
+    slower than execute_values. It only runs once a batch has already
+    failed, so the cost is bounded to the rare bad batch.
+
+    Returns the number of rows successfully inserted. Rows that fail are
+    logged and appended to the module-level skip log (drained by
+    etl.main._run_sync into etl_sync_run_tables.error_msg) — never silently
+    dropped.
+    """
+    inserted = 0
+    with conn.cursor() as cur:
+        for row in rows:
+            cur.execute("SAVEPOINT etl_upsert_row")
+            try:
+                cur.execute(row_stmt, tuple(row[c] for c in columns))
+                cur.execute("RELEASE SAVEPOINT etl_upsert_row")
+                inserted += 1
+            except Exception as row_exc:
+                # Restore the transaction to the state just before this row
+                # (NOT conn.rollback(), which would also undo every row
+                # already inserted earlier in this same call).
+                cur.execute("ROLLBACK TO SAVEPOINT etl_upsert_row")
+                pk_snapshot = {c: row.get(c) for c in pk_cols}
+                msg = (
+                    f"{table}: row rejected by row-by-row fallback — "
+                    f"pk={pk_snapshot}: {row_exc}"
+                )
+                logger.warning("upsert fallback: %s", msg)
+                _skip_log.append(msg[:500])
+    conn.commit()
+    return inserted
+
+
 def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
     """Batch-upsert *rows* into *table* using ON CONFLICT DO UPDATE.
 
     Uses psycopg2.extras.execute_values for efficiency.
     Table and column names are quoted via psycopg2.sql.Identifier.
-    Commits on success; rolls back and re-raises on failure.
+    Commits on success.
 
-    Returns the number of rows *attempted* (len(rows)).  This includes both
-    inserted and updated rows.  Rows that were skipped by DO NOTHING are still
-    counted.  If you need an exact inserted/updated count, use RETURNING 1 and
-    execute_values with fetch=True.
+    Batch-loss protection (D-050)
+    ------------------------------
+    Before 2026-08-28 a single malformed row anywhere in *rows* made the
+    whole execute_values() batch fail, roll back, and re-raise — discarding
+    every good row in the same batch along with the bad one. Production
+    evidence (etl_sync_run_tables, 2026-08-28 02:52:29 UTC): one
+    execute_values batch against ps_lineas_ventas failed with
+    'null value in column "reg_lineas" ... violates not-null constraint'
+    because it held one garbage row (mes=-1801453568,
+    precio_neto_si='NaN'::numeric) plus ~60 entirely-NULL rows — losing
+    roughly 5,000 good rows that happened to share the same 5,000-row
+    BATCH_SIZE chunk (see etl/sync/ventas.py::_sync_table).
+
+    Two layers now bound that blast radius to just the bad row(s):
+
+      1. Pre-filter — rows whose primary key is NULL or NaN are dropped
+         before the insert is even attempted. A NULL/NaN PK can never
+         satisfy the PK's NOT NULL constraint, so there is no outcome in
+         which keeping it in the batch helps; rejecting it up front is
+         strictly cheaper than letting Postgres reject the whole batch
+         after the fact, and it covers the incident above directly (the
+         ~60 NULL rows all had reg_lineas = NULL).
+      2. Row-by-row fallback (_upsert_rowwise) — if the batch insert still
+         fails for a reason the pre-filter can't predict (e.g. an FK
+         violation), retry the surviving rows one at a time inside
+         SAVEPOINTs so only the row(s) that actually violate a constraint
+         are lost.
+
+    Both layers record what they drop via the module-level skip log
+    (drain_skip_log()) instead of silently discarding it — a sync that
+    silently drops rows is worse than one that fails loudly.
+
+    Returns the number of rows actually attempted against the database
+    (i.e. len(rows) minus whatever the pre-filter rejected). This includes
+    both inserted and updated rows, and rows skipped by DO NOTHING — same
+    approximation as before. Still commits on success and rolls back and
+    re-raises when even the row-by-row fallback cannot make progress (e.g.
+    the connection itself is gone).
     """
     if not rows:
         return 0
@@ -140,6 +280,25 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
             target=conflict_target
         )
 
+    # Layer 1: reject rows that can never satisfy the PK NOT NULL constraint
+    # before we even build the batch. See docstring above (D-050).
+    good_rows = []
+    for row in rows:
+        reason = _invalid_pk_reason(row, pk_cols)
+        if reason is None:
+            good_rows.append(row)
+            continue
+        pk_snapshot = {c: row.get(c) for c in pk_cols}
+        msg = (
+            f"{table}: row rejected before insert — {reason} "
+            f"(pk snapshot: {pk_snapshot})"
+        )
+        logger.warning("upsert pre-filter: %s", msg)
+        _skip_log.append(msg[:500])
+
+    if not good_rows:
+        return 0
+
     stmt = pgsql.SQL("INSERT INTO {tbl} ({cols}) VALUES %s {on_conflict}").format(
         tbl=tbl_id,
         cols=pgsql.SQL(", ").join(col_ids),
@@ -151,15 +310,37 @@ def upsert(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int:
             execute_values(
                 cur,
                 stmt.as_string(cur),
-                [tuple(row[c] for c in columns) for row in rows],
+                [tuple(row[c] for c in columns) for row in good_rows],
             )
         conn.commit()
-    except Exception:
+    except Exception as batch_exc:
         conn.rollback()
-        raise
-    # Return len(rows) rather than cur.rowcount — execute_values paginates by
-    # page_size (default 100) and rowcount only reflects the last page.
-    return len(rows)
+        logger.warning(
+            "upsert: batch insert into %s failed (%s) — falling back to "
+            "row-by-row insert (%d rows) so only the offending row(s) are "
+            "lost instead of the whole batch",
+            table,
+            batch_exc,
+            len(good_rows),
+        )
+        # Layer 2: an unpredictable failure (e.g. FK violation) took the
+        # whole batch down. Retry the survivors one at a time so a single
+        # bad row can't cost us the rest — see _upsert_rowwise (D-050).
+        row_stmt = pgsql.SQL(
+            "INSERT INTO {tbl} ({cols}) VALUES ({vals}) {on_conflict}"
+        ).format(
+            tbl=tbl_id,
+            cols=pgsql.SQL(", ").join(col_ids),
+            vals=pgsql.SQL(", ").join(pgsql.Placeholder() for _ in columns),
+            on_conflict=on_conflict,
+        )
+        with conn.cursor() as cur:
+            row_stmt_str = row_stmt.as_string(cur)
+        return _upsert_rowwise(conn, table, row_stmt_str, columns, good_rows, pk_cols)
+    # Return len(good_rows) rather than cur.rowcount — execute_values
+    # paginates by page_size (default 100) and rowcount only reflects the
+    # last page.
+    return len(good_rows)
 
 
 def bulk_insert(conn, table: str, rows: list[dict]) -> int:
