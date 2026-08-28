@@ -277,6 +277,13 @@ services:
       # always empty in production. This was set in docker-compose.yml and
       # never added here.
       DASHBOARD_CONTEXT_DIR: /app/data/conversations
+      # Credentials for DASHBOARD_LLM_PROVIDER=cli. Present in docker-compose.yml
+      # but never here, so switching the provider to `cli` from /admin/config —
+      # a one-click change in the UI — would have failed to authenticate with no
+      # hint why. Prod runs OpenRouter today; these make the other setting work
+      # rather than fail obscurely. Empty default: harmless when unused.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      HOME: /home/nextjs
       # LLM settings (provider, model, etc.) intentionally NOT set as env vars
       # here — configure them via /admin/config so the UI can edit them.
       # Env-sourced keys render read-only in the config UI.

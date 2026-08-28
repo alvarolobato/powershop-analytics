@@ -235,7 +235,8 @@ main() {
   mkdir -p \
     "${PROJECT_DIR}/data/postgres" \
     "${PROJECT_DIR}/data/qdrant" \
-    "${PROJECT_DIR}/data/wren"
+    "${PROJECT_DIR}/data/wren" \
+    "${PROJECT_DIR}/data/dashboard/conversations"
   success "Project directory: ${PROJECT_DIR}"
 
   # Create config directory (persists dashboard settings across restarts)
