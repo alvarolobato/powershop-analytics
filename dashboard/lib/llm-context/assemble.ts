@@ -3,8 +3,10 @@
  *
  * `assembleRequest(flow, vars, conversationId, userMessage, opts)` is the
  * single entry point for all LLM calls in the dashboard.  It:
- *  0. Checks the daily spend cap via `checkDailyBudget()` — pre-flight, once,
- *     before either execution path (see the note on this below)
+ *  0a. Asserts the master kill switch via `assertLlmEnabled()` — short-circuits
+ *      before any DB work when `dashboard.llm_enabled=false`
+ *  0b. Checks the daily spend cap via `checkDailyBudget()` — pre-flight, once,
+ *      before either execution path (see the note on this below)
  *  1. Builds the system prompt via `buildSystemPrompt(flow, vars)`
  *  2. Loads conversation history via `buildHistory(conversationId, opts)`
  *  3. Resolves the tool catalog via `toolsForFlow(flow)`
@@ -111,7 +113,13 @@ export async function assembleRequest(
   userMessage: string,
   opts?: AssembleExecutionOpts,
 ): Promise<AssembleResult> {
-  // 0. Daily spend cap — pre-flight, before either execution path. See the
+  // 0a. Master kill switch — must short-circuit before any other work so that
+  // llm_enabled=false consistently returns 503 LLM_DISABLED without touching
+  // Postgres or incurring any latency. llmComplete holds a matching guard for
+  // direct callers; this covers both execution paths from a single seam.
+  assertLlmEnabled();
+
+  // 0b. Daily spend cap — pre-flight, before either execution path. See the
   // module doc comment ("Budget check: one seam, not eight") for why this
   // lives here instead of inside llmComplete or at each lib/llm.ts call site.
   await checkDailyBudget();
@@ -171,11 +179,6 @@ export async function assembleRequest(
 
   // 5. Execute — only route through agentic when the flow has tools.
   if (isAgenticToolsEnabled() && tools.length > 0) {
-    // Master kill switch — the second (and last) of the two seams every LLM
-    // call passes through; llmComplete guards the single-shot branch below.
-    // See `lib/llm-enabled.ts` and D-046.
-    assertLlmEnabled();
-
     const adapter = createDashboardAgenticAdapter();
 
     // Build the ctx, falling back to a minimal one if the caller didn't provide it
