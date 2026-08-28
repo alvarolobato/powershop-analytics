@@ -30,8 +30,11 @@ export default async function ConversationSplitViewPage({ params }: PageProps) {
         marginLeft: "calc(-1 * var(--pad-x, 20px))",
         marginRight: "calc(-1 * var(--pad-x, 20px))",
         width: "calc(100% + 2 * var(--pad-x, 20px))",
-        height: "calc(100vh - 56px)",
-        maxHeight: "calc(100dvh - 56px)",
+        // 100dvh, not 100vh (PR #894 review, finding 3): same iOS Safari
+        // fix as `.app-shell` in globals.css — this div owns its own
+        // scroll, so the stale vh literal under-computed available height
+        // and left the composer under the fold when the toolbar collapsed.
+        height: "calc(100dvh - 56px)",
         overflow: "hidden",
       }}
     >
