@@ -105,6 +105,14 @@ production APM pipeline needs it.
   `OTEL_TRACES_SAMPLER=parentbased_traceidratio` (and set
   `OTEL_TRACES_SAMPLER_ARG=0.1`, or leave unset for the default) to actually
   pick up the new sampling rate.
+- `dashboard.query_cost_limit` changed `type: string` → `type: int` in
+  `dashboard/config/schema.yaml` in this same change. `getSystemConfig()` in
+  `dashboard/lib/system-config/loader.ts` coerces every schema key in one
+  loop with no per-key try/catch — an existing `config.yaml` value for
+  `dashboard.query_cost_limit` that isn't a valid integer now throws during
+  `coerce()` and breaks config loading for the *entire app*, not just this
+  key. Verify `dashboard.query_cost_limit` in prod's `config.yaml` is unset or
+  a valid integer **before** deploying this change.
 
 **See**: `otel/otelcol-config.yaml` (processors + traces pipeline comments),
 `docker-compose.yml` (etl/dashboard `OTEL_TRACES_SAMPLER*` env), `.env.example`.
