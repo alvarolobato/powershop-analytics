@@ -4,6 +4,8 @@
 >
 > **Adding a new decision.** Write a one-liner here (binding rule, ≤180 chars) + a full file in `docs/decisions/`. See [AGENTS.md § Recording decisions](AGENTS.md#recording-decisions).
 >
+> **Do not pick the ID by reading this file** when other work is in flight. Two branches that each take "the next free one" write files differing only by slug, so git merges them with no conflict and the duplicate stays invisible — which is exactly how three branches once landed on `D-042` together. Use the range reserved for your workstream: [AGENTS.md § Decision IDs](AGENTS.md#decision-ids-reserve-a-range-dont-pick-a-number). Append your line **inside your group's heading**, never at the end of the file, so two agents touch different regions.
+>
 > Files in this index are kept terse on purpose. Don't expand entries — expand the per-decision file instead.
 
 ## AI Factory — policy and lifecycle
