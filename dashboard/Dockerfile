@@ -33,13 +33,14 @@ COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # Schema file must be at /app/config/schema.yaml at runtime (resolveSchemaPath priority #2).
-# Pulled from the "configroot" named build context (docker-compose.yml points
-# it at the repo-root ./config/), NOT from the build context (./dashboard) —
-# dashboard/config/schema.yaml was a stale, hand-duplicated 26-key copy of
-# the canonical 47-key config/schema.yaml and has been deleted; baking in the
-# real one here matters most in production, which has no bind mount to
-# rescue a stale image (see docker-compose.yml comment on this service).
-COPY --chown=nextjs:nodejs --from=configroot schema.yaml /app/config/schema.yaml
+# This copies dashboard/config/schema.yaml, which is a build-context copy of the
+# canonical repo-root config/schema.yaml — a COPY cannot reach outside the build
+# context, and the release workflow builds this image with ./dashboard as its
+# context. The two files are pinned byte-identical by a drift-guard test
+# (lib/__tests__/config-schema-sync.test.ts); regenerate with `npm run sync:schema`.
+# They had drifted to 26 keys vs 47, and because docker-compose.prod.yml mounts
+# nothing over this path, production was running on the stale copy.
+COPY --chown=nextjs:nodejs config/schema.yaml /app/config/schema.yaml
 COPY --chown=nextjs:nodejs docker-entrypoint.sh /app/docker-entrypoint.sh
 # Wrapper sets keepAliveTimeout=65s before Next.js creates its HTTP server.
 # The default Node.js 18+ value (5s) drops SSE connections mid-stream.

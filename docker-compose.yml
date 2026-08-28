@@ -275,17 +275,6 @@ services:
   dashboard:
     build:
       context: ./dashboard
-      # Named build context so the image bakes in the canonical repo-root
-      # config/schema.yaml (see Dockerfile's COPY --from=configroot) instead
-      # of the stale dashboard/config/schema.yaml shadow file that used to
-      # sit inside this build context — production has no bind mount to
-      # rescue it (docker-compose.prod.yml sets no CONFIG_SCHEMA_PATH and
-      # mounts nothing over /app/config/schema.yaml), so it was running on
-      # a 26-key schema instead of the real 47-key one. Local dev/CI already
-      # had the ./config/schema.yaml:/app/config/schema.yaml:ro bind mount
-      # below rescuing this at runtime, which is why it went unnoticed here.
-      additional_contexts:
-        configroot: ./config
       args:
         # Set automatically by `ps stack` when .git exists; override for CI (e.g. git describe --tags --always --dirty)
         APP_GIT_DESCRIBE: ${APP_GIT_DESCRIBE:-}
