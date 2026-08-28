@@ -39,7 +39,7 @@
 | [D-023](docs/decisions/D-023-central-config-yaml.md) | All settings live in `~/.config/powershop-analytics/config.yaml`. Precedence: env var > config.yaml > default. Schema is `config/schema.yaml`. |
 | [D-024](docs/decisions/D-024-surface-cli-errors.md) | CLI/agentic failures must surface a sanitized `diagnostic` (provider/driver/model/phase/duration/tool/CLI tail). All free-form strings pass through `dashboard/lib/llm-provider/sanitize.ts`. |
 | [D-025](docs/decisions/D-025-oauth-single-refresher.md) | Only the host `claude` CLI ever refreshes the OAuth token. The launchd agent only mirrors the macOS Keychain into `~/.claude/.credentials.json`. Never POST to the OAuth endpoint from code. |
-| [D-042](docs/decisions/D-042-otel-head-sampling.md) | Trace sampling is SDK head sampling (`OTEL_TRACES_SAMPLER=parentbased_traceidratio` + `OTEL_TRACES_SAMPLER_ARG`, default 0.1) on etl/dashboard — the pinned elastic-agent collector can't compile `tail_sampling`/`zpages`. Don't re-add either without switching to an image that compiles them. |
+| [D-042](docs/decisions/D-042-otel-head-sampling.md) | ETL/dashboard use SDK head sampling (`parentbased_traceidratio`, default 0.1); the pinned elastic-agent collector lacks `tail_sampling`/`zpages` — don't re-add without switching images. |
 
 ## Data / ETL
 
