@@ -161,7 +161,7 @@ export function TableWidget({
           overflow: "hidden",
         }}
       >
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+        <div className="panel-header" style={{ paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
           <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--fg)" }}>
             {titleNode}
           </h3>
@@ -219,8 +219,10 @@ export function TableWidget({
         overflow: "hidden",
       }}
     >
-      {/* Header */}
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+      {/* Header. Left/right padding lives in `.panel-header`
+          (globals.css) — unconditional base matches the 16px literal,
+          phone media query narrows to `--pad-x`. */}
+      <div className="panel-header" style={{ paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--fg)", letterSpacing: "-0.005em" }}>
           {titleNode}
         </h3>
@@ -237,9 +239,14 @@ export function TableWidget({
               {data.columns.map((col, idx) => (
                 <th
                   key={`${idx}-${col}`}
+                  // Left/right padding lives in `.table-widget-cell`
+                  // (globals.css) — unconditional base matches the 12px
+                  // literal, phone media query narrows to `--pad-x`.
+                  className="table-widget-cell"
                   style={{
                     textAlign: colIsNumericRight[idx] ? "right" : "left",
-                    padding: "10px 12px",
+                    paddingTop: 10,
+                    paddingBottom: 10,
                     fontWeight: 500,
                     borderBottom: "1px solid var(--border)",
                     fontFamily: "var(--font-inter, sans-serif)",
@@ -323,7 +330,8 @@ export function TableWidget({
                     return (
                       <td
                         key={cIdx}
-                        style={{ padding: "10px 12px", color: "var(--fg)" }}
+                        className="table-widget-cell"
+                        style={{ paddingTop: 10, paddingBottom: 10, color: "var(--fg)" }}
                       >
                         <span
                           style={{
@@ -340,7 +348,7 @@ export function TableWidget({
 
                   if (fmt === "ref") {
                     return (
-                      <td key={cIdx} style={{ padding: "10px 12px" }}>
+                      <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10 }}>
                         <span
                           style={{
                             fontFamily: "var(--font-jetbrains, monospace)",
@@ -356,7 +364,7 @@ export function TableWidget({
 
                   if (fmt === "tag") {
                     return (
-                      <td key={cIdx} style={{ padding: "10px 12px" }}>
+                      <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10 }}>
                         <span
                           style={{
                             fontSize: 10,
@@ -381,7 +389,7 @@ export function TableWidget({
                         ? "var(--fg)"
                         : "var(--warn)";
                     return (
-                      <td key={cIdx} style={{ padding: "10px 12px", textAlign: "right" }}>
+                      <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10, textAlign: "right" }}>
                         <span
                           style={{
                             color,
@@ -402,7 +410,7 @@ export function TableWidget({
                   // left-aligned as text.
                   if (isNumeric && colIsNumericRight[cIdx] && colMax > 0) {
                     return (
-                      <td key={cIdx} style={{ padding: "10px 12px", textAlign: "right" }}>
+                      <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10, textAlign: "right" }}>
                         <HeatCell value={numVal} max={colMax} />
                       </td>
                     );
@@ -412,7 +420,7 @@ export function TableWidget({
                   const str = String(cell ?? "");
                   const looksLikeWords = str.length > 3 && !/^\d+/.test(str) && /[A-Za-z]/.test(str);
                   return (
-                    <td key={cIdx} style={{ padding: "10px 12px", color: "var(--fg)" }}>
+                    <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10, color: "var(--fg)" }}>
                       {looksLikeWords ? toTitleCase(str) : formatCellValue(cell)}
                     </td>
                   );
