@@ -313,6 +313,49 @@ describe("handleStartDashboardGeneration", () => {
     });
   });
 
+  // ── Review finding: a failed tracking-turn insert must still reach the user ──
+
+  it("on createBackgroundTurn failure: still surfaces an is_error message (no turnId exists)", async () => {
+    const { createBackgroundTurn, updateTurnStatus, insertTurnEvent } = await import(
+      "@/lib/turn-events"
+    );
+    vi.mocked(createBackgroundTurn).mockRejectedValueOnce(new Error("connection refused"));
+    const { appendMessage } = await import("@/lib/conversations");
+    vi.mocked(appendMessage).mockResolvedValue({
+      id: "msg-tracking-fail",
+      conversation_id: "conv-abc123",
+      role: "assistant",
+      content: {},
+      created_at: new Date().toISOString(),
+    } as never);
+    const consoleErr = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await handleStartDashboardGeneration(
+      JSON.stringify({ prompt: "Ventas de hoy" }),
+      ctxWithConv,
+    );
+
+    // The tool itself still returns "started" to the model/user on this turn...
+    expect(result.ok).toBe(true);
+
+    // ...but the user must also learn, via the conversation, that tracking
+    // never got off the ground — before this fix the catch only logged.
+    await vi.waitFor(() => {
+      expect(appendMessage).toHaveBeenCalledWith(
+        "conv-abc123",
+        "assistant",
+        expect.objectContaining({ is_error: true }),
+      );
+    });
+    expect(consoleErr).toHaveBeenCalled();
+
+    // No turnId was ever created, so there is nothing to emit a turn_event
+    // against or to mark complete/error.
+    expect(insertTurnEvent).not.toHaveBeenCalled();
+    expect(updateTurnStatus).not.toHaveBeenCalled();
+    consoleErr.mockRestore();
+  });
+
   // ── No conversation attached (defensive / non-production path) ────────────
 
   it("runs best-effort without a conversationId and does not throw", async () => {

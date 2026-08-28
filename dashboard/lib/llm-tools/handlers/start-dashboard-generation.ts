@@ -20,7 +20,11 @@
  * `conversation_messages` row (so the result is visible on reload even if no
  * client was listening when it finished). A failure is never swallowed: it is
  * logged, turned into an `is_error` assistant message, and surfaced as an
- * `error` turn_event — mirroring runTurnBackground's own catch block.
+ * `error` turn_event — mirroring runTurnBackground's own catch block. Even a
+ * failure to create the tracking row itself (no `turnId`, so no turn_event
+ * possible) still reaches the user as an `is_error` assistant message —
+ * otherwise the tool's own "se está generando" response would be the last
+ * thing they ever heard about it.
  */
 
 import { generateDashboard } from "@/lib/llm";
@@ -126,6 +130,24 @@ async function runBackgroundGeneration(prompt: string, ctx: LlmAgenticContext): 
       `[${ctx.requestId}] start_dashboard_generation: could not create tracking turn:`,
       err,
     );
+    // No turnId exists yet, so there is no turn_event to emit — but the user
+    // was already told "se está generando" by the tool's own response and,
+    // without this, would simply never hear anything again (review finding:
+    // this catch used to only console.error, contradicting D-049's own claim
+    // that every failure path, "incluso fallar al crear la fila de
+    // seguimiento", is shown to the user). appendMessage doesn't need a
+    // turnId, so post the failure straight to the conversation instead.
+    try {
+      await appendMessage(conversationId, "assistant", {
+        text: "No se pudo iniciar el seguimiento de la generación del panel (error de base de datos). Inténtalo de nuevo.",
+        is_error: true,
+      });
+    } catch (persistErr) {
+      console.error(
+        `[${ctx.requestId}] start_dashboard_generation: could not persist tracking-turn failure message:`,
+        persistErr,
+      );
+    }
     return;
   }
 
