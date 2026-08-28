@@ -11,13 +11,16 @@
 # cleanly without "unreferenced exporter" validation errors. In local dev only
 # the file exporter produces useful output.
 #
+# Trace sampling is SDK-side head sampling (OTEL_TRACES_SAMPLER on etl/
+# dashboard in docker-compose.yml), not a collector processor here — the
+# pinned elastic-agent image doesn't compile tail_sampling. See the removal
+# note on the traces pipeline below and docs/decisions/D-042-otel-head-sampling.md.
+#
 # See docker-compose.yml for the ENVIRONMENT env var (development / production).
 
 extensions:
   health_check:
     endpoint: "0.0.0.0:13133"
-  zpages:
-    endpoint: "0.0.0.0:55679"
 
 receivers:
   # OTLP receiver — accepts traces, metrics, and logs from ETL and Dashboard.
@@ -86,31 +89,19 @@ processors:
       - key: postgres.password
         action: delete
 
-  # Tail sampling — applied to traces only.
-  # Decision wait of 10s gives the collector time to see all spans in a trace
-  # before deciding whether to keep or drop the trace.
-  # A trace is kept if any policy matches (OR logic):
-  #   1. Keep all error traces (never lose a failed turn).
-  #   2. Keep all traces > 5s (slow requests are the ones worth debugging).
-  #   3. Sample 10% of normal traces (LLM tool loops produce 20+ spans per turn;
-  #      tail-sampling keeps error traces 100% while reducing volume for normal turns).
-  tail_sampling:
-    decision_wait: 10s
-    num_traces: 50000
-    expected_new_traces_per_sec: 10
-    policies:
-      - name: keep-errors
-        type: status_code
-        status_code:
-          status_codes: [ERROR]
-      - name: keep-slow-traces
-        type: latency
-        latency:
-          threshold_ms: 5000
-      - name: sample-normal
-        type: probabilistic
-        probabilistic:
-          sampling_percentage: 10
+  # Tail sampling was removed here (was: keep 100% of error/slow traces,
+  # sample 10% of the rest) — the pinned docker.elastic.co/elastic-agent
+  # collector build does not compile the `tail_sampling` processor or the
+  # `zpages` extension (both referenced below, before this change). Since a
+  # pipeline-referenced processor that fails to unmarshal blocks the whole
+  # collector config from loading, health_check never bound either, so the
+  # container never went healthy — and etl/dashboard both gate on
+  # `otel-collector: condition: service_healthy`, so the entire local stack
+  # was unable to start. Checked whether a newer elastic-agent tag compiles
+  # either component (it doesn't as of 8.19.0 — same "unknown type" error,
+  # just a different valid-values list) before falling back to SDK-level
+  # head sampling: see docker-compose.yml's OTEL_TRACES_SAMPLER* env on the
+  # etl/dashboard services, and docs/decisions/D-042-otel-head-sampling.md.
 
 exporters:
   # File exporter — always-on local sink. In production this writes a rolling
@@ -143,12 +134,14 @@ exporters:
       queue_size: 2048
 
 service:
-  extensions: [health_check, zpages]
+  extensions: [health_check]
   pipelines:
-    # Traces — tail-sampled before export so error and slow traces are always kept.
+    # Traces — sampling now happens at the SDK (OTEL_TRACES_SAMPLER on etl/
+    # dashboard, see docker-compose.yml), not here — see the tail_sampling
+    # removal note above.
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/redact, resource, tail_sampling, batch]
+      processors: [memory_limiter, attributes/redact, resource, batch]
       exporters: [file, otlphttp/elasticsearch]
 
     # Metrics — no sampling (metrics are pre-aggregated before ingestion).
