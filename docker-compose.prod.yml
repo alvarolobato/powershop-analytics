@@ -66,8 +66,8 @@ services:
       # Runs the image in OTel-collector mode rather than Fleet mode; without
       # it the health endpoint on 13133 never binds.
       ELASTIC_AGENT_OTEL: "true"
-      ELASTIC_OTLP_ENDPOINT: ${ELASTIC_OTLP_ENDPOINT:-}
-      ELASTIC_OTLP_API_KEY: ${ELASTIC_OTLP_API_KEY:-}
+      ELASTIC_OTLP_ENDPOINT:
+      ELASTIC_OTLP_API_KEY:
       ENVIRONMENT: ${ENVIRONMENT:-production}
     volumes:
       - ./otel/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
