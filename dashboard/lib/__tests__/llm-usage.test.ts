@@ -346,12 +346,41 @@ describe("checkDailyBudget", () => {
     await expect(checkDailyBudget()).resolves.toBeUndefined();
   });
 
-  it("skips the PostgreSQL budget query when dashboard LLM provider is cli", async () => {
+  it("applies the same budget query when dashboard LLM provider is cli", async () => {
+    // This used to early-return before the query ran ("CLI rows always cost
+    // 0, so a sum over them can never trip the cap"). That exemption made
+    // the daily cap inert for the default production provider — CLI rows
+    // now carry the CLI's own reported cost (see logUsage's
+    // `reportedCostUsd`), so the check must run for it exactly like it does
+    // for openrouter.
     vi.stubEnv("LLM_DAILY_BUDGET_USD", "1");
     vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
     mockQuery.mockClear();
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["0.50"]] });
 
     await expect(checkDailyBudget()).resolves.toBeUndefined();
-    expect(mockQuery).not.toHaveBeenCalled();
+    expect(mockQuery).toHaveBeenCalledOnce();
+  });
+
+  it("throws BudgetExceededError for the cli provider once spend reaches the limit", async () => {
+    vi.stubEnv("LLM_DAILY_BUDGET_USD", "1");
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "cli");
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["1.00"]] });
+
+    await expect(checkDailyBudget()).rejects.toThrow(BudgetExceededError);
+  });
+
+  it("no longer filters the spend query to llm_provider = 'openrouter'", async () => {
+    // The query must sum every provider's spend, not just openrouter's —
+    // asserted directly on the SQL text so a regression back to the old
+    // filter fails loudly instead of only showing up as "CLI spend doesn't
+    // count towards the cap" in production.
+    vi.stubEnv("LLM_DAILY_BUDGET_USD", "10");
+    mockQuery.mockResolvedValue({ columns: ["total"], rows: [["1.00"]] });
+
+    await checkDailyBudget();
+
+    const [sqlText] = mockQuery.mock.calls[0];
+    expect(sqlText).not.toMatch(/llm_provider\s*=\s*'openrouter'/);
   });
 });
