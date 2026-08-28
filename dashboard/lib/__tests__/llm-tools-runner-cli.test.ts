@@ -49,6 +49,7 @@ const cfg: DashboardLlmConfig = {
   cliExtraArgs: [],
   cliTimeoutMs: 5000,
   cliMaxCaptureBytes: 1_000_000,
+  cliLeanMode: true,
 };
 
 const ctx = {
