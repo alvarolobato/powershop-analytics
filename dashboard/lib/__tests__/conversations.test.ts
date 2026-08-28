@@ -192,12 +192,16 @@ describe("maybeGenerateTitle", () => {
     mockAssembleRequest.mockReset();
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   const messages = [
     { role: "user" as const, content: "¿Cuánto vendimos ayer?" },
     { role: "assistant" as const, content: "Vendimos 12.345 € en total ayer." },
   ];
 
-  it("calls assembleRequest and updates title when conversation has no title", async () => {
+  it("calls assembleRequest with the FIRST user message (never the assistant reply) and updates title", async () => {
     // getConversation returns a conv with title=null
     mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
     mockAssembleRequest.mockResolvedValue({ text: "Ventas de ayer análisis", usage: {}, model: "test" });
@@ -207,9 +211,24 @@ describe("maybeGenerateTitle", () => {
     await maybeGenerateTitle("conv1", messages);
 
     expect(mockAssembleRequest).toHaveBeenCalledOnce();
-    const [flow, , , , opts] = mockAssembleRequest.mock.calls[0] as [string, unknown, unknown, string, { maxOutputTokens: number }];
+    const [flow, , conversationId, userMessage, opts] = mockAssembleRequest.mock.calls[0] as [
+      string,
+      unknown,
+      string | null,
+      string,
+      { maxOutputTokens: number; priorMessages?: unknown[] },
+    ];
     expect(flow).toBe("title");
+    // Bug fix: a previous version passed the LAST turn (usually the
+    // assistant's reply) as userMessage. A title is about what the
+    // conversation is ABOUT — the opening question.
+    expect(userMessage).toBe("¿Cuánto vendimos ayer?");
+    expect(conversationId).toBeNull(); // assembleRequest gets priorMessages explicitly, no DB history load
     expect(opts.maxOutputTokens).toBe(30);
+    // History is capped to at most the first assistant reply — never grows
+    // with conversation length, so capHistory can never trigger its own
+    // extra summarisation LLM call for a title request.
+    expect(opts.priorMessages).toHaveLength(1);
 
     // Should have called conditional UPDATE (WHERE title IS NULL) to persist the title
     expect(mockSql).toHaveBeenCalledTimes(2);
@@ -217,6 +236,43 @@ describe("maybeGenerateTitle", () => {
     expect(updateSql).toContain("UPDATE conversations");
     expect(updateSql).toContain("title IS NULL");
     expect(updateParams[1]).toBe("Ventas de ayer análisis");
+  });
+
+  it("uses the first user message even when it is not the most recent message", async () => {
+    mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
+    mockAssembleRequest.mockResolvedValue({ text: "Ventas semanales", usage: {}, model: "test" });
+    mockSql.mockResolvedValueOnce([]);
+
+    const longConversation = [
+      { role: "user" as const, content: "¿Cuánto vendimos ayer?" },
+      { role: "assistant" as const, content: "Vendimos 12.345 € en total ayer." },
+      { role: "user" as const, content: "¿Y la semana pasada?" },
+      { role: "assistant" as const, content: "45.000 € la semana pasada." },
+    ];
+
+    await maybeGenerateTitle("conv1", longConversation);
+
+    const [, , , userMessage] = mockAssembleRequest.mock.calls[0] as [string, unknown, unknown, string];
+    expect(userMessage).toBe("¿Cuánto vendimos ayer?");
+  });
+
+  it("clamps the persisted title to 100 chars, matching set_title's own clamp", async () => {
+    mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
+    const longTitle = "T".repeat(250);
+    mockAssembleRequest.mockResolvedValue({ text: longTitle, usage: {}, model: "test" });
+    mockSql.mockResolvedValueOnce([]);
+
+    await maybeGenerateTitle("conv1", messages);
+
+    const [, updateParams] = mockSql.mock.calls[1] as [string, unknown[]];
+    expect((updateParams[1] as string)).toHaveLength(100);
+  });
+
+  it("skips entirely under DASHBOARD_LLM_PROVIDER=e2e-stub — never calls assembleRequest or the DB", async () => {
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "e2e-stub");
+    await maybeGenerateTitle("conv1", messages);
+    expect(mockAssembleRequest).not.toHaveBeenCalled();
+    expect(mockSql).not.toHaveBeenCalled();
   });
 
   it("skips title generation when title is already set", async () => {
@@ -249,11 +305,24 @@ describe("maybeGenerateTitle", () => {
     expect(updateParams[1]).toBe("Ventas ayer");
   });
 
-  it("swallows errors silently — non-blocking", async () => {
+  it("logs a warning (never throws) and does not write a title when assembleRequest fails", async () => {
     mockSql.mockResolvedValueOnce([{ id: "conv1", title: null }]);
     mockAssembleRequest.mockRejectedValue(new Error("LLM is down"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
     // Should not throw
     await expect(maybeGenerateTitle("conv1", messages)).resolves.toBeUndefined();
+
+    // getConversation was the only SQL call — no title UPDATE happened.
+    expect(mockSql).toHaveBeenCalledTimes(1);
+    // The failure is no longer invisible — it is logged for the operator.
+    expect(warnSpy).toHaveBeenCalledOnce();
+    const logged = warnSpy.mock.calls[0].join(" ");
+    expect(logged).toContain("conv1");
+    expect(logged).toContain("flow=title");
+    expect(logged).toContain("LLM is down");
+
+    warnSpy.mockRestore();
   });
 });
 
