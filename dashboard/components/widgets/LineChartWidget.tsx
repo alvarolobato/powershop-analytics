@@ -203,8 +203,11 @@ export function LineChartWidget({
         </h3>
       </div>
 
-      {/* Chart body */}
+      {/* Chart body. Mobile item 9: horizontal scroll instead of shrinking
+          axis labels below legibility — see BarChartWidget for the same
+          treatment. */}
       <div
+        className="scroll-x-wrapper"
         style={{ padding: "var(--pad, 12px)", position: "relative" }}
         role="img"
         aria-label={`Gráfico de líneas: ${widget.title}. ${n} puntos.`}
@@ -212,6 +215,7 @@ export function LineChartWidget({
         <span className="sr-only">Gráfico de líneas con {n} puntos.</span>
         <svg
           ref={svgRef}
+          className="scroll-x-inner"
           viewBox={`0 0 ${VW} ${VH}`}
           style={{
             width: "100%",
