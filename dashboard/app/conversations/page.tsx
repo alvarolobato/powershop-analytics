@@ -480,9 +480,13 @@ function ConversationsPageContent() {
       }}
     >
       {/* Header */}
+      {/* Mobile item 2: horizontal padding moved to `.conv-page-header`
+          (globals.css) so it narrows to `--pad-x` below 768px — a static
+          literal with no prop/state dependency (D-121 rung 1). Top/bottom
+          stay inline (20px/12px), unaffected by the phone breakpoint. */}
       <div
+        className="conv-page-header"
         style={{
-          padding: "20px 20px 12px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -549,8 +553,8 @@ function ConversationsPageContent() {
         onOnlyArchivedChange={handleOnlyArchivedChange}
       />
 
-      {/* Content */}
-      <div style={{ flex: 1, overflow: "auto", padding: "12px 20px 24px" }}>
+      {/* Content — same `--pad-x` treatment as the header above. */}
+      <div className="conv-page-content" style={{ flex: 1, overflow: "auto" }}>
         {loading && (
           <div
             style={{
