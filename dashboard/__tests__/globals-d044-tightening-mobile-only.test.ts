@@ -134,12 +134,45 @@ function expectPhoneOnly(rules: Rule[], className: string, marker: string) {
   expect(phone.some((b) => b.includes(marker)), `${className} phone rule(s) must contain "${marker}"`).toBe(true);
 }
 
+/**
+ * Remove every `@keyframes` block (balanced-brace skip, so its percentage
+ * stops don't confuse the flat parser) while KEEPING everything after it.
+ *
+ * An earlier version sliced the file at the first `@keyframes` instead. That
+ * left the guard blind to anything below it — and the end of the file is the
+ * most natural place for someone to append a rule, so the one mutation most
+ * likely to happen in practice was the one it could not see. Verified by
+ * appending `.chat-bubble { padding-left: 8px; padding-right: 8px; }` to the
+ * end of globals.css: the sliced version still passed, this one fails.
+ */
+function stripKeyframes(css: string): string {
+  let out = "";
+  let i = 0;
+  while (i < css.length) {
+    const at = css.indexOf("@keyframes", i);
+    if (at === -1) {
+      out += css.slice(i);
+      break;
+    }
+    out += css.slice(i, at);
+    const open = css.indexOf("{", at);
+    if (open === -1) break;
+    let depth = 0;
+    let j = open;
+    for (; j < css.length; j++) {
+      if (css[j] === "{") depth++;
+      else if (css[j] === "}") {
+        depth--;
+        if (depth === 0) break;
+      }
+    }
+    i = j + 1;
+  }
+  return out;
+}
+
 function loadRules(cssText: string): Rule[] {
-  // @keyframes stops (0%, 50%, 100% { ... }) nest braces one level deeper
-  // than this parser handles; every rule this test cares about (D-044 +
-  // this tightening pass) sits before that section, so slice it off.
-  const region = cssText.slice(0, cssText.indexOf("@keyframes"));
-  return parseRules(stripComments(region));
+  return parseRules(stripKeyframes(stripComments(cssText)));
 }
 
 let rules: Rule[];
