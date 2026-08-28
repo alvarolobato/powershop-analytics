@@ -28,6 +28,10 @@ vi.mock("@/lib/llm-circuit-breaker", () => ({
 const mockLogUsage = vi.fn();
 vi.mock("@/lib/llm-usage", () => ({ logUsage: (...a: unknown[]) => mockLogUsage(...a) }));
 vi.mock("@/lib/conversations", () => ({ loadMessages: vi.fn() }));
+const mockIsLlmEnabled = vi.fn(() => true);
+vi.mock("@/lib/llm-enabled", () => ({
+  isLlmEnabled: () => mockIsLlmEnabled(),
+}));
 
 import {
   flattenStoredMessage,
@@ -250,5 +254,51 @@ describe("capHistory", () => {
 
     expect(result[0].content).toContain("mensaje 0");
     expect(mockLogUsage).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * buildSummary() reaches the providers directly, so neither the kill switch
+ * nor turn-background's e2e-stub short-circuit covers it. Both are honoured
+ * inside history.ts itself; these pin that, because the failure is silent —
+ * a real billed call with the switch off, and nothing surfaces it.
+ */
+describe("capHistory — summarisation respects the kill switch and the stub provider", () => {
+  const longHistory = Array.from({ length: 14 }, (_, i) => ({
+    role: (i % 2 === 0 ? "user" : "assistant") as "user" | "assistant",
+    content: `mensaje ${i}`,
+  }));
+
+  beforeEach(() => {
+    mockChatCompletion.mockReset();
+    mockCliSingleShot.mockReset();
+    mockIsLlmEnabled.mockReset();
+    mockIsLlmEnabled.mockReturnValue(true);
+    mockLoadConfig.mockReturnValue({ provider: "openrouter" });
+  });
+
+  it("makes no provider call when the LLM is disabled", async () => {
+    mockIsLlmEnabled.mockReturnValue(false);
+    const out = await capHistory(longHistory, 10, "chat");
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+    expect(mockCliSingleShot).not.toHaveBeenCalled();
+    // Still capped, using the same bounded fallback the catch blocks use.
+    expect(out.length).toBe(10);
+    expect(out[0].content).toContain("Earlier in this conversation");
+  });
+
+  it("makes no provider call under the e2e-stub provider", async () => {
+    mockLoadConfig.mockReturnValue({ provider: "e2e-stub" });
+    const out = await capHistory(longHistory, 10, "chat");
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+    expect(mockCliSingleShot).not.toHaveBeenCalled();
+    expect(out.length).toBe(10);
+  });
+
+  it("still summarises normally when enabled on a real provider", async () => {
+    mockChatCompletion.mockResolvedValue({ content: "- resumen", usage: null });
+    const out = await capHistory(longHistory, 10, "chat");
+    expect(mockChatCompletion).toHaveBeenCalledOnce();
+    expect(out[0].content).toContain("resumen");
   });
 });
