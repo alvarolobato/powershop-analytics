@@ -12,6 +12,14 @@ export interface TurnRow {
   turn_index: number;
   user_message: string;
   status: "pending" | "streaming" | "complete" | "error";
+  /**
+   * 'user' — a real user-submitted turn, competing for the single-active-turn
+   * slot `createTurnIfIdle` enforces. 'background' — a system-initiated
+   * tracking turn (currently only `createBackgroundTurn`, D-049) that reports
+   * progress for work running alongside whatever the user is doing; it must
+   * NEVER count as "in progress" for that guard. See createTurnIfIdle below.
+   */
+  source: "user" | "background";
   started_at: string | null;
   completed_at: string | null;
   error: string | null;
@@ -83,10 +91,19 @@ export async function createTurnIfIdle(
     // implicitly widened to the bigint key pg_advisory_xact_lock expects.
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [conversationId]);
 
+    // source = 'user' excludes background tracking turns (createBackgroundTurn)
+    // from this guard (issue review on D-049): those rows sit in 'streaming'
+    // for the whole 30s-2min duration of a detached generation, and before
+    // this filter they were indistinguishable from a real in-flight user
+    // turn — a user's own turn would finish in seconds, but any message they
+    // sent while their dashboard was still generating hit this check, saw the
+    // tracking row, and got rejected with TURN_IN_PROGRESS for up to two
+    // minutes. The chat went dead for exactly the scenario D-049 was fixing.
     const active = await client.query(
       `SELECT 1 FROM conversation_turns
         WHERE conversation_id = $1
           AND status IN ('pending', 'streaming')
+          AND source = 'user'
           AND created_at > NOW() - ($2 || ' minutes')::interval
         LIMIT 1`,
       [conversationId, String(ACTIVE_TURN_STALE_MINUTES)],
@@ -127,6 +144,16 @@ export async function createTurnIfIdle(
  * is currently streaming for this conversation. It still takes the same
  * per-conversation advisory lock so the `(conversation_id, turn_index)` unique
  * constraint can't collide with a concurrent `createTurnIfIdle` insert.
+ *
+ * Inserted with `source = 'background'` (not the `'user'` default) so
+ * `createTurnIfIdle`'s active-turn guard skips it: without that distinction,
+ * this row sitting in 'streaming' for the whole 30s-2min generation made
+ * `createTurnIfIdle` see it as a genuine in-flight turn and reject every
+ * message the user sent in that window with TURN_IN_PROGRESS — the chat
+ * going dead for up to two minutes, the opposite of what D-049 set out to
+ * fix. `status` keeps its normal pending/streaming/complete/error meaning so
+ * turn_events/SSE replay and ConversationPane's turn-adoption logic (keyed
+ * on turnId, not on `source`) need no changes.
  */
 export async function createBackgroundTurn(
   conversationId: string,
@@ -136,7 +163,7 @@ export async function createBackgroundTurn(
     await client.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [conversationId]);
 
     const inserted = await client.query<{ id: string }>(
-      `INSERT INTO conversation_turns (conversation_id, turn_index, user_message, status, started_at)
+      `INSERT INTO conversation_turns (conversation_id, turn_index, user_message, status, source, started_at)
        VALUES (
          $1,
          (SELECT COALESCE(MAX(turn_index) + 1, 0)
@@ -144,6 +171,7 @@ export async function createBackgroundTurn(
            WHERE conversation_id = $1),
          $2,
          'streaming',
+         'background',
          NOW()
        )
        RETURNING id`,

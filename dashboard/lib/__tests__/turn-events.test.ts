@@ -33,6 +33,7 @@ const TURN_ROW = {
   turn_index: 0,
   user_message: "Hello world",
   status: "complete" as const,
+  source: "user" as const,
   started_at: "2026-01-01T00:00:01Z",
   completed_at: "2026-01-01T00:00:05Z",
   error: null,
@@ -103,6 +104,24 @@ describe("createTurnIfIdle", () => {
     expect(checkQuery).toContain("created_at >");
   });
 
+  // Review finding on PR #899: without this filter, a createBackgroundTurn
+  // tracking row (status='streaming' for the whole 30s-2min generation) reads
+  // as a genuine in-flight user turn here, and every message the user sends
+  // in that window gets rejected with TURN_IN_PROGRESS. See the functional
+  // regression test below (`createBackgroundTurn must not block...`) for the
+  // end-to-end behavior this query text change is meant to produce.
+  it("excludes background tracking turns from the active-turn check", async () => {
+    mockQuery
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({ rows: [{ id: TURN_ID, turn_index: 0 }] });
+
+    await createTurnIfIdle(CONV_ID, "x");
+
+    const checkQuery = mockQuery.mock.calls[1][0] as string;
+    expect(checkQuery).toContain("source = 'user'");
+  });
+
   it("throws when the INSERT returns no row", async () => {
     mockQuery
       .mockResolvedValueOnce({ rows: [] })
@@ -144,6 +163,7 @@ describe("createBackgroundTurn", () => {
     const insertQuery = mockQuery.mock.calls[1][0] as string;
     expect(insertQuery).toContain("INSERT INTO conversation_turns");
     expect(insertQuery).toContain("'streaming'");
+    expect(insertQuery).toContain("'background'");
   });
 
   it("throws when the INSERT returns no row", async () => {
@@ -154,6 +174,70 @@ describe("createBackgroundTurn", () => {
     await expect(createBackgroundTurn(CONV_ID, "x")).rejects.toThrow(
       "createBackgroundTurn: no row returned",
     );
+  });
+});
+
+// Review finding on PR #899 (HIGH): createBackgroundTurn's tracking row sat in
+// 'streaming' for the whole 30s-2min duration of a detached
+// start_dashboard_generation run, indistinguishable from a genuine in-flight
+// user turn to createTurnIfIdle's active-turn guard. Any message the user sent
+// while their own dashboard was generating hit POST /api/conversations/:id/turns
+// -> createTurnIfIdle -> saw the tracking row as active -> 409 TURN_IN_PROGRESS
+// ("Hay una respuesta en curso... Espera a que termine") for up to two
+// minutes — the chat going dead for exactly the scenario D-049 set out to fix.
+//
+// Unlike the tests above (which assert on the literal SQL text each function
+// sends), this test drives BOTH functions against one small fake in-memory
+// `conversation_turns` table whose active-turn / insert behavior is derived
+// from parsing the real query text, so it actually exercises the interaction
+// between createBackgroundTurn's INSERT and createTurnIfIdle's SELECT rather
+// than hardcoding a response sequence. Confirmed to fail (result.ok === false)
+// against the pre-fix code, where createBackgroundTurn's INSERT never sets
+// `source` and createTurnIfIdle's active check has no `source` filter, so the
+// still-streaming tracking row reads as an active turn and gets the user's
+// real message rejected.
+describe("createBackgroundTurn must not block a real user turn (PR #899 review)", () => {
+  beforeEach(() => mockQuery.mockReset());
+
+  it("lets the user open a real turn while a background generation turn is still streaming", async () => {
+    // Five calls in strict order: createBackgroundTurn's [lock, insert], then
+    // createTurnIfIdle's [lock, active-check, insert]. Rather than hardcoding
+    // the active-check's answer, it is derived from the ACTUAL query text of
+    // the two calls that matter — whether the background INSERT tagged its
+    // row 'background' and whether the active-check SELECT filters on
+    // `source = 'user'` — so this test is sensitive to the real fix, not to
+    // a fixed response sequence. `mockImplementationOnce` (not a persistent
+    // `mockImplementation`) is used deliberately: after these five are
+    // consumed, any further call falls back to the default `undefined`
+    // return instead of running our matching logic again.
+    let bgInsertQuery = "";
+    mockQuery
+      .mockImplementationOnce(async () => ({ rows: [] })) // lock (createBackgroundTurn)
+      .mockImplementationOnce(async (q: unknown) => {
+        bgInsertQuery = q as string;
+        return { rows: [{ id: "turn-bg" }] };
+      }) // insert (createBackgroundTurn)
+      .mockImplementationOnce(async () => ({ rows: [] })) // lock (createTurnIfIdle)
+      .mockImplementationOnce(async (q: unknown) => {
+        // Pre-fix: the background INSERT never set `source`, so the row is
+        // indistinguishable from a real user turn. Post-fix: it's tagged
+        // 'background', and the active-check SELECT below filters it out.
+        const backgroundRowLooksLikeUser = !bgInsertQuery.includes("'background'");
+        const activeCheckFiltersToUser = (q as string).includes("source = 'user'");
+        const hasActive = !activeCheckFiltersToUser || backgroundRowLooksLikeUser;
+        return hasActive
+          ? { rowCount: 1, rows: [{ "?column?": 1 }] }
+          : { rowCount: 0, rows: [] };
+      }) // active-check SELECT (createTurnIfIdle)
+      .mockImplementationOnce(async () => ({ rows: [{ id: "turn-user", turn_index: 1 }] })); // insert (createTurnIfIdle) — only reached when not rejected
+
+    // A start_dashboard_generation background turn is already streaming...
+    await createBackgroundTurn(CONV_ID, "[start_dashboard_generation] Ventas de hoy");
+
+    // ...the user must still be able to open a real turn of their own.
+    const result = await createTurnIfIdle(CONV_ID, "¿Y las devoluciones de esta semana?");
+
+    expect(result.ok).toBe(true);
   });
 });
 
