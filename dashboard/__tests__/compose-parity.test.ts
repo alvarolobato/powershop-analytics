@@ -35,17 +35,9 @@ function loadCompose(file: string): Record<string, any> {
 const dev = loadCompose("docker-compose.yml");
 const prod = loadCompose("docker-compose.prod.yml");
 
-/** Env keys that may legitimately differ — each needs a reason, not just a name. */
+/** DASHBOARD_* env keys that may legitimately differ between dev and prod — each needs a reason, not just a name. */
 const DASHBOARD_ENV_EXEMPT = new Set<string>([
-  // Local builds the image and mounts the schema from the repo; prod bakes it in.
-  "CONFIG_SCHEMA_PATH",
-  // Local points the stack at its own collector; prod has no collector service.
-  "OTEL_SERVICE_NAME",
-  "OTEL_EXPORTER_OTLP_ENDPOINT",
-  "OTEL_TRACES_SAMPLER",
-  "OTEL_TRACES_SAMPLER_ARG",
-  "OTEL_LOG_LEVEL",
-  "ENVIRONMENT",
+  // Add DASHBOARD_* keys here only; keysOf() already filters to that prefix.
 ]);
 
 describe("docker-compose.yml vs docker-compose.prod.yml", () => {
