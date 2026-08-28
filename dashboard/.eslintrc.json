@@ -6,7 +6,10 @@
       {
         "patterns": [
           {
-            "group": ["*/llm-provider/openrouter*", "*/llm-provider/cli/*"],
+            "group": [
+              "*/llm-provider/openrouter*",
+              "*/llm-provider/cli/*"
+            ],
             "message": "Import LLM functionality through lib/llm-client.ts, not directly from providers."
           }
         ]
@@ -15,7 +18,10 @@
   },
   "overrides": [
     {
-      "files": ["lib/llm-client.ts", "lib/llm-provider/**/*"],
+      "files": [
+        "lib/llm-client.ts",
+        "lib/llm-provider/**/*"
+      ],
       "rules": {
         "no-restricted-imports": "off"
       }
@@ -25,7 +31,8 @@
         "lib/__tests__/llm-provider-*.test.ts",
         "lib/__tests__/llm-tools-runner.test.ts",
         "lib/__tests__/llm-tools-runner-cli.test.ts",
-        "lib/__tests__/host-token-sync.test.ts"
+        "lib/__tests__/host-token-sync.test.ts",
+        "lib/__tests__/llm-client.test.ts"
       ],
       "rules": {
         "no-restricted-imports": "off"
