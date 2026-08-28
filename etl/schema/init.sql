@@ -896,6 +896,19 @@ CREATE TABLE IF NOT EXISTS conversation_turns (
 -- only this pointer is stored. See dashboard/lib/conversation-context-store.ts.
 ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS context_file TEXT;
 
+-- 'user' (default) is a real user-submitted turn, competing for the single-
+-- active-turn slot createTurnIfIdle enforces. 'background' is a system-
+-- initiated tracking turn (createBackgroundTurn, D-049 — currently only
+-- start_dashboard_generation) that reports progress for work running
+-- alongside whatever the user is doing. Before this column, a background
+-- turn's 'streaming' status was indistinguishable from a genuine in-flight
+-- user turn: createTurnIfIdle's active-turn check matched it and rejected
+-- every message the user sent for the whole 30s-2min generation with
+-- TURN_IN_PROGRESS ("Hay una respuesta en curso... Espera a que termine") —
+-- the chat going dead for the exact scenario D-049 set out to fix.
+ALTER TABLE conversation_turns ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'user'
+    CHECK (source IN ('user', 'background'));
+
 -- Ordered log/token/context events emitted during a turn.
 -- Clients replay from seq=0 on connect; Last-Event-ID resumes from seq N.
 CREATE TABLE IF NOT EXISTS turn_events (

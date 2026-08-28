@@ -280,10 +280,14 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
     function: {
       name: "start_dashboard_generation",
       description:
-        "Generate a new dashboard from a natural-language prompt and hand off the current conversation to it. " +
+        "Start generating a new dashboard from a natural-language prompt, in the BACKGROUND. " +
         "Call this when the user asks to create a new dashboard. " +
-        "The tool creates the dashboard, saves it, and returns a redirect URL that takes the user to the new dashboard with the current conversation continued in the Modify tab. " +
-        "Returns { dashboard_id, redirect_url, summary } on success.",
+        "This tool returns IMMEDIATELY with only an acknowledgement ({ status, message }) — generation " +
+        "takes 30s-2min and is NOT finished when the call returns. Do not call it more than once per " +
+        "request and do not wait for or poll for the result: once ready, the dashboard (with a link to " +
+        "open it) is posted automatically as a new assistant message in this conversation, and the " +
+        "conversation is handed off to the Modify tab for it. After calling this tool, just tell the user " +
+        "generation has started and end your turn.",
       parameters: {
         type: "object",
         properties: {
