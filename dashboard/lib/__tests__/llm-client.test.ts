@@ -406,3 +406,32 @@ describe("llmComplete", () => {
     expect(mockLogUsage).toHaveBeenCalledOnce();
   });
 });
+
+describe("llmComplete — e2e-stub provider", () => {
+  beforeEach(() => {
+    vi.stubEnv("DASHBOARD_LLM_PROVIDER", "e2e-stub");
+    resetClient();
+    resetDashboardLlmConfigCache();
+    mockOpenRouterCreate.mockReset();
+    mockLogUsage.mockReset();
+    mockCallWithCircuitBreaker.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("throws a named, typed error instead of silently falling through to OpenRouter", async () => {
+    const { E2eStubProviderError } = await import("../llm-client");
+    await expect(
+      llmComplete({
+        flow: "title",
+        systemPrompt: { stable: "s" },
+        messages: [{ role: "user", content: "q" }],
+        endpoint: "title",
+      }),
+    ).rejects.toBeInstanceOf(E2eStubProviderError);
+    // Never reached the OpenRouter branch (no client call, no "no API key" error).
+    expect(mockOpenRouterCreate).not.toHaveBeenCalled();
+  });
+});
