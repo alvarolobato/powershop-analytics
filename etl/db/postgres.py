@@ -815,8 +815,9 @@ def insert_fetch_anomalies(
                     INSERT INTO etl_fetch_anomalies (
                         run_id, sync_name, sql_text, total_rows, refetch_total_rows,
                         anomaly_count, first_index, last_index, index_ranges,
-                        page_size, page_aligned_end, kinds, sample, refetch_outcome
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        page_size, run_start_mod_100, run_end_mod_100,
+                        page_aligned_end, kinds, sample, refetch_outcome
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """,
                     (
                         run_id,
@@ -829,6 +830,8 @@ def insert_fetch_anomalies(
                         event.get("last_index"),
                         event.get("index_ranges"),
                         event.get("page_size"),
+                        event.get("run_start_mod_100"),
+                        event.get("run_end_mod_100"),
                         event.get("page_aligned_end"),
                         Json(event.get("kinds")),
                         Json(event.get("sample")),

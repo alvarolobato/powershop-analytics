@@ -659,11 +659,16 @@ CREATE TABLE IF NOT EXISTS etl_fetch_anomalies (
     last_index       INTEGER,
     index_ranges     TEXT,
     page_size        INTEGER,
+    run_start_mod_100 INTEGER,
+    run_end_mod_100   INTEGER,
     page_aligned_end BOOLEAN,
     kinds            JSONB,
     sample           JSONB,
     refetch_outcome  TEXT
 );
+-- Forward-compat: add mod-100 alignment columns to existing etl_fetch_anomalies tables.
+ALTER TABLE etl_fetch_anomalies ADD COLUMN IF NOT EXISTS run_start_mod_100 INTEGER;
+ALTER TABLE etl_fetch_anomalies ADD COLUMN IF NOT EXISTS run_end_mod_100   INTEGER;
 
 -- Transport channel: dashboard writes a row here; ETL polls and picks it up.
 CREATE TABLE IF NOT EXISTS etl_manual_trigger (
