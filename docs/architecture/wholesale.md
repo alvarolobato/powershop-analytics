@@ -100,7 +100,7 @@ erDiagram
 
     GCLinAlbarane {
         float RegLinea PK "Line record ID"
-        float NumAlbaran FK "-> GCAlbaranes.NAlbaran"
+        float NumAlbaran FK "-> GCAlbaranes.RegAlbaran (record ID, not the visible number)"
         float NumArticulo FK "-> Articulos.RegArticulo"
         text Codigo "Article code"
         text Descripcion "Description"
@@ -151,7 +151,7 @@ erDiagram
 
     GCLinFacturas {
         float RegLinea PK "Line record ID"
-        float NumFactura FK "-> GCFacturas.NFactura"
+        float NumFactura FK "-> GCFacturas.RegFactura (record ID, not the visible number)"
         float NumArticulo FK "-> Articulos.RegArticulo"
         text Codigo "Article code"
         text Descripcion "Description"
@@ -348,15 +348,26 @@ Use the `_SQL` suffix when querying via `ps sql query` or the p4d driver.
 
 **Lines delta pattern** (no modification timestamp on line tables):
 ```sql
--- Fetch lines for recently changed delivery notes
+-- Fetch lines for recently changed delivery notes.
+-- The parent key is the 4D record ID (RegAlbaran), never the visible NAlbaran.
 SELECT * FROM GCLinAlbarane
-WHERE NAlbaran IN (SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync)
--- → DELETE + INSERT in PostgreSQL for those NAlbaran values
+WHERE NumAlbaran IN (SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= :last_sync)
+-- → DELETE + INSERT in PostgreSQL for those RegAlbaran values
 ```
 
-**FK corrections (important):**
-- `GCLinAlbarane.NAlbaran` → `GCAlbaranes.NAlbaran` (not RegAlbaran — these are different fields)
-- `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)
+**Line → header join key (corrected 2026-08-29):**
+Despite the `Num` prefix, the line tables carry the parent's **4D record ID**:
+- `GCLinAlbarane.NumAlbaran` → `GCAlbaranes.RegAlbaran` (4000/4000 on a production sample)
+- `GCLinFacturas.NumFactura` → `GCFacturas.RegFactura` (4000/4000)
+
+The *visible* document numbers are the wrong key on both counts:
+`GCLinFacturas.NumFactura` matches `GCFacturas.NFactura` **0/4000**, and neither
+visible number is unique (52,148 GCAlbaranes rows carry 40,727 distinct
+`NAlbaran` values; 19,351 GCFacturas rows carry 14,515 distinct `NFactura`
+values), so joining on them mixes lines from unrelated documents.  The ETL used
+the visible numbers until 2026-08-29: the invoice-line delta re-inserted 0 rows
+on every nightly run, and the mirror had drifted 1,873 invoice lines and 3,826
+delivery-note lines behind 4D.
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
 

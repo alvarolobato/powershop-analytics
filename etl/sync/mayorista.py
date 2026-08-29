@@ -12,8 +12,8 @@ Sync strategy notes
 -------------------
 - GCLinAlbarane and GCLinFacturas have no own modification timestamp.
   Delta is derived from the parent header's Modifica field:
-  1. Find parent IDs (NAlbaran / NFactura) modified since *since*.
-  2. DELETE those parent IDs' lines from PostgreSQL.
+  1. Find parent record IDs (RegAlbaran / RegFactura) modified since *since*.
+  2. DELETE those parents' lines from PostgreSQL.
   3. Re-fetch and re-insert the lines from 4D.
   For initial load (since=None): truncate + full extract.
 
@@ -22,10 +22,27 @@ are **not** passed through ``decode_signed_int16_word``: wholesale lines can
 legitimately exceed 32767 units, which would be mis-decoded as negative if the
 16-bit WORD reinterpretation were applied.
 
-FK corrections (critical)
--------------------------
-- GCLinAlbarane.NAlbaran  → GCAlbaranes.NAlbaran  (NOT RegAlbaran)
-- GCLinFacturas.NumFactura → GCFacturas.NFactura   (asymmetric naming)
+Line → header join key (critical — see the 2026-08-29 fix)
+----------------------------------------------------------
+Despite the "Num" prefix, the line tables carry the parent's **4D record ID**,
+not its visible document number:
+
+- GCLinAlbarane.NumAlbaran  → GCAlbaranes.RegAlbaran
+- GCLinFacturas.NumFactura  → GCFacturas.RegFactura
+
+``GCLinAlbarane.NAlbaran`` is the *visible* albarán number; it matches
+``GCAlbaranes.NAlbaran`` but is **not unique** (52,148 headers share only
+40,727 distinct values as of 2026-08-29), so joining on it mixes lines from
+unrelated albaranes.  ``GCFacturas.NFactura`` is likewise non-unique (19,351
+headers / 14,515 distinct values) and shares no values at all with
+``GCLinFacturas.NumFactura`` — measured 0/4000 on a production sample, versus
+4000/4000 against ``RegFactura``.
+
+The delta path used the visible numbers until 2026-08-29: invoice lines
+matched nothing at all (every nightly delta re-inserted 0 lines), and albarán
+lines over-collected — one 90-day window pulled 31,619 lines where only 15,858
+belonged to the modified albaranes.  Always derive parent IDs from
+RegAlbaran / RegFactura and filter lines by NumAlbaran / NumFactura.
 
 PK precision
 ------------
@@ -242,8 +259,9 @@ _SQL_ALBARANES_ALL = (
     " FROM GCAlbaranes"
 )
 
+# Parent key is the 4D record ID (RegAlbaran), NOT the visible NAlbaran.
 _SQL_LIN_ALBARANE_PARENT_IDS = (
-    "SELECT NAlbaran FROM GCAlbaranes WHERE Modifica >= {since}"
+    "SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= {since}"
 )
 
 _SQL_LIN_ALBARANE_BY_PARENT = (
@@ -251,7 +269,7 @@ _SQL_LIN_ALBARANE_BY_PARENT = (
     " Color, FechaAlbaran, Unidades, PrecioNeto, Total, NumCliente,"
     " NumFamilia, NumDepartament, NumTemporada, NumMarca, NumColor"
     " FROM GCLinAlbarane"
-    " WHERE NAlbaran IN ({placeholders})"
+    " WHERE NumAlbaran IN ({placeholders})"
 )
 
 _SQL_LIN_ALBARANE_ALL = (
@@ -274,8 +292,9 @@ _SQL_FACTURAS_ALL = (
     " FROM GCFacturas"
 )
 
+# Parent key is the 4D record ID (RegFactura), NOT the visible NFactura.
 _SQL_LIN_FACTURAS_PARENT_IDS = (
-    "SELECT NFactura FROM GCFacturas WHERE Modifica >= {since}"
+    "SELECT RegFactura FROM GCFacturas WHERE Modifica >= {since}"
 )
 
 _SQL_LIN_FACTURAS_BY_PARENT = (
@@ -389,13 +408,15 @@ def sync_gc_lin_albarane(
 
     GCLinAlbarane has no own modification timestamp.  Delta is derived from
     the parent GCAlbaranes.Modifica field:
-      1. Find NAlbaran values where parent Modifica >= since.
-      2. DELETE those lines from ps_gc_lin_albarane.
+      1. Find RegAlbaran values where parent Modifica >= since.
+      2. DELETE those parents' lines from ps_gc_lin_albarane.
       3. Re-fetch lines from 4D and INSERT.
 
     For initial load (since=None): truncate + full extract.
 
-    FK note: GCLinAlbarane.NAlbaran → GCAlbaranes.NAlbaran (NOT RegAlbaran).
+    Join key: GCLinAlbarane.NumAlbaran → GCAlbaranes.RegAlbaran (the 4D record
+    ID, despite the "Num" name).  NAlbaran is the visible, non-unique document
+    number — joining on it mixes lines from unrelated albaranes.
 
     Args:
         conn_4d: An open p4d connection.
@@ -423,8 +444,8 @@ def sync_gc_lin_albarane(
         )
         return 0
 
-    # NAlbaran values from 4D — may be float; convert to Decimal for PG
-    parent_ids = [_to_decimal(r["nalbaran"]) for r in parent_rows]
+    # RegAlbaran values from 4D — may be float; convert to Decimal for PG
+    parent_ids = [_to_decimal(r["regalbaran"]) for r in parent_rows]
     logger.info(
         "sync_gc_lin_albarane: %d parent albaranes modified since %s",
         len(parent_ids),
@@ -444,7 +465,7 @@ def sync_gc_lin_albarane(
 
         with conn_pg.cursor() as cur:
             cur.execute(
-                "DELETE FROM ps_gc_lin_albarane WHERE n_albaran = ANY(%s)",
+                "DELETE FROM ps_gc_lin_albarane WHERE num_albaran = ANY(%s)",
                 (list(parent_ids),),
             )
             deleted = cur.rowcount
@@ -480,13 +501,15 @@ def sync_gc_lin_facturas(
 
     GCLinFacturas has no own modification timestamp.  Delta is derived from
     the parent GCFacturas.Modifica field:
-      1. Find NFactura values where parent Modifica >= since.
-      2. DELETE those lines from ps_gc_lin_facturas.
+      1. Find RegFactura values where parent Modifica >= since.
+      2. DELETE those parents' lines from ps_gc_lin_facturas.
       3. Re-fetch lines from 4D and INSERT.
 
     For initial load (since=None): truncate + full extract.
 
-    FK note: GCLinFacturas.NumFactura → GCFacturas.NFactura (asymmetric naming).
+    Join key: GCLinFacturas.NumFactura → GCFacturas.RegFactura (the 4D record
+    ID, despite the "Num" name).  NFactura is the visible, non-unique invoice
+    number and shares no values with NumFactura.
 
     Args:
         conn_4d: An open p4d connection.
@@ -505,7 +528,7 @@ def sync_gc_lin_facturas(
         logger.info("sync_gc_lin_facturas: inserted %d rows (full refresh)", count)
         return count
 
-    # Delta path: find parent NFactura IDs modified since watermark
+    # Delta path: find parent RegFactura IDs modified since watermark
     parent_sql = _SQL_LIN_FACTURAS_PARENT_IDS.format(since=_format_since(since))
     parent_rows = safe_fetch(conn_4d, parent_sql)
     if not parent_rows:
@@ -514,15 +537,15 @@ def sync_gc_lin_facturas(
         )
         return 0
 
-    # NFactura values from 4D — may be float; convert to Decimal for PG
-    parent_ids = [_to_decimal(r["nfactura"]) for r in parent_rows]
+    # RegFactura values from 4D — may be float; convert to Decimal for PG
+    parent_ids = [_to_decimal(r["regfactura"]) for r in parent_rows]
     logger.info(
         "sync_gc_lin_facturas: %d parent facturas modified since %s",
         len(parent_ids),
         since.date(),
     )
 
-    # Fetch lines for those parents (GCLinFacturas.NumFactura = GCFacturas.NFactura)
+    # Fetch lines for those parents (GCLinFacturas.NumFactura = GCFacturas.RegFactura)
     id_list = ", ".join(str(pid) for pid in parent_ids)
     lines_sql = _SQL_LIN_FACTURAS_BY_PARENT.format(placeholders=id_list)
     raw_lines = safe_fetch(conn_4d, lines_sql)
