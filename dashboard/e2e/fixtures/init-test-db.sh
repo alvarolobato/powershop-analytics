@@ -18,7 +18,11 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 SAFE_DSN=$(sed 's|//[^:@]*:[^@]*@|//<redacted>@|' <<< "$DSN")
 
-case "$DSN" in
+# Match on SAFE_DSN, not DSN: the guard is about which host/database we are
+# pointed at, and the password is neither. Matching the raw DSN meant a
+# password that merely contained "prod" — the stock local `change_me_in_production`
+# does — refused to seed a database plainly named *_e2e.
+case "$SAFE_DSN" in
   *prod*|*powershop:5432*|*"@${PROD_HOST:-__never__}"*)
     echo "Refusing to seed what looks like a production DSN: $SAFE_DSN" >&2; exit 1 ;;
 esac
