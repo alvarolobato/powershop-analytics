@@ -26,6 +26,14 @@ Subcommands:
   sample <table> [n]  Show n sample rows (default: 5)
   schema              Full schema discovery (writes to docs/)
   count <table>       Row count for a table
+  verify-talla-join [articulo] [dias]
+                      Evidence to settle the D-048 sales-by-size join key:
+                      prints BarrasAsociado's size options and recent
+                      LineasVentas rows for one article (default I26101833),
+                      then match-rate coverage for the two candidate join
+                      keys (CodigoAsociado vs Codigo) both for that article
+                      and across a population window (default 60 days).
+                      See docs/decisions/D-048-sales-by-size.md.
 
 All operations are READ-ONLY. No data modification is performed.
 EOF
@@ -193,6 +201,153 @@ conn.close()
         else
             echo "Run schema discovery with Claude or manually."
         fi
+        ;;
+    verify-talla-join)
+        # D-048 (sales-by-size): prints the evidence needed to settle which
+        # column pairs with BarrasAsociado.Codigo to resolve a size per sale
+        # line — LineasVentas.CodigoAsociado (the hypothesis the ETL/view
+        # currently implement) or LineasVentas.Codigo (the alternative: the
+        # line's own code is already the size-specific barcode). Never
+        # guesses; only reports counts and sample rows read-only.
+        # See docs/decisions/D-048-sales-by-size.md.
+        ARTICULO="${1:-I26101833}"
+        DIAS="${2:-60}"
+        "$VENV_PYTHON" -c "
+import p4d, os, re, sys
+from datetime import date, timedelta
+
+ARTICULO = sys.argv[1]
+_SAFE_CODE = re.compile(r'^[A-Za-z0-9._-]+\$')
+if not _SAFE_CODE.match(ARTICULO):
+    print(f'ERROR: Invalid article code: {ARTICULO!r}. Only letters, digits, dot, underscore and hyphen allowed.', file=sys.stderr)
+    sys.exit(1)
+try:
+    DIAS = int(sys.argv[2])
+    if DIAS <= 0:
+        raise ValueError
+except ValueError:
+    print(f'ERROR: Invalid days window: {sys.argv[2]!r}. Must be a positive integer.', file=sys.stderr)
+    sys.exit(1)
+
+conn = p4d.connect(host=os.environ['P4D_HOST'], port=int(os.environ['P4D_PORT']),
+                   user=os.environ.get('P4D_USER',''), password=os.environ.get('P4D_PASSWORD',''))
+cur = conn.cursor()
+
+def scalar(sql):
+    cur.execute(sql)
+    row = cur.fetchone()
+    return row[0] if row else 0
+
+def rows(sql):
+    cur.execute(sql)
+    cols = [d[0] for d in cur.description] if cur.description else []
+    return cols, cur.fetchall()
+
+def pct(n, d):
+    return f'{(100.0 * n / d):.1f}%' if d else 'n/a (0 lines)'
+
+art_q = ARTICULO.replace(chr(39), chr(39) + chr(39))  # SQL-escape a literal quote, defensively
+
+print('=' * 78)
+print(f'D-048 sales-by-size join verification -- article {ARTICULO!r}')
+print('=' * 78)
+
+cols, data = rows(f'SELECT RegArticulo, Codigo, Descripcion FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}')
+if not data:
+    print(f'No Articulos row found with Codigo = {ARTICULO!r}. Nothing to verify.')
+    sys.exit(1)
+print()
+print('Articulos row:')
+print(chr(9).join(cols))
+for r in data:
+    print(chr(9).join(str(v) for v in r))
+
+print()
+print('-- BarrasAsociado rows for this article (its size options) --')
+cols, data = rows(
+    f'SELECT Codigo, Talla, NTalla, SKU FROM BarrasAsociado '
+    f'WHERE NumArticulo IN (SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}) '
+    f'LIMIT 30'
+)
+print(chr(9).join(cols) if cols else '(no columns)')
+for r in data:
+    print(chr(9).join(str(v) for v in r))
+print(f'({len(data)} rows)')
+
+print()
+print('-- Recent LineasVentas rows for this article --')
+cols, data = rows(
+    f'SELECT RegLineas, Codigo, CodigoAsociado, NumArticulo, NumColor, Unidades, FechaCreacion '
+    f'FROM LineasVentas WHERE NumArticulo IN (SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}) '
+    f'ORDER BY FechaCreacion DESC LIMIT 20'
+)
+print(chr(9).join(cols) if cols else '(no columns)')
+for r in data:
+    print(chr(9).join(str(v) for v in r))
+print(f'({len(data)} rows)')
+
+print()
+print('-- Coverage for this article --')
+total_by_codigo = scalar(f'SELECT COUNT(*) FROM LineasVentas WHERE Codigo = {chr(39)}{art_q}{chr(39)}')
+total_by_numarticulo = scalar(
+    f'SELECT COUNT(*) FROM LineasVentas WHERE NumArticulo IN '
+    f'(SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)})'
+)
+print(f'Lines matched via LineasVentas.Codigo = {ARTICULO!r} (existing join key): {total_by_codigo}')
+print(f'Lines matched via LineasVentas.NumArticulo -> Articulos.RegArticulo:      {total_by_numarticulo}')
+if total_by_codigo != total_by_numarticulo:
+    print('  ^ MISMATCH -- Codigo and NumArticulo do not select the same line set for this article.')
+    print('    NumArticulo may be sparsely populated on older lines, or Codigo is not 1:1 with')
+    print('    RegArticulo. Investigate before trusting NumArticulo-scoped counts below.')
+
+matched_a = scalar(
+    f'SELECT COUNT(*) FROM LineasVentas WHERE NumArticulo IN '
+    f'(SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}) '
+    f'AND CodigoAsociado IN (SELECT Codigo FROM BarrasAsociado WHERE NumArticulo IN '
+    f'(SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}))'
+)
+matched_b = scalar(
+    f'SELECT COUNT(*) FROM LineasVentas WHERE NumArticulo IN '
+    f'(SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}) '
+    f'AND Codigo IN (SELECT Codigo FROM BarrasAsociado WHERE NumArticulo IN '
+    f'(SELECT RegArticulo FROM Articulos WHERE Codigo = {chr(39)}{art_q}{chr(39)}))'
+)
+print()
+print(f'Candidate A -- lv.CodigoAsociado = ba.Codigo (current ETL/view assumption): {matched_a} / {total_by_numarticulo} matched ({pct(matched_a, total_by_numarticulo)})')
+print(f'Candidate B -- lv.Codigo         = ba.Codigo (alternative hypothesis):      {matched_b} / {total_by_numarticulo} matched ({pct(matched_b, total_by_numarticulo)})')
+
+cutoff = (date.today() - timedelta(days=DIAS)).strftime('%Y-%m-%d')
+print()
+print(f'-- Population match rate (last {DIAS} days, articles with >=1 BarrasAsociado row) --')
+pop_total = scalar(
+    f\"SELECT COUNT(*) FROM LineasVentas WHERE FechaCreacion >= {{d '{cutoff}'}} \"
+    f'AND NumArticulo IN (SELECT DISTINCT NumArticulo FROM BarrasAsociado)'
+)
+pop_a = scalar(
+    f\"SELECT COUNT(*) FROM LineasVentas WHERE FechaCreacion >= {{d '{cutoff}'}} \"
+    f'AND NumArticulo IN (SELECT DISTINCT NumArticulo FROM BarrasAsociado) '
+    f'AND CodigoAsociado IN (SELECT Codigo FROM BarrasAsociado)'
+)
+pop_b = scalar(
+    f\"SELECT COUNT(*) FROM LineasVentas WHERE FechaCreacion >= {{d '{cutoff}'}} \"
+    f'AND NumArticulo IN (SELECT DISTINCT NumArticulo FROM BarrasAsociado) '
+    f'AND Codigo IN (SELECT Codigo FROM BarrasAsociado)'
+)
+print(f'Lines in size-carrying articles, last {DIAS} days: {pop_total}')
+print(f'Candidate A -- CodigoAsociado matches: {pop_a} ({pct(pop_a, pop_total)})')
+print(f'Candidate B -- Codigo matches:         {pop_b} ({pct(pop_b, pop_total)})')
+
+print()
+print('=' * 78)
+print('Read this as: whichever candidate has the higher match rate (ideally close')
+print('to 100%) both for the one article above and across the population is the')
+print('real join key -- update the JOIN in ps_lineas_ventas_talla (etl/schema/init.sql)')
+print('accordingly if candidate B wins. If neither gets close to 100%, the barcode')
+print('may not be carried on older lines at all, or BarrasAsociado coverage itself')
+print('is partial for this catalogue -- see docs/decisions/D-048-sales-by-size.md.')
+print('=' * 78)
+conn.close()
+" "$ARTICULO" "$DIAS"
         ;;
     *)
         echo -e "${RED}ps sql: unknown subcommand '${SUBCMD}'${NC}" >&2

@@ -38,6 +38,7 @@ All automation should delegate work to the CLI. This ensures every operation is 
 | `ps sql sample <table> [n]` | Show n sample rows |
 | `ps sql count <table>` | Row count for a table |
 | `ps sql schema` | Generate the full 4D schema dump locally (git-ignored; contains real data) |
+| `ps sql verify-talla-join [articulo] [dias]` | D-048: evidence to settle the sales-by-size join key against the live 4D server — coverage for both candidate keys, for one article (default `I26101833`) and across a population window (default 60 days) |
 | `ps wren push` | Push source knowledge to WrenAI (instructions + SQL pairs — counts loaded dynamically from source MDs; `ps wren status` shows current numbers) |
 | `ps wren validate` | Validate all SQL pairs against PostgreSQL mirror |
 | `ps wren crosscheck` | Cross-check WrenAI knowledge against the schema in PostgreSQL (find drift) |
