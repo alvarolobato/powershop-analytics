@@ -424,15 +424,37 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
 
 ## LLM:relationships
 
+<!--
+LAS LÍNEAS SE UNEN POR EL ID DE REGISTRO 4D, NUNCA POR EL NÚMERO VISIBLE.
+
+`Num*` en una tabla de líneas apunta al `Reg*` de su cabecera (el ID interno de
+4D), NO al `N*` (el número que ve el usuario en el documento). Los nombres
+inducen a error justo al revés de lo que parece.
+
+Medido contra el 4D de producción sobre muestras de 2.000-4.000 líneas:
+
+  GCLinFacturas.NumFactura -> RegFactura  4000/4000   -> NFactura  0/4000
+  GCLinAlbarane.NumAlbaran -> RegAlbaran  4000/4000   -> NAlbaran  0/4000
+  GCLinPedidos.NumPedido   -> RegPedido   2000/2000   -> NPedido   0/2000
+
+Y los números visibles NO son únicos (40.727 NAlbaran distintos para 52.148
+albaranes; 76 NPedido para 120 pedidos), así que unir por ellos además mezcla
+líneas de documentos distintos.
+
+Este fichero declaraba las tres relaciones al revés. Consecuencia real: el ETL
+mayorista perdió 5.699 líneas y toda consulta mayorista que generase el
+dashboard salía vacía o se multiplicaba.
+-->
+
 ```json
 [
-  {"from": "ps_gc_lin_albarane", "fromColumn": "n_albaran",   "to": "ps_gc_albaranes",   "toColumn": "n_albaran",    "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas",    "toColumn": "n_factura",    "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_albarane", "fromColumn": "num_albaran", "to": "ps_gc_albaranes",   "toColumn": "reg_albaran",  "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas",    "toColumn": "reg_factura",  "type": "MANY_TO_ONE"},
   {"from": "ps_gc_albaranes",    "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
   {"from": "ps_gc_facturas",     "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
   {"from": "ps_gc_albaranes",    "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
   {"from": "ps_gc_facturas",     "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
   {"from": "ps_gc_pedidos",      "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_lin_pedidos",  "fromColumn": "num_pedido",  "to": "ps_gc_pedidos",     "toColumn": "n_pedido",     "type": "MANY_TO_ONE"}
+  {"from": "ps_gc_lin_pedidos",  "fromColumn": "num_pedido",  "to": "ps_gc_pedidos",     "toColumn": "reg_pedido",   "type": "MANY_TO_ONE"}
 ]
 ```
