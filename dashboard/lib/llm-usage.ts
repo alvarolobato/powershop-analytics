@@ -164,7 +164,7 @@ export function logUsage(
       usage.prompt_tokens,
       usage.completion_tokens,
       usage.total_tokens,
-      estimatedCost.toFixed(10),
+      estimatedCost.toFixed(6),
       provider,
       driver,
       requestId,
