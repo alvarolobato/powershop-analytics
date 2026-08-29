@@ -271,7 +271,14 @@ body {
 }
 
 /* The Acciones <col>. A `tableLayout: fixed` table sizes columns purely
-   from <col> widths, so this has to track the button size above. */
+   from <col> widths, so this has to track the button size above. Below
+   `md` the whole column is dropped (`hidden md:table-column` on the <col>,
+   `hidden md:table-cell` on its th/td) and its actions move into the
+   conversation itself — see `.conv-detail-actions` below — so this phone
+   width now only applies at the `md`-and-up side, where the column still
+   renders. Kept as-is rather than deleted: `hidden` wins over it below
+   `md`, and removing it would silently re-widen the column if the
+   `hidden` class were ever dropped. */
 .conv-col-acciones {
   width: 90px;
 }
@@ -279,6 +286,122 @@ body {
   .conv-col-acciones {
     width: 116px;
   }
+}
+
+/* ------------------------------------------------------------
+   Título column — the one column that matters on a phone.
+
+   Below `md` the checkbox, pencil and Acciones columns are removed from
+   layout entirely, so the freed width goes here: the title wraps to two
+   lines at a readable 15px instead of ellipsising a 12px string inside a
+   squeezed column, and a muted meta line (relative time + context) sits
+   under it. Desktop is untouched — one ellipsised 12px line, exactly as
+   before.
+
+   These properties are NOT in the component's inline style objects, on
+   purpose (D-121 rung 1): they are static literals per breakpoint, and an
+   inline `white-space: nowrap` can never be outranked by a media query
+   without `!important`. So the inline style declares neither the
+   truncation properties nor the cell padding, and this file owns both
+   breakpoints.
+   ------------------------------------------------------------ */
+.conv-title-link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* `display: block` is load-bearing, not cosmetic: this is a <span>, and
+   `text-overflow: ellipsis` is ignored on an inline box. Without it the
+   desktop title would overflow its cell instead of ellipsising. */
+.conv-title-text {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-td-title {
+  padding: 8px 10px;
+}
+
+@media (max-width: 767.98px) {
+  /* Two-line clamp. `-webkit-line-clamp` still needs the `-webkit-box`
+     display + `-webkit-box-orient` pair in every shipping engine; the
+     unprefixed `line-clamp` is there for whatever lands first. */
+  .conv-title-text {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    text-overflow: clip;
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.35;
+  }
+
+  /* `display: block` is safe to set here despite the element also carrying
+     `md:hidden`: that utility lives inside `@media (min-width: 768px)` and
+     this block inside `max-width: 767.98px`, so the two can never apply at
+     the same width and never race on specificity. It is needed because the
+     element is a <span> — inline boxes ignore `margin-top`. */
+  .conv-title-meta {
+    display: block;
+    margin-top: 3px;
+    font-size: 12px;
+    line-height: 1.3;
+    color: var(--fg-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Taller rows: 12px of vertical padding puts even a one-line row at
+     ~59px and a two-line row at ~79px, both clear of the 44px tap floor,
+     with the title itself as the tap target. Horizontal padding drops to
+     2px because the checkbox column that used to indent the title is gone. */
+  .conv-td-title {
+    padding: 12px 2px;
+  }
+}
+
+/* ------------------------------------------------------------
+   Row actions relocated into the conversation (phone only).
+
+   The list's per-row actions are hidden below `md`; this is where they
+   go instead — a header strip on `/conversations/[id]`, next to the
+   back-to-list link. The container carries `md:hidden`, so nothing here
+   renders on desktop, where the Acciones column still does the job.
+   ------------------------------------------------------------ */
+.conv-detail-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.conv-detail-action-btn {
+  min-height: 44px;
+  min-width: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--fg-muted);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.conv-detail-action-btn[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* Bulk-action bar buttons ("Archivar/Desarchivar seleccionadas",

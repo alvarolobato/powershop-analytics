@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ConversationListSidebar } from "@/components/ConversationListSidebar";
 import { ConversationPane } from "@/components/ConversationPane";
+import { ConversationDetailActions } from "@/components/ConversationDetailActions";
 
 // Must be dynamic: data depends on the conversation ID.
 export const dynamic = "force-dynamic";
@@ -48,24 +49,37 @@ export default async function ConversationSplitViewPage({ params }: PageProps) {
             back to the list, so a phone-only back-link takes its place —
             `flex md:hidden` (Tailwind owns display, nothing inline on this
             element collides — D-120), 44px min-height tap target. */}
-        <Link
-          href="/conversations"
+        {/* The strip also carries the per-row actions the list drops below
+            `md` (rename / archive / open-in-context) — hence `justify-content:
+            space-between` rather than the bare link this used to be. */}
+        <div
           className="flex md:hidden"
           style={{
             alignItems: "center",
-            gap: 6,
-            minHeight: 44,
+            gap: 8,
             padding: "0 var(--pad-x, 20px)",
             flexShrink: 0,
             borderBottom: "1px solid var(--border)",
-            color: "var(--fg-muted)",
-            textDecoration: "none",
-            fontSize: 13,
-            fontWeight: 500,
           }}
         >
-          ← Conversaciones
-        </Link>
+          <Link
+            href="/conversations"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              minHeight: 44,
+              color: "var(--fg-muted)",
+              textDecoration: "none",
+              fontSize: 13,
+              fontWeight: 500,
+              whiteSpace: "nowrap",
+            }}
+          >
+            ← Conversaciones
+          </Link>
+          <ConversationDetailActions conversationId={id} />
+        </div>
         <ConversationPane mode="standalone" conversationId={id} />
       </div>
     </div>

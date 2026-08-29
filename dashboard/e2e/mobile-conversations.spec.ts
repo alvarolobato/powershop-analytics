@@ -144,23 +144,72 @@ test.describe("phone width (iPhone 13 emulation)", () => {
     await expect(backLink, "mobile-only back link is hidden at desktop width").toBeHidden();
   });
 
-  test("list shows titles at phone width, no document horizontal overflow", async ({ page }) => {
+  test("list gives the title the space the dropped columns freed", async ({ page }) => {
     await page.goto("/conversations", { waitUntil: "networkidle" });
     await expect(page.getByTestId("conversations-table")).toBeVisible();
     await page.waitForTimeout(1000);
 
     const width = await clientWidth(page);
     const titleCell = page.getByTestId(`title-cell-${convId}`);
-    await expect(titleCell, "the seeded conversation's title cell is visible").toBeVisible();
+    await expect(titleCell, "the seeded conversation's title is visible").toBeVisible();
+
+    // The checkbox and Acciones columns are gone from layout below `md`
+    // (`hidden md:table-*`). Assert `display`, the property the change
+    // actually controls — a visibility proxy would also pass if they were
+    // merely squeezed to zero width, which is the bug being fixed.
+    const dropped = await page.evaluate(() => {
+      const row = document.querySelector('[data-testid="conversations-table"] tbody tr')!;
+      const cells = Array.from(row.querySelectorAll("td"));
+      const pencil = row.querySelector('[data-testid^="rename-btn-"]');
+      return {
+        checkbox: getComputedStyle(cells[0]).display,
+        acciones: getComputedStyle(cells[cells.length - 1]).display,
+        pencil: pencil ? getComputedStyle(pencil).display : "not-found",
+      };
+    });
+    expect(dropped.checkbox, "checkbox column is display:none on a phone").toBe("none");
+    expect(dropped.acciones, "Acciones column is display:none on a phone").toBe("none");
+    expect(dropped.pencil, "rename pencil is display:none on a phone").toBe("none");
+
+    // The point of dropping them: the title gets that width. The three
+    // columns were 36 + 116 + the pencil; the title should now run nearly
+    // the full content box, not the ~190px it was left with.
     const box = await titleCell.boundingBox();
-    expect(box, "title cell has a real, non-collapsed width").not.toBeNull();
+    expect(box, "title has a bounding box").not.toBeNull();
     if (box) {
-      // The pre-fix 976px/10-column fixed table collapsed Título toward 0
-      // at 390px (it only kept width via what was left after 9 fixed
-      // columns). A real width floor, not just ">0", is the falsifiable
-      // assertion here.
-      expect(box.width, "title cell has meaningful width, not collapsed").toBeGreaterThan(80);
+      expect(
+        box.width,
+        `title is ${box.width}px of a ${width}px viewport — it should now take nearly all of it`,
+      ).toBeGreaterThan(width * 0.85);
     }
+
+    // "haz que se lea más el texto": two lines at 15px, not one at 12px.
+    const text = await page.evaluate(() => {
+      const el = document.querySelector('[data-testid="conversations-table"] .conv-title-text')!;
+      const cs = getComputedStyle(el);
+      return {
+        fontSize: parseFloat(cs.fontSize),
+        clamp: cs.webkitLineClamp || cs.getPropertyValue("-webkit-line-clamp"),
+        whiteSpace: cs.whiteSpace,
+      };
+    });
+    expect(text.fontSize, `title font is ${text.fontSize}px — must be larger than the 12px desktop size`).toBeGreaterThanOrEqual(15);
+    expect(text.whiteSpace, "title wraps instead of ellipsising on one line").not.toBe("nowrap");
+    expect(text.clamp, "title is clamped to two lines").toBe("2");
+
+    // The meta line replaces the Contexto / Última actividad columns that
+    // are hidden at this width, so no information is simply lost.
+    await expect(
+      page.getByTestId(`title-meta-${convId}`),
+      "phone meta line (relative time + context) is visible",
+    ).toBeVisible();
+
+    // The row is the tap target now that the icon buttons are gone.
+    const rowHeight = await page.evaluate(() => {
+      const row = document.querySelector('[data-testid="conversations-table"] tbody tr')!;
+      return Math.round(row.getBoundingClientRect().height);
+    });
+    expect(rowHeight, `row is ${rowHeight}px tall — must clear the 44px tap floor`).toBeGreaterThanOrEqual(44);
 
     const offenders = await page.evaluate((clientW) => {
       const bad: { tag: string; testid: string | null; right: number }[] = [];
@@ -173,71 +222,66 @@ test.describe("phone width (iPhone 13 emulation)", () => {
       return bad;
     }, width);
     expect(offenders, "no element extends past the document at phone width").toEqual([]);
-
-    // Row-action icon buttons get the 44px floor BELOW `md` only
-    // (`.conv-row-action-btn`, D-121). Assert the phone half here; the
-    // desktop half — that they stay compact — is asserted in the desktop
-    // describe below, because an unconditional bump silently costs 33% of
-    // desktop row density.
-    const actionBtnSizes = await page.evaluate(() => {
-      const row = document.querySelector('[data-testid="conversations-table"] tbody tr')!;
-      return Array.from(row.querySelectorAll("button.conv-row-action-btn")).map((b) => {
-        const r = b.getBoundingClientRect();
-        return { w: Math.round(r.width), h: Math.round(r.height) };
-      });
-    });
-    expect(actionBtnSizes.length, "row-action buttons rendered").toBeGreaterThan(0);
-    for (const b of actionBtnSizes) {
-      expect(b.w, `row-action button width ${b.w}px clears the 44px floor`).toBeGreaterThanOrEqual(44);
-      expect(b.h, `row-action button height ${b.h}px clears the 44px floor`).toBeGreaterThanOrEqual(44);
-    }
   });
 
-  test("bulk-action bar wraps and its buttons clear the tap-target floor", async ({ page }) => {
+  test("tapping the title opens the conversation", async ({ page }) => {
     await page.goto("/conversations", { waitUntil: "networkidle" });
     await expect(page.getByTestId("conversations-table")).toBeVisible();
-    await page.getByTestId("select-all-checkbox").click();
-    await expect(page.getByTestId("bulk-action-bar"), "bulk bar appears once rows are selected").toBeVisible();
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(600);
 
-    const width = await clientWidth(page);
-    const bar = await page.evaluate(() => {
-      const el = document.querySelector('[data-testid="bulk-action-bar"]')!;
-      const box = (sel: string) => {
-        const r = el.querySelector(sel)!.getBoundingClientRect();
-        return { top: Math.round(r.top), bottom: Math.round(r.bottom), right: Math.round(r.right) };
-      };
-      return {
-        archive: box('[data-testid="bulk-archive-btn"]'),
-        cancel: box('[data-testid="bulk-cancel-btn"]'),
-        children: Array.from(el.children).map((c) => ({
-          testid: c.getAttribute("data-testid"),
-          text: (c.textContent || "").trim().slice(0, 24),
-          right: Math.round(c.getBoundingClientRect().right),
-        })),
-      };
-    });
+    await page.getByTestId(`title-cell-${convId}`).click();
+    await expect(page.getByTestId("message-input"), "the conversation pane opened").toBeVisible();
+    expect(page.url(), "navigated to the conversation").toContain(`/conversations/${convId}`);
+  });
 
-    // `flexWrap: "wrap"` lets "Cancelar" (pushed fully right by
-    // `marginLeft: auto`) drop to its own line instead of off the
-    // viewport. Two falsifiable halves: (a) Cancelar really does sit on a
-    // later flex line than the first bulk button, and (b) nothing in the
-    // bar sits past the viewport.
-    expect(
-      bar.cancel.top,
-      `"Cancelar" (top ${bar.cancel.top}) should wrap below "Archivar seleccionadas" (bottom ${bar.archive.bottom}) at ${width}px`,
-    ).toBeGreaterThanOrEqual(bar.archive.bottom);
-    const past = bar.children.filter((c) => c.right > width + 1);
-    expect(past, "no bulk-bar control (Cancelar especially) sits past the viewport").toEqual([]);
+  test("the list's actions are reachable inside the conversation instead", async ({ page }) => {
+    await gotoConversationAndSettle(page, convId);
 
-    // Tap-target floor for the bar's own buttons.
-    for (const id of ["bulk-archive-btn", "bulk-unarchive-btn", "bulk-cancel-btn"]) {
+    const strip = page.getByTestId("conv-detail-actions");
+    await expect(strip, "phone action strip is rendered in the conversation").toBeVisible();
+
+    // Every relocated action has to clear the tap floor — that was the
+    // reason they could not stay as 12-22px glyphs in the list.
+    for (const id of ["conv-detail-rename-btn", "conv-detail-archive-btn", "conv-detail-context-btn"]) {
       const box = await page.getByTestId(id).boundingBox();
       expect(box, `${id} has a bounding box`).not.toBeNull();
       if (box) {
         expect(box.height, `${id} is ${box.height}px tall — must clear the 44px floor`).toBeGreaterThanOrEqual(44);
+        expect(box.width, `${id} is ${box.width}px wide — must clear the 44px floor`).toBeGreaterThanOrEqual(44);
       }
     }
+
+    // The back link still shares this strip and keeps its own target.
+    const backLink = page.getByRole("link", { name: "← Conversaciones" });
+    await expect(backLink).toBeVisible();
+    const backBox = await backLink.boundingBox();
+    if (backBox) expect(backBox.height).toBeGreaterThanOrEqual(44);
+
+    // Nothing in the strip may spill off a 390px viewport.
+    const width = await clientWidth(page);
+    const spill = await page.evaluate((w) => {
+      const el = document.querySelector('[data-testid="conv-detail-actions"]')!;
+      return Math.round(el.getBoundingClientRect().right) > w + 1;
+    }, width);
+    expect(spill, "action strip stays inside the viewport").toBe(false);
+  });
+
+  test("rename works from inside the conversation", async ({ page }) => {
+    await gotoConversationAndSettle(page, convId);
+
+    await page.getByTestId("conv-detail-rename-btn").click();
+    const input = page.getByTestId("conv-detail-rename-input");
+    await expect(input, "rename input replaces the buttons").toBeVisible();
+
+    const newTitle = `Renombrada e2e ${Date.now()}`;
+    await input.fill(newTitle);
+    await page.getByTestId("conv-detail-rename-save").click();
+    await expect(input, "the strip returns to its button row").toBeHidden();
+
+    // Falsifiable end-to-end: the new title survives a round trip to the
+    // API, not just a local state update.
+    await page.goto("/conversations", { waitUntil: "networkidle" });
+    await expect(page.getByTestId(`title-cell-${convId}`)).toHaveText(new RegExp(newTitle.slice(0, 20)));
   });
 });
 
@@ -278,6 +322,42 @@ test.describe("desktop width — must not cost density (D-121)", () => {
     for (const b of desk.btns) {
       expect(b.h, `desktop row-action button is ${b.h}px tall — the 44px phone floor must not apply here`).toBeLessThan(44);
     }
+  });
+
+  test("checkbox, pencil and Acciones columns all still render at 1440px", async ({ page }) => {
+    await page.goto("/conversations", { waitUntil: "networkidle" });
+    await expect(page.getByTestId("conversations-table")).toBeVisible();
+    await page.waitForTimeout(600);
+
+    // The other direction of the phone guard: hiding these below `md` must
+    // not leak upward. Without this, dropping `md:table-cell` from the
+    // classes would still pass every phone assertion above.
+    const desktop = await page.evaluate(() => {
+      const row = document.querySelector('[data-testid="conversations-table"] tbody tr')!;
+      const cells = Array.from(row.querySelectorAll("td"));
+      const pencil = row.querySelector('[data-testid^="rename-btn-"]');
+      const text = document.querySelector('[data-testid="conversations-table"] .conv-title-text')!;
+      const cs = getComputedStyle(text);
+      return {
+        checkbox: getComputedStyle(cells[0]).display,
+        acciones: getComputedStyle(cells[cells.length - 1]).display,
+        pencil: pencil ? getComputedStyle(pencil).display : "not-found",
+        titleWhiteSpace: cs.whiteSpace,
+        titleFontSize: parseFloat(cs.fontSize),
+        metaVisible: !!document.querySelector('[data-testid^="title-meta-"]')
+          && getComputedStyle(document.querySelector('[data-testid^="title-meta-"]')!).display !== "none",
+      };
+    });
+
+    expect(desktop.checkbox, "checkbox column renders at desktop").not.toBe("none");
+    expect(desktop.acciones, "Acciones column renders at desktop").not.toBe("none");
+    expect(desktop.pencil, "rename pencil renders at desktop").not.toBe("none");
+
+    // Desktop keeps the dense single ellipsised line — the phone's 15px
+    // two-line treatment must not bleed up here.
+    expect(desktop.titleWhiteSpace, "desktop title stays on one line").toBe("nowrap");
+    expect(desktop.titleFontSize, `desktop title is ${desktop.titleFontSize}px — must stay at 12px`).toBe(12);
+    expect(desktop.metaVisible, "phone-only meta line is hidden at desktop").toBe(false);
   });
 
   test("bulk-action bar stays compact at 1440px", async ({ page }) => {
