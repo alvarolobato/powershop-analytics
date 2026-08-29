@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 20 ficheros. 298 secciones (228 con SQL,
+// Fuente: 20 ficheros. 298 secciones (225 con SQL,
 // 122 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -428,49 +428,49 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto hemos vendido cada día en una tienda concreta? (neto de devoluciones)",
-    "body": "```sql\nSELECT v.\"fecha_creacion\" AS \"Fecha\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" = '99' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY v.\"fecha_creacion\" ORDER BY v.\"fecha_creacion\"\n```",
+    "body": "```sql\nSELECT v.\"fecha_creacion\" AS \"Fecha\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" = '99' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY v.\"fecha_creacion\" ORDER BY v.\"fecha_creacion\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es la venta neta mensual por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\", DATE_TRUNC('month', v.\"fecha_creacion\") ORDER BY \"Mes\", \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\", DATE_TRUNC('month', v.\"fecha_creacion\") ORDER BY \"Mes\", \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los 20 productos con más facturación neta?",
-    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\") AS \"Unidades\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Venta Neta\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Venta Neta\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por familia de producto?",
-    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\") AS \"Unidades\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por marca?",
-    "body": "```sql\nSELECT m.\"marca_tratamien\" AS \"Marca\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_marcas\" m ON m.\"reg_marca\" = a.\"num_marca\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY m.\"marca_tratamien\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT m.\"marca_tratamien\" AS \"Marca\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_marcas\" m ON m.\"reg_marca\" = a.\"num_marca\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY m.\"marca_tratamien\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por temporada?",
-    "body": "```sql\nSELECT te.\"temporada_tipo\" AS \"Temporada\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_temporadas\" te ON te.\"reg_temporada\" = a.\"num_temporada\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY te.\"temporada_tipo\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT te.\"temporada_tipo\" AS \"Temporada\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_temporadas\" te ON te.\"reg_temporada\" = a.\"num_temporada\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY te.\"temporada_tipo\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por departamento?",
-    "body": "```sql\nSELECT d.\"depa_secc_fabr\" AS \"Departamento\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_departamentos\" d ON d.\"reg_departament\" = a.\"num_departament\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY d.\"depa_secc_fabr\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT d.\"depa_secc_fabr\" AS \"Departamento\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_departamentos\" d ON d.\"reg_departament\" = a.\"num_departament\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY d.\"depa_secc_fabr\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -484,28 +484,28 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Qué día de la semana vendemos más?",
-    "body": "```sql\nSELECT TO_CHAR(v.\"fecha_creacion\", 'ID') AS \"Día ISO\", TRIM(TO_CHAR(v.\"fecha_creacion\", 'Day')) AS \"Día\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1, 2 ORDER BY 1\n```",
+    "body": "```sql\nSELECT TO_CHAR(v.\"fecha_creacion\", 'ID') AS \"Día ISO\", TRIM(TO_CHAR(v.\"fecha_creacion\", 'Day')) AS \"Día\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1, 2 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cómo se reparten las ventas por hora del día?",
-    "body": "```sql\nSELECT EXTRACT(HOUR FROM v.\"hora_creacion\")::int AS \"Hora\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"hora_creacion\" IS NOT NULL AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT EXTRACT(HOUR FROM v.\"hora_creacion\")::int AS \"Hora\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"hora_creacion\" IS NOT NULL AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el ticket medio por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND((SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) / NULLIF(COUNT(*) FILTER (WHERE v.\"entrada\"), 0), 2) AS \"Ticket Medio\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Ticket Medio\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", ROUND((COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) / NULLIF(COUNT(*) FILTER (WHERE v.\"entrada\"), 0), 2) AS \"Ticket Medio\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Ticket Medio\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los mejores clientes de retail por importe gastado?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Compras\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Gasto Neto\", MAX(v.\"fecha_creacion\") AS \"Última Compra\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = v.\"num_cliente\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Gasto Neto\" DESC LIMIT 50\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Compras\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Gasto Neto\", MAX(v.\"fecha_creacion\") AS \"Última Compra\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = v.\"num_cliente\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Gasto Neto\" DESC LIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -519,36 +519,36 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto se cobra por cada forma de pago?",
-    "body": "```sql\nSELECT pv.\"forma\" AS \"Forma de Pago\", COUNT(*) FILTER (WHERE pv.\"entrada\") AS \"Cobros\", SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\") - SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\") AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv WHERE pv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY pv.\"forma\" ORDER BY \"Importe Neto\" DESC\n```",
+    "body": "```sql\nSELECT pv.\"forma\" AS \"Forma de Pago\", COUNT(*) FILTER (WHERE pv.\"entrada\") AS \"Cobros\", COALESCE(SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\"), 0) - COALESCE(SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\"), 0) AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv WHERE pv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY pv.\"forma\" ORDER BY \"Importe Neto\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el mix de formas de pago por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", pv.\"forma\" AS \"Forma de Pago\", SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\") - SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\") AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = pv.\"tienda\" WHERE pv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\", pv.\"forma\" ORDER BY t.\"identificador\", \"Importe Neto\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", pv.\"forma\" AS \"Forma de Pago\", COALESCE(SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\"), 0) - COALESCE(SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\"), 0) AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = pv.\"tienda\" WHERE pv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\", pv.\"forma\" ORDER BY t.\"identificador\", \"Importe Neto\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen bruto por producto en retail?",
-    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Coste\", (SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\")) AS \"Margen\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
-    "hasSql": true,
+    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Coste\", (COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) AS \"Margen\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
+    "hasSql": false,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el porcentaje de margen por familia?",
-    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND(100.0 * ((SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"))) / NULLIF(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": true,
+    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Margen %\" DESC\n```",
+    "hasSql": false,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND(100.0 * ((SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"))) / NULLIF(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": true,
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Margen %\" DESC\n```",
+    "hasSql": false,
     "dialect": "postgres"
   },
   {
@@ -582,14 +582,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto facturamos a mayoristas por mes? (neto de abonos)",
-    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\"), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\"), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los mejores clientes mayoristas?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\"), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\"), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -603,7 +603,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vende cada comercial de mayorista?",
-    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
+    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\"), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\"), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -631,7 +631,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos en retail excluyendo los artículos de mayorista (prefijo M)?",
-    "body": "```sql\nSELECT DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta Retail\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" WHERE lv.\"codigo\" NOT LIKE 'M%' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta Retail\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" WHERE lv.\"codigo\" NOT LIKE 'M%' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

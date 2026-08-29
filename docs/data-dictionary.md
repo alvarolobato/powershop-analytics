@@ -739,7 +739,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "'Ventas' significa SIEMPRE neto de devoluciones. El patron obligatorio es SUM(x) FILTER (WHERE v.entrada) - SUM(x) FILTER (WHERE NOT v.entrada). Filtrar solo 'WHERE entrada = true' descarta las devoluciones en vez de restarlas y sobrestima la cifra entre un 7 y un 10 %. Aplica a importes y a unidades, en ps_ventas, ps_lineas_ventas y ps_pagos_ventas.",
+    "instruction": "'Ventas' significa SIEMPRE neto de devoluciones. El patron obligatorio es COALESCE(SUM(x) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(x) FILTER (WHERE NOT v.entrada), 0). Filtrar solo 'WHERE entrada = true' descarta las devoluciones en vez de restarlas y sobrestima la cifra entre un 7 y un 10 %. Aplica a importes y a unidades, en ps_ventas, ps_lineas_ventas y ps_pagos_ventas.",
     "questions": [
       "cuanto hemos vendido",
       "ventas netas",
@@ -754,7 +754,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "En el mayorista (tablas GC*) la devolucion no es 'entrada = false' sino la bandera 'abono' en ps_gc_albaranes y ps_gc_facturas: abono = true significa nota de credito. El neto mayorista se calcula SUM(x) FILTER (WHERE NOT abono) - SUM(x) FILTER (WHERE abono).",
+    "instruction": "En el mayorista (tablas GC*) la devolucion no es 'entrada = false' sino la bandera 'abono' en ps_gc_albaranes y ps_gc_facturas: abono = true significa nota de credito. El neto mayorista se calcula COALESCE(SUM(x) FILTER (WHERE NOT abono), 0) - COALESCE(SUM(x) FILTER (WHERE abono), 0).",
     "questions": [
       "devoluciones mayoristas",
       "que es abono",
