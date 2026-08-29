@@ -78,15 +78,48 @@ export const TOOL_LOG_CLOSE_TAG = "</herramientas_ya_ejecutadas>";
  * imitation of it, long after new turns stopped being formatted this way.
  */
 /**
- * Raw provider tool-call markup that must never appear in a final answer.
+ * Raw tool-call markup from any provider, which must never appear in a final
+ * answer.
  *
- * `DSML` is DeepSeek's native tool-call syntax (the full delimiters use
- * fullwidth vertical bars, so the bare token is matched instead of the exact
- * punctuation, which varies by model build). The closing-tag forms cover a
- * partially-parsed emission where only the tail survives.
+ * The dashboard is model-agnostic on purpose — DeepSeek, Claude and OpenAI are
+ * all supported targets — and each family serialises tool calls differently.
+ * When the router fails to parse a family's markup into `tool_calls`,
+ * `openrouter.ts` sees non-empty text and returns kind:"final", so the raw
+ * markup is persisted as the answer. Production hit this with DeepSeek
+ * (messages 582e0af1, b0e8a038, 0cd5c169 — one of them leaking real data rows
+ * inside the block, so the tool HAD run and only the transcript was
+ * mis-emitted), but nothing about the failure is DeepSeek-specific: it is a
+ * parser gap, and every family has a dialect that can fall through it.
+ *
+ * Covered dialects:
+ *   - DeepSeek:  `<|DSML|tool_calls>`, `<|tool_calls_begin|>` (fullwidth bars
+ *                and the exact delimiters vary by build, so the inner token is
+ *                matched rather than the punctuation)
+ *   - Anthropic: `<function_calls>`, `<invoke name=...>`, `<parameter ...>`
+ *   - OpenAI:    `<|python_tag|>`, harmony `<|channel|>commentary to=functions.`
+ *   - Common:    `<tool_call>` / `[TOOL_CALLS]` (Llama, Mistral, Qwen)
+ *
+ * Each alternative requires delimiter punctuation, never a bare word, so prose
+ * that merely mentions "tool_calls" or "invoke" is not matched — there is a
+ * test for that.
  */
-const PROVIDER_TOOL_MARKUP =
-  /DSML|<\/?\s*tool_calls\s*>|<\/\s*invoke\s*>|<\/\s*parameter\s*>/i;
+const PROVIDER_TOOL_MARKUP = new RegExp(
+  [
+    // DeepSeek — token between bar delimiters of any width.
+    String.raw`[<\[][\s\S]{0,4}?(?:DSML|tool.{0,2}calls.{0,2}begin|tool.{0,2}call.{0,2}begin)`,
+    // Anthropic-style XML blocks.
+    String.raw`<\s*/?\s*function_calls\s*>`,
+    String.raw`<\s*/?\s*invoke(?:\s+name\s*=|\s*>)`,
+    String.raw`<\s*/?\s*parameter(?:\s+name\s*=|\s*>)`,
+    // OpenAI harmony / python tag.
+    String.raw`<\|python_tag\|>`,
+    String.raw`<\|channel\|>\s*commentary\s+to\s*=`,
+    // Common across Llama / Mistral / Qwen and OpenRouter passthrough.
+    String.raw`<\s*/?\s*tool_calls?\s*>`,
+    String.raw`\[TOOL_CALLS\]`,
+  ].join("|"),
+  "i",
+);
 
 export const LEGACY_TOOL_LOG_HEADER =
   "[Datos consultados con herramientas en esta respuesta]";

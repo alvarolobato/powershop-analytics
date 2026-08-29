@@ -383,6 +383,39 @@ describe("looksLikeFabricatedToolLog", () => {
     expect(looksLikeFabricatedToolLog(bare, 0)).toBe(true);
   });
 
+  it.each([
+    // The dashboard targets DeepSeek, Claude and OpenAI, so a parser gap in
+    // ANY family must be caught — not just the one that happened to fail in
+    // production. Each case is that family's tool-call serialisation.
+    ["DeepSeek DSML", "</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>"],
+    ["DeepSeek R1 begin-token", "<\uFF5Ctool\u2581calls\u2581begin\uFF5C>"],
+    ["Anthropic function_calls", "<function_calls>\n<invoke name=\"execute_query\">"],
+    ["Anthropic invoke close", "</invoke>"],
+    ["Anthropic parameter", '<parameter name="sql">SELECT 1</parameter>'],
+    ["OpenAI python_tag", "<|python_tag|>execute_query({})"],
+    ["OpenAI harmony", "<|channel|>commentary to=functions.execute_query"],
+    ["generic tool_call", "<tool_call>{\"name\":\"execute_query\"}</tool_call>"],
+    ["Mistral/Llama", "[TOOL_CALLS]execute_query"],
+  ])("catches leaked %s markup with zero tool calls", (_label, markup) => {
+    expect(looksLikeFabricatedToolLog(`Aqui tienes el analisis.\n${markup}`, 0)).toBe(true);
+  });
+
+  it.each([
+    ["prose about tool_calls", "El campo tool_calls guarda las llamadas del turno."],
+    ["prose about invoke", "Puedes invoke the tool o pedirmelo directamente."],
+    ["prose about parameters", "El parameter name es obligatorio en la consulta."],
+    ["markdown table", "| tool_calls | 3 |\n| rondas | 2 |"],
+    ["SQL with angle brackets", "WHERE a < b AND c > d"],
+  ])("does not fire on %s", (_label, text) => {
+    // Every alternative requires delimiter punctuation, never a bare word.
+    expect(looksLikeFabricatedToolLog(text, 0)).toBe(false);
+  });
+
+  it("never fires on leaked markup when the turn really made tool calls", () => {
+    // A turn that genuinely ran tools is never killed, whatever its text.
+    expect(looksLikeFabricatedToolLog("<tool_call>x</tool_call>", 2)).toBe(false);
+  });
+
   it("does not fire on prose that merely says the word tool_calls", () => {
     // Guard against over-matching: the pattern requires tag punctuation.
     expect(
