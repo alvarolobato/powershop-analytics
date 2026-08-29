@@ -63,3 +63,5 @@ node_modules/
 # parallelised across agents; each is a full working copy of this repo and they
 # are removed when that work lands. Never source.
 .claude/worktrees/
+.venv312/
+.venv*/

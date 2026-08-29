@@ -218,12 +218,22 @@ CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
     precio_coste_ci     NUMERIC(15,2),
     total_coste_si      NUMERIC(15,2),
     -- Talla de la linea (4D LineasVentas.CCOPTallaOjo). Poblada al 100 % en
-    -- origen. VARCHAR(5) porque el propio ERP la declara asi (`talla c(5)` en
-    -- pw_sacarventas.prg). Se normaliza a MAYUSCULAS en el ETL: el origen
-    -- mezcla 'L' y 'l' (12 de 46 valores distintos eran duplicados por caja),
-    -- y ps_stock_tienda.talla ya viene en mayusculas, asi que sin normalizar
-    -- un join ventas<->stock perderia lineas en silencio.
-    talla               VARCHAR(5),
+    -- origen. VARCHAR(10) porque es lo que declara el ESQUEMA de 4D
+    -- (_USER_COLUMNS: DATA_TYPE=10, DATA_LENGTH=10). El `talla c(5)` del que
+    -- venia la version anterior sale de pw_sacarventas.prg, un programa VFP de
+    -- informes -- no del esquema, y es mas estrecho que el origen.
+    --
+    -- Hoy el valor mas largo real son 4 caracteres sobre 500.000 lineas, asi
+    -- que era latente, pero Postgres no trunca: aborta. Una talla de 6
+    -- caracteres dada de alta en 4D reventaria el lote de upsert() y caeria al
+    -- fallback fila-a-fila de D-050, que SE SALTA la fila y la registra. La
+    -- linea existiria en el ERP y nunca llegaria al espejo, con la evidencia
+    -- enterrada en el log de saltados.
+    --
+    -- Se normaliza a MAYUSCULAS en el ETL: el origen mezcla 'L' y 'l' (9 de 29
+    -- valores distintos llevan minusculas), y ps_stock_tienda.talla tampoco
+    -- venia limpia ('6Xl'), asi que ambos lados se normalizan en el ETL.
+    talla               VARCHAR(10),
     -- Discriminador venta/devolucion A NIVEL DE LINEA. Coinciden al 100 % con
     -- la cabecera; tenerlos aqui evita el JOIN con ps_ventas que fue la causa
     -- raiz del bug de devoluciones ignoradas.
@@ -599,7 +609,7 @@ END $$;
 -- al 100 % con la cabecera, asi que evitan el JOIN obligatorio con ps_ventas.
 --
 -- Llegan vacias hasta que el ETL vuelva a barrer el historico.
-ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS talla           VARCHAR(5);
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS talla           VARCHAR(10);
 ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS entrada         BOOLEAN;
 ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS movimiento_caja TEXT;
 
@@ -1175,6 +1185,13 @@ CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);
 -- idx_glf_numfactura accelerates the line→header join: num_factura points to
 -- ps_gc_facturas.reg_factura (4D record ID), not n_factura.
 CREATE INDEX IF NOT EXISTS idx_glf_numfactura ON ps_gc_lin_facturas(num_factura);
+-- idx_gla_numalbaran es el gemelo del anterior para albaranes, y faltaba:
+-- num_albaran es la clave del join linea->cabecera Y la del DELETE del delta
+-- nocturno (mayorista.py), mientras que el unico indice existente cubria
+-- n_albaran, el numero visible que este mismo esquema marca como no valido
+-- para unir. Medido en produccion: 1,1 ms con indice en facturas frente a
+-- 378 ms de Parallel Seq Scan en albaranes.
+CREATE INDEX IF NOT EXISTS idx_gla_numalbaran ON ps_gc_lin_albarane(num_albaran);
 CREATE INDEX IF NOT EXISTS idx_glf_codigo     ON ps_gc_lin_facturas(codigo);
 
 -- ============================================================

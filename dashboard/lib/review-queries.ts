@@ -88,7 +88,7 @@ export const REVIEW_QUERIES: ReviewQuery[] = [
     sql: `SELECT
   COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas,
   COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets,
-  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)
+  ROUND((COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0))
        / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS ticket_medio
 FROM ps_ventas
 WHERE tienda <> '99'
@@ -101,7 +101,7 @@ WHERE tienda <> '99'
     sql: `SELECT
   COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas,
   COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets,
-  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)
+  ROUND((COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0))
        / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS ticket_medio
 FROM ps_ventas
 WHERE tienda <> '99'

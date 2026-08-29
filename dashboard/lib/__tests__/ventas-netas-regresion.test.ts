@@ -39,9 +39,29 @@ afterAll(async () => {
   if (client) await client.end().catch(() => {});
 });
 
+/**
+ * Ejecuta el test contra la base sembrada, o lo marca SALTADO si no la hay.
+ *
+ * La versión anterior hacía `if (!disponible) return;`, con lo que el test
+ * **pasaba** sin haber ejecutado nada: la salida era idéntica con y sin
+ * Postgres ("6 passed"), y no había forma de distinguir "verificado" de "no
+ * comprobó nada". Un guardián que siempre está verde es peor que no tenerlo,
+ * porque da cobertura aparente. `ctx.skip()` lo reporta como saltado.
+ *
+ * Con `REQUIRE_TEST_DB=1` la ausencia de base es un fallo, no un salto: así CI
+ * (que sí siembra la base) no puede quedarse en verde por no haber conectado.
+ */
 const siHayBase = (name: string, fn: () => Promise<void>) =>
-  it(name, async () => {
-    if (!disponible) return;
+  it(name, async (ctx) => {
+    if (!disponible) {
+      if (process.env.REQUIRE_TEST_DB === "1") {
+        throw new Error(
+          `REQUIRE_TEST_DB=1 pero no hay base sembrada en ${DSN}: el test no puede verificar nada.`,
+        );
+      }
+      ctx.skip();
+      return;
+    }
     await fn();
   });
 

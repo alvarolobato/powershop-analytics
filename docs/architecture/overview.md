@@ -91,7 +91,7 @@ The LLM generates a JSON specification that the frontend renders:
       "type": "kpi_row",
       "items": [
         {"label": "Ventas Netas", "sql": "SELECT SUM(total_si) ...", "format": "currency", "prefix": "€"},
-        {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) ...", "format": "number"},
+        {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) ...", "format": "number"},
         {"label": "Ticket Medio", "sql": "SELECT SUM(total_si)/COUNT(...) ...", "format": "currency", "prefix": "€"}
       ]
     },

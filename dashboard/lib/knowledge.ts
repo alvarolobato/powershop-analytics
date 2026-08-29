@@ -506,7 +506,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Al hacer JOIN entre ps_ventas y ps_lineas_ventas (o cualquier JOIN cabecera→líneas), usar COUNT(DISTINCT v.reg_ventas) para contar tickets — NUNCA COUNT(*) sin DISTINCT. COUNT(*) cuenta una fila por artículo en el ticket (un ticket con 3 artículos = 3 filas en ps_lineas_ventas). Para totales monetarios de cabecera (total_si, descuento), usar ps_ventas directamente SIN JOIN con líneas — evita multiplicar la cabecera.",
+      "Al hacer JOIN entre ps_ventas y ps_lineas_ventas (o cualquier JOIN cabecera→líneas), usar COUNT(DISTINCT v.reg_ventas) FILTER (WHERE v.entrada) para contar tickets — NUNCA COUNT(*) sin DISTINCT, y NUNCA sin el FILTER: sin el, una devolucion cuenta como un ticket mas y el ticket medio sale bajo (Ferrol 2026-08-29: 46 tickets y 25,67 EUR en vez de 37 y 31,91 EUR). COUNT(*) cuenta una fila por artículo en el ticket (un ticket con 3 artículos = 3 filas en ps_lineas_ventas). Para totales monetarios de cabecera (total_si, descuento), usar ps_ventas directamente SIN JOIN con líneas — evita multiplicar la cabecera.",
     questions: [
       "¿Cuántos tickets hay?",
       "¿Por qué se duplican los totales al hacer JOIN?",

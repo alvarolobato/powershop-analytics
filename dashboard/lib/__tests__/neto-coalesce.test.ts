@@ -32,6 +32,9 @@ function ficherosConSql(): string[] {
   };
   visitar(join(RAIZ, "docs"));
   visitar(join(RAIZ, "dashboard", "lib"));
+  // dashboard/app faltaba, y es justo donde vive api/home/route.ts -- por eso
+  // este guardián no vio ni la precedencia ni los agregados sin firmar.
+  visitar(join(RAIZ, "dashboard", "app"));
   return salida;
 }
 
@@ -115,5 +118,89 @@ describe("patrón neto de devoluciones", () => {
   it("no se queja de COUNT(*) FILTER, que devuelve 0 y no NULL", () => {
     const cuenta = `SELECT COUNT(*) FILTER (WHERE v.entrada) - COUNT(*) FILTER (WHERE NOT v.entrada) AS n`;
     expect(restasSinCoalesce(cuenta)).toEqual([]);
+  });
+});
+
+describe("precedencia del ticket medio", () => {
+  // `A - B / C` es `A - (B/C)`. Al quitar un COALESCE externo que hacía de
+  // agrupador, el numerador se quedó sin paréntesis y el ticket medio salió
+  // ×3.653: 60.647,16 € en vez de 16,60 € (semana 17-24 ago 2026, producción).
+  // Es literalmente la cifra de ventas de la semana etiquetada "ticket medio".
+  it("la resta neta que va sobre una división está entre paréntesis", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      const t = readFileSync(f, "utf8");
+      // El hueco entre la resta y la barra se captura aparte: si el numerador
+      // está agrupado, ahí aparece el `)` que lo cierra. Mirar el final del
+      // match no sirve -- las dos formas acaban en `)` (el del propio
+      // COALESCE), igual que mirar el `(` de delante da por bueno `ROUND(`.
+      const re =
+        /COALESCE\([^\n]*FILTER[^\n]*\),\s*0\)\s*-\s*COALESCE\([^\n]*FILTER[^\n]*\),\s*0\)([\s\S]{0,24}?)\//g;
+      for (const m of t.matchAll(re)) {
+        if (!m[1].includes(")")) {
+          infractores.push(`${relative(RAIZ, f)}: ${m[0].slice(0, 120).replace(/\s+/g, " ")}`);
+        }
+      }
+    }
+    expect(
+      infractores,
+      `Resta neta dividida sin paréntesis -- A - B/C no es (A-B)/C:\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
+describe("agregados de dinero de la home", () => {
+  // El PR quitó `WHERE entrada = true` del WHERE pero dejó `SUM(total_si)` a
+  // pelo en el SELECT, así que las devoluciones pasaron de ignorarse a SUMARSE
+  // -- peor que antes. Medido en producción, YTD a 2026-08-29: 2.089.744,25 €
+  // en vez de 1.728.460,89 €, cuando `main` daba 1.909.102,57 €.
+  it("ninguna suma de dinero queda sin signo", () => {
+    const ruta = join(RAIZ, "dashboard", "app", "api", "home", "route.ts");
+    const infractores: string[] = [];
+    readFileSync(ruta, "utf8")
+      .split("\n")
+      .forEach((linea, i) => {
+        if (!/SUM\(/.test(linea)) return;
+        if (!/\b(total_si|total_coste_si)\b/.test(linea)) return;
+        // Firmadas: llevan `entrada` en la propia línea (CASE o FILTER).
+        // `ABS(total_si)` bajo `entrada=false` es la métrica de devoluciones,
+        // positiva a propósito.
+        if (/entrada/.test(linea)) return;
+        infractores.push(`route.ts:${i + 1}: ${linea.trim().slice(0, 120)}`);
+      });
+    expect(
+      infractores,
+      `Sumas de dinero sin signo -- las devoluciones se suman en vez de restarse:\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
+describe("recuento de tickets", () => {
+  // `COUNT(DISTINCT reg_ventas)` sin filtrar cuenta las devoluciones como
+  // tickets. Ferrol, 2026-08-29: la tabla de tiendas mostraba 46 tickets y
+  // 25,67 € de ticket medio, mientras el KPI "Tickets" de la MISMA página
+  // decía 37 y 31,91 €. Dos cifras distintas para lo mismo.
+  it("todo recuento de tickets filtra por entrada", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      readFileSync(f, "utf8")
+        .split("\n")
+        .forEach((linea, i) => {
+          const limpia = linea.trim();
+          // Comentarios (// en TS, > en MD) hablan del patrón, no lo ejecutan.
+          if (limpia.startsWith("//") || limpia.startsWith("*") || limpia.startsWith(">")) return;
+          if (!/COUNT\(DISTINCT\s+\w*\.?reg_ventas\)/.test(linea)) return;
+          if (/FILTER/.test(linea)) return;
+          // Un WHERE con `entrada` en la misma línea también sirve.
+          if (/\bentrada\b/.test(linea)) return;
+          infractores.push(`${relative(RAIZ, f)}:${i + 1}: ${linea.trim().slice(0, 110)}`);
+        });
+    }
+    expect(
+      infractores,
+      `Recuentos de tickets que incluyen devoluciones:\n${infractores.join("\n")}`,
+    ).toEqual([]);
   });
 });
