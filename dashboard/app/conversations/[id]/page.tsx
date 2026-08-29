@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ConversationListSidebar } from "@/components/ConversationListSidebar";
 import { ConversationPane } from "@/components/ConversationPane";
+import { ConversationDetailActions } from "@/components/ConversationDetailActions";
+import { getConversation } from "@/lib/conversations";
 
 // Must be dynamic: data depends on the conversation ID.
 export const dynamic = "force-dynamic";
@@ -11,6 +13,10 @@ interface PageProps {
 
 export default async function ConversationSplitViewPage({ params }: PageProps) {
   const { id } = await params;
+  // Scalars for the phone action strip, read server-side. `getConversation`
+  // does NOT load messages — the strip needs three fields, and fetching the
+  // full conversation client-side doubled the payload of every page load.
+  const conv = await getConversation(id);
 
   return (
     <div
@@ -48,24 +54,49 @@ export default async function ConversationSplitViewPage({ params }: PageProps) {
             back to the list, so a phone-only back-link takes its place —
             `flex md:hidden` (Tailwind owns display, nothing inline on this
             element collides — D-120), 44px min-height tap target. */}
-        <Link
-          href="/conversations"
+        {/* The strip also carries the per-row actions the list drops below
+            `md` (rename / archive / open-in-context) — hence `justify-content:
+            space-between` rather than the bare link this used to be. */}
+        <div
           className="flex md:hidden"
           style={{
             alignItems: "center",
-            gap: 6,
-            minHeight: 44,
+            gap: 8,
             padding: "0 var(--pad-x, 20px)",
             flexShrink: 0,
             borderBottom: "1px solid var(--border)",
-            color: "var(--fg-muted)",
-            textDecoration: "none",
-            fontSize: 13,
-            fontWeight: 500,
           }}
         >
-          ← Conversaciones
-        </Link>
+          <Link
+            href="/conversations"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              minHeight: 44,
+              color: "var(--fg-muted)",
+              textDecoration: "none",
+              fontSize: 13,
+              fontWeight: 500,
+              whiteSpace: "nowrap",
+              // Yields space to the action strip when it needs it (rename mode
+              // on a narrow phone); without this the link held its full width
+              // and pushed the rename controls off-screen.
+              flexShrink: 1,
+              minWidth: 0,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            ← Conversaciones
+          </Link>
+          <ConversationDetailActions
+            conversationId={id}
+            initialTitle={conv?.title ?? null}
+            initialArchivedAt={conv?.archived_at ?? null}
+            contextKind={conv?.context_kind ?? null}
+          />
+        </div>
         <ConversationPane mode="standalone" conversationId={id} />
       </div>
     </div>

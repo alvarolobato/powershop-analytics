@@ -59,6 +59,20 @@ function formatTokens(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/** Same wording the (desktop-only) Contexto column uses, collapsed to a
+ *  single string for the phone meta line under the title. */
+function contextLabel(row: ConversationRow): string {
+  if (row.context_kind === "dashboard") {
+    if (row.context_dashboard_name) return row.context_dashboard_name;
+    // `context_ref` is nullable and the list query returns such rows, so
+    // interpolating it blindly rendered "Dashboard #null (eliminado)".
+    return row.context_ref ? `Dashboard #${row.context_ref} (eliminado)` : "Dashboard (eliminado)";
+  }
+  if (row.context_kind === "home") return "Inicio";
+  if (row.context_kind === "admin") return "Admin";
+  return "Libre";
+}
+
 function modeLabel(mode: string): string {
   const labels: Record<string, string> = {
     generate: "Generar",
@@ -203,6 +217,17 @@ export function ConversationsTable({
   // action columns don't get clipped. Apply truncation per-column below.
   const tdStyle: React.CSSProperties = {
     padding: "8px 10px",
+    fontSize: 12,
+    color: "var(--fg)",
+    borderBottom: "1px solid var(--border)",
+    verticalAlign: "middle",
+  };
+
+  // Título's cell: same as tdStyle but with NO padding, because padding is
+  // one of the properties that differs per breakpoint and therefore lives in
+  // `.conv-td-title` (globals.css) instead — an inline value would win over
+  // the media query. Every other column keeps tdStyle's padding.
+  const tdStyleNoPad: React.CSSProperties = {
     fontSize: 12,
     color: "var(--fg)",
     borderBottom: "1px solid var(--border)",
@@ -378,7 +403,9 @@ export function ConversationsTable({
               from hiding just the <td>), so Título gets the freed space;
               at `md:` and up every <col> renders exactly as before. */}
           <colgroup>
-            <col style={{ width: 36 }} />           {/* checkbox */}
+            {/* Phone: the checkbox column goes with the bulk-select flow,
+                which is desktop-only now — see the Acciones note below. */}
+            <col className="hidden md:table-column" style={{ width: 36 }} />  {/* checkbox */}
             <col />                                  {/* title — takes all remaining space */}
             <col className="hidden md:table-column" style={{ width: 90 }} />            {/* tipo/mode */}
             <col className="hidden md:table-column" style={{ width: 160 }} />           {/* contexto */}
@@ -387,20 +414,19 @@ export function ConversationsTable({
             <col className="hidden md:table-column" style={{ width: 75 }} />            {/* duración */}
             <col className="hidden md:table-column" style={{ width: 145 }} />           {/* actividad */}
             <col className="hidden md:table-column" style={{ width: 75 }} />            {/* tokens */}
-            {/* Mobile item 3: 90px at desktop (unchanged), widened to
-                116px BELOW `md` only, where the two action buttons take
-                their 44px tap target (`.conv-row-action-btn`) and, with
-                this cell's own 8px/10px padding, no longer fit in 90px.
-                Per D-121 rung 1 the width is a static literal per
-                breakpoint, so it moves off the inline style entirely onto
-                `.conv-col-acciones` in globals.css rather than fighting
-                specificity from a media query. */}
-            <col className="conv-col-acciones" />    {/* acciones */}
+            {/* 90px at desktop, where these buttons still live. Below `md`
+                the column is dropped from layout entirely: two icon
+                buttons at their 44px tap target ate ~116px of a 390px
+                viewport for actions you can reach from inside the
+                conversation instead (ConversationDetailActions). The
+                width lives on `.conv-col-acciones` in globals.css per
+                D-121 rung 1. */}
+            <col className="conv-col-acciones hidden md:table-column" />    {/* acciones */}
           </colgroup>
           <thead>
             <tr>
               {/* Checkbox header — width matches the colgroup col (36px) */}
-              <th style={{ ...thStyle, width: 36 }}>
+              <th className="hidden md:table-cell" style={{ ...thStyle, width: 36 }}>
                 <input
                   type="checkbox"
                   checked={allSelected}
@@ -418,7 +444,7 @@ export function ConversationsTable({
               <th className="hidden md:table-cell" style={thStyle}>Duración</th>
               <th className="hidden md:table-cell" style={thStyle}>Actividad</th>
               <th className="hidden md:table-cell" style={thStyle}>Tokens</th>
-              <th style={{ ...thStyle, textAlign: "right" }}>Acciones</th>
+              <th className="hidden md:table-cell" style={{ ...thStyle, textAlign: "right" }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
@@ -441,7 +467,7 @@ export function ConversationsTable({
                   data-testid={`conversation-row-${row.id}`}
                 >
                   {/* Checkbox */}
-                  <td style={{ ...tdStyle, width: 36 }}>
+                  <td className="hidden md:table-cell" style={{ ...tdStyle, width: 36 }}>
                     <input
                       type="checkbox"
                       checked={selected.has(row.id)}
@@ -451,8 +477,11 @@ export function ConversationsTable({
                     />
                   </td>
 
-                  {/* Título — click navigates to /c/:id; pencil icon triggers rename */}
-                  <td style={{ ...tdStyle, maxWidth: 0 }}>
+                  {/* Título — clicking it opens the conversation. `padding` is
+                      absent from the inline style on purpose: it is a static
+                      literal per breakpoint, so `.conv-td-title` in globals.css
+                      owns it at both sizes (D-121 rung 1). */}
+                  <td className="conv-td-title" style={{ ...tdStyleNoPad, maxWidth: 0 }}>
                     {renamingId === row.id ? (
                       <input
                         type="text"
@@ -484,32 +513,49 @@ export function ConversationsTable({
                           alignItems: "center",
                           gap: 4,
                           overflow: "hidden",
+                          minWidth: 0,
                         }}
                       >
+                        {/* Truncation lives in `.conv-title-link` /
+                            `.conv-title-text`, not here — one ellipsised line at
+                            desktop, a two-line clamp at 15px on a phone. An
+                            inline `whiteSpace: "nowrap"` could not be undone by
+                            a media query. */}
                         <a
                           href={`/conversations/${row.id}`}
                           title={displayTitle}
-                          style={{
-                            color: "inherit",
-                            textDecoration: "none",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                            flex: 1,
-                            minWidth: 0,
-                          }}
+                          className="conv-title-link"
+                          style={{ color: "inherit", textDecoration: "none" }}
                           onClick={(e) => {
                             e.preventDefault();
                             router.push(`/conversations/${row.id}`);
                           }}
                           data-testid={`title-cell-${row.id}`}
                         >
-                          {displayTitle}
+                          <span className="conv-title-text">{displayTitle}</span>
+                          {/* Phone only. The columns carrying this information
+                              (Contexto, Última actividad) are hidden below `md`,
+                              so it comes back here as one muted line — the space
+                              the dropped columns freed is what pays for it. */}
+                          <span
+                            className="conv-title-meta md:hidden"
+                            data-testid={`title-meta-${row.id}`}
+                          >
+                            {relativeTime(row.last_interaction_at)}
+                            {" · "}
+                            {contextLabel(row)}
+                          </span>
                         </a>
+                        {/* Rename is a hover-sized 12px glyph — unusable as a
+                            touch target and not worth 44px of row width. Below
+                            `md` it moves into the conversation
+                            (ConversationDetailActions). No `display` in the
+                            inline style, so Tailwind owns it (D-044). */}
                         <button
                           type="button"
                           title="Renombrar"
                           aria-label="Renombrar"
+                          className="hidden md:inline"
                           onClick={(e) => {
                             e.stopPropagation();
                             startRename(row);
@@ -575,7 +621,9 @@ export function ConversationsTable({
                           style={{ color: "var(--fg-muted)" }}
                           data-testid={`context-deleted-${row.id}`}
                         >
-                          {`Dashboard #${row.context_ref} (eliminado)`}
+                          {row.context_ref
+                            ? `Dashboard #${row.context_ref} (eliminado)`
+                            : "Dashboard (eliminado)"}
                         </span>
                       )
                     ) : row.context_kind === "home" ? (
@@ -632,7 +680,10 @@ export function ConversationsTable({
                   </td>
 
                   {/* Acciones */}
-                  <td style={{ ...tdStyle, textAlign: "right", overflow: "visible" }}>
+                  <td
+                    className="hidden md:table-cell"
+                    style={{ ...tdStyle, textAlign: "right", overflow: "visible" }}
+                  >
                     <ConversationRowActions
                       conversation={row}
                     />
