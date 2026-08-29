@@ -339,13 +339,58 @@ describe("getConversationEvents — bounded replay", () => {
     expect(params).toContainEqual(["token", "thinking"]);
   });
 
-  it("applies the same exclusion on the resumption (sinceId) path", async () => {
+  it("keeps the LAST thinking snapshot per turn", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    // `content.thinking` and pruneStreamEvents shipped together, so a turn
+    // with unpruned thinking events is a turn with NO durable copy — those
+    // events are its only record of the model's reasoning. Excluding all of
+    // them silently emptied the thinking block on every historical answer.
+    // Because payloads are cumulative, one row per turn restores 100% of the
+    // text at ~0.04% of the rows.
+    expect(query).toContain("DISTINCT ON (te.turn_id)");
+    expect(query).toContain("te.event_type = 'thinking'");
+    expect(query).toMatch(/ORDER BY te\.turn_id, te\.id DESC/);
+    expect(query).toContain("te.id IN (SELECT id FROM keep)");
+  });
+
+  it("does NOT keep a last token snapshot — content.text has always existed", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).not.toContain("event_type = 'token'");
+  });
+
+  it("applies the same exclusion and retention on the resumption (sinceId) path", async () => {
     mockSql.mockResolvedValueOnce([]);
     await getConversationEvents(CONV_ID, 42);
     const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
     expect(query).toContain("te.id >");
     expect(query).toContain("event_type <> ALL");
+    expect(query).toContain("te.id IN (SELECT id FROM keep)");
     expect(params).toContainEqual(["token", "thinking"]);
+  });
+
+  it("bounds the query in SQL, not just in JS", async () => {
+    // The JS slice runs AFTER every row is already in Node's memory, so it is
+    // not the protection. Deleting the SQL LIMIT left the old suite green
+    // while the actual bound was gone.
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).toContain("LIMIT 5001");
+  });
+
+  it("returns exactly the ceiling without warning at the boundary", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exactly = Array.from({ length: 5000 }, (_, i) => ({ ...TURN_EVENTS[0], id: i + 1 }));
+    mockSql.mockResolvedValueOnce(exactly);
+    const events = await getConversationEvents(CONV_ID);
+    // Pins the boundary: `> MAX` not `>= MAX`. The `>=` mutant survived before.
+    expect(events).toHaveLength(5000);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("caps a runaway replay and says so instead of truncating silently", async () => {
