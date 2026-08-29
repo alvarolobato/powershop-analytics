@@ -18,7 +18,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../../.." && pwd)"
 # Redact ONLY the password, keeping the username in the pattern space. An
 # earlier fix here redacted the whole userinfo, which silently WEAKENED the
-# guard below: `postgresql://prod_admin:pw@10.0.0.5/analytics` became
+# guard below: `postgresql://prod_admin:PLACEHOLDER@10.0.0.5/analytics` became
 # `postgresql://<redacted>@10.0.0.5/analytics`, no longer matched `*prod*`, and
 # was admitted to a script that runs TRUNCATE. Keeping the username preserves
 # that coverage while still stopping a password containing "prod" (the stock

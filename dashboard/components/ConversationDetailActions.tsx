@@ -10,8 +10,10 @@
  * is where those actions live instead, reachable once you are inside the
  * conversation.
  *
- * Desktop renders nothing: the caller wraps this in `md:hidden` and the
- * list's own Acciones column is still there.
+ * Desktop renders nothing. `md:hidden` is on this component's OWN root in
+ * both states, not only on the caller's wrapper — relying on the caller meant
+ * any future reuse would silently duplicate the desktop row actions. The
+ * caller keeps its wrapper too; the two are redundant on purpose.
  */
 
 import { useCallback, useState } from "react";
@@ -118,7 +120,7 @@ export function ConversationDetailActions({
 
   if (renaming) {
     return (
-      <div className="conv-detail-actions" data-testid="conv-detail-renaming">
+      <div className="conv-detail-actions md:hidden" data-testid="conv-detail-renaming">
         <input
           type="text"
           value={renameValue}
@@ -180,7 +182,7 @@ export function ConversationDetailActions({
   const isGlobal = contextKind === "global";
 
   return (
-    <div className="conv-detail-actions" data-testid="conv-detail-actions">
+    <div className="conv-detail-actions md:hidden" data-testid="conv-detail-actions">
       <button
         type="button"
         className="conv-detail-action-btn"

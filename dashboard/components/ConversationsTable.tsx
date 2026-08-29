@@ -63,7 +63,10 @@ function formatTokens(n: number): string {
  *  single string for the phone meta line under the title. */
 function contextLabel(row: ConversationRow): string {
   if (row.context_kind === "dashboard") {
-    return row.context_dashboard_name ?? `Dashboard #${row.context_ref} (eliminado)`;
+    if (row.context_dashboard_name) return row.context_dashboard_name;
+    // `context_ref` is nullable and the list query returns such rows, so
+    // interpolating it blindly rendered "Dashboard #null (eliminado)".
+    return row.context_ref ? `Dashboard #${row.context_ref} (eliminado)` : "Dashboard (eliminado)";
   }
   if (row.context_kind === "home") return "Inicio";
   if (row.context_kind === "admin") return "Admin";

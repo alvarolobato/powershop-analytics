@@ -609,3 +609,48 @@ describe("ConversationsTable", () => {
     expect(screen.queryByTestId("bulk-action-bar")).toBeNull();
   });
 });
+
+describe("contextLabel via the phone meta line", () => {
+  it("does not render 'Dashboard #null' when context_ref is null", () => {
+    // context_ref is nullable and the list query returns such rows.
+    render(
+      <ConversationsTable
+        conversations={[
+          {
+            ...makeRow({
+              id: "nullref00001",
+              context_kind: "dashboard",
+              context_ref: null,
+              context_dashboard_name: null,
+            }),
+          },
+        ]}
+        onArchiveToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    const meta = screen.getByTestId("title-meta-nullref00001");
+    expect(meta.textContent).not.toContain("null");
+    expect(meta.textContent).toContain("Dashboard (eliminado)");
+  });
+
+  it("still shows the id when there is one", () => {
+    render(
+      <ConversationsTable
+        conversations={[
+          {
+            ...makeRow({
+              id: "withref00001",
+              context_kind: "dashboard",
+              context_ref: "42",
+              context_dashboard_name: null,
+            }),
+          },
+        ]}
+        onArchiveToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("title-meta-withref00001").textContent).toContain("Dashboard #42");
+  });
+});
