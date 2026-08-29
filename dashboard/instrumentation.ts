@@ -78,6 +78,23 @@ export async function register() {
       } catch (err) {
         console.warn("[migrate] Could not run init.sql migration:", err);
       }
+
+      // Turns left `streaming`/`pending` by a previous process can never
+      // progress — the in-memory loop driving them died with it. Reconciling
+      // here recovers them in seconds instead of waiting out
+      // ACTIVE_TURN_STALE_MINUTES, which is what lets that cutoff be sized
+      // for correctness (never misjudging a long agentic run as abandoned)
+      // rather than as a compromise with recovery speed.
+      //
+      // Runs after migrations so conversation_turns is guaranteed to exist,
+      // and inside the same SKIP_DB_MIGRATE guard because it likewise needs a
+      // reachable DB (build-time prerender has none).
+      try {
+        const { failOrphanedTurns } = await import("./lib/turn-events");
+        await failOrphanedTurns();
+      } catch (err) {
+        console.warn("[turn-events] Could not reconcile orphaned turns:", err);
+      }
     }
   }
 }

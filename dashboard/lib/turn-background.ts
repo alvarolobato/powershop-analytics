@@ -558,7 +558,14 @@ async function runFreeChatTurn(
         requestId,
         endpoint: "freeChat",
         temperature: 0.3,
-        maxOutputTokens: 4096,
+        // No override: assembleRequest's default is now config-driven
+        // (dashboard.llm_max_output_tokens). This used to hardcode 4096 while
+        // every other call site used 8192 — the tightest budget in the
+        // codebase on the flow doing the hardest reasoning. Production runs a
+        // reasoning model whose reasoning tokens count against max_tokens, so
+        // the budget was spent before any answer was emitted: two turns
+        // recorded EXACTLY 4096 thinking events, zero token events, then
+        // failed with "The model returned empty content."
       },
     );
     await ctxWrite.done; // ensure the context-log file + pointer are persisted
