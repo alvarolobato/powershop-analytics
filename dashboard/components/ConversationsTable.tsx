@@ -621,7 +621,9 @@ export function ConversationsTable({
                           style={{ color: "var(--fg-muted)" }}
                           data-testid={`context-deleted-${row.id}`}
                         >
-                          {`Dashboard #${row.context_ref} (eliminado)`}
+                          {row.context_ref
+                            ? `Dashboard #${row.context_ref} (eliminado)`
+                            : "Dashboard (eliminado)"}
                         </span>
                       )
                     ) : row.context_kind === "home" ? (

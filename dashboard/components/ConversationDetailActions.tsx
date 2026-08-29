@@ -179,7 +179,13 @@ export function ConversationDetailActions({
   }
 
   const isArchived = archivedAt !== null;
-  const isGlobal = contextKind === "global";
+  // null means "no context info" (older rows or server-lookup gap) — the /k/:id
+  // route would fall back to a plain chat view without a panel, which is
+  // confusing. Disable the button for both null and "global".
+  const noContext = contextKind === null || contextKind === "global";
+  const contextBtnTitle = noContext
+    ? "Sin contexto nativo para esta conversación"
+    : "Abrir en contexto";
 
   return (
     <div className="conv-detail-actions md:hidden" data-testid="conv-detail-actions">
@@ -211,9 +217,9 @@ export function ConversationDetailActions({
         type="button"
         className="conv-detail-action-btn"
         onClick={() => router.push(`/k/${conversationId}`)}
-        disabled={isGlobal || busy}
-        title={isGlobal ? "Sin contexto nativo para esta conversación" : "Abrir en contexto"}
-        aria-label="Abrir en contexto"
+        disabled={noContext || busy}
+        title={contextBtnTitle}
+        aria-label={contextBtnTitle}
         data-testid="conv-detail-context-btn"
       >
         ⊞
