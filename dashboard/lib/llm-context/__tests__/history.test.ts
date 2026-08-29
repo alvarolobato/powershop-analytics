@@ -36,6 +36,9 @@ vi.mock("@/lib/llm-enabled", () => ({
 import {
   flattenStoredMessage,
   formatToolCallsForHistory,
+  looksLikeFabricatedToolLog,
+  TOOL_LOG_OPEN_TAG,
+  TOOL_LOG_CLOSE_TAG,
   capHistory,
   HISTORY_MAX_MESSAGES,
   type HistoryMessage,
@@ -300,5 +303,88 @@ describe("capHistory — summarisation respects the kill switch and the stub pro
     const out = await capHistory(longHistory, 10, "chat");
     expect(mockChatCompletion).toHaveBeenCalledOnce();
     expect(out[0].content).toContain("resumen");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fabricated tool-log guard (production incident 2026-08-28, conv 0a566ce7cc78)
+// ---------------------------------------------------------------------------
+
+describe("looksLikeFabricatedToolLog", () => {
+  // Verbatim from conversation_messages id 292e32d5 in production — the text
+  // the user was shown as a completed answer. SQL bodies elided; the shape
+  // (header, `- name({...})` lines, no ` → result` anywhere) is preserved,
+  // because that shape is exactly what the detector keys on.
+  const PROD_FABRICATED = [
+    "[Datos consultados con herramientas en esta respuesta]",
+    '- execute_query({"sql":"SELECT p.codigo, p.ccrefejofacm AS referencia FROM ps_articulos p WHERE p.ccrefejofacm LIKE \'V265103%\'"})',
+    '- execute_query({"sql":"SELECT c.color, SUM(lv.unidades) FROM ps_lineas_ventas lv GROUP BY c.color"})',
+    '- execute_query({"sql":"SELECT c.color, SUM(s.stock) FROM ps_stock_tienda s GROUP BY c.color"})',
+  ].join("\n");
+
+  it("catches the exact production payload (legacy framing, zero tool calls)", () => {
+    expect(looksLikeFabricatedToolLog(PROD_FABRICATED, 0)).toBe(true);
+  });
+
+  it("catches the same fabrication in the new tagged framing", () => {
+    const text = [
+      TOOL_LOG_OPEN_TAG,
+      '- execute_query({"sql":"SELECT 1"})',
+      TOOL_LOG_CLOSE_TAG,
+    ].join("\n");
+    expect(looksLikeFabricatedToolLog(text, 0)).toBe(true);
+  });
+
+  it("does NOT fire when the turn really made tool calls", () => {
+    // The whole point of the zero-call condition: a turn that genuinely ran
+    // tools is never killed, whatever its text happens to look like.
+    expect(looksLikeFabricatedToolLog(PROD_FABRICATED, 3)).toBe(false);
+    expect(looksLikeFabricatedToolLog(PROD_FABRICATED, 1)).toBe(false);
+  });
+
+  it("does not fire on the real answers from the same conversation", () => {
+    const realAnswers = [
+      "La referencia **V265001** (POLO CUELLO MAO, temporada **V26**) se vende en 5 colores.",
+      "Estudio completo de la referencia **V265002** (POLO PIQUE BASICO)...",
+      "Revisé el modelo de datos y hay un matiz importante que debes saber antes de los números:",
+      "Aclaración importante: **V26510399** no es una familia, es un color concreto.",
+    ];
+    for (const answer of realAnswers) {
+      expect(looksLikeFabricatedToolLog(answer, 0)).toBe(false);
+    }
+  });
+
+  it("does not fire on prose that merely mentions the block", () => {
+    // Requires call-shaped lines, not just the framing, so explaining the
+    // block is still a valid answer.
+    const prose = `${TOOL_LOG_OPEN_TAG} es el registro interno de herramientas; no lo verás en las respuestas.`;
+    expect(looksLikeFabricatedToolLog(prose, 0)).toBe(false);
+  });
+
+  it("does not fire on an empty or whitespace answer", () => {
+    expect(looksLikeFabricatedToolLog("", 0)).toBe(false);
+    expect(looksLikeFabricatedToolLog("   \n  ", 0)).toBe(false);
+  });
+
+  it("catches it despite leading whitespace", () => {
+    expect(looksLikeFabricatedToolLog(`\n\n  ${PROD_FABRICATED}`, 0)).toBe(true);
+  });
+});
+
+describe("formatToolCallsForHistory framing", () => {
+  it("no longer opens with a bare Spanish heading that reads as assistant prose", () => {
+    const block = formatToolCallsForHistory([
+      { name: "execute_query", arguments: { sql: "SELECT 1" }, result: "1 fila" },
+    ] as never);
+    expect(block.startsWith(TOOL_LOG_OPEN_TAG)).toBe(true);
+    expect(block).toContain(TOOL_LOG_CLOSE_TAG);
+    expect(block).toContain("Nunca reproduzcas este bloque");
+    // The result arrow is what distinguishes a real block from a fabricated
+    // one; it must survive the reframing.
+    expect(block).toContain("→");
+  });
+
+  it("still returns empty string when there are no tool calls", () => {
+    expect(formatToolCallsForHistory([])).toBe("");
   });
 });

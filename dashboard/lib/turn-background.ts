@@ -27,6 +27,7 @@ import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-pr
 import {
   flattenStoredMessage,
   capHistory,
+  looksLikeFabricatedToolLog,
   HISTORY_MAX_MESSAGES,
 } from "@/lib/llm-context/history";
 import { isLlmFlow } from "@/lib/llm-context/types";
@@ -429,6 +430,29 @@ export async function runTurnBackground(
       );
       assistantText = res.text;
       assistantToolCalls = res.toolCalls;
+    }
+
+    // Guard: the model wrote out a tool-call log instead of calling anything.
+    //
+    // Real for the first time on 2026-08-28 (conversation 0a566ce7cc78, turns
+    // 6 and 7): both returned a hand-written imitation of the history tool
+    // block with zero entries in `llm_tool_calls`, finished in ~5.8s against
+    // 20-75s for every real turn, and read to the user as a completed answer.
+    // They had to ask the same thing three times.
+    //
+    // Failing loudly is the point. A fabricated log is indistinguishable from
+    // a real answer in the UI, so persisting it as `complete` is worse than an
+    // error: it looks like the data was checked when nothing ran. Throwing
+    // routes into the catch below, which persists an `is_error` assistant
+    // message and emits an `error` event the client already renders.
+    if (looksLikeFabricatedToolLog(assistantText, assistantToolCalls.length)) {
+      console.error(
+        `[${requestId}] turn ${turnId}: model emitted a tool-call log as its answer with 0 real tool calls`,
+        { chars: assistantText.length, preview: assistantText.slice(0, 200) },
+      );
+      throw new Error(
+        "El modelo describió las consultas en vez de ejecutarlas, así que no hay datos reales detrás de esta respuesta. Vuelve a enviar la pregunta.",
+      );
     }
 
     // All streamed events are inserted before the assistant message/complete

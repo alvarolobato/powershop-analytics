@@ -68,13 +68,70 @@ function compactResult(result: unknown): string {
  * later turns retain the "interesting part" — which tool ran, with what args, and
  * the (truncated) result the model saw. Returns "" when there are no tool calls.
  */
+export const TOOL_LOG_OPEN_TAG = "<herramientas_ya_ejecutadas>";
+export const TOOL_LOG_CLOSE_TAG = "</herramientas_ya_ejecutadas>";
+
+/**
+ * The framing this block used before 2026-08-29. Still recognised by
+ * `looksLikeFabricatedToolLog` because it is what the model was shown for
+ * months — conversations carrying it in their history can still prompt an
+ * imitation of it, long after new turns stopped being formatted this way.
+ */
+export const LEGACY_TOOL_LOG_HEADER =
+  "[Datos consultados con herramientas en esta respuesta]";
+
 export function formatToolCallsForHistory(toolCalls: ToolCallRecord[]): string {
   if (!toolCalls || toolCalls.length === 0) return "";
   const lines = toolCalls.map((tc) => {
     const status = tc.success === false ? " [error]" : "";
     return `- ${tc.name}(${compactArgs(tc.arguments)})${status} → ${compactResult(tc.result)}`;
   });
-  return `[Datos consultados con herramientas en esta respuesta]\n${lines.join("\n")}`;
+  // Framed as a tagged system record rather than a bracketed heading, and
+  // prepended to the assistant's own words in `flattenStoredMessage`.
+  //
+  // The old framing was a plain Spanish heading that read exactly like
+  // something an assistant says, so after a few turns every prior assistant
+  // message in history began with it — and on 2026-08-28 the model completed
+  // the pattern instead of using the tools: two consecutive turns in
+  // conversation 0a566ce7cc78 returned a hand-written imitation of this block
+  // (no ` → result` on any line, because it had no results) with ZERO real
+  // tool calls, and the user had to ask three times. A closing tag and an
+  // explicit "do not reproduce" make the block read as an out-of-band record
+  // of what already ran, not as a house style for answers.
+  return [
+    TOOL_LOG_OPEN_TAG,
+    "(registro del sistema: herramientas que YA se ejecutaron en ese turno.",
+    "Nunca reproduzcas este bloque en una respuesta — para consultar datos,",
+    "invoca la herramienta de verdad.)",
+    ...lines,
+    TOOL_LOG_CLOSE_TAG,
+  ].join("\n");
+}
+
+/**
+ * True when an assistant turn's final text is the model *describing* tool
+ * calls instead of making them.
+ *
+ * The signature is unambiguous: code only ever emits this block into history,
+ * never into a stored message, and only ever when there were tool calls to
+ * report. So this shape arriving as a turn's answer with `actualToolCalls === 0`
+ * means the model wrote it. Requiring the zero-call condition is what keeps a
+ * genuine turn — one that really ran tools and happens to quote itself — from
+ * tripping the guard.
+ */
+export function looksLikeFabricatedToolLog(
+  text: string,
+  actualToolCalls: number,
+): boolean {
+  if (actualToolCalls > 0) return false;
+  const t = (text ?? "").trimStart();
+  if (!t) return false;
+  const framed = t.startsWith(TOOL_LOG_OPEN_TAG) || t.startsWith(LEGACY_TOOL_LOG_HEADER);
+  if (!framed) return false;
+  // Second condition so a turn that merely *mentions* the framing (e.g. the
+  // user asked what the block is) isn't killed: it has to actually list
+  // call-shaped lines, which is what makes it a fake answer rather than prose.
+  return /^-\s*\w+\s*\(/m.test(t);
 }
 
 /**
