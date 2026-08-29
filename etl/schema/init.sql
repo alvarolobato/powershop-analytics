@@ -217,6 +217,18 @@ CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
     total_si            NUMERIC(15,2),  -- VAT-exclusive line total
     precio_coste_ci     NUMERIC(15,2),
     total_coste_si      NUMERIC(15,2),
+    -- Talla de la linea (4D LineasVentas.CCOPTallaOjo). Poblada al 100 % en
+    -- origen. VARCHAR(5) porque el propio ERP la declara asi (`talla c(5)` en
+    -- pw_sacarventas.prg). Se normaliza a MAYUSCULAS en el ETL: el origen
+    -- mezcla 'L' y 'l' (12 de 46 valores distintos eran duplicados por caja),
+    -- y ps_stock_tienda.talla ya viene en mayusculas, asi que sin normalizar
+    -- un join ventas<->stock perderia lineas en silencio.
+    talla               VARCHAR(5),
+    -- Discriminador venta/devolucion A NIVEL DE LINEA. Coinciden al 100 % con
+    -- la cabecera; tenerlos aqui evita el JOIN con ps_ventas que fue la causa
+    -- raiz del bug de devoluciones ignoradas.
+    entrada             BOOLEAN,
+    movimiento_caja     TEXT,
     fecha_creacion      DATE,
     fecha_modifica      DATE
 );
@@ -575,6 +587,29 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- One-time migration: talla y discriminador de devolucion en las lineas de venta.
+--
+-- `talla` sale de 4D LineasVentas.CCOPTallaOjo, poblada al 100 %. Hasta ahora
+-- la talla vendida era inaccesible desde el dashboard pese a que el codigo de
+-- produccion la usa desde hace anos; eso hizo que el PR #914 construyera un
+-- join contra BarrasAsociado con 0 % de cobertura.
+--
+-- `entrada` / `movimiento_caja` existen tambien a nivel de linea y coinciden
+-- al 100 % con la cabecera, asi que evitan el JOIN obligatorio con ps_ventas.
+--
+-- Llegan vacias hasta que el ETL vuelva a barrer el historico.
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS talla           VARCHAR(5);
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS entrada         BOOLEAN;
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS movimiento_caja TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_lv_talla ON ps_lineas_ventas (talla);
+
+-- One-time migration: normalizar la talla del stock. El origen trae un '6Xl'
+-- suelto; ps_lineas_ventas.talla se normaliza en el ETL y sin esto el join
+-- ventas<->stock perderia esa talla.
+UPDATE ps_stock_tienda SET talla = UPPER(talla)
+ WHERE talla IS NOT NULL AND talla <> UPPER(talla);
 
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
