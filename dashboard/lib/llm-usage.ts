@@ -20,20 +20,58 @@ import { getSystemConfig } from "@/lib/system-config/loader";
  * `cli` row stored a hard-coded zero, which is why the usage panel showed no
  * spend at all for the default provider.
  */
+const M = 1_000_000;
+
+/**
+ * Fallback rate table, USD per token, used only when the provider does not
+ * report a cost itself.
+ *
+ * The authoritative source is the provider: OpenRouter is asked for usage
+ * accounting on every call (`usage: { include: true }`, see
+ * `openRouterExtras`) and its figure is stored verbatim; the Claude CLI
+ * reports `total_cost_usd`. This table exists for the gap where neither
+ * reports one.
+ *
+ * It covers the three families the dashboard targets. Entries are list prices
+ * at the time of writing and WILL drift — that is precisely why they are the
+ * fallback and not the primary source. A hand-kept table cannot track three
+ * vendors, which is how running DeepSeek came to be billed at Claude Sonnet's
+ * $3/$15 per Mtok, roughly 15x its real price, with `checkDailyBudget`
+ * throttling against that fiction.
+ */
 const RATES: Record<string, { prompt: number; completion: number; cacheWrite: number; cacheRead: number }> = {
-  "anthropic/claude-sonnet-4": {
-    prompt: 3.0 / 1_000_000,
-    completion: 15.0 / 1_000_000,
-    cacheWrite: 3.75 / 1_000_000,
-    cacheRead: 0.30 / 1_000_000,
-  },
+  // Anthropic
+  "anthropic/claude-sonnet-4": { prompt: 3.0 / M, completion: 15.0 / M, cacheWrite: 3.75 / M, cacheRead: 0.30 / M },
+  "anthropic/claude-sonnet-4.5": { prompt: 3.0 / M, completion: 15.0 / M, cacheWrite: 3.75 / M, cacheRead: 0.30 / M },
+  "anthropic/claude-haiku-4.5": { prompt: 1.0 / M, completion: 5.0 / M, cacheWrite: 1.25 / M, cacheRead: 0.10 / M },
+  // DeepSeek — the production default. Two orders of magnitude cheaper than
+  // Sonnet on output, which is why the old silent fallback was so wrong.
+  "deepseek/deepseek-v4-pro": { prompt: 0.28 / M, completion: 1.14 / M, cacheWrite: 0.28 / M, cacheRead: 0.028 / M },
+  "deepseek/deepseek-chat": { prompt: 0.14 / M, completion: 0.28 / M, cacheWrite: 0.14 / M, cacheRead: 0.014 / M },
+  "deepseek/deepseek-r1": { prompt: 0.55 / M, completion: 2.19 / M, cacheWrite: 0.55 / M, cacheRead: 0.14 / M },
+  // OpenAI
+  "openai/gpt-4o": { prompt: 2.5 / M, completion: 10.0 / M, cacheWrite: 2.5 / M, cacheRead: 1.25 / M },
+  "openai/gpt-4o-mini": { prompt: 0.15 / M, completion: 0.60 / M, cacheWrite: 0.15 / M, cacheRead: 0.075 / M },
+  "openai/o3": { prompt: 2.0 / M, completion: 8.0 / M, cacheWrite: 2.0 / M, cacheRead: 0.5 / M },
+  "openai/o3-mini": { prompt: 1.1 / M, completion: 4.4 / M, cacheWrite: 1.1 / M, cacheRead: 0.55 / M },
 };
-const DEFAULT_RATE = {
-  prompt: 3.0 / 1_000_000,
-  completion: 15.0 / 1_000_000,
-  cacheWrite: 3.75 / 1_000_000,
-  cacheRead: 0.30 / 1_000_000,
-};
+
+/**
+ * Rate for a model the table does not list.
+ *
+ * Deliberately NOT Claude Sonnet's price any more. An unknown model billed at
+ * the most expensive family's rate overstates spend and can trip the daily
+ * budget for calls that were nearly free; billed at the cheapest it would hide
+ * real spend. This sits between the families so an unknown model is wrong by a
+ * bounded factor in either direction rather than by 15x in one, and every use
+ * warns.
+ */
+const DEFAULT_RATE = { prompt: 1.0 / M, completion: 4.0 / M, cacheWrite: 1.0 / M, cacheRead: 0.20 / M };
+
+/** Exported for tests: which models the fallback table covers. */
+export function knownRateModels(): string[] {
+  return Object.keys(RATES);
+}
 
 export class BudgetExceededError extends Error {
   constructor() {

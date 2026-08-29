@@ -66,9 +66,17 @@ describe("logUsage", () => {
 
     expect(mockSql).toHaveBeenCalledOnce();
     const params = mockSql.mock.calls[0][1];
-    // default rate = 3/1e6 prompt + 15/1e6 completion
-    // 100 * 3/1e6 + 100 * 15/1e6 = 0.0003 + 0.0015 = 0.0018
-    expect(params[5]).toBe("0.001800");
+    // DEFAULT_RATE = 1/1e6 prompt + 4/1e6 completion
+    // 100 * 1/1e6 + 100 * 4/1e6 = 0.0001 + 0.0004 = 0.0005
+    //
+    // This used to be Claude Sonnet's 3/15, i.e. an unknown model was billed
+    // at the most expensive family's price. With DeepSeek in production that
+    // overstated spend by roughly 15x and `checkDailyBudget` throttled against
+    // the inflated figure. The default now sits between the families so an
+    // unknown model is wrong by a bounded factor in either direction rather
+    // than by 15x in one — and it is only reached when the provider reports no
+    // cost of its own, which OpenRouter now always does.
+    expect(params[5]).toBe("0.000500");
     expect(params[6]).toBe("openrouter");
     expect(params[7]).toBe(null);
     expect(params[8]).toBe(null);

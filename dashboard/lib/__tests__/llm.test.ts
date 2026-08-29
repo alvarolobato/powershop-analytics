@@ -363,7 +363,10 @@ describe("llm", () => {
         "anthropic/claude-sonnet-4",
         { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0, cache_creation_input_tokens: null, cache_read_input_tokens: null },
         { provider: "openrouter", driver: null },
-        { requestId: "req_local" },
+        // reportedCostUsd is null here: this mock returns no usage object at
+        // all, so OpenRouter reported no cost and llm-usage falls back to the
+        // rate table.
+        { requestId: "req_local", reportedCostUsd: null },
       );
     });
 
@@ -380,7 +383,46 @@ describe("llm", () => {
         "anthropic/claude-sonnet-4",
         { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cache_creation_input_tokens: null, cache_read_input_tokens: null },
         { provider: "openrouter", driver: null },
-        { requestId: "req_local" },
+        // Usage present but without a `cost` field — nothing to report.
+        { requestId: "req_local", reportedCostUsd: null },
+      );
+    });
+
+    it("forwards OpenRouter's own cost so multi-model billing is exact", async () => {
+      // The rate table only knows Claude Sonnet and bills unknown models at
+      // its $3/$15 per Mtok — roughly 15x DeepSeek's real price. OpenRouter
+      // reports the actual cost per call, which is the only source that stays
+      // correct across DeepSeek / Claude / OpenAI.
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: "{}" } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: 0.000123 },
+      });
+
+      await generateDashboard("test");
+
+      expect(mockLogUsage).toHaveBeenLastCalledWith(
+        "generateDashboard",
+        "anthropic/claude-sonnet-4",
+        expect.anything(),
+        { provider: "openrouter", driver: null },
+        { requestId: "req_local", reportedCostUsd: 0.000123 },
+      );
+    });
+
+    it("ignores a malformed cost rather than recording a wrong number", async () => {
+      mockCreate.mockResolvedValue({
+        choices: [{ message: { content: "{}" } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, cost: -1 },
+      });
+
+      await generateDashboard("test");
+
+      expect(mockLogUsage).toHaveBeenLastCalledWith(
+        "generateDashboard",
+        "anthropic/claude-sonnet-4",
+        expect.anything(),
+        { provider: "openrouter", driver: null },
+        { requestId: "req_local", reportedCostUsd: null },
       );
     });
 

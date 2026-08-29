@@ -161,9 +161,45 @@ export function resetOpenRouterClient(): void {
   _client = null;
 }
 
-export function openRouterExtras(provider?: Record<string, unknown>): { provider?: Record<string, unknown> } {
-  if (!provider || Object.keys(provider).length === 0) return {};
-  return { provider };
+/**
+ * Request extras sent on every OpenRouter call.
+ *
+ * `usage: { include: true }` asks OpenRouter to return the call's ACTUAL cost
+ * in the final usage chunk. That is the only cost source that stays correct
+ * across models: the dashboard targets DeepSeek, Claude and OpenAI, whose
+ * per-token prices differ by more than an order of magnitude, and a hand-kept
+ * rate table cannot track three vendors' price changes. Before this, an
+ * unknown model silently fell back to Claude Sonnet's $3/$15 per Mtok — so
+ * running DeepSeek billed every call at roughly 15x its real price, and
+ * `checkDailyBudget` throttled against that fiction.
+ *
+ * The rate table in `llm-usage.ts` remains as the fallback for when OpenRouter
+ * omits the field.
+ */
+export function openRouterExtras(
+  provider?: Record<string, unknown>,
+): { provider?: Record<string, unknown>; usage: { include: true } } {
+  const usage = { include: true } as const;
+  if (!provider || Object.keys(provider).length === 0) return { usage };
+  return { provider, usage };
+}
+
+/**
+ * Cost in USD that OpenRouter reported for a call, or null when absent.
+ *
+ * OpenRouter puts it on the usage object as `cost`; some routes nest the
+ * breakdown under `cost_details.upstream_inference_cost`. Anything
+ * non-finite or negative is treated as absent so a malformed value falls back
+ * to estimation rather than recording a wrong number.
+ */
+export function extractOpenRouterCost(usage: unknown): number | null {
+  if (!usage || typeof usage !== "object") return null;
+  const u = usage as { cost?: unknown; cost_details?: { upstream_inference_cost?: unknown } };
+  const candidates = [u.cost, u.cost_details?.upstream_inference_cost];
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c) && c >= 0) return c;
+  }
+  return null;
 }
 
 export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdapter {
@@ -347,6 +383,8 @@ export async function openRouterChatCompletion(params: {
 }): Promise<{
   content: string;
   usage: OpenRouterCacheUsage | null;
+  /** OpenRouter's own cost for the call, when it reported one. */
+  reportedCostUsd: number | null;
 }> {
   const response = await withOpenRouterRetry(() =>
     params.client.chat.completions.create({
@@ -367,6 +405,7 @@ export async function openRouterChatCompletion(params: {
   const u = response.usage as OpenRouterCacheUsage | undefined;
   return {
     content,
+    reportedCostUsd: extractOpenRouterCost(response.usage),
     usage:
       u === undefined
         ? null

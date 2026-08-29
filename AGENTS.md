@@ -12,7 +12,7 @@ Guidance for AI assistants. Use the **skills** ([docs/skills/skills.md](docs/ski
 
 **Data source:** PowerShop 4D v18.0.6 at `YOUR_4D_SERVER_IP` (Windows, compiled mode).
 **Access paths:** P4D SQL driver (port 19812) for bulk extraction, SOAP web services (port 8080) for business-enriched data.
-**Target:** PostgreSQL (mirror) → WrenAI + Dashboard App. LLM via OpenRouter (Claude Sonnet 4).
+**Target:** PostgreSQL (mirror) → WrenAI + Dashboard App. LLM via OpenRouter; the model is configuration, not a constant — see [Supported models](#supported-models).
 
 **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagrams and component details.
 **Decisions**: See [DECISIONS.md](DECISIONS.md) for binding one-line rules; `docs/decisions/D-NN-<slug>.md` for full rationale per decision.
@@ -101,7 +101,7 @@ Priority (highest to lowest):
 | `POSTGRES_DSN` | PostgreSQL connection string (ETL target) |
 | `OPENROUTER_API_KEY` | OpenRouter API key for WrenAI LLM + embeddings |
 | `ETL_CRON_HOUR` | Hour to run nightly sync (default: 2) |
-| `WREN_LLM_MODEL` | LLM model for WrenAI text-to-SQL (default: anthropic/claude-sonnet-4) |
+| `WREN_LLM_MODEL` | LLM model for WrenAI text-to-SQL (schema default `anthropic/claude-sonnet-4`; production runs `deepseek/deepseek-v4-pro`) |
 
 ---
 
@@ -110,7 +110,7 @@ Priority (highest to lowest):
 ### LLM and Embeddings (via OpenRouter)
 
 WrenAI uses two AI providers, both routed through OpenRouter with a single API key:
-- **LLM**: `openrouter/anthropic/claude-sonnet-4` via litellm. Configured in `wren-config.yaml`.
+- **LLM**: model per `WREN_LLM_MODEL` via litellm, configured in `wren-config.yaml`. Production runs `deepseek/deepseek-v4-pro`.
 - **Embeddings**: `openai/text-embedding-3-large` via litellm. Note: litellm does NOT support the `openrouter/` prefix for embeddings — use `openai/` prefix with `OPENAI_API_BASE` set to `https://openrouter.ai/api/v1`.
 
 Model IDs must match OpenRouter's catalog exactly (e.g. `anthropic/claude-sonnet-4` not `anthropic/claude-sonnet-4-20250514`). Check https://openrouter.ai/models for valid IDs.
@@ -223,6 +223,39 @@ cli/ps.sh sql tables
 chmod +x cli/ps
 cp cli/ps ~/bin/ps-analytics  # or symlink
 ```
+
+---
+
+## Supported models
+
+The dashboard is **model-agnostic on purpose**. Three families are supported
+targets and any of them may be configured at any time:
+
+| Family | Examples | Notes |
+|--------|----------|-------|
+| DeepSeek | `deepseek/deepseek-v4-pro` (production default), `deepseek/deepseek-r1` | Reasoning model. Reasoning tokens count against `max_tokens`. |
+| Anthropic | `anthropic/claude-sonnet-4`, `anthropic/claude-haiku-4.5` | Prompt caching supported via OpenRouter. |
+| OpenAI | `openai/gpt-4o`, `openai/o3` | o-series are reasoning models. |
+
+Selected by `dashboard.llm_model_openrouter` (config.yaml / admin UI), or
+`dashboard.llm_model_cli` for the CLI provider. **Never hardcode a model, a
+model's pricing, or a model's tool-call syntax.** Three rules follow from that:
+
+1. **Cost comes from the provider, not a table.** OpenRouter is asked for usage
+   accounting on every call and its figure is stored verbatim. The rate table in
+   `lib/llm-usage.ts` is only a fallback — per-token prices differ by more than
+   an order of magnitude across these families, and a hand-kept table cannot
+   track three vendors.
+2. **Never assume one tool-call dialect.** Each family serialises tool calls
+   differently and a router parser gap lets raw markup reach the user as an
+   answer. `looksLikeFabricatedToolLog` covers all three
+   (see [D-053](docs/decisions/D-053-no-fabricated-tool-logs.md)).
+3. **Budget for reasoning tokens.** On reasoning models they count against
+   `max_tokens`, so a tight cap is spent before any answer is emitted. Output
+   budgets are configurable, never hardcoded
+   (`dashboard.chat_max_output_tokens`).
+
+Full rationale: [D-056](docs/decisions/D-056-multi-model-support.md).
 
 ---
 
