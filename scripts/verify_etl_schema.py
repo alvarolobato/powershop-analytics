@@ -33,6 +33,7 @@ CHECKS: list[tuple[str, str, str]] = [
     ("etl.sync.ventas", "_VENTAS_MAPPING", "ps_ventas"),
     ("etl.sync.ventas", "_LINEAS_MAPPING", "ps_lineas_ventas"),
     ("etl.sync.ventas", "_PAGOS_MAPPING", "ps_pagos_ventas"),
+    ("etl.sync.barras_asociado", "_BARRAS_MAP", "ps_barras_asociado"),
     ("etl.sync.compras", "_COMPRAS_MAPPING", "ps_compras"),
     ("etl.sync.compras", "_LINEAS_COMPRAS_MAPPING", "ps_lineas_compras"),
     ("etl.sync.compras", "_FACTURAS_MAPPING", "ps_facturas"),

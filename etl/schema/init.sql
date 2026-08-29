@@ -218,8 +218,33 @@ CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
     precio_coste_ci     NUMERIC(15,2),
     total_coste_si      NUMERIC(15,2),
     fecha_creacion      DATE,
-    fecha_modifica      DATE
+    fecha_modifica      DATE,
+    -- Added for D-048 (sales-by-size). LineasVentas itself has no general
+    -- size column (its only "talla" field, CCOPTallaOjo, is optics-specific
+    -- and out of scope here) — size is resolved via ps_barras_asociado
+    -- (see that table's comment and docs/decisions/D-048-sales-by-size.md).
+    codigo_asociado     TEXT,           -- LineasVentas.CodigoAsociado. HYPOTHESIS, NOT
+                                         -- independently confirmed live: assumed to hold
+                                         -- the same barcode value space as
+                                         -- ps_barras_asociado.codigo (the size-specific
+                                         -- EAN), based on the column-name pairing with
+                                         -- the "BarrasAsociado" (associated barcodes)
+                                         -- table. Verify with `ps sql verify-talla-join`
+                                         -- before trusting a low coverage number.
+    num_articulo        NUMERIC(20,3),  -- LineasVentas.NumArticulo -> ps_articulos.reg_articulo
+                                         -- (Real FK, same precision as reg_articulo). Distinct
+                                         -- from `codigo`, which joins ps_articulos on the
+                                         -- business Codigo field instead (see
+                                         -- docs/architecture/sales.md LLM:relationships).
+    num_color           NUMERIC(20,3)   -- LineasVentas.NumColor -> CCOPColores (Real FK).
+                                         -- CCOPColores is not mirrored as its own dimension
+                                         -- table; kept here for completeness/future use.
 );
+
+-- Migration: add new columns to existing installs that have the old schema.
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS codigo_asociado TEXT;
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS num_articulo    NUMERIC(20,3);
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS num_color       NUMERIC(20,3);
 
 CREATE TABLE IF NOT EXISTS ps_pagos_ventas (
     reg_pagos       NUMERIC(20,3) PRIMARY KEY,
@@ -232,6 +257,77 @@ CREATE TABLE IF NOT EXISTS ps_pagos_ventas (
     tienda          TEXT,
     entrada         BOOLEAN
 );
+
+-- BarrasAsociado: additional EAN barcodes mapped to an article — in practice
+-- one row per (article, size) variant. This is the ONLY place in the 4D
+-- schema carrying a general-purpose "Talla" (size) label reachable from
+-- retail sales lines; LineasVentas has no general size column of its own.
+-- Full refresh (no confirmed FModifica-based delta — table is tiny, ~64K
+-- rows live per docs/architecture/stock-logistics.md, so the complexity of
+-- a delta strategy isn't worth it; same rationale as ps_tiendas/ps_proveedores).
+--
+-- Column names confirmed live via _USER_COLUMNS / the BarrasAsociado_SQL view
+-- (docs/schema-raw/4d_all_columns.json, docs/schema-raw/4d_views_schema.json,
+-- extraction dated 2026-04-05). IMPORTANT CORRECTION (D-048): earlier repo
+-- docs (docs/architecture/stock-logistics.md) described a "CodigoBarra"
+-- column on this table — that column does NOT exist. The real barcode
+-- column is `Codigo`. The doc most likely conflated it with
+-- Articulos.CodigoBarra (mirrored separately as ps_articulos.codigo_barra),
+-- which is the article's single DEFAULT barcode, not the per-size one.
+--
+-- reg_barras (RegBarras) is assumed to follow the same Real-with-.99-suffix
+-- PK convention as every other Reg* column in this schema — consistent with
+-- everything else confirmed so far, but not independently re-verified for
+-- this specific table.
+CREATE TABLE IF NOT EXISTS ps_barras_asociado (
+    reg_barras      NUMERIC(20,3) PRIMARY KEY,  -- BarrasAsociado.RegBarras
+    num_articulo    NUMERIC(20,3),              -- BarrasAsociado.NumArticulo -> ps_articulos.reg_articulo
+    codigo          TEXT,                       -- BarrasAsociado.Codigo — the size-specific EAN/barcode
+    talla           TEXT,                       -- BarrasAsociado.Talla — size label (free text, e.g. 'S','M','40')
+    n_talla         NUMERIC(10,2),              -- BarrasAsociado.NTalla — numeric size-ordering hint;
+                                                 -- 4D DATA_TYPE unconfirmed (no type dump for this table),
+                                                 -- stored generously as NUMERIC to tolerate int or real
+    sku             TEXT,                       -- BarrasAsociado.SKU
+    fecha_modifica  DATE                        -- BarrasAsociado.FModifica
+);
+
+-- Sales lines resolved to a size (D-048). Answers "which size sells most"
+-- for a given article: SELECT talla, SUM(unidades) FROM ps_lineas_ventas_talla
+-- WHERE codigo = 'X' GROUP BY talla.
+--
+-- Join key (PRIMARY, UNVERIFIED against the live 4D server — see
+-- docs/decisions/D-048-sales-by-size.md and `ps sql verify-talla-join`):
+-- lv.codigo_asociado = ba.codigo. This is the strongest-evidence hypothesis
+-- (column-name pairing with the "BarrasAsociado" table), not a confirmed fact.
+--
+-- Coverage is NOT hidden: talla_resolucion tells you, per line, whether a
+-- size was actually resolved ('ok'), the line has no codigo_asociado value
+-- at all ('sin_codigo_asociado' — likely an article with no size variants,
+-- or a historical line predating this field being populated), or it has one
+-- but it didn't match any ps_barras_asociado.codigo ('sin_match'). A GROUP BY
+-- talla on this view surfaces unresolved lines as their own NULL-talla
+-- bucket rather than silently dropping them — always check that bucket
+-- before trusting a "most-sold size" answer as complete.
+CREATE OR REPLACE VIEW ps_lineas_ventas_talla AS
+SELECT
+    lv.reg_lineas,
+    lv.num_ventas,
+    lv.codigo,
+    lv.num_articulo,
+    lv.codigo_asociado,
+    ba.talla,
+    ba.n_talla,
+    lv.unidades,
+    lv.total_si,
+    lv.tienda,
+    lv.fecha_creacion,
+    CASE
+        WHEN lv.codigo_asociado IS NULL THEN 'sin_codigo_asociado'
+        WHEN ba.talla IS NULL THEN 'sin_match'
+        ELSE 'ok'
+    END AS talla_resolucion
+FROM ps_lineas_ventas lv
+LEFT JOIN ps_barras_asociado ba ON lv.codigo_asociado = ba.codigo;
 
 -- ============================================================
 -- Stock
@@ -1057,6 +1153,13 @@ CREATE INDEX IF NOT EXISTS idx_fac_nfactura  ON ps_gc_facturas(n_factura);
 CREATE INDEX IF NOT EXISTS idx_lv_num_ventas   ON ps_lineas_ventas(num_ventas);
 CREATE INDEX IF NOT EXISTS idx_pv_num_ventas   ON ps_pagos_ventas(num_ventas);
 CREATE INDEX IF NOT EXISTS idx_lv_codigo       ON ps_lineas_ventas(codigo);
+
+-- Sales-by-size (D-048): accelerates the codigo_asociado -> ps_barras_asociado.codigo
+-- join that ps_lineas_ventas_talla (below) and the size-resolution SQL pairs use.
+CREATE INDEX IF NOT EXISTS idx_lv_codigo_asociado ON ps_lineas_ventas(codigo_asociado);
+CREATE INDEX IF NOT EXISTS idx_lv_num_articulo    ON ps_lineas_ventas(num_articulo);
+CREATE INDEX IF NOT EXISTS idx_ba_codigo          ON ps_barras_asociado(codigo);
+CREATE INDEX IF NOT EXISTS idx_ba_num_articulo    ON ps_barras_asociado(num_articulo);
 
 -- Date indexes (delta queries, time filters).
 -- fecha_modifica drives the ETL delta `WHERE FechaModifica > since`.

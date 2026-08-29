@@ -496,6 +496,7 @@ SYNC_TARGET_TABLE: dict[str, str] = {
     "clientes": "ps_clientes",
     "proveedores": "ps_proveedores",
     "gc_comerciales": "ps_gc_comerciales",
+    "barras_asociado": "ps_barras_asociado",
     "ventas": "ps_ventas",
     "lineas_ventas": "ps_lineas_ventas",
     "pagos_ventas": "ps_pagos_ventas",
@@ -523,6 +524,7 @@ SYNC_NAMES: tuple[str, ...] = (
     "clientes",
     "proveedores",
     "gc_comerciales",
+    "barras_asociado",
     "ventas",
     "lineas_ventas",
     "pagos_ventas",
@@ -660,6 +662,7 @@ def run_full_sync(
         sync_facturas_compra,
         sync_lineas_compras,
     )
+    from etl.sync.barras_asociado import sync_barras_asociado
     from etl.sync.maestros import (
         sync_clientes,
         sync_gc_comerciales,
@@ -891,6 +894,8 @@ def run_full_sync(
         _s("clientes", sync_clientes, wm=True)  # delta-capable
         _s("proveedores", sync_proveedores)  # full-only (520 rows)
         _s("gc_comerciales", sync_gc_comerciales)  # full-only (5 rows)
+        # full-only (~64K rows) — feeds ps_lineas_ventas_talla (D-048, sales-by-size)
+        _s("barras_asociado", sync_barras_asociado)
 
         # ------------------------------------------------------------------
         # 3. Retail sales (delta by FechaModifica) — run before stock (stock is slow)

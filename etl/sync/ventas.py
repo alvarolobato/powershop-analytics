@@ -192,6 +192,16 @@ _LINEAS_MAPPING: dict[str, str] = {
     "totalcostesi": "total_coste_si",
     "fechacreacion": "fecha_creacion",
     "fechamodifica": "fecha_modifica",
+    # Added for D-048 (sales-by-size, "de este artículo qué talla se vende
+    # más"). LineasVentas has no general size column of its own — these three
+    # are what let ps_lineas_ventas_talla (etl/schema/init.sql) resolve one
+    # via ps_barras_asociado. See that view's comment and
+    # docs/decisions/D-048-sales-by-size.md for the join-key caveat:
+    # codigo_asociado is assumed (NOT independently confirmed live) to hold
+    # the same barcode value space as ps_barras_asociado.codigo.
+    "codigoasociado": "codigo_asociado",
+    "numarticulo": "num_articulo",
+    "numcolor": "num_color",
 }
 
 _LINEAS_NUMERIC: set[str] = {
@@ -203,6 +213,8 @@ _LINEAS_NUMERIC: set[str] = {
     "totalsi",
     "preciocosteci",
     "totalcostesi",
+    "numarticulo",
+    "numcolor",
 }
 
 _PAGOS_MAPPING: dict[str, str] = {
@@ -234,7 +246,9 @@ _SQL_VENTAS_BASE = (
 _SQL_LINEAS_BASE = (
     "SELECT RegLineas, NumVentas, NDocumento, Mes, Tienda, Codigo, Descripcion,"
     " Unidades, PrecioNetoSI, TotalSI, PrecioCosteCI, TotalCosteSI,"
-    " FechaCreacion, FechaModifica"
+    " FechaCreacion, FechaModifica,"
+    # CodigoAsociado/NumArticulo/NumColor: added for D-048 (sales-by-size).
+    " CodigoAsociado, NumArticulo, NumColor"
     " FROM LineasVentas"
 )
 
@@ -302,7 +316,13 @@ def sync_lineas_ventas(
         - TotalCosteSI is queried as-is; if the column does not exist in the 4D
           schema, safe_fetch will raise — verify against _USER_COLUMNS if the
           query fails with an unknown-column error.
-        - PK and FK floats (RegLineas, NumVentas, NDocumento) converted to Decimal.
+        - PK and FK floats (RegLineas, NumVentas, NDocumento, NumArticulo,
+          NumColor) converted to Decimal.
+        - CodigoAsociado/NumArticulo/NumColor (D-048): let ps_lineas_ventas_talla
+          (etl/schema/init.sql) resolve a size per sale line via
+          ps_barras_asociado. The codigo_asociado -> ps_barras_asociado.codigo
+          join is a hypothesis, not independently confirmed live — see
+          docs/decisions/D-048-sales-by-size.md and `ps sql verify-talla-join`.
     """
     effective_since = since if since is not None else _EPOCH
     where = f"FechaModifica >= {_date_literal(effective_since)}"

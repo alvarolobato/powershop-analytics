@@ -28,6 +28,7 @@ _SYNC_FN_PATHS: list[str] = [
     "etl.sync.maestros.sync_clientes",
     "etl.sync.maestros.sync_proveedores",
     "etl.sync.maestros.sync_gc_comerciales",
+    "etl.sync.barras_asociado.sync_barras_asociado",
     "etl.sync.ventas.sync_ventas",
     "etl.sync.ventas.sync_lineas_ventas",
     "etl.sync.ventas.sync_pagos_ventas",
