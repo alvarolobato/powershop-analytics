@@ -494,6 +494,40 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
+-- One-time migration: drop cumulative stream-event prefixes.
+--
+-- turn_events.token/thinking payloads are CUMULATIVE snapshots: each row holds
+-- the whole accumulated text so far, so every row is a strict prefix of the
+-- next and the table grows O(n^2) in a turn's output length. Measured on
+-- production 2026-08-29: 367,341 such rows across 124 turns holding 552 MB,
+-- against 187 kB of actual information.
+--
+-- pruneStreamEvents already deletes these when a turn settles; turns that
+-- settled before that existed were never backfilled. This is that backfill.
+--
+-- Two things are deliberately NOT deleted:
+--   * rows belonging to turns still in flight (status streaming/pending) —
+--     the client has no assistant message to read from yet;
+--   * the LAST 'thinking' row per turn — `content.thinking` on the assistant
+--     message and pruneStreamEvents shipped in the same commit, so a turn with
+--     unpruned thinking events has NO durable copy of the model's reasoning,
+--     and (payloads being cumulative) that last row is the complete text.
+--
+-- Naturally idempotent: a second run matches zero rows. Disk is not returned
+-- to the OS until someone runs `VACUUM FULL turn_events` — a locking operation
+-- left as a deliberate manual step, not something a startup script should do.
+DELETE FROM turn_events te
+ USING conversation_turns ct
+ WHERE ct.id = te.turn_id
+   AND te.event_type IN ('token', 'thinking')
+   AND ct.status NOT IN ('streaming', 'pending')
+   AND te.id NOT IN (
+     SELECT DISTINCT ON (t2.turn_id) t2.id
+       FROM turn_events t2
+      WHERE t2.event_type = 'thinking'
+      ORDER BY t2.turn_id, t2.id DESC
+   );
+
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
 -- ============================================================
