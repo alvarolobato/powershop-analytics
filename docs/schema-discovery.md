@@ -338,14 +338,22 @@ One row per product per store. Same wide-format as CCStock but per retail locati
 
 ### BarrasAsociado -- Associated Barcodes (~63,756 rows, 10 columns)
 
-Maps additional EAN barcodes to articles (beyond the primary CodigoBarra on Articulos).
+Maps additional EAN barcodes to articles (beyond the primary CodigoBarra on Articulos) — in practice, one row per (article, size) variant. Also the only place in the schema carrying a general-purpose size label reachable from a sale line — see D-048.
+
+> **Corrected 2026-08-29 (D-048)**: this section previously listed a `CodigoBarra` column here. That column does **not** exist on `BarrasAsociado` — it was a mix-up with `Articulos.CodigoBarra` (the article's single default barcode, mirrored as `ps_articulos.codigo_barra`). The real barcode column on this table is `Codigo`. Confirmed live via `_USER_COLUMNS` and the `BarrasAsociado_SQL` view (`docs/schema-raw/4d_all_columns.json`, `docs/schema-raw/4d_views_schema.json`, 2026-04-05 extraction) — see [docs/decisions/D-048-sales-by-size.md](decisions/D-048-sales-by-size.md).
 
 | Column | Type | Description |
 |--------|------|-------------|
-| CodigoBarra | Alpha(80) | Barcode (EAN) |
+| RegBarras | Real | PK (assumed `.99`-suffix convention, not independently re-verified) |
 | NumArticulo | Real | FK -> Articulos.RegArticulo |
-| Talla | Alpha(10) | Size |
-| Codigo | Alpha(60) | Product code |
+| Codigo | Alpha(60) | The barcode/EAN itself — size-specific |
+| Talla | Alpha(10) | Size label (free text) |
+| NTalla | ? | Numeric size-ordering hint — 4D DATA_TYPE not confirmed |
+| SKU | ? | SKU |
+| AuxCodigo | ? | Auxiliary code — not mirrored |
+| IDAPIRfid | ? | RFID API identifier — not mirrored |
+| FModifica | Date | Last modification date |
+| HModifica | Time | Last modification time |
 
 ### Composicion -- Product Composition (0 rows, 20 columns)
 

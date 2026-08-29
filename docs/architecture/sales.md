@@ -99,6 +99,7 @@ erDiagram
         float NumMarca FK "-> CCOPMarcTrat"
         float NumColor FK "-> CCOPColores"
         float NumProveedor FK "-> Proveedores"
+        text CodigoAsociado "Barcode pairing with BarrasAsociado.Codigo for size resolution (D-048) — NOT independently confirmed live, see Notes below"
         text CodigoCajero "Cashier code"
         text CodigoEmpleado "Employee code"
         text Caja "Register code"
@@ -374,8 +375,8 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
   {
     "table": "ps_lineas_ventas",
     "alias": "LineaVenta",
-    "description": "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas.",
-    "keyColumns": ["reg_lineas (PK)", "num_ventas (FK -> ps_ventas.reg_ventas)", "mes (YYYYMM)", "tienda", "codigo (FK -> ps_articulos.codigo)", "descripcion", "unidades", "precio_neto_si", "total_si", "total_coste_si", "fecha_creacion"]
+    "description": "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas. Para desglosar ventas por talla usar la vista ps_lineas_ventas_talla (D-048), NUNCA ps_stock_tienda — esa tabla es stock, no ventas.",
+    "keyColumns": ["reg_lineas (PK)", "num_ventas (FK -> ps_ventas.reg_ventas)", "mes (YYYYMM)", "tienda", "codigo (FK -> ps_articulos.codigo)", "num_articulo (FK -> ps_articulos.reg_articulo)", "codigo_asociado (para resolver talla vía ps_barras_asociado.codigo)", "descripcion", "unidades", "precio_neto_si", "total_si", "total_coste_si", "fecha_creacion"]
   },
   {
     "table": "ps_pagos_ventas",

@@ -238,6 +238,16 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
+      "IMPORTANTE (D-048): las ventas SÍ se pueden desglosar por talla, no solo el stock. Usar la vista ps_lineas_ventas_talla (JOIN de ps_lineas_ventas con ps_barras_asociado vía codigo_asociado -> ps_barras_asociado.codigo): SELECT talla, SUM(unidades) AS unidades FROM ps_lineas_ventas_talla WHERE codigo = 'X' GROUP BY talla ORDER BY unidades DESC — responde directamente '¿qué talla se vende más de este artículo?'. NUNCA responder que la talla solo existe en stock. CAVEAT DE COBERTURA obligatorio: no todas las líneas resuelven talla (el campo codigo_asociado no está garantizado para líneas antiguas, y la clave de unión es una hipótesis por nombre de columna, no confirmada en el servidor 4D en vivo — ver ps sql verify-talla-join). Comprobar SIEMPRE cuántas líneas quedan sin resolver antes de dar la talla ganadora como un hecho cerrado: SELECT talla_resolucion, COUNT(*), SUM(unidades) FROM ps_lineas_ventas_talla WHERE codigo = 'X' GROUP BY talla_resolucion — si 'sin_codigo_asociado' o 'sin_match' representan una fracción significativa de las unidades, decirlo explícitamente en la respuesta en vez de presentar el resultado como completo.",
+    questions: [
+      "¿Qué talla se vende más?",
+      "¿Ventas por talla?",
+      "¿Desglose de ventas de un artículo por talla?",
+      "de este artículo qué talla se vende más",
+    ],
+  },
+  {
+    instruction:
       "Dead stock (stock paralizado): artículos con stock alto pero sin ventas recientes. Identificar con: ps_stock_tienda con stock > X, cruzado con ps_lineas_ventas sin ventas en los últimos N meses. Stock de temporadas antiguas que no rota es el principal riesgo.",
     questions: [
       "¿Stock sin rotación?",
@@ -465,7 +475,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
+      "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica, codigo_asociado, num_articulo, num_color (estas 3 últimas añadidas en D-048 para resolver talla). NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
     questions: [
       "¿Artículos más vendidos?",
       "¿Unidades vendidas por producto?",
@@ -609,6 +619,14 @@ export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Stock por artículo y talla?",
     sql: `SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", s."talla" AS "Talla", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 GROUP BY s."codigo", p."ccrefejofacm", s."talla" ORDER BY p."ccrefejofacm", s."talla"`,
+  },
+  {
+    question: "¿De este artículo qué talla se vende más?",
+    sql: `SELECT COALESCE(lvt."talla", '(sin talla resuelta)') AS "Talla", SUM(lvt."unidades") AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas_talla" lvt JOIN "public"."ps_ventas" v ON lvt."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lvt."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND v."entrada" = true GROUP BY lvt."talla" ORDER BY "Unidades Vendidas" DESC`,
+  },
+  {
+    question: "¿Qué cobertura de resolución de talla tienen las ventas de un artículo?",
+    sql: `SELECT lvt."talla_resolucion" AS "Resolución", COUNT(*) AS "Líneas", SUM(lvt."unidades") AS "Unidades", ROUND(100.0 * SUM(lvt."unidades") / NULLIF(SUM(SUM(lvt."unidades")) OVER (), 0), 1) AS "% Unidades" FROM "public"."ps_lineas_ventas_talla" lvt JOIN "public"."ps_ventas" v ON lvt."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lvt."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND v."entrada" = true GROUP BY lvt."talla_resolucion" ORDER BY "Unidades" DESC`,
   },
   {
     question: "¿Artículos con stock negativo?",
@@ -777,13 +795,15 @@ export const SCHEMA: TableSchema[] = [
     table: "ps_lineas_ventas",
     alias: "LineaVenta",
     description:
-      "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas.",
+      "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas. Para desglosar ventas por talla usar la vista ps_lineas_ventas_talla (D-048), NUNCA ps_stock_tienda — esa tabla es stock, no ventas.",
     keyColumns: [
       "reg_lineas (PK)",
       "num_ventas (FK -> ps_ventas.reg_ventas)",
       "mes (YYYYMM)",
       "tienda",
       "codigo (FK -> ps_articulos.codigo)",
+      "num_articulo (FK -> ps_articulos.reg_articulo)",
+      "codigo_asociado (para resolver talla vía ps_barras_asociado.codigo)",
       "descripcion",
       "unidades",
       "precio_neto_si",
@@ -928,6 +948,33 @@ export const SCHEMA: TableSchema[] = [
       "unidades_e",
       "fecha_s",
       "talla",
+    ],
+  },
+  {
+    table: "ps_barras_asociado",
+    alias: "BarraAsociada",
+    description:
+      "Códigos de barras (EAN) adicionales por artículo — en la práctica, una fila por (artículo, talla). Única tabla con talla de propósito general alcanzable desde una línea de venta (D-048).",
+    keyColumns: [
+      "reg_barras (PK)",
+      "num_articulo (FK -> ps_articulos.reg_articulo)",
+      "codigo (EAN, talla-específico)",
+      "talla",
+      "n_talla",
+    ],
+  },
+  {
+    table: "ps_lineas_ventas_talla",
+    alias: "LineaVentaTalla",
+    description:
+      "VISTA (no tabla física). Resuelve la talla de cada línea de venta uniendo ps_lineas_ventas.codigo_asociado con ps_barras_asociado.codigo (D-048) — clave de unión NO verificada en vivo, ver talla_resolucion para saber qué líneas resolvieron talla ('ok'/'sin_codigo_asociado'/'sin_match').",
+    keyColumns: [
+      "reg_lineas",
+      "codigo",
+      "codigo_asociado",
+      "talla",
+      "unidades",
+      "talla_resolucion",
     ],
   },
   {
@@ -1112,6 +1159,8 @@ export const RELATIONSHIPS: Relationship[] = [
   { from: "ps_traspasos", fromColumn: "tienda_salida", to: "ps_tiendas", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_traspasos", fromColumn: "tienda_entrada", to: "ps_tiendas", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_traspasos", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
+  { from: "ps_barras_asociado", fromColumn: "num_articulo", to: "ps_articulos", toColumn: "reg_articulo", type: "MANY_TO_ONE" },
+  { from: "ps_lineas_ventas", fromColumn: "codigo_asociado", to: "ps_barras_asociado", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_lineas_compras", fromColumn: "num_pedido", to: "ps_compras", toColumn: "reg_pedido", type: "MANY_TO_ONE" },
   { from: "ps_compras", fromColumn: "num_proveedor", to: "ps_proveedores", toColumn: "reg_proveedor", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_familia", to: "ps_familias", toColumn: "reg_familia", type: "MANY_TO_ONE" },

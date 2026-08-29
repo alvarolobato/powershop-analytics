@@ -122,6 +122,24 @@ SELECT SUM(s."stock" * p."precio_coste") AS "Valor al Coste", SUM(s."stock") AS 
 SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", s."talla" AS "Talla", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" > 0 GROUP BY s."codigo", p."ccrefejofacm", s."talla" ORDER BY p."ccrefejofacm", s."talla"
 ```
 
+### ¿De este artículo qué talla se vende más?
+<!-- D-048: sales-by-size, via ps_lineas_ventas_talla (join key codigo_asociado ->
+     ps_barras_asociado.codigo — NOT independently confirmed live, see
+     docs/decisions/D-048-sales-by-size.md and `ps sql verify-talla-join`).
+     COALESCE surfaces any unresolved-size bucket as its own row instead of
+     silently dropping it — a low-coverage answer must stay visible. -->
+```sql
+SELECT COALESCE(lvt."talla", '(sin talla resuelta)') AS "Talla", SUM(lvt."unidades") AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas_talla" lvt JOIN "public"."ps_ventas" v ON lvt."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lvt."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND v."entrada" = true GROUP BY lvt."talla" ORDER BY "Unidades Vendidas" DESC
+```
+
+### ¿Qué cobertura de resolución de talla tienen las ventas de un artículo?
+<!-- D-048: coverage caveat as its own explicit query — always run this (or
+     read the first row's Resolución) before presenting a "most-sold size"
+     answer as complete. -->
+```sql
+SELECT lvt."talla_resolucion" AS "Resolución", COUNT(*) AS "Líneas", SUM(lvt."unidades") AS "Unidades", ROUND(100.0 * SUM(lvt."unidades") / NULLIF(SUM(SUM(lvt."unidades")) OVER (), 0), 1) AS "% Unidades" FROM "public"."ps_lineas_ventas_talla" lvt JOIN "public"."ps_ventas" v ON lvt."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lvt."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND v."entrada" = true GROUP BY lvt."talla_resolucion" ORDER BY "Unidades" DESC
+```
+
 ### ¿Artículos con stock negativo?
 ```sql
 SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", s."tienda" AS "Tienda", s."talla" AS "Talla", s."stock" AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."stock" < 0 ORDER BY s."stock" ASC LIMIT 50

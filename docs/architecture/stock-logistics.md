@@ -56,9 +56,12 @@ erDiagram
     }
 
     BarrasAsociado {
-        text CodigoBarra "Barcode (EAN)"
+        float RegBarras PK "Record ID (assumed .99-suffix convention, unverified)"
         float NumArticulo FK "-> Articulos.RegArticulo"
+        text Codigo "Barcode (EAN) — size-specific. NOT CodigoBarra: that column does not exist here (D-048 correction, see Notes below)"
         text Talla "Size"
+        float NTalla "Numeric size-ordering hint (type unconfirmed)"
+        text SKU "SKU"
     }
 
     SemiCodigo {
@@ -106,7 +109,7 @@ erDiagram
 |-------|------|---------|-------------|
 | **Traspasos** | 262,689 | 30 | Stock transfers between stores and regularizations. Contains origin/destination, article, size, quantities, timestamps, and reason codes (e.g., "Traspaso", "Regularizacion", "S-Robo" for theft). |
 | **Movimientos** | 4 | 4 | Stock movement type definitions. Minimal reference table. |
-| **BarrasAsociado** | 63,756 | -- | Associated barcodes. Maps additional EAN codes to articles (beyond the primary CodigoBarra on Articulos). |
+| **BarrasAsociado** | 63,756 | 10 | Associated barcodes. Maps additional EAN codes to articles (beyond the primary CodigoBarra on Articulos) — one row per (article, size) variant in practice. Mirrored as `ps_barras_asociado`; the only place in the schema carrying a general-purpose size label reachable from a sale line (see D-048, sales-by-size). |
 | **SemiCodigo** | 110,536 | -- | Short/partial codes. Lookup for partial barcode scanning or internal short codes. |
 | **CCPorcentajeTemp** | 406 | -- | Season percentage allocations. |
 | **CCOPSeriCali** | 47 | -- | Size series/caliber definitions (e.g., S/M/L, 36-46, etc.). |
@@ -144,7 +147,8 @@ erDiagram
 
 - **Traspasos** is the primary stock movement table (263K rows), used for both inter-store transfers and stock regularizations (adjustments for theft, damage, etc.).
 - Each transfer appears twice: once as an exit from origin store (Entrada=false) and once as an entry at destination (Entrada=true), matched by `Documento` number.
-- **BarrasAsociado** (64K rows) supplements `Articulos.CodigoBarra` by mapping multiple EAN barcodes to a single article (e.g., different size barcodes).
+- **BarrasAsociado** (64K rows) supplements `Articulos.CodigoBarra` by mapping multiple EAN barcodes to a single article (e.g., different size barcodes). The barcode column is `Codigo` (Alpha 60) — **not** `CodigoBarra`, which this file previously (and incorrectly) claimed existed on this table; that name belongs to `Articulos.CodigoBarra` (the article's single default barcode), a different column on a different table. Corrected 2026-08-29, D-048.
+- **Sales-by-size (D-048)**: `LineasVentas` (retail sales lines, see [sales.md](sales.md)) has no general size column of its own — `ps_lineas_ventas_talla` (a PostgreSQL view, `etl/schema/init.sql`) resolves one per sale line by joining `ps_lineas_ventas.codigo_asociado` to `ps_barras_asociado.codigo`. That join key is a **hypothesis** (the column-name pairing between `LineasVentas.CodigoAsociado` and this table), not independently confirmed against the live 4D server — run `ps sql verify-talla-join` to check coverage before trusting a low or surprising number. Full rationale: [docs/decisions/D-048-sales-by-size.md](../decisions/D-048-sales-by-size.md).
 - **SemiCodigo** (111K rows) is a large lookup for partial code resolution during scanning.
 - The **RFID** module (RFIDMovimientos, RFIDNumerosSerie, RFIDSinMovimiento) exists in the schema but is completely empty.
 - The **Logistics** module (Logistica, PackingList, LOGNivel1-3, LOGZonas) is defined but unused.
@@ -203,6 +207,9 @@ The actual series definitions are in `CCOPSeriCali` (47 rows — e.g., "S/M/L", 
 | Exportaciones | 2,058,201 | `FechaModifica` (NULLs exist for zero-stock articles) | UPSERT delta + unpivot |
 | Traspasos | 262,689 | `FechaS` (send date — no FechaModifica) | Append-only by `FechaS` |
 | CCStock | 41,478 | None | Full refresh nightly → `ps_stock_central` |
+| BarrasAsociado | 63,756 | `FModifica` (exists but not used as a delta — see below) | Full refresh nightly → `ps_barras_asociado` (D-048) |
+
+**BarrasAsociado** (D-048, sales-by-size): although `FModifica` exists on the live column list, the ETL uses a plain full refresh — same call as `ps_tiendas`/`ps_proveedores`/`ps_gc_comerciales` at this row count (~64K), where the complexity of watermark tracking doesn't pay for itself. Revisit if the table grows substantially. See `etl/sync/barras_asociado.py` and [docs/decisions/D-048-sales-by-size.md](../decisions/D-048-sales-by-size.md).
 
 **Traspasos** is mostly historical: only 153 new rows since 2025-01-01. Records appear immutable once created. Append-only by `FechaS` is safe.
 
@@ -238,6 +245,18 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
     "alias": "Traspaso",
     "description": "Traspasos de stock. Cada movimiento = 2 filas (salida + entrada).",
     "keyColumns": ["codigo (FK)", "tienda_salida", "tienda_entrada", "entrada", "unidades_s", "unidades_e", "fecha_s", "talla"]
+  },
+  {
+    "table": "ps_barras_asociado",
+    "alias": "BarraAsociada",
+    "description": "Códigos de barras (EAN) adicionales por artículo — en la práctica, una fila por (artículo, talla). Única tabla con talla de propósito general alcanzable desde una línea de venta (D-048).",
+    "keyColumns": ["reg_barras (PK)", "num_articulo (FK -> ps_articulos.reg_articulo)", "codigo (EAN, talla-específico)", "talla", "n_talla"]
+  },
+  {
+    "table": "ps_lineas_ventas_talla",
+    "alias": "LineaVentaTalla",
+    "description": "VISTA (no tabla física). Resuelve la talla de cada línea de venta uniendo ps_lineas_ventas.codigo_asociado con ps_barras_asociado.codigo (D-048) — clave de unión NO verificada en vivo, ver talla_resolucion para saber qué líneas resolvieron talla ('ok'/'sin_codigo_asociado'/'sin_match').",
+    "keyColumns": ["reg_lineas", "codigo", "codigo_asociado", "talla", "unidades", "talla_resolucion"]
   }
 ]
 ```
@@ -250,6 +269,8 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
   {"from": "ps_stock_tienda",  "fromColumn": "tienda",         "to": "ps_tiendas",   "toColumn": "codigo", "type": "MANY_TO_ONE"},
   {"from": "ps_traspasos",     "fromColumn": "tienda_salida",  "to": "ps_tiendas",   "toColumn": "codigo", "type": "MANY_TO_ONE"},
   {"from": "ps_traspasos",     "fromColumn": "tienda_entrada", "to": "ps_tiendas",   "toColumn": "codigo", "type": "MANY_TO_ONE"},
-  {"from": "ps_traspasos",     "fromColumn": "codigo",         "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"}
+  {"from": "ps_traspasos",     "fromColumn": "codigo",         "to": "ps_articulos", "toColumn": "codigo", "type": "MANY_TO_ONE"},
+  {"from": "ps_barras_asociado", "fromColumn": "num_articulo", "to": "ps_articulos", "toColumn": "reg_articulo", "type": "MANY_TO_ONE"},
+  {"from": "ps_lineas_ventas", "fromColumn": "codigo_asociado", "to": "ps_barras_asociado", "toColumn": "codigo", "type": "MANY_TO_ONE"}
 ]
 ```

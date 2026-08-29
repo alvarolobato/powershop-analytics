@@ -132,6 +132,9 @@ WHERE NAlbaran IN (
 | Tiendas | 51 | `RegTienda` | `FechaModifica` | Full refresh |
 | Proveedores | 519 | — (verify `RegProveedor`) | `FModifica` | Full refresh |
 | GCComerciales | 5 | `RegComercial` | — | Full refresh |
+| BarrasAsociado | 63,756 | `RegBarras` (assumed .99-suffix convention, unverified) | `FModifica` (present but unused) | Full refresh — see below |
+
+**BarrasAsociado (D-048, sales-by-size):** feeds the `ps_lineas_ventas_talla` view (`codigo_asociado = codigo` join). `FModifica` exists on the live column list but the ETL doesn't use it as a delta — at ~64K rows the complexity of watermark tracking isn't worth it, same call as Tiendas/Proveedores/GCComerciales above. See [docs/decisions/D-048-sales-by-size.md](decisions/D-048-sales-by-size.md) and `etl/sync/barras_asociado.py`.
 
 ---
 
@@ -267,6 +270,10 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Stock por talla?", "¿Qué tallas quedan?", "¿Distribución de tallas en stock?"]
   },
   {
+    "instruction": "IMPORTANTE (D-048): las ventas SÍ se pueden desglosar por talla, no solo el stock. Usar la vista ps_lineas_ventas_talla (JOIN de ps_lineas_ventas con ps_barras_asociado vía codigo_asociado -> ps_barras_asociado.codigo): SELECT talla, SUM(unidades) AS unidades FROM ps_lineas_ventas_talla WHERE codigo = 'X' GROUP BY talla ORDER BY unidades DESC — responde directamente '¿qué talla se vende más de este artículo?'. NUNCA responder que la talla solo existe en stock. CAVEAT DE COBERTURA obligatorio: no todas las líneas resuelven talla (el campo codigo_asociado no está garantizado para líneas antiguas, y la clave de unión es una hipótesis por nombre de columna, no confirmada en el servidor 4D en vivo — ver ps sql verify-talla-join). Comprobar SIEMPRE cuántas líneas quedan sin resolver antes de dar la talla ganadora como un hecho cerrado: SELECT talla_resolucion, COUNT(*), SUM(unidades) FROM ps_lineas_ventas_talla WHERE codigo = 'X' GROUP BY talla_resolucion — si 'sin_codigo_asociado' o 'sin_match' representan una fracción significativa de las unidades, decirlo explícitamente en la respuesta en vez de presentar el resultado como completo.",
+    "questions": ["¿Qué talla se vende más?", "¿Ventas por talla?", "¿Desglose de ventas de un artículo por talla?", "de este artículo qué talla se vende más"]
+  },
+  {
     "instruction": "Dead stock (stock paralizado): artículos con stock alto pero sin ventas recientes. Identificar con: ps_stock_tienda con stock > X, cruzado con ps_lineas_ventas sin ventas en los últimos N meses. Stock de temporadas antiguas que no rota es el principal riesgo.",
     "questions": ["¿Stock sin rotación?", "¿Artículos encallados?", "¿Dead stock?", "¿Stock de temporadas pasadas?"]
   },
@@ -367,7 +374,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Compras a proveedores?", "¿Pedidos pendientes de recibir?", "¿Cuánto compramos al proveedor X?"]
   },
   {
-    "instruction": "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
+    "instruction": "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica, codigo_asociado, num_articulo, num_color (estas 3 últimas añadidas en D-048 para resolver talla). NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
     "questions": ["¿Artículos más vendidos?", "¿Unidades vendidas por producto?", "¿Ventas por artículo sin devoluciones?"]
   },
   {
