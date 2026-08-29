@@ -203,7 +203,11 @@ def _normalize_expo_row(src: dict) -> list[dict]:
         stock_raw = src.get(f"stock{i}")
         if talla is None or (isinstance(talla, str) and not talla.strip()):
             continue
-        talla_str = talla.strip() if isinstance(talla, str) else str(talla)
+        # Mayusculas: el origen trae un '6Xl' suelto entre miles de '6XL'.
+        # ps_lineas_ventas.talla ya se normaliza en ventas.py; si aqui no se
+        # hiciera, el join ventas<->stock perderia esa talla en silencio y
+        # ademas partiria la PK (codigo, tienda_codigo, talla) en dos filas.
+        talla_str = (talla.strip() if isinstance(talla, str) else str(talla)).upper()
         if stock_raw is None:
             stock_val = 0
         else:
@@ -357,6 +361,19 @@ _TRASPASOS_COLUMNS = (
 _TRASPASOS_ORDER_BY = "ORDER BY RegTraspaso"
 
 
+def _norm_talla(value: object) -> object:
+    """Trim + upper de una talla, dejando intactos None y no-cadenas.
+
+    Misma normalizacion que `ventas.py` aplica a `CCOPTallaOjo`. Sin esto,
+    ventas y traspasos discrepan en la caja y cualquier cruce entre ambos
+    pierde filas sin avisar.
+    """
+    if not isinstance(value, str):
+        return value
+    stripped = value.strip().upper()
+    return stripped or None
+
+
 def _map_traspaso_row(src: dict) -> dict:
     """Map a safe_fetch row (lowercase keys) to ps_traspasos column names.
 
@@ -379,7 +396,7 @@ def _map_traspaso_row(src: dict) -> dict:
         "reg_traspaso": reg_decimal,
         "codigo": src.get("codigo"),
         "descripcion": src.get("descripcion"),
-        "talla": src.get("talla"),
+        "talla": _norm_talla(src.get("talla")),
         "unidades_s": src.get("unidadess"),
         "unidades_e": src.get("unidadese"),
         "tienda_salida": src.get("tiendasalida"),

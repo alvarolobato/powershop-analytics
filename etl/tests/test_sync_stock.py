@@ -142,6 +142,23 @@ class TestNormalizeExpoRow:
         result = _normalize_expo_row(row)
         assert result[0]["talla"] == "38"
 
+    def test_talla_upper_cased(self):
+        """El origen trae un '6Xl' suelto entre miles de '6XL'.
+
+        `ventas.py` ya sube la talla de la linea de venta a mayusculas. Si el
+        stock no hiciera lo mismo, el cruce ventas<->stock perderia esa talla
+        sin dar ningun error, y ademas partiria la PK
+        (codigo, tienda_codigo, talla) en dos filas para el mismo articulo.
+        """
+        row = self._make_row([("6Xl", 5)])
+        result = _normalize_expo_row(row)
+        assert result[0]["talla"] == "6XL"
+
+    def test_talla_stripped_and_upper_cased_together(self):
+        row = self._make_row([("  6xl  ", 5)])
+        result = _normalize_expo_row(row)
+        assert result[0]["talla"] == "6XL"
+
     def test_missing_codigo_raises(self):
         """Missing Codigo should raise ValueError instead of silently producing empty key."""
         row = self._make_row([("38", 1)])
@@ -626,3 +643,51 @@ class TestSyncStockSkipsInvalidRows:
 
         assert total == 0
         mock_upsert.assert_not_called()
+
+
+class TestMapTraspasoRowTalla:
+    """La talla del traspaso se normaliza igual que en ventas y en stock.
+
+    Los tres caminos escriben en el mismo eje de analisis. Si uno solo deja
+    pasar la caja del origen ('6Xl'), cualquier cruce entre ellos pierde filas
+    y no salta ningun error: el JOIN simplemente devuelve menos.
+    """
+
+    @staticmethod
+    def _src(talla):
+        return {
+            "regtraspaso": 4.152,
+            "codigo": "144880",
+            "descripcion": "test",
+            "talla": talla,
+            "unidadess": 1,
+            "unidadese": 1,
+            "tiendasalida": "104",
+            "tiendaentrada": "105",
+            "fechas": None,
+            "fechae": None,
+            "tipo": None,
+            "concepto": None,
+            "entrada": None,
+        }
+
+    def test_lowercase_talla_upper_cased(self):
+        from etl.sync.stock import _map_traspaso_row
+
+        assert _map_traspaso_row(self._src("6Xl"))["talla"] == "6XL"
+
+    def test_whitespace_stripped(self):
+        from etl.sync.stock import _map_traspaso_row
+
+        assert _map_traspaso_row(self._src("  38 "))["talla"] == "38"
+
+    def test_none_stays_none(self):
+        from etl.sync.stock import _map_traspaso_row
+
+        assert _map_traspaso_row(self._src(None))["talla"] is None
+
+    def test_blank_becomes_none_not_empty_string(self):
+        """Una cadena vacia y un NULL no son lo mismo al agrupar por talla."""
+        from etl.sync.stock import _map_traspaso_row
+
+        assert _map_traspaso_row(self._src("   "))["talla"] is None
