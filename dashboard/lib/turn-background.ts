@@ -30,6 +30,7 @@ import {
   HISTORY_MAX_MESSAGES,
 } from "@/lib/llm-context/history";
 import { isLlmFlow } from "@/lib/llm-context/types";
+import { getChatMaxOutputTokens } from "@/lib/llm-tools/config";
 import type { AgenticToolCallRecord } from "@/lib/llm-tools/types";
 import type { AssistantMessageContent, ToolCallRecord } from "@/lib/conversation-types";
 
@@ -558,7 +559,16 @@ async function runFreeChatTurn(
         requestId,
         endpoint: "freeChat",
         temperature: 0.3,
-        maxOutputTokens: 4096,
+        // Was a hardcoded 4096 while every other call site used 8192
+        // (lib/llm.ts:64,109, lib/llm-client.ts:262) — the tightest budget in
+        // the codebase on the flow doing the hardest reasoning. Production
+        // runs a reasoning model whose reasoning tokens count against
+        // max_tokens, so the budget was being spent before any answer was
+        // emitted: two turns recorded EXACTLY 4096 thinking events and zero
+        // token events, then failed with "The model returned empty content."
+        // Config-driven rather than a new hardcoded number, so it can be
+        // tuned without a deploy.
+        maxOutputTokens: getChatMaxOutputTokens(),
       },
     );
     await ctxWrite.done; // ensure the context-log file + pointer are persisted
