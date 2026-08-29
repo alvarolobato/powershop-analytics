@@ -184,24 +184,6 @@ export function openRouterExtras(
   return { provider, usage };
 }
 
-/**
- * Cost in USD that OpenRouter reported for a call, or null when absent.
- *
- * OpenRouter returns `usage.cost` on every response — it does NOT need to be
- * requested. (`usage: { include: true }` is sent anyway to make the dependency
- * explicit and to keep the richer `cost_details` breakdown available, but the
- * original defect was purely read-side: nothing ever looked at the field.)
- *
- * BYOK: when `is_byok` is true, `cost` is only OpenRouter's own surcharge
- * (~5%) and `cost_details.upstream_inference_cost` is what was actually paid
- * to the provider. Taking whichever is present first would then record the
- * ~5% and drop the rest — a ~20x UNDERcount, the dangerous direction for a
- * budget guard. The two are summed instead.
- *
- * Anything non-finite or negative is treated as absent so a malformed value
- * falls back to estimation rather than recording a wrong number. A genuine
- * zero is kept: a free model is not "no report".
- */
 /*
  * Map OpenRouter's cache reporting onto the two cache-token fields.
  *
@@ -238,6 +220,24 @@ export function readOpenRouterCacheTokens(usage: unknown): {
   };
 }
 
+/**
+ * Cost in USD that OpenRouter reported for a call, or null when absent.
+ *
+ * OpenRouter returns `usage.cost` on every response — it does NOT need to be
+ * requested. (`usage: { include: true }` is sent anyway to make the dependency
+ * explicit and to keep the richer `cost_details` breakdown available, but the
+ * original defect was purely read-side: nothing ever looked at the field.)
+ *
+ * BYOK: when `is_byok` is true, `cost` is only OpenRouter's own surcharge
+ * (~5%) and `cost_details.upstream_inference_cost` is what was actually paid
+ * to the provider. Taking whichever is present first would then record the
+ * ~5% and drop the rest — a ~20x UNDERcount, the dangerous direction for a
+ * budget guard. The two are summed instead.
+ *
+ * Anything non-finite or negative is treated as absent so a malformed value
+ * falls back to estimation rather than recording a wrong number. A genuine
+ * zero is kept: a free model is not "no report".
+ */
 export function extractOpenRouterCost(usage: unknown): number | null {
   if (!usage || typeof usage !== "object") return null;
   const u = usage as {

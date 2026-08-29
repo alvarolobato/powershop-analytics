@@ -24,7 +24,8 @@ const M = 1_000_000;
  *
  * The authoritative source is the provider: OpenRouter is asked for usage
  * accounting on every call (`usage: { include: true }`, see
- * `openRouterExtras`) and its figure is stored verbatim; the Claude CLI
+ * `openRouterExtras`) and its figure is stored to 10 decimal places
+ * (NUMERIC(14,10) — enough for sub-micro-dollar calls on cheap models); the Claude CLI
  * reports `total_cost_usd`. This table exists for the gap where neither
  * reports one.
  *
@@ -163,7 +164,7 @@ export function logUsage(
       usage.prompt_tokens,
       usage.completion_tokens,
       usage.total_tokens,
-      estimatedCost.toFixed(6),
+      estimatedCost.toFixed(10),
       provider,
       driver,
       requestId,

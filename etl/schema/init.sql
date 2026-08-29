@@ -504,7 +504,8 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'llm_usage'
+     WHERE table_schema = 'public'
+       AND table_name = 'llm_usage'
        AND column_name = 'estimated_cost_usd'
        AND numeric_scale < 10
   ) THEN
