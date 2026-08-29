@@ -642,6 +642,46 @@ describe("runTurnBackground — fabricated tool-log guard", () => {
     expect(types).not.toContain("complete");
   });
 
+  it("never renders the fabricated text back to the user", async () => {
+    // The evidence event must carry neither `text` nor `label`:
+    // ConversationPane's payloadToLogLine renders both, so putting the sample
+    // there would display the exact fabrication the guard suppresses.
+    assembleReturns(FABRICATED);
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const evidence = mockInsertTurnEvent.mock.calls.find((c) => c[2] === "guard_evidence");
+    expect(evidence, "evidence is persisted for auditing").toBeTruthy();
+    const payload = (evidence as unknown[])[3] as Record<string, unknown>;
+    expect(payload.sample, "the sample is kept for a human to query").toContain("execute_query");
+    expect(payload.text, "but NOT under a key the UI renders").toBeUndefined();
+    expect(payload.label, "and not under `label` either").toBeUndefined();
+
+    // Nothing user-visible anywhere carries the fabricated text.
+    for (const call of mockInsertTurnEvent.mock.calls) {
+      const p = call[3] as Record<string, unknown> | undefined;
+      if (!p) continue;
+      for (const key of ["text", "label", "body"]) {
+        if (typeof p[key] === "string") {
+          expect(p[key] as string).not.toContain("execute_query");
+        }
+      }
+    }
+  });
+
+  it("reports the real tool-call count, which is not always zero", async () => {
+    // The unambiguous-markup tier fires regardless of the count, so a message
+    // hardcoding "0 real tool calls" would mislead during an incident.
+    assembleReturns("Aqui tienes:\n</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>");
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const logged = err.mock.calls.flat().find((a) => typeof a === "object" && a !== null && "realToolCalls" in (a as object));
+    expect(logged, "the count is logged, not assumed").toBeTruthy();
+    err.mockRestore();
+  });
+
   it("leaves a normal answer completely alone", async () => {
     assembleReturns("La referencia V265103 se vendió 42 unidades en la temporada V26.");
 

@@ -71,15 +71,19 @@ function compactResult(result: unknown): string {
 export const TOOL_LOG_OPEN_TAG = "<herramientas_ya_ejecutadas>";
 export const TOOL_LOG_CLOSE_TAG = "</herramientas_ya_ejecutadas>";
 
-/**
+/*
  * The framing this block used before 2026-08-29. Still recognised by
  * `looksLikeFabricatedToolLog` because it is what the model was shown for
  * months — conversations carrying it in their history can still prompt an
  * imitation of it, long after new turns stopped being formatted this way.
  */
 /**
- * Raw tool-call markup from any provider, which must never appear in a final
- * answer.
+ * Raw tool-call markup from any provider.
+ *
+ * The UNAMBIGUOUS tokens below can never legitimately appear in a final
+ * answer, so they fail a turn whatever it ran. The looser shapes in
+ * LOOSE_TOOL_MARKUP can appear in prose and are gated on zero tool calls —
+ * see looksLikeFabricatedToolLog for that split.
  *
  * The dashboard is model-agnostic on purpose — DeepSeek, Claude and OpenAI are
  * all supported targets — and each family serialises tool calls differently.

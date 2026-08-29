@@ -447,16 +447,27 @@ export async function runTurnBackground(
     // message and emits an `error` event the client already renders.
     if (looksLikeFabricatedToolLog(assistantText, assistantToolCalls.length)) {
       console.error(
-        `[${requestId}] turn ${turnId}: model emitted a tool-call log as its answer with 0 real tool calls`,
-        { chars: assistantText.length, preview: assistantText.slice(0, 200) },
+        `[${requestId}] turn ${turnId}: model emitted tool-call markup as its answer`,
+        {
+          chars: assistantText.length,
+          // NOT always zero: the unambiguous-markup tier fires regardless of
+          // the count, which is the round-1-succeeds/round-2-emits-markup case.
+          realToolCalls: assistantToolCalls.length,
+          preview: assistantText.slice(0, 200),
+        },
       );
-      // The offending text goes into the turn's error event, not just stdout.
-      // Container stdout dies on deploy and Postgres is the only durable trace
-      // (D-047) — at an ~11% fire rate this is the difference between being
-      // able to audit whether firings were true positives and guessing.
-      await emitTurnEvent(conversationId, turnId, seq(), "log", {
-        kind: "error",
-        text: `[guard] respuesta descartada (0 llamadas reales a herramientas): ${assistantText.slice(0, 500)}`,
+      // Durable evidence for auditing whether firings are true positives —
+      // container stdout dies on deploy, so Postgres is the only lasting trace
+      // (D-047). Deliberately carries NEITHER `text` NOR `label`:
+      // ConversationPane's payloadToLogLine renders both, so putting the
+      // sample there would show the user the very fabrication being
+      // suppressed. With neither key it returns null and nothing is rendered,
+      // while the row still sits in turn_events for a human to query.
+      await emitTurnEvent(conversationId, turnId, seq(), "guard_evidence", {
+        guard: "fabricated_tool_log",
+        realToolCalls: assistantToolCalls.length,
+        sample: assistantText.slice(0, 500),
+        ts: new Date().toISOString(),
       });
       throw new Error(
         "El modelo describió las consultas en vez de ejecutarlas, así que no hay datos reales detrás de esta respuesta. Vuelve a enviar la pregunta.",
