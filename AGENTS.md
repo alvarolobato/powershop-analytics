@@ -113,7 +113,7 @@ WrenAI uses two AI providers, both routed through OpenRouter with a single API k
 - **LLM**: model per `WREN_LLM_MODEL` via litellm, configured in `wren-config.yaml`. Production runs `deepseek/deepseek-v4-pro`.
 - **Embeddings**: `openai/text-embedding-3-large` via litellm. Note: litellm does NOT support the `openrouter/` prefix for embeddings — use `openai/` prefix with `OPENAI_API_BASE` set to `https://openrouter.ai/api/v1`.
 
-Model IDs must match OpenRouter's catalog exactly (e.g. `anthropic/claude-sonnet-4` not `anthropic/claude-sonnet-4-20250514`). Check https://openrouter.ai/models for valid IDs.
+Model IDs must match OpenRouter's catalog exactly — check https://openrouter.ai/models, or `curl -s https://openrouter.ai/api/v1/models | jq '.data[].id'`. Undated slugs (`anthropic/claude-sonnet-4`) track the current pointer; dated ones (`anthropic/claude-sonnet-4-20250514`) pin a snapshot and are also valid where the catalog lists them — several repo defaults use the dated form. What breaks is an id the catalog does not list at all.
 
 ### Semantic Model
 

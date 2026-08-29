@@ -134,3 +134,30 @@ describe("readOpenRouterCacheTokens", () => {
     });
   });
 });
+
+describe("cache-token mapping is wired on every OpenRouter path", () => {
+  it("is applied by all three call sites, not just the agentic adapter", async () => {
+    // The first revision wired readOpenRouterCacheTokens into the agentic
+    // adapter only. The non-streaming `openRouterChatCompletion` and the
+    // streaming `llm-client` path both still read only the Anthropic-shaped
+    // keys, so cache hits were estimated as all-fresh (~10x over) on the two
+    // paths that fall back to estimation most often.
+    const fs = await import("fs");
+    const path = await import("path");
+    const read = (rel: string) =>
+      fs.readFileSync(path.resolve(__dirname, "..", rel), "utf8");
+
+    const openrouter = read("llm-provider/openrouter.ts");
+    const client = read("llm-client.ts");
+
+    // Agentic adapter + non-streaming completion.
+    const inOpenrouter = openrouter.split("readOpenRouterCacheTokens(").length - 1;
+    expect(
+      inOpenrouter,
+      "openrouter.ts should map cache tokens in BOTH the adapter and openRouterChatCompletion (plus the definition)",
+    ).toBeGreaterThanOrEqual(3);
+
+    // Streaming llm-client path.
+    expect(client).toContain("readOpenRouterCacheTokens(chunk.usage)");
+  });
+});

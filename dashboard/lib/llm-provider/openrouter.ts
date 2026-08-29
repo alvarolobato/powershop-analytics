@@ -202,7 +202,7 @@ export function openRouterExtras(
  * falls back to estimation rather than recording a wrong number. A genuine
  * zero is kept: a free model is not "no report".
  */
-/**
+/*
  * Map OpenRouter's cache reporting onto the two cache-token fields.
  *
  * OpenRouter reports cache usage under `prompt_tokens_details`
@@ -480,8 +480,11 @@ export async function openRouterChatCompletion(params: {
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
-            cache_creation_input_tokens: u.cache_creation_input_tokens,
-            cache_read_input_tokens: u.cache_read_input_tokens,
+            // Same mapping as the agentic adapter. Reading only the
+            // Anthropic-shaped keys left cache tokens null on this path too,
+            // so a cache hit was priced as all-fresh whenever the reported
+            // cost was missing and estimation took over.
+            ...readOpenRouterCacheTokens(response.usage),
           },
   };
 }

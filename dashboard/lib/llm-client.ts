@@ -15,6 +15,7 @@ import {
   buildCachedSystemMessage,
   openRouterExtras,
   extractOpenRouterCost,
+  readOpenRouterCacheTokens,
 } from "./llm-provider/openrouter";
 import { claudeCliSingleShot } from "./llm-provider/cli/claude-code";
 import { CliRunnerError } from "./llm-provider/cli/errors";
@@ -395,8 +396,11 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
           prompt_tokens: u.prompt_tokens,
           completion_tokens: u.completion_tokens,
           total_tokens: u.total_tokens,
-          cache_creation_input_tokens: u.cache_creation_input_tokens ?? null,
-          cache_read_input_tokens: u.cache_read_input_tokens ?? null,
+          // OpenRouter reports cache usage under `prompt_tokens_details`, not
+          // as the Anthropic-shaped keys — reading only the latter left these
+          // null on this path, so a cache hit was estimated as all-fresh
+          // (~10x over) whenever the reported cost was unavailable.
+          ...readOpenRouterCacheTokens(chunk.usage),
         };
         // OpenRouter's own figure for this call (requested via
         // `usage: { include: true }` in openRouterExtras). Authoritative and
