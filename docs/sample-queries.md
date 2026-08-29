@@ -959,7 +959,7 @@ Reglas que gobiernan la traduccion de este recetario al espejo PostgreSQL.
     ]
   },
   {
-    "instruction": "El espejo PostgreSQL NO replica todas las columnas de 4D. Diferencias que rompen traducciones ingenuas: ps_lineas_ventas NO tiene 'entrada' (esta en ps_ventas, hay que unir por lv.num_ventas = v.reg_ventas); ps_lineas_ventas NO tiene num_familia/num_marca/num_temporada/num_departament (hay que unir con ps_articulos por 'codigo' y de ahi a la dimension); ps_articulos NO tiene columna 'stock'; ps_lineas_ventas NO tiene talla. Antes de usar una columna, comprueba que existe.",
+    "instruction": "El espejo PostgreSQL NO replica todas las columnas de 4D. Diferencias que rompen traducciones ingenuas: ps_lineas_ventas SI tiene 'entrada', 'movimiento_caja' y 'talla' desde 2026-08 (vacias en filas anteriores a la resincronizacion); el JOIN con ps_ventas sigue haciendo falta para atributos de cabecera como tienda o cliente; ps_lineas_ventas NO tiene num_familia/num_marca/num_temporada/num_departament (hay que unir con ps_articulos por 'codigo' y de ahi a la dimension); ps_articulos NO tiene columna 'stock'. Antes de usar una columna, comprueba que existe.",
     "questions": [
       "ps_lineas_ventas tiene entrada",
       "como agrupo ventas por familia",

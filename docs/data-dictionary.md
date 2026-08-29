@@ -149,11 +149,14 @@ characters of `CCRefeJOFACM` encode the colour (`V26212484` -> colour `84`).
 Size is **not** a column of `Articulos`. Size lives:
 
 - on the sale line, in 4D, as `LineasVentas.CCOPTallaOjo` (100 % populated);
-- in the PostgreSQL mirror, only in `ps_stock_tienda.talla` and `ps_traspasos.talla`.
+- in the PostgreSQL mirror, in `ps_lineas_ventas.talla`, `ps_stock_tienda.talla`
+  and `ps_traspasos.talla`.
 
-`ps_lineas_ventas` does **not** mirror `CCOPTallaOjo`, so size-level sales analysis
-is not possible against the mirror today -- it needs an ETL change first. Do not
-invent a `talla` column on `ps_lineas_ventas`.
+`ps_lineas_ventas.talla` mirrors `CCOPTallaOjo` desde 2026-08, **normalizada a
+MAYÚSCULAS en el ETL**: el origen mezcla `'l'`/`'L'`, y sin normalizar un cruce
+ventas↔stock perdería filas en silencio. Las filas anteriores a la
+resincronización tienen la columna vacía, así que conviene filtrar
+`talla IS NOT NULL` en análisis históricos.
 
 ### Pricing Fields
 

@@ -86,9 +86,9 @@ export const REVIEW_QUERIES: ReviewQuery[] = [
     name: "ventas_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
-  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas,
   COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets,
-  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0)
+  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)
        / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS ticket_medio
 FROM ps_ventas
 WHERE tienda <> '99'
@@ -99,9 +99,9 @@ WHERE tienda <> '99'
     name: "ventas_semana_previa",
     domain: "ventas_retail",
     sql: `SELECT
-  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas,
   COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets,
-  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0)
+  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)
        / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS ticket_medio
 FROM ps_ventas
 WHERE tienda <> '99'
@@ -113,7 +113,7 @@ WHERE tienda <> '99'
     domain: "ventas_retail",
     sql: `SELECT
   tienda,
-  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas,
   COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets
 FROM ps_ventas
 WHERE tienda <> '99'
@@ -128,7 +128,7 @@ LIMIT 3`,
     domain: "ventas_retail",
     sql: `SELECT
   tienda,
-  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas,
   COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets
 FROM ps_ventas
 WHERE tienda <> '99'
@@ -165,7 +165,7 @@ LIMIT 5`,
   COALESCE(SUM(CASE WHEN entrada = true THEN total_si ELSE 0 END), 0) AS ventas_brutas_si,
   COALESCE(ABS(SUM(CASE WHEN entrada = false THEN total_si ELSE 0 END)), 0) AS importe_devoluciones_si,
   -- NETO: la cifra que PowerShop destaca en caja (01VEN - 02DEV).
-  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas_si,
+  COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas_si,
   COUNT(CASE WHEN entrada = true THEN 1 END) AS num_ventas,
   COUNT(CASE WHEN entrada = false THEN 1 END) AS num_devoluciones,
   ROUND(

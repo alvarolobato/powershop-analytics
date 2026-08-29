@@ -467,7 +467,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para tratar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y aplicar el patron neto sobre la columna de LineaVenta: COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0). Filtrar v.entrada=true a secas descarta las devoluciones en vez de restarlas.",
+      "El campo 'entrada' existe en Venta (ps_ventas) Y, desde 2026-08, tambien en LineaVenta (ps_lineas_ventas) junto a 'movimiento_caja' y 'talla', tomados de 4D donde coinciden al 100 % con la cabecera. Eso permite netear sin unir con Venta. Las filas anteriores a la resincronizacion los tienen vacios. Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. mas talla, entrada y movimiento_caja anadidas en 2026-08. NO tiene: tipo_documento, forma, num_cliente, cajero_nombre. Patron neto SOBRE LineaVenta, valido en cuanto produccion se resincronice: COALESCE(SUM(lv.total_si) FILTER (WHERE lv.entrada), 0) - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT lv.entrada), 0). Mientras el espejo de produccion no tenga las columnas pobladas, el mismo patron con JOIN a Venta y v.entrada da el mismo resultado y es el camino seguro. Filtrar entrada=true a secas descarta las devoluciones en vez de restarlas.",
     questions: [
       "¿Artículos más vendidos?",
       "¿Unidades vendidas por producto?",
@@ -724,7 +724,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "El espejo PostgreSQL NO replica todas las columnas de 4D. Diferencias que rompen traducciones ingenuas: ps_lineas_ventas NO tiene 'entrada' (esta en ps_ventas, hay que unir por lv.num_ventas = v.reg_ventas); ps_lineas_ventas NO tiene num_familia/num_marca/num_temporada/num_departament (hay que unir con ps_articulos por 'codigo' y de ahi a la dimension); ps_articulos NO tiene columna 'stock'; ps_lineas_ventas NO tiene talla. Antes de usar una columna, comprueba que existe.",
+      "El espejo PostgreSQL NO replica todas las columnas de 4D. Diferencias que rompen traducciones ingenuas: ps_lineas_ventas SI tiene 'entrada', 'movimiento_caja' y 'talla' desde 2026-08 (vacias en filas anteriores a la resincronizacion); el JOIN con ps_ventas sigue haciendo falta para atributos de cabecera como tienda o cliente; ps_lineas_ventas NO tiene num_familia/num_marca/num_temporada/num_departament (hay que unir con ps_articulos por 'codigo' y de ahi a la dimension); ps_articulos NO tiene columna 'stock'. Antes de usar una columna, comprueba que existe.",
     questions: [
       "ps_lineas_ventas tiene entrada",
       "como agrupo ventas por familia",

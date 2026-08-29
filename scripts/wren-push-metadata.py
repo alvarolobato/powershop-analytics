@@ -159,13 +159,13 @@ def extract_instructions(content: str) -> list[dict]:
     return instructions
 
 
-def extract_sql_pairs(content: str) -> list[tuple[str, str]]:
+def extract_sql_pairs(content: str) -> list[tuple[str, str, str]]:
     """Parse ## LLM:sql-pairs sections and return (question, sql) tuples.
 
     Each pair is a ### heading followed by a ```sql ... ``` block.
     Applies transform_date_placeholders to each SQL string before returning.
     """
-    pairs: list[tuple[str, str]] = []
+    pairs: list[tuple[str, str, str]] = []
     for section in parse_marker_sections(content):
         if section["marker"] != "sql-pairs":
             continue
@@ -231,7 +231,7 @@ def transform_wren_table_names(sql: str) -> str:
     return sql
 
 
-def load_knowledge_from_mds() -> tuple[list[dict], list[tuple[str, str]]]:
+def load_knowledge_from_mds() -> tuple[list[dict], list[tuple[str, str, str]]]:
     """Load all instructions and SQL pairs from SOURCE_MDS.
 
     Returns (instructions, sql_pairs) where:

@@ -50,7 +50,7 @@ export const spec: DashboardSpec = {
         {
           label: "Ventas Netas",
           // Ventas MENOS devoluciones, sin IVA (01VEN - 02DEV en PowerShop).
-          sql: `SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada") - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) AS value
+          sql: `SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS value
 FROM "public"."ps_ventas" v
 WHERE v."tienda" <> '99'
   AND v."fecha_creacion" >= :curr_from
@@ -125,7 +125,7 @@ WHERE v."entrada" = false
   COALESCE(devo.imp, 0) / NULLIF(ven.imp + COALESCE(devo.imp, 0), 0) * 100, 1
 ) AS value
 FROM (
-  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada") - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) AS imp
+  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS imp
   FROM "public"."ps_ventas" v
   WHERE v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from
@@ -153,7 +153,7 @@ FROM (
   (curr.ventas - prev.ventas) / NULLIF(ABS(prev.ventas), 0) * 100, 1
 ) AS value
 FROM (
-  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada") - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) AS ventas
+  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS ventas
   FROM "public"."ps_ventas" v
   WHERE v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from
@@ -161,7 +161,7 @@ FROM (
     AND __gf_tienda__
 ) curr,
 (
-  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada") - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) AS ventas
+  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS ventas
   FROM "public"."ps_ventas" v
   WHERE v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from::date - INTERVAL '1 year'
@@ -236,7 +236,8 @@ ORDER BY value DESC`,
       // que distorsionan el margen calculado.
       // NULLIF evita división por cero cuando todas las líneas son 0.
       sql: `SELECT lv."tienda" AS label,
-       ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) - SUM(lv."total_coste_si"))
+       ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
+        - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0)))
          / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) * 100, 1) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
@@ -269,7 +270,8 @@ ORDER BY value DESC`,
        p."descripcion" AS "Descripción",
        SUM(lv."unidades") AS "Unidades",
        ROUND(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)::numeric, 2) AS "Ventas Netas (€)",
-       ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) - SUM(lv."total_coste_si"))
+       ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
+        - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0)))
          / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) * 100, 1) AS "Margen %"
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"

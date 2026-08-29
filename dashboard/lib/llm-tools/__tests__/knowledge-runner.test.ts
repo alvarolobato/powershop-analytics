@@ -114,7 +114,7 @@ describe("runAgenticChat + search_knowledge", () => {
     const toolMessage = followUp.messages.find((m) => m.role === "tool");
     expect(toolMessage).toBeDefined();
     expect(toolMessage!.content).toContain("CCOPTallaOjo");
-    expect(toolMessage!.content).toContain("report-generation.md");
+    expect(toolMessage!.content).toMatch(/ps_lineas_ventas[\s\S]*talla/i);
     expect(toolMessage!.content).toContain('"ok":true');
   });
 
