@@ -7,12 +7,13 @@ import {
 
 describe("llm-tools catalog", () => {
   describe("FREE_CHAT_TOOLS", () => {
-    it("contains exactly 12 tools (10 inspection + start_dashboard_generation + set_title)", () => {
-      expect(FREE_CHAT_TOOLS).toHaveLength(12);
+    it("contains exactly 13 tools (11 inspection + start_dashboard_generation + set_title)", () => {
+      expect(FREE_CHAT_TOOLS).toHaveLength(13);
     });
 
-    it("includes all 10 inspection tools", () => {
+    it("includes all 11 inspection tools", () => {
       const names = FREE_CHAT_TOOLS.map((t) => t.function.name);
+      expect(names).toContain("search_knowledge");
       expect(names).toContain("list_ps_tables");
       expect(names).toContain("describe_ps_table");
       expect(names).toContain("validate_query");
@@ -96,6 +97,7 @@ describe("llm-tools catalog", () => {
       expect(names).toContain("validate_query");
       expect(names).toContain("execute_query");
       expect(names).toContain("explain_query");
+      expect(names).toContain("search_knowledge");
       expect(names).toContain("list_ps_tables");
       expect(names).toContain("describe_ps_table");
       expect(names).toContain("list_dashboards");
@@ -107,6 +109,29 @@ describe("llm-tools catalog", () => {
       expect(names).toContain("apply_dashboard_modification");
       expect(names).toContain("submit_dashboard_analysis");
       expect(names).toContain("submit_weekly_review");
+    });
+  });
+
+  describe("search_knowledge tool definition", () => {
+    // The tool is useless if the model is never offered it. Free chat is the
+    // flow where the model is most likely to be asked "how do I query X".
+    const tool = FREE_CHAT_TOOLS.find((t) => t.function.name === "search_knowledge");
+
+    it("is exposed to free chat", () => {
+      expect(tool).toBeDefined();
+    });
+
+    it("is exposed to the full agentic catalog too", () => {
+      const names = DASHBOARD_AGENTIC_TOOLS.map((t) => t.function.name);
+      expect(names).toContain("search_knowledge");
+    });
+
+    it("requires 'query' and offers the optional 'only_sql' filter", () => {
+      const required = tool?.function.parameters?.required as string[] | undefined;
+      expect(required).toEqual(["query"]);
+      const props = tool?.function.parameters?.properties as Record<string, unknown> | undefined;
+      expect(props).toHaveProperty("query");
+      expect(props).toHaveProperty("only_sql");
     });
   });
 

@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "next dev -p ${DASHBOARD_PORT:-4000}",
-    "build:knowledge": "tsx scripts/build-knowledge.ts",
+    "build:knowledge": "tsx scripts/build-knowledge.ts && npm run build:knowledge-index",
+    "build:knowledge-index": "node scripts/build-knowledge-index.mjs",
     "sync:schema": "cp ../config/schema.yaml config/schema.yaml",
     "prebuild": "[ ! -f ../docs/etl-sync-strategy.md ] || npm run build:knowledge",
     "build": "next build",

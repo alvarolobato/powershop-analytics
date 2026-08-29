@@ -38,6 +38,7 @@ import {
   handleSubmitWeeklyReview,
 } from "./handlers/dashboards";
 import { handleStartDashboardGeneration } from "./handlers/start-dashboard-generation";
+import { handleSearchKnowledge } from "./handlers/knowledge";
 import type { AgenticModelAdapter, AgenticRunStepInput } from "./runner-types";
 import { CliRunnerError } from "@/lib/llm-client";
 import { sanitize } from "@/lib/llm-provider/sanitize";
@@ -175,6 +176,8 @@ async function dispatchTool(
       return handleExecuteQuery(rawArgs, ctx);
     case "explain_query":
       return handleExplainQuery(rawArgs, ctx);
+    case "search_knowledge":
+      return handleSearchKnowledge(rawArgs, ctx);
     case "list_ps_tables":
       return handleListPsTables(rawArgs, ctx);
     case "describe_ps_table":

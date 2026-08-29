@@ -6,7 +6,7 @@
  *   DASHBOARD_AGENTIC_TOOLS — full catalog (generate / modify / analyze / review flows)
  *
  * Structure:
- *   DATA_INSPECTION_TOOLS (private) — read-only SQL + dashboard inspect tools
+ *   DATA_INSPECTION_TOOLS (private) — read-only SQL + knowledge search + dashboard inspect tools
  *   FREE_CHAT_TOOLS = DATA_INSPECTION_TOOLS + start_dashboard_generation
  *   DASHBOARD_AGENTIC_TOOLS = DATA_INSPECTION_TOOLS + validate_dashboard_spec
  *                             + apply_dashboard_modification + submit_dashboard_analysis
@@ -59,6 +59,35 @@ const DATA_INSPECTION_TOOLS: ChatCompletionTool[] = [
           sql: { type: "string", description: "Single SELECT or WITH query only." },
         },
         required: ["sql"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_knowledge",
+      description:
+        "Busca en el conocimiento operativo del repositorio: consultas SQL validadas, " +
+        "convenciones de datos, glosario y decisiones. USA ESTO ANTES de escribir SQL " +
+        "para un dominio que no domines — hay cientos de consultas ya validadas contra " +
+        "producción, y muchas resuelven casos con trampa (tallas, devoluciones, stock " +
+        "con signo, mayorista vs retail) donde inventar la consulta da resultados " +
+        "silenciosamente incorrectos.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Qué necesitas, en lenguaje natural. Ej: 'ventas por talla', " +
+              "'stock por tienda y talla', 'margen por familia', 'devoluciones'.",
+          },
+          only_sql: {
+            type: "boolean",
+            description: "Si true, devuelve solo secciones que contienen SQL. Por defecto false.",
+          },
+        },
+        required: ["query"],
       },
     },
   },
@@ -304,6 +333,7 @@ export const DASHBOARD_AGENTIC_TOOLS: ChatCompletionTool[] = [
 
 // ── Inspection tools (no side-effects, read-only) ─────────────────────────────
 const INSPECTION_TOOL_NAMES = new Set([
+  "search_knowledge",
   "list_ps_tables",
   "describe_ps_table",
   "validate_query",
@@ -337,7 +367,7 @@ const SET_TITLE_TOOL: ChatCompletionTool = {
 };
 
 /**
- * Tools available in the free-chat flow: 10 inspection tools + start_dashboard_generation + set_title = 12 tools.
+ * Tools available in the free-chat flow: 11 inspection tools + start_dashboard_generation + set_title = 13 tools.
  * Does NOT include modification/analysis/review publish tools.
  */
 export const FREE_CHAT_TOOLS: ChatCompletionTool[] = [
