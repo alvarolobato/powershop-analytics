@@ -450,6 +450,14 @@ export async function runTurnBackground(
         `[${requestId}] turn ${turnId}: model emitted a tool-call log as its answer with 0 real tool calls`,
         { chars: assistantText.length, preview: assistantText.slice(0, 200) },
       );
+      // The offending text goes into the turn's error event, not just stdout.
+      // Container stdout dies on deploy and Postgres is the only durable trace
+      // (D-047) — at an ~11% fire rate this is the difference between being
+      // able to audit whether firings were true positives and guessing.
+      await emitTurnEvent(conversationId, turnId, seq(), "log", {
+        kind: "error",
+        text: `[guard] respuesta descartada (0 llamadas reales a herramientas): ${assistantText.slice(0, 500)}`,
+      });
       throw new Error(
         "El modelo describió las consultas en vez de ejecutarlas, así que no hay datos reales detrás de esta respuesta. Vuelve a enviar la pregunta.",
       );

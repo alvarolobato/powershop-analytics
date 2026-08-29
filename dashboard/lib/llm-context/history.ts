@@ -99,26 +99,42 @@ export const TOOL_LOG_CLOSE_TAG = "</herramientas_ya_ejecutadas>";
  *   - OpenAI:    `<|python_tag|>`, harmony `<|channel|>commentary to=functions.`
  *   - Common:    `<tool_call>` / `[TOOL_CALLS]` (Llama, Mistral, Qwen)
  *
- * Each alternative requires delimiter punctuation, never a bare word, so prose
- * that merely mentions "tool_calls" or "invoke" is not matched — there is a
- * test for that.
+ * Split in two by how unambiguous each dialect is. The tokens below cannot
+ * plausibly appear in a real answer, so they fail a turn regardless of what it
+ * ran; the looser shapes in LOOSE_TOOL_MARKUP need the zero-tool-call
+ * condition. Every alternative requires delimiter punctuation, never a bare
+ * word, so prose mentioning "tool_calls" or "invoke" is not matched.
  */
-const PROVIDER_TOOL_MARKUP = new RegExp(
+const UNAMBIGUOUS_TOOL_MARKUP = new RegExp(
   [
     // DeepSeek — token between bar delimiters of any width.
     String.raw`[<\[][\s\S]{0,4}?(?:DSML|tool.{0,2}calls.{0,2}begin|tool.{0,2}call.{0,2}begin)`,
     // Anthropic-style XML blocks.
     String.raw`<\s*/?\s*function_calls\s*>`,
     String.raw`<\s*/?\s*invoke(?:\s+name\s*=|\s*>)`,
-    String.raw`<\s*/?\s*parameter(?:\s+name\s*=|\s*>)`,
     // OpenAI harmony / python tag.
     String.raw`<\|python_tag\|>`,
     String.raw`<\|channel\|>\s*commentary\s+to\s*=`,
-    // Common across Llama / Mistral / Qwen and OpenRouter passthrough.
+  ].join("|"),
+  "i",
+);
+
+/**
+ * Shapes that also occur in ordinary prose, so they are only evidence when the
+ * turn made NO tool calls.
+ *
+ * `[TOOL_CALLS]` is matched case-SENSITIVELY: the Mistral/Llama sentinel is
+ * uppercase, and a case-insensitive match fired on the markdown link
+ * `[tool_calls](https://…)`. `<parameter …>` and `<tool_call>` appear in any
+ * answer that shows an XML snippet, which is a realistic thing to ask a data
+ * assistant for.
+ */
+const LOOSE_TOOL_MARKUP = new RegExp(
+  [
+    String.raw`<\s*/?\s*parameter(?:\s+name\s*=|\s*>)`,
     String.raw`<\s*/?\s*tool_calls?\s*>`,
     String.raw`\[TOOL_CALLS\]`,
   ].join("|"),
-  "i",
 );
 
 export const LEGACY_TOOL_LOG_HEADER =
@@ -167,31 +183,38 @@ export function looksLikeFabricatedToolLog(
   text: string,
   actualToolCalls: number,
 ): boolean {
-  if (actualToolCalls > 0) return false;
   const t = (text ?? "").trimStart();
   if (!t) return false;
 
-  // Second signature: raw provider tool-call markup leaking into the answer.
+  // ── Unambiguous provider markup: checked BEFORE the tool-call count ──
   //
-  // Production runs a DeepSeek model, which emits tool calls in its own DSML
-  // markup. When OpenRouter fails to parse that into `tool_calls`,
-  // `openrouter.ts` sees non-empty text and returns kind:"final" — so the
-  // markup is persisted as the answer. Three such messages exist in
-  // production (582e0af1, b0e8a038, 0cd5c169); one leaked real data rows
-  // inside the block, meaning the tool DID run and only the transcript was
-  // mis-emitted.
-  //
-  // Those three happened to also imitate the Spanish header, so the framing
-  // check below would have caught them — by luck, not by design. A DSML leak
-  // without the header would sail through, which is why this is its own
-  // condition rather than an extra clause on the framing one.
-  if (PROVIDER_TOOL_MARKUP.test(t)) return true;
+  // Raw tool-call syntax is never a valid final answer, whatever ran earlier
+  // in the turn. Gating this behind `actualToolCalls === 0` disabled it in
+  // exactly the case it was written for: round 1 calls execute_query
+  // successfully (count = 3), round 2 emits markup the router fails to parse,
+  // openrouter.ts sees non-empty text and returns kind:"final" — and the guard
+  // waves the markup through to the user as a completed answer. `ctx.toolCalls`
+  // accumulates across rounds and is never reset, so the count at the persist
+  // seam is the whole turn's, which is what made the gate wrong here.
+  if (UNAMBIGUOUS_TOOL_MARKUP.test(t)) return true;
 
-  const framed = t.startsWith(TOOL_LOG_OPEN_TAG) || t.startsWith(LEGACY_TOOL_LOG_HEADER);
+  // ── Everything below needs the zero-call condition ──
+  //
+  // These shapes can legitimately appear in prose, so they are only suspicious
+  // when the turn produced no tool calls at all. That condition is what keeps
+  // a turn which really ran tools — and happens to quote itself — alive.
+  if (actualToolCalls > 0) return false;
+
+  if (LOOSE_TOOL_MARKUP.test(t)) return true;
+
+  // `includes`, not `startsWith`: one word of preamble ("Claro, aquí tienes:")
+  // defeated an anchored check, and this PR changes the very block the model
+  // imitates, so betting the imitation stays at position 0 is unwarranted. The
+  // call-line requirement below is what makes searching anywhere safe.
+  const framed = t.includes(TOOL_LOG_OPEN_TAG) || t.includes(LEGACY_TOOL_LOG_HEADER);
   if (!framed) return false;
-  // Second condition so a turn that merely *mentions* the framing (e.g. the
-  // user asked what the block is) isn't killed: it has to actually list
-  // call-shaped lines, which is what makes it a fake answer rather than prose.
+  // A turn that merely *mentions* the framing (the user asked what the block
+  // is) must survive: it has to actually list call-shaped lines.
   return /^-\s*\w+\s*\(/m.test(t);
 }
 
@@ -230,6 +253,17 @@ export function flattenStoredMessage(row: {
     if (!recognized) text = JSON.stringify(c);
   } else {
     text = JSON.stringify(c);
+  }
+
+  // Drain the priming. The 13 fabricated messages already in production carry
+  // the legacy heading in their stored text, and this function replays that
+  // text verbatim — so in exactly the conversations that already relapsed, the
+  // model keeps being shown the pattern it copied. The reframing above only
+  // affects blocks RENDERED from tool_calls; a fabrication is plain text and
+  // is immune to it. Skipping these rows costs nothing (they contain no real
+  // answer) and stops old damage causing new damage.
+  if (row.role === "assistant" && looksLikeFabricatedToolLog(text, toolCalls?.length ?? 0)) {
+    return null;
   }
 
   if (row.role === "assistant" && toolCalls && toolCalls.length > 0) {

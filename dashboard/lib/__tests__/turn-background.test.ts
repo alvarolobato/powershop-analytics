@@ -583,3 +583,70 @@ describe("runTurnBackground — generic fallback path", () => {
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
   });
 });
+
+describe("runTurnBackground — fabricated tool-log guard", () => {
+  // The seam this whole change exists to protect. Deleting the guard block
+  // from turn-background.ts left the previous 27 tests green: every other test
+  // exercised the pure predicate, none asserted that such a turn actually ends
+  // as `error` rather than `complete`.
+
+  const FABRICATED = [
+    "[Datos consultados con herramientas en esta respuesta]",
+    '- execute_query({"sql":"SELECT p.codigo FROM ps_articulos p"})',
+    '- execute_query({"sql":"SELECT c.color, SUM(lv.unidades) FROM ps_lineas_ventas lv"})',
+  ].join("\n");
+
+  function assembleReturns(text: string) {
+    mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: { onSystemPromptReady?: (p: string, t?: unknown[]) => void; toolCalls?: unknown[] };
+      };
+      opts?.ctx?.onSystemPromptReady?.("SYSTEM PROMPT", []);
+      return { text, usage: {}, model: "m" };
+    });
+  }
+
+  it("ends the turn as error, not complete, when the model fabricates a tool log", async () => {
+    assembleReturns(FABRICATED);
+
+    await runTurnBackground(TURN_ID, makeConv(), "v265103 sacame el mismo informe");
+
+    expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(
+      TURN_ID,
+      "error",
+      expect.stringContaining("describió las consultas"),
+    );
+    expect(mockUpdateTurnStatus).not.toHaveBeenCalledWith(TURN_ID, "complete");
+  });
+
+  it("persists it as an is_error message so the fabrication is never shown as an answer", async () => {
+    assembleReturns(FABRICATED);
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const assistantCalls = mockAppendMessage.mock.calls.filter(([, role]) => role === "assistant");
+    expect(assistantCalls.length).toBe(1);
+    const [, , content] = assistantCalls[0] as [string, string, Record<string, unknown>];
+    expect(content.is_error).toBe(true);
+    // The fabricated text must NOT be persisted as the answer.
+    expect(String(content.text)).not.toContain("execute_query");
+  });
+
+  it("emits an error event, not a complete event", async () => {
+    assembleReturns(FABRICATED);
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    const types = mockInsertTurnEvent.mock.calls.map((c) => c[2]);
+    expect(types).toContain("error");
+    expect(types).not.toContain("complete");
+  });
+
+  it("leaves a normal answer completely alone", async () => {
+    assembleReturns("La referencia V265103 se vendió 42 unidades en la temporada V26.");
+
+    await runTurnBackground(TURN_ID, makeConv(), "hola");
+
+    expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
+  });
+});

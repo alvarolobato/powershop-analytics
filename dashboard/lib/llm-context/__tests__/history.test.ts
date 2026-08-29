@@ -411,9 +411,40 @@ describe("looksLikeFabricatedToolLog", () => {
     expect(looksLikeFabricatedToolLog(text, 0)).toBe(false);
   });
 
-  it("never fires on leaked markup when the turn really made tool calls", () => {
-    // A turn that genuinely ran tools is never killed, whatever its text.
+  it("fires on UNAMBIGUOUS markup even when the turn made tool calls", () => {
+    // The case the guard exists for, and the one an earlier revision waved
+    // through: round 1 calls execute_query successfully (count = 3), round 2
+    // emits markup the router fails to parse, openrouter.ts returns
+    // kind:"final" on the non-empty text. `ctx.toolCalls` accumulates across
+    // rounds, so the count at the persist seam is 3 — and gating the markup
+    // check behind `actualToolCalls === 0` disabled it exactly here.
+    const dsml = "Aqui tienes:\n</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>";
+    expect(looksLikeFabricatedToolLog(dsml, 3)).toBe(true);
+    expect(looksLikeFabricatedToolLog("<function_calls>", 5)).toBe(true);
+    expect(looksLikeFabricatedToolLog("<|python_tag|>x", 1)).toBe(true);
+  });
+
+  it("does NOT fire on the loose shapes when the turn made tool calls", () => {
+    // `<tool_call>` and `<parameter>` legitimately appear in an answer that
+    // shows an XML snippet, so those stay gated on zero tool calls.
     expect(looksLikeFabricatedToolLog("<tool_call>x</tool_call>", 2)).toBe(false);
+    expect(looksLikeFabricatedToolLog('<parameter name="timeout">30</parameter>', 2)).toBe(false);
+  });
+
+  it("catches a fabrication that does not start at position 0", () => {
+    // One word of preamble defeated the anchored `startsWith` check — and this
+    // change alters the very block the model imitates, so the imitation's
+    // shape is expected to shift.
+    const withPreamble =
+      'Claro, aqui tienes:\n\n[Datos consultados con herramientas en esta respuesta]\n- execute_query({"sql":"SELECT 1"})';
+    expect(looksLikeFabricatedToolLog(withPreamble, 0)).toBe(true);
+  });
+
+  it("does not fire on a lowercase markdown link to tool_calls", () => {
+    // The Mistral/Llama sentinel is uppercase; matching case-insensitively
+    // hard-errored a legitimate answer containing `[tool_calls](url)`.
+    expect(looksLikeFabricatedToolLog("Ver [tool_calls](https://x/y) para detalles.", 0)).toBe(false);
+    expect(looksLikeFabricatedToolLog("- [tool_calls] guarda las llamadas", 0)).toBe(false);
   });
 
   it("does not fire on prose that merely says the word tool_calls", () => {
@@ -448,5 +479,42 @@ describe("formatToolCallsForHistory framing", () => {
 
   it("still returns empty string when there are no tool calls", () => {
     expect(formatToolCallsForHistory([])).toBe("");
+  });
+});
+
+describe("flattenStoredMessage — drains poisoned history", () => {
+  it("skips a stored assistant message that is itself a fabrication", () => {
+    // Otherwise the conversations that already relapsed keep being shown the
+    // pattern they copied, every turn, forever.
+    const row = {
+      role: "assistant",
+      content: {
+        text: [
+          "[Datos consultados con herramientas en esta respuesta]",
+          '- execute_query({"sql":"SELECT 1"})',
+        ].join("\n"),
+      },
+    };
+    expect(flattenStoredMessage(row)).toBeNull();
+  });
+
+  it("keeps a normal assistant answer", () => {
+    const row = { role: "assistant", content: { text: "La referencia V265001 se vendio 42 veces." } };
+    expect(flattenStoredMessage(row)?.content).toContain("V265001");
+  });
+
+  it("keeps an answer from a turn that really ran tools", () => {
+    // Real tool calls + a real answer: the tool block is folded in as before.
+    const row = {
+      role: "assistant",
+      content: {
+        text: "Aqui tienes el analisis.",
+        tool_calls: [{ name: "execute_query", arguments: { sql: "SELECT 1" }, result: "1 fila" }],
+      },
+    };
+    const out = flattenStoredMessage(row);
+    expect(out).not.toBeNull();
+    expect(out?.content).toContain("Aqui tienes el analisis.");
+    expect(out?.content).toContain("execute_query");
   });
 });
