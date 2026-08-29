@@ -14,51 +14,52 @@
  * list's own Acciones column is still there.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getConversationDisplayTitle } from "@/lib/conversation-types";
-import type { ConversationRow } from "@/app/conversations/types";
 
 interface ConversationDetailActionsProps {
   conversationId: string;
+  /** Current title, or null when untitled. */
+  initialTitle: string | null;
+  /** Non-null when the conversation is archived. */
+  initialArchivedAt: string | null;
+  /** `"global"` conversations have no native context to open. */
+  contextKind: string | null;
 }
 
 export function ConversationDetailActions({
   conversationId,
+  initialTitle,
+  initialArchivedAt,
+  contextKind,
 }: ConversationDetailActionsProps) {
   const router = useRouter();
-  const [conv, setConv] = useState<ConversationRow | null>(null);
+  // Props, not a fetch. This component previously fetched
+  // `/api/conversations/:id` on mount, which returns the FULL message history
+  // — the same payload ConversationPane already loads, so opening any
+  // conversation cost it twice, on every viewport. Desktop paid it purely for
+  // a strip that `md:hidden` never shows, and the payload scales with
+  // conversation length. The page is an async server component that already
+  // has the id, so it reads the three scalars once, server-side.
+  const [title, setTitle] = useState<string | null>(initialTitle);
+  const [archivedAt, setArchivedAt] = useState<string | null>(initialArchivedAt);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch(`/api/conversations/${conversationId}`);
-        if (!res.ok) return;
-        const body = await res.json();
-        if (!cancelled) setConv(body as ConversationRow);
-      } catch {
-        // Non-fatal: the strip simply doesn't render. The conversation
-        // itself is already on screen and unaffected.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId]);
-
   const startRename = useCallback(() => {
-    if (!conv) return;
-    setRenameValue(getConversationDisplayTitle(conv));
+    // Seed with the real title, NOT the display fallback. Seeding with
+    // `getConversationDisplayTitle` put "Sin título" in the box for an
+    // untitled conversation, and since "Sin título" !== null the commit guard
+    // let it through — so an accidental pencil tap permanently titled the
+    // conversation "Sin título".
+    setRenameValue(title ?? "");
     setRenaming(true);
-  }, [conv]);
+  }, [title]);
 
   const commitRename = useCallback(async () => {
-    const title = renameValue.trim();
-    if (!conv || !title || title === conv.title) {
+    const next = renameValue.trim();
+    if (!next || next === (title ?? "")) {
       setRenaming(false);
       return;
     }
@@ -67,20 +68,27 @@ export function ConversationDetailActions({
       const res = await fetch(`/api/conversations/${conversationId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title }),
+        body: JSON.stringify({ title: next }),
       });
-      if (res.ok) setConv((prev) => (prev ? { ...prev, title } : prev));
-    } catch {
-      // Leave the old title in place; nothing destructive happened.
+      if (res.ok) {
+        setTitle(next);
+      } else {
+        // D-047: log the real failure. Swallowing it silently left the user
+        // with a control that looked like it had worked.
+        console.error(
+          `[ConversationDetailActions] rename failed for ${conversationId}: HTTP ${res.status}`,
+        );
+      }
+    } catch (err) {
+      console.error(`[ConversationDetailActions] rename error for ${conversationId}:`, err);
     } finally {
       setBusy(false);
       setRenaming(false);
     }
-  }, [conv, conversationId, renameValue]);
+  }, [conversationId, renameValue, title]);
 
   const toggleArchive = useCallback(async () => {
-    if (!conv) return;
-    const nextArchived = conv.archived_at === null;
+    const nextArchived = archivedAt === null;
     setBusy(true);
     try {
       const res = await fetch(`/api/conversations/${conversationId}`, {
@@ -95,16 +103,18 @@ export function ConversationDetailActions({
           router.push("/conversations");
           return;
         }
-        setConv((prev) => (prev ? { ...prev, archived_at: null } : prev));
+        setArchivedAt(null);
+      } else {
+        console.error(
+          `[ConversationDetailActions] archive toggle failed for ${conversationId}: HTTP ${res.status}`,
+        );
       }
-    } catch {
-      // Ignore — the button simply appears not to have worked.
+    } catch (err) {
+      console.error(`[ConversationDetailActions] archive error for ${conversationId}:`, err);
     } finally {
       setBusy(false);
     }
-  }, [conv, conversationId, router]);
-
-  if (!conv) return null;
+  }, [archivedAt, conversationId, router]);
 
   if (renaming) {
     return (
@@ -128,7 +138,11 @@ export function ConversationDetailActions({
             fontSize: 16, // 16px avoids iOS's focus zoom
             padding: "0 8px",
             minHeight: 44,
-            width: 150,
+            // Was a fixed 150px, which pushed the ✓ button 18px past a 320px
+            // viewport — and ✓ was the only way out of rename mode. Flex lets
+            // the row fit any width.
+            flex: 1,
+            minWidth: 0,
             fontFamily: "inherit",
             outline: "none",
           }}
@@ -138,16 +152,32 @@ export function ConversationDetailActions({
           className="conv-detail-action-btn"
           onClick={commitRename}
           disabled={busy}
+          title="Guardar"
+          aria-label="Guardar"
           data-testid="conv-detail-rename-save"
         >
           ✓
+        </button>
+        {/* A phone soft keyboard has no Escape key and there is no onBlur
+            handler, so without this the ONLY exit from rename mode was
+            committing. */}
+        <button
+          type="button"
+          className="conv-detail-action-btn"
+          onClick={() => setRenaming(false)}
+          disabled={busy}
+          title="Cancelar"
+          aria-label="Cancelar"
+          data-testid="conv-detail-rename-cancel"
+        >
+          ✗
         </button>
       </div>
     );
   }
 
-  const isArchived = conv.archived_at !== null;
-  const isGlobal = conv.context_kind === "global";
+  const isArchived = archivedAt !== null;
+  const isGlobal = contextKind === "global";
 
   return (
     <div className="conv-detail-actions" data-testid="conv-detail-actions">

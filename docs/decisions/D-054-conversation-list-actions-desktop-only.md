@@ -28,6 +28,14 @@ the `/conversations/[id]` header strip, phone-only, each at the 44px floor.
 At `md` and up nothing changes — every column, the pencil, the bulk-select flow
 and the 46px row height stay exactly as they were.
 
+**What this deliberately gives up**: *bulk* archive is desktop-only. It is
+reachable solely through the checkbox column, so on a phone archiving twenty
+conversations is twenty navigations. Single archive, rename and
+open-in-context all moved to the strip; "continuar" needed no home because
+`/c/:id` and `/conversations/:id` render the same pane, so tapping the title
+already does it. Bulk selection on a 390px screen was never good, and paying
+for it with the title column was the worse trade.
+
 **Alternatives rejected**:
 - *Keep the actions and shrink them.* They were already at the 44px tap floor;
   shrinking them below it is the bug D-121 exists to prevent.

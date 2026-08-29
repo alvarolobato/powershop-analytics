@@ -266,6 +266,96 @@ test.describe("phone width (iPhone 13 emulation)", () => {
     expect(spill, "action strip stays inside the viewport").toBe(false);
   });
 
+  test("archive from the conversation actually archives it", async ({ page, request }) => {
+    // The bounding-box test above proves the buttons EXIST at a tappable size.
+    // It never clicks them: replacing onClick with a no-op left the suite
+    // green. Archive is the one capability whose mobile reachability justifies
+    // hiding the list's checkbox column, so it needs behavioural coverage.
+    const conv = await request.post("/api/conversations", {
+      data: { mode: "chat", context_kind: "global", first_user_prompt: "Archivar e2e" },
+    });
+    const id = ((await conv.json()) as { id: string }).id;
+
+    await gotoConversationAndSettle(page, id);
+    await page.getByTestId("conv-detail-archive-btn").click();
+
+    // Archiving removes it from the default list, so returning to a list that
+    // no longer contains it is the honest destination.
+    await page.waitForURL(/\/conversations(\?|$)/, { timeout: 15_000 });
+
+    const after = await request.get(`/api/conversations/${id}`);
+    const body = (await after.json()) as { archived_at: string | null };
+    expect(body.archived_at, "archived_at is set server-side, not just in the UI").not.toBeNull();
+
+    // And it round-trips: reopen and unarchive.
+    await gotoConversationAndSettle(page, id);
+    await page.getByTestId("conv-detail-archive-btn").click();
+    await expect
+      .poll(async () => {
+        const r = await request.get(`/api/conversations/${id}`);
+        return ((await r.json()) as { archived_at: string | null }).archived_at;
+      }, { timeout: 15_000 })
+      .toBeNull();
+  });
+
+  test("open-in-context navigates to the context route", async ({ page, request }) => {
+    // Pointing router.push at a wrong path also left the suite green.
+    const conv = await request.post("/api/conversations", {
+      data: { mode: "chat", context_kind: "home", first_user_prompt: "Contexto e2e" },
+    });
+    const id = ((await conv.json()) as { id: string }).id;
+
+    await gotoConversationAndSettle(page, id);
+    const btn = page.getByTestId("conv-detail-context-btn");
+    await expect(btn, "non-global conversations can open in context").toBeEnabled();
+    await btn.click();
+    await page.waitForURL(new RegExp(`/k/${id}`), { timeout: 15_000 });
+  });
+
+  test("rename can be cancelled without writing a title", async ({ page, request }) => {
+    // Seeding the box with the DISPLAY title meant an untitled conversation
+    // got "Sin título" in the input, and the commit guard let it through — so
+    // an accidental pencil tap permanently titled it "Sin título". A phone has
+    // no Escape key, so cancel has to be a button.
+    const conv = await request.post("/api/conversations", {
+      data: { mode: "chat", context_kind: "global", first_user_prompt: "Cancelar e2e" },
+    });
+    const id = ((await conv.json()) as { id: string }).id;
+
+    await gotoConversationAndSettle(page, id);
+    await page.getByTestId("conv-detail-rename-btn").click();
+    await expect(page.getByTestId("conv-detail-rename-input")).toBeVisible();
+    await page.getByTestId("conv-detail-rename-cancel").click();
+    await expect(page.getByTestId("conv-detail-rename-input")).toBeHidden();
+
+    const after = await request.get(`/api/conversations/${id}`);
+    const body = (await after.json()) as { title: string | null };
+    expect(body.title, "cancelling must not write a title").toBeNull();
+  });
+
+  test("the rename row fits a 320px viewport", async ({ page, request }) => {
+    // The ✓ button sat 18px past a 320px viewport at the old fixed width —
+    // and it is the control that commits. The existing overflow assertion only
+    // ran at 390px and never entered rename mode.
+    await page.setViewportSize({ width: 320, height: 720 });
+    const conv = await request.post("/api/conversations", {
+      data: { mode: "chat", context_kind: "global", first_user_prompt: "Ancho e2e" },
+    });
+    const id = ((await conv.json()) as { id: string }).id;
+
+    await gotoConversationAndSettle(page, id);
+    await page.getByTestId("conv-detail-rename-btn").click();
+    await expect(page.getByTestId("conv-detail-rename-input")).toBeVisible();
+
+    const width = await clientWidth(page);
+    const past = await page.evaluate((w) => {
+      const save = document.querySelector('[data-testid="conv-detail-rename-save"]')!;
+      const cancel = document.querySelector('[data-testid="conv-detail-rename-cancel"]')!;
+      return [save, cancel].map((el) => Math.round(el.getBoundingClientRect().right)).filter((r) => r > w + 1);
+    }, width);
+    expect(past, "no rename control sits past a 320px viewport").toEqual([]);
+  });
+
   test("rename works from inside the conversation", async ({ page }) => {
     await gotoConversationAndSettle(page, convId);
 

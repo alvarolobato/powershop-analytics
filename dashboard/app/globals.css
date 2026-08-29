@@ -377,9 +377,16 @@ body {
 .conv-detail-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 6px;
   margin-left: auto;
-  flex-shrink: 0;
+  /* Must be allowed to SHRINK. With `flex-shrink: 0` the strip kept its
+     content width, so in rename mode the input's own `flex: 1` had no bounded
+     space to flex within and the ✓ / ✗ buttons were pushed past a 320px
+     viewport — ✓ being the control that commits. `min-width: 0` is what lets
+     a flex item shrink below its content size at all. */
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .conv-detail-action-btn {
