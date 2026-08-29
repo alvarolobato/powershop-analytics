@@ -512,6 +512,69 @@ BEGIN
   END IF;
 END $$;
 
+-- One-time migration: drop cumulative stream-event prefixes.
+--
+-- turn_events.token/thinking payloads are CUMULATIVE snapshots: each row holds
+-- the whole accumulated text so far, so every row is a strict prefix of the
+-- next and the table grows O(n^2) in a turn's output length. Measured on
+-- production 2026-08-29: 367,341 such rows across 124 turns holding 552 MB,
+-- against 187 kB of actual information.
+--
+-- pruneStreamEvents already deletes these when a turn settles; turns that
+-- settled before that existed were never backfilled. This is that backfill.
+--
+-- Two things are deliberately NOT deleted:
+--   * rows belonging to turns still in flight (status streaming/pending) —
+--     the client has no assistant message to read from yet;
+--   * the LAST 'thinking' row per turn — `content.thinking` on the assistant
+--     message and pruneStreamEvents shipped in the same commit, so a turn with
+--     unpruned thinking events has NO durable copy of the model's reasoning,
+--     and (payloads being cumulative) that last row is the complete text.
+--
+-- Naturally idempotent: a second run matches zero rows. Disk is not returned
+-- to the OS until someone runs `VACUUM FULL turn_events` — a locking operation
+-- left as a deliberate manual step, not something a startup script should do.
+-- Two guards, NESTED not combined with AND:
+--   1. pg_tables — on a FRESH install turn_events does not exist yet (it is
+--      created ~460 lines below), so an unguarded DELETE aborts init.sql.
+--   2. the data probe — on an ALREADY-CLEAN database (every start after the
+--      first, and every e2e fixture run) this matches nothing, and the probe
+--      makes that an index lookup rather than a full DELETE scan.
+--
+-- They MUST be nested. PL/pgSQL evaluates `IF a AND b` as one SQL statement,
+-- so the second EXISTS is parsed and planned even when the first is false —
+-- which fails with "relation turn_events does not exist" on a fresh install,
+-- reintroducing exactly the bug guard 1 exists to prevent. Verified against a
+-- real empty database: the AND form errors, the nested form succeeds.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_tables
+     WHERE schemaname = 'public' AND tablename = 'turn_events'
+  ) THEN
+    IF EXISTS (
+      SELECT 1
+        FROM turn_events te
+        JOIN conversation_turns ct ON ct.id = te.turn_id
+       WHERE te.event_type IN ('token', 'thinking')
+         AND ct.status NOT IN ('streaming', 'pending')
+       LIMIT 1
+    ) THEN
+      DELETE FROM turn_events te
+       USING conversation_turns ct
+       WHERE ct.id = te.turn_id
+         AND te.event_type IN ('token', 'thinking')
+         AND ct.status NOT IN ('streaming', 'pending')
+         AND te.id NOT IN (
+           SELECT DISTINCT ON (t2.turn_id) t2.id
+             FROM turn_events t2
+            WHERE t2.event_type = 'thinking'
+            ORDER BY t2.turn_id, t2.id DESC
+         );
+    END IF;
+  END IF;
+END $$;
+
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
 -- ============================================================

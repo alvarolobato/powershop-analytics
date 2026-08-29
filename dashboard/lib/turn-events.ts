@@ -3,6 +3,8 @@
  */
 
 import { sql, withTransaction } from "@/lib/db-write";
+import { getAgenticConfig } from "@/lib/llm-tools/config";
+import { readConfigString } from "@/lib/system-config/read";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -45,18 +47,90 @@ export interface TurnWithEvents {
 // ── Queries ────────────────────────────────────────────────────────────────────
 
 /**
+ * Fail every turn left in flight by a previous process, at startup.
+ *
+ * A turn with status `streaming`/`pending` is being driven by an in-memory
+ * loop in `runTurnBackground`. If the process is gone, so is that loop — the
+ * turn can never progress, whatever its timestamp says. Reconciling at boot
+ * means a crashed turn is recovered in seconds instead of waiting out the
+ * staleness cutoff, which is what lets that cutoff be sized for CORRECTNESS
+ * (never misjudging a long-running turn as abandoned) rather than as a
+ * compromise between correctness and recovery speed.
+ *
+ * Assumes ONE server process owns these turns, which holds here: a single
+ * deployment, one dashboard container (see AGENTS.md § Backwards
+ * compatibility). With several instances behind a balancer this would fail
+ * turns another instance is actively running, and it would need an owner/lease
+ * column instead.
+ *
+ * Best-effort: a failure here must never stop the server from starting.
+ */
+export async function failOrphanedTurns(): Promise<number> {
+  try {
+    const rows = await sql<{ id: string }>(
+      `UPDATE conversation_turns
+          SET status = 'error',
+              error = $1,
+              completed_at = NOW()
+        WHERE status IN ('streaming', 'pending')
+        RETURNING id`,
+      ["El servidor se reinició mientras se procesaba este turno."],
+    );
+    if (rows.length > 0) {
+      console.warn(
+        `[turn-events] failed ${rows.length} turn(s) orphaned by a previous process`,
+      );
+    }
+    return rows.length;
+  } catch (err) {
+    console.error("[turn-events] could not reconcile orphaned turns:", err);
+    return 0;
+  }
+}
+
+/**
  * Cutoff after which an in-flight turn is considered abandoned (e.g. the
  * container restarted mid-turn and the status row was never finalised).
  * createTurnIfIdle ignores older turns so a crashed turn can never permanently
  * block a conversation from accepting new ones.
  *
- * Set well above the worst-case legitimate turn so a long agentic run is never
- * misclassified as stale (issue #846 review): the agentic limits allow up to
- * maxToolCalls=24 × toolTimeoutMs=15s = 6 min of tool time plus several rounds
- * of model latency, so ~10 min is plausible. 30 min leaves comfortable margin
- * while still recovering a truly crashed turn within the same session.
+ * DERIVED, not a literal. It used to be a hardcoded 30 minutes justified by
+ * "maxToolCalls=24 × toolTimeoutMs=15s = 6 min of tool time plus several
+ * rounds of model latency" (issue #846 review) — i.e. it silently depended on
+ * the agentic caps. Production's config.yaml raises those to 100 calls / 40
+ * rounds, which this codebase now honours, and 100 × 15s is 25 minutes of tool
+ * time alone: the worst-case legitimate turn ran PAST the cutoff. A turn still
+ * working would be judged stale, `createTurnIfIdle` would admit a second turn,
+ * and two turns would interleave messages into one conversation — the exact
+ * corruption issue #823's advisory lock exists to prevent.
+ *
+ * Deriving it means raising a cap can never silently re-open that hole again.
  */
-const ACTIVE_TURN_STALE_MINUTES = 30;
+export function activeTurnStaleMinutes(): number {
+  const cfg = getAgenticConfig();
+  const toolMs = cfg.maxToolCalls * cfg.toolTimeoutMs;
+  // Model latency per round is not bounded by the agentic config; the CLI
+  // timeout is the closest available ceiling and is the larger of the two
+  // providers' budgets, so it is the conservative choice.
+  const modelMs = cfg.maxToolRounds * cliTimeoutCeilingMs();
+  const slackMs = 10 * 60_000;
+  return Math.max(30, Math.ceil((toolMs + modelMs + slackMs) / 60_000));
+}
+
+/**
+ * Per-model-step latency ceiling used only by the staleness derivation above.
+ *
+ * Read from `dashboard.llm_cli_timeout_ms` rather than hardcoded: an operator
+ * who raises that timeout gets longer legitimate turns, and a fixed 120s
+ * ceiling would under-estimate the worst case and reintroduce exactly the
+ * stale-turn misclassification this derivation exists to prevent — the same
+ * hidden-coupling bug, one level down.
+ */
+function cliTimeoutCeilingMs(): number {
+  const raw = readConfigString("DASHBOARD_LLM_CLI_TIMEOUT_MS", "dashboard.llm_cli_timeout_ms");
+  const n = raw === undefined ? NaN : parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 120_000;
+}
 
 /**
  * Result of createTurnIfIdle: the created turn, or null when another turn is
@@ -106,7 +180,7 @@ export async function createTurnIfIdle(
           AND source = 'user'
           AND created_at > NOW() - ($2 || ' minutes')::interval
         LIMIT 1`,
-      [conversationId, String(ACTIVE_TURN_STALE_MINUTES)],
+      [conversationId, String(activeTurnStaleMinutes())],
     );
     if ((active.rowCount ?? 0) > 0) {
       return { ok: false, reason: "active_turn" } as const;
@@ -285,27 +359,119 @@ export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents 
   return { turn: turns[0], events };
 }
 
+/**
+ * Cumulative snapshot events, pruned from replay once their turn has settled.
+ *
+ * `token` and `thinking` payloads are CUMULATIVE — each row holds the entire
+ * accumulated text so far, not a delta (see turn-background.ts's
+ * "model_text_delta.text is CUMULATIVE — replace, never append"). Every row is
+ * therefore a strict prefix of the next, which makes the table O(n^2) in a
+ * turn's output length: production holds 369k such rows / 693 MB for 140
+ * turns, against ~714 kB of actual text.
+ *
+ * `pruneStreamEvents` deletes them when a turn reaches complete/error, because
+ * the durable copy then lives on the assistant message. Turns that settled
+ * before that existed still carry theirs, and nothing ever backfilled.
+ *
+ * Excluding them at read time makes an unpruned turn behave like a pruned one
+ * — but NOT indiscriminately, see LAST_SNAPSHOT_EVENT_TYPES below.
+ */
+const TRANSIENT_EVENT_TYPES = ["token", "thinking"];
+
+/**
+ * ...with one exception: the LAST `thinking` snapshot per settled turn is kept.
+ *
+ * `content.thinking` on the assistant message and `pruneStreamEvents` shipped
+ * in the same commit (b4ea69c, 2026-06-12). So "turn still has unpruned
+ * thinking events" implies "turn predates content.thinking" — a perfect
+ * correlation, meaning for exactly the turns this exclusion targets, those
+ * events are the ONLY copy of the model's reasoning. Dropping all of them
+ * silently emptied the thinking block on every historical answer and left
+ * ConversationPane's `turnData?.thinking` fallback (which exists for precisely
+ * this population) as dead code.
+ *
+ * Because the payloads are cumulative, the last row IS the complete text — so
+ * keeping one row per turn preserves 100% of the information at ~0.04% of the
+ * rows. `token` needs no such exception: the final text is on the assistant
+ * message's `content.text`, which has always been written.
+ */
+const LAST_SNAPSHOT_EVENT_TYPE = "thinking";
+
+/**
+ * Hard ceiling on one replay. Reaching it means a turn is genuinely producing
+ * that many events RIGHT NOW (settled turns contribute a handful after the
+ * pruning above), so it is logged rather than applied silently — a truncated
+ * replay that looks complete is worse than a slow one.
+ */
+const MAX_REPLAY_EVENTS = 5_000;
+
 export async function getConversationEvents(
   conversationId: string,
   sinceId?: number,
 ): Promise<TurnEventRow[]> {
-  if (sinceId !== undefined) {
-    return sql<TurnEventRow>(
-      `SELECT te.*
-         FROM turn_events te
-         JOIN conversation_turns ct ON ct.id = te.turn_id
-        WHERE ct.conversation_id = $1
-          AND te.id > $2
-        ORDER BY te.id ASC`,
-      [conversationId, sinceId],
+  // `keep` resolves the last thinking snapshot per turn once, up front, rather
+  // than as a correlated subquery per row.
+  //
+  // The predicate reads: keep a row if it is a durable event, OR its turn is
+  // still in flight (the client has no assistant message to read from yet), OR
+  // it is that turn's final thinking snapshot.
+  const KEEP = `
+    WITH keep AS (
+      SELECT DISTINCT ON (te.turn_id) te.id
+        FROM turn_events te
+        JOIN conversation_turns ct ON ct.id = te.turn_id
+       WHERE ct.conversation_id = $1
+         AND te.event_type = '${LAST_SNAPSHOT_EVENT_TYPE}'
+       ORDER BY te.turn_id, te.id DESC
+    )`;
+
+  const rows =
+    sinceId !== undefined
+      ? await sql<TurnEventRow>(
+          `${KEEP}
+           SELECT te.*
+             FROM turn_events te
+             JOIN conversation_turns ct ON ct.id = te.turn_id
+            WHERE ct.conversation_id = $1
+              AND te.id > $2
+              AND (te.event_type <> ALL($3::text[])
+                   OR ct.status IN ('streaming', 'pending')
+                   OR te.id IN (SELECT id FROM keep))
+            ORDER BY te.id DESC
+            LIMIT ${MAX_REPLAY_EVENTS + 1}`,
+          [conversationId, sinceId, TRANSIENT_EVENT_TYPES],
+        )
+      : await sql<TurnEventRow>(
+          `${KEEP}
+           SELECT te.*
+             FROM turn_events te
+             JOIN conversation_turns ct ON ct.id = te.turn_id
+            WHERE ct.conversation_id = $1
+              AND (te.event_type <> ALL($2::text[])
+                   OR ct.status IN ('streaming', 'pending')
+                   OR te.id IN (SELECT id FROM keep))
+            ORDER BY te.id DESC
+            LIMIT ${MAX_REPLAY_EVENTS + 1}`,
+          [conversationId, TRANSIENT_EVENT_TYPES],
+        );
+
+  // Queried newest-first so a truncated replay keeps the events NEAREST THE
+  // HEAD, then re-sorted ascending for the client. Dropping the newest instead
+  // would leave the client permanently behind: `token`/`thinking` payloads are
+  // cumulative, `log` events are appended rather than replaced, and the
+  // client's Last-Event-ID only ever moves forward — so a gap below the head
+  // is never re-requested on any later reconnect.
+  const overflowed = rows.length > MAX_REPLAY_EVENTS;
+  const kept = overflowed ? rows.slice(0, MAX_REPLAY_EVENTS) : rows;
+  kept.sort((a, b) => a.id - b.id);
+
+  if (overflowed) {
+    // Never truncate silently (AGENTS.md): say what was dropped.
+    console.warn(
+      `[turn-events] conversation ${conversationId} replay hit the ${MAX_REPLAY_EVENTS}-event ceiling` +
+        ` (sinceId=${sinceId ?? "none"}); returning the NEWEST ${MAX_REPLAY_EVENTS} and dropping older ones.` +
+        ` Expected only for a very long in-flight turn; settled turns contribute a handful of rows.`,
     );
   }
-  return sql<TurnEventRow>(
-    `SELECT te.*
-       FROM turn_events te
-       JOIN conversation_turns ct ON ct.id = te.turn_id
-      WHERE ct.conversation_id = $1
-      ORDER BY te.id ASC`,
-    [conversationId],
-  );
+  return kept;
 }

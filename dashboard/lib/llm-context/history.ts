@@ -68,13 +68,158 @@ function compactResult(result: unknown): string {
  * later turns retain the "interesting part" — which tool ran, with what args, and
  * the (truncated) result the model saw. Returns "" when there are no tool calls.
  */
+export const TOOL_LOG_OPEN_TAG = "<herramientas_ya_ejecutadas>";
+export const TOOL_LOG_CLOSE_TAG = "</herramientas_ya_ejecutadas>";
+
+/*
+ * The framing this block used before 2026-08-29. Still recognised by
+ * `looksLikeFabricatedToolLog` because it is what the model was shown for
+ * months — conversations carrying it in their history can still prompt an
+ * imitation of it, long after new turns stopped being formatted this way.
+ */
+/**
+ * Raw tool-call markup from any provider.
+ *
+ * The UNAMBIGUOUS tokens below can never legitimately appear in a final
+ * answer, so they fail a turn whatever it ran. The looser shapes in
+ * LOOSE_TOOL_MARKUP can appear in prose and are gated on zero tool calls —
+ * see looksLikeFabricatedToolLog for that split.
+ *
+ * The dashboard is model-agnostic on purpose — DeepSeek, Claude and OpenAI are
+ * all supported targets — and each family serialises tool calls differently.
+ * When the router fails to parse a family's markup into `tool_calls`,
+ * `openrouter.ts` sees non-empty text and returns kind:"final", so the raw
+ * markup is persisted as the answer. Production hit this with DeepSeek
+ * (messages 582e0af1, b0e8a038, 0cd5c169 — one of them leaking real data rows
+ * inside the block, so the tool HAD run and only the transcript was
+ * mis-emitted), but nothing about the failure is DeepSeek-specific: it is a
+ * parser gap, and every family has a dialect that can fall through it.
+ *
+ * Covered dialects:
+ *   - DeepSeek:  `<|DSML|tool_calls>`, `<|tool_calls_begin|>` (fullwidth bars
+ *                and the exact delimiters vary by build, so the inner token is
+ *                matched rather than the punctuation)
+ *   - Anthropic: `<function_calls>`, `<invoke name=...>`, `<parameter ...>`
+ *   - OpenAI:    `<|python_tag|>`, harmony `<|channel|>commentary to=functions.`
+ *   - Common:    `<tool_call>` / `[TOOL_CALLS]` (Llama, Mistral, Qwen)
+ *
+ * Split in two by how unambiguous each dialect is. The tokens below cannot
+ * plausibly appear in a real answer, so they fail a turn regardless of what it
+ * ran; the looser shapes in LOOSE_TOOL_MARKUP need the zero-tool-call
+ * condition. Every alternative requires delimiter punctuation, never a bare
+ * word, so prose mentioning "tool_calls" or "invoke" is not matched.
+ */
+const UNAMBIGUOUS_TOOL_MARKUP = new RegExp(
+  [
+    // DeepSeek — token between bar delimiters of any width.
+    String.raw`[<\[][\s\S]{0,4}?(?:DSML|tool.{0,2}calls.{0,2}begin|tool.{0,2}call.{0,2}begin)`,
+    // Anthropic-style XML blocks.
+    String.raw`<\s*/?\s*function_calls\s*>`,
+    String.raw`<\s*/?\s*invoke(?:\s+name\s*=|\s*>)`,
+    // OpenAI harmony / python tag.
+    String.raw`<\|python_tag\|>`,
+    String.raw`<\|channel\|>\s*commentary\s+to\s*=`,
+  ].join("|"),
+  "i",
+);
+
+/**
+ * Shapes that also occur in ordinary prose, so they are only evidence when the
+ * turn made NO tool calls.
+ *
+ * `[TOOL_CALLS]` is matched case-SENSITIVELY: the Mistral/Llama sentinel is
+ * uppercase, and a case-insensitive match fired on the markdown link
+ * `[tool_calls](https://…)`. `<parameter …>` and `<tool_call>` appear in any
+ * answer that shows an XML snippet, which is a realistic thing to ask a data
+ * assistant for.
+ */
+const LOOSE_TOOL_MARKUP = new RegExp(
+  [
+    String.raw`<\s*/?\s*parameter(?:\s+name\s*=|\s*>)`,
+    String.raw`<\s*/?\s*tool_calls?\s*>`,
+    String.raw`\[TOOL_CALLS\]`,
+  ].join("|"),
+);
+
+export const LEGACY_TOOL_LOG_HEADER =
+  "[Datos consultados con herramientas en esta respuesta]";
+
 export function formatToolCallsForHistory(toolCalls: ToolCallRecord[]): string {
   if (!toolCalls || toolCalls.length === 0) return "";
   const lines = toolCalls.map((tc) => {
     const status = tc.success === false ? " [error]" : "";
     return `- ${tc.name}(${compactArgs(tc.arguments)})${status} → ${compactResult(tc.result)}`;
   });
-  return `[Datos consultados con herramientas en esta respuesta]\n${lines.join("\n")}`;
+  // Framed as a tagged system record rather than a bracketed heading, and
+  // prepended to the assistant's own words in `flattenStoredMessage`.
+  //
+  // The old framing was a plain Spanish heading that read exactly like
+  // something an assistant says, so after a few turns every prior assistant
+  // message in history began with it — and on 2026-08-28 the model completed
+  // the pattern instead of using the tools: two consecutive turns in
+  // conversation 0a566ce7cc78 returned a hand-written imitation of this block
+  // (no ` → result` on any line, because it had no results) with ZERO real
+  // tool calls, and the user had to ask three times. A closing tag and an
+  // explicit "do not reproduce" make the block read as an out-of-band record
+  // of what already ran, not as a house style for answers.
+  return [
+    TOOL_LOG_OPEN_TAG,
+    "(registro del sistema: herramientas que YA se ejecutaron en ese turno.",
+    "Nunca reproduzcas este bloque en una respuesta — para consultar datos,",
+    "invoca la herramienta de verdad.)",
+    ...lines,
+    TOOL_LOG_CLOSE_TAG,
+  ].join("\n");
+}
+
+/**
+ * True when an assistant turn's final text is the model *describing* tool
+ * calls instead of making them.
+ *
+ * The signature is unambiguous: code only ever emits this block into history,
+ * never into a stored message, and only ever when there were tool calls to
+ * report. So this shape arriving as a turn's answer with `actualToolCalls === 0`
+ * means the model wrote it. Requiring the zero-call condition is what keeps a
+ * genuine turn — one that really ran tools and happens to quote itself — from
+ * tripping the guard.
+ */
+export function looksLikeFabricatedToolLog(
+  text: string,
+  actualToolCalls: number,
+): boolean {
+  const t = (text ?? "").trimStart();
+  if (!t) return false;
+
+  // ── Unambiguous provider markup: checked BEFORE the tool-call count ──
+  //
+  // Raw tool-call syntax is never a valid final answer, whatever ran earlier
+  // in the turn. Gating this behind `actualToolCalls === 0` disabled it in
+  // exactly the case it was written for: round 1 calls execute_query
+  // successfully (count = 3), round 2 emits markup the router fails to parse,
+  // openrouter.ts sees non-empty text and returns kind:"final" — and the guard
+  // waves the markup through to the user as a completed answer. `ctx.toolCalls`
+  // accumulates across rounds and is never reset, so the count at the persist
+  // seam is the whole turn's, which is what made the gate wrong here.
+  if (UNAMBIGUOUS_TOOL_MARKUP.test(t)) return true;
+
+  // ── Everything below needs the zero-call condition ──
+  //
+  // These shapes can legitimately appear in prose, so they are only suspicious
+  // when the turn produced no tool calls at all. That condition is what keeps
+  // a turn which really ran tools — and happens to quote itself — alive.
+  if (actualToolCalls > 0) return false;
+
+  if (LOOSE_TOOL_MARKUP.test(t)) return true;
+
+  // `includes`, not `startsWith`: one word of preamble ("Claro, aquí tienes:")
+  // defeated an anchored check, and this PR changes the very block the model
+  // imitates, so betting the imitation stays at position 0 is unwarranted. The
+  // call-line requirement below is what makes searching anywhere safe.
+  const framed = t.includes(TOOL_LOG_OPEN_TAG) || t.includes(LEGACY_TOOL_LOG_HEADER);
+  if (!framed) return false;
+  // A turn that merely *mentions* the framing (the user asked what the block
+  // is) must survive: it has to actually list call-shaped lines.
+  return /^-\s*\w+\s*\(/m.test(t);
 }
 
 /**
@@ -112,6 +257,17 @@ export function flattenStoredMessage(row: {
     if (!recognized) text = JSON.stringify(c);
   } else {
     text = JSON.stringify(c);
+  }
+
+  // Drain the priming. The 13 fabricated messages already in production carry
+  // the legacy heading in their stored text, and this function replays that
+  // text verbatim — so in exactly the conversations that already relapsed, the
+  // model keeps being shown the pattern it copied. The reframing above only
+  // affects blocks RENDERED from tool_calls; a fabrication is plain text and
+  // is immune to it. Skipping these rows costs nothing (they contain no real
+  // answer) and stops old damage causing new damage.
+  if (row.role === "assistant" && looksLikeFabricatedToolLog(text, toolCalls?.length ?? 0)) {
+    return null;
   }
 
   if (row.role === "assistant" && toolCalls && toolCalls.length > 0) {

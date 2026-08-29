@@ -321,3 +321,134 @@ describe("getConversationEvents", () => {
     expect(params[1]).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bounded replay (production: 693 MB of turn_events for 140 turns)
+// ---------------------------------------------------------------------------
+
+describe("getConversationEvents — bounded replay", () => {
+  it("excludes transient token/thinking events for SETTLED turns", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    // The exclusion must be scoped by turn status, not blanket: a settled
+    // turn's transient events are redundant with its assistant message, an
+    // in-flight turn's are not.
+    expect(query).toContain("event_type <> ALL");
+    expect(query).toMatch(/status IN \('streaming', 'pending'\)/);
+    expect(params).toContainEqual(["token", "thinking"]);
+  });
+
+  it("keeps the LAST thinking snapshot per turn", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    // `content.thinking` and pruneStreamEvents shipped together, so a turn
+    // with unpruned thinking events is a turn with NO durable copy — those
+    // events are its only record of the model's reasoning. Excluding all of
+    // them silently emptied the thinking block on every historical answer.
+    // Because payloads are cumulative, one row per turn restores 100% of the
+    // text at ~0.04% of the rows.
+    expect(query).toContain("DISTINCT ON (te.turn_id)");
+    expect(query).toContain("te.event_type = 'thinking'");
+    expect(query).toMatch(/ORDER BY te\.turn_id, te\.id DESC/);
+    expect(query).toContain("te.id IN (SELECT id FROM keep)");
+  });
+
+  it("does NOT keep a last token snapshot — content.text has always existed", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).not.toContain("event_type = 'token'");
+  });
+
+  it("applies the same exclusion and retention on the resumption (sinceId) path", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID, 42);
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("te.id >");
+    expect(query).toContain("event_type <> ALL");
+    expect(query).toContain("te.id IN (SELECT id FROM keep)");
+    expect(params).toContainEqual(["token", "thinking"]);
+  });
+
+  it("bounds the query in SQL, not just in JS", async () => {
+    // The JS slice runs AFTER every row is already in Node's memory, so it is
+    // not the protection. Deleting the SQL LIMIT left the old suite green
+    // while the actual bound was gone.
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).toContain("LIMIT 5001");
+  });
+
+  it("returns exactly the ceiling without warning at the boundary", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const exactly = Array.from({ length: 5000 }, (_, i) => ({ ...TURN_EVENTS[0], id: i + 1 }));
+    mockSql.mockResolvedValueOnce(exactly);
+    const events = await getConversationEvents(CONV_ID);
+    // Pins the boundary: `> MAX` not `>= MAX`. The `>=` mutant survived before.
+    expect(events).toHaveLength(5000);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("caps a runaway replay and says so instead of truncating silently", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // The query orders DESC, so the driver returns newest-first: id 5001 down
+    // to 1. One more than the ceiling is how overflow is detected.
+    const many = Array.from({ length: 5001 }, (_, i) => ({ ...TURN_EVENTS[0], id: 5001 - i }));
+    mockSql.mockResolvedValueOnce(many);
+
+    const events = await getConversationEvents(CONV_ID);
+
+    expect(events).toHaveLength(5000);
+    expect(warn, "a truncated replay that looks complete is worse than a slow one").toHaveBeenCalledWith(
+      expect.stringContaining("ceiling"),
+    );
+    warn.mockRestore();
+  });
+
+  it("keeps the NEWEST events on overflow, not the oldest", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const many = Array.from({ length: 5001 }, (_, i) => ({ ...TURN_EVENTS[0], id: 5001 - i }));
+    mockSql.mockResolvedValueOnce(many);
+
+    const events = await getConversationEvents(CONV_ID);
+
+    // Dropping the newest would leave the client permanently behind: token /
+    // thinking payloads are cumulative, log events are appended, and
+    // Last-Event-ID only moves forward, so a gap below the head is never
+    // re-requested on any later reconnect.
+    expect(events[events.length - 1].id, "the head must survive truncation").toBe(5001);
+    expect(events[0].id, "the OLDEST event is the one dropped").toBe(2);
+    warn.mockRestore();
+  });
+
+  it("returns events in ascending id order despite querying newest-first", async () => {
+    // The client relies on ascending delivery; DESC is a query-side detail.
+    mockSql.mockResolvedValueOnce([
+      { ...TURN_EVENTS[0], id: 9 },
+      { ...TURN_EVENTS[0], id: 4 },
+      { ...TURN_EVENTS[0], id: 7 },
+    ]);
+    const events = await getConversationEvents(CONV_ID);
+    expect(events.map((e) => e.id)).toEqual([4, 7, 9]);
+  });
+
+  it("queries newest-first so truncation can keep the head", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).toContain("ORDER BY te.id DESC");
+  });
+
+  it("does not warn when the result sits under the ceiling", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSql.mockResolvedValueOnce(TURN_EVENTS);
+    const events = await getConversationEvents(CONV_ID);
+    expect(events).toHaveLength(2);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});

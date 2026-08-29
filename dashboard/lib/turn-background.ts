@@ -27,6 +27,7 @@ import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-pr
 import {
   flattenStoredMessage,
   capHistory,
+  looksLikeFabricatedToolLog,
   HISTORY_MAX_MESSAGES,
 } from "@/lib/llm-context/history";
 import { isLlmFlow } from "@/lib/llm-context/types";
@@ -431,6 +432,48 @@ export async function runTurnBackground(
       assistantToolCalls = res.toolCalls;
     }
 
+    // Guard: the model wrote out a tool-call log instead of calling anything.
+    //
+    // Real for the first time on 2026-08-28 (conversation 0a566ce7cc78, turns
+    // 6 and 7): both returned a hand-written imitation of the history tool
+    // block with zero entries in `llm_tool_calls`, finished in ~5.8s against
+    // 20-75s for every real turn, and read to the user as a completed answer.
+    // They had to ask the same thing three times.
+    //
+    // Failing loudly is the point. A fabricated log is indistinguishable from
+    // a real answer in the UI, so persisting it as `complete` is worse than an
+    // error: it looks like the data was checked when nothing ran. Throwing
+    // routes into the catch below, which persists an `is_error` assistant
+    // message and emits an `error` event the client already renders.
+    if (looksLikeFabricatedToolLog(assistantText, assistantToolCalls.length)) {
+      console.error(
+        `[${requestId}] turn ${turnId}: model emitted tool-call markup as its answer`,
+        {
+          chars: assistantText.length,
+          // NOT always zero: the unambiguous-markup tier fires regardless of
+          // the count, which is the round-1-succeeds/round-2-emits-markup case.
+          realToolCalls: assistantToolCalls.length,
+          preview: assistantText.slice(0, 200),
+        },
+      );
+      // Durable evidence for auditing whether firings are true positives —
+      // container stdout dies on deploy, so Postgres is the only lasting trace
+      // (D-047). Deliberately carries NEITHER `text` NOR `label`:
+      // ConversationPane's payloadToLogLine renders both, so putting the
+      // sample there would show the user the very fabrication being
+      // suppressed. With neither key it returns null and nothing is rendered,
+      // while the row still sits in turn_events for a human to query.
+      await emitTurnEvent(conversationId, turnId, seq(), "guard_evidence", {
+        guard: "fabricated_tool_log",
+        realToolCalls: assistantToolCalls.length,
+        sample: assistantText.slice(0, 500),
+        ts: new Date().toISOString(),
+      });
+      throw new Error(
+        "El modelo describió las consultas en vez de ejecutarlas, así que no hay datos reales detrás de esta respuesta. Vuelve a enviar la pregunta.",
+      );
+    }
+
     // All streamed events are inserted before the assistant message/complete
     // event so replay ordering is deterministic (issue #834).
     await progress.flush();
@@ -558,7 +601,14 @@ async function runFreeChatTurn(
         requestId,
         endpoint: "freeChat",
         temperature: 0.3,
-        maxOutputTokens: 4096,
+        // No override: assembleRequest's default is now config-driven
+        // (dashboard.llm_max_output_tokens). This used to hardcode 4096 while
+        // every other call site used 8192 — the tightest budget in the
+        // codebase on the flow doing the hardest reasoning. Production runs a
+        // reasoning model whose reasoning tokens count against max_tokens, so
+        // the budget was spent before any answer was emitted: two turns
+        // recorded EXACTLY 4096 thinking events, zero token events, then
+        // failed with "The model returned empty content."
       },
     );
     await ctxWrite.done; // ensure the context-log file + pointer are persisted
