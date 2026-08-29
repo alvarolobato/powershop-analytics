@@ -133,10 +133,10 @@ Chart widgets (bar_chart, line_chart, area_chart, donut_chart) support an option
 {
   "type": "bar_chart",
   "title": "Ventas por Tienda — Actual vs Anterior",
-  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
+  "sql": "SELECT tienda AS label, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS value FROM ps_ventas WHERE tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
   "x": "label",
   "y": "value",
-  "comparison_sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :comp_from AND :comp_to GROUP BY tienda ORDER BY value DESC"
+  "comparison_sql": "SELECT tienda AS label, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS value FROM ps_ventas WHERE tienda <> '99' AND fecha_creacion BETWEEN :comp_from AND :comp_to GROUP BY tienda ORDER BY value DESC"
 }
 \`\`\`
 
@@ -150,7 +150,7 @@ Rules for comparison_sql:
 ### KPI item optional fields
 
 Each item in a kpi_row can also include:
-- **trend_sql** (optional): SQL returning the same metric for the comparison period. Returns a single row/value. Use :comp_from/:comp_to tokens so it is dynamic — do NOT hardcode dates. Example: SELECT SUM(total_si) FROM ps_ventas WHERE entrada = true AND fecha_creacion BETWEEN :comp_from AND :comp_to
+- **trend_sql** (optional): SQL returning the same metric for the comparison period. Returns a single row/value. Use :comp_from/:comp_to tokens so it is dynamic — do NOT hardcode dates. Example: SELECT COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) FROM ps_ventas WHERE fecha_creacion BETWEEN :comp_from AND :comp_to
 - **anomaly_sql** (optional): SQL that returns the same metric for the last 8 comparable periods (current + 7 historical). Row 0 = current period value; rows 1–7 = historical values in descending chronological order. The frontend computes a z-score to detect unusual values. Only add for metrics where anomaly detection adds value (sales totals, ticket medio, margin) — skip for static counts or configuration values.
 
 ### JSON examples per widget type
@@ -162,10 +162,10 @@ Each item in a kpi_row can also include:
   "items": [
     {
       "label": "Ventas Netas",
-      "sql": "SELECT SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
+      "sql": "SELECT COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS value FROM ps_ventas WHERE tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
       "format": "currency",
       "prefix": "€",
-      "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.entrada = true AND v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
+      "anomaly_sql": "SELECT COALESCE(SUM(v.total_si), 0) FROM generate_series(0, 7) AS gs(period_offset) LEFT JOIN ps_ventas v ON v.tienda <> '99' AND v.fecha_creacion >= DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) AND v.fecha_creacion < DATE_TRUNC('month', CURRENT_DATE - (gs.period_offset * INTERVAL '1 month')) + INTERVAL '1 month' GROUP BY gs.period_offset ORDER BY gs.period_offset ASC"
     },
     {"label": "Tickets", "sql": "SELECT COUNT(DISTINCT reg_ventas) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to", "format": "number"}
   ]
@@ -177,7 +177,7 @@ Each item in a kpi_row can also include:
   "id": "w2",
   "type": "bar_chart",
   "title": "Ventas por Tienda",
-  "sql": "SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
+  "sql": "SELECT tienda AS label, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS value FROM ps_ventas WHERE tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY tienda ORDER BY value DESC",
   "x": "label",
   "y": "value"
 }
@@ -188,7 +188,7 @@ Each item in a kpi_row can also include:
   "id": "w3",
   "type": "line_chart",
   "title": "Tendencia Semanal",
-  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1",
+  "sql": "SELECT DATE_TRUNC('week', fecha_creacion) AS x, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS y FROM ps_ventas WHERE tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1",
   "x": "x",
   "y": "y"
 }
@@ -199,7 +199,7 @@ Each item in a kpi_row can also include:
   "id": "w4",
   "type": "donut_chart",
   "title": "Mix por Familia",
-  "sql": "SELECT fm.fami_grup_marc AS x, SUM(lv.total_si) AS y FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
+  "sql": "SELECT fm.fami_grup_marc AS x, COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS y FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo JOIN ps_familias fm ON p.num_familia = fm.reg_familia WHERE v.tienda <> '99' GROUP BY 1 ORDER BY 2 DESC LIMIT 8",
   "x": "x",
   "y": "y"
 }
@@ -210,7 +210,7 @@ Each item in a kpi_row can also include:
   "id": "w5",
   "type": "table",
   "title": "Top 10 Artículos",
-  "sql": "SELECT p.ccrefejofacm AS \\"Referencia\\", p.descripcion AS \\"Descripción\\", SUM(lv.unidades) AS \\"Unidades\\", SUM(lv.total_si) AS \\"Importe\\" FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo WHERE v.entrada = true AND v.tienda <> '99' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10"
+  "sql": "SELECT p.ccrefejofacm AS \\"Referencia\\", p.descripcion AS \\"Descripción\\", SUM(lv.unidades) AS \\"Unidades\\", SUM(lv.total_si) AS \\"Importe\\" FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo WHERE v.tienda <> '99' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10"
 }
 \`\`\`
 
@@ -219,7 +219,7 @@ Each item in a kpi_row can also include:
   "id": "w6",
   "type": "number",
   "title": "Ticket Medio",
-  "sql": "SELECT ROUND(SUM(total_si) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS value FROM ps_ventas WHERE entrada = true AND tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
+  "sql": "SELECT ROUND((COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)) / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS value FROM ps_ventas WHERE tienda <> '99' AND fecha_creacion BETWEEN :curr_from AND :curr_to",
   "format": "currency",
   "prefix": "€"
 }
@@ -251,7 +251,7 @@ The JSON must conform to this structure:
   ],
   "glossary": [
     // Array of 5-10 key business terms used in the dashboard
-    // Each entry: { "term": "Ventas Netas", "definition": "Importe de ventas sin IVA. No incluye devoluciones (entrada = false)." }
+    // Each entry: { "term": "Ventas Netas", "definition": "Importe sin IVA de las ventas MENOS las devoluciones (01VEN - 02DEV en PowerShop). Las devoluciones se restan, no se ignoran." }
     // Use plain Spanish definitions derived from the business rules
     // Terms should match labels or titles used in the dashboard widgets
   ]
@@ -278,12 +278,22 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 1. ALWAYS use total_si (sin IVA) for revenue analysis — NEVER use total
 2. ALWAYS use ccrefejofacm for article display (show as "Referencia")
 3. ALWAYS use fecha_creacion for date filtering (fecha_documento is NULL)
-4. ALWAYS filter entrada = true for sales (false = returns)
+4. "Ventas" means NET OF RETURNS. entrada=true is a sale, entrada=false is a
+   return, and PowerShop shows three separate figures: 01VEN (gross), 02DEV
+   (returns), NETO (01VEN - 02DEV). NETO is what the user means by "ventas".
+   Filtering entrada = true alone DISCARDS returns instead of subtracting them
+   and overstates sales by 7-10% (measured in production). Required pattern:
+     COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)
+   Return amounts are stored POSITIVE, so they must be subtracted explicitly.
+   Use entrada = true alone ONLY to count sale TICKETS, for per-line averages
+   (e.g. average discount granted), or when the user explicitly asks for gross.
 5. ALWAYS exclude tienda <> '99' for retail analysis (99 = almacén central)
 6. For wholesale revenue: base1 + base2 + base3 (NEVER total_factura)
 7. For wholesale: exclude abono = true (credit notes)
 8. PKs are NUMERIC(20,3) — never do arithmetic on them
-9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas to filter
+9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas and apply
+   the net pattern on the line column: COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)
+   - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0)
 10. Each KPI sql in a kpi_row must return a single row with a "value" column
 11. Chart sql must return columns matching the x/y fields
 12. Table sql can return any columns — they become table headers
@@ -606,7 +616,7 @@ export function buildSuggestPrompt(
     "Each element must have exactly these fields:",
     '- "name": string — dashboard name in Spanish (concise, 3-6 words)',
     '- "description": string — one-line description in Spanish (what problem it solves for this role)',
-    '- "prompt": string — a ready-to-use generation prompt in Spanish (detailed, references correct table names, uses total_si, filters entrada=true, tienda<>\'99\' etc.)',
+    '- "prompt": string — a ready-to-use generation prompt in Spanish (detailed, references correct table names, uses total_si, applies the net-of-returns pattern for money, tienda<>\'99\' etc.)',
     "",
     "Example format:",
     '[{"name": "...", "description": "...", "prompt": "..."}, ...]',

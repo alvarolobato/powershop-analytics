@@ -6,7 +6,9 @@
  *   - total_si for retail revenue (sin IVA)
  *   - fecha_creacion for dates
  *   - tienda <> '99' to exclude warehouse
- *   - entrada = true for sales, false for returns
+ *   - entrada = true is a sale, false is a return. "Ventas" means NET:
+ *     COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0).
+ *     Filtering entrada = true alone discards returns instead of subtracting them.
  *   - base1+base2+base3 for wholesale revenue
  */
 
@@ -84,12 +86,12 @@ export const REVIEW_QUERIES: ReviewQuery[] = [
     name: "ventas_semana_cerrada",
     domain: "ventas_retail",
     sql: `SELECT
-  COALESCE(SUM(total_si), 0) AS ventas_netas,
-  COUNT(DISTINCT reg_ventas) AS num_tickets,
-  ROUND(COALESCE(SUM(total_si), 0) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS ticket_medio
+  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets,
+  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0)
+       / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS ticket_medio
 FROM ps_ventas
-WHERE entrada = true
-  AND tienda <> '99'
+WHERE tienda <> '99'
   AND fecha_creacion >= $1::date
   AND fecha_creacion < $2::date`,
   },
@@ -97,12 +99,12 @@ WHERE entrada = true
     name: "ventas_semana_previa",
     domain: "ventas_retail",
     sql: `SELECT
-  COALESCE(SUM(total_si), 0) AS ventas_netas,
-  COUNT(DISTINCT reg_ventas) AS num_tickets,
-  ROUND(COALESCE(SUM(total_si), 0) / NULLIF(COUNT(DISTINCT reg_ventas), 0), 2) AS ticket_medio
+  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets,
+  ROUND(COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0)
+       / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0), 2) AS ticket_medio
 FROM ps_ventas
-WHERE entrada = true
-  AND tienda <> '99'
+WHERE tienda <> '99'
   AND fecha_creacion >= ($1::date - INTERVAL '7 days')
   AND fecha_creacion < $1::date`,
   },
@@ -111,11 +113,10 @@ WHERE entrada = true
     domain: "ventas_retail",
     sql: `SELECT
   tienda,
-  COALESCE(SUM(total_si), 0) AS ventas_netas,
-  COUNT(DISTINCT reg_ventas) AS num_tickets
+  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets
 FROM ps_ventas
-WHERE entrada = true
-  AND tienda <> '99'
+WHERE tienda <> '99'
   AND fecha_creacion >= $1::date
   AND fecha_creacion < $2::date
 GROUP BY tienda
@@ -127,11 +128,10 @@ LIMIT 3`,
     domain: "ventas_retail",
     sql: `SELECT
   tienda,
-  COALESCE(SUM(total_si), 0) AS ventas_netas,
-  COUNT(DISTINCT reg_ventas) AS num_tickets
+  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas,
+  COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada) AS num_tickets
 FROM ps_ventas
-WHERE entrada = true
-  AND tienda <> '99'
+WHERE tienda <> '99'
   AND fecha_creacion >= $1::date
   AND fecha_creacion < $2::date
 GROUP BY tienda
@@ -150,8 +150,7 @@ LIMIT 3`,
 FROM ps_lineas_ventas lv
 JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas
 LEFT JOIN ps_articulos a ON a.codigo = lv.codigo
-WHERE v.entrada = true
-  AND lv.tienda <> '99'
+WHERE lv.tienda <> '99'
   AND lv.fecha_creacion >= $1::date
   AND lv.fecha_creacion < $2::date
   AND lv.unidades > 0
@@ -165,6 +164,8 @@ LIMIT 5`,
     sql: `SELECT
   COALESCE(SUM(CASE WHEN entrada = true THEN total_si ELSE 0 END), 0) AS ventas_brutas_si,
   COALESCE(ABS(SUM(CASE WHEN entrada = false THEN total_si ELSE 0 END)), 0) AS importe_devoluciones_si,
+  -- NETO: la cifra que PowerShop destaca en caja (01VEN - 02DEV).
+  COALESCE(SUM(total_si) FILTER (WHERE entrada) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0), 0) AS ventas_netas_si,
   COUNT(CASE WHEN entrada = true THEN 1 END) AS num_ventas,
   COUNT(CASE WHEN entrada = false THEN 1 END) AS num_devoluciones,
   ROUND(
