@@ -180,9 +180,23 @@ def extract_sql_pairs(content: str) -> list[tuple[str, str]]:
             sql_m = re.search(r"```sql\s*\n(.*?)\n```", rest, re.DOTALL)
             if not sql_m or not question:
                 continue
-            sql = transform_date_placeholders(sql_m.group(1).strip())
-            sql = transform_wren_table_names(sql)
-            pairs.append((question, sql))
+            # Se conservan LAS DOS formas del mismo par:
+            #
+            #   sql_pg   -> PostgreSQL valido ("public"."ps_ventas"). Es lo que
+            #               ejecuta `ps wren validate` contra el espejo.
+            #   sql_wren -> forma que espera el motor de WrenAI
+            #               ("public_ps_ventas"). Es lo que se indexa.
+            #
+            # Antes solo se guardaba la forma WrenAI, asi que la validacion
+            # ejecutaba SQL de WrenAI contra un PostgreSQL crudo y fallaba
+            # SIEMPRE: 56 de 56 pares en rojo, en main, con el error
+            # `relation "public_ps_ventas" does not exist`. Es decir, el
+            # validador llevaba tiempo sin poder validar nada — que es
+            # precisamente por lo que nadie detecto que varios pares
+            # etiquetaban como "Ventas Netas" un calculo bruto.
+            sql_pg = transform_date_placeholders(sql_m.group(1).strip())
+            sql_wren = transform_wren_table_names(sql_pg)
+            pairs.append((question, sql_wren, sql_pg))
     return pairs
 
 
@@ -537,7 +551,7 @@ COLUMN_META = {
 }
 
 
-SOURCE_QUESTIONS = {question for question, _sql in SQL_PAIRS}
+SOURCE_QUESTIONS = {question for question, _sql_wren, _sql_pg in SQL_PAIRS}
 
 
 def validate_sql_pairs(dsn: str) -> None:
@@ -562,7 +576,7 @@ def validate_sql_pairs(dsn: str) -> None:
         cur.execute("SET statement_timeout = '60s'")
 
     passed = failed = warned = 0
-    for question, sql in SQL_PAIRS:
+    for question, _sql_wren, sql in SQL_PAIRS:
         try:
             with conn.cursor() as cur:
                 cur.execute(sql)
@@ -788,7 +802,7 @@ def main():
         _REPO_ROOT = args.repo_root.resolve()
         INSTRUCTIONS, SQL_PAIRS = load_knowledge_from_mds()
         RELATIONSHIPS = parse_relationships_from_mds(SOURCE_MDS)
-        SOURCE_QUESTIONS = {question for question, _sql in SQL_PAIRS}
+        SOURCE_QUESTIONS = {question for question, _sql_wren, _sql_pg in SQL_PAIRS}
 
     if args.dry_run:
         print("═══ Dry run — knowledge loaded from source MDs ═══")
@@ -984,7 +998,8 @@ def main():
                 source_deleted = 0
             user_pairs_kept = total_before - source_deleted
 
-            for question, sql in SQL_PAIRS:
+            # El push a WrenAI usa la forma con nombres de modelo.
+            for question, sql, _sql_pg in SQL_PAIRS:
                 db.execute(
                     "INSERT INTO sql_pair (project_id, sql, question) VALUES (?, ?, ?)",
                     (project_id, sql, question),
