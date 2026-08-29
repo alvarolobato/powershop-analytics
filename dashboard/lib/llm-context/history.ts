@@ -77,6 +77,17 @@ export const TOOL_LOG_CLOSE_TAG = "</herramientas_ya_ejecutadas>";
  * months — conversations carrying it in their history can still prompt an
  * imitation of it, long after new turns stopped being formatted this way.
  */
+/**
+ * Raw provider tool-call markup that must never appear in a final answer.
+ *
+ * `DSML` is DeepSeek's native tool-call syntax (the full delimiters use
+ * fullwidth vertical bars, so the bare token is matched instead of the exact
+ * punctuation, which varies by model build). The closing-tag forms cover a
+ * partially-parsed emission where only the tail survives.
+ */
+const PROVIDER_TOOL_MARKUP =
+  /DSML|<\/?\s*tool_calls\s*>|<\/\s*invoke\s*>|<\/\s*parameter\s*>/i;
+
 export const LEGACY_TOOL_LOG_HEADER =
   "[Datos consultados con herramientas en esta respuesta]";
 
@@ -126,6 +137,23 @@ export function looksLikeFabricatedToolLog(
   if (actualToolCalls > 0) return false;
   const t = (text ?? "").trimStart();
   if (!t) return false;
+
+  // Second signature: raw provider tool-call markup leaking into the answer.
+  //
+  // Production runs a DeepSeek model, which emits tool calls in its own DSML
+  // markup. When OpenRouter fails to parse that into `tool_calls`,
+  // `openrouter.ts` sees non-empty text and returns kind:"final" — so the
+  // markup is persisted as the answer. Three such messages exist in
+  // production (582e0af1, b0e8a038, 0cd5c169); one leaked real data rows
+  // inside the block, meaning the tool DID run and only the transcript was
+  // mis-emitted.
+  //
+  // Those three happened to also imitate the Spanish header, so the framing
+  // check below would have caught them — by luck, not by design. A DSML leak
+  // without the header would sail through, which is why this is its own
+  // condition rather than an extra clause on the framing one.
+  if (PROVIDER_TOOL_MARKUP.test(t)) return true;
+
   const framed = t.startsWith(TOOL_LOG_OPEN_TAG) || t.startsWith(LEGACY_TOOL_LOG_HEADER);
   if (!framed) return false;
   // Second condition so a turn that merely *mentions* the framing (e.g. the

@@ -361,6 +361,35 @@ describe("looksLikeFabricatedToolLog", () => {
     expect(looksLikeFabricatedToolLog(prose, 0)).toBe(false);
   });
 
+  it("catches raw DeepSeek DSML markup leaking as the answer", () => {
+    // Shape of production message 0cd5c169 (2026-08-29): the model emitted its
+    // native tool-call markup and OpenRouter did not parse it into tool_calls,
+    // so openrouter.ts saw non-empty text and returned kind:"final".
+    const dsml = [
+      '- execute_query({"sql":"SELECT COALESCE(NULLIF(TRIM(fm.fami_grup_marc), \'\'), 1)"})',
+      "</\uFF5C\uFF5CDSML\uFF5C\uFF5Cparameter>",
+      "</\uFF5C\uFF5CDSML\uFF5C\uFF5Cinvoke>",
+      "</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>",
+    ].join("\n");
+    expect(looksLikeFabricatedToolLog(dsml, 0)).toBe(true);
+  });
+
+  it("catches a DSML leak that does NOT imitate the Spanish header", () => {
+    // The three production cases happened to carry the header too, so the
+    // framing check would have caught them by luck. This is the case that
+    // proves the DSML condition is doing independent work: no header at all.
+    const bare = "Aqui tienes el analisis.\n</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>";
+    expect(bare.includes("[Datos consultados")).toBe(false);
+    expect(looksLikeFabricatedToolLog(bare, 0)).toBe(true);
+  });
+
+  it("does not fire on prose that merely says the word tool_calls", () => {
+    // Guard against over-matching: the pattern requires tag punctuation.
+    expect(
+      looksLikeFabricatedToolLog("El campo tool_calls guarda las llamadas del turno.", 0),
+    ).toBe(false);
+  });
+
   it("does not fire on an empty or whitespace answer", () => {
     expect(looksLikeFabricatedToolLog("", 0)).toBe(false);
     expect(looksLikeFabricatedToolLog("   \n  ", 0)).toBe(false);
