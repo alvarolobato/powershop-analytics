@@ -153,8 +153,12 @@ Size is **not** a column of `Articulos`. Size lives:
   and `ps_traspasos.talla`.
 
 `ps_lineas_ventas.talla` mirrors `CCOPTallaOjo` desde 2026-08, **normalizada a
-MAYÚSCULAS en el ETL**: el origen mezcla `'l'`/`'L'`, y sin normalizar un cruce
-ventas↔stock perdería filas en silencio. Las filas anteriores a la
+MAYÚSCULAS en el ETL**. No es una rareza aislada: medido contra el 4D vivo sobre
+60.000 líneas, **9 de los 29 valores distintos** de `CCOPTallaOjo` llevan
+minúsculas (`'m'` ×330, `'l'` ×282, `'u'` ×270, `'xl'` ×241, `'xxl'` ×164,
+`'s'` ×133). Sin normalizar, cada talla se parte en dos y el ranking cambia:
+en el artículo `I26101833` la más vendida sale **M (9 uds)** porque L queda
+dividida en `'L'` (8) y `'l'` (3); normalizando gana **L con 11**. Las filas anteriores a la
 resincronización tienen la columna vacía, así que conviene filtrar
 `talla IS NOT NULL` en análisis históricos.
 

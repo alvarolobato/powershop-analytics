@@ -60,10 +60,15 @@ def _to_decimal(value: Any) -> Any:
 #:
 #: El origen mezcla mayusculas y minusculas en la talla: en agosto 2026 habia
 #: 46 valores distintos que eran 34 reales ('l'/'L', 'xl'/'XL', 'xxl'/'XXL'...,
-#: unas 2.650 lineas). Sin normalizar, "L" y "l" salen como dos tallas y
-#: parten los rankings — en el articulo I26101833 la mas vendida cambiaba de L
-#: a M solo por eso. Ademas ps_stock_tienda.talla ya viene en mayusculas, asi
-#: que sin esto un join ventas<->stock perderia lineas en silencio.
+#: unas 2.650 lineas). Sin normalizar, "L" y "l" salen como dos tallas y parten
+#: los rankings: en el articulo I26101833 la mas vendida es M (9 uds) porque L
+#: queda dividida en 'L' (8) y 'l' (3); normalizando gana L con 11. Verificado
+#: contra el 4D vivo.
+#:
+#: ps_stock_tienda.talla NO venia limpia tampoco (traia '6Xl'), asi que se
+#: normaliza igual en etl/sync/stock.py -- en el unpivot y en traspasos. Los
+#: tres caminos escriben en el mismo eje, y basta con que uno deje pasar la
+#: caja del origen para que el cruce entre ellos pierda filas sin dar error.
 #:
 #: Se normaliza en el ETL y no en cada consulta: asi el espejo queda limpio y
 #: ninguna consulta futura puede olvidarse del UPPER().
