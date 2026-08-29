@@ -21,6 +21,7 @@ jobs:
           files: |
             docker-compose.prod.yml
             wren-config.yaml
+            otel/otelcol-config.yaml
             deploy/install.sh
             deploy/install-prod.sh
             deploy/install.ps1
