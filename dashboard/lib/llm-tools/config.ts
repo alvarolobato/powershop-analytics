@@ -51,13 +51,18 @@ export function getAgenticConfig() {
 }
 
 /**
- * Output-token budget for one free-chat LLM call.
+ * Output-token budget for one LLM call, for EVERY flow.
  *
- * Lives here rather than at the call site so it goes through the same
- * env > config.yaml > default resolution as the other agentic limits, and can
- * be retuned from the admin UI without a deploy — which matters because the
- * right value depends on how verbose the configured model's reasoning is.
+ * Read here rather than hardcoded at call sites so it resolves through the
+ * usual env > config.yaml > default chain and can be retuned from the admin UI
+ * without a deploy — the right value depends on how verbose the configured
+ * model's reasoning is, and the dashboard targets three model families.
+ *
+ * `assembleRequest` uses this as its default, so there is ONE number rather
+ * than a schema default and a separate hardcoded 8192 drifting apart. An
+ * earlier revision scoped this to free chat only, which meant an operator
+ * raising it because dashboard GENERATION was truncating got no effect.
  */
-export function getChatMaxOutputTokens(): number {
-  return readInt("DASHBOARD_CHAT_MAX_OUTPUT_TOKENS", "dashboard.chat_max_output_tokens", 8192);
+export function getLlmMaxOutputTokens(): number {
+  return readInt("DASHBOARD_LLM_MAX_OUTPUT_TOKENS", "dashboard.llm_max_output_tokens", 8192);
 }

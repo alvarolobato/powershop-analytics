@@ -244,7 +244,12 @@ export function getSystemConfig(opts?: {
   const result: SystemConfig = {};
 
   for (const entry of schema) {
-    const envRaw = process.env[entry.env];
+    // Trimmed so a whitespace-only env var means "unset" rather than
+    // overriding config.yaml with a value that coerces to 0 (or throws for an
+    // int/enum). Without this the admin page reported `source: env, value: 0`
+    // for a key whose config.yaml value the runtime was actually using — two
+    // different answers for the same key on one page load.
+    const envRaw = process.env[entry.env]?.trim();
     const fileRaw = fileData[entry.key] as string | number | boolean | null | undefined;
 
     let source: ConfigSource;

@@ -22,6 +22,11 @@ export function readConfigString(
   envName: string,
   configKey: string,
 ): string | undefined {
+  // Same test the loader applies (trim, then treat "" as unset), so the admin
+  // config page and the runtime can never report different values for the same
+  // key. A whitespace-only env var previously meant "unset" here but was
+  // authoritative in the loader, which showed up as `source: env, value: 0` on
+  // the admin page for a key the runtime was reading from config.yaml.
   const fromEnv = process.env[envName]?.trim();
   if (fromEnv !== undefined && fromEnv !== "") return fromEnv;
 
@@ -31,8 +36,26 @@ export function readConfigString(
       const s = String(value).trim();
       if (s !== "") return s;
     }
-  } catch {
-    // Loader unavailable (missing schema file, etc.) — caller's default wins.
+  } catch (err) {
+    // A bare `catch {}` here would be the very defect D-055 exists to outlaw,
+    // one layer up: `coerce()` throws on ANY malformed value in config.yaml,
+    // and getSystemConfig builds the whole map — so a single typo in an
+    // unrelated key (`dashboard.port: "not-a-number"`) makes EVERY
+    // schema-backed setting silently revert to its default. config.yaml is
+    // hand-editable by design (D-023), so that is a realistic operator
+    // mistake, and silence is exactly what made the original bug survive for
+    // months. Warned once per process per key so a hot path cannot spam.
+    if (!warnedKeys.has(configKey)) {
+      warnedKeys.add(configKey);
+      console.warn(
+        `[config] loader unavailable while reading "${configKey}"; falling back to the built-in default. ` +
+          `A malformed value ANYWHERE in config.yaml causes this for every key:`,
+        err,
+      );
+    }
   }
   return undefined;
 }
+
+/** Keys already warned about, so a hot path warns once rather than per call. */
+const warnedKeys = new Set<string>();

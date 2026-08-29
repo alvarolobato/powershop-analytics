@@ -38,10 +38,11 @@ proves nothing on its own — the check that matters is whether the code reads i
    after first read (every test using `vi.stubEnv`; any runtime mutating env)
    keeps getting the stale pre-stub value and the env override silently loses
    to `config.yaml`, inverting D-023.
-3. The single documented exception is `lib/admin-api-auth.ts`, which reads env
+3. The only *sanctioned* exception is `lib/admin-api-auth.ts`, which reads env
    only *on purpose* so the admin key cannot be escalated through the UI that
    the key protects. Any future exception needs the same kind of comment saying
-   why.
+   why. The audited backlog of not-yet-converted keys is listed under **Known
+   remaining exceptions** below — those are tolerated, not sanctioned.
 
 **Alternatives rejected**:
 - *Have the entrypoint export config.yaml into env.* Would fix this instance

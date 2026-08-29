@@ -12,12 +12,20 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const getSystemConfig = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/system-config/loader", () => ({ getSystemConfig }));
 
-import { getAgenticConfig, isAgenticToolsEnabled, getChatMaxOutputTokens } from "../config";
+import { getAgenticConfig, isAgenticToolsEnabled, getLlmMaxOutputTokens } from "../config";
 
+// EVERY env var the module under test reads. Clearing only three left four
+// assertions dependent on the developer's or CI's shell — a precedence test
+// that is itself precedence-dependent is the wrong shape.
 const ENV_KEYS = [
+  "DASHBOARD_AGENTIC_TOOLS_ENABLED",
   "DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS",
   "DASHBOARD_AGENTIC_MAX_TOOL_CALLS",
-  "DASHBOARD_AGENTIC_TOOLS_ENABLED",
+  "DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS",
+  "DASHBOARD_AGENTIC_MAX_ROWS",
+  "DASHBOARD_AGENTIC_MAX_COLUMNS",
+  "DASHBOARD_AGENTIC_MAX_RESULT_CHARS",
+  "DASHBOARD_LLM_MAX_OUTPUT_TOKENS",
 ];
 const saved: Record<string, string | undefined> = {};
 
@@ -87,25 +95,25 @@ describe("getAgenticConfig", () => {
   });
 });
 
-describe("getChatMaxOutputTokens", () => {
+describe("getLlmMaxOutputTokens", () => {
   it("defaults to 8192, matching every other call site", () => {
     // The old hardcoded 4096 starved a reasoning model: two production turns
     // recorded exactly 4096 thinking events, zero token events, then failed
     // with "The model returned empty content."
     getSystemConfig.mockReturnValue({});
-    expect(getChatMaxOutputTokens()).toBe(8192);
+    expect(getLlmMaxOutputTokens()).toBe(8192);
   });
 
   it("is tunable from config.yaml without a deploy", () => {
     getSystemConfig.mockReturnValue({
-      "dashboard.chat_max_output_tokens": { value: 16384 },
+      "dashboard.llm_max_output_tokens": { value: 16384 },
     });
-    expect(getChatMaxOutputTokens()).toBe(16384);
+    expect(getLlmMaxOutputTokens()).toBe(16384);
   });
 
   it("never returns the starved 4096 by accident when unset", () => {
     getSystemConfig.mockReturnValue({});
-    expect(getChatMaxOutputTokens()).toBeGreaterThan(4096);
+    expect(getLlmMaxOutputTokens()).toBeGreaterThan(4096);
   });
 });
 

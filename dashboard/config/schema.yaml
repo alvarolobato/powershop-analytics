@@ -362,13 +362,13 @@
   requires_restart: []
   components: [dashboard]
 
-- key: dashboard.chat_max_output_tokens
-  env: DASHBOARD_CHAT_MAX_OUTPUT_TOKENS
+- key: dashboard.llm_max_output_tokens
+  env: DASHBOARD_LLM_MAX_OUTPUT_TOKENS
   type: int
   sensitive: false
   default: 8192
   section: "Agentic"
-  description: "Maximo de tokens de salida por llamada en el chat libre. En modelos de razonamiento los tokens de razonamiento cuentan contra este limite, asi que un valor bajo agota el presupuesto antes de emitir la respuesta y el turno falla con LLM_EMPTY."
+  description: "Máximo de tokens de salida por llamada al modelo (todos los flujos). En modelos de razonamiento los tokens de razonamiento cuentan contra este límite, así que un valor bajo agota el presupuesto antes de emitir la respuesta y el turno falla con LLM_EMPTY."
   requires_restart: []
   components: [dashboard]
 

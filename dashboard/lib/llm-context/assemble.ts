@@ -64,6 +64,7 @@ import { buildSystemPrompt } from "./system-prompt";
 import { buildHistory, type HistoryMessage } from "./history";
 import { toolsForFlow } from "./tools";
 import type { FlowVars } from "./types";
+import { getLlmMaxOutputTokens } from "@/lib/llm-tools/config";
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -141,7 +142,10 @@ export async function assembleRequest(
   const requestId = opts?.requestId ?? null;
   const endpoint = opts?.endpoint ?? flow;
   const temperature = opts?.temperature ?? 0.2;
-  const maxOutputTokens = opts?.maxOutputTokens ?? 8192;
+  // Config-driven (dashboard.llm_max_output_tokens). Was a hardcoded 8192
+  // here AND a schema default of 8192, two numbers for one concept with
+  // nothing binding them.
+  const maxOutputTokens = opts?.maxOutputTokens ?? getLlmMaxOutputTokens();
 
   // Normalise prior messages for OpenRouter/agentic runner
   const priorMessages: ChatCompletionMessageParam[] = history.map((m) => ({
