@@ -285,27 +285,77 @@ export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents 
   return { turn: turns[0], events };
 }
 
+/**
+ * Transient snapshot events, excluded from replay once their turn has settled.
+ *
+ * `token` and `thinking` payloads are CUMULATIVE — each row holds the entire
+ * accumulated text so far, not a delta (see turn-background.ts's
+ * "model_text_delta.text is CUMULATIVE — replace, never append"). That makes
+ * the table O(n^2) in the length of a turn's output, and `pruneStreamEvents`
+ * deletes them the moment a turn reaches complete/error precisely because the
+ * durable copy then lives on the assistant message (issue #834).
+ *
+ * Turns that settled BEFORE pruning existed still carry theirs: production
+ * holds 369k such rows / 693 MB for 140 turns, ~1700x the 714 kB of text they
+ * represent, and opening one of those conversations replayed every one of them
+ * through the SSE stream. Excluding them here makes an unpruned turn behave
+ * like a pruned one without deleting anything — the two paths agree on what a
+ * settled turn's replay contains.
+ *
+ * They are still replayed for turns that are STILL streaming, which is the
+ * only case where the client actually needs them: there is no assistant
+ * message yet to read the text from.
+ */
+const TRANSIENT_EVENT_TYPES = ["token", "thinking"];
+
+/**
+ * Hard ceiling on one replay. Reaching it means something is wrong (a turn
+ * stuck in `streaming` for hours, say), so it is logged rather than applied
+ * silently — a truncated replay that looks complete is worse than a slow one.
+ */
+const MAX_REPLAY_EVENTS = 5_000;
+
 export async function getConversationEvents(
   conversationId: string,
   sinceId?: number,
 ): Promise<TurnEventRow[]> {
-  if (sinceId !== undefined) {
-    return sql<TurnEventRow>(
-      `SELECT te.*
-         FROM turn_events te
-         JOIN conversation_turns ct ON ct.id = te.turn_id
-        WHERE ct.conversation_id = $1
-          AND te.id > $2
-        ORDER BY te.id ASC`,
-      [conversationId, sinceId],
+  // `ct.status IN ('streaming','pending')` is what makes the exclusion safe:
+  // a settled turn's transient events are redundant with its assistant
+  // message, an in-flight turn's are not.
+  const rows =
+    sinceId !== undefined
+      ? await sql<TurnEventRow>(
+          `SELECT te.*
+             FROM turn_events te
+             JOIN conversation_turns ct ON ct.id = te.turn_id
+            WHERE ct.conversation_id = $1
+              AND te.id > $2
+              AND (te.event_type <> ALL($3::text[])
+                   OR ct.status IN ('streaming', 'pending'))
+            ORDER BY te.id ASC
+            LIMIT ${MAX_REPLAY_EVENTS + 1}`,
+          [conversationId, sinceId, TRANSIENT_EVENT_TYPES],
+        )
+      : await sql<TurnEventRow>(
+          `SELECT te.*
+             FROM turn_events te
+             JOIN conversation_turns ct ON ct.id = te.turn_id
+            WHERE ct.conversation_id = $1
+              AND (te.event_type <> ALL($2::text[])
+                   OR ct.status IN ('streaming', 'pending'))
+            ORDER BY te.id ASC
+            LIMIT ${MAX_REPLAY_EVENTS + 1}`,
+          [conversationId, TRANSIENT_EVENT_TYPES],
+        );
+
+  if (rows.length > MAX_REPLAY_EVENTS) {
+    // Never truncate silently (AGENTS.md): say what was dropped.
+    console.warn(
+      `[turn-events] conversation ${conversationId} replay hit the ${MAX_REPLAY_EVENTS}-event ceiling` +
+        ` (sinceId=${sinceId ?? "none"}); returning the oldest ${MAX_REPLAY_EVENTS} and dropping the rest.` +
+        ` This should not happen for settled turns — check for a turn stuck in 'streaming'.`,
     );
+    return rows.slice(0, MAX_REPLAY_EVENTS);
   }
-  return sql<TurnEventRow>(
-    `SELECT te.*
-       FROM turn_events te
-       JOIN conversation_turns ct ON ct.id = te.turn_id
-      WHERE ct.conversation_id = $1
-      ORDER BY te.id ASC`,
-    [conversationId],
-  );
+  return rows;
 }

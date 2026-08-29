@@ -321,3 +321,55 @@ describe("getConversationEvents", () => {
     expect(params[1]).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bounded replay (production: 693 MB of turn_events for 140 turns)
+// ---------------------------------------------------------------------------
+
+describe("getConversationEvents — bounded replay", () => {
+  it("excludes transient token/thinking events for SETTLED turns", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    // The exclusion must be scoped by turn status, not blanket: a settled
+    // turn's transient events are redundant with its assistant message, an
+    // in-flight turn's are not.
+    expect(query).toContain("event_type <> ALL");
+    expect(query).toMatch(/status IN \('streaming', 'pending'\)/);
+    expect(params).toContainEqual(["token", "thinking"]);
+  });
+
+  it("applies the same exclusion on the resumption (sinceId) path", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID, 42);
+    const [query, params] = mockSql.mock.calls[0] as [string, unknown[]];
+    expect(query).toContain("te.id >");
+    expect(query).toContain("event_type <> ALL");
+    expect(params).toContainEqual(["token", "thinking"]);
+  });
+
+  it("caps a runaway replay and says so instead of truncating silently", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    // 5001 rows: one more than the ceiling, which is how the query detects
+    // that there were more rather than guessing.
+    const many = Array.from({ length: 5001 }, (_, i) => ({ ...TURN_EVENTS[0], id: i + 1 }));
+    mockSql.mockResolvedValueOnce(many);
+
+    const events = await getConversationEvents(CONV_ID);
+
+    expect(events).toHaveLength(5000);
+    expect(warn, "a truncated replay that looks complete is worse than a slow one").toHaveBeenCalledWith(
+      expect.stringContaining("ceiling"),
+    );
+    warn.mockRestore();
+  });
+
+  it("does not warn when the result sits under the ceiling", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mockSql.mockResolvedValueOnce(TURN_EVENTS);
+    const events = await getConversationEvents(CONV_ID);
+    expect(events).toHaveLength(2);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});
