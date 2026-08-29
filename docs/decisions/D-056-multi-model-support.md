@@ -36,9 +36,16 @@ behaviour was universal.
 **Decision**: three families are supported targets — DeepSeek, Anthropic,
 OpenAI — and the model is configuration, not a constant. Concretely:
 
-1. **Cost comes from the provider.** Every OpenRouter call sends
-   `usage: { include: true }` and the reported figure is stored verbatim; the
-   Claude CLI's `total_cost_usd` is used the same way. The rate table is a
+1. **Cost comes from the provider.** OpenRouter returns `usage.cost` on every
+   response — it never had to be requested. The defect was purely read-side:
+   nothing looked at the field. (`usage: { include: true }` is sent anyway to
+   make the dependency explicit and keep the richer `cost_details` breakdown
+   available, but it is not what fixed the bug.) The figure is stored to the
+   full precision of `llm_usage.estimated_cost_usd`, `NUMERIC(14,10)`; the
+   Claude CLI's `total_cost_usd` is used the same way. **This must be wired at
+   every call site, including the agentic adapter** — `assemble.ts` routes all
+   tool-using flows through `runAgenticChat`, so a fix that covers only the
+   `llmComplete` paths misses the calls that spend the most. The rate table is a
    fallback only, covers all three families, and its unknown-model default sits
    *between* the families rather than at the most expensive one, so an unknown
    model is wrong by a bounded factor in either direction.
@@ -68,6 +75,11 @@ break.
 
 **See**: `dashboard/lib/llm-usage.ts`, `dashboard/lib/llm-provider/openrouter.ts`
 (`openRouterExtras`, `extractOpenRouterCost`),
-`dashboard/lib/llm-context/history.ts` (`looksLikeFabricatedToolLog`),
-`dashboard/lib/llm-tools/config.ts` (`getChatMaxOutputTokens`),
-[D-053](D-053-no-fabricated-tool-logs.md), [D-019](D-019-pluggable-llm-providers.md).
+`dashboard/lib/llm-provider/openrouter.ts` (`createOpenRouterAgenticAdapter`,
+`readOpenRouterCacheTokens`), [D-019](D-019-pluggable-llm-providers.md).
+
+Rules 2 and 3 are implemented by separate changes landing alongside this one
+(the tool-markup guard and the configurable output budget); this record states
+the standing rule, and the symbols that implement it are named in those
+records rather than here, so this file does not reference code that may not be
+present yet.

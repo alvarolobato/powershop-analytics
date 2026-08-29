@@ -340,3 +340,102 @@ describe("runAgenticChat", () => {
     expect(mockSetConversationTitleOnce).not.toHaveBeenCalled();
   });
 });
+
+describe("runAgenticChat — provider-reported cost", () => {
+  beforeEach(() => {
+    vi.stubEnv("DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS", "4");
+    vi.stubEnv("DASHBOARD_AGENTIC_MAX_TOOL_CALLS", "12");
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("carries OpenRouter's reported cost out of the agentic loop", async () => {
+    // This is the path production actually uses: assemble.ts routes every
+    // tool-using flow (generate / modify / analyze / chat) through
+    // runAgenticChat, not llmComplete. Without the adapter setting `cost_usd`,
+    // `reported_cost_usd` stays null for provider "openrouter" and the flows
+    // that make several model calls each — the most expensive ones — fall back
+    // to the rate table. The first revision of this PR fixed only the two
+    // llmComplete paths and missed this one entirely.
+    const create = vi.fn().mockReturnValue(
+      makeTextStream("respuesta", {
+        prompt_tokens: 100,
+        completion_tokens: 50,
+        total_tokens: 150,
+        cost: 0.00123,
+      }),
+    );
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
+
+    const out = await runAgenticChat({
+      adapter,
+      model: "deepseek/deepseek-v4-pro",
+      systemPrompt: "sys",
+      userContent: "user",
+      ctx,
+      temperature: 0.2,
+      maxTokens: 100,
+    });
+
+    expect(out.usage.reported_cost_usd).toBeCloseTo(0.00123, 10);
+  });
+
+  it("sums the reported cost across tool rounds", async () => {
+    // A tool loop is several model calls; the turn's cost is their sum, which
+    // is what addUsage accumulates.
+    const create = vi
+      .fn()
+      .mockReturnValueOnce(
+        makeToolCallStream(
+          [{ id: "a", function: { name: "list_ps_tables", arguments: "{}" } }],
+          { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15, cost: 0.001 },
+        ),
+      )
+      .mockReturnValueOnce(
+        makeTextStream("final", {
+          prompt_tokens: 20,
+          completion_tokens: 10,
+          total_tokens: 30,
+          cost: 0.002,
+        }),
+      );
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
+
+    const out = await runAgenticChat({
+      adapter,
+      model: "deepseek/deepseek-v4-pro",
+      systemPrompt: "sys",
+      userContent: "user",
+      ctx,
+      temperature: 0.2,
+      maxTokens: 100,
+    });
+
+    expect(out.usage.reported_cost_usd).toBeCloseTo(0.003, 10);
+  });
+
+  it("leaves reported_cost_usd null when the provider reports no cost", async () => {
+    const create = vi.fn().mockReturnValue(
+      makeTextStream("respuesta", { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 }),
+    );
+    const client = { chat: { completions: { create } } } as unknown as OpenAI;
+    const adapter = createOpenRouterAgenticAdapter(client);
+
+    const out = await runAgenticChat({
+      adapter,
+      model: "deepseek/deepseek-v4-pro",
+      systemPrompt: "sys",
+      userContent: "user",
+      ctx,
+      temperature: 0.2,
+      maxTokens: 100,
+    });
+
+    // null, not 0 — "not reported" must stay distinguishable from "free",
+    // otherwise logUsage would store a wrong 0 instead of estimating.
+    expect(out.usage.reported_cost_usd).toBeNull();
+  });
+});

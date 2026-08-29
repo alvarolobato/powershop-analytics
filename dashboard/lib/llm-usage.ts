@@ -4,21 +4,17 @@ import type { LlmUsageProviderMeta } from "@/lib/llm-provider/types";
 import { getSystemConfig } from "@/lib/system-config/loader";
 
 /**
- * Rate table: **estimated** USD per token used for `llm_usage.estimated_cost_usd`
- * on `llm_provider = 'openrouter'` rows.
+ * Cost accounting.
  *
- * - Values follow public list pricing for the configured model (today: Claude Sonnet 4).
- * - OpenRouter may apply discounts, caching, or rounding; this app does **not** read
- *   OpenRouter’s billing API, so displayed costs are **indicative**, not invoice-accurate.
- * - Unknown models fall back to `DEFAULT_RATE` (same as Sonnet 4) with a console warning.
- * - Cache rates: Anthropic charges cache-write tokens at a 25% premium ($3.75/1M) and
- *   cache-read tokens at a 90% discount ($0.30/1M) vs the normal $3.00/1M input rate.
+ * **The provider is the source of truth.** OpenRouter returns `usage.cost` on
+ * every response and the Claude CLI reports `total_cost_usd`; both are stored
+ * via `LogUsageOptions.reportedCostUsd`. The rate table below is only reached
+ * when neither reports one.
  *
- * `cli` rows do **not** use this table: the Claude CLI reports its own
- * `total_cost_usd` per call, which `logUsage` stores verbatim via
- * `LogUsageOptions.reportedCostUsd`. Before that plumbing existed every
- * `cli` row stored a hard-coded zero, which is why the usage panel showed no
- * spend at all for the default provider.
+ * Precision: `llm_usage.estimated_cost_usd` is `NUMERIC(14,10)`, so a reported
+ * cost is stored to 10 decimal places — enough for sub-micro-dollar calls on
+ * cheap models. It is not rounded away, but it is not arbitrary precision
+ * either.
  */
 const M = 1_000_000;
 
@@ -44,11 +40,15 @@ const RATES: Record<string, { prompt: number; completion: number; cacheWrite: nu
   "anthropic/claude-sonnet-4": { prompt: 3.0 / M, completion: 15.0 / M, cacheWrite: 3.75 / M, cacheRead: 0.30 / M },
   "anthropic/claude-sonnet-4.5": { prompt: 3.0 / M, completion: 15.0 / M, cacheWrite: 3.75 / M, cacheRead: 0.30 / M },
   "anthropic/claude-haiku-4.5": { prompt: 1.0 / M, completion: 5.0 / M, cacheWrite: 1.25 / M, cacheRead: 0.10 / M },
-  // DeepSeek — the production default. Two orders of magnitude cheaper than
-  // Sonnet on output, which is why the old silent fallback was so wrong.
-  "deepseek/deepseek-v4-pro": { prompt: 0.28 / M, completion: 1.14 / M, cacheWrite: 0.28 / M, cacheRead: 0.028 / M },
-  "deepseek/deepseek-chat": { prompt: 0.14 / M, completion: 0.28 / M, cacheWrite: 0.14 / M, cacheRead: 0.014 / M },
-  "deepseek/deepseek-r1": { prompt: 0.55 / M, completion: 2.19 / M, cacheWrite: 0.55 / M, cacheRead: 0.14 / M },
+  // DeepSeek — the production default. NOTE: these are OpenRouter's prices,
+  // not DeepSeek's own platform list prices. Billing goes through OpenRouter,
+  // so its catalog is the only relevant source; the first version of this
+  // table used DeepSeek's direct prices and understated the production model's
+  // prompt cost by 2.3x. Re-derive with:
+  //   curl -s https://openrouter.ai/api/v1/models | jq '.data[] | select(.id=="deepseek/deepseek-v4-pro") | .pricing'
+  "deepseek/deepseek-v4-pro": { prompt: 0.650412 / M, completion: 1.300824 / M, cacheWrite: 0.650412 / M, cacheRead: 0.054201 / M },
+  "deepseek/deepseek-chat": { prompt: 0.2574 / M, completion: 1.0287 / M, cacheWrite: 0.2574 / M, cacheRead: 0.0257 / M },
+  "deepseek/deepseek-r1": { prompt: 0.70 / M, completion: 2.50 / M, cacheWrite: 0.70 / M, cacheRead: 0.14 / M },
   // OpenAI
   "openai/gpt-4o": { prompt: 2.5 / M, completion: 10.0 / M, cacheWrite: 2.5 / M, cacheRead: 1.25 / M },
   "openai/gpt-4o-mini": { prompt: 0.15 / M, completion: 0.60 / M, cacheWrite: 0.15 / M, cacheRead: 0.075 / M },
@@ -128,13 +128,24 @@ export function logUsage(
       console.warn(`[llm-usage] Unknown model "${model}", using default rate`);
       rate = DEFAULT_RATE;
     }
-    // NOTE: OpenRouter normalises `prompt_tokens` to exclude cache tokens (they are
-    // reported separately in `cache_creation_input_tokens` / `cache_read_input_tokens`).
-    // This differs from the raw Anthropic API where `input_tokens` is an inclusive sum.
-    // The formula below is correct under the OpenRouter normalisation: cache tokens are
-    // billed at their specific rates and NOT again at the base prompt rate.
+    // OpenRouter reports cache usage under `prompt_tokens_details`
+    // (`cached_tokens` / `cache_write_tokens`), and `prompt_tokens` is
+    // INCLUSIVE of them — verified against live calls with `cache_control`
+    // set. A previous version of this comment claimed the opposite ("OpenRouter
+    // normalises prompt_tokens to EXCLUDE cache tokens"), which made this
+    // formula over-estimate a cache-hit call by ~10x: 7710 prompt tokens with
+    // 7702 of them cached was billed as if all 7710 were fresh.
+    //
+    // `readOpenRouterCacheTokens` maps the details onto the two cache fields,
+    // so subtracting them here bills each token exactly once: fresh prompt
+    // tokens at the base rate, cached reads at cacheRead, cache writes at
+    // cacheWrite.
+    const freshPromptTokens = Math.max(
+      0,
+      usage.prompt_tokens - (cacheCreation ?? 0) - (cacheRead ?? 0),
+    );
     estimatedCost =
-      usage.prompt_tokens * rate.prompt +
+      freshPromptTokens * rate.prompt +
       usage.completion_tokens * rate.completion +
       (cacheCreation ?? 0) * rate.cacheWrite +
       (cacheRead ?? 0) * rate.cacheRead;

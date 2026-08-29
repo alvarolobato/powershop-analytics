@@ -241,19 +241,20 @@ Selected by `dashboard.llm_model_openrouter` (config.yaml / admin UI), or
 `dashboard.llm_model_cli` for the CLI provider. **Never hardcode a model, a
 model's pricing, or a model's tool-call syntax.** Three rules follow from that:
 
-1. **Cost comes from the provider, not a table.** OpenRouter is asked for usage
-   accounting on every call and its figure is stored verbatim. The rate table in
-   `lib/llm-usage.ts` is only a fallback — per-token prices differ by more than
-   an order of magnitude across these families, and a hand-kept table cannot
-   track three vendors.
+1. **Cost comes from the provider, not a table.** OpenRouter returns
+   `usage.cost` on every response; read it and store it. Wire it at *every*
+   call site — single-shot **and** the agentic adapter, which is the path all
+   tool-using flows take. The rate table in `lib/llm-usage.ts` is only a
+   fallback: per-token prices differ by more than an order of magnitude across
+   these families, a hand-kept table cannot track three vendors, and its
+   figures must come from OpenRouter's catalog (`/api/v1/models`), not a
+   vendor's own list prices.
 2. **Never assume one tool-call dialect.** Each family serialises tool calls
    differently and a router parser gap lets raw markup reach the user as an
-   answer. `looksLikeFabricatedToolLog` covers all three
-   (see [D-053](docs/decisions/D-053-no-fabricated-tool-logs.md)).
+   answer, so the guard against that must match every family's syntax.
 3. **Budget for reasoning tokens.** On reasoning models they count against
    `max_tokens`, so a tight cap is spent before any answer is emitted. Output
-   budgets are configurable, never hardcoded
-   (`dashboard.chat_max_output_tokens`).
+   budgets are configurable, never hardcoded.
 
 Full rationale: [D-056](docs/decisions/D-056-multi-model-support.md).
 

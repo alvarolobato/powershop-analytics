@@ -187,19 +187,75 @@ export function openRouterExtras(
 /**
  * Cost in USD that OpenRouter reported for a call, or null when absent.
  *
- * OpenRouter puts it on the usage object as `cost`; some routes nest the
- * breakdown under `cost_details.upstream_inference_cost`. Anything
- * non-finite or negative is treated as absent so a malformed value falls back
- * to estimation rather than recording a wrong number.
+ * OpenRouter returns `usage.cost` on every response — it does NOT need to be
+ * requested. (`usage: { include: true }` is sent anyway to make the dependency
+ * explicit and to keep the richer `cost_details` breakdown available, but the
+ * original defect was purely read-side: nothing ever looked at the field.)
+ *
+ * BYOK: when `is_byok` is true, `cost` is only OpenRouter's own surcharge
+ * (~5%) and `cost_details.upstream_inference_cost` is what was actually paid
+ * to the provider. Taking whichever is present first would then record the
+ * ~5% and drop the rest — a ~20x UNDERcount, the dangerous direction for a
+ * budget guard. The two are summed instead.
+ *
+ * Anything non-finite or negative is treated as absent so a malformed value
+ * falls back to estimation rather than recording a wrong number. A genuine
+ * zero is kept: a free model is not "no report".
  */
+/**
+ * Map OpenRouter's cache reporting onto the two cache-token fields.
+ *
+ * OpenRouter reports cache usage under `prompt_tokens_details`
+ * (`cached_tokens` / `cache_write_tokens`), NOT as Anthropic's
+ * `cache_creation_input_tokens` / `cache_read_input_tokens`. Those two fields
+ * were therefore always null on the OpenRouter path, so the rate-table
+ * estimate priced every cached token as a fresh prompt token — ~10x over on a
+ * cache hit. Reading the details populates them, and `logUsage` subtracts them
+ * from `prompt_tokens` (which is INCLUSIVE of cached tokens) so each token is
+ * billed exactly once.
+ */
+export function readOpenRouterCacheTokens(usage: unknown): {
+  cache_creation_input_tokens: number | undefined;
+  cache_read_input_tokens: number | undefined;
+} {
+  const u = usage as
+    | {
+        cache_creation_input_tokens?: number | null;
+        cache_read_input_tokens?: number | null;
+        prompt_tokens_details?: { cached_tokens?: number | null; cache_write_tokens?: number | null };
+      }
+    | null
+    | undefined;
+  const num = (v: unknown): number | undefined =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : undefined;
+  return {
+    // Prefer the explicit Anthropic-shaped fields when a route does forward
+    // them; fall back to OpenRouter's details object.
+    cache_creation_input_tokens:
+      num(u?.cache_creation_input_tokens) ?? num(u?.prompt_tokens_details?.cache_write_tokens),
+    cache_read_input_tokens:
+      num(u?.cache_read_input_tokens) ?? num(u?.prompt_tokens_details?.cached_tokens),
+  };
+}
+
 export function extractOpenRouterCost(usage: unknown): number | null {
   if (!usage || typeof usage !== "object") return null;
-  const u = usage as { cost?: unknown; cost_details?: { upstream_inference_cost?: unknown } };
-  const candidates = [u.cost, u.cost_details?.upstream_inference_cost];
-  for (const c of candidates) {
-    if (typeof c === "number" && Number.isFinite(c) && c >= 0) return c;
+  const u = usage as {
+    cost?: unknown;
+    is_byok?: unknown;
+    cost_details?: { upstream_inference_cost?: unknown };
+  };
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null;
+
+  const cost = num(u.cost);
+  const upstream = num(u.cost_details?.upstream_inference_cost);
+
+  if (u.is_byok === true) {
+    if (cost === null && upstream === null) return null;
+    return (cost ?? 0) + (upstream ?? 0);
   }
-  return null;
+  return cost ?? upstream;
 }
 
 export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdapter {
@@ -242,7 +298,10 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
         number,
         { id: string; type: "function"; function: { name: string; arguments: string } }
       > = {};
-      let usage: OpenRouterCacheUsage | null = null;
+      // Widened past OpenRouterCacheUsage to carry the provider-reported cost
+      // through to AgenticStepResult.usage, where addUsage sums it into
+      // reported_cost_usd.
+      let usage: (OpenRouterCacheUsage & { cost_usd?: number | null }) | null = null;
 
       for await (const chunk of stream) {
         // Cast delta to a plain object so we can read non-standard fields
@@ -333,8 +392,16 @@ export function createOpenRouterAgenticAdapter(client: OpenAI): AgenticModelAdap
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             total_tokens: u.total_tokens,
-            cache_creation_input_tokens: u.cache_creation_input_tokens,
-            cache_read_input_tokens: u.cache_read_input_tokens,
+            ...readOpenRouterCacheTokens(chunk.usage),
+            // THE path that matters: assemble.ts routes every tool-using flow
+            // (generate / modify / analyze / chat) through runAgenticChat, not
+            // llmComplete — so without this, the flows that make several model
+            // calls each and cost the most were the ones still being estimated
+            // from the rate table. `addUsage` sums this into
+            // `reported_cost_usd`, which assemble.ts already forwards to
+            // logUsage; only the OpenRouter side of the plumbing was missing
+            // (the CLI adapter has always filled it).
+            cost_usd: extractOpenRouterCost(chunk.usage),
           };
         }
       }
