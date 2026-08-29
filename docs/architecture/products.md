@@ -149,7 +149,7 @@ erDiagram
 | Identity | `RegFamilia` (PK), `Clave`, `FamiGrupMarc`, `CodigoGenerico`, `Codigo1..Codigo6` | Family ID and short codes |
 | Accounting | `CuentaVentas`, `CuentaVentas2`, `Presupuesto`, `Comision`, `Coeficiente1..Coeficiente4` | Sales accounts, budget, markup |
 | Section/Dept | `ClaveSeccion`, `Seccion1..Seccion6`, `SerieEmpresa` | Cross-reference to DepaSeccFabr sections |
-| Size series | `SerieTallas` | Maps family to size series (e.g., S/M/L vs 36-46) — **confirmed BLANK in all 78 production rows** |
+| Size series | `SerieTallas` | **Dead end — not the size series source.** Blank in all 78 production rows, and structurally wrong: the series hangs off the *article*, via `Articulos.ClaveSerie` → `CCOPSeriCali.Clave`. See the gotcha below. |
 | Promotions | `PrecioPromocion`, `PorcenPromocion`, `PromoDesde`, `PromoHasta`, `UnidadPromocion`, `ValeCliente` | Promotional pricing |
 | Web/Commerce | `NoPSCloud`, `NoPSCommerce`, `NoPSCommerceM`, `PathPSCloud`, `WebIdioma1..WebIdioma5`, `Weborden` | E-commerce visibility |
 | Brand integrations | `CATAdidasMat1..10` (Adidas material codes), `CATNikeModel21/22`, `CATNikeStyleC1..3` | Third-party catalog mapping |
@@ -159,7 +159,15 @@ erDiagram
 | Free fields | `Libre01..Libre10` | Custom use |
 | Metadata | `FModifica`, `HModifica`, `Anulado`, `Contador`, `Historico1..Historico4`, `CorrectorMDV` | Admin fields |
 
-> **Key gotcha — SerieTallas is blank:** This field was expected to decode which size series a family uses (e.g., "S/M/L" vs "36-46"). Queried all 78 production rows — all have `SerieTallas = ''`. The size labels are pre-populated directly in `Talla1..Talla34` columns of each Exportaciones/GCLinPedidos row. Use those literal labels; do NOT rely on SerieTallas for size interpretation.
+> **Key gotcha — the size series is `Articulos.ClaveSerie`, not `FamiGrupMarc.SerieTallas`.**
+> The canonical definition of an article's size run is:
+> **`Articulos.ClaveSerie` → `CCOPSeriCali.Clave` → `CCOPSeriCali.Talla1..Talla34`** (that table has 219 columns; the 34 `Talla*` slots hold the size labels).
+>
+> `FamiGrupMarc.SerieTallas` is blank in all 78 production rows — but "it's blank" was the wrong reason to close this question. The field is not merely unpopulated, it is at the wrong grain: the series belongs to the **article**, not the family, so two articles in the same family can carry different size runs. An earlier revision of this file concluded "use the literal labels from `Exportaciones`/`GCLinPedidos`" and stopped there, which works by accident for those two tables and leaves you with no answer for any article that does not appear in them.
+>
+> Neither `Articulos.ClaveSerie` nor `CCOPSeriCali` is mirrored into PostgreSQL. For queries against the mirror the size labels do already come resolved in `ps_stock_tienda.talla` and `ps_traspasos.talla` — use those. Go to `ClaveSerie` → `CCOPSeriCali` when working against 4D directly, or when you need an article's full size run including sizes it has no stock rows for.
+
+> **Key gotcha — `CCRefeJOFACM` is reference+colour, not the model.** The last 2 characters are the colour code. Grouping a "top articles" ranking by `ccrefejofacm` splits one model across several rows: production holds 42,244 distinct `ccrefejofacm` values against only 19,941 models — 2.12 colours per model on average (measured 2026-08). A model that sells well can miss the top-N entirely because its volume is spread over its colours. Group by `LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2)` to rank by model. Real example: `75221411`, `75221420`, `75221421`, `75221470`, `75221490`, `75221496` are six colours of model `752214`. Use the raw `ccrefejofacm` only when the colour breakdown is what was actually asked for.
 
 > **Brand integrations:** `CATAdidasMat1..10` and `CATNikeModel/Style` fields map product families to Adidas and Nike catalog codes for data feed exports. These are the "ADIDAS data feeds" and "corners/concessions" modules discovered in D-011.
 
@@ -191,8 +199,8 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
   {
     "table": "ps_articulos",
     "alias": "Producto",
-    "description": "Catálogo de productos. ccrefejofacm=Referencia, M=mayorista, MA=material (excluido del ETL).",
-    "keyColumns": ["reg_articulo (PK)", "codigo", "ccrefejofacm (Referencia)", "descripcion", "num_familia (FK)", "num_departament (FK)", "num_color (FK)", "num_temporada (FK)", "num_marca (FK)", "precio_coste", "p_iva", "anulado", "fecha_creacion", "clave_temporada", "modelo", "sexo"]
+    "description": "Catálogo de productos. ccrefejofacm=Referencia REFERENCIA+COLOR (los 2 ultimos caracteres son el color): para rankear por MODELO agrupar por LEFT(ccrefejofacm, LENGTH(ccrefejofacm)-2). M=mayorista, MA=material (excluido del ETL).",
+    "keyColumns": ["reg_articulo (PK)", "codigo", "ccrefejofacm (Referencia = modelo+color; NO es el modelo)", "descripcion", "num_familia (FK)", "num_departament (FK)", "num_color (FK)", "num_temporada (FK)", "num_marca (FK)", "precio_coste", "p_iva", "anulado", "fecha_creacion", "clave_temporada", "modelo", "sexo"]
   },
   {
     "table": "ps_familias",

@@ -257,6 +257,8 @@ flowchart LR
 - **GCLinPedidos** is the widest wholesale table (239 columns) due to the 5-dimension × 34-slot size matrix.
 - **Wholesale also handles e-commerce**: GCAlbaranes has Marketplace, IDOrderMarket, and IntegradorMK fields — same pattern as retail Ventas. Discovered 2026-04-05.
 - **Jewelry weight-based pricing**: GCAlbaranes has JoPorPesoUni, JoConversion, PesoJoGramos, JoGramosTotal — indicates the business sells jewelry priced by weight in the wholesale channel. Discovered 2026-04-05.
+- **Effective date of a delivery note = `FechaEnvio` if `>= 2000-01-01`, else `FechaValor`.** Not-yet-shipped notes carry a NULL or pre-2000 sentinel in `FechaEnvio`, so filtering a period on `fecha_envio` alone drops them silently. Use `CASE WHEN a.fecha_envio >= DATE '2000-01-01' THEN a.fecha_envio ELSE a.fecha_valor END`. Mirror impact today is 1 row out of 52,148 (measured 2026-08), but the sentinel reappears as soon as pending notes sync, so the pattern is mandatory rather than optional.
+- **CIF `502108150` marks intra-group traffic.** That tax ID (LINFE LDA / MHIA, Portugal) belongs to the group's own companies and is spread across **19 distinct `ps_clientes` rows** with different `num_cliente` *and different names* (LINFE FUNCHAL, LINFE FACTORY, MHIA CALDAS, MHIA TOMAR, MHIA ABRANTES, Linfe Moda Feminina Lda…). A wholesale delivery note or invoice to that CIF is **not a sale outside the group** — it is an internal movement. Exclude it by NIF, never by name: `JOIN ps_clientes c ON a.num_cliente = c.reg_cliente WHERE COALESCE(c.nif,'') <> '502108150'`. In 2026 it accounts for 38 delivery notes and ~€29,900.
 
 ## Wholesale Size Matrix
 
@@ -367,8 +369,8 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
   {
     "table": "ps_gc_albaranes",
     "alias": "AlbaranMayorista",
-    "description": "Albaranes mayorista. Importe neto = base1 + base2 + base3.",
-    "keyColumns": ["reg_albaran (PK)", "n_albaran", "num_cliente (FK)", "num_comercial (FK)", "fecha_envio", "base1", "base2", "base3", "entregadas", "abono", "temporada"]
+    "description": "Albaranes mayorista. Importe neto = base1 + base2 + base3. Fecha efectiva = fecha_envio si >= 2000-01-01, si no fecha_valor. abono=true son devoluciones del cliente (entrada de stock), abono=false son envios.",
+    "keyColumns": ["reg_albaran (PK)", "n_albaran", "num_cliente (FK)", "num_comercial (FK)", "fecha_envio (usar con fecha_valor como fallback)", "fecha_valor", "base1", "base2", "base3", "entregadas", "abono", "temporada"]
   },
   {
     "table": "ps_gc_lin_albarane",

@@ -117,7 +117,7 @@ erDiagram
 
 | Table | Description |
 |-------|-------------|
-| Inventarios | Physical inventory counts (0 rows -- likely archived/seasonal) |
+| Inventarios | Physical inventory counts (0 rows) -- **but the business does take inventory**: it lives in `Traspasos` with `Tipo='Apertura'`, see Notes |
 | Logistica | Logistics management module (78 columns, empty) |
 | PackingList | Packing list documents (12 columns, empty) |
 | Reposiciones | Replenishment orders (6 columns, empty) |
@@ -148,7 +148,9 @@ erDiagram
 - **SemiCodigo** (111K rows) is a large lookup for partial code resolution during scanning.
 - The **RFID** module (RFIDMovimientos, RFIDNumerosSerie, RFIDSinMovimiento) exists in the schema but is completely empty.
 - The **Logistics** module (Logistica, PackingList, LOGNivel1-3, LOGZonas) is defined but unused.
-- **Inventarios** (physical counts) is empty -- inventory data may be archived after reconciliation or performed via external systems.
+- **Inventarios is empty, but that does NOT mean there are no inventories.** The annual physical count is recorded in `Traspasos` with `Tipo='Apertura'` dated 1 January: one row per store, article and **size**, carrying the counted units. It is valued at `Articulos.PrecioCoste`. This is the real inventory source for the business — 247,502 `Apertura` rows in the mirror (measured 2026-08). Do not conclude "no inventory data exists" from the empty `Inventarios` table.
+- **`Traspasos.Tipo` must be filtered in every stock-movement analysis.** `'Apertura'` (247,502 rows) and `'Inventario Parcial'` (739 rows) are inventory entries, not transfers, and together they are ~94% of the 262,724-row table. Without `WHERE tipo NOT IN ('Apertura', 'Inventario Parcial')` a "transfer volume" or "busiest route" query returns almost nothing but openings. The types that are genuine movement are `'Autoreposicion'` and `'Regularización'`.
+- **`Articulos.NoInventariabl = FALSE` is the mandatory filter for any inventory calculation.** Articles flagged `NoInventariabl` (bags, carriage, services, charges) are not merchandise and inflate both unit counts and valuation. The field exists in 4D `Articulos` but is **not mirrored** into `ps_articulos`, so it cannot be applied from PostgreSQL today — say so when reporting a valuation rather than silently omitting it. `ps_articulos.anulado = false` is the nearest available filter and is **not** equivalent.
 - Stock positions are primarily tracked in the **CCStock** table (Products domain), which uses a wide-format layout with stock quantities per size per store.
 
 ## Stock via Exportaciones (preferred for ETL)
