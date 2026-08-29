@@ -516,17 +516,26 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 -- Naturally idempotent: a second run matches zero rows. Disk is not returned
 -- to the OS until someone runs `VACUUM FULL turn_events` — a locking operation
 -- left as a deliberate manual step, not something a startup script should do.
-DELETE FROM turn_events te
- USING conversation_turns ct
- WHERE ct.id = te.turn_id
-   AND te.event_type IN ('token', 'thinking')
-   AND ct.status NOT IN ('streaming', 'pending')
-   AND te.id NOT IN (
-     SELECT DISTINCT ON (t2.turn_id) t2.id
-       FROM turn_events t2
-      WHERE t2.event_type = 'thinking'
-      ORDER BY t2.turn_id, t2.id DESC
-   );
+-- Guard: on a fresh install turn_events does not exist yet (created below).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_tables
+     WHERE schemaname = 'public' AND tablename = 'turn_events'
+  ) THEN
+    DELETE FROM turn_events te
+     USING conversation_turns ct
+     WHERE ct.id = te.turn_id
+       AND te.event_type IN ('token', 'thinking')
+       AND ct.status NOT IN ('streaming', 'pending')
+       AND te.id NOT IN (
+         SELECT DISTINCT ON (t2.turn_id) t2.id
+           FROM turn_events t2
+          WHERE t2.event_type = 'thinking'
+          ORDER BY t2.turn_id, t2.id DESC
+       );
+  END IF;
+END $$;
 
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
