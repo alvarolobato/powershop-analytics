@@ -175,6 +175,8 @@ cmd_update() {
     remote "cd $(printf %q "$PROD_PATH") && \
         curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/docker-compose.prod.yml' -o docker-compose.yml && \
         curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/wren-config.yaml' -o wren-config.yaml && \
+        mkdir -p otel/local && \
+        curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/otelcol-config.yaml' -o otel/otelcol-config.yaml && \
         echo '${latest}' > .version"
 
     echo -e "${GREEN}Stack files updated to ${latest}.${NC}"
