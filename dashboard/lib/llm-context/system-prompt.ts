@@ -210,7 +210,7 @@ Each item in a kpi_row can also include:
   "id": "w5",
   "type": "table",
   "title": "Top 10 Artículos",
-  "sql": "SELECT p.ccrefejofacm AS \\"Referencia\\", p.descripcion AS \\"Descripción\\", SUM(lv.unidades) AS \\"Unidades\\", SUM(lv.total_si) AS \\"Importe\\" FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo WHERE v.tienda <> '99' GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 10"
+  "sql": "SELECT LEFT(p.ccrefejofacm, LENGTH(p.ccrefejofacm) - 2) AS \\"Modelo\\", MIN(p.descripcion) AS \\"Descripción\\", COALESCE(SUM(lv.unidades) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(lv.unidades) FILTER (WHERE NOT v.entrada), 0) AS \\"Unidades\\", COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \\"Importe\\" FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas JOIN ps_articulos p ON lv.codigo = p.codigo WHERE v.tienda <> '99' GROUP BY 1 ORDER BY 3 DESC LIMIT 10"
 }
 \`\`\`
 
