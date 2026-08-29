@@ -66,9 +66,17 @@ describe("logUsage", () => {
 
     expect(mockSql).toHaveBeenCalledOnce();
     const params = mockSql.mock.calls[0][1];
-    // default rate = 3/1e6 prompt + 15/1e6 completion
-    // 100 * 3/1e6 + 100 * 15/1e6 = 0.0003 + 0.0015 = 0.0018
-    expect(params[5]).toBe("0.001800");
+    // DEFAULT_RATE = 1/1e6 prompt + 4/1e6 completion
+    // 100 * 1/1e6 + 100 * 4/1e6 = 0.0001 + 0.0004 = 0.0005
+    //
+    // This used to be Claude Sonnet's 3/15, i.e. an unknown model was billed
+    // at the most expensive family's price. With DeepSeek in production that
+    // overstated spend by roughly 15x and `checkDailyBudget` throttled against
+    // the inflated figure. The default now sits between the families so an
+    // unknown model is wrong by a bounded factor in either direction rather
+    // than by 15x in one — and it is only reached when the provider reports no
+    // cost of its own, which OpenRouter now always does.
+    expect(params[5]).toBe("0.000500");
     expect(params[6]).toBe("openrouter");
     expect(params[7]).toBe(null);
     expect(params[8]).toBe(null);
@@ -160,15 +168,22 @@ describe("logUsage", () => {
   });
 
   it("applies cache write premium rate for cache_creation_input_tokens", async () => {
-    // 1000 prompt @ $3/1M + 500 completion @ $15/1M + 2000 cache_creation @ $3.75/1M
+    // `prompt_tokens` is INCLUSIVE of cache tokens (verified against live
+    // OpenRouter calls with cache_control set), so the fixture must satisfy
+    // prompt >= creation + read. The old fixture had 1000 prompt with 2000
+    // cache_creation — impossible under the real reporting model, which is how
+    // it encoded the false "prompt excludes cache" assumption.
+    //
+    // 3000 prompt of which 2000 cache_creation -> 1000 fresh
+    // 1000 @ $3/1M + 500 completion @ $15/1M + 2000 cache_creation @ $3.75/1M
     // = 0.003 + 0.0075 + 0.0075 = 0.018
     logUsage(
       "generateDashboard",
       "anthropic/claude-sonnet-4",
       {
-        prompt_tokens: 1000,
+        prompt_tokens: 3000,
         completion_tokens: 500,
-        total_tokens: 1500,
+        total_tokens: 3500,
         cache_creation_input_tokens: 2000,
         cache_read_input_tokens: null,
       },
@@ -183,15 +198,17 @@ describe("logUsage", () => {
   });
 
   it("applies cache read discount rate for cache_read_input_tokens", async () => {
-    // 200 prompt @ $3/1M + 100 completion @ $15/1M + 50000 cache_read @ $0.30/1M
+    // 50200 prompt of which 50000 cache_read -> 200 fresh. This is the shape
+    // a real cache hit has: nearly all of prompt_tokens is the cached read.
+    // 200 @ $3/1M + 100 completion @ $15/1M + 50000 cache_read @ $0.30/1M
     // = 0.0006 + 0.0015 + 0.015 = 0.0171
     logUsage(
       "generateDashboard",
       "anthropic/claude-sonnet-4",
       {
-        prompt_tokens: 200,
+        prompt_tokens: 50200,
         completion_tokens: 100,
-        total_tokens: 300,
+        total_tokens: 50300,
         cache_creation_input_tokens: null,
         cache_read_input_tokens: 50000,
       },
@@ -206,15 +223,16 @@ describe("logUsage", () => {
   });
 
   it("accumulates both cache creation and cache read costs", async () => {
-    // 500 prompt @ $3/1M + 300 completion @ $15/1M + 1000 cache_creation @ $3.75/1M + 4000 cache_read @ $0.30/1M
+    // 5500 prompt of which 1000 cache_creation + 4000 cache_read -> 500 fresh
+    // 500 @ $3/1M + 300 completion @ $15/1M + 1000 cache_creation @ $3.75/1M + 4000 cache_read @ $0.30/1M
     // = 0.0015 + 0.0045 + 0.00375 + 0.0012 = 0.01095
     logUsage(
       "generateDashboard",
       "anthropic/claude-sonnet-4",
       {
-        prompt_tokens: 500,
+        prompt_tokens: 5500,
         completion_tokens: 300,
-        total_tokens: 800,
+        total_tokens: 5800,
         cache_creation_input_tokens: 1000,
         cache_read_input_tokens: 4000,
       },
