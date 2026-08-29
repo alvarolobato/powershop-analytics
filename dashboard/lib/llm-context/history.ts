@@ -424,7 +424,7 @@ async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<
 
   try {
     const client = getOpenRouterClient();
-    const { content, usage } = await callWithCircuitBreaker(() =>
+    const { content, usage, reportedCostUsd } = await callWithCircuitBreaker(() =>
       openRouterChatCompletion({
         client,
         model,
@@ -435,11 +435,20 @@ async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<
       }),
     );
     if (usage) {
-      logUsage("dashboard/history/summarise", model, {
-        prompt_tokens: usage.prompt_tokens ?? 0,
-        completion_tokens: usage.completion_tokens ?? 0,
-        total_tokens: usage.total_tokens ?? 0,
-      });
+      logUsage(
+        "dashboard/history/summarise",
+        model,
+        {
+          prompt_tokens: usage.prompt_tokens ?? 0,
+          completion_tokens: usage.completion_tokens ?? 0,
+          total_tokens: usage.total_tokens ?? 0,
+        },
+        undefined,
+        // openRouterChatCompletion now returns the provider's own figure; this
+        // call site was the one that still dropped it. Small (200 max tokens)
+        // but it fires on every long conversation.
+        { reportedCostUsd },
+      );
     }
     return content || userPrompts;
   } catch {

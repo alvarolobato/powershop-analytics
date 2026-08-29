@@ -9,7 +9,7 @@ PowerShop Analytics is a platform that extracts data from a vendor-managed Power
 1. **WrenAI** — Ad-hoc single-question text-to-SQL (e.g., "¿Cuánto vendimos ayer?")
 2. **Dashboard App** — AI-generated multi-widget dashboards from natural language (e.g., "Créame un cuadro de mandos para el responsable de ventas")
 
-**Flow at a glance:** 4D Server (SQL `:19812` / SOAP `:8080`) → ETL (Python, nightly) → PostgreSQL mirror (`ps_*` tables, 18M+ rows) → consumed by both the WrenAI stack (wren-ui `:3000`, wren-ai-service `:5555`, wren-engine, ibis-server, qdrant) and the Dashboard App (Next.js + Tremor on `:4000`). WrenAI always calls OpenRouter (Claude Sonnet 4 + text-embedding-3-large via litellm). The Dashboard App is configurable via `DASHBOARD_LLM_PROVIDER` between OpenRouter (default) and a local Claude Code CLI — see [D-019](docs/decisions/D-019-pluggable-llm-providers.md).
+**Flow at a glance:** 4D Server (SQL `:19812` / SOAP `:8080`) → ETL (Python, nightly) → PostgreSQL mirror (`ps_*` tables, 18M+ rows) → consumed by both the WrenAI stack (wren-ui `:3000`, wren-ai-service `:5555`, wren-engine, ibis-server, qdrant) and the Dashboard App (Next.js + Tremor on `:4000`). WrenAI always calls OpenRouter (chat model per `WREN_LLM_MODEL` + text-embedding-3-large via litellm). The Dashboard App is configurable via `DASHBOARD_LLM_PROVIDER` between OpenRouter (default) and a local Claude Code CLI — see [D-019](docs/decisions/D-019-pluggable-llm-providers.md).
 
 Full ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview.md).
 
@@ -35,7 +35,7 @@ Full ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview
 - **UI**: http://localhost:3000
 - **Semantic layer**: 26 models, 19 relationships, 107 column descriptions
 - **Knowledge**: 40+ instructions, 52+ SQL pairs (managed via `scripts/wren-push-metadata.py`)
-- **LLM**: Claude Sonnet 4 via OpenRouter
+- **LLM**: per `WREN_LLM_MODEL` via OpenRouter (production currently runs `deepseek/deepseek-v4-pro`)
 - **Embeddings**: text-embedding-3-large via OpenRouter
 
 ### 4. Dashboard App (`dashboard/`) — NEW

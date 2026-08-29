@@ -490,9 +490,28 @@ CREATE TABLE IF NOT EXISTS llm_usage (
     prompt_tokens       INTEGER       NOT NULL DEFAULT 0,
     completion_tokens   INTEGER       NOT NULL DEFAULT 0,
     total_tokens        INTEGER       NOT NULL DEFAULT 0,
-    estimated_cost_usd  NUMERIC(10,6) NOT NULL DEFAULT 0,
+    estimated_cost_usd  NUMERIC(14,10) NOT NULL DEFAULT 0,
     created_at          TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
+
+-- One-time migration: widen llm_usage.estimated_cost_usd to NUMERIC(14,10).
+-- NUMERIC(10,6) rounds to micro-dollars. That was tolerable while costs were
+-- estimated at Claude Sonnet rates, but the provider-reported figures are far
+-- smaller on cheaper models (a DeepSeek call can land below 1e-6 USD), so
+-- micro-dollar granularity would quantise real spend toward zero and make the
+-- daily budget under-count. Widening is lossless for existing rows.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'llm_usage'
+       AND column_name = 'estimated_cost_usd'
+       AND numeric_scale < 10
+  ) THEN
+    ALTER TABLE llm_usage ALTER COLUMN estimated_cost_usd TYPE NUMERIC(14,10);
+  END IF;
+END $$;
 
 -- One-time migration: drop cumulative stream-event prefixes.
 --

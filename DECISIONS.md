@@ -86,3 +86,4 @@
 | [D-052](docs/decisions/D-052-dashboard-otel-sdk.md) | Dashboard's OTel SDK (traces+logs, `dashboard/lib/otel/`) must fail open on any error and never set a `DiagConsoleLogger` — the console bridge must not feed the SDK's own diagnostics back into itself. |
 | [D-053](docs/decisions/D-053-no-fabricated-tool-logs.md) | A turn whose text carries raw provider tool markup, or tool-log shape with zero real tool calls, must fail — never persist as `complete`. |
 | [D-054](docs/decisions/D-054-conversation-list-actions-desktop-only.md) | Below `md` the conversations list drops the checkbox/pencil/Acciones columns and gives the width to a 2-line title; those actions live in the conversation header instead. |
+| [D-056](docs/decisions/D-056-multi-model-support.md) | DeepSeek, Anthropic and OpenAI are all supported. Cost comes from the provider (never a rate table), no single tool-call dialect may be assumed, output budgets are configurable. |
