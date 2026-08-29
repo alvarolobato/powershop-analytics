@@ -309,25 +309,49 @@ CREATE TABLE IF NOT EXISTS ps_barras_asociado (
 -- bucket rather than silently dropping them — always check that bucket
 -- before trusting a "most-sold size" answer as complete.
 CREATE OR REPLACE VIEW ps_lineas_ventas_talla AS
+WITH barras_unicas AS (
+    -- Collapse to ONE row per barcode before joining.
+    --
+    -- ps_barras_asociado's primary key is reg_barras, not codigo, and nothing
+    -- guarantees codigo is unique — docs/schema-discovery.md even describes
+    -- BarrasAsociado.Codigo as a "product code". If a single codigo maps to
+    -- several rows, joining it directly against a sale line would MULTIPLY that
+    -- line by the number of matches and silently inflate every SUM(unidades):
+    -- a "most-sold size" that is confidently wrong, which is worse than the
+    -- honest "no puedo" this view replaces.
+    --
+    -- So collapse first, and keep the ambiguity as data instead of resolving it
+    -- by luck: a codigo that maps to more than one distinct size resolves to
+    -- NULL with talla_resolucion = 'ambiguo', never to an arbitrary pick.
+    SELECT
+        codigo,
+        MIN(talla)              AS talla,
+        MIN(n_talla)            AS n_talla,
+        COUNT(DISTINCT talla)   AS n_tallas_distintas
+    FROM ps_barras_asociado
+    WHERE codigo IS NOT NULL
+    GROUP BY codigo
+)
 SELECT
     lv.reg_lineas,
     lv.num_ventas,
     lv.codigo,
     lv.num_articulo,
     lv.codigo_asociado,
-    ba.talla,
-    ba.n_talla,
+    CASE WHEN bu.n_tallas_distintas > 1 THEN NULL ELSE bu.talla END   AS talla,
+    CASE WHEN bu.n_tallas_distintas > 1 THEN NULL ELSE bu.n_talla END AS n_talla,
     lv.unidades,
     lv.total_si,
     lv.tienda,
     lv.fecha_creacion,
     CASE
-        WHEN lv.codigo_asociado IS NULL THEN 'sin_codigo_asociado'
-        WHEN ba.talla IS NULL THEN 'sin_match'
+        WHEN lv.codigo_asociado IS NULL      THEN 'sin_codigo_asociado'
+        WHEN bu.codigo IS NULL               THEN 'sin_match'
+        WHEN bu.n_tallas_distintas > 1       THEN 'ambiguo'
         ELSE 'ok'
     END AS talla_resolucion
 FROM ps_lineas_ventas lv
-LEFT JOIN ps_barras_asociado ba ON lv.codigo_asociado = ba.codigo;
+LEFT JOIN barras_unicas bu ON lv.codigo_asociado = bu.codigo;
 
 -- ============================================================
 -- Stock
