@@ -13,13 +13,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const getAgenticConfig = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/llm-tools/config", () => ({ getAgenticConfig }));
+const readConfigString = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/system-config/read", () => ({ readConfigString }));
 vi.mock("@/lib/db-write", () => ({ sql: vi.fn(), withTransaction: vi.fn() }));
 vi.mock("@/lib/db", () => ({ query: vi.fn() }));
 vi.mock("@/lib/sse-pubsub", () => ({ publish: vi.fn() }));
 
 import { activeTurnStaleMinutes } from "@/lib/turn-events";
 
-beforeEach(() => getAgenticConfig.mockReset());
+beforeEach(() => {
+  getAgenticConfig.mockReset();
+  readConfigString.mockReset();
+  readConfigString.mockReturnValue(undefined); // default 120s ceiling
+});
 
 const withCaps = (maxToolCalls: number, maxToolRounds: number, toolTimeoutMs = 15_000) => {
   getAgenticConfig.mockReturnValue({ maxToolCalls, maxToolRounds, toolTimeoutMs });
@@ -47,5 +53,32 @@ describe("activeTurnStaleMinutes", () => {
 
   it("grows with the caps — that is the whole point", () => {
     expect(withCaps(200, 80)).toBeGreaterThan(withCaps(24, 8));
+  });
+});
+
+describe("activeTurnStaleMinutes — CLI timeout is configurable too", () => {
+  it("grows when dashboard.llm_cli_timeout_ms is raised", () => {
+    // A fixed 120s ceiling would under-estimate the worst case for an operator
+    // who raised the CLI timeout — the same hidden-coupling bug this whole
+    // derivation exists to remove, one level down.
+    getAgenticConfig.mockReturnValue({ maxToolCalls: 24, maxToolRounds: 8, toolTimeoutMs: 15_000 });
+
+    readConfigString.mockReturnValue(undefined);
+    const atDefault = activeTurnStaleMinutes();
+
+    readConfigString.mockReturnValue("600000"); // 10 min per round
+    const atRaised = activeTurnStaleMinutes();
+
+    expect(atRaised).toBeGreaterThan(atDefault);
+  });
+
+  it("falls back to 120s when the setting is absent or unparseable", () => {
+    getAgenticConfig.mockReturnValue({ maxToolCalls: 24, maxToolRounds: 8, toolTimeoutMs: 15_000 });
+    readConfigString.mockReturnValue(undefined);
+    const fallback = activeTurnStaleMinutes();
+    readConfigString.mockReturnValue("not-a-number");
+    expect(activeTurnStaleMinutes()).toBe(fallback);
+    readConfigString.mockReturnValue("0");
+    expect(activeTurnStaleMinutes()).toBe(fallback);
   });
 });

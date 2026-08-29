@@ -4,6 +4,7 @@
 
 import { sql, withTransaction } from "@/lib/db-write";
 import { getAgenticConfig } from "@/lib/llm-tools/config";
+import { readConfigString } from "@/lib/system-config/read";
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -111,18 +112,25 @@ export function activeTurnStaleMinutes(): number {
   // Model latency per round is not bounded by the agentic config; the CLI
   // timeout is the closest available ceiling and is the larger of the two
   // providers' budgets, so it is the conservative choice.
-  const modelMs = cfg.maxToolRounds * CLI_TIMEOUT_CEILING_MS;
+  const modelMs = cfg.maxToolRounds * cliTimeoutCeilingMs();
   const slackMs = 10 * 60_000;
   return Math.max(30, Math.ceil((toolMs + modelMs + slackMs) / 60_000));
 }
 
 /**
  * Per-model-step latency ceiling used only by the staleness derivation above.
- * Mirrors `dashboard.llm_cli_timeout_ms`'s 120s default; it is a bound for a
- * safety cutoff, not a request timeout, so it does not need to track that
- * setting exactly.
+ *
+ * Read from `dashboard.llm_cli_timeout_ms` rather than hardcoded: an operator
+ * who raises that timeout gets longer legitimate turns, and a fixed 120s
+ * ceiling would under-estimate the worst case and reintroduce exactly the
+ * stale-turn misclassification this derivation exists to prevent — the same
+ * hidden-coupling bug, one level down.
  */
-const CLI_TIMEOUT_CEILING_MS = 120_000;
+function cliTimeoutCeilingMs(): number {
+  const raw = readConfigString("DASHBOARD_LLM_CLI_TIMEOUT_MS", "dashboard.llm_cli_timeout_ms");
+  const n = raw === undefined ? NaN : parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 120_000;
+}
 
 /**
  * Result of createTurnIfIdle: the created turn, or null when another turn is
