@@ -395,9 +395,9 @@ describe("getConversationEvents — bounded replay", () => {
 
   it("caps a runaway replay and says so instead of truncating silently", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    // 5001 rows: one more than the ceiling, which is how the query detects
-    // that there were more rather than guessing.
-    const many = Array.from({ length: 5001 }, (_, i) => ({ ...TURN_EVENTS[0], id: i + 1 }));
+    // The query orders DESC, so the driver returns newest-first: id 5001 down
+    // to 1. One more than the ceiling is how overflow is detected.
+    const many = Array.from({ length: 5001 }, (_, i) => ({ ...TURN_EVENTS[0], id: 5001 - i }));
     mockSql.mockResolvedValueOnce(many);
 
     const events = await getConversationEvents(CONV_ID);
@@ -407,6 +407,40 @@ describe("getConversationEvents — bounded replay", () => {
       expect.stringContaining("ceiling"),
     );
     warn.mockRestore();
+  });
+
+  it("keeps the NEWEST events on overflow, not the oldest", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const many = Array.from({ length: 5001 }, (_, i) => ({ ...TURN_EVENTS[0], id: 5001 - i }));
+    mockSql.mockResolvedValueOnce(many);
+
+    const events = await getConversationEvents(CONV_ID);
+
+    // Dropping the newest would leave the client permanently behind: token /
+    // thinking payloads are cumulative, log events are appended, and
+    // Last-Event-ID only moves forward, so a gap below the head is never
+    // re-requested on any later reconnect.
+    expect(events[events.length - 1].id, "the head must survive truncation").toBe(5001);
+    expect(events[0].id, "the OLDEST event is the one dropped").toBe(2);
+    warn.mockRestore();
+  });
+
+  it("returns events in ascending id order despite querying newest-first", async () => {
+    // The client relies on ascending delivery; DESC is a query-side detail.
+    mockSql.mockResolvedValueOnce([
+      { ...TURN_EVENTS[0], id: 9 },
+      { ...TURN_EVENTS[0], id: 4 },
+      { ...TURN_EVENTS[0], id: 7 },
+    ]);
+    const events = await getConversationEvents(CONV_ID);
+    expect(events.map((e) => e.id)).toEqual([4, 7, 9]);
+  });
+
+  it("queries newest-first so truncation can keep the head", async () => {
+    mockSql.mockResolvedValueOnce([]);
+    await getConversationEvents(CONV_ID);
+    const [query] = mockSql.mock.calls[0] as [string];
+    expect(query).toContain("ORDER BY te.id DESC");
   });
 
   it("does not warn when the result sits under the ceiling", async () => {

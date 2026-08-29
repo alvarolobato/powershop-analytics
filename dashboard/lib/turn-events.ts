@@ -363,7 +363,7 @@ export async function getConversationEvents(
               AND (te.event_type <> ALL($3::text[])
                    OR ct.status IN ('streaming', 'pending')
                    OR te.id IN (SELECT id FROM keep))
-            ORDER BY te.id ASC
+            ORDER BY te.id DESC
             LIMIT ${MAX_REPLAY_EVENTS + 1}`,
           [conversationId, sinceId, TRANSIENT_EVENT_TYPES],
         )
@@ -376,21 +376,28 @@ export async function getConversationEvents(
               AND (te.event_type <> ALL($2::text[])
                    OR ct.status IN ('streaming', 'pending')
                    OR te.id IN (SELECT id FROM keep))
-            ORDER BY te.id ASC
+            ORDER BY te.id DESC
             LIMIT ${MAX_REPLAY_EVENTS + 1}`,
           [conversationId, TRANSIENT_EVENT_TYPES],
         );
 
-  if (rows.length > MAX_REPLAY_EVENTS) {
-    // Never truncate silently (AGENTS.md): say what was dropped. Note the
-    // client's Last-Event-ID only moves forward, so a gap here is not
-    // re-requested on reconnect — this warning is the only signal.
+  // Queried newest-first so a truncated replay keeps the events NEAREST THE
+  // HEAD, then re-sorted ascending for the client. Dropping the newest instead
+  // would leave the client permanently behind: `token`/`thinking` payloads are
+  // cumulative, `log` events are appended rather than replaced, and the
+  // client's Last-Event-ID only ever moves forward — so a gap below the head
+  // is never re-requested on any later reconnect.
+  const overflowed = rows.length > MAX_REPLAY_EVENTS;
+  const kept = overflowed ? rows.slice(0, MAX_REPLAY_EVENTS) : rows;
+  kept.sort((a, b) => a.id - b.id);
+
+  if (overflowed) {
+    // Never truncate silently (AGENTS.md): say what was dropped.
     console.warn(
       `[turn-events] conversation ${conversationId} replay hit the ${MAX_REPLAY_EVENTS}-event ceiling` +
-        ` (sinceId=${sinceId ?? "none"}); returning the oldest ${MAX_REPLAY_EVENTS} and dropping the rest.` +
+        ` (sinceId=${sinceId ?? "none"}); returning the NEWEST ${MAX_REPLAY_EVENTS} and dropping older ones.` +
         ` Expected only for a very long in-flight turn; settled turns contribute a handful of rows.`,
     );
-    return rows.slice(0, MAX_REPLAY_EVENTS);
   }
-  return rows;
+  return kept;
 }
