@@ -42,6 +42,12 @@ sources:
   - slice: data-access
     path: docs/skills/data-access.md
     markers: [rules]
+  - slice: data-dictionary
+    path: docs/data-dictionary.md
+    markers: [rules]
+  - slice: sample-queries
+    path: docs/sample-queries.md
+    markers: [rules, sql-pairs]
   - slice: sql-pairs
     path: docs/dashboard/sql-pairs.md
     markers: [sql-pairs]
