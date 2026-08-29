@@ -25,12 +25,17 @@ This document describes the **native tool-calling** path for the Dashboard App L
 | `get_dashboard_widget_raw_values` | Execute one widget’s primary SQL (date tokens substituted) |
 | `get_dashboard_all_widget_status` | Per-SQL read-only + cost + lint status |
 
-## Limits (environment variables)
+## Limits
+
+Resolved as **env var > `config.yaml` > schema default** (D-023). `config.yaml`
+is the primary channel — it is what the admin UI writes and what production
+uses; the env vars below are overrides. Until 2026-08-29 the code read env only
+and silently ignored `config.yaml` for these keys (D-055).
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS` | 4 | Max assistant turns (each may include tool calls) |
-| `DASHBOARD_AGENTIC_MAX_TOOL_CALLS` | 12 | Max tool invocations per HTTP request |
+| `DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS` | 8 | Max assistant turns (each may include tool calls) |
+| `DASHBOARD_AGENTIC_MAX_TOOL_CALLS` | 24 | Max tool invocations per HTTP request |
 | `DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS` | 15000 | Wall-clock timeout per tool handler |
 | `DASHBOARD_AGENTIC_MAX_ROWS` | 200 | Row cap for `execute_query` / widget raw tool |
 | `DASHBOARD_AGENTIC_MAX_COLUMNS` | 30 | Column cap |

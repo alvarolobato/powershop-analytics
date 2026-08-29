@@ -36,6 +36,9 @@ vi.mock("@/lib/llm-enabled", () => ({
 import {
   flattenStoredMessage,
   formatToolCallsForHistory,
+  looksLikeFabricatedToolLog,
+  TOOL_LOG_OPEN_TAG,
+  TOOL_LOG_CLOSE_TAG,
   capHistory,
   HISTORY_MAX_MESSAGES,
   type HistoryMessage,
@@ -300,5 +303,218 @@ describe("capHistory — summarisation respects the kill switch and the stub pro
     const out = await capHistory(longHistory, 10, "chat");
     expect(mockChatCompletion).toHaveBeenCalledOnce();
     expect(out[0].content).toContain("resumen");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fabricated tool-log guard (production incident 2026-08-28, conv 0a566ce7cc78)
+// ---------------------------------------------------------------------------
+
+describe("looksLikeFabricatedToolLog", () => {
+  // Verbatim from conversation_messages id 292e32d5 in production — the text
+  // the user was shown as a completed answer. SQL bodies elided; the shape
+  // (header, `- name({...})` lines, no ` → result` anywhere) is preserved,
+  // because that shape is exactly what the detector keys on.
+  const PROD_FABRICATED = [
+    "[Datos consultados con herramientas en esta respuesta]",
+    '- execute_query({"sql":"SELECT p.codigo, p.ccrefejofacm AS referencia FROM ps_articulos p WHERE p.ccrefejofacm LIKE \'V265103%\'"})',
+    '- execute_query({"sql":"SELECT c.color, SUM(lv.unidades) FROM ps_lineas_ventas lv GROUP BY c.color"})',
+    '- execute_query({"sql":"SELECT c.color, SUM(s.stock) FROM ps_stock_tienda s GROUP BY c.color"})',
+  ].join("\n");
+
+  it("catches the exact production payload (legacy framing, zero tool calls)", () => {
+    expect(looksLikeFabricatedToolLog(PROD_FABRICATED, 0)).toBe(true);
+  });
+
+  it("catches the same fabrication in the new tagged framing", () => {
+    const text = [
+      TOOL_LOG_OPEN_TAG,
+      '- execute_query({"sql":"SELECT 1"})',
+      TOOL_LOG_CLOSE_TAG,
+    ].join("\n");
+    expect(looksLikeFabricatedToolLog(text, 0)).toBe(true);
+  });
+
+  it("does NOT fire when the turn really made tool calls", () => {
+    // The whole point of the zero-call condition: a turn that genuinely ran
+    // tools is never killed, whatever its text happens to look like.
+    expect(looksLikeFabricatedToolLog(PROD_FABRICATED, 3)).toBe(false);
+    expect(looksLikeFabricatedToolLog(PROD_FABRICATED, 1)).toBe(false);
+  });
+
+  it("does not fire on the real answers from the same conversation", () => {
+    const realAnswers = [
+      "La referencia **V265001** (POLO CUELLO MAO, temporada **V26**) se vende en 5 colores.",
+      "Estudio completo de la referencia **V265002** (POLO PIQUE BASICO)...",
+      "Revisé el modelo de datos y hay un matiz importante que debes saber antes de los números:",
+      "Aclaración importante: **V26510399** no es una familia, es un color concreto.",
+    ];
+    for (const answer of realAnswers) {
+      expect(looksLikeFabricatedToolLog(answer, 0)).toBe(false);
+    }
+  });
+
+  it("does not fire on prose that merely mentions the block", () => {
+    // Requires call-shaped lines, not just the framing, so explaining the
+    // block is still a valid answer.
+    const prose = `${TOOL_LOG_OPEN_TAG} es el registro interno de herramientas; no lo verás en las respuestas.`;
+    expect(looksLikeFabricatedToolLog(prose, 0)).toBe(false);
+  });
+
+  it("catches raw DeepSeek DSML markup leaking as the answer", () => {
+    // Shape of production message 0cd5c169 (2026-08-29): the model emitted its
+    // native tool-call markup and OpenRouter did not parse it into tool_calls,
+    // so openrouter.ts saw non-empty text and returned kind:"final".
+    const dsml = [
+      '- execute_query({"sql":"SELECT COALESCE(NULLIF(TRIM(fm.fami_grup_marc), \'\'), 1)"})',
+      "</\uFF5C\uFF5CDSML\uFF5C\uFF5Cparameter>",
+      "</\uFF5C\uFF5CDSML\uFF5C\uFF5Cinvoke>",
+      "</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>",
+    ].join("\n");
+    expect(looksLikeFabricatedToolLog(dsml, 0)).toBe(true);
+  });
+
+  it("catches a DSML leak that does NOT imitate the Spanish header", () => {
+    // The three production cases happened to carry the header too, so the
+    // framing check would have caught them by luck. This is the case that
+    // proves the DSML condition is doing independent work: no header at all.
+    const bare = "Aqui tienes el analisis.\n</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>";
+    expect(bare.includes("[Datos consultados")).toBe(false);
+    expect(looksLikeFabricatedToolLog(bare, 0)).toBe(true);
+  });
+
+  it.each([
+    // The dashboard targets DeepSeek, Claude and OpenAI, so a parser gap in
+    // ANY family must be caught — not just the one that happened to fail in
+    // production. Each case is that family's tool-call serialisation.
+    ["DeepSeek DSML", "</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>"],
+    ["DeepSeek R1 begin-token", "<\uFF5Ctool\u2581calls\u2581begin\uFF5C>"],
+    ["Anthropic function_calls", "<function_calls>\n<invoke name=\"execute_query\">"],
+    ["Anthropic invoke close", "</invoke>"],
+    ["Anthropic parameter", '<parameter name="sql">SELECT 1</parameter>'],
+    ["OpenAI python_tag", "<|python_tag|>execute_query({})"],
+    ["OpenAI harmony", "<|channel|>commentary to=functions.execute_query"],
+    ["generic tool_call", "<tool_call>{\"name\":\"execute_query\"}</tool_call>"],
+    ["Mistral/Llama", "[TOOL_CALLS]execute_query"],
+  ])("catches leaked %s markup with zero tool calls", (_label, markup) => {
+    expect(looksLikeFabricatedToolLog(`Aqui tienes el analisis.\n${markup}`, 0)).toBe(true);
+  });
+
+  it.each([
+    ["prose about tool_calls", "El campo tool_calls guarda las llamadas del turno."],
+    ["prose about invoke", "Puedes invoke the tool o pedirmelo directamente."],
+    ["prose about parameters", "El parameter name es obligatorio en la consulta."],
+    ["markdown table", "| tool_calls | 3 |\n| rondas | 2 |"],
+    ["SQL with angle brackets", "WHERE a < b AND c > d"],
+  ])("does not fire on %s", (_label, text) => {
+    // Every alternative requires delimiter punctuation, never a bare word.
+    expect(looksLikeFabricatedToolLog(text, 0)).toBe(false);
+  });
+
+  it("fires on UNAMBIGUOUS markup even when the turn made tool calls", () => {
+    // The case the guard exists for, and the one an earlier revision waved
+    // through: round 1 calls execute_query successfully (count = 3), round 2
+    // emits markup the router fails to parse, openrouter.ts returns
+    // kind:"final" on the non-empty text. `ctx.toolCalls` accumulates across
+    // rounds, so the count at the persist seam is 3 — and gating the markup
+    // check behind `actualToolCalls === 0` disabled it exactly here.
+    const dsml = "Aqui tienes:\n</\uFF5C\uFF5CDSML\uFF5C\uFF5Ctool_calls>";
+    expect(looksLikeFabricatedToolLog(dsml, 3)).toBe(true);
+    expect(looksLikeFabricatedToolLog("<function_calls>", 5)).toBe(true);
+    expect(looksLikeFabricatedToolLog("<|python_tag|>x", 1)).toBe(true);
+  });
+
+  it("does NOT fire on the loose shapes when the turn made tool calls", () => {
+    // `<tool_call>` and `<parameter>` legitimately appear in an answer that
+    // shows an XML snippet, so those stay gated on zero tool calls.
+    expect(looksLikeFabricatedToolLog("<tool_call>x</tool_call>", 2)).toBe(false);
+    expect(looksLikeFabricatedToolLog('<parameter name="timeout">30</parameter>', 2)).toBe(false);
+  });
+
+  it("catches a fabrication that does not start at position 0", () => {
+    // One word of preamble defeated the anchored `startsWith` check — and this
+    // change alters the very block the model imitates, so the imitation's
+    // shape is expected to shift.
+    const withPreamble =
+      'Claro, aqui tienes:\n\n[Datos consultados con herramientas en esta respuesta]\n- execute_query({"sql":"SELECT 1"})';
+    expect(looksLikeFabricatedToolLog(withPreamble, 0)).toBe(true);
+  });
+
+  it("does not fire on a lowercase markdown link to tool_calls", () => {
+    // The Mistral/Llama sentinel is uppercase; matching case-insensitively
+    // hard-errored a legitimate answer containing `[tool_calls](url)`.
+    expect(looksLikeFabricatedToolLog("Ver [tool_calls](https://x/y) para detalles.", 0)).toBe(false);
+    expect(looksLikeFabricatedToolLog("- [tool_calls] guarda las llamadas", 0)).toBe(false);
+  });
+
+  it("does not fire on prose that merely says the word tool_calls", () => {
+    // Guard against over-matching: the pattern requires tag punctuation.
+    expect(
+      looksLikeFabricatedToolLog("El campo tool_calls guarda las llamadas del turno.", 0),
+    ).toBe(false);
+  });
+
+  it("does not fire on an empty or whitespace answer", () => {
+    expect(looksLikeFabricatedToolLog("", 0)).toBe(false);
+    expect(looksLikeFabricatedToolLog("   \n  ", 0)).toBe(false);
+  });
+
+  it("catches it despite leading whitespace", () => {
+    expect(looksLikeFabricatedToolLog(`\n\n  ${PROD_FABRICATED}`, 0)).toBe(true);
+  });
+});
+
+describe("formatToolCallsForHistory framing", () => {
+  it("no longer opens with a bare Spanish heading that reads as assistant prose", () => {
+    const block = formatToolCallsForHistory([
+      { name: "execute_query", arguments: { sql: "SELECT 1" }, result: "1 fila" },
+    ] as never);
+    expect(block.startsWith(TOOL_LOG_OPEN_TAG)).toBe(true);
+    expect(block).toContain(TOOL_LOG_CLOSE_TAG);
+    expect(block).toContain("Nunca reproduzcas este bloque");
+    // The result arrow is what distinguishes a real block from a fabricated
+    // one; it must survive the reframing.
+    expect(block).toContain("→");
+  });
+
+  it("still returns empty string when there are no tool calls", () => {
+    expect(formatToolCallsForHistory([])).toBe("");
+  });
+});
+
+describe("flattenStoredMessage — drains poisoned history", () => {
+  it("skips a stored assistant message that is itself a fabrication", () => {
+    // Otherwise the conversations that already relapsed keep being shown the
+    // pattern they copied, every turn, forever.
+    const row = {
+      role: "assistant",
+      content: {
+        text: [
+          "[Datos consultados con herramientas en esta respuesta]",
+          '- execute_query({"sql":"SELECT 1"})',
+        ].join("\n"),
+      },
+    };
+    expect(flattenStoredMessage(row)).toBeNull();
+  });
+
+  it("keeps a normal assistant answer", () => {
+    const row = { role: "assistant", content: { text: "La referencia V265001 se vendio 42 veces." } };
+    expect(flattenStoredMessage(row)?.content).toContain("V265001");
+  });
+
+  it("keeps an answer from a turn that really ran tools", () => {
+    // Real tool calls + a real answer: the tool block is folded in as before.
+    const row = {
+      role: "assistant",
+      content: {
+        text: "Aqui tienes el analisis.",
+        tool_calls: [{ name: "execute_query", arguments: { sql: "SELECT 1" }, result: "1 fila" }],
+      },
+    };
+    const out = flattenStoredMessage(row);
+    expect(out).not.toBeNull();
+    expect(out?.content).toContain("Aqui tienes el analisis.");
+    expect(out?.content).toContain("execute_query");
   });
 });

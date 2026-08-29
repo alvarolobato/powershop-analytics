@@ -4,6 +4,7 @@ import {
   queryReadOnlyWithStatementTimeout,
   QueryTimeoutError,
 } from "@/lib/db";
+import { readConfigString } from "@/lib/system-config/read";
 
 const LARGE_TABLES = new Set([
   "ps_stock_tienda",
@@ -112,7 +113,10 @@ export async function validateQueryCost(
     // block queries whose planner total cost exceeds that threshold. When unset
     // (or invalid / zero), we still run EXPLAIN for seq-scan warnings below but
     // never reject on cost — large default dashboards must not fail here.
-    const rawLimit = process.env.QUERY_COST_LIMIT?.trim();
+    // Read via the config loader, not env alone: the key is declared in
+    // config/schema.yaml and writable from the admin UI, so an env-only read
+    // would make that UI silently inert for it (D-055).
+    const rawLimit = readConfigString("QUERY_COST_LIMIT", "dashboard.query_cost_limit");
     let enforcedLimit: number | undefined;
     if (rawLimit !== undefined && rawLimit !== "") {
       // Strict parse: reject partial numbers like "100000foo" (parseInt would not).
