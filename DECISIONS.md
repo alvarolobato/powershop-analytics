@@ -55,6 +55,7 @@
 | [D-017](docs/decisions/D-017-signed-int16-stock.md) | Apply `decode_signed_int16_word()` ONLY to `Exportaciones.Stock1..Stock34` (and `CCStock.Stock1..Stock34`) — the type-3/length-2 columns. Never on Real (type-6) columns. |
 | [D-050](docs/decisions/D-050-upsert-batch-loss.md) | `upsert()` pre-filters NULL/NaN-PK rows, falls back to row-by-row SAVEPOINT inserts on batch failure, and raises if zero rows survive — never a quiet 0-row "ok". |
 | [D-051](docs/decisions/D-051-fetch-anomaly-guard.md) | `safe_fetch()` scans every fetch for decode-corruption-shaped rows and refetches once to discriminate transient corruption from real data; evidence goes to `etl_fetch_anomalies`, never the D-050 skip log. |
+| [D-048](docs/decisions/D-048-sales-by-size.md) | Sales-by-size resolves via `ps_lineas_ventas_talla` (barcode join, UNVERIFIED — run `ps sql verify-talla-join`); `talla_resolucion` surfaces unresolved lines. |
 
 ## WrenAI knowledge
 
