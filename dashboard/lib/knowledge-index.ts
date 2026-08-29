@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 19 ficheros. 292 secciones (223 con SQL,
+// Fuente: 20 ficheros. 298 secciones (228 con SQL,
 // 122 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -428,126 +428,126 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto hemos vendido cada día en una tienda concreta? (neto de devoluciones)",
-    "body": "```sql\nSELECT v.\"fecha_creacion\" AS \"Fecha\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" = '99' AND v.\"fecha_creacion\" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY v.\"fecha_creacion\" ORDER BY v.\"fecha_creacion\"\n```",
+    "body": "```sql\nSELECT v.\"fecha_creacion\" AS \"Fecha\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" = '99' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY v.\"fecha_creacion\" ORDER BY v.\"fecha_creacion\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es la venta neta mensual por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY t.\"identificador\", DATE_TRUNC('month', v.\"fecha_creacion\") ORDER BY \"Mes\", \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\", DATE_TRUNC('month', v.\"fecha_creacion\") ORDER BY \"Mes\", \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los 20 productos con más facturación neta?",
-    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\") AS \"Unidades\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Venta Neta\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\") AS \"Unidades\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Venta Neta\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por familia de producto?",
-    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\") AS \"Unidades\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY f.\"fami_grup_marc\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\") AS \"Unidades\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por marca?",
-    "body": "```sql\nSELECT m.\"marca_tratamien\" AS \"Marca\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_marcas\" m ON m.\"reg_marca\" = a.\"num_marca\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY m.\"marca_tratamien\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT m.\"marca_tratamien\" AS \"Marca\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_marcas\" m ON m.\"reg_marca\" = a.\"num_marca\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY m.\"marca_tratamien\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por temporada?",
-    "body": "```sql\nSELECT te.\"temporada_tipo\" AS \"Temporada\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_temporadas\" te ON te.\"reg_temporada\" = a.\"num_temporada\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY te.\"temporada_tipo\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT te.\"temporada_tipo\" AS \"Temporada\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_temporadas\" te ON te.\"reg_temporada\" = a.\"num_temporada\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY te.\"temporada_tipo\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos por departamento?",
-    "body": "```sql\nSELECT d.\"depa_secc_fabr\" AS \"Departamento\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_departamentos\" d ON d.\"reg_departament\" = a.\"num_departament\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY d.\"depa_secc_fabr\" ORDER BY \"Venta Neta\" DESC\n```",
+    "body": "```sql\nSELECT d.\"depa_secc_fabr\" AS \"Departamento\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_departamentos\" d ON d.\"reg_departament\" = a.\"num_departament\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY d.\"depa_secc_fabr\" ORDER BY \"Venta Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto importan las devoluciones por tienda este mes?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(*) FILTER (WHERE NOT v.\"entrada\") AS \"Tickets Devolución\", SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Importe Devuelto\", ROUND(100.0 * SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") / NULLIF(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0), 2) AS \"% sobre Bruto\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY t.\"identificador\" ORDER BY \"Importe Devuelto\" DESC NULLS LAST\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(*) FILTER (WHERE NOT v.\"entrada\") AS \"Tickets Devolución\", SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Importe Devuelto\", ROUND(100.0 * SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") / NULLIF(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0), 2) AS \"% sobre Bruto\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Importe Devuelto\" DESC NULLS LAST\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Qué día de la semana vendemos más?",
-    "body": "```sql\nSELECT TO_CHAR(v.\"fecha_creacion\", 'ID') AS \"Día ISO\", TRIM(TO_CHAR(v.\"fecha_creacion\", 'Day')) AS \"Día\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"fecha_creacion\" >= CURRENT_DATE - INTERVAL '1 year' GROUP BY 1, 2 ORDER BY 1\n```",
+    "body": "```sql\nSELECT TO_CHAR(v.\"fecha_creacion\", 'ID') AS \"Día ISO\", TRIM(TO_CHAR(v.\"fecha_creacion\", 'Day')) AS \"Día\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1, 2 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cómo se reparten las ventas por hora del día?",
-    "body": "```sql\nSELECT EXTRACT(HOUR FROM v.\"hora_creacion\")::int AS \"Hora\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"hora_creacion\" IS NOT NULL AND v.\"fecha_creacion\" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT EXTRACT(HOUR FROM v.\"hora_creacion\")::int AS \"Hora\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"hora_creacion\" IS NOT NULL AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el ticket medio por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND((SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) / NULLIF(COUNT(*) FILTER (WHERE v.\"entrada\"), 0), 2) AS \"Ticket Medio\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY t.\"identificador\" ORDER BY \"Ticket Medio\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND((SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) / NULLIF(COUNT(*) FILTER (WHERE v.\"entrada\"), 0), 2) AS \"Ticket Medio\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Ticket Medio\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los mejores clientes de retail por importe gastado?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Compras\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Gasto Neto\", MAX(v.\"fecha_creacion\") AS \"Última Compra\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = v.\"num_cliente\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY c.\"nombre\" ORDER BY \"Gasto Neto\" DESC LIMIT 50\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Compras\", SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Gasto Neto\", MAX(v.\"fecha_creacion\") AS \"Última Compra\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = v.\"num_cliente\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Gasto Neto\" DESC LIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuántos clientes únicos compran en cada tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(DISTINCT v.\"num_cliente\") AS \"Clientes Únicos\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"num_cliente\" IS NOT NULL AND v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY t.\"identificador\" ORDER BY \"Clientes Únicos\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COUNT(DISTINCT v.\"num_cliente\") AS \"Clientes Únicos\" FROM \"public\".\"ps_ventas\" v JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"num_cliente\" IS NOT NULL AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Clientes Únicos\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto se cobra por cada forma de pago?",
-    "body": "```sql\nSELECT pv.\"forma\" AS \"Forma de Pago\", COUNT(*) FILTER (WHERE pv.\"entrada\") AS \"Cobros\", SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\") - SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\") AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv WHERE pv.\"fecha_creacion\" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY pv.\"forma\" ORDER BY \"Importe Neto\" DESC\n```",
+    "body": "```sql\nSELECT pv.\"forma\" AS \"Forma de Pago\", COUNT(*) FILTER (WHERE pv.\"entrada\") AS \"Cobros\", SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\") - SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\") AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv WHERE pv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY pv.\"forma\" ORDER BY \"Importe Neto\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el mix de formas de pago por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", pv.\"forma\" AS \"Forma de Pago\", SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\") - SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\") AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = pv.\"tienda\" WHERE pv.\"fecha_creacion\" >= DATE_TRUNC('month', CURRENT_DATE) GROUP BY t.\"identificador\", pv.\"forma\" ORDER BY t.\"identificador\", \"Importe Neto\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", pv.\"forma\" AS \"Forma de Pago\", SUM(pv.\"importe_cob\") FILTER (WHERE pv.\"entrada\") - SUM(pv.\"importe_cob\") FILTER (WHERE NOT pv.\"entrada\") AS \"Importe Neto\" FROM \"public\".\"ps_pagos_ventas\" pv JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = pv.\"tienda\" WHERE pv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\", pv.\"forma\" ORDER BY t.\"identificador\", \"Importe Neto\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen bruto por producto en retail?",
-    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Coste\", (SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\")) AS \"Margen\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Coste\", (SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\")) AS \"Margen\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el porcentaje de margen por familia?",
-    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND(100.0 * ((SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"))) / NULLIF(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY f.\"fami_grup_marc\" ORDER BY \"Margen %\" DESC\n```",
+    "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND(100.0 * ((SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"))) / NULLIF(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Margen %\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen por tienda?",
-    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND(100.0 * ((SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"))) / NULLIF(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY t.\"identificador\" ORDER BY \"Margen %\" DESC\n```",
+    "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta\", ROUND(100.0 * ((SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\")) - (SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"))) / NULLIF(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Margen %\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -582,56 +582,56 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto facturamos a mayoristas por mes? (neto de abonos)",
-    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los mejores clientes mayoristas?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Qué productos se venden más en el canal mayorista?",
-    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"unidades\") AS \"Unidades\", SUM(gl.\"total\") AS \"Importe\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Importe\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"unidades\") AS \"Unidades\", SUM(gl.\"total\") AS \"Importe\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Importe\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vende cada comercial de mayorista?",
-    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
+    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\") - SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen del canal mayorista por producto?",
-    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"total\") AS \"Importe\", SUM(gl.\"total_coste\") AS \"Coste\", SUM(gl.\"total\") - SUM(gl.\"total_coste\") AS \"Margen\", ROUND(100.0 * (SUM(gl.\"total\") - SUM(gl.\"total_coste\")) / NULLIF(SUM(gl.\"total\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"total\") AS \"Importe\", SUM(gl.\"total_coste\") AS \"Coste\", SUM(gl.\"total\") - SUM(gl.\"total_coste\") AS \"Margen\", ROUND(100.0 * (SUM(gl.\"total\") - SUM(gl.\"total_coste\")) / NULLIF(SUM(gl.\"total\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
-    "body": "```sql\nSELECT tr.\"tienda_salida\" AS \"Origen\", tr.\"tienda_entrada\" AS \"Destino\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades Enviadas\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" >= DATE_TRUNC('year', CURRENT_DATE) AND NOT tr.\"entrada\" GROUP BY tr.\"tienda_salida\", tr.\"tienda_entrada\" ORDER BY \"Unidades Enviadas\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT tr.\"tienda_salida\" AS \"Origen\", tr.\"tienda_entrada\" AS \"Destino\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades Enviadas\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" BETWEEN :curr_from AND :curr_to AND NOT tr.\"entrada\" GROUP BY tr.\"tienda_salida\", tr.\"tienda_entrada\" ORDER BY \"Unidades Enviadas\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Qué tipos de traspaso se usan más?",
-    "body": "```sql\nSELECT tr.\"tipo\" AS \"Tipo\", tr.\"concepto\" AS \"Concepto\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_e\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_e\" >= DATE_TRUNC('year', CURRENT_DATE) AND tr.\"entrada\" GROUP BY tr.\"tipo\", tr.\"concepto\" ORDER BY \"Movimientos\" DESC\n```",
+    "body": "```sql\nSELECT tr.\"tipo\" AS \"Tipo\", tr.\"concepto\" AS \"Concepto\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_e\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_e\" BETWEEN :curr_from AND :curr_to AND tr.\"entrada\" GROUP BY tr.\"tipo\", tr.\"concepto\" ORDER BY \"Movimientos\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vendemos en retail excluyendo los artículos de mayorista (prefijo M)?",
-    "body": "```sql\nSELECT DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta Retail\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" WHERE lv.\"codigo\" NOT LIKE 'M%' AND v.\"fecha_creacion\" >= DATE_TRUNC('year', CURRENT_DATE) GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', v.\"fecha_creacion\")::date AS \"Mes\", SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\") - SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\") AS \"Venta Neta Retail\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" WHERE lv.\"codigo\" NOT LIKE 'M%' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1156,7 +1156,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/etl-sync-strategy.md",
     "heading": "Wholesale domain (Gestión Comercial)",
-    "body": "| Table | Rows | PK | Delta field | Strategy |\n|-------|------|----|-------------|---------|\n| GCAlbaranes | 48,948 | `RegAlbaran` | `Modifica` (max = today, ~19/day) | UPSERT delta |\n| GCLinAlbarane | 1,016,290 | `RegLinea` | **None** — derive from parent | Delete+reinsert via parent |\n| GCFacturas | 18,060 | `RegFactura` | `Modifica` (all 18K populated) | UPSERT delta |\n| GCLinFacturas | 974,742 | `RegLinea` | **None** — derive from parent | Delete+reinsert via parent |\n| GCPedidos | 101 | `RegPedido` | `Modifica` (available) | Full refresh (trivially small) |\n| GCLinPedidos | 2,645 | `RegLinea` | None | Full refresh (trivially small) |\n\n**Parent-join delta pattern for lines:**\n```sql\n-- Fetch lines for recently modified delivery notes\nSELECT * FROM GCLinAlbarane\nWHERE NAlbaran IN (\n    SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync\n)\n-- → DELETE FROM ps_gc_lin_albarane WHERE n_albaran = ANY(:changed_ids)\n-- → INSERT INTO ps_gc_lin_albarane ...\n```\n\n**FK corrections (important):**\n- `GCLinAlbarane.NAlbaran` → `GCAlbaranes.NAlbaran` (not RegAlbaran — these are different fields)\n- `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)\n\n**GCAlbaranes daily volume:** ~19 modified/day, ~833/month. Lines delta is lightweight.\n\n---",
+    "body": "| Table | Rows | PK | Delta field | Strategy |\n|-------|------|----|-------------|---------|\n| GCAlbaranes | 48,948 | `RegAlbaran` | `Modifica` (max = today, ~19/day) | UPSERT delta |\n| GCLinAlbarane | 1,016,290 | `RegLinea` | **None** — derive from parent | Delete+reinsert via parent |\n| GCFacturas | 18,060 | `RegFactura` | `Modifica` (all 18K populated) | UPSERT delta |\n| GCLinFacturas | 974,742 | `RegLinea` | **None** — derive from parent | Delete+reinsert via parent |\n| GCPedidos | 101 | `RegPedido` | `Modifica` (available) | Full refresh (trivially small) |\n| GCLinPedidos | 2,645 | `RegLinea` | None | Full refresh (trivially small) |\n\n**Parent-join delta pattern for lines:**\n```sql\n-- Fetch lines for recently modified delivery notes.\n-- The parent key is the 4D record ID (RegAlbaran), never the visible NAlbaran.\nSELECT * FROM GCLinAlbarane\nWHERE NumAlbaran IN (\n    SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= :last_sync\n)\n-- → DELETE FROM ps_gc_lin_albarane WHERE num_albaran = ANY(:changed_reg_albaran)\n-- → INSERT INTO ps_gc_lin_albarane ...\n```\n\n**Line → header join key (corrected 2026-08-29):**\nDespite the `Num` prefix, the line tables carry the parent's **4D record ID**:\n- `GCLinAlbarane.NumAlbaran` → `GCAlbaranes.RegAlbaran` (4000/4000 on a production sample)\n- `GCLinFacturas.NumFactura` → `GCFacturas.RegFactura` (4000/4000)\n\nThe *visible* document numbers are the wrong key on both counts:\n`GCLinFacturas.NumFactura` matches `GCFacturas.NFactura` **0/4000**, and neither\nvisible number is unique (52,148 GCAlbaranes rows carry 40,727 distinct\n`NAlbaran` values; 19,351 GCFacturas rows carry 14,515 distinct `NFactura`\nvalues), so joining on them mixes lines from unrelated documents.  The ETL used\nthe visible numbers until 2026-08-29: the invoice-line delta re-inserted 0 rows\non every nightly run, and the mirror had drifted 1,873 invoice lines and 3,826\ndelivery-note lines behind 4D.\n\n**GCAlbaranes daily volume:** ~19 modified/day, ~833/month. Lines delta is lightweight.\n\n---",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1173,6 +1173,13 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "body": "Business rules and field conventions the dashboard LLM must follow when generating SQL against the `ps_*` mirror tables.\n\n```json\n[\n  {\n    \"instruction\": \"Siempre usar el campo total_si (sin IVA) para análisis económico de ventas retail. NUNCA usar el campo total que incluye IVA. El IVA varía por región (23% Portugal continental, 22% Madeira, 21% España) y distorsiona las comparaciones entre tiendas.\",\n    \"questions\": [\"¿Cuánto vendimos?\", \"¿Cuáles son las ventas netas?\", \"¿Cuál es la facturación?\", \"¿Cuántos ingresos tuvimos este mes?\"]\n  },\n  {\n    \"instruction\": \"El campo fecha_creacion en Venta y LineaVenta es la fecha de la venta (tipo DATE, formato YYYY-MM-DD). Para filtrar por fecha usar comparaciones simples: fecha_creacion >= '2026-03-24' AND fecha_creacion < '2026-03-31'. NUNCA hacer CAST a TIMESTAMP WITH TIME ZONE — el campo ya es DATE. El campo fecha_documento está vacío (NULL) en todos los registros de Ventas — NUNCA usarlo para filtrar.\",\n    \"questions\": [\"¿Ventas de la semana pasada?\", \"¿Ventas de hoy?\", \"¿Ventas de este mes?\", \"¿Cuánto vendimos en marzo?\"]\n  },\n  {\n    \"instruction\": \"El campo mes en LineaVenta es un entero con formato YYYYMM (ej: 202603 = marzo 2026). Usar para filtrado rápido por período en vez de funciones de fecha: WHERE mes BETWEEN 202601 AND 202612. Es el filtro más eficiente para consultas de ventas por período.\",\n    \"questions\": [\"¿Ventas del primer trimestre?\", \"¿Ventas de enero a marzo?\", \"¿Rendimiento del año 2025?\"]\n  },\n  {\n    \"instruction\": \"VENTAS = NETO DE DEVOLUCIONES. En Venta, entrada=true es venta y entrada=false es devolución, y PowerShop presenta tres cifras distintas: 01VEN (ventas brutas), 02DEV (devoluciones) y NETO (01VEN - 02DEV). Cuando el usuario pide 'ventas' SIN más matices se refiere al NETO: filtrar entrada=true a secas descarta las devoluciones en vez de restarlas y sobrestima las ventas entre un 7 y un 10 por ciento (medido en produccion 2026-08). El patron obligatorio es: COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas. Usar entrada=true a secas SOLO si el usuario pide explicitamente ventas brutas o excluir devoluciones. Para ver las tres cifras como en el ERP: COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) AS ventas_brutas, COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS devoluciones, y la resta como ventas_netas. Los importes de devolucion se guardan en POSITIVO, por eso hay que restarlos explicitamente. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.\",\n    \"questions\": [\"¿Cuántas devoluciones hubo?\", \"¿Ventas netas sin devoluciones?\", \"¿Cuánto se devolvió este mes?\", \"¿Tasa de devolución?\"]\n  },\n  {\n    \"instruction\": \"Para excluir la tienda 99 (almacén central) del análisis retail, añadir WHERE tienda <> '99' en consultas de ventas por tienda. El almacén central no es una tienda física de venta al público. La tienda 97 es la tienda online con patrones diferentes.\",\n    \"questions\": [\"¿Ventas por tienda?\", \"¿Qué tiendas venden más?\", \"¿Rendimiento de tiendas retail?\", \"¿Ranking de tiendas?\"]\n  },\n  {\n    \"instruction\": \"El ticket medio es ventas NETAS entre numero de tickets de VENTA: (COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)) / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0). Usar siempre total_si (sin IVA). El numerador es neto porque una devolucion reduce lo vendido; el denominador cuenta solo tickets de venta, que es lo que hace PowerShop. No filtrar entrada=true en el numerador: eso ignora las devoluciones en vez de restarlas.\",\n    \"questions\": [\"¿Cuál es el ticket medio?\", \"¿Cuánto gasta cada cliente de media?\", \"¿Valor medio por transacción?\"]\n  },\n  {\n    \"instruction\": \"Las ventas YTD (año hasta la fecha) se calculan con: WHERE fecha_creacion >= DATE_TRUNC('year', CURRENT_DATE) AND fecha_creacion <= ",
     "hasSql": true,
     "dialect": "n/a"
+  },
+  {
+    "source": "docs/architecture/overview.md",
+    "heading": "Dashboard JSON spec example",
+    "body": "The LLM generates a JSON specification that the frontend renders:\n\n```json\n{\n  \"title\": \"Cuadro de Mandos — Ventas Marzo 2026\",\n  \"description\": \"Panel para el responsable de ventas\",\n  \"widgets\": [\n    {\n      \"id\": \"w1\",\n      \"type\": \"kpi_row\",\n      \"items\": [\n        {\"label\": \"Ventas Netas\", \"sql\": \"SELECT SUM(total_si) ...\", \"format\": \"currency\", \"prefix\": \"€\"},\n        {\"label\": \"Tickets\", \"sql\": \"SELECT COUNT(DISTINCT reg_ventas) ...\", \"format\": \"number\"},\n        {\"label\": \"Ticket Medio\", \"sql\": \"SELECT SUM(total_si)/COUNT(...) ...\", \"format\": \"currency\", \"prefix\": \"€\"}\n      ]\n    },\n    {\n      \"type\": \"bar_chart\",\n      \"title\": \"Ventas por Tienda\",\n      \"sql\": \"SELECT tienda AS label, SUM(total_si) AS value FROM ps_ventas ...\",\n      \"x\": \"label\", \"y\": \"value\"\n    },\n    {\n      \"type\": \"line_chart\",\n      \"title\": \"Tendencia Semanal\",\n      \"sql\": \"SELECT DATE_TRUNC('week', fecha_creacion) AS x, SUM(total_si) AS y FROM ps_ventas ...\"\n    },\n    {\n      \"type\": \"table\",\n      \"title\": \"Top 10 Artículos\",\n      \"sql\": \"SELECT p.ccrefejofacm AS \\\"Referencia\\\", p.descripcion AS \\\"Descripción\\\", ...\"\n    }\n  ]\n}\n```",
+    "hasSql": true,
+    "dialect": "postgres"
   },
   {
     "source": "docs/architecture/sales.md",
@@ -1380,7 +1387,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/architecture/wholesale.md",
     "heading": "ETL Sync Strategy",
-    "body": "> Validated against production data 2026-03-30.\n\n| Table | Rows | Delta field | Strategy |\n|-------|------|-------------|---------|\n| GCAlbaranes | 48,948 | `Modifica` (~19 modified/day, ~833/month) | UPSERT delta |\n| GCLinAlbarane | 1,016,290 | **None** | Delete+reinsert via parent `Modifica` |\n| GCFacturas | 18,060 | `Modifica` (all rows populated) | UPSERT delta |\n| GCLinFacturas | 974,742 | **None** | Delete+reinsert via parent `Modifica` |\n| GCPedidos | 101 | `Modifica` | Full refresh (trivially small) |\n| GCLinPedidos | 2,645 | None | Full refresh (trivially small) |\n\n**Lines delta pattern** (no modification timestamp on line tables):\n```sql\n-- Fetch lines for recently changed delivery notes\nSELECT * FROM GCLinAlbarane\nWHERE NAlbaran IN (SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync)\n-- → DELETE + INSERT in PostgreSQL for those NAlbaran values\n```\n\n**FK corrections (important):**\n- `GCLinAlbarane.NAlbaran` → `GCAlbaranes.NAlbaran` (not RegAlbaran — these are different fields)\n- `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)\n\nSee [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.\n\n---",
+    "body": "> Validated against production data 2026-03-30.\n\n| Table | Rows | Delta field | Strategy |\n|-------|------|-------------|---------|\n| GCAlbaranes | 48,948 | `Modifica` (~19 modified/day, ~833/month) | UPSERT delta |\n| GCLinAlbarane | 1,016,290 | **None** | Delete+reinsert via parent `Modifica` |\n| GCFacturas | 18,060 | `Modifica` (all rows populated) | UPSERT delta |\n| GCLinFacturas | 974,742 | **None** | Delete+reinsert via parent `Modifica` |\n| GCPedidos | 101 | `Modifica` | Full refresh (trivially small) |\n| GCLinPedidos | 2,645 | None | Full refresh (trivially small) |\n\n**Lines delta pattern** (no modification timestamp on line tables):\n```sql\n-- Fetch lines for recently changed delivery notes.\n-- The parent key is the 4D record ID (RegAlbaran), never the visible NAlbaran.\nSELECT * FROM GCLinAlbarane\nWHERE NumAlbaran IN (SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= :last_sync)\n-- → DELETE + INSERT in PostgreSQL for those RegAlbaran values\n```\n\n**Line → header join key (corrected 2026-08-29):**\nDespite the `Num` prefix, the line tables carry the parent's **4D record ID**:\n- `GCLinAlbarane.NumAlbaran` → `GCAlbaranes.RegAlbaran` (4000/4000 on a production sample)\n- `GCLinFacturas.NumFactura` → `GCFacturas.RegFactura` (4000/4000)\n\nThe *visible* document numbers are the wrong key on both counts:\n`GCLinFacturas.NumFactura` matches `GCFacturas.NFactura` **0/4000**, and neither\nvisible number is unique (52,148 GCAlbaranes rows carry 40,727 distinct\n`NAlbaran` values; 19,351 GCFacturas rows carry 14,515 distinct `NFactura`\nvalues), so joining on them mixes lines from unrelated documents.  The ETL used\nthe visible numbers until 2026-08-29: the invoice-line delta re-inserted 0 rows\non every nightly run, and the mirror had drifted 1,873 invoice lines and 3,826\ndelivery-note lines behind 4D.\n\nSee [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.\n\n---",
     "hasSql": true,
     "dialect": "n/a"
   },
@@ -1394,7 +1401,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/architecture/wholesale.md",
     "heading": "LLM:relationships",
-    "body": "```json\n[\n  {\"from\": \"ps_gc_lin_albarane\", \"fromColumn\": \"n_albaran\",   \"to\": \"ps_gc_albaranes\",   \"toColumn\": \"n_albaran\",    \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_lin_facturas\", \"fromColumn\": \"num_factura\", \"to\": \"ps_gc_facturas\",    \"toColumn\": \"n_factura\",    \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_albaranes\",    \"fromColumn\": \"num_cliente\", \"to\": \"ps_clientes\",       \"toColumn\": \"reg_cliente\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_facturas\",     \"fromColumn\": \"num_cliente\", \"to\": \"ps_clientes\",       \"toColumn\": \"reg_cliente\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_albaranes\",    \"fromColumn\": \"num_comercial\", \"to\": \"ps_gc_comerciales\", \"toColumn\": \"reg_comercial\", \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_facturas\",     \"fromColumn\": \"num_comercial\", \"to\": \"ps_gc_comerciales\", \"toColumn\": \"reg_comercial\", \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_pedidos\",      \"fromColumn\": \"num_cliente\", \"to\": \"ps_clientes\",       \"toColumn\": \"reg_cliente\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_lin_pedidos\",  \"fromColumn\": \"num_pedido\",  \"to\": \"ps_gc_pedidos\",     \"toColumn\": \"n_pedido\",     \"type\": \"MANY_TO_ONE\"}\n]\n```",
+    "body": "<!--\nLAS LÍNEAS SE UNEN POR EL ID DE REGISTRO 4D, NUNCA POR EL NÚMERO VISIBLE.\n\n`Num*` en una tabla de líneas apunta al `Reg*` de su cabecera (el ID interno de\n4D), NO al `N*` (el número que ve el usuario en el documento). Los nombres\ninducen a error justo al revés de lo que parece.\n\nMedido contra el 4D de producción sobre muestras de 2.000-4.000 líneas:\n\n  GCLinFacturas.NumFactura -> RegFactura  4000/4000   -> NFactura  0/4000\n  GCLinAlbarane.NumAlbaran -> RegAlbaran  4000/4000   -> NAlbaran  0/4000\n  GCLinPedidos.NumPedido   -> RegPedido   2000/2000   -> NPedido   0/2000\n\nY los números visibles NO son únicos (40.727 NAlbaran distintos para 52.148\nalbaranes; 76 NPedido para 120 pedidos), así que unir por ellos además mezcla\nlíneas de documentos distintos.\n\nEste fichero declaraba las tres relaciones al revés. Consecuencia real: el ETL\nmayorista perdió 5.699 líneas y toda consulta mayorista que generase el\ndashboard salía vacía o se multiplicaba.\n-->\n\n```json\n[\n  {\"from\": \"ps_gc_lin_albarane\", \"fromColumn\": \"num_albaran\", \"to\": \"ps_gc_albaranes\",   \"toColumn\": \"reg_albaran\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_lin_facturas\", \"fromColumn\": \"num_factura\", \"to\": \"ps_gc_facturas\",    \"toColumn\": \"reg_factura\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_albaranes\",    \"fromColumn\": \"num_cliente\", \"to\": \"ps_clientes\",       \"toColumn\": \"reg_cliente\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_facturas\",     \"fromColumn\": \"num_cliente\", \"to\": \"ps_clientes\",       \"toColumn\": \"reg_cliente\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_albaranes\",    \"fromColumn\": \"num_comercial\", \"to\": \"ps_gc_comerciales\", \"toColumn\": \"reg_comercial\", \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_facturas\",     \"fromColumn\": \"num_comercial\", \"to\": \"ps_gc_comerciales\", \"toColumn\": \"reg_comercial\", \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_pedidos\",      \"fromColumn\": \"num_cliente\", \"to\": \"ps_clientes\",       \"toColumn\": \"reg_cliente\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_gc_lin_pedidos\",  \"fromColumn\": \"num_pedido\",  \"to\": \"ps_gc_pedidos\",     \"toColumn\": \"reg_pedido\",   \"type\": \"MANY_TO_ONE\"}\n]\n```",
     "hasSql": false,
     "dialect": "postgres"
   },
@@ -1806,6 +1813,34 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Qué tallas se venden más de una referencia?",
+    "body": "```sql\nSELECT UPPER(lv.\"talla\") AS \"Talla\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND lv.\"talla\" IS NOT NULL GROUP BY UPPER(lv.\"talla\") ORDER BY \"Unidades\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Cuáles son las tallas más vendidas de toda la cadena?",
+    "body": "```sql\nSELECT UPPER(lv.\"talla\") AS \"Talla\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' AND lv.\"talla\" IS NOT NULL GROUP BY UPPER(lv.\"talla\") ORDER BY \"Unidades\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Qué tallas vendo bien pero no tengo en stock?",
+    "body": "```sql\nWITH vendido AS (SELECT p.\"ccrefejofacm\" AS ref, UPPER(lv.\"talla\") AS talla, COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS uds FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"talla\" IS NOT NULL GROUP BY 1, 2), stock AS (SELECT p.\"ccrefejofacm\" AS ref, UPPER(s.\"talla\") AS talla, SUM(s.\"stock\") AS stock FROM \"public\".\"ps_stock_tienda\" s JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\" WHERE s.\"tienda\" <> '99' GROUP BY 1, 2) SELECT v.ref AS \"Referencia\", v.talla AS \"Talla\", v.uds AS \"Vendidas\", COALESCE(st.stock, 0) AS \"Stock\" FROM vendido v LEFT JOIN stock st ON st.ref = v.ref AND st.talla = v.talla WHERE v.uds > 0 AND COALESCE(st.stock, 0) <= 0 ORDER BY v.uds DESC LIMIT 50\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Cuáles son las ventas, devoluciones y neto por tienda?",
+    "body": "```sql\nSELECT \"tienda\" AS \"Tienda\", COALESCE(SUM(\"total_si\") FILTER (WHERE \"entrada\"), 0) AS \"Ventas (01VEN)\", COALESCE(SUM(\"total_si\") FILTER (WHERE NOT \"entrada\"), 0) AS \"Devoluciones (02DEV)\", COALESCE(SUM(\"total_si\") FILTER (WHERE \"entrada\"), 0) - COALESCE(SUM(\"total_si\") FILTER (WHERE NOT \"entrada\"), 0) AS \"Neto (NETO)\", COUNT(DISTINCT \"reg_ventas\") FILTER (WHERE \"entrada\") AS \"Tickets\" FROM \"public\".\"ps_ventas\" WHERE \"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND \"tienda\" <> '99' GROUP BY \"tienda\" ORDER BY \"Neto (NETO)\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Stock por artículo y talla?",
     "body": "```sql\nSELECT s.\"codigo\" AS \"Código\", p.\"ccrefejofacm\" AS \"Referencia\", s.\"talla\" AS \"Talla\", SUM(s.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" s JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\" WHERE s.\"stock\" > 0 GROUP BY s.\"codigo\", p.\"ccrefejofacm\", s.\"talla\" ORDER BY p.\"ccrefejofacm\", s.\"talla\"\n```",
     "hasSql": true,
@@ -2062,5 +2097,12 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "body": "| ID | Binding rule |\n|----|--------------|\n| [D-001](docs/decisions/D-001-postgres-mirror.md) | Analytics queries hit a PostgreSQL mirror. Never touch the live 4D ERP from analytics paths. ETL is the only writer to the mirror. |\n| [D-003](docs/decisions/D-003-single-select-no-offset.md) | For 4D tables < 2M rows, use a single SELECT — never LIMIT/OFFSET (4D re-scans from row 0 at each offset). |\n| [D-004](docs/decisions/D-004-stock-sync-per-store.md) | Stock sync fetches one store at a time (`WHERE Tienda='X'`). 50 stores × ~80s. Don't fetch the full Exportaciones table. |\n| [D-015](docs/decisions/D-015-schema-from-4dc.md) | Schema discovery uses string extraction on `PowerShop.4DC` + live `_USER_VIEWS` / `_USER_COLUMNS` queries. Don't rely on PowerShop install file trees alone. |\n| [D-017](docs/decisions/D-017-signed-int16-stock.md) | Apply `decode_signed_int16_word()` ONLY to `Exportaciones.Stock1..Stock34` (and `CCStock.Stock1..Stock34`) — the type-3/length-2 columns. Never on Real (type-6) columns. |\n| [D-050](docs/decisions/D-050-upsert-batch-loss.md) | `upsert()` pre-filters NULL/NaN-PK rows, falls back to row-by-row SAVEPOINT inserts on batch failure, and raises if zero rows survive — never a quiet 0-row \"ok\". |\n| [D-051](docs/decisions/D-051-fetch-anomaly-guard.md) | `safe_fetch()` scans every fetch for decode-corruption-shaped rows and refetches once to discriminate transient corruption from real data; evidence goes to `etl_fetch_anomalies`, never the D-050 skip log. |",
     "hasSql": true,
     "dialect": "4d"
+  },
+  {
+    "source": "DECISIONS.md",
+    "heading": "Dashboard App",
+    "body": "| ID | Binding rule |\n|----|--------------|\n| [D-010](docs/decisions/D-010-custom-dashboard-generator.md) | Dashboard App is custom Next.js + Tremor (LLM generates a dashboard JSON spec). Don't try to retrofit Metabase / Evidence / ToolJet. |\n| [D-018](docs/decisions/D-018-agentic-tools.md) | `generate`/`modify`/`analyze` use a backend-controlled tool loop via OpenRouter `chat.completions`. Read-only SQL only. Tool catalog + limits in `dashboard/lib/llm-tools/runner.ts`. |\n| [D-019](docs/decisions/D-019-pluggable-llm-providers.md) | Dashboard LLM provider is `openrouter` or `cli` (selected by `DASHBOARD_LLM_PROVIDER`). CLI path uses argv-array spawn + JSON tool-step protocol. |\n| [D-022](docs/decisions/D-022-dashboard-redesign.md) | Dashboard chrome is token-driven (CSS variables on `<html>` data-attrs). New widgets/components go through the redesign tokens, not Tremor defaults. |\n| [D-026](docs/decisions/D-026-home-page-inicio.md) | `/inicio` is a read-only home — no chat, no save flow, no Analizar launcher. Filters are implicit via `CURRENT_DATE`/`DATE_TRUNC`. Not a user-pickable template. |\n| [D-027](docs/decisions/D-027-inicio-redesign.md) | `/` (root) renders the new home; dashboard list moved to `/paneles`. Home is bespoke React, not `DashboardRenderer`-driven. |\n| [D-032](docs/decisions/D-032-free-chat-tools.md) | Free-chat uses `FREE_CHAT_TOOLS` (10 inspection + `start_dashboard_generation` + `set_title` = 12). `set_title` is idempotent (`AND title IS NULL`). Full write tools in `FULL_DASHBOARD_TOOLS`. Handoff via `POST /api/conversations/:id/handoff-to-dashboard`. |\n| [D-036](docs/decisions/D-036-llm-context-centralization.md) | All dashboard LLM calls must go through `assembleRequest()` in `dashboard/lib/llm-context/`. No file outside that directory may import `llmComplete` or `runAgenticChat` directly; CI enforces this. |\n| [D-040](docs/decisions/D-040-context-log-files.md) | Per-turn context logs (exact payload sent to the LLM) live in files at `<DASHBOARD_CONTEXT_DIR>/<convId>/<turnId>.json` (bind mount); Postgres stores only the `conversation_turns.context_file` pointer. UI lazy-loads on expand; writes best-effort. |\n| [D-041](docs/decisions/D-041-e2e-required-for-features.md) | Every PR adding or modifying a user-facing dashboard surface must ship a Playwright e2e test asserting no error surface against seeded Postgres. PRs without one are not mergeable for those areas. |\n| [D-043](docs/decisions/D-043-cli-usage-metering-and-budget.md) | CLI-provider calls log real token/cost accounting (`--output-format json`, `total_cost_usd`) at every call site; `checkDailyBudget` applies to every provider, not just OpenRouter. |\n| [D-044](docs/decisions/D-044-mobile-breakpoint-and-pad-x-token.md) | Mobile breakpoint is Tailwind's `md:` (768px); Tailwind owns display/visibility only, inline styles own everything else; horizontal padding shrink goes through one `--pad-x` token declared unconditionally at `:root`. |\n| [D-045](docs/decisions/D-045-title-generation-contract.md) | Titles use the first user message, clamped to 100 chars; failures log, never throw. `buildSystemPrompt` is exhaustive over `LLM_FLOWS` — no silent fallback onto `chat`'s tools. |\n| [D-046](docs/decisions/D-046-cli-lean-mode-and-kill-switch.md) | CLI calls strip the harness (`dashboard.llm_cli_lean_mode`, default true); only vars-independent flows put `stable` on `--system-prompt` (`CLI_SYSTEM_PROMPT_SAFE_FLOWS`). `dashboard.llm_enabled` stops every LLM call at the two `assembleRequest`/`llmComplete` seams; `checkDailyBudget` runs once, pre-flight, in `assembleRequest`. |\n| [D-047](docs/decisions/D-047-diagnosable-failures.md) | Every route tree carries an `error.tsx` (+ root `global-error.tsx`); tool handlers log the real error object before returning the generic one; `/api/query` failures persist to `query_errors`. Container stdout dies on deploy — Postgres is the only durable trace. |\n| [D-048](docs/decisions/D-048-sales-by-size.md) | La talla de una v",
+    "hasSql": false,
+    "dialect": "n/a"
   }
 ];

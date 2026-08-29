@@ -35,11 +35,11 @@ describe("build-knowledge", () => {
     expect(content).toContain("no activa or anulada field");
   });
 
-  it("knowledge-sources.yml lists exactly 12 sources and all paths exist", () => {
+  it("knowledge-sources.yml lists exactly 14 sources and all paths exist", () => {
     const { parse } = require("yaml");
     const raw = fs.readFileSync(MANIFEST, "utf8");
     const data = parse(raw) as { sources: Array<{ path: string; slice: string }> };
-    expect(data.sources).toHaveLength(12);
+    expect(data.sources).toHaveLength(14);
     for (const source of data.sources) {
       const abs = path.join(REPO_ROOT, source.path);
       expect(fs.existsSync(abs), `${source.path} should exist`).toBe(true);

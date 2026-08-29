@@ -184,9 +184,9 @@ SELECT UPPER(lv."talla") AS "Talla", COALESCE(SUM(lv."unidades") FILTER (WHERE v
 WITH vendido AS (SELECT p."ccrefejofacm" AS ref, UPPER(lv."talla") AS talla, COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS uds FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."talla" IS NOT NULL GROUP BY 1, 2), stock AS (SELECT p."ccrefejofacm" AS ref, UPPER(s."talla") AS talla, SUM(s."stock") AS stock FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."tienda" <> '99' GROUP BY 1, 2) SELECT v.ref AS "Referencia", v.talla AS "Talla", v.uds AS "Vendidas", COALESCE(st.stock, 0) AS "Stock" FROM vendido v LEFT JOIN stock st ON st.ref = v.ref AND st.talla = v.talla WHERE v.uds > 0 AND COALESCE(st.stock, 0) <= 0 ORDER BY v.uds DESC LIMIT 50
 ```
 
-### ¿Cuáles son las ventas, devoluciones y neto de hoy por tienda?
+### ¿Cuáles son las ventas, devoluciones y neto por tienda?
 ```sql
-SELECT "tienda" AS "Tienda", COALESCE(SUM("total_si") FILTER (WHERE "entrada"), 0) AS "Ventas (01VEN)", COALESCE(SUM("total_si") FILTER (WHERE NOT "entrada"), 0) AS "Devoluciones (02DEV)", COALESCE(SUM("total_si") FILTER (WHERE "entrada"), 0) - COALESCE(SUM("total_si") FILTER (WHERE NOT "entrada"), 0) AS "Neto (NETO)", COUNT(DISTINCT "reg_ventas") FILTER (WHERE "entrada") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" = CURRENT_DATE AND "tienda" <> '99' GROUP BY "tienda" ORDER BY "Neto (NETO)" DESC
+SELECT "tienda" AS "Tienda", COALESCE(SUM("total_si") FILTER (WHERE "entrada"), 0) AS "Ventas (01VEN)", COALESCE(SUM("total_si") FILTER (WHERE NOT "entrada"), 0) AS "Devoluciones (02DEV)", COALESCE(SUM("total_si") FILTER (WHERE "entrada"), 0) - COALESCE(SUM("total_si") FILTER (WHERE NOT "entrada"), 0) AS "Neto (NETO)", COUNT(DISTINCT "reg_ventas") FILTER (WHERE "entrada") AS "Tickets" FROM "public"."ps_ventas" WHERE "fecha_creacion" BETWEEN :curr_from AND :curr_to AND "tienda" <> '99' GROUP BY "tienda" ORDER BY "Neto (NETO)" DESC
 ```
 
 ### ¿Stock por artículo y talla?

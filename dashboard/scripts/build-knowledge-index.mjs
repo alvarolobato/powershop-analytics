@@ -34,6 +34,7 @@ export const SOURCES = [
   "docs/sql-views.md",
   "docs/data-dictionary.md",
   "docs/etl-sync-strategy.md",
+  "docs/architecture/overview.md",
   "docs/architecture/sales.md",
   "docs/architecture/purchasing.md",
   "docs/architecture/stock-logistics.md",
