@@ -658,3 +658,48 @@ def test_cross_validate_single_numeric_no_mismatch(monkeypatch, capsys):
     assert "MISMATCH" not in out
     assert "articulos_en_stock" in out
     assert "12345" in out
+
+
+# ── arity de SQL_PAIRS ───────────────────────────────────────────────────────
+#
+# `extract_sql_pairs()` devuelve 3-tuplas `(pregunta, sql_wren, sql_pg)` desde
+# que se separo la forma para WrenAI de la forma PostgreSQL del validador. El
+# cambio dejo dos consumidores desempaquetando 2 elementos, y no salto hasta el
+# paso 7 de un despliegue a produccion:
+#
+#     ValueError: too many values to unpack (expected 2, got 3)
+#
+# Los tests unitarios de arriba prueban `extract_sql_pairs` en si, pero ninguno
+# recorre `main()`, que es donde vivian las llamadas rotas. Este comprueba la
+# aridad en el propio fuente: es estatico, pero cubre exactamente el fallo.
+
+
+def test_ningun_consumidor_de_sql_pairs_desempaqueta_dos_elementos():
+    import pathlib
+    import re
+
+    fuente = pathlib.Path(wpm.__file__).read_text()
+    infractores = []
+    for n, linea in enumerate(fuente.split("\n"), 1):
+        if "SQL_PAIRS" not in linea:
+            continue
+        # `for a, b in SQL_PAIRS` / `for i, (a, b) in enumerate(SQL_PAIRS)`
+        # / `a, b = SQL_PAIRS[0]` -- todas con exactamente dos destinos.
+        for patron in (
+            r"for\s+([\w, ()]+?)\s+in\s+(?:enumerate\()?SQL_PAIRS",
+            r"^\s*([\w, ]+?)\s*=\s*SQL_PAIRS\[",
+        ):
+            m = re.search(patron, linea)
+            if not m:
+                continue
+            destinos = m.group(1).replace("(", " ").replace(")", " ")
+            # el indice de enumerate() no cuenta como campo de la tupla
+            campos = [d.strip() for d in destinos.split(",") if d.strip()]
+            if "enumerate(" in linea and campos:
+                campos = campos[1:]
+            if len(campos) == 2:
+                infractores.append(f"linea {n}: {linea.strip()}")
+    assert not infractores, (
+        "Consumidores de SQL_PAIRS que esperan 2-tuplas cuando son 3:\n"
+        + "\n".join(infractores)
+    )
