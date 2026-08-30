@@ -75,3 +75,39 @@ export function netoDeAbonos(expr: string, alias: string): string {
   return `COALESCE(SUM(${expr}) FILTER (WHERE ${alias}."abono" IS NOT TRUE), 0)
         - COALESCE(SUM(${expr}) FILTER (WHERE ${alias}."abono" IS TRUE), 0)`;
 }
+
+/**
+ * Modelo de una referencia de artículo, sin el código de color.
+ *
+ * Una fila de `ps_articulos` es **modelo + color**, no un SKU: los dos últimos
+ * caracteres de `ccrefejofacm` son el color, y la talla vive en
+ * `ps_lineas_ventas.talla` ([D-048]). Verificado en producción 2026-08-30:
+ *
+ * | ccrefejofacm | color  |
+ * |--------------|--------|
+ * | V26342820    | BLANCO |
+ * | V26342821    | BEIG   |
+ * | V26342830    | MARRON |
+ * | V26342855    | KAKY   |
+ * | V26342899    | NEGRO  |
+ *
+ * Por eso un "top artículos" agrupado por la referencia completa parte el mismo
+ * pantalón en cinco filas y ninguna encabeza el ranking. Medido sobre agosto de
+ * 2026: 2.918 referencias son 1.448 modelos, 2,02 filas de media, y los más
+ * vendidos se parten en 4-5.
+ *
+ * ## La guarda de longitud no es decorativa
+ *
+ * `LEFT(x, LENGTH(x) - 2)` sobre una referencia de 1 o 2 caracteres devuelve
+ * cadena vacía, y en producción hay 9 así (1 vacía y 8 de 1-2 caracteres, sobre
+ * 42.270). Sin la guarda, esas nueve se funden en un único modelo fantasma.
+ *
+ * @param col columna ya cualificada, p. ej. `p."ccrefejofacm"`
+ */
+export function modeloDeReferencia(col: string): string {
+  const ref = `TRIM(COALESCE(${col}, ''))`;
+  return `CASE WHEN LENGTH(${ref}) > 2
+              THEN LEFT(${ref}, LENGTH(${ref}) - 2)
+              ELSE NULLIF(${ref}, '')
+         END`;
+}

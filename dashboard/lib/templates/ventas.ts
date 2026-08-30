@@ -32,6 +32,14 @@
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersRetail } from "@/lib/template-global-filters";
+import { modeloDeReferencia } from "@/lib/sql-fragments";
+
+/**
+ * Los rankings van por MODELO, no por referencia: los dos últimos caracteres de
+ * `ccrefejofacm` son el color, así que agrupar por la referencia completa parte
+ * un mismo modelo en 3-5 filas y falsea el ranking (D-048, punto 3).
+ */
+const MODELO = modeloDeReferencia('p."ccrefejofacm"');
 
 export const name = "Responsable de Ventas";
 
@@ -93,7 +101,9 @@ WHERE v."tienda" <> '99'
           // COALESCE evita "—" cuando el rango no tiene líneas.
           // Usa format: "decimal" porque es un ratio fraccional (p.ej. 1,69):
           // "number" lo redondearía a entero (→ 2) y perdería precisión.
-          sql: `SELECT COALESCE(ROUND(SUM(lv."unidades")::numeric / NULLIF(COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada"), 0), 2), 0) AS value
+          sql: `SELECT COALESCE(ROUND((COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0)
+        - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0))::numeric
+        / NULLIF(COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada"), 0), 2), 0) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE lv."tienda" <> '99'
@@ -261,14 +271,16 @@ ORDER BY value DESC`,
     {
       id: "ventas-top-articulos",
       type: "table",
-      title: "Top 10 Artículos por Ventas (período seleccionado)",
+      title: "Top 10 Modelos por Ventas (período seleccionado)",
       // Columna "Ventas Netas (€)" — incluye sufijo de unidad para que el
       // usuario sepa que es importe (TableWidget no aplica símbolo €
       // automáticamente). "Margen %" se renderiza con formato de porcentaje
       // (detectado por el sufijo "%").
-      sql: `SELECT p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripción",
-       SUM(lv."unidades") AS "Unidades",
+      sql: `SELECT ${MODELO} AS "Modelo",
+       MIN(p."descripcion") AS "Descripción",
+       COUNT(DISTINCT p."ccrefejofacm") AS "Colores",
+       COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0)
+        - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades",
        ROUND(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)::numeric, 2) AS "Ventas Netas (€)",
        ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
         - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0)))
@@ -287,7 +299,7 @@ WHERE lv."tienda" <> '99'
   AND __gf_marca__
   AND __gf_sexo__
   AND __gf_departamento__
-GROUP BY p."ccrefejofacm", p."descripcion"
+GROUP BY ${MODELO}
 ORDER BY "Ventas Netas (€)" DESC
 LIMIT 10`,
     },
