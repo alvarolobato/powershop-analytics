@@ -617,7 +617,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
-    "body": "```sql\nSELECT tr.\"tienda_salida\" AS \"Origen\", tr.\"tienda_entrada\" AS \"Destino\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades Enviadas\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" BETWEEN :curr_from AND :curr_to AND NOT tr.\"entrada\" GROUP BY tr.\"tienda_salida\", tr.\"tienda_entrada\" ORDER BY \"Unidades Enviadas\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT tr.\"tienda_salida\" AS \"Origen\", tr.\"tienda_entrada\" AS \"Destino\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades Enviadas\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" BETWEEN :curr_from AND :curr_to AND NOT tr.\"entrada\" AND COALESCE(tr.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') GROUP BY tr.\"tienda_salida\", tr.\"tienda_entrada\" ORDER BY \"Unidades Enviadas\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -2031,21 +2031,21 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Volumen de traspasos por ruta?",
-    "body": "```sql\nSELECT t.\"tienda_salida\" AS \"Tienda Origen\", t.\"tienda_entrada\" AS \"Tienda Destino\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND t.\"tipo\" NOT IN ('Apertura', 'Inventario Parcial') AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"tienda_salida\", t.\"tienda_entrada\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT t.\"tienda_salida\" AS \"Tienda Origen\", t.\"tienda_entrada\" AS \"Tienda Destino\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"tienda_salida\", t.\"tienda_entrada\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Traspasos diarios de stock?",
-    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND t.\"tipo\" NOT IN ('Apertura', 'Inventario Parcial') AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"fecha_s\" ORDER BY t.\"fecha_s\"\n```",
+    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"fecha_s\" ORDER BY t.\"fecha_s\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Movimientos de stock de un artículo?",
-    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", t.\"tienda_salida\" AS \"Origen\", t.\"tienda_entrada\" AS \"Destino\", t.\"talla\" AS \"Talla\", t.\"unidades_s\" AS \"Unidades\", t.\"tipo\" AS \"Tipo\" FROM \"public\".\"ps_traspasos\" t JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND t.\"entrada\" = false AND t.\"tipo\" NOT IN ('Apertura', 'Inventario Parcial') ORDER BY t.\"fecha_s\" DESC LIMIT 50\n```",
+    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", t.\"tienda_salida\" AS \"Origen\", t.\"tienda_entrada\" AS \"Destino\", t.\"talla\" AS \"Talla\", t.\"unidades_s\" AS \"Unidades\", t.\"tipo\" AS \"Tipo\" FROM \"public\".\"ps_traspasos\" t JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND t.\"entrada\" = false AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') ORDER BY t.\"fecha_s\" DESC LIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

@@ -645,17 +645,36 @@ def main() -> None:
     # knowledge.ts): entrada=false (outgoing, source releases stock) and
     # entrada=true (incoming, destination receives stock). The stock template
     # filters WHERE entrada = false for "Traspasos Recientes".
+    #
+    # `tipo` se puebla A PROPOSITO con las tres variantes que existen en
+    # produccion: traspasos reales, los asientos de inventario que hay que
+    # excluir SIEMPRE ('Apertura' e 'Inventario Parcial', el 94 % de la tabla
+    # real), y filas con `tipo` NULL. Sin las tres, el fixture no puede
+    # distinguir `tipo NOT IN (...)` -- que descarta los NULL porque `NULL NOT
+    # IN` es NULL -- de `COALESCE(tipo,'') NOT IN (...)`, que es la forma
+    # correcta. Con `tipo` sin poblar, la primera devolvia 0 filas y ningun
+    # test se enteraba.
+    TIPOS_TRASPASO = [
+        "Traspaso",
+        "Traspaso",
+        "Traspaso",
+        None,
+        "Apertura",
+        "Inventario Parcial",
+    ]
     tr_rows = []
     for i in range(1, 201):
         offset = rng.randint(0, 13)
         salida, entrada_t = rng.sample(retail_stores, 2)
         codigo = sql_str(rng.choice(articulos)[1])
         talla = sql_str(rng.choice(TALLAS))
+        tipo = rng.choice(TIPOS_TRASPASO)
         us = rng.randint(1, 6)
         ue = rng.randint(1, 6)
         common = [
             codigo,
             talla,
+            sql_str(tipo) if tipo is not None else "NULL",
             f"{us}",
             f"{ue}",
             sql_str(salida),
@@ -672,6 +691,7 @@ def main() -> None:
             "reg_traspaso",
             "codigo",
             "talla",
+            "tipo",
             "unidades_s",
             "unidades_e",
             "tienda_salida",

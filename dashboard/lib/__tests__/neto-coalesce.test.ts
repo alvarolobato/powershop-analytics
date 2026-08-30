@@ -255,3 +255,139 @@ describe("FK mayorista", () => {
   });
 });
 
+/** Quita comentarios SQL y JS: un filtro comentado no filtra nada. */
+function sinComentarios(texto: string): string {
+  // Se conservan los saltos de línea: si un comentario de bloque se colapsara
+  // a un espacio, todos los números de línea posteriores saldrían desplazados
+  // y el test señalaría un sitio que no es.
+  const enBlanco = (t: string) => t.replace(/[^\n]/g, " ");
+  return texto
+    .replace(/\/\*[\s\S]*?\*\//g, enBlanco) // bloque, en ambos lenguajes
+    .replace(/--[^\n]*/g, enBlanco) // línea SQL
+    .replace(/\/\/[^\n]*/g, enBlanco); // línea JS
+}
+
+/**
+ * Trocea un fichero en las consultas SQL que contiene.
+ *
+ * Historial de fallos de esta función, todos encontrados ejecutándola:
+ *  - una ventana de N caracteres alcanzaba el filtro de la consulta SIGUIENTE
+ *    (en `sql-pairs.md` van pegadas);
+ *  - sólo reconocía vallas ```sql, no ```postgresql ni las que no llevan
+ *    lenguaje;
+ *  - en `.ts` partía por comillas invertidas, así que un backtick suelto
+ *    dentro de un comentario desincronizaba el emparejado y ocultaba el
+ *    literal siguiente entero;
+ *  - un `${...}` con su propio literal dentro partía el bloque en dos y
+ *    separaba el `FROM` de su filtro.
+ *
+ * De ahí el orden: primero fuera los comentarios, luego fuera el contenido de
+ * las interpolaciones, y sólo entonces trocear.
+ */
+function bloquesSql(texto: string, fichero: string): { sql: string; linea: number }[] {
+  const bloques: { sql: string; linea: number }[] = [];
+  const limpio = sinComentarios(texto);
+  if (/\.md$/.test(fichero)) {
+    for (const m of limpio.matchAll(/```[a-z]*\n([\s\S]*?)```/gi)) {
+      bloques.push({ sql: m[1], linea: limpio.slice(0, m.index).split("\n").length });
+    }
+    return bloques;
+  }
+  // `${...}` con anidamiento equilibrado: se vacía para que un literal interno
+  // no rompa el troceado por comillas invertidas.
+  const sinInterp = limpio.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, " ");
+  for (const m of sinInterp.matchAll(/`([\s\S]*?)`/g)) {
+    bloques.push({ sql: m[1], linea: sinInterp.slice(0, m.index).split("\n").length });
+  }
+  // SQL en cadenas normales: `dashboard/app/api/seasons/route.ts` lo hace.
+  for (const m of sinInterp.matchAll(/"((?:SELECT|WITH)[\s\S]*?)"/gi)) {
+    bloques.push({ sql: m[1], linea: sinInterp.slice(0, m.index).split("\n").length });
+  }
+  return bloques;
+}
+
+describe("asientos de inventario en traspasos", () => {
+  // `ps_traspasos.tipo` = 'Apertura' / 'Inventario Parcial' no son traspasos
+  // entre tiendas sino asientos de inventario, y DOMINAN la tabla: 247.502 +
+  // 739 filas sobre 262.724 (94 %).
+  //
+  // Y `tipo` es NULLABLE: `tipo NOT IN (...)` con NULL da NULL, así que
+  // descarta la fila. Sobre el fixture eso daba 178 filas donde la forma
+  // correcta da 248 -- y con el fixture anterior, que no poblaba `tipo`,
+  // devolvía CERO y ningún test se enteraba. La forma obligatoria es
+  // `COALESCE(tipo,'') NOT IN (...)`.
+  it("todo análisis de movimiento entre tiendas los excluye, sin perder los NULL", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      const texto = readFileSync(f, "utf8");
+      for (const { sql, linea } of bloquesSql(texto, f)) {
+        // Posición de tabla, incluido el join por coma y `public.` sin comillas.
+        const ref = new RegExp(
+          // El alias NO puede ser una palabra clave: `FROM ps_traspasos WHERE`
+          // hacía capturar "WHERE" como alias y exigir luego `WHERE.tipo`,
+          // marcando como infractora una consulta correcta.
+          String.raw`(?:FROM|JOIN|,)\s+(?:"?public"?\s*\.\s*)?"?ps_traspasos"?(?:\s+(?:AS\s+)?(?!(?:WHERE|GROUP|ORDER|LIMIT|JOIN|LEFT|RIGHT|INNER|ON|UNION|HAVING|WINDOW|OFFSET|FETCH|CROSS|FULL)\b)"?(\w+)"?)?`,
+          "i",
+        );
+        const m = ref.exec(sql);
+        if (!m) continue;
+        // Agrupar por `tipo` es el caso en que el desglose ES el objetivo.
+        // \b para no aceptar `prototipo`, y sin cruzar a la siguiente cláusula.
+        if (/GROUP BY[^)]*\btipo\b/i.test(sql)) continue;
+
+        // El filtro tiene que ser sobre ESTA tabla, no sobre otra de un CTE
+        // vecino: se exige el alias (o el nombre pelado si no lo hay).
+        const a = m[1] ? `"?${m[1]}"?\\s*\\.\\s*` : "(?:\\w+\\s*\\.\\s*)?";
+        const col = String.raw`${a}"?tipo"?`;
+        const seguro = [
+          // COALESCE(t.tipo,'') NOT IN ('Apertura', ...) -- la forma correcta
+          new RegExp(String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`, "i"),
+          // t.tipo <> 'Apertura' AND t.tipo <> 'Inventario Parcial'
+          new RegExp(String.raw`${col}\s*(?:<>|!=)\s*'Apertura'`, "i"),
+          // lista blanca: sólo los tipos que SON movimiento real
+          new RegExp(String.raw`${col}\s+IN\s*\(`, "i"),
+        ];
+        if (seguro.some((r) => r.test(sql))) continue;
+        infractores.push(`${relative(RAIZ, f)}:${linea}`);
+      }
+    }
+    expect(
+      [...new Set(infractores)],
+      `Consultas de traspasos sin excluir los asientos de inventario (94 % de la tabla):\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
+describe("fecha efectiva del albarán mayorista", () => {
+  // Un albarán aún no enviado lleva NULL o un centinela anterior a 2000 en
+  // `fecha_envio`. Como `NULL >= fecha` es NULL, filtrar un periodo por
+  // `fecha_envio` los descarta en silencio — y son justo los que interesan en
+  // "albaranes pendientes de facturar". Sobre tres albaranes sembrados (uno
+  // enviado, uno sin enviar, uno con centinela), la forma antigua devolvía 1 y
+  // la correcta 3.
+  //
+  // Regla: `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE
+  // fecha_valor END`.
+  it("ninguna consulta filtra u ordena por fecha_envio a secas", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      const texto = readFileSync(f, "utf8");
+      for (const { sql, linea } of bloquesSql(texto, f)) {
+        if (!/fecha_envio/.test(sql)) continue;
+        // Con la fecha efectiva presente, la consulta ya sigue la regla.
+        if (/CASE\s+WHEN[^]*?fecha_envio[^]*?fecha_valor/i.test(sql)) continue;
+        // Sólo molesta cuando se usa para acotar u ordenar; proyectarla como
+        // columna informativa junto a la efectiva es legítimo.
+        if (!/(WHERE|AND|ORDER BY|BETWEEN)[^;]*fecha_envio/i.test(sql)) continue;
+        infractores.push(`${relative(RAIZ, f)}:${linea}`);
+      }
+    }
+    expect(
+      [...new Set(infractores)],
+      `Consultas que acotan por fecha_envio sin la fecha efectiva (pierden los albaranes sin enviar):\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+

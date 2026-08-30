@@ -404,7 +404,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿El resultado parece correcto?", "¿Por qué el stock vale €1.000 millones?", "¿Cuál es el rango esperado de ventas?", "¿Los números parecen razonables?"]
   },
   {
-    "instruction": "ps_traspasos.tipo: EXCLUIR SIEMPRE 'Apertura' e 'Inventario Parcial' de cualquier analisis de movimiento de stock. No son traspasos entre tiendas sino asientos de inventario, y dominan la tabla: 247.502 filas de 'Apertura' y 739 de 'Inventario Parcial' sobre 262.724 totales (medido en produccion 2026-08). Sin ese filtro un 'volumen de traspasos' o una 'ruta mas usada' devuelve practicamente solo aperturas. Filtro obligatorio: WHERE t.tipo NOT IN ('Apertura', 'Inventario Parcial'). Los tipos que SI son movimiento real son 'Autoreposicion' y 'Regularizacion'.",
+    "instruction": "ps_traspasos.tipo: EXCLUIR SIEMPRE 'Apertura' e 'Inventario Parcial' de cualquier analisis de movimiento de stock. No son traspasos entre tiendas sino asientos de inventario, y dominan la tabla: 247.502 filas de 'Apertura' y 739 de 'Inventario Parcial' sobre 262.724 totales (medido en produccion 2026-08). Sin ese filtro un 'volumen de traspasos' o una 'ruta mas usada' devuelve practicamente solo aperturas. Filtro obligatorio: WHERE COALESCE(t.tipo, '') NOT IN ('Apertura', 'Inventario Parcial'). Los tipos que SI son movimiento real son 'Autoreposicion' y 'Regularizacion'.",
     "questions": [
       "¿Volumen de traspasos?",
       "¿Rutas de traspaso mas usadas?",
