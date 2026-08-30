@@ -1047,13 +1047,26 @@ export function ConversationPane({
     if (!pendingTurnId) return null;
 
     const turnData = turns.get(pendingTurnId);
+    // ¿El eco optimista ya llegó persistido desde el servidor?
+    const ultimoUsuario = [...messages].reverse().find((m) => m.role === "user");
+    const textoUltimo =
+      typeof ultimoUsuario?.content === "object" && ultimoUsuario?.content !== null
+        ? ((ultimoUsuario.content as Record<string, unknown>).text as string | undefined)
+        : undefined;
+    const yaPersistido = pendingUserMsg.trim().length > 0 && textoUltimo?.trim() === pendingUserMsg.trim();
+
     const hasLogs = turnData && turnData.logs.length > 0;
     const liveThinking = turnData?.thinking ?? "";
     const liveText = turnData?.streamText ?? "";
 
     return (
       <>
-        {pendingUserMsg && <UserBubble text={pendingUserMsg} />}
+        {/* El eco optimista se pinta ADEMÁS de `conv.messages`, y `POST /turns`
+            persiste el mensaje del usuario de inmediato: cualquier refresco de
+            la conversación antes de que el turno termine lo trae ya guardado y
+            la burbuja sale dos veces. El eco no tiene id con el que casar, así
+            que se compara con el último mensaje de usuario ya persistido. */}
+        {pendingUserMsg && !yaPersistido && <UserBubble text={pendingUserMsg} />}
         {/* Context log is announced via a "context_ref" event once assembleRequest
             has written the file; the panel then lazy-loads it on expand. */}
         {turnData?.hasContext && (
