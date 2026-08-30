@@ -214,3 +214,29 @@ describe("recuento de tickets", () => {
     ).toEqual([]);
   });
 });
+
+describe("FK mayorista", () => {
+  // Las líneas mayoristas unen por el ID de registro de 4D (`reg_factura` /
+  // `reg_albaran`), NUNCA por el número visible: medido contra el 4D vivo,
+  // 311/311 casan con `RegFactura` y 0/311 con `NFactura`, que además no es
+  // único (19.351 cabeceras, 14.515 valores distintos). El ETL ya se arregló,
+  // pero el join equivocado sobrevivió en un par de ejemplo -- que es lo que
+  // copia el modelo.
+  it("ningún ejemplo une líneas con cabecera por el número visible", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      readFileSync(f, "utf8")
+        .split("\n")
+        .forEach((linea, i) => {
+          if (!/num_(factura|albaran)"?\s*=\s*\w*\.?"?n_(factura|albaran)/.test(linea)) return;
+          infractores.push(`${relative(RAIZ, f)}:${i + 1}: ${linea.trim().slice(0, 110)}`);
+        });
+    }
+    expect(
+      infractores,
+      `Join mayorista por el número visible (no único, 0 % de coincidencia):\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
