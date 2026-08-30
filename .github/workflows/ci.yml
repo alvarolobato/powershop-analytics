@@ -104,6 +104,17 @@ jobs:
       - name: Load e2e seed data into Postgres
         working-directory: .
         run: dashboard/e2e/fixtures/init-test-db.sh
+      # Los tests de regresion contra datos sembrados (Ferrol 1.180,63 EUR /
+      # 37 tickets, I26101833 -> talla L) se SALTAN cuando no hay base, y
+      # hasta ahora se saltaban tambien aqui: la suite decia "6 skipped" y
+      # nadie lo miraba, asi que la proteccion no existia. Con
+      # REQUIRE_TEST_DB=1 la ausencia de base es un fallo, no un salto.
+      - name: Run seeded regression tests (require the DB)
+        working-directory: dashboard
+        env:
+          REQUIRE_TEST_DB: "1"
+          E2E_DATABASE_URL: postgresql://powershop:powershop@localhost:5432/powershop
+        run: npx vitest run lib/__tests__/ventas-netas-regresion.test.ts
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
       - name: Run Playwright e2e tests
