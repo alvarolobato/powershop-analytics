@@ -289,7 +289,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
    (e.g. average discount granted), or when the user explicitly asks for gross.
 5. ALWAYS exclude tienda <> '99' for retail analysis (99 = almacén central)
 6. For wholesale revenue: base1 + base2 + base3 (NEVER total_factura)
-7. For wholesale: exclude abono = true (credit notes)
+7. For wholesale: credit notes (abono = true) are stored POSITIVE, so NEVER exclude them -- SUBTRACT them: COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluding them inflates wholesale revenue by 13% (measured in production). If you use that FILTER form, do NOT also add WHERE abono IS NOT TRUE: it empties the credit-note side and the "net" silently becomes the gross again
 8. PKs are NUMERIC(20,3) — never do arithmetic on them
 9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas and apply
    the net pattern on the line column: COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)
@@ -412,7 +412,10 @@ export function buildAgenticToolPreamble(): string {
   ].join("\n");
 }
 
-export function buildGeneratePromptSplit(): { stable: string; volatile?: string } {
+export function buildGeneratePromptSplit(): {
+  stable: string;
+  volatile?: string;
+} {
   const roleHeader = [
     "# Role",
     "",
@@ -587,7 +590,10 @@ export function buildSuggestPrompt(
   existingDashboards: { title: string; description: string }[],
 ): string {
   const existingSerialized = JSON.stringify(
-    existingDashboards.map((d) => ({ title: d.title, description: d.description })),
+    existingDashboards.map((d) => ({
+      title: d.title,
+      description: d.description,
+    })),
   );
   const existingSection =
     existingDashboards.length > 0
@@ -616,7 +622,7 @@ export function buildSuggestPrompt(
     "Each element must have exactly these fields:",
     '- "name": string — dashboard name in Spanish (concise, 3-6 words)',
     '- "description": string — one-line description in Spanish (what problem it solves for this role)',
-    '- "prompt": string — a ready-to-use generation prompt in Spanish (detailed, references correct table names, uses total_si, applies the net-of-returns pattern for money, tienda<>\'99\' etc.)',
+    "- \"prompt\": string — a ready-to-use generation prompt in Spanish (detailed, references correct table names, uses total_si, applies the net-of-returns pattern for money, tienda<>'99' etc.)",
     "",
     "Example format:",
     '[{"name": "...", "description": "...", "prompt": "..."}, ...]',
@@ -628,7 +634,7 @@ export function buildSuggestPrompt(
     "- Include widget guidance in the prompt (e.g. 'Incluye KPIs, gráfico de tendencia y tabla de detalle')",
     "- Reference correct table names: ps_ventas, ps_lineas_ventas, ps_articulos, ps_stock_tienda, ps_gc_albaranes, ps_gc_facturas, etc.",
     "- For retail analysis: filtra entrada=true, tienda<>'99', usa total_si para importes",
-    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto, filtra abono=false",
+    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto y RESTA los abonos, no los excluyas (estan guardados en POSITIVO): COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluirlos infla la facturacion un 13%",
     "- Follow the Business Rules below to choose the correct filters, metrics, and amount fields for each channel",
     "- Avoid overlap with existing dashboards listed below",
     "",
@@ -694,7 +700,7 @@ export function buildGapAnalysisPrompt(
     "- Focus on high-value decision areas: stock health, margin analysis, purchasing, customer insights, HR productivity, returns management",
     "- Each suggestedPrompt must be actionable and reference correct table names",
     "- For retail analysis: filtra entrada=true, tienda<>'99', usa total_si para importes",
-    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto, filtra abono=false",
+    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto y RESTA los abonos, no los excluyas (estan guardados en POSITIVO): COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluirlos infla la facturacion un 13%",
     "- Follow the Business Rules below to choose the correct filters, metrics, and amount fields for each channel",
     "- If all major areas are already covered, return 1-2 gaps for deeper analysis or cross-domain insights",
     "",
@@ -886,10 +892,14 @@ export function buildSystemPrompt(
     }
 
     case "analyze": {
-      const prompt = buildAnalyzePrompt(vars.serializedData ?? "", vars.action, {
-        dashboardId: vars.dashboardId,
-        agenticMode: agenticEnabled,
-      });
+      const prompt = buildAnalyzePrompt(
+        vars.serializedData ?? "",
+        vars.action,
+        {
+          dashboardId: vars.dashboardId,
+          agenticMode: agenticEnabled,
+        },
+      );
       return { stable: prompt + preamble };
     }
 

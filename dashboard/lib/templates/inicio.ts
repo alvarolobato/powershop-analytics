@@ -17,7 +17,7 @@
  *       · entrada = true para ventas, entrada = false para devoluciones.
  *       · total_si = importe sin IVA.
  *       · total_coste_si = coste sin IVA (para margen).
- *       · ps_gc_facturas.abono IS NOT TRUE para facturación mayorista.
+ *       · la facturacion mayorista es NETA de abonos (netoDeAbonos): se guardan en positivo, asi que excluirlos los ignora en vez de restarlos (D-060).
  *
  * ## Mapa de dominios → etl_watermarks (validado 2026-05-02)
  *
@@ -349,7 +349,8 @@ LIMIT 10`,
         {
           label: "Facturación Mayorista (mes)",
           // Suma de las tres bases imponibles de las facturas mayorista del mes actual.
-          // `abono IS NOT TRUE` excluye las notas de crédito/abono (misma regla que general.ts).
+          // Los abonos se RESTAN con netoDeAbonos, no se excluyen: se guardan en
+          // positivo, así que excluirlos los ignora (D-060, misma regla que general.ts).
           // Range predicate instead of DATE_TRUNC on the column, so any
           // future index on fecha_factura can be used.
           sql: `SELECT ${NETO_GF} AS value

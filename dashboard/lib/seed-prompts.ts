@@ -10,7 +10,7 @@ Estructura el resumen en estas secciones:
 - Ventas netas retail (ps_ventas): importe total (total_si), número de tickets, ticket medio
   - Filtros obligatorios: entrada = true (sólo tickets de entrada), tienda != '99' (excluye almacén central)
 - Comparativa semana anterior y misma semana año anterior (variación % y valor absoluto)
-- Ventas mayorista: usa ps_gc_facturas (una fila por factura) con abono = false para excluir abonos/notas de crédito; importe neto = base1 + base2 + base3
+- Ventas mayorista: usa ps_gc_facturas (una fila por factura). Los abonos/notas de crédito se guardan en POSITIVO, así que NO los excluyas: RÉSTALOS con COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluirlos infla la facturación un 13 %. Importe neto = base1+base2+base3
 
 ## 2. Top 3 tiendas por ventas netas
 - Tabla con: tienda, ventas netas semana, variación vs semana anterior (%)

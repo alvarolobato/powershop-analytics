@@ -9,7 +9,11 @@
  */
 
 import { INSTRUCTIONS, SCHEMA, RELATIONSHIPS } from "./knowledge";
-import { formatSchema, formatRelationships, formatInstructions } from "./prompts";
+import {
+  formatSchema,
+  formatRelationships,
+  formatInstructions,
+} from "./prompts";
 
 // Re-export format helpers under descriptive names for tests and clarity
 export { formatSchema as formatSchemaForSuggest };
@@ -26,11 +30,14 @@ export { formatInstructions as formatInstructionsForSuggest };
  */
 export function buildSuggestPrompt(
   role: string,
-  existingDashboards: { title: string; description: string }[]
+  existingDashboards: { title: string; description: string }[],
 ): string {
   // Serialize as JSON so user-supplied content cannot inject instructions
   const existingSerialized = JSON.stringify(
-    existingDashboards.map((d) => ({ title: d.title, description: d.description }))
+    existingDashboards.map((d) => ({
+      title: d.title,
+      description: d.description,
+    })),
   );
   const existingSection =
     existingDashboards.length > 0
@@ -59,7 +66,7 @@ export function buildSuggestPrompt(
     "Each element must have exactly these fields:",
     '- "name": string — dashboard name in Spanish (concise, 3-6 words)',
     '- "description": string — one-line description in Spanish (what problem it solves for this role)',
-    '- "prompt": string — a ready-to-use generation prompt in Spanish (detailed, references correct table names, uses total_si, filters entrada=true, tienda<>\'99\' etc.)',
+    "- \"prompt\": string — a ready-to-use generation prompt in Spanish (detailed, references correct table names, uses total_si, filters entrada=true, tienda<>'99' etc.)",
     "",
     "Example format:",
     '[{"name": "...", "description": "...", "prompt": "..."}, ...]',
@@ -71,7 +78,7 @@ export function buildSuggestPrompt(
     "- Include widget guidance in the prompt (e.g. 'Incluye KPIs, gráfico de tendencia y tabla de detalle')",
     "- Reference correct table names: ps_ventas, ps_lineas_ventas, ps_articulos, ps_stock_tienda, ps_gc_albaranes, ps_gc_facturas, etc.",
     "- For retail analysis: filtra entrada=true, tienda<>'99', usa total_si para importes",
-    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto, filtra abono=false",
+    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto y RESTA los abonos, no los excluyas (estan guardados en POSITIVO): COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluirlos infla la facturacion un 13%",
     "- Follow the Business Rules below to choose the correct filters, metrics, and amount fields for each channel",
     "- Avoid overlap with existing dashboards listed below",
     "",
@@ -96,7 +103,7 @@ export function buildGapAnalysisPrompt(
     title: string;
     description: string;
     widgetTitles: string[];
-  }[]
+  }[],
 ): string {
   // Serialize as JSON so user-supplied content cannot inject instructions
   const coverageSerialized = JSON.stringify(
@@ -104,7 +111,7 @@ export function buildGapAnalysisPrompt(
       title: d.title,
       description: d.description,
       widgetTitles: d.widgetTitles,
-    }))
+    })),
   );
   const coverageSection =
     existingDashboards.length > 0
@@ -145,7 +152,7 @@ export function buildGapAnalysisPrompt(
     "- Focus on high-value decision areas: stock health, margin analysis, purchasing, customer insights, HR productivity, returns management",
     "- Each suggestedPrompt must be actionable and reference correct table names",
     "- For retail analysis: filtra entrada=true, tienda<>'99', usa total_si para importes",
-    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto, filtra abono=false",
+    "- For wholesale/mayorista analysis: usa base1+base2+base3 para importe neto y RESTA los abonos, no los excluyas (estan guardados en POSITIVO): COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluirlos infla la facturacion un 13%",
     "- Follow the Business Rules below to choose the correct filters, metrics, and amount fields for each channel",
     "- If all major areas are already covered, return 1-2 gaps for deeper analysis or cross-domain insights",
     "",

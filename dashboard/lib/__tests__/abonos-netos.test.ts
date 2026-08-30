@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import * as path from "node:path";
 import { netoDeAbonos } from "../sql-fragments";
 import { spec as specMayorista } from "../templates/mayorista";
 import { spec as specGeneral } from "../templates/general";
@@ -95,5 +97,44 @@ describe("netoDeAbonos()", () => {
 
   it("cualifica el abono con el alias que se le pasa", () => {
     expect(netoDeAbonos('lf."total"', "gf")).toContain('gf."abono"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Los prompts también enseñan la regla
+// ---------------------------------------------------------------------------
+
+/**
+ * Lo señaló Opus revisando este PR, y es el hallazgo de fondo: yo había
+ * arreglado las plantillas, pero los **prompts del sistema** seguían diciendo
+ * "exclude abono = true". El panel habría mostrado 3.199.868 € y el chat
+ * 3.677.893 € para la misma pregunta — exactamente la contradicción que este
+ * cambio venía a eliminar.
+ */
+describe("los prompts no enseñan a excluir abonos", () => {
+  const raiz = path.resolve(__dirname, "../..");
+  const ficheros = [
+    "lib/prompts.ts",
+    "lib/llm-context/system-prompt.ts",
+    "lib/creation-prompts.ts",
+    "lib/task-prompts.ts",
+    "lib/seed-prompts.ts",
+  ].filter((f) => existsSync(path.join(raiz, f)));
+
+  it("encuentra los ficheros de prompts", () => {
+    expect(ficheros.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it.each(ficheros)("%s no manda excluir los abonos", (f) => {
+    const texto = readFileSync(path.join(raiz, f), "utf8");
+    expect(texto, "'exclude abono'").not.toMatch(
+      /exclu(de|ir|ye)\s+(the\s+)?abono/i,
+    );
+    expect(texto, "'filtra abono=false'").not.toMatch(
+      /filtra\s+abono\s*=\s*false/i,
+    );
+    expect(texto, "'WHERE abono = false'").not.toMatch(
+      /WHERE\s+abono\s*=\s*false/i,
+    );
   });
 });
