@@ -814,7 +814,7 @@ def main():
             print("\nSample instruction:")
             print(json.dumps(sample, ensure_ascii=False, indent=2))
         if SQL_PAIRS:
-            question, sql = SQL_PAIRS[0]
+            question, sql, _sql_pg = SQL_PAIRS[0]
             print("\nSample SQL pair:")
             print(
                 json.dumps(
@@ -1085,7 +1085,7 @@ def main():
 
     ai_pairs = [
         {"id": str(i + 1), "question": q, "sql": s}
-        for i, (q, s) in enumerate(SQL_PAIRS)
+        for i, (q, s, _sql_pg) in enumerate(SQL_PAIRS)
     ]
     try:
         req = urllib.request.Request(
