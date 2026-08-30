@@ -9,7 +9,7 @@
 # `validate` sí se queda: ejecuta los pares SQL contra PostgreSQL y no depende
 # de WrenAI para nada. Es la comprobación que evita que un par mal escrito
 # llegue al bundle del modelo.
-# ps wren — WrenAI knowledge management
+# ps wren — validacion de los pares SQL contra el espejo PostgreSQL
 set -e
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -25,39 +25,25 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-WREN_URL="${WREN_URL:-http://localhost:3000}"
-
 usage() {
     cat <<EOF
-Usage: ps wren <subcommand> [args]
+Usage: ps wren validate
 
-Subcommands:
-  push            Push all source knowledge (instructions + SQL pairs) to WrenAI
-                  Source entries (is_default=1) are replaced; user entries are preserved.
-  validate        Validate all SQL pairs by executing against PostgreSQL mirror.
-                  Prints first result for each pair — lets you spot magnitude errors.
-                  Requires POSTGRES_DSN env var (or uses default localhost).
-  crosscheck      Run cross-validation: compare same metric from different data paths.
-                  Detects JOIN errors, filter gaps, ETL sync issues.
-                  Requires POSTGRES_DSN env var (or uses default localhost).
-  status          Show current knowledge counts (instructions and SQL pairs)
+Ejecuta cada par SQL de docs/dashboard/sql-pairs.md contra el espejo
+PostgreSQL y muestra la primera fila de cada uno, para que un error de
+magnitud (un total que sale x1000, un ranking vacio) se vea a simple vista.
 
-Options:
-  --url URL       WrenAI UI URL (default: http://localhost:3000)
+Los pares alimentan el bundle de conocimiento del dashboard, asi que esto
+sigue siendo util aunque WrenAI se retirara: es lo que evita que un par mal
+escrito llegue al modelo.
 
-Examples:
-  ps wren push                     Push all knowledge to WrenAI
-  ps wren push --url http://host:3000
-  ps wren validate                 Execute all SQL pairs, show first result
-  ps wren crosscheck               Compare metric pairs across tables
-  ps wren status                   Show counts
+Requiere POSTGRES_DSN (si no, usa localhost:5432/powershop).
 
-Notes:
-  - 'push' uses a merge strategy: source knowledge is refreshed on each run.
-    User-created knowledge via the WrenAI UI is preserved.
-  - SQL pairs are tracked by question text. Source pairs with matching questions
-    are replaced; user pairs with different questions survive.
-  - Instructions use the is_default SQLite flag: source=1 (replaced), user=0 (kept).
+Ejemplo:
+  POSTGRES_DSN=postgresql://user:pass@host:5432/powershop ps wren validate
+
+Nota: 'push', 'status' y 'crosscheck' se retiraron con WrenAI el 2026-08-30
+(D-058). Hablaban con wren-ui y qdrant, que ya no existen.
 EOF
 }
 
@@ -74,19 +60,6 @@ if [ -z "$SUBCMD" ] || [ "$SUBCMD" = "-h" ] || [ "$SUBCMD" = "--help" ]; then
     exit 0
 fi
 shift
-
-# Handle --url option
-while [[ "$#" -gt 0 ]]; do
-    case "$1" in
-        --url)
-            WREN_URL="$2"
-            shift 2
-            ;;
-        *)
-            break
-            ;;
-    esac
-done
 
 case "$SUBCMD" in
     validate)   cmd_validate ;;
