@@ -22,6 +22,7 @@ Available commands:
   stack        Docker Compose stack management (up/down/update/status/logs/open/destroy)
   etl          ETL operations (run/status/tables/logs)
   sql          4D SQL operations (schema, query, explore)
+  wren         Validación de los pares SQL contra PostgreSQL
   dashboard    Dashboard App management (open/logs/restart/status)
   prod         Production stack control (bootstrap/deploy/logs/status/restart/login/ssh)
   config       Show current configuration

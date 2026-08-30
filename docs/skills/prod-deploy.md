@@ -4,7 +4,7 @@
 
 ## How prod runs
 
-Production is a flat Docker Hub deployment on a dedicated Mac (`~/powershop/` by default): just `docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `./data/` bind mounts. ETL + Dashboard images are pulled pre-built from Docker Hub; the version is recorded in `.version`. All operations go over SSH via the `ps prod *` CLI from your local Mac (`PROD_HOST` / `PROD_PATH` in `~/.config/powershop-analytics/.env`).
+Production is a flat Docker Hub deployment on a dedicated Mac (`~/powershop/` by default): just `docker-compose.yml`, `.env`, `.version`, and `./data/` bind mounts. ETL + Dashboard images are pulled pre-built from Docker Hub; the version is recorded in `.version`. All operations go over SSH via the `ps prod *` CLI from your local Mac (`PROD_HOST` / `PROD_PATH` in `~/.config/powershop-analytics/.env`).
 
 ## Before you deploy
 
@@ -18,8 +18,6 @@ Production is a flat Docker Hub deployment on a dedicated Mac (`~/powershop/` by
 |-----------|---------|--------------|
 | New release (compose/config may have changed) — **the normal case** | `ps prod update` | Resolves the latest **stable** GitHub release, downloads its `docker-compose.prod.yml` + `wren-config.yaml`, writes `.version`, then runs `deploy`. |
 | Only new images, same compose/config | `ps prod deploy` | `docker compose pull` + `up -d`, then auto knowledge push. |
-| Only `wren-config.yaml` changed | `ps prod push-config` | Uploads config, restarts `wren-ai-service`. |
-| Only WrenAI knowledge changed (source MDs) | `ps prod push-knowledge` | Transfers source MDs, re-indexes instructions + SQL pairs. |
 
 After a new release, use **`ps prod update`** — it both refreshes the stack files and pulls the new images. `update` short-circuits with "Already on latest version" when `.version` already matches.
 
@@ -31,7 +29,7 @@ ps prod deploy --skip-knowledge # pull+restart without the knowledge push
 
 ## Knowledge push is automatic
 
-`ps prod deploy` (and therefore `ps prod update`) waits for `wren-ui` to be healthy and then pushes WrenAI knowledge automatically — no separate step after a deploy. Pass `--skip-knowledge` to suppress it. For a mid-sprint knowledge-only refresh (source MDs changed, no deploy planned), use `ps prod push-knowledge` (add `--dry-run` to preview counts).
+WrenAI se retiró de producción (D-058), así que ya no hay empuje de conocimiento: el bundle viaja dentro de la imagen del dashboard — no separate step after a deploy. Pass `--skip-knowledge` to suppress it. For a mid-sprint knowledge-only refresh (source MDs changed, no deploy planned), use `ps prod push-knowledge` (add `--dry-run` to preview counts).
 
 ## Verify
 
@@ -47,4 +45,3 @@ ps prod version  # just the .version on prod
 - **Wait for the image build before updating.** `:latest` lags until `release-docker.yml` finishes; updating early writes the new `.version` but pulls old images.
 - **Namespace/version pins.** The compose file pulls `${DOCKERHUB_NAMESPACE:-alobato}/powershop-{etl,dashboard}:${ETL_VERSION:-latest}` / `:${DASHBOARD_VERSION:-latest}` — the published namespace is **`alobato`**.
 - **`ps prod update` does NOT touch `ETL_VERSION` / `DASHBOARD_VERSION`.** If prod's `.env` pins those to an explicit version, `update` rewrites `.version` and the compose file but keeps pulling the *pinned* image tag — so `.version` advances while the running images stay put (a silent mismatch). When prod is pinned, bump both pins to the new version (or remove them so prod rides `:latest`) and then `ps prod deploy`. Verify the actually-running tags with `docker inspect --format '{{.Config.Image}}'` per container, not just `ps prod version`.
-- **macOS bash / Python on the operator Mac and prod.** The knowledge push (`scripts/wren-push-metadata.py`) runs under the operator's bash and prod's `python3`. macOS ships bash 3.2 (no `mapfile`) and a Homebrew `python3` may lack `pyyaml` (`pip install --break-system-packages pyyaml`). A transient `Connection reset by peer` while indexing SQL pairs right after the wren-ui restart is harmless — re-run `ps prod push-knowledge` once the AI service settles (the merge is idempotent).
