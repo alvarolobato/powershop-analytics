@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 16 ficheros. 250 secciones (167 con SQL,
+// Fuente: 16 ficheros. 247 secciones (164 con SQL,
 // 11 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -140,13 +140,6 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/sample-queries.md",
-    "heading": "Facturación por comercial",
-    "body": "```sql\nSELECT co.comercial AS \"Comercial\",\n       co.zona_comercial AS \"Zona\",\n       COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Facturación Neta\"\nFROM ps_gc_facturas gf\nJOIN ps_gc_comerciales co ON co.reg_comercial = gf.num_comercial\nWHERE gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY co.comercial, co.zona_comercial\nORDER BY \"Facturación Neta\" DESC\n```",
-    "hasSql": true,
-    "dialect": "postgres"
-  },
-  {
-    "source": "docs/sample-queries.md",
     "heading": "Abonos (devoluciones) por cliente",
     "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Abonos\",\n       SUM(gf.total_factura) AS \"Importe Abonado\"\nFROM ps_gc_facturas gf\nJOIN ps_clientes c ON c.reg_cliente = gf.num_cliente\nWHERE gf.abono IS TRUE\n  AND gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Abonado\" DESC\nLIMIT 20\n```",
     "hasSql": true,
@@ -162,7 +155,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Pedidos mayoristas pendientes de servir",
-    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Pedidos Abiertos\",\n       SUM(gp.unidades) AS \"Unidades Pedidas\",\n       SUM(gp.entregadas) AS \"Unidades Entregadas\",\n       SUM(gp.pendientes) AS \"Unidades Pendientes\"\nFROM ps_gc_pedidos gp\nJOIN ps_clientes c ON c.reg_cliente = gp.num_cliente\nWHERE gp.pedido_cerrado IS NOT TRUE\n  AND gp.abono IS NOT TRUE\n  AND gp.fecha_pedido BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Unidades Pendientes\" DESC\nLIMIT 20\n```\n\n---",
+    "body": "> Correcta, pero hoy devuelve vacío en cualquier ventana reciente: **no hay ningún\n> pedido abierto desde hace más de un año** (los 39 abiertos son antiguos, y los 8 de\n> agosto de 2026 están todos cerrados). Medido en producción 2026-08-30.\n\n```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Pedidos Abiertos\",\n       SUM(gp.unidades) AS \"Unidades Pedidas\",\n       SUM(gp.entregadas) AS \"Unidades Entregadas\",\n       SUM(gp.pendientes) AS \"Unidades Pendientes\"\nFROM ps_gc_pedidos gp\nJOIN ps_clientes c ON c.reg_cliente = gp.num_cliente\nWHERE gp.pedido_cerrado IS NOT TRUE\n  AND gp.abono IS NOT TRUE\n  AND gp.fecha_pedido BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Unidades Pendientes\" DESC\nLIMIT 20\n```\n\n---",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -190,7 +183,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Stock total de una referencia (central + tiendas)",
-    "body": "```sql\nSELECT 'Central' AS \"Ubicación\", COALESCE(SUM(sc.stock), 0) AS \"Unidades\"\nFROM ps_stock_central sc\nJOIN ps_articulos a ON a.reg_articulo = sc.num_articulo\nWHERE a.ccrefejofacm = 'V26212484'\nUNION ALL\nSELECT st.tienda, SUM(st.stock)\nFROM ps_stock_tienda st\nJOIN ps_articulos a ON a.codigo = st.codigo\nWHERE a.ccrefejofacm = 'V26212484'\nGROUP BY st.tienda\nORDER BY 2 DESC\n```",
+    "body": "```sql\nSELECT 'Central' AS \"Ubicación\", COALESCE(SUM(sc.stock), 0) AS \"Unidades\"\nFROM ps_stock_central sc\nJOIN ps_articulos a ON a.reg_articulo = sc.num_articulo\nWHERE a.ccrefejofacm = 'V26391168'\nUNION ALL\nSELECT st.tienda, SUM(st.stock)\nFROM ps_stock_tienda st\nJOIN ps_articulos a ON a.codigo = st.codigo\nWHERE a.ccrefejofacm = 'V26391168'\nGROUP BY st.tienda\nORDER BY 2 DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -302,7 +295,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Volumen por tipo de traspaso",
-    "body": "```sql\nSELECT tr.tipo AS \"Tipo\",\n       tr.concepto AS \"Concepto\",\n       COUNT(*) AS \"Movimientos\",\n       SUM(tr.unidades_e) AS \"Unidades Recibidas\"\nFROM ps_traspasos tr\nWHERE tr.entrada\n  AND tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_e BETWEEN :curr_from AND :curr_to\nGROUP BY tr.tipo, tr.concepto\nORDER BY \"Movimientos\" DESC\n```",
+    "body": "```sql\nSELECT tr.tipo AS \"Tipo\",\n       tr.concepto AS \"Concepto\",\n       COUNT(*) AS \"Movimientos\",\n       SUM(tr.unidades_s) AS \"Unidades\"\nFROM ps_traspasos tr\nWHERE tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nGROUP BY tr.tipo, tr.concepto\nORDER BY \"Movimientos\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -316,7 +309,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Traspasos de una referencia concreta",
-    "body": "```sql\nSELECT tr.fecha_s AS \"Fecha\",\n       tr.tienda_salida AS \"Origen\",\n       tr.tienda_entrada AS \"Destino\",\n       tr.talla AS \"Talla\",\n       tr.unidades_s AS \"Unidades\",\n       tr.tipo AS \"Tipo\",\n       tr.concepto AS \"Concepto\"\nFROM ps_traspasos tr\nJOIN ps_articulos a ON a.codigo = tr.codigo\nWHERE a.ccrefejofacm = 'V26212484'\n  AND NOT tr.entrada\n  AND tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nORDER BY tr.fecha_s DESC\n```\n\n---",
+    "body": "```sql\nSELECT tr.fecha_s AS \"Fecha\",\n       tr.tienda_salida AS \"Origen\",\n       tr.tienda_entrada AS \"Destino\",\n       tr.talla AS \"Talla\",\n       tr.unidades_s AS \"Unidades\",\n       tr.tipo AS \"Tipo\",\n       tr.concepto AS \"Concepto\"\nFROM ps_traspasos tr\nJOIN ps_articulos a ON a.codigo = tr.codigo\nWHERE a.ccrefejofacm = 'V26391168'\n  AND NOT tr.entrada\n  AND tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nORDER BY tr.fecha_s DESC\n```\n\n---",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -330,7 +323,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Artículos exclusivos de mayorista",
-    "body": "```sql\nSELECT a.codigo AS \"Código\",\n       a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\"\nFROM ps_articulos a\nWHERE a.codigo LIKE 'M%'\n  AND a.anulado IS NOT TRUE\nORDER BY a.codigo\nLIMIT 50\n```",
+    "body": "```sql\nSELECT a.codigo AS \"Código\",\n       a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\"\nFROM ps_articulos a\nWHERE a.ccrefejofacm LIKE 'M%'\n  AND a.anulado IS NOT TRUE\nORDER BY a.codigo\nLIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -344,7 +337,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Líneas de albarán mayorista con artículos M",
-    "body": "```sql\nSELECT gl.n_albaran AS \"Nº Albarán\",\n       gl.fecha_albaran AS \"Fecha\",\n       gl.codigo AS \"Código\",\n       gl.descripcion AS \"Descripción\",\n       gl.unidades AS \"Unidades\",\n       gl.total AS \"Importe\"\nFROM ps_gc_lin_albarane gl\nWHERE gl.codigo LIKE 'M%'\n  AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to\nORDER BY gl.fecha_albaran DESC\nLIMIT 50\n```\n\n---",
+    "body": "```sql\nSELECT gl.n_albaran AS \"Nº Albarán\",\n       gl.fecha_albaran AS \"Fecha\",\n       gl.codigo AS \"Código\",\n       gl.descripcion AS \"Descripción\",\n       gl.unidades AS \"Unidades\",\n       gl.total AS \"Importe\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_articulos a ON gl.codigo = a.codigo\nWHERE a.ccrefejofacm LIKE 'M%'\n  AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to\nORDER BY gl.fecha_albaran DESC\nLIMIT 50\n```\n\n---",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -512,7 +505,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto stock hay de una referencia en cada tienda y talla?",
-    "body": "```sql\nSELECT st.\"tienda\" AS \"Tienda\", st.\"talla\" AS \"Talla\", st.\"stock\" AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" st JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = st.\"codigo\" WHERE a.\"ccrefejofacm\" = 'V26212484' AND st.\"stock\" <> 0 ORDER BY st.\"tienda\", st.\"talla\"\n```",
+    "body": "```sql\nSELECT st.\"tienda\" AS \"Tienda\", st.\"talla\" AS \"Talla\", st.\"stock\" AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" st JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = st.\"codigo\" WHERE a.\"ccrefejofacm\" = 'V26391168' AND st.\"stock\" <> 0 ORDER BY st.\"tienda\", st.\"talla\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -764,7 +757,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/stock-analysis.md",
     "heading": "4. Total Stock Calculation",
-    "body": "```\nTotal = ps_stock_central.stock  (central warehouse, store 99)\n      + SUM(ps_stock_tienda.stock)  (all retail stores, all sizes)\n```\n\nPostgreSQL does the whole thing in one statement — no Python loop, no `UNION`\nworkaround (that constraint was a 4D SQL limitation, not a mirror one):\n\n```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       p.\"descripcion\"  AS \"Descripción\",\n       COALESCE(sc.\"stock\", 0) AS \"Central\",\n       COALESCE((SELECT SUM(s.\"stock\")\n                 FROM \"public\".\"ps_stock_tienda\" s\n                 WHERE s.\"codigo\" = p.\"codigo\" AND s.\"tienda\" <> '99'), 0) AS \"Tiendas\",\n       COALESCE(sc.\"stock\", 0)\n         + COALESCE((SELECT SUM(s.\"stock\")\n                     FROM \"public\".\"ps_stock_tienda\" s\n                     WHERE s.\"codigo\" = p.\"codigo\" AND s.\"tienda\" <> '99'), 0) AS \"Total\"\nFROM \"public\".\"ps_articulos\" p\nLEFT JOIN \"public\".\"ps_stock_central\" sc ON sc.\"num_articulo\" = p.\"reg_articulo\"\nWHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI';\n```\n\nNote the two different join keys: `ps_stock_central` joins on\n`num_articulo = reg_articulo`, `ps_stock_tienda` on `codigo = codigo`. Getting\nthese the wrong way round silently returns zero rows.\n\nA reference (`ccrefejofacm`) is **model + colour**, so it usually maps to several\n`codigo` values. Grouping by `ccrefejofacm` aggregates the colour; grouping by\n`LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2)` aggregates the model across\ncolours.\n\n---",
+    "body": "```\nTotal = ps_stock_central.stock  (central warehouse, store 99)\n      + SUM(ps_stock_tienda.stock)  (all retail stores, all sizes)\n```\n\nPostgreSQL does the whole thing in one statement — no Python loop, no `UNION`\nworkaround (that constraint was a 4D SQL limitation, not a mirror one):\n\n```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       p.\"descripcion\"  AS \"Descripción\",\n       COALESCE(sc.\"stock\", 0) AS \"Central\",\n       COALESCE((SELECT SUM(s.\"stock\")\n                 FROM \"public\".\"ps_stock_tienda\" s\n                 WHERE s.\"codigo\" = p.\"codigo\" AND s.\"tienda\" <> '99'), 0) AS \"Tiendas\",\n       COALESCE(sc.\"stock\", 0)\n         + COALESCE((SELECT SUM(s.\"stock\")\n                     FROM \"public\".\"ps_stock_tienda\" s\n                     WHERE s.\"codigo\" = p.\"codigo\" AND s.\"tienda\" <> '99'), 0) AS \"Total\"\nFROM \"public\".\"ps_articulos\" p\nLEFT JOIN \"public\".\"ps_stock_central\" sc ON sc.\"num_articulo\" = p.\"reg_articulo\"\nWHERE p.\"ccrefejofacm\" = '85170712';\n```\n\nNote the two different join keys: `ps_stock_central` joins on\n`num_articulo = reg_articulo`, `ps_stock_tienda` on `codigo = codigo`. Getting\nthese the wrong way round silently returns zero rows.\n\nA reference (`ccrefejofacm`) is **model + colour**, so it usually maps to several\n`codigo` values. Grouping by `ccrefejofacm` aggregates the colour; grouping by\n`LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2)` aggregates the model across\ncolours.\n\n---",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -778,7 +771,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/stock-analysis.md",
     "heading": "Transfers into a store",
-    "body": "```sql\nSELECT t.\"fecha_e\"        AS \"Fecha\",\n       t.\"tienda_salida\"  AS \"Origen\",\n       p.\"ccrefejofacm\"   AS \"Referencia\",\n       t.\"talla\"          AS \"Talla\",\n       t.\"unidades_e\"     AS \"Unidades\",\n       t.\"tipo\"           AS \"Tipo\",\n       t.\"concepto\"       AS \"Concepto\"\nFROM \"public\".\"ps_traspasos\" t\nLEFT JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\"\nWHERE t.\"tienda_entrada\" = '104'\n  AND t.\"entrada\" IS TRUE\n  AND t.\"fecha_e\" BETWEEN :curr_from AND :curr_to\n  AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial')\nORDER BY t.\"fecha_e\" DESC\nLIMIT 50;\n```",
+    "body": "```sql\nSELECT t.\"fecha_s\"        AS \"Fecha\",\n       t.\"tienda_salida\"  AS \"Origen\",\n       p.\"ccrefejofacm\"   AS \"Referencia\",\n       t.\"talla\"          AS \"Talla\",\n       t.\"unidades_s\"     AS \"Unidades\",\n       t.\"tipo\"           AS \"Tipo\",\n       t.\"concepto\"       AS \"Concepto\"\nFROM \"public\".\"ps_traspasos\" t\nLEFT JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\"\nWHERE t.\"tienda_entrada\" = '97'\n  -- `Autoreposicion` es el unico traspaso real entre tiendas y va SIEMPRE con\n  -- entrada=false, llevando origen Y destino en la misma fila. Filtrar\n  -- `entrada IS TRUE` aqui devuelve cero: la \"pata de entrada\" que describia la\n  -- doc antigua no existe para este tipo.\n  AND t.\"tipo\" = 'Autoreposicion'\n  AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to\nORDER BY t.\"fecha_s\" DESC\nLIMIT 50;\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1464,7 +1457,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué artículos tienen más stock en el almacén central?",
-    "body": "```sql\nSELECT s.\"codigo\" AS \"Código\", p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", SUM(s.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" s JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\" WHERE s.\"tienda\" = '99' AND s.\"stock\" > 0 GROUP BY s.\"codigo\", p.\"ccrefejofacm\", p.\"descripcion\" ORDER BY \"Stock\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", SUM(sc.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_central\" sc JOIN \"public\".\"ps_articulos\" p ON sc.\"num_articulo\" = p.\"reg_articulo\" WHERE sc.\"stock\" > 0 GROUP BY 1, 2 ORDER BY \"Stock\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1478,7 +1471,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué tallas se venden más de una referencia?",
-    "body": "```sql\nSELECT UPPER(lv.\"talla\") AS \"Talla\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND lv.\"talla\" IS NOT NULL GROUP BY UPPER(lv.\"talla\") ORDER BY \"Unidades\" DESC\n```",
+    "body": "```sql\nSELECT UPPER(lv.\"talla\") AS \"Talla\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'OUT340184' AND lv.\"talla\" IS NOT NULL GROUP BY UPPER(lv.\"talla\") ORDER BY \"Unidades\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1556,13 +1549,6 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué artículos acumulan más stock por talla?",
     "body": "```sql\nSELECT COALESCE(NULLIF(TRIM(fm.\"fami_grup_marc\"), ''), 'Sin clasificar') AS \"Familia\", s.\"talla\" AS \"Talla\", COALESCE(NULLIF(p.\"ccrefejofacm\", ''), '—') AS \"Referencia\", COALESCE(NULLIF(p.\"descripcion\", ''), '—') AS \"Descripción\", SUM(s.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" s JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\" LEFT JOIN \"public\".\"ps_familias\" fm ON p.\"num_familia\" = fm.\"reg_familia\" WHERE s.\"stock\" > 0 AND s.\"tienda\" <> '99' AND p.\"anulado\" = false GROUP BY COALESCE(NULLIF(TRIM(fm.\"fami_grup_marc\"), ''), 'Sin clasificar'), s.\"talla\", COALESCE(NULLIF(p.\"ccrefejofacm\", ''), '—'), COALESCE(NULLIF(p.\"descripcion\", ''), '—') ORDER BY \"Stock\" DESC LIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "postgres"
-  },
-  {
-    "source": "docs/dashboard/sql-pairs.md",
-    "heading": "¿Cuál es la facturación mayorista por comercial?",
-    "body": "```sql\nSELECT c.\"comercial\" AS \"Comercial\", COUNT(DISTINCT f.\"reg_factura\") AS \"Facturas\", SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" f JOIN \"public\".\"ps_gc_comerciales\" c ON f.\"num_comercial\" = c.\"reg_comercial\" WHERE f.\"abono\" = false GROUP BY c.\"comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1687,13 +1673,6 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
-    "heading": "¿Margen mayorista por comercial?",
-    "body": "```sql\nWITH neto AS (SELECT c.\"comercial\" AS comercial, COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS coste FROM \"public\".\"ps_gc_lin_facturas\" lf JOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"reg_factura\" JOIN \"public\".\"ps_gc_comerciales\" c ON f.\"num_comercial\" = c.\"reg_comercial\" WHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"comercial\") SELECT comercial AS \"Comercial\", ingreso AS \"Ingreso\", coste AS \"Coste\", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS \"Margen %\" FROM neto WHERE ingreso <> 0 ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": true,
-    "dialect": "postgres"
-  },
-  {
-    "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Volumen de traspasos por ruta?",
     "body": "```sql\nSELECT t.\"tienda_salida\" AS \"Tienda Origen\", t.\"tienda_entrada\" AS \"Tienda Destino\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND t.\"tipo\" = 'Autoreposicion' AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"tienda_salida\", t.\"tienda_entrada\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
     "hasSql": true,
@@ -1709,7 +1688,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Movimientos de stock de un artículo?",
-    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", t.\"tienda_salida\" AS \"Origen\", t.\"tienda_entrada\" AS \"Destino\", t.\"talla\" AS \"Talla\", t.\"unidades_s\" AS \"Unidades\", t.\"tipo\" AS \"Tipo\" FROM \"public\".\"ps_traspasos\" t JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND t.\"entrada\" = false AND t.\"tipo\" = 'Autoreposicion' ORDER BY t.\"fecha_s\" DESC LIMIT 50\n```",
+    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", t.\"tienda_salida\" AS \"Origen\", t.\"tienda_entrada\" AS \"Destino\", t.\"talla\" AS \"Talla\", t.\"unidades_s\" AS \"Unidades\", t.\"tipo\" AS \"Tipo\" FROM \"public\".\"ps_traspasos\" t JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'V26391168' AND t.\"entrada\" = false AND t.\"tipo\" = 'Autoreposicion' ORDER BY t.\"fecha_s\" DESC LIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

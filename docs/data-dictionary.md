@@ -766,7 +766,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "Los articulos con codigo que empieza por 'M' son de mayorista/granel. Para analisis exclusivamente retail excluye con codigo NOT LIKE 'M%'; para mayorista filtra codigo LIKE 'M%'.",
+    "instruction": "Los articulos de mayorista/granel se identifican por la REFERENCIA: ccrefejofacm LIKE 'M%' (6.325 articulos). NO por el codigo: `codigo` es numerico en las 42.270 filas y `codigo LIKE 'M%'` devuelve CERO siempre. Las lineas de venta y de albaran llevan `codigo`, asi que para filtrar por M hay que unir con ps_articulos. Para analisis exclusivamente retail excluye con codigo NOT LIKE 'M%'; para mayorista filtra codigo LIKE 'M%'.",
     "questions": [
       "que son los articulos M",
       "separar retail de mayorista"
