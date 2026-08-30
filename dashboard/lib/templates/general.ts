@@ -61,6 +61,7 @@
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersRetail } from "@/lib/template-global-filters";
+import { sinIntragrupo } from "@/lib/sql-fragments";
 
 export const name = "Director General";
 
@@ -94,8 +95,9 @@ WHERE v."entrada" = true
           // Not store-scoped; __gf_tienda__ intentionally absent.
           label: "Facturacion Mayorista (período seleccionado)",
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
-FROM "public"."ps_gc_facturas"
+FROM "public"."ps_gc_facturas" gf
 WHERE "abono" IS NOT TRUE
+  AND ${sinIntragrupo("gf")}
   AND "fecha_factura" >= :curr_from
   AND "fecha_factura" <= :curr_to`,
           format: "currency",
@@ -164,15 +166,17 @@ FROM (
 ) AS value
 FROM (
   SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS facturacion
-  FROM "public"."ps_gc_facturas"
+  FROM "public"."ps_gc_facturas" gf
   WHERE "abono" IS NOT TRUE
+    AND ${sinIntragrupo("gf")}
     AND "fecha_factura" >= :curr_from
     AND "fecha_factura" <= :curr_to
 ) curr,
 (
   SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS facturacion
-  FROM "public"."ps_gc_facturas"
+  FROM "public"."ps_gc_facturas" gf
   WHERE "abono" IS NOT TRUE
+    AND ${sinIntragrupo("gf")}
     AND "fecha_factura" >= :curr_from::date - INTERVAL '1 year'
     AND "fecha_factura" <= :curr_to::date - INTERVAL '1 year'
 ) prev`,
@@ -190,6 +194,7 @@ FROM (
 FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
 WHERE f."abono" IS NOT TRUE
+  AND ${sinIntragrupo("f")}
   AND lf."total" > 0
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to`,
@@ -233,8 +238,9 @@ WHERE v."entrada" = true
 UNION ALL
 SELECT 'Mayorista' AS label,
        COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
-FROM "public"."ps_gc_facturas"
+FROM "public"."ps_gc_facturas" gf
 WHERE "abono" IS NOT TRUE
+  AND ${sinIntragrupo("gf")}
   AND "fecha_factura" >= :curr_from
   AND "fecha_factura" <= :curr_to`,
       x: "label",
@@ -283,8 +289,9 @@ ORDER BY value DESC`,
   UNION ALL
   SELECT DATE_TRUNC('month', "fecha_factura") AS mes,
          SUM("base1" + "base2" + "base3") AS importe
-  FROM "public"."ps_gc_facturas"
+  FROM "public"."ps_gc_facturas" gf
   WHERE "abono" IS NOT TRUE
+    AND ${sinIntragrupo("gf")}
     AND "fecha_factura" >= LEAST(
       :curr_from::date,
       (DATE_TRUNC('month', :curr_to::date) - INTERVAL '11 months')::date
@@ -401,8 +408,9 @@ WHERE "stock" > 0`,
         {
           label: "Pedidos Mayorista Pendientes",
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
-FROM "public"."ps_gc_pedidos"
+FROM "public"."ps_gc_pedidos" gp
 WHERE "pedido_cerrado" = false
+  AND ${sinIntragrupo("gp")}
   AND "abono" IS NOT TRUE
   AND "pendientes" > 0`,
           format: "number",

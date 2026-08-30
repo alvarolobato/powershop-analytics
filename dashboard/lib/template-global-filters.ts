@@ -1,4 +1,5 @@
 import type { GlobalFilter } from "./schema";
+import { sinIntragrupo } from "./sql-fragments";
 
 /**
  * Global filters for pre-built dashboard templates.
@@ -188,6 +189,7 @@ const CLIENTE_MAYORISTA: GlobalFilter = {
 FROM "public"."ps_clientes" c
 JOIN "public"."ps_gc_facturas" gf ON gf."num_cliente" = c."reg_cliente"
 WHERE gf."abono" IS NOT TRUE
+  AND ${sinIntragrupo("gf")}
   AND gf."fecha_factura" >= :curr_from
   AND gf."fecha_factura" <= :curr_to
 GROUP BY c."reg_cliente", c."nombre", c."nif", c."num_cliente"
@@ -271,9 +273,7 @@ export const templateGlobalFiltersStock: GlobalFilter[] = [
  * that has no effect on any widget. Wire the joins into compras widgets first
  * before adding those filters back.
  */
-export const templateGlobalFiltersCompras: GlobalFilter[] = [
-  PROVEEDOR_COMPRAS,
-];
+export const templateGlobalFiltersCompras: GlobalFilter[] = [PROVEEDOR_COMPRAS];
 
 /**
  * Coverage dashboards. Combines stock-scoped tienda filter (binds to

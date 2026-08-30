@@ -154,7 +154,7 @@ erDiagram
   {
     "table": "ps_clientes",
     "alias": "Cliente",
-    "description": "Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).",
+    "description": "Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros): excluirlas de toda venta mayorista con NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif,'') = '502108150'), nunca con un JOIN, que es INNER y descarta las filas sin cliente (70 albaranes de 52.148).",
     "keyColumns": ["reg_cliente (PK)", "num_cliente", "nombre", "nif", "email", "codigo_postal", "poblacion", "pais", "fecha_creacion", "fecha_modifica", "ultima_compra_f"]
   }
 ]

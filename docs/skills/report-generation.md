@@ -450,11 +450,14 @@ SELECT COUNT(*) FILTER (WHERE a."abono" IS NOT TRUE) AS "Albaranes",
          - COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS TRUE), 0)
          AS "Importe Neto"
 FROM "public"."ps_gc_albaranes" a
-LEFT JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
 WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
             THEN a."fecha_envio" ELSE a."fecha_valor" END)
       BETWEEN :curr_from AND :curr_to
-  AND COALESCE(c."nif", '') <> '502108150';   -- tráfico intragrupo, no es venta
+  -- tráfico intragrupo, no es venta. NOT EXISTS y nunca un JOIN: el JOIN es
+  -- INNER y descarta las filas sin cliente (70 albaranes de 52.148).
+  AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci
+                 WHERE ci."reg_cliente" = a."num_cliente"
+                   AND COALESCE(ci."nif", '') = '502108150');
 ```
 
 ```sql
@@ -675,7 +678,7 @@ Each action must reference specific referencias (`ccrefejofacm`) and store codes
 10. **Wholesale returns are `abono`, not `entrada`.** `entrada` does not exist on GC tables.
 11. **GC line → header joins by `num_albaran`/`num_factura` → `reg_albaran`/`reg_factura`.** `n_albaran` / `n_factura` are visible document numbers and are not unique.
 12. **Wholesale delivery-note date** is `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.
-13. **NIF `502108150`** (19 `ps_clientes` rows) is intragroup traffic, not a sale — exclude it from wholesale customer rankings.
+13. **NIF `502108150`** (19 `ps_clientes` rows) is intragroup traffic, not a sale — exclude it with `NOT EXISTS`, never a `JOIN` (INNER drops the 70 rows with no matching client), from wholesale customer rankings.
 14. **`ps_clientes` has no `mayorista` / `anulado`.** Channel comes from the transaction table.
 15. **Float PKs**: `reg_articulo`, `reg_ventas` etc. are `NUMERIC(20,3)` with a `.99` suffix — never compare them with `=` against a computed value.
 16. **Bags (BOLSA)**: exclude or separate them from apparel analysis — high volume, near-zero revenue, they distort unit counts.

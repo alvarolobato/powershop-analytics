@@ -42,6 +42,7 @@
  *   widget nuevo.
  */
 import type { DashboardSpec } from "@/lib/schema";
+import { sinIntragrupo } from "@/lib/sql-fragments";
 
 export const name = "Inicio";
 
@@ -346,8 +347,9 @@ LIMIT 10`,
           // Range predicate instead of DATE_TRUNC on the column, so any
           // future index on fecha_factura can be used.
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
-FROM "public"."ps_gc_facturas"
+FROM "public"."ps_gc_facturas" gf
 WHERE "abono" IS NOT TRUE
+  AND ${sinIntragrupo("gf")}
   AND "fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)::date
   AND "fecha_factura" < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date`,
           format: "currency",
@@ -358,8 +360,9 @@ WHERE "abono" IS NOT TRUE
           // Pedidos abiertos con unidades pendientes de entregar.
           // Mismos predicados que general.ts (pedido_cerrado, abono, pendientes).
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
-FROM "public"."ps_gc_pedidos"
+FROM "public"."ps_gc_pedidos" gp
 WHERE "pedido_cerrado" = false
+  AND ${sinIntragrupo("gp")}
   AND "abono" IS NOT TRUE
   AND "pendientes" > 0`,
           format: "number",

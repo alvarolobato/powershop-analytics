@@ -58,7 +58,9 @@ test.beforeAll(async () => {
   }).toString();
 
   // 3. Extract only the IDs seeded by seed-dashboards.ts (lines like "→ id N")
-  dashboardIds = [...seederOut.matchAll(/→ id (\d+)/g)].map((m) => Number(m[1]));
+  dashboardIds = [...seederOut.matchAll(/→ id (\d+)/g)].map((m) =>
+    Number(m[1]),
+  );
   expect(dashboardIds.length).toBeGreaterThan(0);
 });
 
@@ -66,7 +68,9 @@ test.beforeAll(async () => {
 // Tests
 // ---------------------------------------------------------------------------
 
-test("all seeded dashboards render without widget error states", async ({ page }) => {
+test("all seeded dashboards render without widget error states", async ({
+  page,
+}) => {
   expect(dashboardIds.length).toBeGreaterThan(0);
 
   for (const id of dashboardIds) {
@@ -76,8 +80,12 @@ test("all seeded dashboards render without widget error states", async ({ page }
     // (either DashboardRenderer renders widgets, or an error surface appears)
     await page.waitForFunction(
       () => {
-        const skeletons = document.querySelectorAll('[data-testid="widget-skeleton"]');
-        const errors = document.querySelectorAll('[data-testid="error-display"]');
+        const skeletons = document.querySelectorAll(
+          '[data-testid="widget-skeleton"]',
+        );
+        const errors = document.querySelectorAll(
+          '[data-testid="error-display"]',
+        );
         // Page is resolved when skeletons are gone OR errors appeared
         return skeletons.length === 0 || errors.length > 0;
       },
@@ -85,10 +93,9 @@ test("all seeded dashboards render without widget error states", async ({ page }
     );
 
     // No error surfaces
-    await expect(
-      page.locator('[data-testid="error-display"]'),
-      { message: `Dashboard id=${id}: ErrorDisplay visible — widget SQL failed` },
-    ).toHaveCount(0);
+    await expect(page.locator('[data-testid="error-display"]'), {
+      message: `Dashboard id=${id}: ErrorDisplay visible — widget SQL failed`,
+    }).toHaveCount(0);
     await expect(page.getByText("Detalles técnicos"), {
       message: `Dashboard id=${id}: "Detalles técnicos" visible`,
     }).toHaveCount(0);
@@ -103,10 +110,9 @@ test("all seeded dashboards render without widget error states", async ({ page }
     }).toHaveCount(0);
 
     // No lingering skeletons — all widgets resolved
-    await expect(
-      page.locator('[data-testid="widget-skeleton"]'),
-      { message: `Dashboard id=${id}: skeletons still present after load` },
-    ).toHaveCount(0);
+    await expect(page.locator('[data-testid="widget-skeleton"]'), {
+      message: `Dashboard id=${id}: skeletons still present after load`,
+    }).toHaveCount(0);
 
     // Widgets must show real data — empty-state means the seeded data wasn't reached
     await expect(page.getByText("Sin datos"), {
@@ -125,4 +131,64 @@ test("seeded dashboards list page renders without errors", async ({ page }) => {
   await expect(page.locator("a[href*='/dashboard/']").first()).toBeVisible({
     timeout: 15_000,
   });
+});
+
+// ---------------------------------------------------------------------------
+// Tráfico intragrupo (issue #922)
+// ---------------------------------------------------------------------------
+
+/**
+ * El movimiento entre sociedades del propio grupo (CIF 502108150) no es venta.
+ *
+ * Este test es DISCRIMINANTE a propósito: el fixture siembra 12 facturas y 5
+ * albaranes intragrupo, y además filas huérfanas cuyo `num_cliente` no existe
+ * en `ps_clientes`. Así cada variante da un número distinto y el test no puede
+ * pasar por accidente:
+ *
+ *   | variante                   | facturas | albaranes |
+ *   |----------------------------|----------|-----------|
+ *   | sin excluir nada           | 120      | 50        |
+ *   | INNER JOIN + nif <> CIF    | 105      | 44        |  ← pierde huérfanos
+ *   | NOT EXISTS (la correcta)   | 108      | 45        |
+ *
+ * Es el mismo reparto que producción, donde el INNER JOIN se llevaba por
+ * delante 3 albaranes reales de 2026 (70 de 52.148 en todo el histórico).
+ */
+test("el tráfico intragrupo se excluye sin perder las filas huérfanas", async () => {
+  const { Client } = await import("pg");
+  const cli = new Client({ connectionString: buildE2eDsn() });
+  await cli.connect();
+  try {
+    const cuenta = async (tabla: string, filtro: string) =>
+      Number(
+        (
+          await cli.query(
+            `SELECT COUNT(*)::int AS n FROM ${tabla} t WHERE ${filtro}`,
+          )
+        ).rows[0].n,
+      );
+
+    const NOT_EXISTS = `NOT EXISTS (SELECT 1 FROM ps_clientes ci
+        WHERE ci.reg_cliente = t.num_cliente AND COALESCE(ci.nif, '') = '502108150')`;
+    const CON_JOIN = `EXISTS (SELECT 1 FROM ps_clientes c
+        WHERE c.reg_cliente = t.num_cliente AND COALESCE(c.nif, '') <> '502108150')`;
+
+    for (const [tabla, sinNada, conJoin, correcto] of [
+      ["ps_gc_facturas", 120, 105, 108],
+      ["ps_gc_albaranes", 50, 44, 45],
+    ] as const) {
+      expect(await cuenta(tabla, "TRUE"), `${tabla}: total sembrado`).toBe(
+        sinNada,
+      );
+      expect(
+        await cuenta(tabla, CON_JOIN),
+        `${tabla}: el JOIN pierde huérfanos`,
+      ).toBe(conJoin);
+      expect(await cuenta(tabla, NOT_EXISTS), `${tabla}: NOT EXISTS`).toBe(
+        correcto,
+      );
+    }
+  } finally {
+    await cli.end();
+  }
 });

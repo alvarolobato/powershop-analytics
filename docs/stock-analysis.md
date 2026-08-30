@@ -334,12 +334,16 @@ SELECT c."nombre" AS "Cliente",
        SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto",
        SUM(a."entregadas")                    AS "Unidades"
 FROM "public"."ps_gc_albaranes" a
-JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
+LEFT JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
 WHERE a."abono" IS TRUE
   AND (CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
             THEN a."fecha_envio" ELSE a."fecha_valor" END)
       BETWEEN :curr_from AND :curr_to
-  AND COALESCE(c."nif", '') <> '502108150'   -- tráfico intragrupo, no es venta
+  -- tráfico intragrupo, no es venta. El JOIN era INNER y perdía las filas
+  -- sin cliente en ps_clientes (70 albaranes de 52.148 en producción).
+  AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci
+                 WHERE ci."reg_cliente" = a."num_cliente"
+                   AND COALESCE(ci."nif", '') = '502108150')
 GROUP BY c."nombre"
 ORDER BY "Importe Neto" DESC
 LIMIT 20;
