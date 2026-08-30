@@ -367,3 +367,19 @@ SELECT v."tienda" AS "Tienda", COUNT(DISTINCT v."reg_ventas") AS "Tickets", ROUN
 ```sql
 SELECT v."tienda" AS "label", SUM(v."total_si") AS "value" FROM "public"."ps_ventas" v WHERE v."tienda" <> '99' AND v."fecha_creacion" BETWEEN :comp_from AND :comp_to GROUP BY v."tienda" ORDER BY "value" DESC
 ```
+
+### ¿Qué tallas he comprado?
+```sql
+SELECT la."talla" AS "Talla", SUM(la."recibidas") AS "Unidades Recibidas", COUNT(DISTINCT la."num_albaran") AS "Albaranes" FROM "public"."ps_lin_albaranes" la WHERE la."abono" IS NOT TRUE AND la."talla" <> 'U' GROUP BY la."talla" ORDER BY "Unidades Recibidas" DESC LIMIT 20
+```
+
+### ¿Qué tallas compro y cuáles vendo? (compras vs ventas por talla)
+```sql
+WITH compras_talla AS (SELECT la."talla" AS talla, SUM(la."recibidas") AS recibidas FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" WHERE la."abono" IS NOT TRUE AND la."talla" <> 'U' AND a."fecha_recibido" BETWEEN :curr_from AND :curr_to GROUP BY la."talla"), ventas_talla AS (SELECT lv."talla" AS talla, COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS vendidas FROM "public"."ps_lineas_ventas" lv WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' AND lv."talla" IS NOT NULL AND lv."talla" <> 'U' GROUP BY lv."talla") SELECT COALESCE(c.talla, v.talla) AS "Talla", COALESCE(c.recibidas, 0) AS "Compradas", COALESCE(v.vendidas, 0) AS "Vendidas Netas", ROUND(COALESCE(v.vendidas, 0)::numeric / NULLIF(COALESCE(c.recibidas, 0), 0) * 100, 1) AS "% Vendido sobre Comprado" FROM compras_talla c FULL OUTER JOIN ventas_talla v ON v.talla = c.talla ORDER BY "Compradas" DESC LIMIT 25
+```
+
+### ¿Qué he recibido en un albarán de compra, desglosado por talla?
+```sql
+SELECT la."codigo" AS "Código", la."descripcion" AS "Descripción", la."color" AS "Color", la."talla" AS "Talla", la."recibidas" AS "Unidades", la."precio_coste" AS "Coste Unitario" FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" WHERE a."fecha_recibido" BETWEEN :curr_from AND :curr_to AND la."recibidas" <> 0 ORDER BY la."codigo", la."talla" LIMIT 200
+```
+

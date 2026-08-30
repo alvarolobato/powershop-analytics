@@ -1334,3 +1334,43 @@ ANALYZE etl_sync_run_tables;
 ANALYZE etl_manual_trigger;
 ANALYZE conversations;
 ANALYZE conversation_messages;
+
+-- ---------------------------------------------------------------------------
+-- ps_lin_albaranes — lineas de albaran de COMPRA, en formato largo (issue #918)
+--
+-- Cierra la pata de compras de la formula de movimiento de stock: ps_albaranes
+-- es solo cabecera y ps_lineas_compras son PEDIDOS, no mercancia recibida.
+--
+-- Una fila de LinAlbaranes trae 34 slots Talla1..34 / Recibidas1..34; aqui se
+-- despivota a una fila por talla. Medido en 4D el 2026-08-30: 45.967 lineas
+-- producen 291.068 filas (6,33 tallas de media por linea).
+--
+-- La PK es (reg_linea_albaran, talla): RegLineaAlbaran es unico en origen
+-- (45.967 de 45.967) pero una linea aporta varias tallas.
+--
+-- num_albaran -> ps_albaranes.reg_albaran, verificado 3.759 de 3.759 (100 %).
+-- NUNCA por n_albaran, que es el numero visible y no es unico -- el mismo
+-- fallo que costo la FK del mayorista.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS ps_lin_albaranes (
+    reg_linea_albaran NUMERIC(20,3) NOT NULL,
+    talla             TEXT          NOT NULL,
+    num_albaran       NUMERIC(20,3),
+    n_linea           INTEGER,
+    codigo            TEXT,
+    num_articulo      NUMERIC(20,3),
+    descripcion       TEXT,
+    color             TEXT,
+    recibidas         INTEGER,
+    recibidas_total   NUMERIC(14,2),
+    precio_coste      NUMERIC(14,4),
+    precio_neto_si    NUMERIC(14,4),
+    total_si          NUMERIC(14,2),
+    num_proveedor     NUMERIC(20,3),
+    abono             BOOLEAN,
+    PRIMARY KEY (reg_linea_albaran, talla)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lin_albaranes_num_albaran ON ps_lin_albaranes (num_albaran);
+CREATE INDEX IF NOT EXISTS idx_lin_albaranes_codigo      ON ps_lin_albaranes (codigo);
+CREATE INDEX IF NOT EXISTS idx_lin_albaranes_talla       ON ps_lin_albaranes (talla);

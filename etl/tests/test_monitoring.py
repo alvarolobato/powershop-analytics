@@ -31,6 +31,7 @@ _SYNC_TARGETS = [
     "etl.sync.compras.sync_lineas_compras",
     "etl.sync.compras.sync_facturas",
     "etl.sync.compras.sync_albaranes",
+    "etl.sync.lin_albaranes.sync_lin_albaranes",
     "etl.sync.compras.sync_facturas_compra",
     "etl.sync.stock.sync_stock",
     "etl.sync.stock.sync_traspasos",

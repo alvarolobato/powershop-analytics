@@ -591,10 +591,32 @@ def truncate_and_insert_streaming(
             # copia que este helper existe para no hacer. Consumir el iterador
             # evita las dos cosas.
             it = iter(raw_rows)
+            origen_leidas = 0
             while True:
-                trozo = [mapper(r) for r in islice(it, chunk_size)]
-                if not trozo:
+                # El mapper puede devolver un dict (una fila de origen -> una
+                # de destino) o una LISTA de dicts, para tablas que se
+                # despivotan: una linea de albaran trae 34 slots de talla y
+                # produce 6,33 filas de media (issue #918). Se aplana aqui para
+                # que el troceado siga limitando la memoria por filas de
+                # DESTINO, que es lo que ocupa, no por filas de origen.
+                trozo: list[dict] = []
+                leidas_trozo = 0
+                for r in islice(it, chunk_size):
+                    leidas_trozo += 1
+                    mapeado = mapper(r)
+                    if isinstance(mapeado, list):
+                        trozo.extend(mapeado)
+                    else:
+                        trozo.append(mapeado)
+                origen_leidas += leidas_trozo
+                # Cortar por filas de ORIGEN agotadas, no por trozo vacio: un
+                # bloque cuyas lineas no aporten ninguna talla produce cero
+                # filas de destino y con `if not trozo: break` se perderia
+                # TODO lo que viniera detras, en silencio.
+                if leidas_trozo == 0:
                     break
+                if not trozo:
+                    continue
                 cols = list(trozo[0].keys())
                 cols_sql = ", ".join(_ident(c) for c in cols)
                 execute_values(
@@ -604,7 +626,13 @@ def truncate_and_insert_streaming(
                     page_size=1000,
                 )
                 total += len(trozo)
-                logger.info("%s: insertadas %d / %d filas", table, total, len(raw_rows))
+                logger.info(
+                    "%s: insertadas %d filas de destino (%d / %d de origen)",
+                    table,
+                    total,
+                    origen_leidas,
+                    len(raw_rows),
+                )
         conn.commit()
         return total
     except Exception:
