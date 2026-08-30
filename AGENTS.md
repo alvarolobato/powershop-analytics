@@ -610,11 +610,11 @@ If you discover something during a session — a null field, an unexpected table
 
 **Single source of truth for the knowledge bundle**: [`docs/knowledge-sources.yml`](docs/knowledge-sources.yml). To add a new source MD, add one entry to that file — all three consumers (`extract.py`, `build-knowledge.ts`, `wren-push-metadata.py`) pick it up automatically. Do not edit the consumers directly.
 
-**Both LLM consumers draw from the same source MDs:**
+**El dashboard es el único consumidor LLM; el validador es una puerta de calidad:**
 - **Dashboard runtime LLM** (`dashboard/lib/knowledge.ts`) — compiled by `npm run build:knowledge` from the `## LLM:*` marker sections.
 - **Validador de pares** (`scripts/wren-push-metadata.py`) — lee los mismos `## LLM:sql-pairs` y los ejecuta contra PostgreSQL. Ya no indexa nada: WrenAI se retiró (D-058).
 
-When you change anything that affects what either LLM consumer should know about the data platform, **both commands are required**:
+Tras tocar cualquier MD fuente, ambos comandos siguen siendo necesarios (uno recompila el bundle, el otro verifica que los pares SQL siguen funcionando):
 ```bash
 npm run build:knowledge   # update dashboard/lib/knowledge.ts — commit the result
 ps wren validate          # ejecutar los pares SQL contra el espejo
