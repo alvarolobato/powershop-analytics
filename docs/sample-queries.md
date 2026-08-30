@@ -325,20 +325,6 @@ ORDER BY "Importe Neto" DESC
 LIMIT 20
 ```
 
-### Facturación por comercial
-
-```sql
-SELECT co.comercial AS "Comercial",
-       co.zona_comercial AS "Zona",
-       COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS NOT TRUE), 0)
-     - COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS TRUE), 0) AS "Facturación Neta"
-FROM ps_gc_facturas gf
-JOIN ps_gc_comerciales co ON co.reg_comercial = gf.num_comercial
-WHERE gf.fecha_factura BETWEEN :curr_from AND :curr_to
-GROUP BY co.comercial, co.zona_comercial
-ORDER BY "Facturación Neta" DESC
-```
-
 ### Abonos (devoluciones) por cliente
 
 ```sql
@@ -372,6 +358,10 @@ ORDER BY "Importe Neto" DESC
 ```
 
 ### Pedidos mayoristas pendientes de servir
+
+> Correcta, pero hoy devuelve vacío en cualquier ventana reciente: **no hay ningún
+> pedido abierto desde hace más de un año** (los 39 abiertos son antiguos, y los 8 de
+> agosto de 2026 están todos cerrados). Medido en producción 2026-08-30.
 
 ```sql
 SELECT c.nombre AS "Cliente",
@@ -434,12 +424,12 @@ LIMIT 20
 SELECT 'Central' AS "Ubicación", COALESCE(SUM(sc.stock), 0) AS "Unidades"
 FROM ps_stock_central sc
 JOIN ps_articulos a ON a.reg_articulo = sc.num_articulo
-WHERE a.ccrefejofacm = 'V26212484'
+WHERE a.ccrefejofacm = 'V26391168'
 UNION ALL
 SELECT st.tienda, SUM(st.stock)
 FROM ps_stock_tienda st
 JOIN ps_articulos a ON a.codigo = st.codigo
-WHERE a.ccrefejofacm = 'V26212484'
+WHERE a.ccrefejofacm = 'V26391168'
 GROUP BY st.tienda
 ORDER BY 2 DESC
 ```
@@ -760,11 +750,10 @@ LIMIT 20
 SELECT tr.tipo AS "Tipo",
        tr.concepto AS "Concepto",
        COUNT(*) AS "Movimientos",
-       SUM(tr.unidades_e) AS "Unidades Recibidas"
+       SUM(tr.unidades_s) AS "Unidades"
 FROM ps_traspasos tr
-WHERE tr.entrada
-  AND tr."tipo" = 'Autoreposicion'
-  AND tr.fecha_e BETWEEN :curr_from AND :curr_to
+WHERE tr."tipo" = 'Autoreposicion'
+  AND tr.fecha_s BETWEEN :curr_from AND :curr_to
 GROUP BY tr.tipo, tr.concepto
 ORDER BY "Movimientos" DESC
 ```
@@ -795,7 +784,7 @@ SELECT tr.fecha_s AS "Fecha",
        tr.concepto AS "Concepto"
 FROM ps_traspasos tr
 JOIN ps_articulos a ON a.codigo = tr.codigo
-WHERE a.ccrefejofacm = 'V26212484'
+WHERE a.ccrefejofacm = 'V26391168'
   AND NOT tr.entrada
   AND tr."tipo" = 'Autoreposicion'
   AND tr.fecha_s BETWEEN :curr_from AND :curr_to
@@ -834,7 +823,7 @@ SELECT a.codigo AS "Código",
        a.descripcion AS "Descripción",
        a.precio1 AS "PVP"
 FROM ps_articulos a
-WHERE a.codigo LIKE 'M%'
+WHERE a.ccrefejofacm LIKE 'M%'
   AND a.anulado IS NOT TRUE
 ORDER BY a.codigo
 LIMIT 50
@@ -865,7 +854,8 @@ SELECT gl.n_albaran AS "Nº Albarán",
        gl.unidades AS "Unidades",
        gl.total AS "Importe"
 FROM ps_gc_lin_albarane gl
-WHERE gl.codigo LIKE 'M%'
+JOIN ps_articulos a ON gl.codigo = a.codigo
+WHERE a.ccrefejofacm LIKE 'M%'
   AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to
 ORDER BY gl.fecha_albaran DESC
 LIMIT 50
@@ -1147,7 +1137,7 @@ SELECT a."ccrefejofacm" AS "Referencia", a."descripcion" AS "Descripción", sc."
 
 ### ¿Cuánto stock hay de una referencia en cada tienda y talla?
 ```sql
-SELECT st."tienda" AS "Tienda", st."talla" AS "Talla", st."stock" AS "Stock" FROM "public"."ps_stock_tienda" st JOIN "public"."ps_articulos" a ON a."codigo" = st."codigo" WHERE a."ccrefejofacm" = 'V26212484' AND st."stock" <> 0 ORDER BY st."tienda", st."talla"
+SELECT st."tienda" AS "Tienda", st."talla" AS "Talla", st."stock" AS "Stock" FROM "public"."ps_stock_tienda" st JOIN "public"."ps_articulos" a ON a."codigo" = st."codigo" WHERE a."ccrefejofacm" = 'V26391168' AND st."stock" <> 0 ORDER BY st."tienda", st."talla"
 ```
 
 ### ¿Qué stock total tiene cada tienda?

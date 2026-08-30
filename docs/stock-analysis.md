@@ -169,7 +169,7 @@ SELECT p."ccrefejofacm" AS "Referencia",
                      WHERE s."codigo" = p."codigo" AND s."tienda" <> '99'), 0) AS "Total"
 FROM "public"."ps_articulos" p
 LEFT JOIN "public"."ps_stock_central" sc ON sc."num_articulo" = p."reg_articulo"
-WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI';
+WHERE p."ccrefejofacm" = '85170712';
 ```
 
 Note the two different join keys: `ps_stock_central` joins on
@@ -273,20 +273,23 @@ Written as `t."tipo" NOT IN (...)` it silently drops every row with a NULL
 ### Transfers into a store
 
 ```sql
-SELECT t."fecha_e"        AS "Fecha",
+SELECT t."fecha_s"        AS "Fecha",
        t."tienda_salida"  AS "Origen",
        p."ccrefejofacm"   AS "Referencia",
        t."talla"          AS "Talla",
-       t."unidades_e"     AS "Unidades",
+       t."unidades_s"     AS "Unidades",
        t."tipo"           AS "Tipo",
        t."concepto"       AS "Concepto"
 FROM "public"."ps_traspasos" t
 LEFT JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo"
-WHERE t."tienda_entrada" = '104'
-  AND t."entrada" IS TRUE
-  AND t."fecha_e" BETWEEN :curr_from AND :curr_to
-  AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial')
-ORDER BY t."fecha_e" DESC
+WHERE t."tienda_entrada" = '97'
+  -- `Autoreposicion` es el unico traspaso real entre tiendas y va SIEMPRE con
+  -- entrada=false, llevando origen Y destino en la misma fila. Filtrar
+  -- `entrada IS TRUE` aqui devuelve cero: la "pata de entrada" que describia la
+  -- doc antigua no existe para este tipo.
+  AND t."tipo" = 'Autoreposicion'
+  AND t."fecha_s" BETWEEN :curr_from AND :curr_to
+ORDER BY t."fecha_s" DESC
 LIMIT 50;
 ```
 
