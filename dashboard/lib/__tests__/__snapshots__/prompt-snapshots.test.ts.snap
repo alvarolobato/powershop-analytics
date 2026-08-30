@@ -433,7 +433,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - **ps_marcas** (Marca): Marcas de producto.
   Columns: reg_marca (PK), marca
 
-- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).
+- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros): excluirlas de toda venta mayorista con NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif,'') = '502108150'), nunca con un JOIN, que es INNER y descarta las filas sin cliente (70 albaranes de 52.148).
   Columns: reg_cliente (PK), num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f
 
 - **ps_tiendas** (Tienda): Tiendas. 99=almacén central, 97=online.
@@ -925,7 +925,7 @@ No dashboards have been created yet. All areas are uncovered.
 - **ps_marcas** (Marca): Marcas de producto.
   Columns: reg_marca (PK), marca
 
-- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).
+- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros): excluirlas de toda venta mayorista con NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif,'') = '502108150'), nunca con un JOIN, que es INNER y descarta las filas sin cliente (70 albaranes de 52.148).
   Columns: reg_cliente (PK), num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f
 
 - **ps_tiendas** (Tienda): Tiendas. 99=almacén central, 97=online.
@@ -1353,7 +1353,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - **ps_marcas** (Marca): Marcas de producto.
   Columns: reg_marca (PK), marca
 
-- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).
+- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros): excluirlas de toda venta mayorista con NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif,'') = '502108150'), nunca con un JOIN, que es INNER y descarta las filas sin cliente (70 albaranes de 52.148).
   Columns: reg_cliente (PK), num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f
 
 - **ps_tiendas** (Tienda): Tiendas. 99=almacén central, 97=online.
@@ -2082,7 +2082,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - **ps_marcas** (Marca): Marcas de producto.
   Columns: reg_marca (PK), marca
 
-- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).
+- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros): excluirlas de toda venta mayorista con NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif,'') = '502108150'), nunca con un JOIN, que es INNER y descarta las filas sin cliente (70 albaranes de 52.148).
   Columns: reg_cliente (PK), num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f
 
 - **ps_tiendas** (Tienda): Tiendas. 99=almacén central, 97=online.
@@ -2582,7 +2582,7 @@ None yet.
 - **ps_marcas** (Marca): Marcas de producto.
   Columns: reg_marca (PK), marca
 
-- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).
+- **ps_clientes** (Cliente): Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros): excluirlas de toda venta mayorista con NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif,'') = '502108150'), nunca con un JOIN, que es INNER y descarta las filas sin cliente (70 albaranes de 52.148).
   Columns: reg_cliente (PK), num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f
 
 - **ps_tiendas** (Tienda): Tiendas. 99=almacén central, 97=online.

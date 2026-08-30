@@ -375,8 +375,10 @@ SELECT c.nombre AS "Cliente",
        SUM(gp.entregadas) AS "Unidades Entregadas",
        SUM(gp.pendientes) AS "Unidades Pendientes"
 FROM ps_gc_pedidos gp
-JOIN ps_clientes c ON c.reg_cliente = gp.num_cliente
-WHERE gp.pedido_cerrado IS NOT TRUE
+LEFT JOIN ps_clientes c ON c.reg_cliente = gp.num_cliente
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gp.num_cliente
+                  AND COALESCE(ci.nif, '') = '502108150')
+  AND gp.pedido_cerrado IS NOT TRUE
   AND gp.abono IS NOT TRUE
   AND gp.fecha_pedido BETWEEN :curr_from AND :curr_to
 GROUP BY c.nombre

@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import * as path from "node:path";
 import { CIF_INTRAGRUPO, sinIntragrupo } from "../sql-fragments";
 import { spec as specMayorista } from "../templates/mayorista";
 import { spec as specGeneral } from "../templates/general";
@@ -98,4 +101,58 @@ describe("sinIntragrupo()", () => {
     expect(sinIntragrupo("ga")).toContain('ga."num_cliente"');
     expect(sinIntragrupo("gf")).toContain('gf."num_cliente"');
   });
+});
+
+// ---------------------------------------------------------------------------
+// La documentación también enseña la regla
+// ---------------------------------------------------------------------------
+
+/**
+ * El LLM no sólo ve las plantillas: `search_knowledge` indexa los MDs, y un
+ * ejemplo con el patrón viejo reintroduce el bug por la puerta de atrás.
+ *
+ * Lo señaló Copilot revisando este mismo PR: quedaban tres consultas de
+ * ejemplo con `JOIN ps_clientes ... COALESCE(c.nif,'') <> ...` en ficheros
+ * indexados (`wholesale-retail-split.md`, `stock-analysis.md`,
+ * `report-generation.md`), y una de ellas con JOIN interno de verdad.
+ */
+describe("la documentación no enseña el patrón viejo", () => {
+  const raiz = path.resolve(__dirname, "../../..");
+  const docs = execSync(
+    `grep -rl '${CIF_INTRAGRUPO}' '${raiz}/docs' --include='*.md'`,
+  )
+    .toString()
+    .trim()
+    .split("\n")
+    .filter(Boolean);
+
+  it("encuentra los documentos que citan el CIF", () => {
+    expect(docs.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it.each(docs)("%s no usa el filtro por JOIN", (fichero) => {
+    const texto = readFileSync(fichero, "utf8");
+    // El patrón viejo: comparar el nif de un ps_clientes unido, en vez de
+    // NOT EXISTS. Funciona con LEFT JOIN pero se rompe con INNER, y tener
+    // las dos formas conviviendo es justo lo que confunde al LLM.
+    expect(texto).not.toMatch(/COALESCE\(\s*c\."?nif"?\s*,\s*''\s*\)\s*<>/);
+  });
+
+  it.each(docs)(
+    "%s no une ps_clientes con INNER JOIN en consultas mayoristas",
+    (fichero) => {
+      // Sólo las MAYORISTAS. En retail el INNER JOIN a ps_clientes es
+      // deliberado: un ranking de clientes con nombre descarta a propósito las
+      // ventas anónimas (num_cliente = 0), que no tienen fila en ps_clientes.
+      const bloques = readFileSync(fichero, "utf8").split(/```/);
+      const inner =
+        /(?<!LEFT\s)(?<!OUTER\s)\bJOIN\s+"?(?:public"?\.)?"?ps_clientes\b/i;
+      for (const b of bloques) {
+        if (!/ps_gc_\w+/.test(b)) continue;
+        expect(b, `${fichero}: bloque mayorista con INNER JOIN`).not.toMatch(
+          inner,
+        );
+      }
+    },
+  );
 });

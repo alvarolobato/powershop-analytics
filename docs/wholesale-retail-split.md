@@ -206,11 +206,14 @@ SELECT COUNT(*) FILTER (WHERE a."abono" IS NOT TRUE) AS "Albaranes",
          - COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS TRUE), 0)
          AS "Importe Neto"
 FROM "public"."ps_gc_albaranes" a
-LEFT JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
 WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
             THEN a."fecha_envio" ELSE a."fecha_valor" END)
       BETWEEN :curr_from AND :curr_to
-  AND COALESCE(c."nif", '') <> '502108150';   -- tráfico intragrupo, no es venta
+  -- tráfico intragrupo, no es venta. NOT EXISTS y nunca un JOIN: el JOIN es
+  -- INNER y descarta las filas sin cliente (70 albaranes de 52.148).
+  AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci
+                 WHERE ci."reg_cliente" = a."num_cliente"
+                   AND COALESCE(ci."nif", '') = '502108150');
 ```
 
 ```sql
@@ -290,7 +293,7 @@ VAT-regime flags are **not** mirrored — the sales rep is available on the
 *documents* instead (`ps_gc_albaranes.num_comercial` /
 `ps_gc_facturas.num_comercial` → `ps_gc_comerciales.reg_comercial`).
 
-NIF `502108150` (19 rows) is intragroup traffic, not a customer — exclude it from
+NIF `502108150` (19 rows) is intragroup traffic, not a customer — exclude it with `NOT EXISTS`, never a `JOIN` (INNER drops the 70 rows with no matching client), from
 wholesale rankings.
 
 ---
