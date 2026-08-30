@@ -1,7 +1,7 @@
 #!/bin/bash
 # Prod bootstrap: convert /Users/alvarolobato/powershop (or whatever
 # $PROD_PATH points at) from a flat file dump into a real git checkout,
-# preserving data/, .env, and wren-config.yaml. Run on the prod Mac itself.
+# preserving data/ y .env. Run on the prod Mac itself.
 # Idempotent: safe to re-run; if the directory is already a git checkout it
 # falls through to a `git pull --ff-only`.
 
@@ -10,7 +10,7 @@ set -euo pipefail
 PROD_PATH="${PROD_PATH:-$HOME/powershop}"
 REPO_URL="${REPO_URL:-https://github.com/alvarolobato/powershop-analytics.git}"
 BRANCH="${BRANCH:-main}"
-PRESERVE=("data" ".env" "wren-config.yaml" ".version")
+PRESERVE=("data" ".env" ".version")
 
 DRY_RUN=0
 for arg in "$@"; do
@@ -101,7 +101,6 @@ for name in "${PRESERVE[@]}"; do
   if [ -e "$dst" ]; then
     # The repo version exists — keep the prod copy by overwriting (data/ in
     # particular is gitignored so the repo never has it; .env is also
-    # gitignored; wren-config.yaml IS in the repo, so back up the existing
     # repo copy as .repo before replacing.
     if [ ! -L "$dst" ]; then
       run "mv '$dst' '${dst}.repo'"

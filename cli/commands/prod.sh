@@ -16,7 +16,6 @@
 #   logs [svc]         docker compose logs -f --tail 100 [<service>]
 #   version            Show the version running on prod
 #   health             Run health checks against prod services
-#   push-knowledge     Transfer source MDs to prod and run wren-push-metadata.py
 #   token-status       Show the prod Claude OAuth expiry (no ssh shell)
 #   login              Interactive ssh -t for `claude /login` on prod
 #   ssh                Open a shell on prod
@@ -48,7 +47,6 @@ Configuration (set in ~/.config/powershop-analytics/.env or shell env):
 
 Stack operations:
   deploy                Pull latest Docker Hub images and restart the stack
-    [--skip-knowledge]    Skip automatic WrenAI knowledge push after restart
   update            Full update: new compose/config from latest GitHub release + deploy
   restart [svc]     Restart all services or a specific one
   status            Container status + version + health checks + token state
@@ -57,8 +55,6 @@ Stack operations:
   health            Run health checks against all prod services
 
 Maintenance:
-  push-config           Upload local wren-config.yaml to prod (restarts wren-ai-service)
-  push-knowledge        Transfer source MDs to prod and push WrenAI knowledge
     [--dry-run]           Print knowledge counts without pushing; still transfers files
   token-status          Show prod Claude OAuth expiry hours
   login                 Open interactive ssh and run "claude /login" on prod
@@ -118,18 +114,13 @@ cmd_deploy() {
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) up -d"
     echo -e "${GREEN}Deploy complete.${NC}"
 
+    # WrenAI se retiró de producción (2026-08-30): el dashboard hace el mismo
+    # trabajo y sus seis contenedores costaban 1,2 GB en una máquina de 16 GB
+    # que estaba matando al ETL por falta de memoria. El conocimiento que
+    # consumía este paso vive ahora sólo en `dashboard/lib/knowledge.ts`, que
+    # viaja dentro de la imagen del dashboard: no hay nada que empujar.
     if [ "$skip_knowledge" = false ]; then
-        echo
-        echo -e "${DIM}Waiting for wren-ui to be healthy before pushing knowledge...${NC}"
-        # Poll until wren-ui responds on port 3000 (up to 60 s); exit 0 on success, 1 on timeout
-        if remote "for i in \$(seq 1 12); do curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1 && exit 0 || sleep 5; done; exit 1"; then
-            echo -e "${CYAN}Pushing WrenAI knowledge...${NC}"
-            cmd_push_knowledge
-        else
-            echo -e "${YELLOW}wren-ui did not respond within 60s — skipping knowledge push. Run 'ps prod push-knowledge' manually once the stack is healthy.${NC}" >&2
-        fi
-    else
-        echo -e "${DIM}Skipping knowledge push (--skip-knowledge).${NC}"
+        echo -e "${DIM}Knowledge push omitido: WrenAI ya no forma parte del stack.${NC}"
     fi
 
     echo
@@ -174,7 +165,6 @@ cmd_update() {
     echo -e "${DIM}Downloading stack files from release ${latest}...${NC}"
     remote "cd $(printf %q "$PROD_PATH") && \
         curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/docker-compose.prod.yml' -o docker-compose.yml && \
-        curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/wren-config.yaml' -o wren-config.yaml && \
         mkdir -p otel/local && \
         curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/otelcol-config.yaml' -o otel/otelcol-config.yaml && \
         echo '${latest}' > .version"
@@ -321,91 +311,6 @@ cmd_health() {
 }
 
 # ---------------------------------------------------------------------------
-# push-config — upload local wren-config.yaml to prod
-# ---------------------------------------------------------------------------
-cmd_push_config() {
-    require_prod_host
-    local local_config="${REPO_ROOT}/wren-config.yaml"
-    if [ ! -f "$local_config" ]; then
-        echo -e "${RED}Local wren-config.yaml not found at ${local_config}${NC}" >&2
-        exit 1
-    fi
-    echo -e "${CYAN}Uploading wren-config.yaml to prod...${NC}"
-    scp "$local_config" "${PROD_HOST}:${PROD_PATH}/wren-config.yaml"
-    echo -e "${DIM}Restarting wren-ai-service to pick up new config...${NC}"
-    remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) restart wren-ai-service"
-    echo -e "${GREEN}Config pushed and service restarted.${NC}"
-}
-
-# ---------------------------------------------------------------------------
-# push-knowledge — transfer source MDs to prod and run wren-push-metadata.py
-#
-# Prod has no git checkout, so source MDs must be transferred temporarily.
-# Uses tar over SSH to preserve directory structure without requiring rsync.
-# ---------------------------------------------------------------------------
-cmd_push_knowledge() {
-    require_prod_host
-
-    local dry_run_flag=""
-    while [ $# -gt 0 ]; do
-        case "$1" in
-            --dry-run) dry_run_flag="--dry-run"; shift ;;
-            *) echo -e "${RED}ps prod push-knowledge: unknown option '$1'${NC}" >&2; exit 1 ;;
-        esac
-    done
-
-    # Source MDs are derived from docs/knowledge-sources.yml — the single source of truth.
-    # This avoids drift; wren-push-metadata.py reads the same manifest at import time.
-    # Read line-by-line instead of `mapfile`/`readarray` — those are bash 4+
-    # builtins and macOS ships bash 3.2, where the knowledge push (run from the
-    # operator's Mac) would otherwise fail with `mapfile: command not found`.
-    local -a source_mds=()
-    local _md_path
-    while IFS= read -r _md_path; do
-        [ -n "$_md_path" ] && source_mds+=("$_md_path")
-    done < <(python3 -c "
-import yaml
-data = yaml.safe_load(open('$REPO_ROOT/docs/knowledge-sources.yml'))
-for s in data['sources']:
-    print(s['path'])
-")
-
-    echo -e "${CYAN}Pushing WrenAI knowledge to $PROD_HOST...${NC}"
-
-    # Create a temp directory on prod
-    local tmpdir
-    tmpdir=$(remote "mktemp -d /tmp/ps-knowledge.XXXXXX")
-    echo -e "${DIM}Temp dir on prod: $tmpdir${NC}"
-
-    # Ensure tmpdir is cleaned up on exit (including early exit due to set -e)
-    # shellcheck disable=SC2064
-    trap "remote 'rm -rf $(printf %q "$tmpdir")' 2>/dev/null; trap - EXIT" EXIT
-
-    # Transfer script + source MDs via tar over SSH (preserves relative paths).
-    # Subshell with pipefail so a local tar failure (e.g. missing source MD) is not masked.
-    echo -e "${DIM}Transferring script and source MDs...${NC}"
-    (
-        set -o pipefail
-        tar -czf - -C "$REPO_ROOT" scripts/wren-push-metadata.py docs/knowledge-sources.yml "${source_mds[@]}" \
-            | ssh "$PROD_HOST" "bash -lc $(printf '%q' "mkdir -p $(printf %q "$tmpdir") && tar -xzf - -C $(printf %q "$tmpdir")")" \
-                2> >(grep -v 'tput: No value for \$TERM' >&2)
-    )
-
-    # Run the push script on prod (inside PROD_PATH so docker compose cp works)
-    echo -e "${DIM}Running wren-push-metadata.py on prod...${NC}"
-    remote "cd $(printf %q "$PROD_PATH") && python3 $(printf %q "$tmpdir/scripts/wren-push-metadata.py") --repo-root $(printf %q "$tmpdir") --url http://localhost:3000 $dry_run_flag"
-
-    # Clean up explicitly and clear the trap (trap handles error paths above)
-    remote "rm -rf $(printf %q "$tmpdir")"
-    trap - EXIT
-    echo -e "${DIM}Cleaned up temp dir.${NC}"
-
-    if [ -z "$dry_run_flag" ]; then
-        echo -e "${GREEN}Knowledge push complete. WrenAI instructions and SQL pairs are up to date.${NC}"
-    fi
-}
-
-# ---------------------------------------------------------------------------
 # token-status
 # ---------------------------------------------------------------------------
 cmd_token_status() {
@@ -471,8 +376,6 @@ case "$SUBCMD" in
     logs)          cmd_logs "$@" ;;
     version)       cmd_version "$@" ;;
     health)        cmd_health "$@" ;;
-    push-config)     cmd_push_config "$@" ;;
-    push-knowledge)  cmd_push_knowledge "$@" ;;
     token-status)    cmd_token_status "$@" ;;
     login)         cmd_login "$@" ;;
     ssh)           cmd_ssh "$@" ;;

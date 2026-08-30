@@ -305,6 +305,8 @@ Credentials live in `~/.config/powershop-analytics/` (centralized) so they work 
 
 ### No worker writes to `.github/workflows/` (D-029, issue #558)
 
+> **Alcance (verificado 2026-08-30).** Esta regla es para el **worker** y cualquier job de claude-code-action, que empujan con el token de instalación de la GitHub App. **No aplica a una sesión interactiva dirigida por el dueño**, que empuja con su propia clave SSH: comprobado con un push real a `release.yml`, aceptado sin rechazo. Lo que sigue prohibido para todos es añadir `workflows: write` al bloque `permissions:` — esa clave no existe en la lista de GitHub y deja el workflow en `startup-failure`, que es lo que tumbó la fábrica 21 horas.
+
 The AI worker (and any other claude-code-action job in this repo) must **not** create, modify, or delete files under `.github/workflows/`. Two layered constraints make this fail in subtle ways:
 
 1. GitHub Apps need the App-installation-level "Workflows: Read and write" permission to push workflow files. This is **not** configurable from inside the repo — it lives in the GitHub App's installation settings on github.com. The `permissions:` block in a workflow YAML only controls the `GITHUB_TOKEN` scopes, and `workflows` is **not** in the valid scope list (`actions, attestations, checks, contents, deployments, discussions, id-token, issues, models, packages, pages, pull-requests, repository-projects, security-events, statuses`). Adding `workflows: write` to `permissions:` puts the entire workflow into startup-failure — every event for that workflow is silently dropped (this happened from 2026-05-10 13:55 UTC to 2026-05-11 11:00 UTC; see D-029).

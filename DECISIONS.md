@@ -18,7 +18,7 @@
 | [D-014](docs/decisions/D-014-label-driven-ai.md) | `ai-work` triggers the worker; `ai-blocked` pauses it; `no-ai` excludes the issue; priority labels (`p0`/`p1`/`p2`/`p3`) order work. |
 | [D-021](docs/decisions/D-021-two-review-rounds.md) | Every PR gets exactly two review rounds, each once: Copilot, then Opus from a clean Claude Code context. No third round; escalate to owner if blocked. |
 | [D-028](docs/decisions/D-028-weekly-business-review.md) | Weekly business-review issues carry `needs-human-approval` and never `ai-work` — the factory may triage and plan, never implement, until a human authorises. |
-| [D-029](docs/decisions/D-029-no-worker-workflows.md) | The worker (and any claude-code-action job) must NOT write under `.github/workflows/`. Propose YAML in the PR body for a human commit. |
+| [D-029](docs/decisions/D-029-no-worker-workflows.md) | El worker no escribe workflows: propone el YAML en el PR. El dueño en sesión sí. Nunca `workflows: write`. |
 | [D-030](docs/decisions/D-030-watchdog-cadence.md) | Watchdog cron is `*/30` + `pull_request_review:[submitted]` + `pull_request:[closed]` to compensate for GitHub schedule queue saturation. |
 | [D-031](docs/decisions/D-031-copilot-opus-sequencing.md) | `ai-pr-review.yml` fires only on `labeled:ai-ready-for-review`. Strict order: Copilot → address → Opus → address → owner-merge. No `\|\| true` on critical dispatches. |
 | [D-033](docs/decisions/D-033-opus-review-marker.md) | Opus head-SHA idempotency requires `(.body \| length) > 0` (inline replies have empty body). Workflow runs matched by `display_title` via top-level `run-name`, never `head_sha` or `.inputs.*`. |
@@ -33,9 +33,6 @@
 | ID | Binding rule |
 |----|--------------|
 | [D-002](docs/decisions/D-002-bind-mounts.md) | All container data lives in `./data/<svc>/` bind mounts. Never named volumes. |
-| [D-005](docs/decisions/D-005-qdrant-no-recreate.md) | `recreate_index: false` in `wren-config.yaml`. Collections and embeddings must survive restarts. |
-| [D-006](docs/decisions/D-006-openrouter-embeddings.md) | WrenAI embeddings use `openai/text-embedding-3-large` + `OPENAI_API_BASE=https://openrouter.ai/api/v1`. The `openrouter/` prefix breaks embeddings under litellm. |
-| [D-007](docs/decisions/D-007-wrenai-restart-loop-fix.md) | Don't set `SHOULD_FORCE_DEPLOY` on wren-ai-service. Deploy via `scripts/wren-push-metadata.py`. |
 | [D-016](docs/decisions/D-016-etl-manual-trigger-table.md) | Dashboard signals manual ETL syncs via the PostgreSQL `etl_manual_trigger` table — never via an HTTP endpoint on the ETL container. |
 | [D-020](docs/decisions/D-020-force-resync.md) | Force-resync writes `force_full` / `force_tables` to `etl_manual_trigger`; scheduler resets watermarks (from a single allow-list) before the run. |
 | [D-023](docs/decisions/D-023-central-config-yaml.md) | All settings live in `~/.config/powershop-analytics/config.yaml`. Precedence: env var > config.yaml > default. Schema is `config/schema.yaml`. |
@@ -43,7 +40,7 @@
 | [D-024](docs/decisions/D-024-surface-cli-errors.md) | CLI/agentic failures must surface a sanitized `diagnostic` (provider/driver/model/phase/duration/tool/CLI tail). All free-form strings pass through `dashboard/lib/llm-provider/sanitize.ts`. |
 | [D-025](docs/decisions/D-025-oauth-single-refresher.md) | Only the host `claude` CLI ever refreshes the OAuth token. The launchd agent only mirrors the macOS Keychain into `~/.claude/.credentials.json`. Never POST to the OAuth endpoint from code. |
 | [D-042](docs/decisions/D-042-otel-head-sampling.md) | ETL/dashboard use SDK head sampling (`parentbased_traceidratio`, default 0.1); the pinned elastic-agent collector lacks `tail_sampling`/`zpages` — don't re-add without switching images. |
-| [D-059](docs/decisions/D-059-tablas-grandes-troceadas.md) | Toda tabla de más de 100.000 filas usa `truncate_and_insert_streaming`, nunca `truncate_and_insert`, que materializa la lista entera. |
+| [D-058](docs/decisions/D-058-wrenai-retirado.md) | WrenAI sale de producción y del compose (con qdrant, ibis-server, wren-engine y bootstrap). El conocimiento vive sólo en el bundle del dashboard. |
 
 ## Data / ETL
 
@@ -56,13 +53,6 @@
 | [D-017](docs/decisions/D-017-signed-int16-stock.md) | Apply `decode_signed_int16_word()` ONLY to `Exportaciones.Stock1..Stock34` (and `CCStock.Stock1..Stock34`) — the type-3/length-2 columns. Never on Real (type-6) columns. |
 | [D-050](docs/decisions/D-050-upsert-batch-loss.md) | `upsert()` pre-filters NULL/NaN-PK rows, falls back to row-by-row SAVEPOINT inserts on batch failure, and raises if zero rows survive — never a quiet 0-row "ok". |
 | [D-051](docs/decisions/D-051-fetch-anomaly-guard.md) | `safe_fetch()` scans every fetch for decode-corruption-shaped rows and refetches once to discriminate transient corruption from real data; evidence goes to `etl_fetch_anomalies`, never the D-050 skip log. |
-
-## WrenAI knowledge
-
-| ID | Binding rule |
-|----|--------------|
-| [D-008](docs/decisions/D-008-wrenai-knowledge-indexing.md) | After writing instructions/SQL-pairs to SQLite, POST them to wren-ai-service `/v1/instructions` and `/v1/sql-pairs` to index into qdrant. `deploy(force:true)` only indexes schema. |
-| [D-009](docs/decisions/D-009-is-default-merge.md) | Source knowledge entries use `is_default=1`. The push script only deletes/rewrites `is_default=1`. User entries (`is_default=0`) are never touched. |
 
 ## Dashboard App
 
