@@ -1,7 +1,14 @@
 # Wholesale vs Retail Split in PowerShop
 
-> How to distinguish wholesale (B2B) from retail (B2C) data across all tables.
-> Covers the M-prefix convention, POS vs GC channels, and implications for reporting.
+> How to distinguish wholesale (B2B) from retail (B2C) data **in the PostgreSQL
+> mirror** (`ps_*` tables). Covers the M-prefix convention, the POS vs GC
+> channels, and what that implies for reporting.
+>
+> **Dialect.** Every SQL block here is PostgreSQL against the mirror. The 4D ERP
+> names (`Ventas`, `GCAlbaranes`, `CCStock`, `Clientes`…) appear only as lineage
+> — they are not queryable from the dashboard or WrenAI.
+>
+> `:curr_from` / `:curr_to` are the reporting period, bound by the caller.
 
 ## Table of Contents
 
@@ -14,53 +21,66 @@
 7. [Payments by Channel](#7-payments-by-channel)
 8. [Report Implications](#8-report-implications)
 9. [Common Pitfalls](#9-common-pitfalls)
+10. [What is not mirrored](#10-what-is-not-mirrored)
 
 ---
 
 ## 1. Overview
 
-PowerShop supports two sales channels within the same database:
+Two sales channels share the same database and the same product/customer
+masters:
 
 | Aspect | Retail (B2C) | Wholesale (B2B) |
 |--------|-------------|-----------------|
-| **Tables** | Ventas, LineasVentas, PagosVentas | GCAlbaranes, GCLinAlbarane, GCFacturas, GCLinFacturas |
-| **Document flow** | Ticket -> (optional Invoice) | Order -> Delivery Note -> Invoice -> Collection |
-| **Product codes** | Standard codes (no prefix) | Often M-prefixed codes |
-| **Customers** | Clientes where Mayorista=False | Clientes where Mayorista=True |
-| **Payments** | PagosVentas (ImporteCob) | CobrosFacturas (Importe) |
-| **Pricing** | PVP (Precio1, with VAT) | Net prices (negotiated, often without VAT) |
-| **Stock source** | Exportaciones (retail stores) | CCStock (central warehouse) |
-| **Rows** | ~910K sales, ~1.69M lines | ~49K delivery notes, ~1.01M lines |
+| **Mirror tables** | `ps_ventas`, `ps_lineas_ventas`, `ps_pagos_ventas` | `ps_gc_pedidos`, `ps_gc_lin_pedidos`, `ps_gc_albaranes`, `ps_gc_lin_albarane`, `ps_gc_facturas`, `ps_gc_lin_facturas` |
+| **Document flow** | Ticket | Order → Delivery note → Invoice |
+| **Return / credit flag** | `entrada = FALSE` (line and header) | `abono IS TRUE` (header only) |
+| **Product codes** | Standard codes | Often `M`-prefixed referencias |
+| **Customers** | `ps_clientes` rows with `ps_ventas` activity | `ps_clientes` rows with `ps_gc_*` activity |
+| **Payments** | `ps_pagos_ventas` | **not mirrored** (§10) |
+| **Amounts sin IVA** | `total_si` | `base1 + base2 + base3` (headers), `total` (invoice lines) |
+| **Stock source** | `ps_stock_tienda` (retail stores) | `ps_stock_central` (central warehouse, store 99) |
+| **Rows** | ~910K tickets, ~1.82M lines | ~52K delivery notes, ~1.05M lines, ~19K invoices |
+
+The two channels use **different discriminators**, and that is the single
+biggest source of wrong queries: `entrada` does not exist on GC tables, `abono`
+does not exist on retail tables.
 
 ---
 
 ## 2. The M-Prefix Convention
 
-Articles with codes starting with **"M"** (e.g., `M12345`) are wholesale/bulk products:
-
-| Code Pattern | Channel | Example |
-|-------------|---------|---------|
-| `12345` | Retail | Standard product sold in stores |
-| `M12345` | Wholesale | Bulk/wholesale variant |
-
-### How to Filter
+Referencias starting with **`M`** (e.g. `M12345`) are wholesale/bulk products.
+The prefix lives on **`ps_articulos.ccrefejofacm`**, the referencia — not on
+`codigo`.
 
 ```sql
--- Retail products only
-WHERE Codigo NOT LIKE 'M%'
+-- Retail products only  (ccrefejofacm is nullable — the IS NULL branch matters)
+WHERE p."ccrefejofacm" IS NULL OR p."ccrefejofacm" NOT LIKE 'M%'
 
 -- Wholesale products only
-WHERE Codigo LIKE 'M%'
-
--- Both channels
--- (no filter on Codigo)
+WHERE p."ccrefejofacm" LIKE 'M%'
 ```
 
-### Important Notes
+```sql
+-- Channel mix of the active catalogue
+SELECT COUNT(*) AS "Total",
+       COUNT(*) FILTER (WHERE p."ccrefejofacm" LIKE 'M%') AS "Mayorista",
+       COUNT(*) FILTER (WHERE p."ccrefejofacm" IS NULL
+                          OR p."ccrefejofacm" NOT LIKE 'M%') AS "Retail"
+FROM "public"."ps_articulos" p
+WHERE p."anulado" = false;
+```
 
-- Not all wholesale transactions use M-prefix products. Some standard products are also sold wholesale.
-- The M-prefix is a **convention**, not a hard rule enforced by the system.
-- For definitive channel separation, use the **table** (Ventas vs GCAlbaranes), not just the prefix.
+### Important notes
+
+- Not all wholesale transactions use M-prefix products; some standard products
+  are also sold wholesale.
+- The M-prefix is a **convention**, not enforced by the system.
+- For definitive channel separation, use the **table** (`ps_ventas` vs
+  `ps_gc_*`), not the prefix.
+- `NOT LIKE 'M%'` is `NULL` for a NULL referencia, so a bare `NOT LIKE` filter
+  silently drops those articles. Always pair it with `IS NULL`.
 
 ---
 
@@ -70,36 +90,47 @@ WHERE Codigo LIKE 'M%'
 
 | Table | Rows | Description |
 |-------|------|-------------|
-| Ventas | ~910,726 | Ticket headers |
-| LineasVentas | ~1,687,995 | Ticket line items |
-| PagosVentas | ~964,039 | Payment records |
-| Cajas | ~42,504 | Register sessions |
-| Facturas | ~2,356 | Formal invoices (when requested) |
+| `ps_ventas` | ~910K | Ticket headers (`reg_ventas` PK) |
+| `ps_lineas_ventas` | ~1.82M | Ticket lines (`num_ventas` → `ps_ventas.reg_ventas`) |
+| `ps_pagos_ventas` | ~964K | Payment records (`num_ventas` → `ps_ventas.reg_ventas`) |
 
 ### Characteristics
 
-- **Point-of-sale** transactions from physical stores and online orders.
-- **Immediate payment**: cash, card, voucher at time of sale.
-- **Prices include VAT** (Total field includes VAT; TotalSI excludes it).
-- **Anonymous or identified**: NumCliente may be 0 for walk-in customers.
-- **One ticket, one moment**: sale happens at a single point in time.
+- Point-of-sale transactions from physical stores and the online store (`'97'`).
+- Immediate payment: cash, card, voucher at the time of sale.
+- `total` includes VAT; **`total_si` excludes it and is the analytics column**.
+- Anonymous or identified: `num_cliente` is `0` for walk-ins.
+- `entrada` marks sale (`TRUE`) vs return (`FALSE`), and is present on **both**
+  the header and the line — they agree 100%. Prefer `ps_lineas_ventas.entrada`
+  so a line-level query does not need the header join at all.
+- Store `'99'` is the central warehouse, not a shop: exclude it from retail.
 
-### Key Queries
+### Key queries
 
 ```sql
--- Total retail revenue (excluding returns)
-SELECT SUM(Total) AS retail_revenue
-FROM Ventas
-WHERE FechaCreacion >= '2025-01-01'
-  AND Entrada = TRUE
-
--- Retail revenue from non-M products only
-SELECT SUM(lv.Total) AS pure_retail
-FROM LineasVentas lv
-WHERE lv.Mes BETWEEN 202501 AND 202512
-  AND lv.Entrada = TRUE
-  AND lv.Codigo NOT LIKE 'M%'
+-- Net retail revenue for the period
+SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0)
+         - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas"
+FROM "public"."ps_ventas" v
+WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND v."tienda" <> '99';
 ```
+
+```sql
+-- Net revenue from non-M products only (pure retail)
+SELECT COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0)
+         - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)
+         AS "Ventas Netas Retail Puro"
+FROM "public"."ps_lineas_ventas" lv
+JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND lv."tienda" <> '99'
+  AND (p."ccrefejofacm" IS NULL OR p."ccrefejofacm" NOT LIKE 'M%');
+```
+
+Both `COALESCE`s are mandatory: without them a period with no returns yields
+`NULL`, and `NULL` sorts first in a `DESC` ranking
+([D-057](decisions/D-057-ventas-netas-de-devoluciones.md)).
 
 ---
 
@@ -107,323 +138,327 @@ WHERE lv.Mes BETWEEN 202501 AND 202512
 
 ### Tables
 
-| Table | Rows | Description |
-|-------|------|-------------|
-| GCPedidos | ~101 | Purchase orders |
-| GCLinPedidos | ~2,645 | Order line items |
-| GCAlbaranes | ~48,882 | Delivery notes |
-| GCLinAlbarane | ~1,014,995 | Delivery note lines |
-| GCFacturas | ~18,060 | Invoices |
-| GCLinFacturas | ~974,742 | Invoice lines |
-| CobrosFacturas | ~12,459 | Invoice collections |
-| GCComerciales | ~5 | Sales representatives |
+| Table | Rows | PK | Line → header key |
+|-------|------|----|-------------------|
+| `ps_gc_pedidos` | ~101 | `reg_pedido` | `ps_gc_lin_pedidos.num_pedido` |
+| `ps_gc_lin_pedidos` | ~2.6K | `reg_linea` | |
+| `ps_gc_albaranes` | ~52K | `reg_albaran` | `ps_gc_lin_albarane.num_albaran` |
+| `ps_gc_lin_albarane` | ~1.05M | `reg_linea` | |
+| `ps_gc_facturas` | ~19K | `reg_factura` | `ps_gc_lin_facturas.num_factura` |
+| `ps_gc_lin_facturas` | ~1.01M | `reg_linea` | |
+| `ps_gc_comerciales` | 5 | `reg_comercial` | via `num_comercial` on headers |
 
-### Document Flow
+**Join lines to headers by `num_albaran` → `reg_albaran` and
+`num_factura` → `reg_factura`.** Despite the `num_` prefix these are 4D record
+ids. The `n_albaran` / `n_factura` columns are the *visible document numbers* and
+are **not unique** — joining on them fans the result set out and inflates every
+total.
+
+### Document flow
 
 ```
-GCPedidos (Order)
-    -> GCAlbaranes (Delivery Note -- goods shipped)
-        -> GCFacturas (Invoice -- billing)
-            -> CobrosFacturas (Collection -- payment received)
+ps_gc_pedidos (order)
+    -> ps_gc_albaranes (delivery note — goods shipped)
+        -> ps_gc_facturas (invoice)
+            -> [collection — NOT MIRRORED, see §10]
 ```
 
 ### Characteristics
 
-- **Deferred payment**: invoices with 30/60/90 day terms.
-- **Prices often net** (without VAT). VAT calculated separately.
-- **Always identified customer**: NumCliente always references a Clientes record.
-- **Multiple deliveries per order**: one order can generate many delivery notes.
-- **Multiple delivery notes per invoice**: one invoice can cover multiple shipments.
-- **Credit notes** (Abono=True) for returns/corrections.
-- **Sales representatives** (GCComerciales) assigned per customer.
-- **Size-level detail**: GCLinAlbarane has Entregadas1..34 for per-size quantities.
+- Deferred payment with 30/60/90-day terms (the payments themselves are not in
+  the mirror).
+- Amounts are net; `base1 + base2 + base3` are the VAT bases.
+- Always an identified customer: `num_cliente` → `ps_clientes.reg_cliente`.
+- One order can generate many delivery notes; one invoice can cover many notes.
+- **Credit notes are `abono IS TRUE` on the header.** Lines carry no `abono`
+  column — the flag must come from the joined header.
+- `ps_gc_lin_albarane` has no per-size columns in the mirror; the 4D
+  `Entregadas1..34` slots are not unpivoted.
 
-### Key Queries
+### Effective date of a delivery note
 
 ```sql
--- Total wholesale revenue (from invoices, excluding credit notes)
-SELECT SUM(TotalFactura) AS wholesale_revenue
-FROM GCFacturas
-WHERE FechaFactura >= '2025-01-01'
-  AND Abono = FALSE
-  AND FacturaAnulada = FALSE
+CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
+     THEN a."fecha_envio" ELSE a."fecha_valor" END
+```
 
--- Wholesale revenue from delivery notes
-SELECT SUM(TotalAlbaran) AS ws_delivery_revenue
-FROM GCAlbaranes
-WHERE FechaEnvio >= '2025-01-01'
-  AND Abono = FALSE
+`fecha_envio` can be NULL or a sentinel; the `CASE` falls back to `fecha_valor`.
+Use it in the `WHERE` of every date-filtered albarán query.
+
+### Key queries
+
+```sql
+-- Net invoicing for the period
+SELECT COUNT(*) FILTER (WHERE f."abono" IS NOT TRUE) AS "Facturas",
+       COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS NOT TRUE), 0)
+         - COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS TRUE), 0)
+         AS "Facturación Neta"
+FROM "public"."ps_gc_facturas" f
+WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to;
+```
+
+```sql
+-- Net delivery-note volume, intragroup traffic excluded
+SELECT COUNT(*) FILTER (WHERE a."abono" IS NOT TRUE) AS "Albaranes",
+       COALESCE(SUM(a."entregadas") FILTER (WHERE a."abono" IS NOT TRUE), 0)
+         - COALESCE(SUM(a."entregadas") FILTER (WHERE a."abono" IS TRUE), 0) AS "Unidades Netas",
+       COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS NOT TRUE), 0)
+         - COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS TRUE), 0)
+         AS "Importe Neto"
+FROM "public"."ps_gc_albaranes" a
+LEFT JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
+WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
+            THEN a."fecha_envio" ELSE a."fecha_valor" END)
+      BETWEEN :curr_from AND :curr_to
+  AND COALESCE(c."nif", '') <> '502108150';   -- tráfico intragrupo, no es venta
+```
+
+```sql
+-- Top wholesale references by net invoiced amount
+SELECT p."ccrefejofacm" AS "Referencia",
+       p."descripcion"  AS "Descripción",
+       COALESCE(SUM(lf."unidades") FILTER (WHERE f."abono" IS NOT TRUE), 0)
+         - COALESCE(SUM(lf."unidades") FILTER (WHERE f."abono" IS TRUE), 0) AS "Unidades Netas",
+       COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0)
+         - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS "Importe Neto"
+FROM "public"."ps_gc_lin_facturas" lf
+JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
+JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
+WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to
+GROUP BY p."ccrefejofacm", p."descripcion"
+ORDER BY "Importe Neto" DESC
+LIMIT 20;
 ```
 
 ---
 
 ## 5. Stock by Channel
 
-### Where Stock Lives
+| Location | Mirror table | Store | Channel served |
+|----------|--------------|-------|----------------|
+| Central warehouse | `ps_stock_central` | 99 | Primarily wholesale |
+| Retail stores | `ps_stock_tienda` | all except 99 | Retail |
 
-| Location | Table | Store | Channel Served |
-|----------|-------|-------|---------------|
-| Central warehouse | CCStock | 99 | Primarily wholesale |
-| Retail stores | Exportaciones | All except 99 | Primarily retail |
-
-### Flow of Stock
+**Store `'99'` does not appear in `ps_stock_tienda`.** Looking for central stock
+there returns zero rows — no error, just a silently wrong answer.
 
 ```
-Supplier
-  -> Albaranes (purchase receipt) -> CCStock (central)
-      -> Traspasos -> Exportaciones (retail stores)
-      -> GCAlbaranes -> Customer (wholesale shipment)
+Supplier -> [purchase receipt — NOT MIRRORED, §10] -> ps_stock_central
+                -> ps_traspasos -> ps_stock_tienda   (to the shops)
+                -> ps_gc_albaranes -> customer        (wholesale shipment)
 ```
-
-### Stock by Channel Query
 
 ```sql
--- Central warehouse stock (serves wholesale)
-SELECT SUM(Stock) AS central_stock
-FROM CCStock
-WHERE Stock > 0
-
--- Retail store stock
-SELECT SUM(STStock) AS retail_stock
-FROM Exportaciones
-WHERE STStock > 0
+SELECT (SELECT COALESCE(SUM(sc."stock"), 0)
+        FROM "public"."ps_stock_central" sc
+        WHERE sc."stock" > 0) AS "Central (mayorista)",
+       (SELECT COALESCE(SUM(s."stock"), 0)
+        FROM "public"."ps_stock_tienda" s
+        WHERE s."stock" > 0 AND s."tienda" <> '99') AS "Tiendas (retail)";
 ```
 
-### Products Available per Channel
-
-```sql
--- Products with central stock (potential wholesale)
-SELECT COUNT(DISTINCT a.Codigo)
-FROM CCStock cs
-INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo
-WHERE cs.Stock > 0
-
--- Products with store stock (retail)
-SELECT COUNT(DISTINCT Codigo)
-FROM Exportaciones
-WHERE STStock > 0
-```
+Note the two different join keys to the catalogue:
+`ps_stock_central.num_articulo = ps_articulos.reg_articulo`, but
+`ps_stock_tienda.codigo = ps_articulos.codigo`. Full stock cookbook in
+[stock-analysis.md](stock-analysis.md).
 
 ---
 
 ## 6. Customers by Channel
 
-### Identification
+**`ps_clientes` has no `mayorista` flag and no `anulado` flag.** Channel is
+determined by *where the customer transacts*, not by an attribute on the
+customer. Any query filtering `WHERE mayorista = TRUE` is written against the 4D
+`Clientes` table and fails here.
 
 ```sql
--- Wholesale customers
-SELECT COUNT(*) FROM Clientes WHERE Mayorista = TRUE AND Anulado = FALSE
-
--- Retail customers
-SELECT COUNT(*) FROM Clientes WHERE Mayorista = FALSE AND Anulado = FALSE
+SELECT COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM "public"."ps_ventas" v
+                                      WHERE v."num_cliente" = c."reg_cliente")) AS "Con Retail",
+       COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM "public"."ps_gc_albaranes" a
+                                      WHERE a."num_cliente" = c."reg_cliente")) AS "Con Mayorista",
+       COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM "public"."ps_ventas" v
+                                      WHERE v."num_cliente" = c."reg_cliente")
+                          AND EXISTS (SELECT 1 FROM "public"."ps_gc_albaranes" a
+                                      WHERE a."num_cliente" = c."reg_cliente")) AS "Ambos Canales"
+FROM "public"."ps_clientes" c;
 ```
 
-### Customer Characteristics by Channel
+Available columns are `reg_cliente`, `num_cliente`, `nombre`, `nif`, `email`,
+`codigo_postal`, `poblacion`, `pais`, `fecha_creacion`, `fecha_modifica`,
+`ultima_compra_f`. Credit terms, discounts, credit limits, assigned sales rep and
+VAT-regime flags are **not** mirrored — the sales rep is available on the
+*documents* instead (`ps_gc_albaranes.num_comercial` /
+`ps_gc_facturas.num_comercial` → `ps_gc_comerciales.reg_comercial`).
 
-| Field | Retail Customer | Wholesale Customer |
-|-------|----------------|-------------------|
-| Mayorista | False | True |
-| FormaPago | Typically cash/card | Credit terms (30/60/90 days) |
-| PDescCom | Usually 0 | Negotiated discount |
-| RiesgoConcedid | 0 | Credit limit set |
-| NumComercial | 0 | Assigned sales rep |
-| BloqueoFinancials | Rare | Used for credit control |
-| LlevaIva | True | May be False (intra-community) |
-| LlevaRE | Sometimes | Depends on tax regime |
-
-### Cross-Channel Customers
-
-Some customers may appear in both channels:
-
-```sql
--- Customers that appear in both retail and wholesale
-SELECT c.Codigo, c.Cliente
-FROM Clientes c
-WHERE c.RegCliente IN (
-    SELECT DISTINCT NumCliente FROM Ventas WHERE NumCliente > 0
-)
-AND c.RegCliente IN (
-    SELECT DISTINCT NumCliente FROM GCAlbaranes
-)
-```
+NIF `502108150` (19 rows) is intragroup traffic, not a customer — exclude it from
+wholesale rankings.
 
 ---
 
 ## 7. Payments by Channel
 
-### Retail Payments
+### Retail payments — `ps_pagos_ventas`
 
-Tracked in `PagosVentas`:
-
-| Field | Description |
-|-------|-------------|
-| ImporteEnt | Amount tendered |
-| ImporteCob | Amount collected (**use this for revenue**) |
-| CodigoForma | Payment method code |
-| Forma | Payment method name |
-
-```sql
--- Retail payment breakdown
-SELECT pv.Forma,
-       SUM(pv.ImporteCob) AS collected
-FROM PagosVentas pv
-WHERE pv.FechaCreacion >= '2025-01-01'
-  AND pv.Entrada = TRUE
-GROUP BY pv.Forma
-ORDER BY collected DESC
-```
-
-### Wholesale Payments
-
-Tracked in `CobrosFacturas`:
-
-| Field | Description |
-|-------|-------------|
-| Importe | Payment amount |
-| Fecha | Payment date |
-| Forma | Payment method |
-| Pagado | Fully paid flag |
-| NumFactura | FK -> GCFacturas |
+| Column | Description |
+|--------|-------------|
+| `importe_cob` | Amount charged (**use this**; includes VAT, matches `ps_ventas.total`) |
+| `forma` | Payment method name, already human-readable |
+| `codigo_forma` | Method code (`'01'` = cash) |
+| `entrada` | `FALSE` on refunds — net them out |
+| `tienda`, `fecha_creacion` | |
 
 ```sql
--- Wholesale collection summary
-SELECT cf.Forma,
-       COUNT(*) AS payments,
-       SUM(cf.Importe) AS collected
-FROM CobrosFacturas cf
-WHERE cf.Fecha >= '2025-01-01'
-GROUP BY cf.Forma
-ORDER BY collected DESC
+SELECT p."forma" AS "Forma de Pago",
+       COUNT(*)  AS "Movimientos",
+       COALESCE(SUM(p."importe_cob") FILTER (WHERE p."entrada"), 0)
+         - COALESCE(SUM(p."importe_cob") FILTER (WHERE NOT p."entrada"), 0) AS "Importe Cobrado"
+FROM "public"."ps_pagos_ventas" p
+WHERE p."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND p."tienda" <> '99'
+GROUP BY p."forma"
+ORDER BY "Importe Cobrado" DESC;
 ```
 
-### Outstanding Wholesale Receivables
+`forma` values seen in production: `Metálico`, `American Express`, `Metalico`,
+`Visa`, `Devolución Vale`, `Vale`, `Devolución Metálico`, `MasterCard`,
+`Maestro`, `Transferencia`, `Pago PowerShop B2C`, `Cheque`. Note `Metálico` and
+`Metalico` both occur — fold them before presenting a mix. There is no
+`FormasPago` lookup table in the mirror and no code→name mapping is needed.
 
-```sql
--- Unpaid wholesale invoices
-SELECT gf.NFactura, gf.Cliente, gf.FechaFactura,
-       gf.TotalFactura,
-       COALESCE(SUM(cf.Importe), 0) AS paid,
-       gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) AS outstanding
-FROM GCFacturas gf
-LEFT OUTER JOIN CobrosFacturas cf ON gf.RegFactura = cf.NumFactura
-WHERE gf.Abono = FALSE
-  AND gf.FacturaAnulada = FALSE
-GROUP BY gf.NFactura, gf.Cliente, gf.FechaFactura, gf.TotalFactura
-HAVING gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) > 0
-ORDER BY outstanding DESC
-```
+`importe_cob` includes VAT. Use it for payment-mix and cash-control questions;
+use `ps_ventas.total_si` when the question is about revenue.
+
+### Wholesale payments
+
+**Not mirrored.** `CobrosFacturas` has no `ps_*` table, so wholesale
+collections, ageing and outstanding receivables cannot be computed here — see
+§10. Report the invoiced amount from `ps_gc_facturas` and state that collection
+data is unavailable, rather than presenting invoiced as collected.
 
 ---
 
 ## 8. Report Implications
 
-### Revenue Reports
+### Revenue
 
-When building revenue reports, be clear about which channel:
+| Report | Source | Expression |
+|--------|--------|------------|
+| Retail revenue | `ps_ventas` / `ps_lineas_ventas` | net over `total_si` by `entrada`, `tienda <> '99'` |
+| Wholesale revenue | `ps_gc_facturas` | net over `base1+base2+base3` by `abono` |
+| Pure retail | `ps_lineas_ventas` + `ps_articulos` | as above, plus `ccrefejofacm` not `M%` (with the `IS NULL` branch) |
+| Group total | both | sum the two nets; both are already sin IVA |
 
-| Report Type | Source | Filters |
-|------------|--------|---------|
-| Retail revenue | Ventas.Total or SUM(LineasVentas.Total) | Entrada=True |
-| Wholesale revenue | SUM(GCFacturas.TotalFactura) | Abono=False, FacturaAnulada=False |
-| Total revenue | Sum of both | Combine in Python |
-| Pure retail | LineasVentas | Entrada=True AND Codigo NOT LIKE 'M%' |
-| Pure wholesale | GCLinFacturas | Standard query |
+### Margin
 
-### Margin Reports
+| Channel | Revenue | Cost |
+|---------|---------|------|
+| Retail | `ps_lineas_ventas.total_si` | `ps_lineas_ventas.total_coste_si` |
+| Wholesale | `ps_gc_lin_facturas.total` | `ps_gc_lin_facturas.total_coste` |
 
-| Channel | Revenue Field | Cost Field |
-|---------|-------------|-----------|
-| Retail | LineasVentas.TotalSI | LineasVentas.TotalCosteSI |
-| Wholesale | GCLinFacturas.Total | GCLinFacturas.TotalCoste |
+Both sides must be netted by the channel's own discriminator — netting revenue
+but not cost inflates margin on any period with returns.
 
-### Units Sold
+### Units
 
 | Channel | Table | Field |
 |---------|-------|-------|
-| Retail | LineasVentas | Unidades (with Entrada filter) |
-| Wholesale | GCLinAlbarane or GCLinFacturas | Unidades |
+| Retail | `ps_lineas_ventas` | `unidades`, netted by `entrada` |
+| Wholesale | `ps_gc_lin_facturas` / `ps_gc_lin_albarane` | `unidades`, netted by the header's `abono` |
 
-### Time Periods
+### Dates
 
-| Channel | Fast Filter | Date Filter |
-|---------|------------|------------|
-| Retail | LineasVentas.Mes (YYYYMM integer) | Ventas.FechaCreacion |
-| Wholesale | GCLinFacturas.Mes (YYYYMM integer) | GCFacturas.FechaFactura or GCAlbaranes.FechaEnvio |
+| Channel | Date column |
+|---------|-------------|
+| Retail | `ps_ventas.fecha_creacion` / `ps_lineas_ventas.fecha_creacion` (both populated, no NULLs) |
+| Wholesale — invoice | `ps_gc_facturas.fecha_factura` |
+| Wholesale — delivery note | the `CASE` on `fecha_envio` / `fecha_valor` (§4) |
+
+`ps_lineas_ventas.mes` (YYYYMM integer) and `ps_gc_lin_facturas.mes` exist as
+fast filters, but prefer the real date columns — `DATE_TRUNC('month', ...)` is
+indexed-friendly enough and does not need a second format to keep in sync.
 
 ---
 
 ## 9. Common Pitfalls
 
-### 1. Mixing Channels in Revenue
+### 1. Forgetting the returns
 
-**Wrong**: Summing Ventas.Total and GCFacturas.TotalFactura without noting they have different VAT treatment.
-- Ventas.Total **includes VAT**
-- GCFacturas.TotalFactura **may or may not include VAT** depending on LlevaIva
+Gross `SUM(total_si)` is not "ventas". Net it, with `COALESCE` on both sides.
+This is the single most common wrong answer in this dataset.
 
-**Correct**: Use TotalSI (without VAT) for both channels when comparing, or explicitly handle VAT.
+### 2. Using the wrong discriminator
 
-### 2. Double-Counting M-Prefix Products
+`entrada` is retail-only, `abono` is wholesale-only. Neither exists on the other
+side's tables — the query errors rather than lying, which is the good case; the
+bad case is `abono` on a *line* table, where the column simply is not there and
+the author reaches for `n_albaran` instead.
 
-M-prefix products may appear in both LineasVentas (if sold retail) and GCLinAlbarane (if sold wholesale). If you sum across both tables without deduplication, you will double-count.
+### 3. Joining GC lines by the visible document number
 
-### 3. Ignoring Credit Notes
+`n_albaran` / `n_factura` are **not unique**. Join by `num_albaran` →
+`reg_albaran` and `num_factura` → `reg_factura`.
 
-Both channels have credit notes:
-- Retail: `LineasVentas.Entrada = False` (returns)
-- Wholesale: `GCAlbaranes.Abono = True` or `GCFacturas.Abono = True`
+### 4. Mixing VAT treatments
 
-Always filter these out (or subtract them) for net revenue.
+`ps_ventas.total` includes VAT, `ps_gc_facturas.base1+base2+base3` does not.
+Comparing or summing them across channels overstates retail. Use `total_si` and
+the bases.
 
-### 4. Customer Count
+### 5. Double-counting M-prefix products
 
-Some customers exist in Clientes but have never transacted. Always join to transaction tables for "active customer" counts:
+An M-prefix product may appear in both `ps_lineas_ventas` (sold retail) and
+`ps_gc_lin_facturas` (sold wholesale). Summing across both without separating the
+channel double-counts.
 
-```sql
--- Active retail customers (with purchases)
-SELECT COUNT(DISTINCT NumCliente)
-FROM Ventas
-WHERE NumCliente > 0
-  AND FechaCreacion >= '2025-01-01'
-  AND Entrada = TRUE
+### 6. `NOT LIKE 'M%'` on a NULL referencia
 
--- Active wholesale customers
-SELECT COUNT(DISTINCT NumCliente)
-FROM GCAlbaranes
-WHERE FechaEnvio >= '2025-01-01'
-  AND Abono = FALSE
-```
+`NULL NOT LIKE 'M%'` is `NULL`, not `TRUE`, so those articles vanish from a
+"retail" filter. Always `(p."ccrefejofacm" IS NULL OR p."ccrefejofacm" NOT LIKE 'M%')`.
 
-### 5. Store 99 in Reports
-
-Store 99 is the central warehouse. It should typically be **excluded** from retail store performance reports:
+### 7. Store 99 in retail reports
 
 ```sql
--- Retail store performance (exclude central)
-SELECT lv.Tienda, SUM(lv.Total) AS revenue
-FROM LineasVentas lv
-WHERE lv.Tienda <> '99'
-  AND lv.Mes BETWEEN 202501 AND 202512
-  AND lv.Entrada = TRUE
-GROUP BY lv.Tienda
-ORDER BY revenue DESC
+SELECT v."tienda" AS "Tienda",
+       COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0)
+         - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas"
+FROM "public"."ps_ventas" v
+WHERE v."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND v."tienda" <> '99'
+GROUP BY v."tienda"
+ORDER BY "Ventas Netas" DESC;
 ```
 
-### 6. Wholesale Delivery Notes vs Invoices
+Store `'97'` is the online shop — a real retail store, keep it.
 
-Revenue can be measured at two points:
-- **Delivery note** (GCAlbaranes.FechaEnvio) -- when goods ship
-- **Invoice** (GCFacturas.FechaFactura) -- when billed
+### 8. Delivery notes vs invoices
 
-These may differ by days or weeks. Choose one consistently:
-- Use **delivery notes** for operational/logistics metrics
-- Use **invoices** for financial/accounting metrics
+Revenue can be measured when goods ship (`ps_gc_albaranes`) or when billed
+(`ps_gc_facturas`). These differ by days or weeks. Use delivery notes for
+operational/logistics metrics, invoices for financial metrics, and never mix the
+two in one series.
 
-### 7. Payment Timing
+### 9. Treating invoiced as collected
 
-Retail payments are immediate (PagosVentas at time of sale).
-Wholesale payments are deferred (CobrosFacturas weeks/months later).
+Wholesale is deferred payment and the collections are not mirrored (§10). An
+invoiced total is not cash in.
 
-For cash flow analysis, use payment dates, not sale/invoice dates.
+### 10. Intragroup traffic
+
+NIF `502108150` moves stock between group entities. It inflates wholesale volume
+if left in a customer ranking.
+
+---
+
+## 10. What is not mirrored
+
+| Wanted | Status | Substitute |
+|--------|--------|------------|
+| **Wholesale collections / receivables / ageing** | `CobrosFacturas` has no `ps_*` table. | Invoiced amount from `ps_gc_facturas`; state that collection data is unavailable. |
+| **Customer channel flag, credit terms, discount, credit limit, VAT-regime flags** | Not mirrored on `ps_clientes`. | Channel by transaction table (§6); sales rep via `num_comercial` on the documents. |
+| **Per-size wholesale quantities** | 4D `Entregadas1..34` is not unpivoted into `ps_gc_lin_albarane`. | Line-level `unidades` only. |
+| **Purchase receipts (goods in)** | Purchase delivery-note *lines* are not mirrored; `ps_albaranes` is headers only. | `ps_lineas_compras` = **orders placed**, never receipts — label it "pedido". |
+| **`Facturas` (retail formal invoices) detail** | `ps_facturas` holds dates only (`reg_factura`, `fecha_factura`, `fecha_modifica`). | Ticket-level data from `ps_ventas`. |
+| **Register sessions (`Cajas`)** | Not mirrored. | `ps_pagos_ventas` by store and date. |
 
 ---
 
@@ -432,18 +467,20 @@ For cash flow analysis, use payment dates, not sale/invoice dates.
 ```
 Q: What channel is this data from?
 |
-+-- Table starts with "GC"? -> Wholesale
-|   (GCAlbaranes, GCLinAlbarane, GCFacturas, GCLinFacturas)
++-- Table starts with "ps_gc_"? -> Wholesale
+|   (discriminator: header abono; line->header by reg_* id)
 |
-+-- Table is Ventas/LineasVentas/PagosVentas? -> Retail (POS)
++-- ps_ventas / ps_lineas_ventas / ps_pagos_ventas? -> Retail (POS)
+|   (discriminator: entrada; exclude tienda '99')
 |
-+-- Table is Articulos/CCStock/Exportaciones? -> Both channels
-|   (Filter by Codigo LIKE/NOT LIKE 'M%' if needed)
++-- ps_articulos? -> Both channels
+|   (split by ccrefejofacm LIKE / NOT LIKE 'M%', with the IS NULL branch)
 |
-+-- Table is Clientes? -> Both channels
-|   (Filter by Mayorista = True/False)
++-- ps_clientes? -> Both channels
+|   (no flag on the row — decide by which transaction table has activity)
 |
-+-- Table is CobrosFacturas? -> Wholesale payments
++-- ps_stock_central? -> Central warehouse (store 99), serves wholesale
++-- ps_stock_tienda?  -> Retail stores only (never contains '99')
 |
-+-- Table is Traspasos? -> Stock operations (supports both)
++-- ps_traspasos? -> Stock operations between stores (supports both)
 ```

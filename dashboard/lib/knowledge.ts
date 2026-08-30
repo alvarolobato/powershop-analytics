@@ -525,7 +525,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "ps_traspasos.tipo: EXCLUIR SIEMPRE 'Apertura' e 'Inventario Parcial' de cualquier analisis de movimiento de stock. No son traspasos entre tiendas sino asientos de inventario, y dominan la tabla: 247.502 filas de 'Apertura' y 739 de 'Inventario Parcial' sobre 262.724 totales (medido en produccion 2026-08). Sin ese filtro un 'volumen de traspasos' o una 'ruta mas usada' devuelve practicamente solo aperturas. Filtro obligatorio: WHERE COALESCE(t.tipo, '') NOT IN ('Apertura', 'Inventario Parcial'). Los tipos que SI son movimiento real son 'Autoreposicion' y 'Regularizacion'.",
+      "ps_traspasos.tipo: para movimiento REAL entre tiendas usar la lista blanca tipo = 'Autoreposicion'. Medido en produccion sobre 262.724 filas: 'Autoreposicion' (425) es el UNICO tipo con tienda_salida Y tienda_entrada en la misma fila (425 de 425) y el unico vivo (ultima actividad 2026-08-22). Los otros tres NO son traspasos: 'Apertura' (247.502) e 'Inventario Parcial' (739) son asientos de inventario, y 'Regularizacion' (14.058) son ajustes y ROBOS -- sus conceptos son 'Inventario 31-12-2020', 'S-Robo' (4.339 filas), 'INVENTARIO' -- con ultima actividad en 2020-12-31. Excluir solo Apertura e Inventario Parcial deja dentro esas 14.058 filas de ajuste como si fueran traspasos. La columna es NULLABLE, asi que una lista negra necesitaria COALESCE; la lista blanca no. Ojo tambien: la pata entrada=true solo tiene fecha_e y la de salida solo fecha_s, y entrada=true no tiene ninguna fila en 2026.",
     questions: [
       "¿Volumen de traspasos?",
       "¿Rutas de traspaso mas usadas?",
@@ -715,10 +715,10 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "El recetario docs/sample-queries.md secciones 1-10 esta escrito en SQL de 4D contra el ERP origen (tablas Ventas, LineasVentas, Articulos, CCStock, Exportaciones, Traspasos, GCLinFacturas). El dashboard y WrenAI consultan el ESPEJO PostgreSQL con tablas ps_*. Nunca copies una consulta 4D a un widget: esas tablas no existen en PostgreSQL. Usa siempre los pares SQL en ps_*.",
+      "El recetario docs/sample-queries.md es PostgreSQL contra el espejo ps_* de principio a fin: se puede copiar tal cual a un widget. Nunca escribas una consulta contra las tablas del ERP 4D (Ventas, LineasVentas, Articulos, CCStock, Exportaciones, Traspasos, GCFacturas, o cualquier tabla sin prefijo ps_): no existen en PostgreSQL y el dashboard no puede ejecutarlas. Si una fuente de conocimiento te devuelve SQL de 4D, tradúcelo al espejo antes de usarlo.",
     questions: [
       "puedo usar las consultas del recetario",
-      "por que falla FROM Ventas",
+      "por que falla una consulta contra la tabla Ventas",
       "que dialecto uso",
     ],
   },
@@ -797,7 +797,7 @@ export const INSTRUCTIONS: Instruction[] = [
 export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Cuánto hemos vendido cada día en una tienda concreta? (neto de devoluciones)",
-    sql: `SELECT v."fecha_creacion" AS "Fecha", COUNT(*) FILTER (WHERE v."entrada") AS "Tickets", COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta" FROM "public"."ps_ventas" v WHERE v."tienda" = '99' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY v."fecha_creacion" ORDER BY v."fecha_creacion"`,
+    sql: `SELECT v."fecha_creacion" AS "Fecha", COUNT(*) FILTER (WHERE v."entrada") AS "Tickets", COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta" FROM "public"."ps_ventas" v WHERE v."tienda" = '154' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY v."fecha_creacion" ORDER BY v."fecha_creacion"`,
   },
   {
     question: "¿Cuál es la venta neta mensual por tienda?",
@@ -896,20 +896,16 @@ export const SQL_PAIRS: SqlPair[] = [
     sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20`,
   },
   {
-    question: "¿Cuánto vende cada comercial de mayorista?",
-    sql: `SELECT co."comercial" AS "Comercial", co."zona_comercial" AS "Zona", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_gc_comerciales" co ON co."reg_comercial" = gf."num_comercial" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY co."comercial", co."zona_comercial" ORDER BY "Facturación Neta" DESC`,
-  },
-  {
     question: "¿Cuál es el margen del canal mayorista por producto?",
     sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
-    sql: `SELECT tr."tienda_salida" AS "Origen", tr."tienda_entrada" AS "Destino", COUNT(*) AS "Movimientos", SUM(tr."unidades_s") AS "Unidades Enviadas" FROM "public"."ps_traspasos" tr WHERE tr."fecha_s" BETWEEN :curr_from AND :curr_to AND NOT tr."entrada" AND COALESCE(tr."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') GROUP BY tr."tienda_salida", tr."tienda_entrada" ORDER BY "Unidades Enviadas" DESC LIMIT 20`,
+    sql: `SELECT tr."tienda_salida" AS "Origen", tr."tienda_entrada" AS "Destino", COUNT(*) AS "Movimientos", SUM(tr."unidades_s") AS "Unidades Enviadas" FROM "public"."ps_traspasos" tr WHERE tr."fecha_s" BETWEEN :curr_from AND :curr_to AND NOT tr."entrada" AND tr."tipo" = 'Autoreposicion' GROUP BY tr."tienda_salida", tr."tienda_entrada" ORDER BY "Unidades Enviadas" DESC LIMIT 20`,
   },
   {
     question: "¿Qué tipos de traspaso se usan más?",
-    sql: `SELECT tr."tipo" AS "Tipo", tr."concepto" AS "Concepto", COUNT(*) AS "Movimientos", SUM(tr."unidades_e") AS "Unidades" FROM "public"."ps_traspasos" tr WHERE tr."fecha_e" BETWEEN :curr_from AND :curr_to AND tr."entrada" GROUP BY tr."tipo", tr."concepto" ORDER BY "Movimientos" DESC`,
+    sql: `SELECT tr."tipo" AS "Tipo", tr."concepto" AS "Concepto", COUNT(*) AS "Movimientos", SUM(tr."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" tr WHERE tr."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY tr."tipo", tr."concepto" ORDER BY "Movimientos" DESC`,
   },
   {
     question: "¿Cuánto vendemos en retail excluyendo los artículos de mayorista (prefijo M)?",
@@ -1125,15 +1121,15 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Volumen de traspasos por ruta?",
-    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
+    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."tipo" = 'Autoreposicion' AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
   },
   {
     question: "¿Traspasos diarios de stock?",
-    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
+    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."tipo" = 'Autoreposicion' AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
   },
   {
     question: "¿Movimientos de stock de un artículo?",
-    sql: `SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') ORDER BY t."fecha_s" DESC LIMIT 50`,
+    sql: `SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND t."entrada" = false AND t."tipo" = 'Autoreposicion' ORDER BY t."fecha_s" DESC LIMIT 50`,
   },
   {
     question: "¿Cuántos artículos hay por temporada?",
