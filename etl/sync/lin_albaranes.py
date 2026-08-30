@@ -46,6 +46,7 @@ delta posible. Con 45.967 filas de origen es asumible.
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 
 from etl.db.fourd import decode_signed_int16_word, safe_fetch
 from etl.db.postgres import truncate_and_insert_streaming
@@ -60,6 +61,18 @@ _CAMPOS = (
 )
 _SLOTS = ", ".join(f"Talla{i}, Recibidas{i}" for i in range(1, _MAX_TALLA + 1))
 SQL_LIN_ALBARANES = f"SELECT {_CAMPOS}, {_SLOTS} FROM LinAlbaranes"
+
+
+def _a_decimal(valor: object) -> object:
+    """float -> Decimal; el resto pasa tal cual.
+
+    Las columnas de destino son NUMERIC y el resto del ETL mantiene el mismo
+    contrato (`_to_decimal` en `compras.py`): meter floats en NUMERIC arrastra
+    el error de representacion binaria a claves y a importes.
+    """
+    if isinstance(valor, float):
+        return Decimal(str(valor))
+    return valor
 
 
 def _norm_talla(valor: object) -> str | None:
@@ -89,19 +102,19 @@ def normalizar_linea(src: dict) -> list[dict]:
         )
 
     comunes = {
-        "reg_linea_albaran": reg,
-        "num_albaran": src.get("numalbaran"),
+        "reg_linea_albaran": _a_decimal(reg),
+        "num_albaran": _a_decimal(src.get("numalbaran")),
         "n_linea": src.get("nlinea"),
         "codigo": src.get("codigo"),
-        "num_articulo": src.get("numarticulo"),
+        "num_articulo": _a_decimal(src.get("numarticulo")),
         "descripcion": src.get("descripcion"),
         "color": src.get("color"),
         # Raiz Real (tipo 6): NO pasa por el decodificador de 16 bits.
-        "recibidas_total": src.get("recibidas"),
-        "precio_coste": src.get("preciocoste"),
-        "precio_neto_si": src.get("precionetosi"),
-        "total_si": src.get("totalsi"),
-        "num_proveedor": src.get("numproveedor"),
+        "recibidas_total": _a_decimal(src.get("recibidas")),
+        "precio_coste": _a_decimal(src.get("preciocoste")),
+        "precio_neto_si": _a_decimal(src.get("precionetosi")),
+        "total_si": _a_decimal(src.get("totalsi")),
+        "num_proveedor": _a_decimal(src.get("numproveedor")),
         "abono": src.get("abono"),
     }
 

@@ -539,6 +539,9 @@ def _ident(nombre: str) -> str:
     return f'"{nombre}"'
 
 
+_AGOTADO = object()
+
+
 def truncate_and_insert_streaming(
     conn,
     table: str,
@@ -569,7 +572,6 @@ def truncate_and_insert_streaming(
     Devuelve el numero de filas insertadas. Hace commit al terminar; ante
     cualquier error hace rollback y re-lanza.
     """
-    from itertools import islice
 
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
@@ -592,31 +594,40 @@ def truncate_and_insert_streaming(
             # evita las dos cosas.
             it = iter(raw_rows)
             origen_leidas = 0
+            agotado = False
+            # Remanente: lo que sobra cuando la ultima fila de origen leida
+            # aporta mas filas de las que caben en el lote. Sin arrastrarlo, un
+            # mapper que expanda x10 desborda el lote hasta `chunk_size + 9`.
+            pendientes: list[dict] = []
             while True:
                 # El mapper puede devolver un dict (una fila de origen -> una
                 # de destino) o una LISTA de dicts, para tablas que se
                 # despivotan: una linea de albaran trae 34 slots de talla y
-                # produce 6,33 filas de media (issue #918). Se aplana aqui para
-                # que el troceado siga limitando la memoria por filas de
-                # DESTINO, que es lo que ocupa, no por filas de origen.
-                trozo: list[dict] = []
-                leidas_trozo = 0
-                for r in islice(it, chunk_size):
-                    leidas_trozo += 1
-                    mapeado = mapper(r)
+                # produce 6,33 filas de media (issue #918).
+                #
+                # El limite es por filas de DESTINO, que son las que ocupan
+                # memoria. Contar filas de ORIGEN dejaba entrar
+                # `chunk_size * N` mapeadas de golpe -- con 50.000 lineas de
+                # albaran serian ~316.000 vivas, justo lo que este helper
+                # existe para no hacer.
+                while not agotado and len(pendientes) < chunk_size:
+                    fila = next(it, _AGOTADO)
+                    if fila is _AGOTADO:
+                        agotado = True
+                        break
+                    origen_leidas += 1
+                    mapeado = mapper(fila)
                     if isinstance(mapeado, list):
-                        trozo.extend(mapeado)
+                        pendientes.extend(mapeado)
                     else:
-                        trozo.append(mapeado)
-                origen_leidas += leidas_trozo
-                # Cortar por filas de ORIGEN agotadas, no por trozo vacio: un
-                # bloque cuyas lineas no aporten ninguna talla produce cero
-                # filas de destino y con `if not trozo: break` se perderia
-                # TODO lo que viniera detras, en silencio.
-                if leidas_trozo == 0:
+                        pendientes.append(mapeado)
+                if not pendientes:
+                    # Solo con el origen agotado: el bucle de arriba sigue
+                    # leyendo hasta llenar el lote, asi que un tramo de filas
+                    # que no aportan nada no lo corta.
                     break
-                if not trozo:
-                    continue
+                trozo = pendientes[:chunk_size]
+                pendientes = pendientes[chunk_size:]
                 cols = list(trozo[0].keys())
                 cols_sql = ", ".join(_ident(c) for c in cols)
                 execute_values(

@@ -6,7 +6,9 @@ las dos cosas que pueden escribir datos silenciosamente mal en el espejo.
 
 from __future__ import annotations
 
-from etl.sync.lin_albaranes import _norm_talla, normalizar_linea
+from decimal import Decimal
+
+from etl.sync.lin_albaranes import _a_decimal, _norm_talla, normalizar_linea
 
 import pytest
 
@@ -68,8 +70,11 @@ class TestDespivotado:
         f = normalizar_linea(_linea(talla1="S", recibidas1=1, talla3="L", recibidas3=2))
         assert len(f) == 2
         for fila in f:
-            assert fila["reg_linea_albaran"] == 1001.99
-            assert fila["num_albaran"] == 5000.99
+            # Decimal, no float: las columnas de destino son NUMERIC y meter
+            # floats arrastra el error de representacion binaria a las claves.
+            assert fila["reg_linea_albaran"] == Decimal("1001.99")
+            assert isinstance(fila["reg_linea_albaran"], Decimal)
+            assert fila["num_albaran"] == Decimal("5000.99")
             assert fila["codigo"] == "123456"
 
     def test_reg_nulo_falla_en_vez_de_escribir_una_pk_invalida(self):
@@ -98,8 +103,18 @@ class TestDecodificadorInt16:
         f = normalizar_linea(_linea(talla1="S", recibidas1=32767))
         assert f[0]["recibidas"] == 32767
 
+    def test_los_importes_van_como_decimal(self):
+        f = normalizar_linea(_linea(talla1="S", recibidas1=1))
+        for campo in ("precio_coste", "precio_neto_si", "total_si", "recibidas_total"):
+            assert isinstance(f[0][campo], Decimal), f"{campo} deberia ser Decimal"
+
+    def test_a_decimal_deja_pasar_lo_que_no_es_float(self):
+        assert _a_decimal(None) is None
+        assert _a_decimal(7) == 7 and isinstance(_a_decimal(7), int)
+        assert _a_decimal("x") == "x"
+
     def test_la_raiz_real_no_pasa_por_el_decodificador(self):
         # `Recibidas` (sin numero) es Real, tipo 6: aplicarle el decodificador
         # de 16 bits corromperia cualquier valor por encima de 32767.
         f = normalizar_linea(_linea(talla1="S", recibidas1=1, recibidas=65535.0))
-        assert f[0]["recibidas_total"] == 65535.0
+        assert f[0]["recibidas_total"] == Decimal("65535.0")
