@@ -6,10 +6,11 @@
 
 PowerShop Analytics is a platform that extracts data from a vendor-managed PowerShop ERP (4D database), mirrors it into PostgreSQL, and provides two analytics interfaces:
 
-1. **WrenAI** — Ad-hoc single-question text-to-SQL (e.g., "¿Cuánto vendimos ayer?")
-2. **Dashboard App** — AI-generated multi-widget dashboards from natural language (e.g., "Créame un cuadro de mandos para el responsable de ventas")
+Una sola interfaz: el **Dashboard App**, que genera cuadros de mando de varios widgets desde lenguaje natural ("Créame un cuadro de mandos para el responsable de ventas") y también responde preguntas sueltas ("¿Cuánto vendimos ayer?").
 
-**Flow at a glance:** 4D Server (SQL `:19812` / SOAP `:8080`) → ETL (Python, nightly) → PostgreSQL mirror (`ps_*` tables, 18M+ rows) → consumed by both the WrenAI stack (wren-ui `:3000`, wren-ai-service `:5555`, wren-engine, ibis-server, qdrant) and the Dashboard App (Next.js + Tremor on `:4000`). WrenAI always calls OpenRouter (chat model per `WREN_LLM_MODEL` + text-embedding-3-large via litellm). The Dashboard App is configurable via `DASHBOARD_LLM_PROVIDER` between OpenRouter (default) and a local Claude Code CLI — see [D-019](docs/decisions/D-019-pluggable-llm-providers.md).
+**Flow at a glance:** 4D Server (SQL `:19812` / SOAP `:8080`) → ETL (Python, nightly) → PostgreSQL mirror (`ps_*` tables, 20M+ rows) → Dashboard App (Next.js + Tremor on `:4000`). El proveedor de LLM del dashboard se elige con `DASHBOARD_LLM_PROVIDER` entre OpenRouter (por defecto) y el CLI local de Claude Code — ver [D-019](docs/decisions/D-019-pluggable-llm-providers.md).
+
+> **WrenAI se retiró el 2026-08-30** ([D-058](docs/decisions/D-058-wrenai-retirado.md)). Sus seis contenedores (wren-ui, wren-ai-service, wren-engine, ibis-server, qdrant y el bootstrap) ya no están en el compose ni en producción: el dashboard hace el mismo trabajo y costaban 1,2 GB en una máquina que estaba matando al ETL por falta de memoria.
 
 Full ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview.md).
 
@@ -30,20 +31,12 @@ Full ASCII diagram in [docs/architecture/overview.md](docs/architecture/overview
 - **Dashboard tables**: `dashboards`, `dashboard_versions` (for the Dashboard App)
 - **Bind mount**: `./data/postgres/`
 
-### 3. WrenAI Stack (5 containers)
-- **Purpose**: Ad-hoc single-question text-to-SQL
-- **UI**: http://localhost:3000
-- **Semantic layer**: 26 models, 19 relationships, 107 column descriptions
-- **Knowledge**: 40+ instructions, 52+ SQL pairs (managed via `scripts/wren-push-metadata.py`)
-- **LLM**: per `WREN_LLM_MODEL` via OpenRouter (production currently runs `deepseek/deepseek-v4-pro`)
-- **Embeddings**: text-embedding-3-large via OpenRouter
-
-### 4. Dashboard App (`dashboard/`) — NEW
+### 3. Dashboard App (`dashboard/`)
 - **Purpose**: AI-generated multi-widget dashboards from natural language
 - **Language**: TypeScript (Next.js 14+ App Router)
 - **UI Framework**: Tremor (React dashboard components) + Tailwind CSS
 - **Port**: 4000 (configurable)
-- **LLM**: OpenRouter API (default) **or** local Claude Code CLI — selectable via `DASHBOARD_LLM_PROVIDER` (D-019); OpenRouter reuses `OPENROUTER_API_KEY` like WrenAI
+- **LLM**: OpenRouter API (default) **or** local Claude Code CLI — selectable via `DASHBOARD_LLM_PROVIDER` (D-019); usa `OPENROUTER_API_KEY`
 
 #### Dashboard App Architecture
 
@@ -83,11 +76,6 @@ The LLM emits a JSON spec with `title`, `description`, and a `widgets` array. Ea
 ### ETL Flow (nightly)
 ```
 4D Server → p4d driver → Python ETL → PostgreSQL ps_* tables
-```
-
-### WrenAI Flow (ad-hoc questions)
-```
-User question → WrenAI UI → AI Service (RAG + LLM) → SQL → ibis-server → PostgreSQL → result
 ```
 
 ### Dashboard App Flow (dashboard generation)
@@ -138,8 +126,7 @@ User: "Añade el margen por familia"
 |----------|-----------|---------|
 | `P4D_HOST/PORT/USER/PASSWORD` | ETL | 4D SQL connection |
 | `POSTGRES_USER/PASSWORD/DB` | All | PostgreSQL connection |
-| `OPENROUTER_API_KEY` | WrenAI + Dashboard (openrouter) | LLM + Embeddings |
-| `WREN_LLM_MODEL` | WrenAI | LLM model for WrenAI |
+| `OPENROUTER_API_KEY` | Dashboard (openrouter) | LLM |
 | `DASHBOARD_LLM_PROVIDER` | Dashboard App | `openrouter` (default) or `cli` |
 | `DASHBOARD_LLM_MODEL_OPENROUTER` / `DASHBOARD_LLM_MODEL_CLI` | Dashboard App | Per-backend model; legacy `DASHBOARD_LLM_MODEL` fills both when set |
 | `DASHBOARD_LLM_CLI_*` | Dashboard App | CLI binary, driver, timeout, capture cap — see `.env.example` |
@@ -152,8 +139,6 @@ User: "Añade el margen por familia"
 | Data | Location | Survives restart | Survives `down -v` |
 |------|----------|:----------------:|:-------------------:|
 | PostgreSQL data | `./data/postgres/` | Yes | Yes (bind mount) |
-| Qdrant vectors | `./data/qdrant/` | Yes | Yes (bind mount) |
-| WrenAI config/SQLite | `./data/wren/` | Yes | Yes (bind mount) |
 | Dashboard data | PostgreSQL tables | Yes | Yes (in PG bind mount) |
 | Conversation context logs | `./data/dashboard/conversations/` | Yes | Yes (bind mount) |
 
@@ -164,7 +149,13 @@ file when "Contexto original" is expanded. See [D-039](docs/decisions/D-039-cont
 
 ## Production
 
-Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) contains only `docker-compose.yml`, `.env`, `wren-config.yaml`, `.version`, and `./data/` bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub (`alobato/powershop-etl`, `alobato/powershop-dashboard`). WrenAI images come from `ghcr.io/canner/*`.
+Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) holds `docker-compose.yml`, `.env`, `.version`, `otel/` and the `./data/` bind mounts. Todas las imágenes se descargan ya construidas de Docker Hub: `alobato/powershop-etl` y `alobato/powershop-dashboard`, más `postgres:16-alpine` y el collector de Elastic.
+
+> El directorio acumula además ficheros que nadie lee, y conviene saberlo antes de mirarlo y pensar que falta o sobra algo:
+> un `wren-config.yaml` huérfano de la retirada de WrenAI, copias antiguas del compose (`docker-compose.yml.pre-*`), y un
+> respaldo de `.env` con marca de tiempo **por cada `ps prod update`** —el comando lo hace antes de fijar las etiquetas de
+> imagen, para no dejar el fichero a medias si algo falla—. A 2026-08-30 hay 13 de esos respaldos; crecen sin límite y
+> limpiarlos es seguro.
 
 `PROD_HOST` and `PROD_PATH` in `~/.config/powershop-analytics/.env` are **local-operator** config — they tell the `ps prod *` CLI on your local Mac where to SSH. The prod Mac itself doesn't need these variables.
 
