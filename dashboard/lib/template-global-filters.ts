@@ -187,7 +187,7 @@ const CLIENTE_MAYORISTA: GlobalFilter = {
                 'Cliente ' || (c."num_cliente")::text) AS label
 FROM "public"."ps_clientes" c
 JOIN "public"."ps_gc_facturas" gf ON gf."num_cliente" = c."reg_cliente"
-WHERE gf."abono" = false
+WHERE gf."abono" IS NOT TRUE
   AND gf."fecha_factura" >= :curr_from
   AND gf."fecha_factura" <= :curr_to
 GROUP BY c."reg_cliente", c."nombre", c."nif", c."num_cliente"

@@ -85,7 +85,7 @@ export const spec: DashboardSpec = {
                   + COALESCE(f."base2", 0)
                   + COALESCE(f."base3", 0)), 0) AS value
 FROM "public"."ps_gc_facturas" f
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__`,
@@ -96,7 +96,7 @@ WHERE f."abono" = false
           label: "Facturas",
           sql: `SELECT COUNT(DISTINCT f."reg_factura") AS value
 FROM "public"."ps_gc_facturas" f
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__`,
@@ -124,7 +124,7 @@ JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
 LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
 LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
 WHERE lf."total" > 0
-  AND f."abono" = false
+  AND f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
@@ -137,7 +137,7 @@ WHERE lf."total" > 0
           label: "Clientes Activos",
           sql: `SELECT COUNT(DISTINCT f."num_cliente") AS value
 FROM "public"."ps_gc_facturas" f
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__`,
@@ -159,7 +159,7 @@ WHERE f."abono" = false
            + COALESCE(f."base3", 0)) AS value
 FROM "public"."ps_gc_facturas" f
 LEFT JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial"
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
@@ -181,7 +181,7 @@ ORDER BY value DESC`,
           + COALESCE(f."base2", 0)
           + COALESCE(f."base3", 0)) AS neto
   FROM "public"."ps_gc_facturas" f
-  WHERE f."abono" = false
+  WHERE f."abono" IS NOT TRUE
     AND f."fecha_factura" >= :curr_from
     AND f."fecha_factura" <= :curr_to
     AND __gf_cliente_mayorista__
@@ -230,7 +230,7 @@ LIMIT 10`,
 FROM "public"."ps_gc_pedidos" f
 JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
 WHERE f."pedido_cerrado" = false
-  AND f."abono" = false
+  AND f."abono" IS NOT TRUE
   AND COALESCE(f."pendientes", 0) > 0
   AND __gf_cliente_mayorista__
 ORDER BY (CURRENT_DATE - f."fecha_pedido") DESC,
@@ -251,7 +251,7 @@ LIMIT 20`,
         + COALESCE(f."base3",0)) AS "Importe Neto"
 FROM "public"."ps_gc_albaranes" f
 JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND f."fecha_envio" >= :curr_from
   AND f."fecha_envio" <= :curr_to
   AND __gf_cliente_mayorista__
@@ -280,7 +280,7 @@ FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
 LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
 LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND lf."unidades" > 0
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
@@ -313,7 +313,7 @@ LIMIT 10`,
            + COALESCE(f."base2", 0)
            + COALESCE(f."base3", 0)) AS y
 FROM "public"."ps_gc_facturas" f
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= LEAST(
         :curr_from::date,
         (DATE_TRUNC('month', :curr_to::date) - INTERVAL '12 months')::date)

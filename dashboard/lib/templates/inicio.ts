@@ -17,7 +17,7 @@
  *       · entrada = true para ventas, entrada = false para devoluciones.
  *       · total_si = importe sin IVA.
  *       · total_coste_si = coste sin IVA (para margen).
- *       · ps_gc_facturas.abono = false para facturación mayorista.
+ *       · ps_gc_facturas.abono IS NOT TRUE para facturación mayorista.
  *
  * ## Mapa de dominios → etl_watermarks (validado 2026-05-02)
  *
@@ -342,12 +342,12 @@ LIMIT 10`,
         {
           label: "Facturación Mayorista (mes)",
           // Suma de las tres bases imponibles de las facturas mayorista del mes actual.
-          // `abono = false` excluye las notas de crédito/abono (misma regla que general.ts).
+          // `abono IS NOT TRUE` excluye las notas de crédito/abono (misma regla que general.ts).
           // Range predicate instead of DATE_TRUNC on the column, so any
           // future index on fecha_factura can be used.
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
-WHERE "abono" = false
+WHERE "abono" IS NOT TRUE
   AND "fecha_factura" >= DATE_TRUNC('month', CURRENT_DATE)::date
   AND "fecha_factura" < (DATE_TRUNC('month', CURRENT_DATE) + INTERVAL '1 month')::date`,
           format: "currency",
@@ -360,7 +360,7 @@ WHERE "abono" = false
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_gc_pedidos"
 WHERE "pedido_cerrado" = false
-  AND "abono" = false
+  AND "abono" IS NOT TRUE
   AND "pendientes" > 0`,
           format: "number",
         },

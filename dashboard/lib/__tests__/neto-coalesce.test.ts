@@ -227,8 +227,19 @@ describe("FK mayorista", () => {
     // Se escanea el fichero entero, no línea a línea: un join partido en dos
     // líneas se escapaba. El alias puede ir entrecomillado y llevar espacios
     // alrededor del punto, así que ambos son opcionales.
-    const JOIN_MALO =
-      /"?num_(?:factura|albaran)"?\s*=\s*(?:"?\w+"?\s*\.\s*)?"?n_(?:factura|albaran)"?/gi;
+    // Los dos órdenes. El corpus escribe sistemáticamente la cabecera primero
+    // (`ON v."reg_ventas" = lv."num_ventas"`), así que exigir `num_*` a la
+    // izquierda dejaba pasar justo la forma más probable. El lado puede ser un
+    // nombre de tres partes (`"public"."ps_gc_facturas"."n_factura"`) y llevar
+    // un cast, de ahí que el prefijo sea repetible y el cast opcional.
+    const REF = String.raw`(?:"?\w+"?\s*\.\s*)*`;
+    const CAST = String.raw`(?:::\s*\w+)?`;
+    const NUM = String.raw`${REF}"?num_(?:factura|albaran)"?${CAST}`;
+    const VIS = String.raw`${REF}"?n_(?:factura|albaran)"?${CAST}`;
+    const JOIN_MALO = new RegExp(
+      String.raw`(?:${NUM}\s*=\s*${VIS}|${VIS}\s*=\s*${NUM})`,
+      "gi",
+    );
     for (const f of ficherosConSql()) {
       if (/knowledge(-index)?\.ts$/.test(f)) continue;
       const texto = readFileSync(f, "utf8");
