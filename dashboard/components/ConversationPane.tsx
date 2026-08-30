@@ -18,6 +18,7 @@ import { isAssistantContent, getMessageText } from "@/lib/conversation-types";
 import { InitialContextPanel } from "@/components/InitialContextPanel";
 import LogBlock, { type LogLine } from "@/components/LogBlock";
 import type { DashboardSpec } from "@/lib/schema";
+import { ecoYaPersistido } from "@/lib/conversation-echo";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1047,13 +1048,20 @@ export function ConversationPane({
     if (!pendingTurnId) return null;
 
     const turnData = turns.get(pendingTurnId);
+    const yaPersistido = ecoYaPersistido(messages, pendingUserMsg);
+
     const hasLogs = turnData && turnData.logs.length > 0;
     const liveThinking = turnData?.thinking ?? "";
     const liveText = turnData?.streamText ?? "";
 
     return (
       <>
-        {pendingUserMsg && <UserBubble text={pendingUserMsg} />}
+        {/* El eco optimista se pinta ADEMÁS de `conv.messages`, y `POST /turns`
+            persiste el mensaje del usuario de inmediato: cualquier refresco de
+            la conversación antes de que el turno termine lo trae ya guardado y
+            la burbuja sale dos veces. El eco no tiene id con el que casar, así
+            que se compara con el último mensaje de usuario ya persistido. */}
+        {pendingUserMsg && !yaPersistido && <UserBubble text={pendingUserMsg} />}
         {/* Context log is announced via a "context_ref" event once assembleRequest
             has written the file; the panel then lazy-loads it on expand. */}
         {turnData?.hasContext && (
