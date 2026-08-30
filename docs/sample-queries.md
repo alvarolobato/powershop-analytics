@@ -837,7 +837,8 @@ SELECT DATE_TRUNC('month', v.fecha_creacion)::date AS "Mes",
      - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS "Venta Neta Retail"
 FROM ps_lineas_ventas lv
 JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas
-WHERE lv.codigo NOT LIKE 'M%'
+JOIN ps_articulos a ON a.codigo = lv.codigo
+WHERE a.ccrefejofacm NOT LIKE 'M%'
   AND v.tienda <> '99'
   AND v.fecha_creacion BETWEEN :curr_from AND :curr_to
 GROUP BY 1
@@ -1182,5 +1183,5 @@ SELECT tr."tipo" AS "Tipo", tr."concepto" AS "Concepto", COUNT(*) AS "Movimiento
 
 ### ¿Cuánto vendemos en retail excluyendo los artículos de mayorista (prefijo M)?
 ```sql
-SELECT DATE_TRUNC('month', v."fecha_creacion")::date AS "Mes", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta Retail" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON v."reg_ventas" = lv."num_ventas" WHERE lv."codigo" NOT LIKE 'M%' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1
+SELECT DATE_TRUNC('month', v."fecha_creacion")::date AS "Mes", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta Retail" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON v."reg_ventas" = lv."num_ventas" JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" WHERE a."ccrefejofacm" NOT LIKE 'M%' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1
 ```

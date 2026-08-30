@@ -681,7 +681,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Los articulos de mayorista/granel se identifican por la REFERENCIA: ccrefejofacm LIKE 'M%' (6.325 articulos). NO por el codigo: `codigo` es numerico en las 42.270 filas y `codigo LIKE 'M%'` devuelve CERO siempre. Las lineas de venta y de albaran llevan `codigo`, asi que para filtrar por M hay que unir con ps_articulos. Para analisis exclusivamente retail excluye con codigo NOT LIKE 'M%'; para mayorista filtra codigo LIKE 'M%'.",
+      "Los articulos de mayorista/granel se identifican por la REFERENCIA: ccrefejofacm LIKE 'M%' (6.325 articulos). NO por el codigo: `codigo` es numerico en las 42.270 filas y `codigo LIKE 'M%'` devuelve CERO siempre. Las lineas de venta y de albaran llevan `codigo`, asi que para filtrar por M hay que unir con ps_articulos usando la condicion `a.ccrefejofacm LIKE 'M%'`. Para analisis exclusivamente retail excluye con `a.ccrefejofacm NOT LIKE 'M%'`; para mayorista filtra con `a.ccrefejofacm LIKE 'M%'`.",
     questions: [
       "que son los articulos M",
       "separar retail de mayorista",
@@ -909,7 +909,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuánto vendemos en retail excluyendo los artículos de mayorista (prefijo M)?",
-    sql: `SELECT DATE_TRUNC('month', v."fecha_creacion")::date AS "Mes", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta Retail" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON v."reg_ventas" = lv."num_ventas" WHERE lv."codigo" NOT LIKE 'M%' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1`,
+    sql: `SELECT DATE_TRUNC('month', v."fecha_creacion")::date AS "Mes", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta Retail" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON v."reg_ventas" = lv."num_ventas" JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" WHERE a."ccrefejofacm" NOT LIKE 'M%' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1`,
   },
   {
     question: "¿Cuáles son los 10 artículos más vendidos por cantidad?",
