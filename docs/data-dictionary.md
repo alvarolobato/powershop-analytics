@@ -727,7 +727,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "Una fila de ps_articulos es un modelo EN UN COLOR, no un SKU vendible. Los dos ultimos caracteres de ccrefejofacm codifican el color. La talla NO esta en ps_articulos ni en ps_lineas_ventas: en 4D vive en LineasVentas.CCOPTallaOjo (poblada al 100%) pero NO esta replicada en el espejo. En PostgreSQL solo hay talla en ps_stock_tienda.talla y ps_traspasos.talla. Nunca inventes una columna talla en ps_lineas_ventas.",
+    "instruction": "Una fila de ps_articulos es un modelo EN UN COLOR, no un SKU vendible. Los dos ultimos caracteres de ccrefejofacm codifican el color. La talla NO esta en ps_articulos, pero SI en ps_lineas_ventas.talla, replicada desde LineasVentas.CCOPTallaOjo y normalizada a MAYUSCULAS en el ETL (D-048). Esta en produccion desde la resincronizacion completa del 2026-08-30 y poblada al 99,9 % (31.944 de 31.978 lineas de agosto de 2026). En PostgreSQL hay talla ademas en ps_stock_tienda.talla y ps_traspasos.talla, las tres en mayusculas, asi que un cruce ventas-stock por talla casa sin normalizar en la consulta. Lo que sigue sin existir es la talla a nivel de ARTICULO: una fila de ps_articulos es un modelo en un color, no un SKU vendible, y la talla solo aparece cuando se vende o se mueve una unidad concreta.",
     "questions": [
       "ventas por talla",
       "que granularidad tiene ps_articulos",
