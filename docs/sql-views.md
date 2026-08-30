@@ -126,9 +126,15 @@ One row per (article × store) pair. The 34 size slots are the key analytics str
 | BORRAR5, BORRAR6, BORRAR7, BORRAR8, BORRAR9, BORRAR10, BORRAR12 | 7 | Deprecated/unused columns |
 | ALBARANESENVIADOS, BLOQUEADO, CCSTOCK, DESCRIPCION | 4 | Status and metadata |
 
-> **Note:** ETL currently uses slots 1-17. The view confirms slots 1-34 exist. Some articles
-> may use only 17 slots (standard clothing sizes), others use 34 (footwear, optics, etc.).
-> The number of populated slots per article depends on the `FamiGrupMarc.SerieTallas` field.
+> **Note:** slots 1-34, and the ETL reads all 34 (`_MAX_TALLA = 34` in
+> `etl/sync/stock.py`). An earlier version of this note said "ETL currently uses
+> slots 1-17"; that stopped being true and the 17 was never a property of the
+> data anyway — it was how many slots the first implementation happened to read.
+>
+> Which slots carry a size for a given article comes from the series on the
+> **article**, `Articulos.ClaveSerie` → `CCOPSeriCali.Clave`. This note used to
+> point at `FamiGrupMarc.SerieTallas`, which is a dead end: blank in all 78
+> production rows. See [architecture/products.md](architecture/products.md#famigrupmarc-field-groups).
 
 ### `GCLinPedidos_SQL` — 239 columns (5-dimension, 34-slot matrix)
 
