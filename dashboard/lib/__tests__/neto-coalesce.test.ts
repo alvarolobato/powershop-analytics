@@ -157,18 +157,28 @@ describe("agregados de dinero de la home", () => {
   // en vez de 1.728.460,89 €, cuando `main` daba 1.909.102,57 €.
   it("ninguna suma de dinero queda sin signo", () => {
     const ruta = join(RAIZ, "dashboard", "app", "api", "home", "route.ts");
+    const texto = readFileSync(ruta, "utf8");
     const infractores: string[] = [];
-    readFileSync(ruta, "utf8")
-      .split("\n")
-      .forEach((linea, i) => {
-        if (!/SUM\(/.test(linea)) return;
-        if (!/\b(total_si|total_coste_si)\b/.test(linea)) return;
-        // Firmadas: llevan `entrada` en la propia línea (CASE o FILTER).
-        // `ABS(total_si)` bajo `entrada=false` es la métrica de devoluciones,
-        // positiva a propósito.
-        if (/entrada/.test(linea)) return;
-        infractores.push(`route.ts:${i + 1}: ${linea.trim().slice(0, 120)}`);
-      });
+
+    // Un alias puede apuntar a una tabla derivada que YA aplica el signo
+    // (`... ) lv ON ...`). Sumarlo a pelo es entonces lo correcto: volver a
+    // firmarlo lo anularía. Sin esta distinción el guardián señalaría como
+    // fallo justo la forma correcta.
+    const aliasDerivados = new Set(
+      [...texto.matchAll(/\)\s*(\w+)\s+ON\b/g)].map((m) => m[1]),
+    );
+
+    texto.split("\n").forEach((linea, i) => {
+      if (!/SUM\(/.test(linea)) return;
+      if (!/\b(total_si|total_coste_si)\b/.test(linea)) return;
+      // Firmadas: llevan `entrada` en la propia línea (CASE o FILTER).
+      // `ABS(total_si)` bajo `entrada=false` es la métrica de devoluciones,
+      // positiva a propósito.
+      if (/entrada/.test(linea)) return;
+      const alias = /SUM\((\w+)\.(?:total_si|total_coste_si)\)/.exec(linea)?.[1];
+      if (alias && aliasDerivados.has(alias)) return;
+      infractores.push(`route.ts:${i + 1}: ${linea.trim().slice(0, 120)}`);
+    });
     expect(
       infractores,
       `Sumas de dinero sin signo -- las devoluciones se suman en vez de restarse:\n${infractores.join("\n")}`,
