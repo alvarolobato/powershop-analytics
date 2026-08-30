@@ -224,14 +224,18 @@ describe("FK mayorista", () => {
   // copia el modelo.
   it("ningún ejemplo une líneas con cabecera por el número visible", () => {
     const infractores: string[] = [];
+    // Se escanea el fichero entero, no línea a línea: un join partido en dos
+    // líneas se escapaba. El alias puede ir entrecomillado y llevar espacios
+    // alrededor del punto, así que ambos son opcionales.
+    const JOIN_MALO =
+      /"?num_(?:factura|albaran)"?\s*=\s*(?:"?\w+"?\s*\.\s*)?"?n_(?:factura|albaran)"?/gi;
     for (const f of ficherosConSql()) {
       if (/knowledge(-index)?\.ts$/.test(f)) continue;
-      readFileSync(f, "utf8")
-        .split("\n")
-        .forEach((linea, i) => {
-          if (!/num_(factura|albaran)"?\s*=\s*\w*\.?"?n_(factura|albaran)/.test(linea)) return;
-          infractores.push(`${relative(RAIZ, f)}:${i + 1}: ${linea.trim().slice(0, 110)}`);
-        });
+      const texto = readFileSync(f, "utf8");
+      for (const m of texto.matchAll(JOIN_MALO)) {
+        const linea = texto.slice(0, m.index).split("\n").length;
+        infractores.push(`${relative(RAIZ, f)}:${linea}: ${m[0].replace(/\s+/g, " ")}`);
+      }
     }
     expect(
       infractores,

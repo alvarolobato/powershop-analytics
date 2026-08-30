@@ -885,11 +885,11 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuánto facturamos a mayoristas por mes? (neto de abonos)",
-    sql: `SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE NOT gf."abono"), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono"), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1`,
+    sql: `SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1`,
   },
   {
     question: "¿Cuáles son los mejores clientes mayoristas?",
-    sql: `SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE NOT gf."abono"), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono"), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30`,
+    sql: `SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30`,
   },
   {
     question: "¿Qué productos se venden más en el canal mayorista?",
@@ -897,7 +897,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuánto vende cada comercial de mayorista?",
-    sql: `SELECT co."comercial" AS "Comercial", co."zona_comercial" AS "Zona", COALESCE(SUM(gf."total_factura") FILTER (WHERE NOT gf."abono"), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono"), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_gc_comerciales" co ON co."reg_comercial" = gf."num_comercial" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY co."comercial", co."zona_comercial" ORDER BY "Facturación Neta" DESC`,
+    sql: `SELECT co."comercial" AS "Comercial", co."zona_comercial" AS "Zona", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_gc_comerciales" co ON co."reg_comercial" = gf."num_comercial" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY co."comercial", co."zona_comercial" ORDER BY "Facturación Neta" DESC`,
   },
   {
     question: "¿Cuál es el margen del canal mayorista por producto?",
@@ -1121,7 +1121,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Margen mayorista por comercial?",
-    sql: `WITH neto AS (SELECT c."comercial" AS comercial, COALESCE(SUM(lf."total") FILTER (WHERE NOT f."abono"), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono"), 0) AS ingreso, COALESCE(SUM(lf."total_coste") FILTER (WHERE NOT f."abono"), 0) - COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono"), 0) AS coste FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."comercial") SELECT comercial AS "Comercial", ingreso AS "Ingreso", coste AS "Coste", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS "Margen %" FROM neto WHERE ingreso <> 0 ORDER BY "Margen %" DESC`,
+    sql: `WITH neto AS (SELECT c."comercial" AS comercial, COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS TRUE), 0) AS coste FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."comercial") SELECT comercial AS "Comercial", ingreso AS "Ingreso", coste AS "Coste", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS "Margen %" FROM neto WHERE ingreso <> 0 ORDER BY "Margen %" DESC`,
   },
   {
     question: "¿Volumen de traspasos por ruta?",

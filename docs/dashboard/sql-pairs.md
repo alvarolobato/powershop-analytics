@@ -321,7 +321,7 @@ SELECT d."depa_secc_fabr" AS "Departamento", COALESCE(SUM(lv."total_si") FILTER 
 
 ### ¿Margen mayorista por comercial?
 ```sql
-WITH neto AS (SELECT c."comercial" AS comercial, COALESCE(SUM(lf."total") FILTER (WHERE NOT f."abono"), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono"), 0) AS ingreso, COALESCE(SUM(lf."total_coste") FILTER (WHERE NOT f."abono"), 0) - COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono"), 0) AS coste FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."comercial") SELECT comercial AS "Comercial", ingreso AS "Ingreso", coste AS "Coste", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS "Margen %" FROM neto WHERE ingreso <> 0 ORDER BY "Margen %" DESC
+WITH neto AS (SELECT c."comercial" AS comercial, COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS TRUE), 0) AS coste FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."comercial") SELECT comercial AS "Comercial", ingreso AS "Ingreso", coste AS "Coste", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS "Margen %" FROM neto WHERE ingreso <> 0 ORDER BY "Margen %" DESC
 ```
 
 ### ¿Volumen de traspasos por ruta?

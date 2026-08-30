@@ -1148,12 +1148,12 @@ SELECT a."ccrefejofacm" AS "Referencia", a."descripcion" AS "Descripción", st."
 
 ### ¿Cuánto facturamos a mayoristas por mes? (neto de abonos)
 ```sql
-SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE NOT gf."abono"), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono"), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1
+SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1
 ```
 
 ### ¿Cuáles son los mejores clientes mayoristas?
 ```sql
-SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE NOT gf."abono"), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono"), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30
+SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30
 ```
 
 ### ¿Qué productos se venden más en el canal mayorista?
@@ -1163,7 +1163,7 @@ SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."uni
 
 ### ¿Cuánto vende cada comercial de mayorista?
 ```sql
-SELECT co."comercial" AS "Comercial", co."zona_comercial" AS "Zona", COALESCE(SUM(gf."total_factura") FILTER (WHERE NOT gf."abono"), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono"), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_gc_comerciales" co ON co."reg_comercial" = gf."num_comercial" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY co."comercial", co."zona_comercial" ORDER BY "Facturación Neta" DESC
+SELECT co."comercial" AS "Comercial", co."zona_comercial" AS "Zona", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_gc_comerciales" co ON co."reg_comercial" = gf."num_comercial" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY co."comercial", co."zona_comercial" ORDER BY "Facturación Neta" DESC
 ```
 
 ### ¿Cuál es el margen del canal mayorista por producto?
