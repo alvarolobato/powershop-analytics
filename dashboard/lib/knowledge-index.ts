@@ -1,7 +1,7 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 20 ficheros. 298 secciones (225 con SQL,
-// 149 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
+// Fuente: 16 ficheros. 247 secciones (164 con SQL,
+// 11 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
 export interface KnowledgeChunk {
@@ -21,414 +21,358 @@ export interface KnowledgeChunk {
 export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
-    "heading": "PowerShop Sample SQL Queries",
-    "body": "> Ready-to-use SQL queries for common analytics tasks against the PowerShop 4D database.\n> All queries use **placeholder values** -- replace with actual codes/dates as needed.\n\n> **Two dialects live in this file. Do not mix them.**\n>\n> | Sections 1-10 (below) | `## LLM:sql-pairs` (end of file) |\n> |---|---|\n> | **4D SQL**, against the live ERP | **PostgreSQL**, against the `ps_*` mirror |\n> | Table names like `Ventas`, `LineasVentas`, `Articulos` | Table names like `ps_ventas`, `ps_lineas_ventas`, `ps_articulos` |\n> | Run via `ps sql query \"...\"` | Run via the dashboard / WrenAI |\n> | No `UNION`, no `FILTER`, case-sensitive strings | Full PostgreSQL |\n>\n> The 4D sections are the **exploration cookbook** for humans working against the\n> source ERP. The `LLM:` sections at the end are what actually reaches the dashboard\n> LLM and WrenAI, and they are PostgreSQL translations validated against the real\n> mirror schema. Copying a 4D query from sections 1-10 into a dashboard widget will\n> fail -- the tables do not exist there, and the mirror does not carry every column.",
+    "heading": "Recetario SQL del espejo PostgreSQL",
+    "body": "> Consultas listas para usar contra el **espejo PostgreSQL** (`ps_*`) que alimenta\n> el dashboard y WrenAI. Todas usan **valores de ejemplo** — sustituye códigos y\n> fechas según necesites.\n\n> **Un solo dialecto.** Este fichero es PostgreSQL de principio a fin. Las tablas\n> son las del espejo (`ps_ventas`, `ps_lineas_ventas`, `ps_articulos`…), nunca las\n> del ERP 4D de origen (`Ventas`, `LineasVentas`, `Articulos`…), que no existen\n> aquí y no se pueden consultar desde el dashboard. Si necesitas explorar el ERP\n> origen —tablas de sistema `_USER_*`, dialecto 4D, catálogo de vistas `*_SQL`—\n> eso es herramienta del ETL y vive en [docs/skills/4d-sql-dialect.md](skills/4d-sql-dialect.md)\n> y [docs/skills/data-access.md](skills/data-access.md), fuera del alcance del modelo.\n>\n> Lo que el espejo **no** replica está listado en\n> [§11 Datos que no están en el espejo](#11-datos-que-no-están-en-el-espejo).\n> Si te piden algo de esa lista, dilo — no inventes una tabla.",
     "hasSql": false,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
-    "heading": "List All Tables",
-    "body": "```sql\nSELECT TABLE_NAME FROM _USER_TABLES ORDER BY TABLE_NAME\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Get Row Count for a Table",
-    "body": "```sql\nSELECT COUNT(*) FROM Articulos\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Describe Table Columns (Safe Types Only)",
-    "body": "```sql\nSELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH\nFROM _USER_COLUMNS\nWHERE TABLE_NAME = 'Ventas'\n  AND DATA_TYPE IN (1, 3, 4, 6, 8, 9, 10)\nORDER BY COLUMN_NAME\n```\n\nType reference: 1=Boolean, 3=Integer, 4=Long Integer, 6=Real, 8=Date, 9=Time, 10=Alpha",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Find All Text Columns in a Table",
-    "body": "```sql\nSELECT COLUMN_NAME, DATA_LENGTH\nFROM _USER_COLUMNS\nWHERE TABLE_NAME = 'Articulos' AND DATA_TYPE = 10\nORDER BY COLUMN_NAME\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Find All Numeric Columns",
-    "body": "```sql\nSELECT COLUMN_NAME, DATA_TYPE\nFROM _USER_COLUMNS\nWHERE TABLE_NAME = 'LineasVentas' AND DATA_TYPE IN (3, 4, 6)\nORDER BY COLUMN_NAME\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Full Schema Dump (All Tables, All Columns)",
-    "body": "```sql\nSELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATA_LENGTH\nFROM _USER_COLUMNS\nWHERE DATA_TYPE IN (1, 3, 4, 6, 8, 9, 10)\nORDER BY TABLE_NAME, COLUMN_NAME\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Check Indexes on a Table",
-    "body": "```sql\nSELECT INDEX_NAME, INDEX_TYPE, UNIQUENESS\nFROM _USER_INDEXES\nWHERE TABLE_NAME = 'Ventas'\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Check Foreign Key Relations",
-    "body": "```sql\nSELECT CONSTRAINT_NAME, TABLE_NAME, RELATED_TABLE_NAME, CONSTRAINT_TYPE\nFROM _USER_CONSTRAINTS\nWHERE TABLE_NAME = 'LineasVentas'\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Daily Sales Summary for a Store",
-    "body": "```sql\nSELECT FechaCreacion, COUNT(*) AS tickets, SUM(Total) AS revenue\nFROM Ventas\nWHERE Tienda = '99'\n  AND FechaCreacion >= '2025-01-01'\n  AND FechaCreacion <= '2025-01-31'\nGROUP BY FechaCreacion\nORDER BY FechaCreacion\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Monthly Sales by Store",
-    "body": "```sql\nSELECT lv.Tienda,\n       lv.Mes,\n       COUNT(DISTINCT lv.NumVentas) AS tickets,\n       SUM(lv.Unidades) AS units,\n       SUM(lv.Total) AS revenue\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\nGROUP BY lv.Tienda, lv.Mes\nORDER BY lv.Tienda, lv.Mes\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Top 20 Products by Revenue",
-    "body": "```sql\nSELECT lv.Codigo, lv.Descripcion,\n       SUM(lv.Unidades) AS units,\n       SUM(lv.Total) AS revenue,\n       COUNT(*) AS line_count\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202503\n  AND lv.Entrada = TRUE\nGROUP BY lv.Codigo, lv.Descripcion\nORDER BY revenue DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Sales by Family",
-    "body": "```sql\nSELECT f.FamiGrupMarc AS familia,\n       SUM(lv.Total) AS revenue,\n       SUM(lv.Unidades) AS units,\n       COUNT(*) AS lines\nFROM LineasVentas lv\nINNER JOIN FamiGrupMarc f ON lv.NumFamilia = f.RegFamilia\nWHERE lv.Mes = 202501\n  AND lv.Entrada = TRUE\nGROUP BY f.FamiGrupMarc\nORDER BY revenue DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Sales by Department",
-    "body": "```sql\nSELECT d.DepaSeccFabr AS departamento,\n       SUM(lv.Total) AS revenue,\n       SUM(lv.Unidades) AS units\nFROM LineasVentas lv\nINNER JOIN DepaSeccFabr d ON lv.NumDepartament = d.RegDepartament\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\nGROUP BY d.DepaSeccFabr\nORDER BY revenue DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Sales by Brand",
-    "body": "```sql\nSELECT m.Marca AS marca,\n       SUM(lv.Total) AS revenue,\n       SUM(lv.Unidades) AS units\nFROM LineasVentas lv\nINNER JOIN CCOPMarcTrat m ON lv.NumMarca = m.RegMarca\nWHERE lv.Mes = 202501\n  AND lv.Entrada = TRUE\nGROUP BY m.Marca\nORDER BY revenue DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Sales by Season",
-    "body": "```sql\nSELECT t.Temporada AS temporada,\n       SUM(lv.Total) AS revenue,\n       SUM(lv.Unidades) AS units\nFROM LineasVentas lv\nINNER JOIN CCOPTempTipo t ON lv.NumTemporada = t.RegTemporada\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\nGROUP BY t.Temporada\nORDER BY revenue DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Returns/Refunds",
-    "body": "```sql\nSELECT lv.Tienda,\n       lv.Mes,\n       COUNT(*) AS return_lines,\n       SUM(lv.Unidades) AS returned_units,\n       SUM(lv.Total) AS refund_amount\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = FALSE\nGROUP BY lv.Tienda, lv.Mes\nORDER BY lv.Tienda, lv.Mes\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Day-of-Week Sales Pattern",
-    "body": "```sql\nSELECT DAYOFWEEK(FechaCreacion) AS dow,\n       COUNT(*) AS tickets,\n       SUM(Total) AS revenue\nFROM Ventas\nWHERE FechaCreacion >= '2025-01-01'\n  AND FechaCreacion <= '2025-12-31'\n  AND Entrada = TRUE\nGROUP BY DAYOFWEEK(FechaCreacion)\nORDER BY dow\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Hourly Sales Distribution",
-    "body": "```sql\nSELECT HOUR(Hora) AS hour,\n       COUNT(*) AS tickets,\n       SUM(Total) AS revenue\nFROM Ventas\nWHERE FechaCreacion >= '2025-01-01'\n  AND Entrada = TRUE\nGROUP BY HOUR(Hora)\nORDER BY hour\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Average Ticket Value by Store",
-    "body": "```sql\nSELECT Tienda,\n       COUNT(*) AS tickets,\n       SUM(Total) AS revenue,\n       SUM(Total) / COUNT(*) AS avg_ticket\nFROM Ventas\nWHERE FechaCreacion >= '2025-01-01'\n  AND Total > 0\n  AND Entrada = TRUE\nGROUP BY Tienda\nORDER BY avg_ticket DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Delivery Notes by Customer",
-    "body": "```sql\nSELECT ga.Cliente,\n       COUNT(*) AS num_albaranes,\n       SUM(ga.Unidades) AS total_units,\n       SUM(ga.TotalAlbaran) AS total_amount\nFROM GCAlbaranes ga\nWHERE ga.FechaEnvio >= '2025-01-01'\n  AND ga.Abono = FALSE\nGROUP BY ga.Cliente\nORDER BY total_amount DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Invoice Summary by Month",
-    "body": "```sql\nSELECT YEAR(gf.FechaFactura) AS yr,\n       MONTH(gf.FechaFactura) AS mo,\n       COUNT(*) AS invoices,\n       SUM(gf.TotalFactura) AS total\nFROM GCFacturas gf\nWHERE gf.FechaFactura >= '2025-01-01'\n  AND gf.Abono = FALSE\n  AND gf.FacturaAnulada = FALSE\nGROUP BY YEAR(gf.FechaFactura), MONTH(gf.FechaFactura)\nORDER BY yr, mo\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Top Wholesale Products",
-    "body": "```sql\nSELECT gl.Codigo, gl.Descripcion,\n       SUM(gl.Unidades) AS units,\n       SUM(gl.Total) AS revenue\nFROM GCLinFacturas gl\nWHERE gl.Mes BETWEEN 202501 AND 202512\n  AND gl.Unidades > 0\nGROUP BY gl.Codigo, gl.Descripcion\nORDER BY revenue DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale by Sales Representative",
-    "body": "```sql\nSELECT gc.Comercial,\n       COUNT(*) AS invoices,\n       SUM(gf.TotalFactura) AS total\nFROM GCFacturas gf\nINNER JOIN GCComerciales gc ON gf.NumComercial = gc.RegComercial\nWHERE gf.FechaFactura >= '2025-01-01'\n  AND gf.Abono = FALSE\nGROUP BY gc.Comercial\nORDER BY total DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Credit Notes (Returns)",
-    "body": "```sql\nSELECT ga.Cliente,\n       COUNT(*) AS abonos,\n       SUM(ga.TotalAlbaran) AS total_returned\nFROM GCAlbaranes ga\nWHERE ga.FechaEnvio >= '2025-01-01'\n  AND ga.Abono = TRUE\nGROUP BY ga.Cliente\nORDER BY total_returned DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Collections Status",
-    "body": "```sql\nSELECT gf.NFactura, gf.Cliente, gf.TotalFactura,\n       SUM(cf.Importe) AS cobrado,\n       gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) AS pendiente\nFROM GCFacturas gf\nLEFT OUTER JOIN CobrosFacturas cf ON gf.RegFactura = cf.NumFactura\nWHERE gf.FechaFactura >= '2025-01-01'\nGROUP BY gf.NFactura, gf.Cliente, gf.TotalFactura\nHAVING gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) > 0\nORDER BY pendiente DESC\nLIMIT 20\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Central Warehouse Stock (Store 99)",
-    "body": "```sql\nSELECT cs.NumArticulo, a.Codigo, a.Descripcion,\n       cs.Stock AS total_central,\n       cs.Stock1, cs.Stock2, cs.Stock3, cs.Stock4, cs.Stock5,\n       cs.Talla1, cs.Talla2, cs.Talla3, cs.Talla4, cs.Talla5\nFROM CCStock cs\nINNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\nWHERE cs.Stock > 0\nORDER BY cs.Stock DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Retail Store Stock",
-    "body": "```sql\nSELECT e.Tienda, e.Codigo, e.Descripcion,\n       e.STStock AS total_store,\n       e.Stock1, e.Stock2, e.Stock3, e.Stock4, e.Stock5,\n       e.Talla1, e.Talla2, e.Talla3, e.Talla4, e.Talla5\nFROM Exportaciones e\nWHERE e.Tienda = '104'\n  AND e.STStock > 0\nORDER BY e.STStock DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Total Stock Across All Stores for a Product",
-    "body": "```sql\n-- Central stock\nSELECT 'Central' AS location, cs.Stock AS total\nFROM CCStock cs\nINNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\nWHERE a.Codigo = '12345'\n\n-- Per-store stock (run separately, 4D does not support UNION)\nSELECT e.Tienda AS location, e.STStock AS total\nFROM Exportaciones e\nWHERE e.Codigo = '12345'\n  AND e.STStock > 0\nORDER BY e.STStock DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Products with Zero Stock",
-    "body": "```sql\nSELECT a.Codigo, a.Descripcion, a.Stock\nFROM Articulos a\nWHERE a.Anulado = FALSE\n  AND a.Stock = 0\n  AND a.Precio1 > 0\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Products with Negative Stock",
-    "body": "```sql\nSELECT a.Codigo, a.Descripcion, a.Stock\nFROM Articulos a\nWHERE a.Stock < 0\n  AND a.Anulado = FALSE\nORDER BY a.Stock ASC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Store Stock Summary",
-    "body": "```sql\nSELECT e.Tienda,\n       COUNT(*) AS products_in_store,\n       SUM(e.STStock) AS total_units\nFROM Exportaciones e\nWHERE e.STStock > 0\nGROUP BY e.Tienda\nORDER BY total_units DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Top Customers by Purchase Volume (Retail)",
-    "body": "```sql\nSELECT v.NumCliente, v.Cliente,\n       COUNT(*) AS num_purchases,\n       SUM(v.Total) AS total_spent\nFROM Ventas v\nWHERE v.NumCliente > 0\n  AND v.FechaCreacion >= '2025-01-01'\n  AND v.Entrada = TRUE\nGROUP BY v.NumCliente, v.Cliente\nHAVING SUM(v.Total) > 99.99\nORDER BY total_spent DESC\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Customer Purchase Frequency",
-    "body": "```sql\nSELECT v.NumCliente, v.Cliente,\n       COUNT(*) AS visits,\n       MIN(v.FechaCreacion) AS first_visit,\n       MAX(v.FechaCreacion) AS last_visit,\n       SUM(v.Total) AS total_spent\nFROM Ventas v\nWHERE v.NumCliente > 0\n  AND v.Entrada = TRUE\n  AND v.FechaCreacion >= '2025-01-01'\nGROUP BY v.NumCliente, v.Cliente\nHAVING COUNT(*) > 1\nORDER BY visits DESC\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Customer Summary",
-    "body": "```sql\nSELECT c.Cliente, c.Poblacion, c.Provincia,\n       c.FormaPago, c.PDescCom AS discount_pct,\n       c.RiesgoConcedid AS credit_limit,\n       c.BloqueoFinancials AS blocked\nFROM Clientes c\nWHERE c.Mayorista = TRUE\n  AND c.Anulado = FALSE\nORDER BY c.Cliente\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Customers Created in a Period",
-    "body": "```sql\nSELECT Codigo, Cliente, Tienda, FechaCreacion\nFROM Clientes\nWHERE FechaCreacion >= '2025-01-01'\n  AND FechaCreacion <= '2025-12-31'\nORDER BY FechaCreacion DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Unique Customer Count per Store",
-    "body": "```sql\nSELECT v.Tienda,\n       COUNT(DISTINCT v.NumCliente) AS unique_customers\nFROM Ventas v\nWHERE v.NumCliente > 0\n  AND v.FechaCreacion >= '2025-01-01'\nGROUP BY v.Tienda\nORDER BY unique_customers DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Revenue by Payment Method (using ImporteCob)",
-    "body": "```sql\nSELECT pv.Forma,\n       COUNT(*) AS payment_count,\n       SUM(pv.ImporteCob) AS collected\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.FechaCreacion <= '2025-01-31'\n  AND pv.Entrada = TRUE\nGROUP BY pv.Forma\nORDER BY collected DESC\n```\n\n**Important**: Use `ImporteCob` (amount collected), not `ImporteEnt` (amount tendered).",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Payment Method Mix by Store",
-    "body": "```sql\nSELECT pv.Tienda, pv.Forma,\n       SUM(pv.ImporteCob) AS collected\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.Entrada = TRUE\nGROUP BY pv.Tienda, pv.Forma\nORDER BY pv.Tienda, collected DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Daily Cash vs Card",
-    "body": "```sql\nSELECT pv.FechaCreacion,\n       SUM(CASE WHEN pv.CodigoForma = '01' THEN pv.ImporteCob ELSE 0 END) AS cash,\n       SUM(CASE WHEN pv.CodigoForma <> '01' THEN pv.ImporteCob ELSE 0 END) AS non_cash,\n       SUM(pv.ImporteCob) AS total\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.Entrada = TRUE\nGROUP BY pv.FechaCreacion\nORDER BY pv.FechaCreacion\n```\n\n*Note: `CodigoForma = '01'` is typically cash/metalico -- verify with FormasPago table.*",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Voucher Redemptions",
-    "body": "```sql\nSELECT v.TiendaRec AS store,\n       YEAR(v.Recepcion) AS yr,\n       MONTH(v.Recepcion) AS mo,\n       COUNT(*) AS vouchers_used,\n       SUM(v.Importe) AS total_redeemed\nFROM Vales v\nWHERE v.Recepcion IS NOT NULL\n  AND v.Recepcion >= '2025-01-01'\nGROUP BY v.TiendaRec, YEAR(v.Recepcion), MONTH(v.Recepcion)\nORDER BY yr, mo, store\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Product Margin Analysis (Retail)",
-    "body": "```sql\nSELECT lv.Codigo, lv.Descripcion,\n       SUM(lv.Unidades) AS units,\n       SUM(lv.TotalSI) AS net_revenue,\n       SUM(lv.TotalCosteSI) AS total_cost,\n       SUM(lv.TotalSI) - SUM(lv.TotalCosteSI) AS gross_margin,\n       ROUND((SUM(lv.TotalSI) - SUM(lv.TotalCosteSI)) / SUM(lv.TotalSI) * 100, 1) AS margin_pct\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\n  AND lv.TotalSI > 0\nGROUP BY lv.Codigo, lv.Descripcion\nHAVING SUM(lv.TotalSI) > 0\nORDER BY gross_margin DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Margin by Family",
-    "body": "```sql\nSELECT f.FamiGrupMarc AS familia,\n       SUM(lv.TotalSI) AS net_revenue,\n       SUM(lv.TotalCosteSI) AS total_cost,\n       ROUND((SUM(lv.TotalSI) - SUM(lv.TotalCosteSI)) / SUM(lv.TotalSI) * 100, 1) AS margin_pct\nFROM LineasVentas lv\nINNER JOIN FamiGrupMarc f ON lv.NumFamilia = f.RegFamilia\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\n  AND lv.TotalSI > 0\nGROUP BY f.FamiGrupMarc\nORDER BY margin_pct DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Margin by Store",
-    "body": "```sql\nSELECT lv.Tienda,\n       SUM(lv.TotalSI) AS net_revenue,\n       SUM(lv.TotalCosteSI) AS total_cost,\n       ROUND((SUM(lv.TotalSI) - SUM(lv.TotalCosteSI)) / SUM(lv.TotalSI) * 100, 1) AS margin_pct\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\n  AND lv.TotalSI > 0\nGROUP BY lv.Tienda\nORDER BY margin_pct DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Margin (from GCLinFacturas)",
-    "body": "```sql\nSELECT gl.Codigo, gl.Descripcion,\n       SUM(gl.Unidades) AS units,\n       SUM(gl.Total) AS revenue,\n       SUM(gl.TotalCoste) AS cost,\n       SUM(gl.Total) - SUM(gl.TotalCoste) AS margin,\n       ROUND((SUM(gl.Total) - SUM(gl.TotalCoste)) / SUM(gl.Total) * 100, 1) AS margin_pct\nFROM GCLinFacturas gl\nWHERE gl.Mes BETWEEN 202501 AND 202512\n  AND gl.Unidades > 0\n  AND gl.Total > 0\nGROUP BY gl.Codigo, gl.Descripcion\nORDER BY margin DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Low-Margin Products (Below 30%)",
-    "body": "```sql\nSELECT a.Codigo, a.Descripcion,\n       a.Precio1 AS pvp,\n       a.PrecioCoste AS cost,\n       ROUND((a.Precio1 - a.PrecioCoste) / a.Precio1 * 100, 1) AS margin_pct\nFROM Articulos a\nWHERE a.Precio1 > 0 AND a.PrecioCoste > 0\n  AND a.Anulado = FALSE\n  AND (a.Precio1 - a.PrecioCoste) / a.Precio1 < 0.3\nORDER BY margin_pct ASC\nLIMIT 50\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Transfer Volume by Route",
-    "body": "```sql\nSELECT TiendaSalida, TiendaEntrada,\n       COUNT(*) AS transfers,\n       SUM(UnidadesS) AS units_sent\nFROM Traspasos\nWHERE FechaS >= '2025-01-01'\n  AND Entrada = FALSE\nGROUP BY TiendaSalida, TiendaEntrada\nORDER BY units_sent DESC\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Transfer Volume by Type",
-    "body": "```sql\nSELECT Tipo,\n       COUNT(*) AS count,\n       SUM(UnidadesE) AS units\nFROM Traspasos\nWHERE FechaE >= '2025-01-01'\n  AND Entrada = TRUE\nGROUP BY Tipo\nORDER BY count DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Daily Transfer Activity",
-    "body": "```sql\nSELECT FechaS AS fecha,\n       COUNT(*) AS transfers,\n       SUM(UnidadesS) AS units\nFROM Traspasos\nWHERE FechaS >= '2025-01-01'\n  AND Entrada = FALSE\nGROUP BY FechaS\nORDER BY FechaS\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Transfers for a Specific Product",
-    "body": "```sql\nSELECT FechaS, TiendaSalida, TiendaEntrada,\n       Talla, UnidadesS, Tipo, Concepto\nFROM Traspasos\nWHERE Codigo = '12345'\n  AND FechaS >= '2025-01-01'\n  AND Entrada = FALSE\nORDER BY FechaS DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Retail-Only Products (exclude M-prefix)",
-    "body": "```sql\nSELECT Codigo, Descripcion, Precio1, Stock\nFROM Articulos\nWHERE Codigo NOT LIKE 'M%'\n  AND Anulado = FALSE\n  AND Stock > 0\nORDER BY Codigo\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale-Only Products (M-prefix)",
-    "body": "```sql\nSELECT Codigo, Descripcion, Precio1, Stock\nFROM Articulos\nWHERE Codigo LIKE 'M%'\n  AND Anulado = FALSE\nORDER BY Codigo\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Retail Sales Excluding Wholesale Articles",
-    "body": "```sql\nSELECT lv.Tienda, lv.Mes,\n       SUM(lv.Total) AS revenue,\n       SUM(lv.Unidades) AS units\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Codigo NOT LIKE 'M%'\n  AND lv.Entrada = TRUE\nGROUP BY lv.Tienda, lv.Mes\nORDER BY lv.Tienda, lv.Mes\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Wholesale Delivery Notes with M-Prefix Products",
-    "body": "```sql\nSELECT gl.NAlbaran, gl.Codigo, gl.Descripcion,\n       gl.Unidades, gl.Total\nFROM GCLinAlbarane gl\nWHERE gl.Codigo LIKE 'M%'\n  AND gl.FechaAlbaran >= '2025-01-01'\nORDER BY gl.FechaAlbaran DESC\nLIMIT 50\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "SQL Implementation",
-    "body": "```sql\n-- Entries to a store (Traspasos where Entrada=True)\nSELECT SUM(UnidadesE) AS traspasos_entrada\nFROM Traspasos\nWHERE TiendaEntrada = '104'\n  AND FechaE >= '2025-01-01'\n  AND FechaE <= '2025-01-31'\n  AND Entrada = TRUE\n\n-- Exits from a store (Traspasos where Entrada=False)\nSELECT SUM(UnidadesS) AS traspasos_salida\nFROM Traspasos\nWHERE TiendaSalida = '104'\n  AND FechaS >= '2025-01-01'\n  AND FechaS <= '2025-01-31'\n  AND Entrada = FALSE\n\n-- Sales exits\nSELECT SUM(lv.Unidades) AS ventas_salida\nFROM LineasVentas lv\nWHERE lv.Tienda = '104'\n  AND lv.Mes = 202501\n  AND lv.Entrada = TRUE\n\n-- Returns entries\nSELECT SUM(lv.Unidades) AS devoluciones_entrada\nFROM LineasVentas lv\nWHERE lv.Tienda = '104'\n  AND lv.Mes = 202501\n  AND lv.Entrada = FALSE\n\n-- Wholesale delivery note entries (Albaranes de compra recibidos)\nSELECT SUM(la.Recibidas) AS albaranes_entrada\nFROM LinAlbaranes la\nINNER JOIN Albaranes a ON la.NumAlbaran = a.RegAlbaran\nWHERE a.TiendaEntrada = '104'\n  AND a.FechaRecibido >= '2025-01-01'\n  AND a.FechaRecibido <= '2025-01-31'\n  AND a.Abono = FALSE\n\n-- Wholesale return exits (Albaranes de devolucion)\nSELECT SUM(la.Recibidas) AS albaranes_devolucion\nFROM LinAlbaranes la\nINNER JOIN Albaranes a ON la.NumAlbaran = a.RegAlbaran\nWHERE a.TiendaSalida = '104'\n  AND a.FechaRecibido >= '2025-01-01'\n  AND a.FechaRecibido <= '2025-01-31'\n  AND a.Abono = TRUE\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Python Implementation",
-    "body": "```python\ndef calculate_stock_movement(cur, store, start_date, end_date):\n    \"\"\"Calculate net stock movement for a store in a date range.\"\"\"\n\n    # Entries: transfers in\n    cur.execute(f\"\"\"\n        SELECT COALESCE(SUM(UnidadesE), 0)\n        FROM Traspasos\n        WHERE TiendaEntrada = '{store}'\n          AND FechaE >= '{start_date}' AND FechaE <= '{end_date}'\n          AND Entrada = TRUE\n    \"\"\")\n    traspasos_in = cur.fetchone()[0] or 0\n\n    # Exits: transfers out\n    cur.execute(f\"\"\"\n        SELECT COALESCE(SUM(UnidadesS), 0)\n        FROM Traspasos\n        WHERE TiendaSalida = '{store}'\n          AND FechaS >= '{start_date}' AND FechaS <= '{end_date}'\n          AND Entrada = FALSE\n    \"\"\")\n    traspasos_out = cur.fetchone()[0] or 0\n\n    # Sales exits\n    mes_start = int(start_date[:4] + start_date[5:7])\n    mes_end = int(end_date[:4] + end_date[5:7])\n    cur.execute(f\"\"\"\n        SELECT COALESCE(SUM(Unidades), 0)\n        FROM LineasVentas\n        WHERE Tienda = '{store}'\n          AND Mes BETWEEN {mes_start} AND {mes_end}\n          AND Entrada = TRUE\n    \"\"\")\n    ventas = cur.fetchone()[0] or 0\n\n    # Returns entries\n    cur.execute(f\"\"\"\n        SELECT COALESCE(SUM(Unidades), 0)\n        FROM LineasVentas\n        WHERE Tienda = '{store}'\n          AND Mes BETWEEN {mes_start} AND {mes_end}\n          AND Entrada = FALSE\n    \"\"\")\n    devoluciones = cur.fetchone()[0] or 0\n\n    entradas = devoluciones + traspasos_in\n    salidas = ventas + traspasos_out\n    neto = entradas - salidas\n\n    return {\n        'entradas': entradas,\n        'salidas': salidas,\n        'neto': neto,\n        'traspasos_in': traspasos_in,\n        'traspasos_out': traspasos_out,\n        'ventas': ventas,\n        'devoluciones': devoluciones\n    }\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sample-queries.md",
-    "heading": "Tips and Gotchas",
-    "body": "1. **Always filter on `Entrada`** when summing sales/returns to avoid double-counting.\n2. **Use `Mes` (YYYYMM integer)** on LineasVentas/GCLinFacturas for fast period filtering instead of date functions.\n3. **Use `ImporteCob`** (not `ImporteEnt`) in PagosVentas for actual revenue.\n4. **M-prefix articles** are wholesale -- exclude them with `Codigo NOT LIKE 'M%'` for retail-only analysis.\n5. **Never `SELECT *`** on wide tables (CCStock: 582 cols, Articulos: 372 cols). Always list specific columns.\n6. **String comparison is case-sensitive** in 4D SQL. Use `UPPER()` for case-insensitive searches.\n7. **No UNION support** in 4D SQL v18. Run separate queries and combine in Python.\n8. **Text fields may return bytes** in Python 3.13+. Always decode: `val.decode('utf-8', errors='replace') if isinstance(val, bytes) else val`.\n\n---",
+    "heading": "Índice",
+    "body": "1. [Ventas retail](#1-ventas-retail)\n2. [Mayorista](#2-mayorista)\n3. [Stock](#3-stock)\n4. [Clientes](#4-clientes)\n5. [Cobros y formas de pago](#5-cobros-y-formas-de-pago)\n6. [Márgenes](#6-márgenes)\n7. [Traspasos entre tiendas](#7-traspasos-entre-tiendas)\n8. [Filtro de prefijo M (mayorista vs retail)](#8-filtro-de-prefijo-m)\n9. [Movimiento de stock de una tienda](#9-movimiento-de-stock-de-una-tienda)\n10. [Avisos de calidad de dato](#10-avisos-de-calidad-de-dato)\n11. [Datos que no están en el espejo](#11-datos-que-no-están-en-el-espejo)\n\n---",
     "hasSql": false,
     "dialect": "n/a"
   },
   {
     "source": "docs/sample-queries.md",
-    "heading": "LLM:rules",
-    "body": "Reglas que gobiernan la traduccion de este recetario al espejo PostgreSQL.\n\n```json\n[\n  {\n    \"instruction\": \"El recetario docs/sample-queries.md secciones 1-10 esta escrito en SQL de 4D contra el ERP origen (tablas Ventas, LineasVentas, Articulos, CCStock, Exportaciones, Traspasos, GCLinFacturas). El dashboard y WrenAI consultan el ESPEJO PostgreSQL con tablas ps_*. Nunca copies una consulta 4D a un widget: esas tablas no existen en PostgreSQL. Usa siempre los pares SQL en ps_*.\",\n    \"questions\": [\n      \"puedo usar las consultas del recetario\",\n      \"por que falla FROM Ventas\",\n      \"que dialecto uso\"\n    ]\n  },\n  {\n    \"instruction\": \"El espejo PostgreSQL NO replica todas las columnas de 4D. Diferencias que rompen traducciones ingenuas: ps_lineas_ventas SI tiene 'entrada', 'movimiento_caja' y 'talla' desde 2026-08 (vacias en filas anteriores a la resincronizacion); el JOIN con ps_ventas sigue haciendo falta para atributos de cabecera como tienda o cliente; ps_lineas_ventas NO tiene num_familia/num_marca/num_temporada/num_departament (hay que unir con ps_articulos por 'codigo' y de ahi a la dimension); ps_articulos NO tiene columna 'stock'. Antes de usar una columna, comprueba que existe.\",\n    \"questions\": [\n      \"ps_lineas_ventas tiene entrada\",\n      \"como agrupo ventas por familia\",\n      \"por que no encuentro la columna\"\n    ]\n  },\n  {\n    \"instruction\": \"Ruta de JOIN canonica para ventas retail por dimension de producto: ps_lineas_ventas lv -> ps_ventas v ON v.reg_ventas = lv.num_ventas (para 'entrada' y la fecha) -> ps_articulos a ON a.codigo = lv.codigo (para la referencia y las FK de dimension) -> ps_familias f ON f.reg_familia = a.num_familia (o ps_marcas.reg_marca, ps_temporadas.reg_temporada, ps_departamentos.reg_departament). Para la tienda: ps_tiendas t ON t.codigo = v.tienda, y muestra t.identificador, no el codigo.\",\n    \"questions\": [\n      \"como uno lineas de venta con familia\",\n      \"join de ventas y articulos\",\n      \"como saco el nombre de la tienda\"\n    ]\n  },\n  {\n    \"instruction\": \"En el canal mayorista la linea de factura ps_gc_lin_facturas SI lleva sus propias FK de dimension (num_familia, num_marca, num_departament, num_color, num_comercial) y su propia fecha_factura, asi que no hace falta unir con la cabecera para agrupar. Une con ps_gc_facturas solo cuando necesites la bandera 'abono' para netear.\",\n    \"questions\": [\n      \"como agrupo facturacion mayorista por familia\",\n      \"necesito la cabecera de factura\"\n    ]\n  },\n  {\n    \"instruction\": \"Cuidado con las claves del mayorista: ps_gc_lin_albarane.num_albaran es la FK real a ps_gc_albaranes.reg_albaran, mientras que n_albaran es el numero visible del albaran y NO es unico. Une siempre por num_albaran -> reg_albaran. Lo mismo en ps_gc_lin_facturas: num_factura -> ps_gc_facturas.reg_factura.\",\n    \"questions\": [\n      \"como uno lineas y cabeceras de albaran\",\n      \"n_albaran o num_albaran\"\n    ]\n  },\n  {\n    \"instruction\": \"ps_lineas_ventas.mes es un entero AAAAMM (202501) heredado de 4D y sirve para filtros de periodo rapidos. En PostgreSQL es igual de valido y mas legible filtrar por v.fecha_creacion con DATE_TRUNC; usa mes solo si te interesa el rendimiento sobre rangos largos. No mezcles mes con fecha_creacion en el mismo filtro sin comprobar que concuerdan.\",\n    \"questions\": [\n      \"que es la columna mes\",\n      \"como filtro por periodo\"\n    ]\n  },\n  {\n    \"instruction\": \"El stock vive en dos tablas distintas del espejo: ps_stock_tienda (grano codigo + tienda + talla, columna 'stock') para tiendas retail, y ps_stock_central (grano num_articulo, columna 'stock') para el almacen central. ps_stock_central.num_articulo une con ps_articulos.reg_articulo; ps_stock_tienda.codigo une con ps_articulos.codigo. Ojo: son claves distintas, no las intercambies.\",\n    \"questions\": [\n      \"donde esta el stock\",\n      \"stock central o de tienda\",\n      \"como uno stock con articulos\"\n    ]\n  },\n  {\n    \"instruction\": \"ps_traspasos usa doble anotaci",
+    "heading": "Venta neta diaria de una tienda",
+    "body": "```sql\nSELECT v.fecha_creacion AS \"Fecha\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Tickets\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_ventas v\nWHERE v.tienda = '154'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY v.fecha_creacion\nORDER BY v.fecha_creacion\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta neta mensual por tienda",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       DATE_TRUNC('month', v.fecha_creacion)::date AS \"Mes\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Tickets\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_ventas v\nJOIN ps_tiendas t ON t.codigo = v.tienda\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador, DATE_TRUNC('month', v.fecha_creacion)\nORDER BY \"Mes\", \"Venta Neta\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Top 20 artículos (modelo + color) por venta neta",
+    "body": "```sql\nSELECT LEFT(a.ccrefejofacm, LENGTH(a.ccrefejofacm) - 2) AS \"Artículo\",\n       MIN(a.descripcion) AS \"Descripción\",\n       COALESCE(SUM(lv.unidades) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.unidades) FILTER (WHERE NOT v.entrada), 0) AS \"Unidades\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\n  AND LENGTH(COALESCE(a.ccrefejofacm, '')) > 2\nGROUP BY 1\nORDER BY \"Venta Neta\" DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta neta por familia",
+    "body": "```sql\nSELECT f.fami_grup_marc AS \"Familia\",\n       COALESCE(SUM(lv.unidades) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.unidades) FILTER (WHERE NOT v.entrada), 0) AS \"Unidades\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nJOIN ps_familias f ON f.reg_familia = a.num_familia\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY f.fami_grup_marc\nORDER BY \"Venta Neta\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta neta por departamento",
+    "body": "```sql\nSELECT d.depa_secc_fabr AS \"Departamento\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nJOIN ps_departamentos d ON d.reg_departament = a.num_departament\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY d.depa_secc_fabr\nORDER BY \"Venta Neta\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta neta por marca",
+    "body": "```sql\nSELECT m.marca_tratamien AS \"Marca\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nJOIN ps_marcas m ON m.reg_marca = a.num_marca\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY m.marca_tratamien\nORDER BY \"Venta Neta\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta neta por temporada",
+    "body": "```sql\nSELECT te.temporada_tipo AS \"Temporada\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nJOIN ps_temporadas te ON te.reg_temporada = a.num_temporada\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY te.temporada_tipo\nORDER BY \"Venta Neta\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Devoluciones por tienda y mes",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       DATE_TRUNC('month', v.fecha_creacion)::date AS \"Mes\",\n       COUNT(*) FILTER (WHERE NOT v.entrada) AS \"Tickets Devolución\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Importe Devuelto\",\n       ROUND(100.0 * COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0)\n             / NULLIF(COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0), 0), 2) AS \"% sobre Bruto\"\nFROM ps_ventas v\nJOIN ps_tiendas t ON t.codigo = v.tienda\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador, DATE_TRUNC('month', v.fecha_creacion)\nORDER BY \"Mes\", \"Importe Devuelto\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Patrón por día de la semana",
+    "body": "```sql\nSELECT TO_CHAR(v.fecha_creacion, 'ID') AS \"Día ISO\",\n       TRIM(TO_CHAR(v.fecha_creacion, 'Day')) AS \"Día\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Tickets\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_ventas v\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY 1, 2\nORDER BY 1\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Distribución horaria",
+    "body": "```sql\nSELECT EXTRACT(HOUR FROM v.hora_creacion)::int AS \"Hora\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Tickets\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_ventas v\nWHERE v.hora_creacion IS NOT NULL\n  AND v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```\n\n`hora_creacion` es NULL en las filas sincronizadas antes de que existiera la\ncolumna; se rellena en el siguiente upsert de esa fila.",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Ticket medio por tienda",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Tickets\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       ROUND((COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n            - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0))\n             / NULLIF(COUNT(*) FILTER (WHERE v.entrada), 0), 2) AS \"Ticket Medio\"\nFROM ps_ventas v\nJOIN ps_tiendas t ON t.codigo = v.tienda\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador\nORDER BY \"Ticket Medio\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta neta por talla",
+    "body": "```sql\nSELECT lv.talla AS \"Talla\",\n       COALESCE(SUM(lv.unidades) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.unidades) FILTER (WHERE NOT v.entrada), 0) AS \"Unidades\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nWHERE lv.talla IS NOT NULL AND lv.talla <> ''\n  AND v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY lv.talla\nORDER BY \"Unidades\" DESC\n```\n\nLa talla de una venta está en `ps_lineas_ventas.talla` (normalizada a MAYÚSCULAS\npor el ETL). Nunca se deduce del código de barras ([D-048](decisions/D-048-sales-by-size.md)).\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Albaranes por cliente (neto de abonos)",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(DISTINCT ga.reg_albaran) AS \"Albaranes\",\n       COALESCE(SUM(gl.unidades) FILTER (WHERE ga.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.unidades) FILTER (WHERE ga.abono IS TRUE), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_gc_albaranes ga ON ga.reg_albaran = gl.num_albaran\nJOIN ps_clientes c ON c.reg_cliente = ga.num_cliente\nWHERE (CASE WHEN ga.fecha_envio >= DATE '2000-01-01' THEN ga.fecha_envio ELSE ga.fecha_valor END)\n      BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```\n\nDos trampas de esta tabla:\n\n- La FK línea → cabecera es `num_albaran` → `reg_albaran`. `n_albaran` es el\n  número visible del albarán y **no** es único: no lo uses para unir.\n- **La fecha efectiva no es `fecha_envio` a secas.** Un albarán aún sin enviar\n  lleva `NULL` o un centinela anterior al año 2000, y como `NULL >= fecha` es\n  `NULL`, acotar por `fecha_envio` los descarta en silencio. Usa siempre\n  `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Facturación mensual (neta de abonos)",
+    "body": "```sql\nSELECT DATE_TRUNC('month', gf.fecha_factura)::date AS \"Mes\",\n       COUNT(*) FILTER (WHERE gf.abono IS NOT TRUE) AS \"Facturas\",\n       COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Facturación Neta\"\nFROM ps_gc_facturas gf\nWHERE gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Top productos del canal mayorista",
+    "body": "```sql\nSELECT gl.codigo AS \"Código\",\n       MIN(gl.descripcion) AS \"Descripción\",\n       COALESCE(SUM(gl.unidades) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.unidades) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Unidades\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nWHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY gl.codigo\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Abonos (devoluciones) por cliente",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Abonos\",\n       SUM(gf.total_factura) AS \"Importe Abonado\"\nFROM ps_gc_facturas gf\nJOIN ps_clientes c ON c.reg_cliente = gf.num_cliente\nWHERE gf.abono IS TRUE\n  AND gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Abonado\" DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Facturación mayorista por familia",
+    "body": "La línea de factura mayorista lleva sus propias FK de dimensión, así que no hace\nfalta pasar por `ps_articulos`.\n\n```sql\nSELECT f.fami_grup_marc AS \"Familia\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nJOIN ps_familias f ON f.reg_familia = gl.num_familia\nWHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY f.fami_grup_marc\nORDER BY \"Importe Neto\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Pedidos mayoristas pendientes de servir",
+    "body": "> Correcta, pero hoy devuelve vacío en cualquier ventana reciente: **no hay ningún\n> pedido abierto desde hace más de un año** (los 39 abiertos son antiguos, y los 8 de\n> agosto de 2026 están todos cerrados). Medido en producción 2026-08-30.\n\n```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Pedidos Abiertos\",\n       SUM(gp.unidades) AS \"Unidades Pedidas\",\n       SUM(gp.entregadas) AS \"Unidades Entregadas\",\n       SUM(gp.pendientes) AS \"Unidades Pendientes\"\nFROM ps_gc_pedidos gp\nJOIN ps_clientes c ON c.reg_cliente = gp.num_cliente\nWHERE gp.pedido_cerrado IS NOT TRUE\n  AND gp.abono IS NOT TRUE\n  AND gp.fecha_pedido BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Unidades Pendientes\" DESC\nLIMIT 20\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "3. Stock",
+    "body": "El stock vive en **dos** tablas con claves distintas:\n\n| Tabla | Grano | Une con |\n|---|---|---|\n| `ps_stock_central` | artículo (almacén central) | `num_articulo` → `ps_articulos.reg_articulo` |\n| `ps_stock_tienda` | artículo + tienda + talla | `codigo` → `ps_articulos.codigo` |",
     "hasSql": false,
-    "dialect": "4d"
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Stock del almacén central por artículo",
+    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       sc.stock AS \"Stock Central\"\nFROM ps_stock_central sc\nJOIN ps_articulos a ON a.reg_articulo = sc.num_articulo\nWHERE sc.stock > 0\nORDER BY sc.stock DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Stock de una tienda por talla",
+    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       st.talla AS \"Talla\",\n       st.stock AS \"Stock\"\nFROM ps_stock_tienda st\nJOIN ps_articulos a ON a.codigo = st.codigo\nWHERE st.tienda = '154'\n  AND st.stock > 0\nORDER BY st.stock DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Stock total de una referencia (central + tiendas)",
+    "body": "```sql\nSELECT 'Central' AS \"Ubicación\", COALESCE(SUM(sc.stock), 0) AS \"Unidades\"\nFROM ps_stock_central sc\nJOIN ps_articulos a ON a.reg_articulo = sc.num_articulo\nWHERE a.ccrefejofacm = 'V26391168'\nUNION ALL\nSELECT st.tienda, SUM(st.stock)\nFROM ps_stock_tienda st\nJOIN ps_articulos a ON a.codigo = st.codigo\nWHERE a.ccrefejofacm = 'V26391168'\nGROUP BY st.tienda\nORDER BY 2 DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Artículos sin stock en ningún sitio",
+    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\"\nFROM ps_articulos a\nLEFT JOIN ps_stock_central sc ON sc.num_articulo = a.reg_articulo\nWHERE a.anulado IS NOT TRUE\n  AND a.precio1 > 0\n  AND COALESCE(sc.stock, 0) = 0\n  AND NOT EXISTS (\n        SELECT 1 FROM ps_stock_tienda st\n        WHERE st.codigo = a.codigo AND st.stock > 0)\nORDER BY a.ccrefejofacm\nLIMIT 50\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Stock negativo (error de inventario)",
+    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       st.tienda AS \"Tienda\",\n       st.talla AS \"Talla\",\n       st.stock AS \"Stock\"\nFROM ps_stock_tienda st\nJOIN ps_articulos a ON a.codigo = st.codigo\nWHERE st.stock < 0\nORDER BY st.stock ASC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Resumen de stock por tienda",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       COUNT(DISTINCT st.codigo) AS \"Referencias\",\n       SUM(st.stock) AS \"Unidades\"\nFROM ps_stock_tienda st\nJOIN ps_tiendas t ON t.codigo = st.tienda\nWHERE st.stock > 0\nGROUP BY t.identificador\nORDER BY \"Unidades\" DESC\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Mejores clientes de retail por gasto neto",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Compras\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Gasto Neto\",\n       MAX(v.fecha_creacion) AS \"Última Compra\"\nFROM ps_ventas v\nJOIN ps_clientes c ON c.reg_cliente = v.num_cliente\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Gasto Neto\" DESC\nLIMIT 50\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Frecuencia de compra",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) FILTER (WHERE v.entrada) AS \"Visitas\",\n       MIN(v.fecha_creacion) AS \"Primera Compra\",\n       MAX(v.fecha_creacion) AS \"Última Compra\",\n       COALESCE(SUM(v.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(v.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Gasto Neto\"\nFROM ps_ventas v\nJOIN ps_clientes c ON c.reg_cliente = v.num_cliente\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nHAVING COUNT(*) FILTER (WHERE v.entrada) > 1\nORDER BY \"Visitas\" DESC\nLIMIT 50\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Clientes dados de alta en un periodo",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       c.poblacion AS \"Población\",\n       c.pais AS \"País\",\n       c.fecha_creacion AS \"Alta\"\nFROM ps_clientes c\nWHERE c.fecha_creacion BETWEEN :curr_from AND :curr_to\nORDER BY c.fecha_creacion DESC\nLIMIT 100\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Clientes únicos por tienda",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       COUNT(DISTINCT v.num_cliente) AS \"Clientes Únicos\"\nFROM ps_ventas v\nJOIN ps_tiendas t ON t.codigo = v.tienda\nWHERE v.num_cliente IS NOT NULL\n  AND v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador\nORDER BY \"Clientes Únicos\" DESC\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Cobros por forma de pago",
+    "body": "```sql\nSELECT pv.forma AS \"Forma de Pago\",\n       COUNT(*) FILTER (WHERE pv.entrada) AS \"Cobros\",\n       COALESCE(SUM(pv.importe_cob) FILTER (WHERE pv.entrada), 0)\n     - COALESCE(SUM(pv.importe_cob) FILTER (WHERE NOT pv.entrada), 0) AS \"Importe Neto\"\nFROM ps_pagos_ventas pv\nWHERE pv.tienda <> '99'\n  AND pv.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY pv.forma\nORDER BY \"Importe Neto\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Mix de formas de pago por tienda",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       pv.forma AS \"Forma de Pago\",\n       COALESCE(SUM(pv.importe_cob) FILTER (WHERE pv.entrada), 0)\n     - COALESCE(SUM(pv.importe_cob) FILTER (WHERE NOT pv.entrada), 0) AS \"Importe Neto\"\nFROM ps_pagos_ventas pv\nJOIN ps_tiendas t ON t.codigo = pv.tienda\nWHERE pv.tienda <> '99'\n  AND pv.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador, pv.forma\nORDER BY t.identificador, \"Importe Neto\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Efectivo frente al resto, día a día",
+    "body": "```sql\nSELECT pv.fecha_creacion AS \"Fecha\",\n       COALESCE(SUM(pv.importe_cob) FILTER (WHERE pv.entrada AND pv.codigo_forma = '01'), 0)\n     - COALESCE(SUM(pv.importe_cob) FILTER (WHERE NOT pv.entrada AND pv.codigo_forma = '01'), 0) AS \"Efectivo\",\n       COALESCE(SUM(pv.importe_cob) FILTER (WHERE pv.entrada AND pv.codigo_forma <> '01'), 0)\n     - COALESCE(SUM(pv.importe_cob) FILTER (WHERE NOT pv.entrada AND pv.codigo_forma <> '01'), 0) AS \"Otras Formas\",\n       COALESCE(SUM(pv.importe_cob) FILTER (WHERE pv.entrada), 0)\n     - COALESCE(SUM(pv.importe_cob) FILTER (WHERE NOT pv.entrada), 0) AS \"Total\"\nFROM ps_pagos_ventas pv\nWHERE pv.tienda <> '99'\n  AND pv.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY pv.fecha_creacion\nORDER BY pv.fecha_creacion\n```\n\n`codigo_forma = '01'` suele ser metálico; confírmalo con los valores de\n`pv.forma` antes de presentarlo como «efectivo».\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Margen por artículo (retail)",
+    "body": "```sql\nSELECT LEFT(a.ccrefejofacm, LENGTH(a.ccrefejofacm) - 2) AS \"Artículo\",\n       MIN(a.descripcion) AS \"Descripción\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0) AS \"Coste\",\n       (COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n      - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0))\n     - (COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n      - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0)) AS \"Margen\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\n  AND LENGTH(COALESCE(a.ccrefejofacm, '')) > 2\nGROUP BY 1\nORDER BY \"Margen\" DESC\nLIMIT 20\n```",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Porcentaje de margen por familia",
+    "body": "```sql\nSELECT f.fami_grup_marc AS \"Familia\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       ROUND(100.0 * ((COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0))\n                    - (COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0)))\n             / NULLIF(COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                    - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0), 0), 1) AS \"Margen %\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nJOIN ps_familias f ON f.reg_familia = a.num_familia\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY f.fami_grup_marc\nORDER BY \"Margen %\" DESC\n```",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Margen por tienda",
+    "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       ROUND(100.0 * ((COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0))\n                    - (COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0)))\n             / NULLIF(COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                    - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0), 0), 1) AS \"Margen %\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_tiendas t ON t.codigo = v.tienda\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador\nORDER BY \"Margen %\" DESC\n```",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Artículos con margen teórico bajo (< 30 %)",
+    "body": "Margen de tarifa, no de venta real: compara PVP contra coste en la ficha del\nartículo.\n\n```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\",\n       a.precio_coste AS \"Coste\",\n       ROUND(100.0 * (a.precio1 - a.precio_coste) / NULLIF(a.precio1, 0), 1) AS \"Margen %\"\nFROM ps_articulos a\nWHERE a.anulado IS NOT TRUE\n  AND a.precio1 > 0\n  AND a.precio_coste > 0\n  AND (a.precio1 - a.precio_coste) / a.precio1 < 0.3\nORDER BY \"Margen %\" ASC\nLIMIT 50\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Volumen por ruta",
+    "body": "```sql\nSELECT tr.tienda_salida AS \"Origen\",\n       tr.tienda_entrada AS \"Destino\",\n       COUNT(*) AS \"Movimientos\",\n       SUM(tr.unidades_s) AS \"Unidades Enviadas\"\nFROM ps_traspasos tr\nWHERE NOT tr.entrada\n  AND tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nGROUP BY tr.tienda_salida, tr.tienda_entrada\nORDER BY \"Unidades Enviadas\" DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Volumen por tipo de traspaso",
+    "body": "```sql\nSELECT tr.tipo AS \"Tipo\",\n       tr.concepto AS \"Concepto\",\n       COUNT(*) AS \"Movimientos\",\n       SUM(tr.unidades_s) AS \"Unidades\"\nFROM ps_traspasos tr\nWHERE tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nGROUP BY tr.tipo, tr.concepto\nORDER BY \"Movimientos\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Actividad diaria de traspasos",
+    "body": "```sql\nSELECT tr.fecha_s AS \"Fecha\",\n       COUNT(*) AS \"Movimientos\",\n       SUM(tr.unidades_s) AS \"Unidades Enviadas\"\nFROM ps_traspasos tr\nWHERE NOT tr.entrada\n  AND tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nGROUP BY tr.fecha_s\nORDER BY tr.fecha_s\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Traspasos de una referencia concreta",
+    "body": "```sql\nSELECT tr.fecha_s AS \"Fecha\",\n       tr.tienda_salida AS \"Origen\",\n       tr.tienda_entrada AS \"Destino\",\n       tr.talla AS \"Talla\",\n       tr.unidades_s AS \"Unidades\",\n       tr.tipo AS \"Tipo\",\n       tr.concepto AS \"Concepto\"\nFROM ps_traspasos tr\nJOIN ps_articulos a ON a.codigo = tr.codigo\nWHERE a.ccrefejofacm = 'V26391168'\n  AND NOT tr.entrada\n  AND tr.\"tipo\" = 'Autoreposicion'\n  AND tr.fecha_s BETWEEN :curr_from AND :curr_to\nORDER BY tr.fecha_s DESC\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Artículos de retail con stock",
+    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\",\n       SUM(st.stock) AS \"Unidades en Tienda\"\nFROM ps_articulos a\nJOIN ps_stock_tienda st ON st.codigo = a.codigo\nWHERE a.ccrefejofacm NOT LIKE 'M%'\n  AND a.anulado IS NOT TRUE\n  AND st.stock > 0\nGROUP BY a.ccrefejofacm, a.descripcion, a.precio1\nORDER BY \"Unidades en Tienda\" DESC\nLIMIT 50\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Artículos exclusivos de mayorista",
+    "body": "```sql\nSELECT a.codigo AS \"Código\",\n       a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\"\nFROM ps_articulos a\nWHERE a.ccrefejofacm LIKE 'M%'\n  AND a.anulado IS NOT TRUE\nORDER BY a.codigo\nLIMIT 50\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Venta retail excluyendo artículos de mayorista",
+    "body": "```sql\nSELECT DATE_TRUNC('month', v.fecha_creacion)::date AS \"Mes\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta Retail\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nWHERE a.ccrefejofacm NOT LIKE 'M%'\n  AND v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "Líneas de albarán mayorista con artículos M",
+    "body": "```sql\nSELECT gl.n_albaran AS \"Nº Albarán\",\n       gl.fecha_albaran AS \"Fecha\",\n       gl.codigo AS \"Código\",\n       gl.descripcion AS \"Descripción\",\n       gl.unidades AS \"Unidades\",\n       gl.total AS \"Importe\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_articulos a ON gl.codigo = a.codigo\nWHERE a.ccrefejofacm LIKE 'M%'\n  AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to\nORDER BY gl.fecha_albaran DESC\nLIMIT 50\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "9. Movimiento de stock de una tienda",
+    "body": "Con lo que hay en el espejo se cubren los dos movimientos que explican la mayor\nparte de la variación de stock de una tienda: traspasos y ventas.\n\n```\nEntradas ≈ traspasos recibidos + devoluciones de clientes\nSalidas  ≈ ventas + traspasos enviados\nNeto     = Entradas − Salidas\n```\n\nLas **entradas de albarán de compra** (mercancía del proveedor) **no** están en\nel espejo: `ps_albaranes` guarda sólo cabeceras, sin líneas ni unidades. Ver\n[§11](#11-datos-que-no-están-en-el-espejo). El neto de abajo es, por tanto,\nmovimiento de tienda, no la ecuación completa de inventario.\n\n```sql\nSELECT\n  (SELECT COALESCE(SUM(tr.unidades_e), 0)\n     FROM ps_traspasos tr\n    WHERE tr.tienda_entrada = '154' AND tr.entrada\n      AND tr.\"tipo\" = 'Autoreposicion'\n      AND tr.fecha_e BETWEEN :curr_from AND :curr_to) AS \"Traspasos Recibidos\",\n  (SELECT COALESCE(SUM(tr.unidades_s), 0)\n     FROM ps_traspasos tr\n    WHERE tr.tienda_salida = '154' AND NOT tr.entrada\n      AND tr.\"tipo\" = 'Autoreposicion'\n      AND tr.fecha_s BETWEEN :curr_from AND :curr_to) AS \"Traspasos Enviados\",\n  (SELECT COALESCE(SUM(lv.unidades) FILTER (WHERE v.entrada), 0)\n     FROM ps_lineas_ventas lv\n     JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\n    WHERE v.tienda = '154'\n      AND v.fecha_creacion BETWEEN :curr_from AND :curr_to) AS \"Unidades Vendidas\",\n  (SELECT COALESCE(SUM(lv.unidades) FILTER (WHERE NOT v.entrada), 0)\n     FROM ps_lineas_ventas lv\n     JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\n    WHERE v.tienda = '154'\n      AND v.fecha_creacion BETWEEN :curr_from AND :curr_to) AS \"Unidades Devueltas\"\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "10. Avisos de calidad de dato",
+    "body": "1. **Netea siempre.** Un `SUM(total_si)` sin `FILTER` mezcla ventas y\n   devoluciones y da un número que no es ni bruto ni neto.\n2. **`COALESCE` en los dos lados del neteo.** Sin él, un grupo sin devoluciones\n   sale `NULL` y desaparece del `ORDER BY`.\n3. **Excluye la tienda `'99'`** en retail: es el almacén.\n4. **`total_si` para facturación**, `total` lleva IVA.\n5. **`importe_cob`, no otro importe**, en `ps_pagos_ventas`.\n6. **Un artículo es modelo + color.** Agrupar por `ccrefejofacm` entero\n   multiplica las filas por el número de tallas.\n7. **`ps_lineas_ventas.entrada` y `.talla`** existen desde 2026-08 y están vacías\n   en las filas anteriores a la resincronización; el `JOIN` con `ps_ventas` sigue\n   haciendo falta para atributos de cabecera (tienda, cliente, hora).\n8. **`ps_lineas_ventas` no tiene FK de dimensión.** Para familia / marca /\n   temporada / departamento hay que pasar por `ps_articulos` (`a.codigo = lv.codigo`).\n   La línea **mayorista** sí las lleva.\n9. **`n_albaran` no es único.** Une líneas y cabeceras por `num_albaran` →\n   `reg_albaran` (y `num_factura` → `reg_factura`).\n10. **`ps_articulos` no tiene columna `stock`.** El stock está en\n    `ps_stock_central` / `ps_stock_tienda`.\n11. **Nunca `SELECT *`.** Enumera columnas y ponles alias en español.\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "11. Datos que no están en el espejo",
+    "body": "Estas preguntas **no se pueden responder** con las tablas `ps_*`. Si te las\nhacen, dilo explícitamente en vez de inventar una tabla o una columna.\n\n| Dato que falta | Dónde estaría | Qué NO se puede calcular |\n|---|---|---|\n| **Líneas de albarán de compra** (unidades recibidas del proveedor) | `ps_albaranes` sólo guarda cabeceras (`reg_albaran`, `fecha_recibido`, `num_pedido`, `num_proveedor`, `proveedor`) | Entradas de mercancía por artículo o talla; la ecuación completa de inventario |\n| **Cobros de facturas mayoristas** | no hay tabla de cobros en el espejo | Importe cobrado / pendiente por factura, antigüedad de la deuda, riesgo vivo |\n| **Vales y su canje** | no mirrored | Vales emitidos, canjeados, importe pendiente de canje |\n| **Condiciones comerciales del cliente** (descuento `p_desc_g` / `PDescCom`, forma de pago, riesgo concedido, bloqueo financiero, marca de mayorista) | `ps_clientes` sólo trae identidad y contacto | Descuento aplicado por cliente, límite de crédito, segmentar clientes en «mayorista» vs «retail» desde la ficha |\n| **Factura anulada** | `ps_gc_facturas` no replica `FacturaAnulada` | Excluir facturas anuladas del total mayorista |\n| **Comercial asignado a una venta mayorista** | `ps_gc_facturas.num_comercial` y `ps_gc_albaranes.num_comercial` existen pero están **sin usar**: `0.000` en las 19.352 facturas, y sólo **4 de 52.148** albaranes tienen comercial (todos el mismo). `ps_gc_comerciales` sí tiene las 5 filas. | Ventas, márgenes o ranking por comercial; objetivos y comisiones |\n| **Stock central por talla** | `ps_stock_central` es un total por artículo | Desglose de tallas del almacén central (sí lo hay por tienda en `ps_stock_tienda`) |\n| **Provincia / dirección del cliente** | `ps_clientes` tiene `poblacion`, `codigo_postal` y `pais` | Análisis por provincia |\n| **Esquema y catálogo del ERP 4D** (tablas de sistema `_USER_*`, vistas `*_SQL`) | sólo en el servidor 4D | Nada de esto es consultable desde el dashboard: es herramienta del ETL |\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
+    "heading": "LLM:rules",
+    "body": "Reglas que gobiernan la traduccion de este recetario al espejo PostgreSQL.\n\n```json\n[\n  {\n    \"instruction\": \"El recetario docs/sample-queries.md es PostgreSQL contra el espejo ps_* de principio a fin: se puede copiar tal cual a un widget. Nunca escribas una consulta contra las tablas del ERP 4D (Ventas, LineasVentas, Articulos, CCStock, Exportaciones, Traspasos, GCFacturas, o cualquier tabla sin prefijo ps_): no existen en PostgreSQL y el dashboard no puede ejecutarlas. Si una fuente de conocimiento te devuelve SQL de 4D, tradúcelo al espejo antes de usarlo.\",\n    \"questions\": [\n      \"puedo usar las consultas del recetario\",\n      \"por que falla una consulta contra la tabla Ventas\",\n      \"que dialecto uso\"\n    ]\n  },\n  {\n    \"instruction\": \"El espejo PostgreSQL NO replica todas las columnas de 4D. Diferencias que rompen traducciones ingenuas: ps_lineas_ventas SI tiene 'entrada', 'movimiento_caja' y 'talla' desde 2026-08 (vacias en filas anteriores a la resincronizacion); el JOIN con ps_ventas sigue haciendo falta para atributos de cabecera como tienda o cliente; ps_lineas_ventas NO tiene num_familia/num_marca/num_temporada/num_departament (hay que unir con ps_articulos por 'codigo' y de ahi a la dimension); ps_articulos NO tiene columna 'stock'. Antes de usar una columna, comprueba que existe.\",\n    \"questions\": [\n      \"ps_lineas_ventas tiene entrada\",\n      \"como agrupo ventas por familia\",\n      \"por que no encuentro la columna\"\n    ]\n  },\n  {\n    \"instruction\": \"Ruta de JOIN canonica para ventas retail por dimension de producto: ps_lineas_ventas lv -> ps_ventas v ON v.reg_ventas = lv.num_ventas (para 'entrada' y la fecha) -> ps_articulos a ON a.codigo = lv.codigo (para la referencia y las FK de dimension) -> ps_familias f ON f.reg_familia = a.num_familia (o ps_marcas.reg_marca, ps_temporadas.reg_temporada, ps_departamentos.reg_departament). Para la tienda: ps_tiendas t ON t.codigo = v.tienda, y muestra t.identificador, no el codigo.\",\n    \"questions\": [\n      \"como uno lineas de venta con familia\",\n      \"join de ventas y articulos\",\n      \"como saco el nombre de la tienda\"\n    ]\n  },\n  {\n    \"instruction\": \"En el canal mayorista la linea de factura ps_gc_lin_facturas SI lleva sus propias FK de dimension (num_familia, num_marca, num_departament, num_color, num_comercial) y su propia fecha_factura, asi que no hace falta unir con la cabecera para agrupar. Une con ps_gc_facturas solo cuando necesites la bandera 'abono' para netear.\",\n    \"questions\": [\n      \"como agrupo facturacion mayorista por familia\",\n      \"necesito la cabecera de factura\"\n    ]\n  },\n  {\n    \"instruction\": \"Cuidado con las claves del mayorista: ps_gc_lin_albarane.num_albaran es la FK real a ps_gc_albaranes.reg_albaran, mientras que n_albaran es el numero visible del albaran y NO es unico. Une siempre por num_albaran -> reg_albaran. Lo mismo en ps_gc_lin_facturas: num_factura -> ps_gc_facturas.reg_factura.\",\n    \"questions\": [\n      \"como uno lineas y cabeceras de albaran\",\n      \"n_albaran o num_albaran\"\n    ]\n  },\n  {\n    \"instruction\": \"ps_lineas_ventas.mes es un entero AAAAMM (202501) heredado de 4D y sirve para filtros de periodo rapidos. En PostgreSQL es igual de valido y mas legible filtrar por v.fecha_creacion con DATE_TRUNC; usa mes solo si te interesa el rendimiento sobre rangos largos. No mezcles mes con fecha_creacion en el mismo filtro sin comprobar que concuerdan.\",\n    \"questions\": [\n      \"que es la columna mes\",\n      \"como filtro por periodo\"\n    ]\n  },\n  {\n    \"instruction\": \"El stock vive en dos tablas distintas del espejo: ps_stock_tienda (grano codigo + tienda + talla, columna 'stock') para tiendas retail, y ps_stock_central (grano num_articulo, columna 'stock') para el almacen central. ps_stock_central.num_articulo une con ps_articulos.reg_articulo; ps_stock_tienda.codigo une con ps_articulos.codigo. Ojo: son claves distintas, no las intercambies.\",\n    \"questions\": [\n      \"donde esta el stock\",\n      \"stock central o de tienda",
+    "hasSql": false,
+    "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto hemos vendido cada día en una tienda concreta? (neto de devoluciones)",
-    "body": "```sql\nSELECT v.\"fecha_creacion\" AS \"Fecha\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" = '99' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY v.\"fecha_creacion\" ORDER BY v.\"fecha_creacion\"\n```",
+    "body": "```sql\nSELECT v.\"fecha_creacion\" AS \"Fecha\", COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\", COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" = '154' AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY v.\"fecha_creacion\" ORDER BY v.\"fecha_creacion\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -561,7 +505,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto stock hay de una referencia en cada tienda y talla?",
-    "body": "```sql\nSELECT st.\"tienda\" AS \"Tienda\", st.\"talla\" AS \"Talla\", st.\"stock\" AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" st JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = st.\"codigo\" WHERE a.\"ccrefejofacm\" = 'V26212484' AND st.\"stock\" <> 0 ORDER BY st.\"tienda\", st.\"talla\"\n```",
+    "body": "```sql\nSELECT st.\"tienda\" AS \"Tienda\", st.\"talla\" AS \"Talla\", st.\"stock\" AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" st JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = st.\"codigo\" WHERE a.\"ccrefejofacm\" = 'V26391168' AND st.\"stock\" <> 0 ORDER BY st.\"tienda\", st.\"talla\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -602,13 +546,6 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/sample-queries.md",
-    "heading": "¿Cuánto vende cada comercial de mayorista?",
-    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
-    "hasSql": true,
-    "dialect": "postgres"
-  },
-  {
-    "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen del canal mayorista por producto?",
     "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"total\") AS \"Importe\", SUM(gl.\"total_coste\") AS \"Coste\", SUM(gl.\"total\") - SUM(gl.\"total_coste\") AS \"Margen\", ROUND(100.0 * (SUM(gl.\"total\") - SUM(gl.\"total_coste\")) / NULLIF(SUM(gl.\"total\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
     "hasSql": true,
@@ -617,14 +554,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
-    "body": "```sql\nSELECT tr.\"tienda_salida\" AS \"Origen\", tr.\"tienda_entrada\" AS \"Destino\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades Enviadas\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" BETWEEN :curr_from AND :curr_to AND NOT tr.\"entrada\" AND COALESCE(tr.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') GROUP BY tr.\"tienda_salida\", tr.\"tienda_entrada\" ORDER BY \"Unidades Enviadas\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT tr.\"tienda_salida\" AS \"Origen\", tr.\"tienda_entrada\" AS \"Destino\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades Enviadas\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" BETWEEN :curr_from AND :curr_to AND NOT tr.\"entrada\" AND tr.\"tipo\" = 'Autoreposicion' GROUP BY tr.\"tienda_salida\", tr.\"tienda_entrada\" ORDER BY \"Unidades Enviadas\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Qué tipos de traspaso se usan más?",
-    "body": "```sql\nSELECT tr.\"tipo\" AS \"Tipo\", tr.\"concepto\" AS \"Concepto\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_e\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_e\" BETWEEN :curr_from AND :curr_to AND tr.\"entrada\" GROUP BY tr.\"tipo\", tr.\"concepto\" ORDER BY \"Movimientos\" DESC\n```",
+    "body": "```sql\nSELECT tr.\"tipo\" AS \"Tipo\", tr.\"concepto\" AS \"Concepto\", COUNT(*) AS \"Movimientos\", SUM(tr.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" tr WHERE tr.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY tr.\"tipo\", tr.\"concepto\" ORDER BY \"Movimientos\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -637,444 +574,402 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/skills/report-generation.md",
+    "heading": "Overview",
+    "body": "This skill produces a standalone, offline HTML business intelligence report in **Spanish (Spain)** for the the company / PowerShop fashion retail chain. The report targets three audiences: business owners (Dirección), stock/purchasing managers, and department heads.\n\n**Output**: `/Users/alobato/git/powershop-analytics/docs/reports/informe-coleccion.html`\n\n> **Dialect.** Every query below is **PostgreSQL against the mirror** (`ps_*`\n> tables). The report is never built against the live 4D ERP: analytics paths do\n> not touch it ([D-001](../decisions/D-001-postgres-mirror.md)), and the 4D table\n> names (`Ventas`, `Articulos`, `CCStock`, `Exportaciones`…) do not exist here.\n>\n> Date placeholders `:curr_from` / `:curr_to` are the reporting period and\n> `:comp_from` / `:comp_to` the comparison period (same range, previous year).\n> Bind them from Python/JS; do not hardcode `CURRENT_DATE`.\n\n---",
+    "hasSql": false,
+    "dialect": "n/a"
+  },
+  {
+    "source": "docs/skills/report-generation.md",
     "heading": "How to filter",
-    "body": "- **Retail articles**: `a.CCRefeJOFACM NOT LIKE 'M%'` (in Articulos JOIN)\n- **Wholesale articles**: `a.CCRefeJOFACM LIKE 'M%'`\n- **Wholesale channel** (GC tables): GCAlbaranes, GCFacturas, GCLinAlbarane, GCLinFacturas, CobrosFacturas — these are 100% wholesale\n- **Retail POS** (Ventas/LineasVentas): Filter with `NOT LIKE 'M%'` for pure retail metrics",
+    "body": "- **Retail articles**: `p.\"ccrefejofacm\" IS NULL OR p.\"ccrefejofacm\" NOT LIKE 'M%'`\n- **Wholesale articles**: `p.\"ccrefejofacm\" LIKE 'M%'`\n- **Wholesale channel**: `ps_gc_albaranes`, `ps_gc_lin_albarane`, `ps_gc_facturas`, `ps_gc_lin_facturas`, `ps_gc_pedidos` — 100% wholesale\n- **Retail POS**: `ps_ventas`, `ps_lineas_ventas`, `ps_pagos_ventas`. Exclude store `'99'` (central warehouse) from every retail figure.",
     "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/skills/report-generation.md",
+    "heading": "What makes sense where",
+    "body": "- **Store performance**: Retail only (wholesale doesn't use stores)\n- **Stock per store**: Retail only (wholesale manufactures to order)\n- **Product rankings**: Separate — retail top articles vs wholesale top GC articles\n- **Customer analysis**: Retail = `ps_ventas` customers, Wholesale = customers with `ps_gc_albaranes` / `ps_gc_facturas` activity (same `ps_clientes` table, see §Customers)\n- **Payments**: Retail only — wholesale collections are not mirrored (see [What is not available](#what-is-not-available))\n- **Weekly trend**: Retail only",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/skills/report-generation.md",
+    "heading": "production, over SSH",
+    "body": "set -a; source ~/.config/powershop-analytics/.env; set +a\nssh \"$PROD_HOST\" 'docker exec -i powershop-postgres-1 psql -U postgres -d powershop' <<'SQL'\nSELECT 1;\nSQL\n```\n\nFrom Python use `psycopg` against `POSTGRES_DSN`. Nothing in this skill needs the\n4D SQL driver or the SOAP service.\n\n---",
+    "hasSql": true,
     "dialect": "n/a"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "3. SQL Exportaciones table -- Per-store stock totals (faster for bulk)",
-    "body": "```sql\nSELECT Tienda, SUM(CCStock) AS total_stock FROM Exportaciones GROUP BY Tienda ORDER BY total_stock DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/report-generation.md",
-    "heading": "Field Mapping: VAT-Exclusive Fields",
-    "body": "| Table | WITH VAT (con IVA) -- DO NOT USE | WITHOUT VAT (sin IVA) -- USE THIS |\n|-------|----------------------------------|-----------------------------------|\n| **Ventas** | `Total` | **`TotalSI`** (\"Total Sin Impuestos\") |\n| **LineasVentas** | `Total` | **`PrecioNetoSI * Unidades`** (or `TotalSI` if available per line) |\n| **GCFacturas** | `TotalFactura` | **`Base1 + Base2 + Base3`** (sum of tax bases per VAT rate) |\n| **GCAlbaranes** | `TotalAlbaran` | **`Base1 + Base2 + Base3`** |\n| **PagosVentas** | `ImporteCob` | ImporteCob = con IVA (matches Ventas.Total). For VAT-exclusive payment analysis, JOIN with Ventas.TotalSI or use COUNT for method mix proportions. |\n| **Articulos** | `Precio2Neto` (PVP con IVA) | **`PrecioCoste`** (already without VAT). For net selling prices use `PrecioNetoSI` in LineasVentas. |",
+    "heading": "Field mapping in the mirror",
+    "body": "| Table | WITH VAT — DO NOT USE | WITHOUT VAT — USE THIS |\n|-------|------------------------|------------------------|\n| `ps_ventas` | `total` | **`total_si`** |\n| `ps_lineas_ventas` | — | **`total_si`** (line total), `precio_neto_si` (unit price) |\n| `ps_gc_facturas` | `total_factura` | **`base1 + base2 + base3`** (sum of tax bases) |\n| `ps_gc_albaranes` | — | **`base1 + base2 + base3`** |\n| `ps_gc_lin_facturas` | — | `total` (already net), cost in `total_coste` |\n| `ps_pagos_ventas` | `importe_cob` (con IVA, matches `ps_ventas.total`) | use `COUNT(*)` for method mix, or `ps_ventas.total_si` for revenue |\n| `ps_articulos` | `precio1` (PVP tarifa 1, con IVA) | **`precio_coste`** (already net) |\n\nRetail cost of goods is `ps_lineas_ventas.total_coste_si` — prefer it over\n`unidades * precio_coste`, which re-prices history at today's cost.",
     "hasSql": false,
-    "dialect": "n/a"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 2: Identify active season/collection",
-    "body": "```sql\nSELECT RegTemporada, Clave, TemporadaTipo, TemporadaActiv, InicioVentas, FinVentas\nFROM CCOPTempTipo\nWHERE TemporadaActiv = TRUE\n```\n\nAlso get article counts per season:\n\n```sql\nSELECT ClaveTemporada, COUNT(RegArticulo) as cnt\nFROM Articulos\nGROUP BY ClaveTemporada\nORDER BY COUNT(RegArticulo) DESC\n```\n\nAnd stock per season:\n\n```sql\nSELECT a.ClaveTemporada, SUM(cs.Stock) AS stock_uds, COUNT(a.RegArticulo) AS n_arts\nFROM Articulos a\nINNER JOIN CCStock cs ON cs.NumArticulo = a.RegArticulo\nGROUP BY a.ClaveTemporada\n```",
+    "heading": "Step 2: Active season / collection",
+    "body": "```sql\nSELECT t.\"clave\"          AS \"Clave\",\n       t.\"temporada_tipo\" AS \"Temporada\",\n       t.\"inicio_ventas\"  AS \"Inicio Ventas\",\n       t.\"fin_ventas\"     AS \"Fin Ventas\",\n       t.\"inicio_rebajas\" AS \"Inicio Rebajas\",\n       t.\"fin_rebajas\"    AS \"Fin Rebajas\"\nFROM \"public\".\"ps_temporadas\" t\nWHERE t.\"temporada_activ\" IS TRUE\nORDER BY t.\"inicio_ventas\" DESC;\n```\n\nArticle counts per season:\n\n```sql\nSELECT p.\"clave_temporada\" AS \"Temporada\",\n       COUNT(*)            AS \"Artículos\",\n       COUNT(*) FILTER (WHERE p.\"anulado\" = false) AS \"Activos\"\nFROM \"public\".\"ps_articulos\" p\nGROUP BY p.\"clave_temporada\"\nORDER BY \"Artículos\" DESC;\n```\n\nStock per season: see [stock-analysis.md § Stock by season](../stock-analysis.md#9-common-stock-queries).",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 3: Sales overview (YTD current year + comparison year)",
-    "body": "**Total KPIs** (run for both current and previous year date ranges):\n\n```sql\n-- YTD current year (use TotalSI = sin IVA)\nSELECT COUNT(RegVentas), SUM(TotalSI)\nFROM Ventas\nWHERE FechaCreacion >= '{ytd_start}' AND FechaCreacion <= '{today}'\n\n-- Same period last year\nSELECT COUNT(RegVentas), SUM(TotalSI)\nFROM Ventas\nWHERE FechaCreacion >= '{last_year_start}' AND FechaCreacion <= '{last_year_end}'\n\n-- Total units (from LineasVentas, same date filter)\nSELECT SUM(Unidades)\nFROM LineasVentas\nWHERE FechaCreacion >= '{ytd_start}' AND FechaCreacion <= '{today}'\n\n-- Average ticket (sin IVA)\nSELECT AVG(TotalSI) FROM Ventas\nWHERE FechaCreacion >= '{ytd_start}' AND FechaCreacion <= '{today}'\n```",
+    "heading": "Step 3: Sales overview (period + comparison)",
+    "body": "```sql\n-- Headline KPIs for one period\nSELECT COUNT(*) FILTER (WHERE v.\"entrada\") AS \"Tickets\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0)\n         - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\",\n       ROUND((COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0)\n              - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0))\n             / NULLIF(COUNT(*) FILTER (WHERE v.\"entrada\"), 0), 2) AS \"Ticket Medio\"\nFROM \"public\".\"ps_ventas\" v\nWHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99';\n```\n\n```sql\n-- Both periods in one pass (avoids two round trips and keeps the filters aligned)\nSELECT COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to), 0)\n       - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to), 0) AS \"Periodo Actual\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to), 0)\n       - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to), 0) AS \"Periodo Comparado\"\nFROM \"public\".\"ps_ventas\" v\nWHERE v.\"tienda\" <> '99'\n  AND (v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to\n       OR v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to);\n```\n\n```sql\n-- Net units\nSELECT COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Unidades Netas\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99';\n```",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 4: Weekly sales trend (last 12 weeks)",
-    "body": "Run a query per week or use a loop:\n\n```sql\nSELECT COUNT(RegVentas), SUM(TotalSI), SUM(Unidades)\nFROM Ventas\nWHERE FechaCreacion >= '{week_start}' AND FechaCreacion < '{week_end}'\n```\n\nIterate over 12 weeks backwards from today. Store results for the sparkline/chart.",
+    "heading": "Step 4: Weekly trend",
+    "body": "One query, no Python loop over weeks:\n\n```sql\nSELECT DATE_TRUNC('week', v.\"fecha_creacion\") AS \"Semana\",\n       COUNT(*) FILTER (WHERE v.\"entrada\")    AS \"Tickets\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0)\n         - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\"\nFROM \"public\".\"ps_ventas\" v\nWHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99'\nGROUP BY DATE_TRUNC('week', v.\"fecha_creacion\")\nORDER BY \"Semana\";\n```",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 5: Per-store performance",
-    "body": "```sql\n-- YTD current year by store (sin IVA)\nSELECT Tienda, COUNT(RegVentas) AS cnt, SUM(TotalSI) AS tot\nFROM Ventas\nWHERE FechaCreacion >= '{ytd_start}' AND FechaCreacion <= '{today}'\nGROUP BY Tienda\nORDER BY SUM(TotalSI) DESC\n\n-- Same period last year by store (for YoY comparison, sin IVA)\nSELECT Tienda, COUNT(RegVentas) AS cnt, SUM(TotalSI) AS tot\nFROM Ventas\nWHERE FechaCreacion >= '{last_year_start}' AND FechaCreacion <= '{last_year_end}'\nGROUP BY Tienda\n```\n\nGet store names separately:\n\n```sql\nSELECT Codigo, Poblacion, Provincia FROM Tiendas ORDER BY Codigo\n```",
-    "hasSql": true,
-    "dialect": "4d"
+    "heading": "Step 5: Per-store performance with YoY",
+    "body": "```sql\nSELECT v.\"tienda\" AS \"Tienda\",\n       COALESCE(NULLIF(t.\"identificador\", ''), NULLIF(t.\"poblacion\", ''),\n                'Tienda ' || v.\"tienda\") AS \"Nombre\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to), 0)\n       - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to), 0) AS \"Actual\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to), 0)\n       - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to), 0) AS \"Comparado\"\nFROM \"public\".\"ps_ventas\" v\nLEFT JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\"\nWHERE v.\"tienda\" <> '99'\n  AND (v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to\n       OR v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to)\nGROUP BY v.\"tienda\",\n         COALESCE(NULLIF(t.\"identificador\", ''), NULLIF(t.\"poblacion\", ''),\n                  'Tienda ' || v.\"tienda\")\nORDER BY \"Actual\" DESC;\n```\n\nStore names come from `ps_tiendas` (`identificador` → `poblacion` → fallback).\nThere is no `provincia` column in the mirror.",
+    "hasSql": false,
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Step 6: Product performance",
-    "body": "**Important**: Product tables must show `CCRefeJOFACM` (Referencia) as the primary SKU identifier, displayed as \"Ref.\" column. This is what staff and business users recognise. `Codigo` may appear as a secondary column or be omitted. Since `LineasVentas` does not have `CCRefeJOFACM`, always JOIN with `Articulos` to get the Referencia.\n\n**Top articles by revenue and units**:\n\n```sql\nSELECT a.CCRefeJOFACM, lv.Codigo, lv.Descripcion, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.CCRefeJOFACM, lv.Codigo, lv.Descripcion\nORDER BY SUM(lv.PrecioNetoSI * lv.Unidades) DESC\nLIMIT 25\n```\n\n**By family (FamiGrupSeri)**:\n\n```sql\nSELECT a.FamiGrupSeri, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.FamiGrupSeri\nORDER BY SUM(lv.PrecioNetoSI * lv.Unidades) DESC\n```\n\n**By department (DepaSeccFabr)**:\n\n```sql\nSELECT a.DepaSeccFabr, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.DepaSeccFabr\nORDER BY SUM(lv.PrecioNetoSI * lv.Unidades) DESC\n```\n\n**By color**:\n\n```sql\nSELECT a.Color, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.Color\nORDER BY SUM(lv.PrecioNetoSI * lv.Unidades) DESC\n```\n\n**By size (talla)**:\n\n```sql\nSELECT lv.CCOPTallaOjo, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot\nFROM LineasVentas lv\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY lv.CCOPTallaOjo\nORDER BY SUM(lv.Unidades) DESC\n```\n\n**Sales by season of origin** (what season's products are actually selling):\n\n```sql\nSELECT a.ClaveTemporada, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.ClaveTemporada\nORDER BY SUM(lv.PrecioNetoSI * lv.Unidades) DESC\n```",
+    "body": "`ps_lineas_ventas` has **no `num_articulo`** — the join to `ps_articulos` is by\n**`codigo`**. Get `ccrefejofacm` from there.\n\n**Top references by net revenue**:\n\n```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       p.\"descripcion\"  AS \"Descripción\",\n       COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Unidades\",\n       COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\nGROUP BY p.\"ccrefejofacm\", p.\"descripcion\"\nORDER BY \"Ventas Netas\" DESC\nLIMIT 25;\n```\n\n**Top models** (colours collapsed — an article is model+colour, so a ranking by\nreferencia splits one successful model across its colourways):\n\n```sql\nSELECT LEFT(p.\"ccrefejofacm\", LENGTH(p.\"ccrefejofacm\") - 2) AS \"Modelo\",\n       MIN(p.\"descripcion\")             AS \"Descripción\",\n       COUNT(DISTINCT p.\"ccrefejofacm\") AS \"Colores\",\n       COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\n  AND LENGTH(p.\"ccrefejofacm\") > 2\nGROUP BY 1\nORDER BY \"Ventas Netas\" DESC\nLIMIT 25;\n```\n\n**By family / department / season** — same shape, swapping the grouping:\n\n| Breakdown | Join | Group by |\n|-----------|------|----------|\n| Family | `JOIN ps_familias fm ON p.\"num_familia\" = fm.\"reg_familia\"` | `fm.\"fami_grup_marc\"` |\n| Department | `JOIN ps_departamentos d ON p.\"num_departament\" = d.\"reg_departament\"` | `d.\"depa_secc_fabr\"` |\n| Brand | `JOIN ps_marcas m ON p.\"num_marca\" = m.\"reg_marca\"` | `m.\"marca_tratamien\"` |\n| Season | — | `p.\"clave_temporada\"` |\n\n**By colour**:\n\n```sql\nSELECT COALESCE(NULLIF(TRIM(p.\"color\"), ''), 'Sin color') AS \"Color\",\n       COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Unidades\",\n       COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\nGROUP BY 1\nORDER BY \"Ventas Netas\" DESC\nLIMIT 20;\n```\n\n**By size (talla)** — the size of a sale lives in `ps_lineas_ventas.talla`,\nuppercased by the ETL. Do **not** try to derive it from a barcode /\n`BarrasAsociado` join: 0% coverage\n([D-048](../decisions/D-048-sales-by-size.md)).\n\n```sql\n-- ps_lineas_ventas.talla is the 4D CCOPTallaOjo field, uppercased by the ETL.\nSELECT UPPER(lv.\"talla\") AS \"Talla\",\n       COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Unidades\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\n  AND lv.\"talla\" IS NOT NULL\nGROUP BY UPPER(lv.\"talla\")\nORDER BY \"Unidades\" DESC;\n```",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 7: Pricing and discount analysis",
-    "body": "```sql\n-- Average selling price vs PVP\nSELECT AVG(lv.PrecioNetoSI) AS avg_sell, AVG(a.Precio2Neto) AS avg_pvp\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\n\n-- Average discount percentage (revenue sin IVA)\nSELECT AVG(lv.PDescG) AS avg_discount, SUM(lv.PrecioNetoSI * lv.Unidades) AS total_revenue, SUM(lv.Unidades) AS total_units\nFROM LineasVentas lv\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\n```",
+    "heading": "Step 7: Pricing and discount",
+    "body": "There is no per-line discount percentage in the mirror. Derive it by comparing\nthe realised net price against the tariff PVP, de-VATed with the article's own\nrate:\n\n```sql\nSELECT ROUND(AVG(lv.\"precio_neto_si\"), 2) AS \"Precio Neto Medio\",\n       ROUND(AVG(p.\"precio1\" / NULLIF(1 + p.\"p_iva\" / 100, 0)), 2) AS \"PVP Tarifa Medio sin IVA\",\n       ROUND((1 - AVG(lv.\"precio_neto_si\")\n                  / NULLIF(AVG(p.\"precio1\" / NULLIF(1 + p.\"p_iva\" / 100, 0)), 0)) * 100, 1)\n         AS \"Descuento Medio %\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"entrada\"\n  AND lv.\"tienda\" <> '99'\n  AND p.\"precio1\" > 0;\n```\n\n`precio1` is today's tariff, not the tariff at sale time — label the result as an\napproximation.",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Step 8: Margin analysis",
-    "body": "**By department**:\n\n```sql\nSELECT a.DepaSeccFabr, SUM(lv.PrecioNetoSI * lv.Unidades) AS revenue, SUM(lv.Unidades * a.PrecioCoste) AS cost\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.DepaSeccFabr\n```\n\nMargin = `(revenue - cost) / revenue * 100`\n\n**By family**:\n\n```sql\nSELECT a.FamiGrupSeri, SUM(lv.PrecioNetoSI * lv.Unidades) AS revenue, SUM(lv.Unidades * a.PrecioCoste) AS cost\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.FamiGrupSeri\n```\n\n**By store**:\n\n```sql\nSELECT lv.Tienda, SUM(lv.PrecioNetoSI * lv.Unidades) AS revenue, SUM(lv.Unidades * a.PrecioCoste) AS cost\nFROM LineasVentas lv\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{ytd_start}' AND lv.FechaCreacion <= '{today}'\nGROUP BY lv.Tienda\n```",
+    "body": "Cost comes from `ps_lineas_ventas.total_coste_si`, and it must be netted by\nreturns exactly like revenue:\n\n```sql\nSELECT lv.\"tienda\" AS \"Tienda\",\n       COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\",\n       COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Coste\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\nGROUP BY lv.\"tienda\"\nORDER BY \"Ventas Netas\" DESC;\n```\n\nMargin % = `(Ventas Netas - Coste) / NULLIF(Ventas Netas, 0) * 100`. Swap the\ngrouping for family (`fm.\"fami_grup_marc\"`) or department (`d.\"depa_secc_fabr\"`)\nwith the joins from Step 6.",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 9: Stock analysis (CORRECTED)",
-    "body": "**IMPORTANT**: CCStock = central warehouse (store 99) ONLY. Exportaciones = retail stores (store 99 is NOT included). True total = both.\n\nSee [docs/stock-analysis.md](../stock-analysis.md) for full details.\n\n**Central warehouse stock (CCStock = store 99)**:\n\n```sql\nSELECT SUM(Stock) FROM CCStock                    -- net total (includes negatives from returns)\nSELECT SUM(Stock) FROM CCStock WHERE Stock > 0    -- positive stock only\n```\n\n**Retail store stock (Exportaciones = all stores except central)**:\n\n```sql\nSELECT SUM(CCStock) FROM Exportaciones\n```\n\n**Stock value (central only — retail value needs SOAP or Exportaciones join)**:\n\n```sql\n-- PrecioCoste is already VAT-free; Precio2Neto includes VAT (use for PVP reference only)\nSELECT SUM(cs.Stock * a.PrecioCoste) AS stock_cost_value, SUM(cs.Stock * a.Precio2Neto) AS stock_retail_value_inc_vat\nFROM CCStock cs\nINNER JOIN Articulos a ON a.RegArticulo = cs.NumArticulo\n```\n\n> **Note**: `stock_cost_value` (PrecioCoste) is already VAT-exclusive and should be the primary stock valuation metric. `stock_retail_value_inc_vat` (Precio2Neto) includes VAT and is only useful as a PVP reference -- do not mix it with sin-IVA revenue figures.\n\n**Stock by family**:\n\n```sql\nSELECT a.FamiGrupSeri, SUM(cs.Stock) AS uds, SUM(cs.Stock * a.PrecioCoste) AS val_cost\nFROM CCStock cs\nINNER JOIN Articulos a ON a.RegArticulo = cs.NumArticulo\nGROUP BY a.FamiGrupSeri\nORDER BY SUM(cs.Stock) DESC\n```\n\n**Per-store stock (Exportaciones)**:\n\n```sql\nSELECT Tienda, SUM(CCStock) AS total_stock\nFROM Exportaciones\nGROUP BY Tienda\nORDER BY SUM(CCStock) DESC\n```\n\n**Dead stock / overstock** (high stock, zero or low sales):\n\n```sql\n-- Get articles with stock > 50 but low/no recent sales\nSELECT a.CCRefeJOFACM, a.Codigo, a.Descripcion, cs.Stock, a.FamiGrupSeri, a.ClaveTemporada, a.Precio2Neto, a.PrecioCoste\nFROM CCStock cs\nINNER JOIN Articulos a ON a.RegArticulo = cs.NumArticulo\nWHERE cs.Stock > 50\nORDER BY cs.Stock DESC\nLIMIT 30\n```\n\nThen cross-reference with sales data to find articles with stock but no recent sales.\n\n**Lost sales** (high sales velocity, zero stock):\n\nGet top sellers and their stock from CCStock. Articles with high sales and `Stock = 0` are lost sales.\n\n```sql\nSELECT a.CCRefeJOFACM, lv.Codigo, lv.Descripcion, SUM(lv.Unidades) AS uds, SUM(lv.PrecioNetoSI * lv.Unidades) AS tot, cs.Stock\nFROM LineasVentas lv\nINNER JOIN CCStock cs ON cs.NumArticulo = lv.NumArticulo\nINNER JOIN Articulos a ON a.RegArticulo = lv.NumArticulo\nWHERE lv.FechaCreacion >= '{last_30d}' AND lv.FechaCreacion <= '{today}'\nGROUP BY a.CCRefeJOFACM, lv.Codigo, lv.Descripcion, cs.Stock\nORDER BY SUM(lv.Unidades) DESC\nLIMIT 30\n```\n\n**Per-store stock for specific articles** (SOAP):\n\n```python\nfrom zeep import Client\nimport json\nclient = Client('http://YOUR_4D_SERVER_IP:8080/4DWSDL')\ncodes = ['144880', '144588', '144844']  # top seller Codigo values\nresult = client.service.WS_JS_StockTiendas(Entrada1=json.dumps(codes))\ndata = json.loads(result.Salida2)",
+    "heading": "Step 9: Stock analysis",
+    "body": "Full cookbook in [stock-analysis.md](../stock-analysis.md). The three facts that\nmatter for the report:\n\n- Central warehouse (store 99) is **`ps_stock_central`** — per article, no sizes.\n- Retail stores are **`ps_stock_tienda`** — per article + store + size, and store\n  `'99'` never appears there.\n- Total = central + stores; `ps_articulos` has no `stock` column.\n\n```sql\n-- Headline stock KPIs\nSELECT (SELECT COALESCE(SUM(sc.\"stock\"), 0)\n        FROM \"public\".\"ps_stock_central\" sc WHERE sc.\"stock\" > 0) AS \"Unidades Central\",\n       (SELECT COALESCE(SUM(s.\"stock\"), 0)\n        FROM \"public\".\"ps_stock_tienda\" s\n        WHERE s.\"stock\" > 0 AND s.\"tienda\" <> '99')               AS \"Unidades Tiendas\";\n```\n\nStock per store, dead stock, lost sales and stock valuation queries are in\n[stock-analysis.md § Common Stock Queries](../stock-analysis.md#9-common-stock-queries).",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Step 10: Customer analysis",
-    "body": "```sql\n-- Identified customers (with NumCliente > 0) in period\nSELECT COUNT(DISTINCT NumCliente)\nFROM Ventas\nWHERE FechaCreacion >= '{ytd_start}' AND FechaCreacion <= '{today}' AND NumCliente > 0\n\n-- Total customers in database\nSELECT COUNT(RegCliente) FROM Clientes\n\n-- New customers (by FechaCreacion in Clientes)\nSELECT COUNT(RegCliente)\nFROM Clientes\nWHERE FechaCreacion >= '{ytd_start}' AND FechaCreacion <= '{today}'\n\n-- Customer frequency and concentration\nSELECT v.NumCliente, SUM(v.TotalSI) AS tot, COUNT(v.RegVentas) AS txn\nFROM Ventas v\nWHERE v.FechaCreacion >= '{ytd_start}' AND v.FechaCreacion <= '{today}' AND v.NumCliente > 0\nGROUP BY v.NumCliente\nORDER BY SUM(v.TotalSI) DESC\n\n-- Frequency distribution\nSELECT v.NumCliente, COUNT(v.RegVentas) AS purchases\nFROM Ventas v\nWHERE v.FechaCreacion >= '{ytd_start}' AND v.FechaCreacion <= '{today}' AND v.NumCliente > 0\nGROUP BY v.NumCliente\n```\n\nFrom the frequency data, compute: 1-purchase, 2-3 purchases, 4+ purchases buckets. Also compute top-10% concentration (top 10% of customers = X% of revenue).",
+    "body": "`ps_clientes` has **no `mayorista` and no `anulado` column**. Channel is\ndetermined by *which transaction table* a customer appears in, never by a flag on\nthe customer.\n\n```sql\n-- Identified customers in the period\nSELECT COUNT(DISTINCT v.\"num_cliente\") FILTER (WHERE v.\"num_cliente\" > 0) AS \"Clientes Identificados\",\n       COUNT(*) FILTER (WHERE v.\"entrada\")                                AS \"Tickets\"\nFROM \"public\".\"ps_ventas\" v\nWHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99';\n```\n\n```sql\n-- Frequency segmentation\nWITH frecuencia AS (\n  SELECT v.\"num_cliente\" AS cliente, COUNT(*) AS n\n  FROM \"public\".\"ps_ventas\" v\n  WHERE v.\"num_cliente\" > 0\n    AND v.\"entrada\"\n    AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n    AND v.\"tienda\" <> '99'\n  GROUP BY v.\"num_cliente\"\n)\nSELECT CASE WHEN n = 1 THEN '1 compra'\n            WHEN n BETWEEN 2 AND 3 THEN '2-3 compras'\n            ELSE '4+ compras' END AS \"Segmento\",\n       COUNT(*) AS \"Clientes\"\nFROM frecuencia\nGROUP BY 1\nORDER BY 1;\n```\n\nFor concentration (top-10% of customers = X% of revenue), rank customers by net\nspend with the standard net expression over `ps_ventas.total_si` grouped by\n`num_cliente`, then compute the share in Python.",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Step 11: Wholesale channel",
-    "body": "```sql\n-- Invoices YTD (sin IVA: sum of tax bases)\nSELECT COUNT(RegFactura), SUM(Base1 + Base2 + Base3) AS tot_si\nFROM GCFacturas\nWHERE FechaFactura >= '{ytd_start}' AND FechaFactura <= '{today}'\n\n-- Previous year comparison (sin IVA)\nSELECT COUNT(RegFactura), SUM(Base1 + Base2 + Base3) AS tot_si\nFROM GCFacturas\nWHERE FechaFactura >= '{last_year_start}' AND FechaFactura <= '{last_year_end}'\n\n-- Delivery notes\nSELECT COUNT(RegAlbaran), SUM(BaseImponible)\nFROM GCAlbaranes\nWHERE FechaEnvio >= '{ytd_start}' AND FechaEnvio <= '{today}'\n\n-- Collections\nSELECT COUNT(RegCobro), SUM(ImporteCobro)\nFROM CobrosFacturas\nWHERE Fecha >= '{ytd_start}' AND Fecha <= '{today}'\n\n-- Also get previous year collections\nSELECT SUM(ImporteCobro)\nFROM CobrosFacturas\nWHERE Fecha >= '{last_year_start}' AND Fecha <= '{last_year_end}'\n\n-- Recent orders\nSELECT RegPedido, NPedido, FechaPedido, Cliente, BaseE\nFROM GCPedidos\nORDER BY RegPedido DESC\nLIMIT 10\n```",
+    "body": "```sql\n-- Invoicing, net of credit notes\nSELECT COUNT(*) FILTER (WHERE f.\"abono\" IS NOT TRUE) AS \"Facturas\",\n       COALESCE(SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") FILTER (WHERE f.\"abono\" IS TRUE), 0)\n         AS \"Facturación Neta\"\nFROM \"public\".\"ps_gc_facturas\" f\nWHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to;\n```\n\n```sql\n-- Delivery notes, net of credit notes, on the effective date\nSELECT COUNT(*) FILTER (WHERE a.\"abono\" IS NOT TRUE) AS \"Albaranes\",\n       COALESCE(SUM(a.\"entregadas\") FILTER (WHERE a.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(a.\"entregadas\") FILTER (WHERE a.\"abono\" IS TRUE), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") FILTER (WHERE a.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") FILTER (WHERE a.\"abono\" IS TRUE), 0)\n         AS \"Importe Neto\"\nFROM \"public\".\"ps_gc_albaranes\" a\nLEFT JOIN \"public\".\"ps_clientes\" c ON a.\"num_cliente\" = c.\"reg_cliente\"\nWHERE (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01'\n            THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END)\n      BETWEEN :curr_from AND :curr_to\n  AND COALESCE(c.\"nif\", '') <> '502108150';   -- tráfico intragrupo, no es venta\n```\n\n```sql\n-- Recent orders\nSELECT pd.\"n_pedido\"     AS \"Pedido\",\n       pd.\"fecha_pedido\" AS \"Fecha\",\n       c.\"nombre\"        AS \"Cliente\",\n       pd.\"total_pedido\" AS \"Importe\",\n       pd.\"unidades\"     AS \"Unidades\",\n       pd.\"pendientes\"   AS \"Pendientes\"\nFROM \"public\".\"ps_gc_pedidos\" pd\nLEFT JOIN \"public\".\"ps_clientes\" c ON pd.\"num_cliente\" = c.\"reg_cliente\"\nWHERE pd.\"fecha_pedido\" BETWEEN :curr_from AND :curr_to\nORDER BY pd.\"fecha_pedido\" DESC\nLIMIT 10;\n```\n\nWholesale margin uses `ps_gc_lin_facturas.total` vs `total_coste`, joined to the\nheader by `num_factura = reg_factura` (**never** `n_factura`, which is the\nvisible number and is not unique):\n\n```sql\nSELECT COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS \"Ingreso\",\n       COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS \"Coste\"\nFROM \"public\".\"ps_gc_lin_facturas\" lf\nJOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"reg_factura\"\nWHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to;\n```",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Step 12: Payment methods",
-    "body": "```sql\n-- NOTE: ImporteCob includes VAT (matches Ventas.Total). Use COUNT for method mix\n-- proportions, or JOIN with Ventas.TotalSI for VAT-exclusive revenue by payment method.\nSELECT pv.Forma, COUNT(pv.RegPagos) AS cnt, SUM(pv.ImporteCob) AS tot_inc_vat\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '{ytd_start}' AND pv.FechaCreacion <= '{today}'\nGROUP BY pv.Forma\nORDER BY COUNT(pv.RegPagos) DESC\n```\n\nMap `Forma` codes to names using FormasPago table or hardcoded: 1=Metalico(cash), 2=Tarjeta(card), 3=Vales, etc.\n\n**Cash vs card by store** (use COUNT for proportions -- ImporteCob includes VAT):\n\n```sql\nSELECT pv.Tienda, pv.Forma, COUNT(pv.RegPagos) AS cnt\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '{ytd_start}' AND pv.FechaCreacion <= '{today}'\nGROUP BY pv.Tienda, pv.Forma\n```",
+    "body": "```sql\nSELECT p.\"forma\" AS \"Forma de Pago\",\n       COUNT(*)  AS \"Movimientos\",\n       COALESCE(SUM(p.\"importe_cob\") FILTER (WHERE p.\"entrada\"), 0)\n         - COALESCE(SUM(p.\"importe_cob\") FILTER (WHERE NOT p.\"entrada\"), 0) AS \"Importe Cobrado\"\nFROM \"public\".\"ps_pagos_ventas\" p\nWHERE p.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND p.\"tienda\" <> '99'\nGROUP BY p.\"forma\"\nORDER BY \"Importe Cobrado\" DESC;\n```\n\n`forma` is already the human-readable name (`Metálico`, `Visa`, `American\nExpress`, `Devolución Vale`…) — there is no `FormasPago` lookup table in the\nmirror and no code mapping is needed. Note the source is not normalised:\n`Metálico` and `Metalico` are both present, so fold them if you present a mix.\n`codigo_forma = '01'` is cash.\n\nCash vs card by store: same query with `p.\"tienda\"` added to the `SELECT` and\n`GROUP BY`. `importe_cob` includes VAT — use it for payment-mix and cash-control\nquestions, and `ps_ventas.total_si` for revenue.",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
-    "heading": "Step 13: Transfers/logistics",
-    "body": "```sql\nSELECT COUNT(RegTraspaso), SUM(UnidadesS)\nFROM Traspasos\nWHERE FechaTraspaso >= '{ytd_start}' AND FechaTraspaso <= '{today}'\n\n-- Transfer routes\nSELECT TiendaSalida, TiendaEntrada, SUM(UnidadesS) AS uds\nFROM Traspasos\nWHERE FechaTraspaso >= '{ytd_start}' AND FechaTraspaso <= '{today}'\nGROUP BY TiendaSalida, TiendaEntrada\nORDER BY SUM(UnidadesS) DESC\nLIMIT 15\n```\n\n---",
+    "heading": "Step 13: Transfers / logistics",
+    "body": "```sql\nSELECT COUNT(*)            AS \"Movimientos\",\n       SUM(t.\"unidades_s\") AS \"Unidades\"\nFROM \"public\".\"ps_traspasos\" t\nWHERE t.\"entrada\" IS FALSE\n  AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to\n  AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial');\n```\n\nRoute breakdown is in\n[stock-analysis.md § Transfers](../stock-analysis.md#6-transfers-ps_traspasos).\nTwo traps: every transfer writes **two rows** (pick one side — here the exit\nside, `entrada IS FALSE`), and `tipo` is nullable, so the exclusion needs\n`COALESCE(t.\"tipo\", '')` or NULL-typed rows vanish.\n\n---",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/skills/report-generation.md",
+    "heading": "What is not available",
+    "body": "Do not write a query for these. State the gap in the report instead.\n\n| Wanted | Status | Substitute |\n|--------|--------|------------|\n| **Wholesale collections / receivables** | `CobrosFacturas` is **not mirrored**. Nothing in `ps_*` records a wholesale payment. | Invoiced amount from `ps_gc_facturas`; flag ageing as unavailable. |\n| **Goods received from suppliers** | Purchase delivery-note *lines* are not mirrored; `ps_albaranes` is headers only. | `ps_lineas_compras` = **orders placed**, never receipts. Label it \"pedido\". |\n| **Stock minimum / safety levels** | Not mirrored. | none — do not invent a threshold. |\n| **Per-size stock at the central warehouse** | `ps_stock_central` is per article only. | Retail per-size stock from `ps_stock_tienda`. |\n| **Historical stock snapshots** | Mirror holds the current position only. | Movement history from sales/transfers. |\n| **`Provincia` for a store** | Not mirrored. | `ps_tiendas.identificador` / `poblacion`. |\n| **Per-line discount %** | Not mirrored. | Derived approximation, Step 7. |\n| **Real-time figures** | Nightly ETL. | `fecha_modifica` per row shows staleness. |\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Report Structure",
-    "body": "The HTML file has these sections in order:\n\n1. **Header**: Brand name, report title, date range, generation timestamp\n2. **Resumen Ejecutivo**: 8 KPI cards (revenue, transactions, units, avg ticket, active stores, active customers, wholesale revenue, margin) + 2-3 insight boxes (green=good, amber=warning, red=alert)\n3. **Para la Dirección**: Monthly trends bar chart (CSS-based), department distribution bars, key business ratios table, sales by season table, business insights\n4. **Análisis de Ventas por Tienda**: Full store table (store code, city, transactions, revenue, YoY change%, avg ticket, margin%) with heatmap coloring. Closed stores note.\n5. **Análisis de Producto**: Top 15 articles table, top families bar chart, top colors chart, margin by family table, size distribution\n6. **Para el Responsable de Stock y Compras**: 6 stock KPI cards, stock by store table (Exportaciones), lost sales table (sold well but zero stock), dead stock table (high stock low sales)\n7. **Análisis de Clientes**: 4 customer KPIs, frequency segmentation, concentration analysis\n8. **Canal Mayorista**: 4 wholesale KPIs, insight on YoY trend, recent orders table\n9. **Medios de Pago**: Payment method breakdown with bars, cash vs card by store\n10. **Traspasos y Logística**: Transfer volume and top routes\n11. **10 Acciones Inmediatas -- Dirección**: Numbered action items, each with specific numbers and expected impact\n12. **10 Acciones Inmediatas -- Stock y Compras**: Same format, stock-focused\n13. **Tendencia Semanal**: 12-week sparkline/bar chart\n14. **Footer**: Generation timestamp, data source, disclaimer\n\n---",
+    "body": "The HTML file has these sections in order:\n\n1. **Header**: Brand name, report title, date range, generation timestamp\n2. **Resumen Ejecutivo**: 8 KPI cards (net revenue, tickets, net units, avg ticket, active stores, active customers, wholesale net invoicing, margin) + 2-3 insight boxes (green=good, amber=warning, red=alert)\n3. **Para la Dirección**: Monthly trends bar chart (CSS-based), department distribution bars, key business ratios table, sales by season table, business insights\n4. **Análisis de Ventas por Tienda**: Full store table (store code, name, tickets, net revenue, YoY change%, avg ticket, margin%) with heatmap coloring. Closed stores note.\n5. **Análisis de Producto**: Top 15 references + top models table, top families bar chart, top colors chart, margin by family table, size distribution\n6. **Para el Responsable de Stock y Compras**: stock KPI cards, stock by store table, lost sales table (sold well but zero stock in that size), dead stock table\n7. **Análisis de Clientes**: customer KPIs, frequency segmentation, concentration analysis\n8. **Canal Mayorista**: wholesale KPIs (invoicing, delivery notes, margin), YoY insight, recent orders table — no collections section, that data is not mirrored\n9. **Medios de Pago**: Payment method breakdown with bars, cash vs card by store\n10. **Traspasos y Logística**: Transfer volume and top routes\n11. **10 Acciones Inmediatas — Dirección**\n12. **10 Acciones Inmediatas — Stock y Compras**\n13. **Tendencia Semanal**: 12-week sparkline/bar chart\n14. **Footer**: Generation timestamp, data source (`mirror ps_*`, ETL date), disclaimer\n\n---",
     "hasSql": false,
     "dialect": "n/a"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Gotchas and Data Quality Notes",
-    "body": "1. **Always use VAT-exclusive (sin IVA) fields**: `Ventas.TotalSI` not `Total`, `LineasVentas.PrecioNetoSI * Unidades` not `Total`, `GCFacturas.(Base1+Base2+Base3)` not `TotalFactura`. VAT rates differ by region (23% PT mainland, 22% Madeira, 21% Spain) and including VAT distorts cross-store comparisons and inflates revenue.\n2. **FechaCreacion vs FechaDocumento**: Use `FechaCreacion` for date filtering -- `FechaDocumento` is often NULL in Ventas.\n3. **Bags (BOLSA)**: Exclude or separate bags from apparel analysis -- they distort unit counts (high volume, near-zero revenue).\n4. **Store 99**: Central warehouse, not a retail store. Exclude from retail store rankings.\n5. **Store 97**: Online store. May have different patterns.\n6. **Negative units**: Can appear in LineasVentas (returns). SUM handles this correctly.\n7. **Float PKs**: `RegArticulo`, `RegVentas` etc. are Real (float) with `.99` suffix -- don't compare with `=` on computed values.\n8. **Exportaciones for stock**: The table with 2M+ rows -- use `CAST(Tienda AS INT)` and `CCStock <> 0` for filtering.\n9. **SOAP stock**: `WS_JS_StockTiendas` input must be `Articulos.Codigo` (text codes like \"144880\"), NOT RegArticulo.\n10. **p4d type 0 columns**: Always specify columns explicitly. Never `SELECT *` on wide tables.\n11. **Bytes in results**: Text fields may return `bytes` -- always `.decode('utf-8', errors='replace')`.\n12. **Connection timeout**: The 4D SQL server may be slow on large JOINs. Use LIMIT and batch queries.\n13. **Spanish number formatting**: Use `.` for thousands, `,` for decimals (e.g., `1.234,56 €`).\n14. **All currency is EUR** -- never use `$` or USD.\n15. **PagosVentas.ImporteEnt vs ImporteCob**: `ImporteEnt` = \"Importe Entregado\" (physical amount handed over by customer, e.g., a 20 EUR bill). NOT useful for analytics. `ImporteCob` = \"Importe Cobrado\" (actual charge). Always use `ImporteCob` for payment analysis, or `Ventas.TotalSI` for VAT-exclusive revenue. ~33 \"Devolucion Vale\" records have a POS bug in ImporteEnt -- ignore it, no data needs fixing.\n\n---",
+    "body": "1. **\"Ventas\" is always net of returns** — `COALESCE(...FILTER(entrada),0) - COALESCE(...FILTER(NOT entrada),0)`, with the `COALESCE` on both sides. Without it a period with no returns yields `NULL` and `NULL` sorts first in a `DESC` ranking. [D-057](../decisions/D-057-ventas-netas-de-devoluciones.md).\n2. **Always use VAT-exclusive fields**: `ps_ventas.total_si`, `ps_lineas_ventas.total_si`, `ps_gc_*.base1+base2+base3`. `total` / `total_factura` / `importe_cob` include VAT; rates differ by region (23% PT mainland, 22% Madeira, 21% Spain).\n3. **Store `'99'` is the central warehouse** — exclude it from every retail figure. It does not appear in `ps_stock_tienda` at all, so central stock must come from `ps_stock_central`.\n4. **Store `'97'` is the online store.** It is a real retail store; do not exclude it, but expect different patterns.\n5. **`ps_lineas_ventas` joins `ps_articulos` by `codigo`** — there is no `num_articulo` column on the line.\n6. **An article is model + colour.** `ccrefejofacm` is the referencia; the model is `LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2)`. Ranking \"top articles\" without collapsing colours splits one model across its colourways.\n7. **Size comes from `ps_lineas_ventas.talla`**, uppercased by the ETL. Never from a barcode join — `BarrasAsociado` has 0% coverage. [D-048](../decisions/D-048-sales-by-size.md).\n8. **`ps_traspasos.tipo` is nullable** — exclusions need `COALESCE(tipo,'') NOT IN ('Apertura','Inventario Parcial')`, and `Apertura` alone is ~94% of the table.\n9. **Every transfer is two rows** (exit + entry). Summing both double-counts.\n10. **Wholesale returns are `abono`, not `entrada`.** `entrada` does not exist on GC tables.\n11. **GC line → header joins by `num_albaran`/`num_factura` → `reg_albaran`/`reg_factura`.** `n_albaran` / `n_factura` are visible document numbers and are not unique.\n12. **Wholesale delivery-note date** is `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.\n13. **NIF `502108150`** (19 `ps_clientes` rows) is intragroup traffic, not a sale — exclude it from wholesale customer rankings.\n14. **`ps_clientes` has no `mayorista` / `anulado`.** Channel comes from the transaction table.\n15. **Float PKs**: `reg_articulo`, `reg_ventas` etc. are `NUMERIC(20,3)` with a `.99` suffix — never compare them with `=` against a computed value.\n16. **Bags (BOLSA)**: exclude or separate them from apparel analysis — high volume, near-zero revenue, they distort unit counts.\n17. **Spanish number formatting**: `.` for thousands, `,` for decimals (`1.234,56 €`).\n18. **All currency is EUR** — never `$` or USD.\n19. **The mirror is refreshed nightly.** Check `ps_ventas` max `fecha_creacion` before claiming \"today\".\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "PowerShop Stock Analysis Guide",
+    "body": "> How stock is tracked, moved, and reconciled — **as queried from the PostgreSQL\n> mirror** (`ps_*` tables), which is the only thing the dashboard and WrenAI can\n> execute against.\n>\n> **Dialect.** Every SQL block in this file is PostgreSQL against the mirror.\n> The 4D ERP tables it derives from (`CCStock`, `Exportaciones`, `Traspasos`,\n> `GCAlbaranes`…) are named only as *lineage*, never in a `FROM` clause: they do\n> not exist in the mirror and a query against them fails.\n>\n> Date placeholders `:curr_from` / `:curr_to` (and `:comp_from` / `:comp_to` for\n> the comparison period) are bound by the caller. Never hardcode `CURRENT_DATE`.",
     "hasSql": false,
     "dialect": "n/a"
   },
   {
     "source": "docs/stock-analysis.md",
     "heading": "Table of Contents",
-    "body": "1. [Stock Model Overview](#1-stock-model-overview)\n2. [CCStock -- Central Warehouse (Store 99)](#2-ccstock--central-warehouse)\n3. [Exportaciones -- Retail Store Stock](#3-exportaciones--retail-store-stock)\n4. [Total Stock Calculation](#4-total-stock-calculation)\n5. [Stock Movement Formula (VFP)](#5-stock-movement-formula-vfp)\n6. [Transfers (Traspasos)](#6-transfers-traspasos)\n7. [Returns via GCAlbaranes](#7-returns-via-gcalbaranes)\n8. [Negative Stock](#8-negative-stock)\n9. [SOAP Web Service: WS_JS_StockTiendas](#9-soap-web-service-ws_js_stocktiendas)\n10. [Inventory Snapshots](#10-inventory-snapshots)\n11. [Common Stock Queries](#11-common-stock-queries)\n\n---",
+    "body": "1. [Stock Model Overview](#1-stock-model-overview)\n2. [ps_stock_central — Central Warehouse (Store 99)](#2-ps_stock_central--central-warehouse-store-99)\n3. [ps_stock_tienda — Retail Store Stock](#3-ps_stock_tienda--retail-store-stock)\n4. [Total Stock Calculation](#4-total-stock-calculation)\n5. [Stock Movement Formula](#5-stock-movement-formula)\n6. [Transfers (ps_traspasos)](#6-transfers-ps_traspasos)\n7. [Wholesale Returns (ps_gc_albaranes)](#7-wholesale-returns-ps_gc_albaranes)\n8. [Negative Stock](#8-negative-stock)\n9. [Common Stock Queries](#9-common-stock-queries)\n10. [What is NOT in the mirror](#10-what-is-not-in-the-mirror)\n\n---",
     "hasSql": false,
-    "dialect": "n/a"
+    "dialect": "postgres"
   },
   {
     "source": "docs/stock-analysis.md",
     "heading": "1. Stock Model Overview",
-    "body": "PowerShop uses a **dual-table model** for stock:\n\n```\n                    +-------------------+\n                    |    Articulos      |\n                    | (product master)  |\n                    | Stock = aggregate |\n                    +--------+----------+\n                             |\n              +--------------+--------------+\n              |                             |\n    +---------v---------+     +-------------v-----------+\n    |     CCStock        |     |     Exportaciones        |\n    | (store 99/central) |     | (all retail stores)      |\n    | 1 row per product  |     | 1 row per product/store  |\n    | ~41,222 rows       |     | ~2,056,000 rows          |\n    +--------------------+     +--------------------------+\n```",
+    "body": "Stock is split across **two mirror tables**, by location:\n\n```\n            +---------------------------+\n            |       ps_articulos        |\n            |  reg_articulo / codigo /  |\n            |       ccrefejofacm        |\n            +------+-------------+------+\n                   |             |\n     num_articulo  |             |  codigo\n    = reg_articulo |             |  = codigo\n                   |             |\n      +------------v----+   +----v----------------------+\n      | ps_stock_central|   |      ps_stock_tienda      |\n      | central wh (99) |   | all retail stores, by size|\n      | 1 row / article |   | 1 row / article+store+size|\n      |   ~42.8k rows   |   |        ~13.6M rows        |\n      +-----------------+   +---------------------------+\n```",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Key rules",
+    "body": "1. **`ps_stock_central`** holds the central warehouse (store 99). One row per\n   article, keyed by `num_articulo` = `ps_articulos.reg_articulo`. It has **no\n   size breakdown** — only a total `stock`.\n2. **`ps_stock_tienda`** holds retail stores, keyed by\n   `(codigo, tienda_codigo, talla)`. It joins to `ps_articulos` by **`codigo`**,\n   not by a record id.\n3. **Store 99 does not appear in `ps_stock_tienda`.** Filtering `tienda <> '99'`\n   there is a no-op that costs nothing and documents intent; the central figure\n   must come from `ps_stock_central`. A query that looks for central stock in\n   `ps_stock_tienda` returns zero rows, not an error — which is the dangerous\n   failure mode.\n4. **Total stock for an article = central + all stores.** There is no\n   pre-aggregated total column in the mirror; `ps_articulos` has no `stock`.\n5. `ps_stock_tienda.talla` is normalised to **UPPERCASE** by the ETL, but the\n   source mixes cases (`'6Xl'`), so always compare sizes with `UPPER()` on both\n   sides when joining to `ps_lineas_ventas.talla`.\n6. `stock` is a signed `INTEGER`. Negatives are real (see §8), so\n   `SUM(stock)` is a *net* figure — add `WHERE stock > 0` when you want the\n   gross positive position.\n\n*Lineage:* `ps_stock_central` comes from 4D `CCStock` (582 columns, wide format),\n`ps_stock_tienda` from 4D `Exportaciones` (161 columns, 34 size slots per row).\nThe ETL unpivots the 34 `StockN`/`TallaN` slot pairs into rows and applies the\nsigned-int16 decode of [D-017](decisions/D-017-signed-int16-stock.md). None of\nthat wide structure survives into the mirror.\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "2. `ps_stock_central` — Central Warehouse (Store 99)",
+    "body": "**~42,800 rows.** One row per article at the central warehouse.\n\n| Column | Type | Notes |\n|--------|------|-------|\n| `num_articulo` | `NUMERIC(20,3)` PK | FK → `ps_articulos.reg_articulo` |\n| `stock` | `INTEGER` | Total units, all sizes summed. Can be negative. |\n| `fecha_modifica` | `DATE` | Source modification date |\n\n**No per-size detail exists here.** Size-level questions about the central\nwarehouse cannot be answered from the mirror — see §10.\n\n```sql\n-- Total units at the central warehouse (net, includes negatives)\nSELECT COALESCE(SUM(sc.\"stock\"), 0) AS \"Unidades Central\"\nFROM \"public\".\"ps_stock_central\" sc;\n```\n\n```sql\n-- Central stock valued at cost, active articles only\nSELECT SUM(sc.\"stock\" * p.\"precio_coste\") AS \"Valor Coste\",\n       SUM(sc.\"stock\")                    AS \"Unidades\",\n       COUNT(*)                           AS \"Referencias\"\nFROM \"public\".\"ps_stock_central\" sc\nJOIN \"public\".\"ps_articulos\" p ON sc.\"num_articulo\" = p.\"reg_articulo\"\nWHERE sc.\"stock\" > 0 AND p.\"anulado\" = false;\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "3. `ps_stock_tienda` — Retail Store Stock",
+    "body": "**~13.6M rows.** One row per article + store + size. The largest table in the\nmirror — always filter or aggregate, never scan it raw.\n\n| Column | Type | Notes |\n|--------|------|-------|\n| `codigo` | `TEXT` PK part | FK → `ps_articulos.codigo` |\n| `tienda_codigo` | `TEXT` PK part | Composite `\"store/article\"`, e.g. `\"104/169\"` |\n| `talla` | `TEXT` PK part | UPPERCASE in the ETL |\n| `tienda` | `TEXT` | Store code. **Never `'99'`.** |\n| `stock` | `INTEGER` | Units for that article+store+size. Can be negative. |\n| `fecha_modifica` | `DATE` | |\n\n```sql\n-- Total units across retail stores\nSELECT COALESCE(SUM(s.\"stock\"), 0) AS \"Unidades Tiendas\"\nFROM \"public\".\"ps_stock_tienda\" s\nWHERE s.\"tienda\" <> '99';\n```\n\n```sql\n-- Per-store, per-size stock for one reference\nSELECT s.\"tienda\"        AS \"Tienda\",\n       UPPER(s.\"talla\")  AS \"Talla\",\n       SUM(s.\"stock\")    AS \"Stock\"\nFROM \"public\".\"ps_stock_tienda\" s\nJOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\nWHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI'\n  AND s.\"tienda\" <> '99'\nGROUP BY s.\"tienda\", UPPER(s.\"talla\")\nORDER BY s.\"tienda\", UPPER(s.\"talla\");\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "4. Total Stock Calculation",
+    "body": "```\nTotal = ps_stock_central.stock  (central warehouse, store 99)\n      + SUM(ps_stock_tienda.stock)  (all retail stores, all sizes)\n```\n\nPostgreSQL does the whole thing in one statement — no Python loop, no `UNION`\nworkaround (that constraint was a 4D SQL limitation, not a mirror one):\n\n```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       p.\"descripcion\"  AS \"Descripción\",\n       COALESCE(sc.\"stock\", 0) AS \"Central\",\n       COALESCE((SELECT SUM(s.\"stock\")\n                 FROM \"public\".\"ps_stock_tienda\" s\n                 WHERE s.\"codigo\" = p.\"codigo\" AND s.\"tienda\" <> '99'), 0) AS \"Tiendas\",\n       COALESCE(sc.\"stock\", 0)\n         + COALESCE((SELECT SUM(s.\"stock\")\n                     FROM \"public\".\"ps_stock_tienda\" s\n                     WHERE s.\"codigo\" = p.\"codigo\" AND s.\"tienda\" <> '99'), 0) AS \"Total\"\nFROM \"public\".\"ps_articulos\" p\nLEFT JOIN \"public\".\"ps_stock_central\" sc ON sc.\"num_articulo\" = p.\"reg_articulo\"\nWHERE p.\"ccrefejofacm\" = '85170712';\n```\n\nNote the two different join keys: `ps_stock_central` joins on\n`num_articulo = reg_articulo`, `ps_stock_tienda` on `codigo = codigo`. Getting\nthese the wrong way round silently returns zero rows.\n\nA reference (`ccrefejofacm`) is **model + colour**, so it usually maps to several\n`codigo` values. Grouping by `ccrefejofacm` aggregates the colour; grouping by\n`LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2)` aggregates the model across\ncolours.\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "5. Stock Movement Formula",
+    "body": "Conceptually, expected stock is opening stock plus net movements:\n\n```\nStock_esperado = Stock_inicial + (Entradas - Salidas)\n```\n\nOf the movement legs, **only some are mirrored**:\n\n| Leg | Direction | Mirror source | Available? |\n|-----|-----------|---------------|:----------:|\n| Retail sales | out | `ps_lineas_ventas` where `entrada` | yes |\n| Retail returns | in | `ps_lineas_ventas` where `NOT entrada` | yes |\n| Transfers out | out | `ps_traspasos` where `entrada IS FALSE`, `unidades_s` | yes |\n| Transfers in | in | `ps_traspasos` where `entrada IS TRUE`, `unidades_e` | yes |\n| Wholesale shipments | out | `ps_gc_lin_albarane` + header `abono IS NOT TRUE` | yes |\n| Wholesale credit notes | in | `ps_gc_lin_albarane` + header `abono IS TRUE` | yes |\n| **Goods received from suppliers** | in | — | **no** (§10) |\n| **Returns to supplier** | out | — | **no** (§10) |\n\nBecause the purchase-receipt leg is missing, **a full reconciliation\n(`Stock_esperado` vs `stock`) cannot be computed from the mirror.** Any shrinkage\nfigure derived without it is wrong by the entire volume of incoming goods. Use\nthe mirror for the *sales / transfer / wholesale* legs only, and say so.\n\nNet retail movement per article, which *is* computable:\n\n```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(s.\"stock\"), 0) AS \"Stock Tiendas\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nLEFT JOIN (SELECT \"codigo\", SUM(\"stock\") AS \"stock\"\n           FROM \"public\".\"ps_stock_tienda\"\n           WHERE \"tienda\" <> '99'\n           GROUP BY \"codigo\") s ON s.\"codigo\" = lv.\"codigo\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\nGROUP BY p.\"ccrefejofacm\", p.\"descripcion\"\nORDER BY \"Unidades Netas\" DESC\nLIMIT 30;\n```\n\nThe `COALESCE` on **each** side of the subtraction is mandatory\n([D-057](decisions/D-057-ventas-netas-de-devoluciones.md)): a period with no returns makes the second\n`SUM ... FILTER` `NULL`, `x - NULL` is `NULL`, and `NULL` sorts first in\n`ORDER BY ... DESC` — the top of the ranking becomes the articles with no data.\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Transfers into a store",
+    "body": "```sql\nSELECT t.\"fecha_s\"        AS \"Fecha\",\n       t.\"tienda_salida\"  AS \"Origen\",\n       p.\"ccrefejofacm\"   AS \"Referencia\",\n       t.\"talla\"          AS \"Talla\",\n       t.\"unidades_s\"     AS \"Unidades\",\n       t.\"tipo\"           AS \"Tipo\",\n       t.\"concepto\"       AS \"Concepto\"\nFROM \"public\".\"ps_traspasos\" t\nLEFT JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\"\nWHERE t.\"tienda_entrada\" = '97'\n  -- `Autoreposicion` es el unico traspaso real entre tiendas y va SIEMPRE con\n  -- entrada=false, llevando origen Y destino en la misma fila. Filtrar\n  -- `entrada IS TRUE` aqui devuelve cero: la \"pata de entrada\" que describia la\n  -- doc antigua no existe para este tipo.\n  AND t.\"tipo\" = 'Autoreposicion'\n  AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to\nORDER BY t.\"fecha_s\" DESC\nLIMIT 50;\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Transfer volume by route",
+    "body": "```sql\nSELECT t.\"tienda_salida\"  AS \"Origen\",\n       t.\"tienda_entrada\" AS \"Destino\",\n       DATE_TRUNC('month', t.\"fecha_s\") AS \"Mes\",\n       COUNT(*)           AS \"Movimientos\",\n       SUM(t.\"unidades_s\") AS \"Unidades\"\nFROM \"public\".\"ps_traspasos\" t\nWHERE t.\"entrada\" IS FALSE\n  AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to\n  AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial')\nGROUP BY t.\"tienda_salida\", t.\"tienda_entrada\", DATE_TRUNC('month', t.\"fecha_s\")\nORDER BY \"Unidades\" DESC\nLIMIT 15;\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "7. Wholesale Returns (`ps_gc_albaranes`)",
+    "body": "In the wholesale channel a return is a **credit note**, flagged on the *header*:\n`ps_gc_albaranes.abono IS TRUE`. `entrada` does not exist there — that is the\nretail discriminator, and using it on GC tables is a column-does-not-exist error.\n\nTwo rules that are easy to get wrong:\n\n- **Line → header joins by `num_albaran` → `reg_albaran`** (both are 4D record\n  ids, despite the `num_` prefix). `n_albaran` is the *visible* document number\n  and is **not unique** — joining on it fans out the result set.\n- **Effective date** of a delivery note is\n  `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.\n  `fecha_envio` can be NULL or a sentinel; the `CASE` falls back to `fecha_valor`.\n\n```sql\n-- Credit notes by customer\nSELECT c.\"nombre\" AS \"Cliente\",\n       COUNT(*)   AS \"Abonos\",\n       SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") AS \"Importe Neto\",\n       SUM(a.\"entregadas\")                    AS \"Unidades\"\nFROM \"public\".\"ps_gc_albaranes\" a\nJOIN \"public\".\"ps_clientes\" c ON a.\"num_cliente\" = c.\"reg_cliente\"\nWHERE a.\"abono\" IS TRUE\n  AND (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01'\n            THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END)\n      BETWEEN :curr_from AND :curr_to\n  AND COALESCE(c.\"nif\", '') <> '502108150'   -- tráfico intragrupo, no es venta\nGROUP BY c.\"nombre\"\nORDER BY \"Importe Neto\" DESC\nLIMIT 20;\n```\n\n```sql\n-- Credit-note detail lines\nSELECT l.\"fecha_albaran\" AS \"Fecha\",\n       l.\"codigo\"        AS \"Código\",\n       l.\"descripcion\"   AS \"Descripción\",\n       l.\"unidades\"      AS \"Unidades\",\n       l.\"total\"         AS \"Importe\"\nFROM \"public\".\"ps_gc_lin_albarane\" l\nJOIN \"public\".\"ps_gc_albaranes\" a ON l.\"num_albaran\" = a.\"reg_albaran\"\nWHERE a.\"abono\" IS TRUE\n  AND (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01'\n            THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END)\n      BETWEEN :curr_from AND :curr_to\nORDER BY l.\"fecha_albaran\" DESC\nLIMIT 50;\n```\n\nAmounts: use `base1 + base2 + base3` (the VAT bases, i.e. sin IVA). There is no\n`total_albaran` column in the mirror.",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Retail returns",
+    "body": "```sql\nSELECT v.\"tienda\"        AS \"Tienda\",\n       p.\"ccrefejofacm\"  AS \"Referencia\",\n       lv.\"descripcion\"  AS \"Descripción\",\n       lv.\"talla\"        AS \"Talla\",\n       lv.\"unidades\"     AS \"Unidades\",\n       lv.\"total_si\"     AS \"Importe\",\n       lv.\"fecha_creacion\" AS \"Fecha\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\"\nLEFT JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nWHERE lv.\"entrada\" IS FALSE\n  AND lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99'\nORDER BY lv.\"fecha_creacion\" DESC\nLIMIT 50;\n```\n\n`ps_lineas_ventas.entrada` is a line-level copy of the header flag (they agree\n100%), so a returns filter does not need the `ps_ventas` join at all — that\nmissing join was the root cause of the \"returns ignored for months\" bug.\n\nReturn rate per store:\n\n```sql\nSELECT v.\"tienda\" AS \"Tienda\",\n       COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)     AS \"Vendidas\",\n       COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Devueltas\",\n       ROUND(COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0)\n             / NULLIF(COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0), 0) * 100, 1)\n         AS \"% Devolución\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99'\nGROUP BY v.\"tienda\"\nORDER BY \"% Devolución\" DESC;\n```\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Finding it",
+    "body": "```sql\n-- Per store and size\nSELECT s.\"tienda\"       AS \"Tienda\",\n       p.\"ccrefejofacm\" AS \"Referencia\",\n       s.\"talla\"        AS \"Talla\",\n       s.\"stock\"        AS \"Stock\"\nFROM \"public\".\"ps_stock_tienda\" s\nJOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\nWHERE s.\"stock\" < 0\nORDER BY s.\"stock\" ASC\nLIMIT 20;\n```\n\n```sql\n-- Central warehouse\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       p.\"descripcion\"  AS \"Descripción\",\n       sc.\"stock\"       AS \"Stock Central\"\nFROM \"public\".\"ps_stock_central\" sc\nJOIN \"public\".\"ps_articulos\" p ON sc.\"num_articulo\" = p.\"reg_articulo\"\nWHERE sc.\"stock\" < 0\nORDER BY sc.\"stock\" ASC\nLIMIT 20;\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Stock per store, valued",
+    "body": "```sql\nSELECT s.\"tienda\" AS \"Tienda\",\n       COALESCE(NULLIF(t.\"identificador\", ''), NULLIF(t.\"poblacion\", ''),\n                'Tienda ' || s.\"tienda\") AS \"Nombre\",\n       COUNT(DISTINCT s.\"codigo\") AS \"Referencias\",\n       SUM(s.\"stock\")             AS \"Unidades\",\n       ROUND(SUM(s.\"stock\" * p.\"precio_coste\"), 2) AS \"Valor Coste\"\nFROM \"public\".\"ps_stock_tienda\" s\nJOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\nLEFT JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = s.\"tienda\"\nWHERE s.\"stock\" > 0 AND s.\"tienda\" <> '99'\nGROUP BY s.\"tienda\",\n         COALESCE(NULLIF(t.\"identificador\", ''), NULLIF(t.\"poblacion\", ''),\n                  'Tienda ' || s.\"tienda\")\nORDER BY \"Unidades\" DESC;\n```\n\n`precio_coste` is already VAT-exclusive — it is the correct valuation basis.",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Stock by family",
+    "body": "```sql\nSELECT COALESCE(NULLIF(TRIM(fm.\"fami_grup_marc\"), ''), 'Sin clasificar') AS \"Familia\",\n       SUM(s.\"stock\") AS \"Unidades\",\n       ROUND(SUM(s.\"stock\" * p.\"precio_coste\"), 2) AS \"Valor Coste\"\nFROM \"public\".\"ps_stock_tienda\" s\nJOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\nLEFT JOIN \"public\".\"ps_familias\" fm ON p.\"num_familia\" = fm.\"reg_familia\"\nWHERE s.\"stock\" > 0 AND s.\"tienda\" <> '99' AND p.\"anulado\" = false\nGROUP BY 1\nORDER BY \"Unidades\" DESC;\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Stock by season",
+    "body": "```sql\nSELECT p.\"clave_temporada\" AS \"Temporada\",\n       COUNT(DISTINCT p.\"ccrefejofacm\") AS \"Referencias\",\n       SUM(s.\"stock\") AS \"Unidades\",\n       ROUND(SUM(s.\"stock\" * p.\"precio_coste\"), 2) AS \"Valor Coste\"\nFROM \"public\".\"ps_stock_tienda\" s\nJOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\nWHERE s.\"stock\" > 0 AND p.\"anulado\" = false\nGROUP BY p.\"clave_temporada\"\nORDER BY \"Unidades\" DESC;\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Dead stock — stock on hand, no sales in the period",
+    "body": "```sql\nSELECT p.\"ccrefejofacm\"   AS \"Referencia\",\n       p.\"descripcion\"    AS \"Descripción\",\n       p.\"clave_temporada\" AS \"Temporada\",\n       SUM(s.\"stock\")     AS \"Stock\"\nFROM \"public\".\"ps_stock_tienda\" s\nJOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\nWHERE s.\"stock\" > 10\n  AND s.\"tienda\" <> '99'\n  AND p.\"anulado\" = false\n  AND NOT EXISTS (SELECT 1\n                  FROM \"public\".\"ps_lineas_ventas\" lv\n                  WHERE lv.\"codigo\" = p.\"codigo\"\n                    AND lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to)\nGROUP BY p.\"ccrefejofacm\", p.\"descripcion\", p.\"clave_temporada\"\nORDER BY \"Stock\" DESC\nLIMIT 30;\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "Lost sales — a size that sells but is out of stock",
+    "body": "```sql\nWITH vendido AS (\n  SELECT p.\"ccrefejofacm\" AS ref,\n         UPPER(lv.\"talla\") AS talla,\n         COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0)\n           - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS uds\n  FROM \"public\".\"ps_lineas_ventas\" lv\n  JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\n  WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n    AND lv.\"tienda\" <> '99'\n    AND lv.\"talla\" IS NOT NULL\n  GROUP BY 1, 2\n),\nstock AS (\n  SELECT p.\"ccrefejofacm\" AS ref,\n         UPPER(s.\"talla\") AS talla,\n         SUM(s.\"stock\")   AS stock\n  FROM \"public\".\"ps_stock_tienda\" s\n  JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\"\n  WHERE s.\"tienda\" <> '99'\n  GROUP BY 1, 2\n)\nSELECT v.ref   AS \"Referencia\",\n       v.talla AS \"Talla\",\n       v.uds   AS \"Vendidas\",\n       COALESCE(st.stock, 0) AS \"Stock\"\nFROM vendido v\nLEFT JOIN stock st ON st.ref = v.ref AND st.talla = v.talla\nWHERE v.uds > 0 AND COALESCE(st.stock, 0) <= 0\nORDER BY v.uds DESC\nLIMIT 50;\n```\n\nBoth sides `UPPER()` the size: the ETL normalises, but a join written without it\nis one bad source row away from silently dropping matches.\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/stock-analysis.md",
+    "heading": "10. What is NOT in the mirror",
+    "body": "These questions cannot be answered from `ps_*`. Say so rather than writing a\nquery that looks right and returns a wrong or empty answer.\n\n| Question | Why not | Nearest usable substitute |\n|----------|---------|---------------------------|\n| **Goods received from suppliers** (units per article per delivery) | Purchase *delivery-note lines* are not mirrored. `ps_albaranes` holds only headers (`reg_albaran`, `fecha_recibido`, `num_pedido`, `num_proveedor`, `proveedor`) — no article, no quantity. | `ps_albaranes` gives counts of receipts and which supplier/order they belong to, nothing about what was inside. |\n| **Purchase quantities actually received** | `ps_lineas_compras` (4D `CCLineasCompr`) holds **purchase-order lines — what was ordered, not what arrived**. Treating it as receipts overstates incoming stock by every unmet or partial order. | `ps_lineas_compras` for *ordered* units/amounts, labelled as orders. |\n| **Returns to supplier** | Same gap: they live in the unmirrored purchase-delivery lines. | none |\n| **Full stock reconciliation / shrinkage** | Requires the receipts leg above (§5). | Net sales + transfers + wholesale movement only, stated as partial. |\n| **Per-size stock at the central warehouse** | `ps_stock_central` carries only a per-article total; the 34 size slots are collapsed by the ETL. | Per-size stock for retail stores from `ps_stock_tienda`. |\n| **Minimum / safety stock levels** | 4D `Minimo1..34` is not mirrored, and `ps_articulos` has no `stock_minimo`. | none — do not invent a threshold and present it as the system's. |\n| **Historical stock snapshots** | The mirror holds only the current position; 4D `Inventarios` / `DetalleInventa` are empty and unmirrored. | Movement history from `ps_lineas_ventas` / `ps_traspasos` / `ps_gc_lin_albarane`. |\n| **Real-time stock** | The mirror is refreshed by the nightly ETL. | `ps_stock_*.fecha_modifica` tells you how stale a row is. |\n\nFor the record: what *is* mirrored on the purchasing side is\n`ps_compras` (~2,800 order headers), `ps_lineas_compras` (~46,200 **order**\nlines), `ps_albaranes` (~3,800 receipt headers) and `ps_facturas_compra`\n(~4,000 invoice dates). Ordered volume by supplier, for example, is fine:\n\n```sql\nSELECT pr.\"nombre\" AS \"Proveedor\",\n       COUNT(DISTINCT lc.\"num_pedido\") AS \"Pedidos\",\n       SUM(lc.\"unidades\")              AS \"Unidades Pedidas\",\n       ROUND(SUM(lc.\"total_si\"), 2)    AS \"Importe sin IVA\"\nFROM \"public\".\"ps_lineas_compras\" lc\nLEFT JOIN \"public\".\"ps_proveedores\" pr ON lc.\"num_proveedor\" = pr.\"reg_proveedor\"\nWHERE lc.\"fecha\" BETWEEN :curr_from AND :curr_to\nGROUP BY pr.\"nombre\"\nORDER BY \"Importe sin IVA\" DESC\nLIMIT 20;\n```\n\nLabel such a result **\"pedido\"** (ordered), never \"recibido\" (received).",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "Wholesale vs Retail Split in PowerShop",
+    "body": "> How to distinguish wholesale (B2B) from retail (B2C) data **in the PostgreSQL\n> mirror** (`ps_*` tables). Covers the M-prefix convention, the POS vs GC\n> channels, and what that implies for reporting.\n>\n> **Dialect.** Every SQL block here is PostgreSQL against the mirror. The 4D ERP\n> names (`Ventas`, `GCAlbaranes`, `CCStock`, `Clientes`…) appear only as lineage\n> — they are not queryable from the dashboard or WrenAI.\n>\n> `:curr_from` / `:curr_to` are the reporting period, bound by the caller.",
     "hasSql": false,
     "dialect": "n/a"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Key Rules",
-    "body": "1. **CCStock** holds stock for **store 99** (the central warehouse). One row per product.\n2. **Exportaciones** holds stock for **all retail stores**. One row per product per store.\n3. **Store 99 never appears in Exportaciones.**\n4. **Articulos.Stock** is a denormalized aggregate of CCStock + all Exportaciones rows for that product.\n5. Both tables use a **wide format**: up to 34 size slots per row (Stock1..Stock34, Talla1..Talla34).\n\n---",
-    "hasSql": false,
-    "dialect": "n/a"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Central stock",
-    "body": "cur.execute(\"\"\"\n    SELECT cs.Stock\n    FROM CCStock cs\n    INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\n    WHERE a.Codigo = '12345'\n\"\"\")\ncentral = cur.fetchone()[0] or 0",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Store stock",
-    "body": "cur.execute(\"\"\"\n    SELECT SUM(e.STStock)\n    FROM Exportaciones e\n    WHERE e.Codigo = '12345'\n\"\"\")\nstores = cur.fetchone()[0] or 0\n\ntotal = central + stores\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Central per-size",
-    "body": "cur.execute(\"\"\"\n    SELECT cs.Talla1, cs.Stock1, cs.Talla2, cs.Stock2,\n           cs.Talla3, cs.Stock3, cs.Talla4, cs.Stock4,\n           cs.Talla5, cs.Stock5, cs.Talla6, cs.Stock6\n    FROM CCStock cs\n    INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\n    WHERE a.Codigo = '12345'\n\"\"\")\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Querying Transfers",
-    "body": "```sql\n-- All transfers INTO store 104 in January 2025\nSELECT Documento, Codigo, Descripcion, Talla,\n       UnidadesE, FechaE, Tipo, Concepto\nFROM Traspasos\nWHERE TiendaEntrada = '104'\n  AND FechaE >= '2025-01-01'\n  AND FechaE <= '2025-01-31'\n  AND Entrada = TRUE\nORDER BY FechaE\n\n-- All transfers OUT OF store 104\nSELECT Documento, Codigo, Descripcion, Talla,\n       UnidadesS, FechaS, TiendaEntrada, Tipo\nFROM Traspasos\nWHERE TiendaSalida = '104'\n  AND FechaS >= '2025-01-01'\n  AND Entrada = FALSE\nORDER BY FechaS\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Transfer Volume Analysis",
-    "body": "```sql\n-- Monthly transfer volume by route\nSELECT TiendaSalida, TiendaEntrada,\n       YEAR(FechaS) AS yr, MONTH(FechaS) AS mo,\n       COUNT(*) AS num_transfers,\n       SUM(UnidadesS) AS total_units\nFROM Traspasos\nWHERE FechaS >= '2025-01-01'\n  AND Entrada = FALSE\nGROUP BY TiendaSalida, TiendaEntrada, YEAR(FechaS), MONTH(FechaS)\nORDER BY total_units DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Querying Returns",
-    "body": "```sql\n-- Wholesale returns by customer\nSELECT ga.Cliente,\n       COUNT(*) AS num_returns,\n       SUM(ga.TotalAlbaran) AS total_returned,\n       SUM(ga.Unidades) AS units_returned\nFROM GCAlbaranes ga\nWHERE ga.Abono = TRUE\n  AND ga.FechaEnvio >= '2025-01-01'\nGROUP BY ga.Cliente\nORDER BY total_returned DESC\n\n-- Return detail lines\nSELECT gl.NAlbaran, gl.Codigo, gl.Descripcion,\n       gl.Unidades, gl.Total, gl.FechaAlbaran\nFROM GCLinAlbarane gl\nWHERE gl.Abono = TRUE\n  AND gl.FechaAlbaran >= '2025-01-01'\nORDER BY gl.FechaAlbaran DESC\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Retail Returns",
-    "body": "Retail returns are tracked in `LineasVentas` with `Entrada = False`:\n\n```sql\nSELECT lv.Tienda, lv.Codigo, lv.Descripcion,\n       lv.Unidades, lv.Total, lv.FechaCreacion,\n       lv.MotivoDevolucion\nFROM LineasVentas lv\nWHERE lv.Entrada = FALSE\n  AND lv.Mes = 202501\nORDER BY lv.FechaCreacion DESC\nLIMIT 50\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Finding Negative Stock",
-    "body": "```sql\n-- Products with negative total stock\nSELECT a.Codigo, a.Descripcion, a.Stock\nFROM Articulos a\nWHERE a.Stock < 0\n  AND a.Anulado = FALSE\nORDER BY a.Stock ASC\nLIMIT 20\n\n-- Per-store negative stock\nSELECT e.Tienda, e.Codigo, e.STStock\nFROM Exportaciones e\nWHERE e.STStock < 0\nORDER BY e.STStock ASC\nLIMIT 20\n\n-- Central negative stock per size\nSELECT a.Codigo, cs.Talla1, cs.Stock1, cs.Talla2, cs.Stock2,\n       cs.Talla3, cs.Stock3\nFROM CCStock cs\nINNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\nWHERE cs.Stock1 < 0 OR cs.Stock2 < 0 OR cs.Stock3 < 0\nLIMIT 20\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "When to Use the Web Service vs SQL",
-    "body": "| Approach | Use When |\n|----------|----------|\n| SQL (CCStock + Exportaciones) | Bulk stock analysis, reporting, data export |\n| SOAP WS_JS_StockTiendas | Real-time single-product stock check, integration |\n\nThe SOAP service returns the same data as querying CCStock + Exportaciones but in a single call with real-time values.\n\n---",
-    "hasSql": false,
-    "dialect": "n/a"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Building Your Own Snapshots",
-    "body": "Since no historical stock snapshots exist in the database, you can build them by periodically querying current stock:\n\n```python\nimport datetime\n\ndef snapshot_stock(cur, snapshot_date=None):\n    \"\"\"Take a stock snapshot of all products across all stores.\"\"\"\n    if snapshot_date is None:\n        snapshot_date = datetime.date.today().isoformat()\n\n    # Central stock\n    cur.execute(\"\"\"\n        SELECT a.Codigo, cs.Stock\n        FROM CCStock cs\n        INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\n        WHERE a.Anulado = FALSE\n    \"\"\")\n    central = {row[0]: row[1] for row in cur.fetchall()}\n\n    # Per-store stock\n    cur.execute(\"\"\"\n        SELECT e.Tienda, e.Codigo, e.STStock\n        FROM Exportaciones e\n        WHERE e.STStock <> 0\n    \"\"\")\n    store_stock = cur.fetchall()\n\n    return {\n        'date': snapshot_date,\n        'central': central,\n        'stores': store_stock\n    }\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Stock Value at Central Warehouse",
-    "body": "```sql\nSELECT SUM(cs.Stock * a.PrecioCoste) AS stock_value_cost,\n       SUM(cs.Stock * a.Precio1) AS stock_value_pvp,\n       SUM(cs.Stock) AS total_units,\n       COUNT(*) AS product_count\nFROM CCStock cs\nINNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\nWHERE cs.Stock > 0\n  AND a.Anulado = FALSE\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Stock Value per Store",
-    "body": "```sql\nSELECT e.Tienda,\n       COUNT(*) AS products,\n       SUM(e.STStock) AS total_units\nFROM Exportaciones e\nWHERE e.STStock > 0\nGROUP BY e.Tienda\nORDER BY total_units DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Products with Stock Below Minimum",
-    "body": "```sql\nSELECT a.Codigo, a.Descripcion,\n       a.Stock, a.StockMinimo,\n       a.StockMinimo - a.Stock AS deficit\nFROM Articulos a\nWHERE a.Stock < a.StockMinimo\n  AND a.StockMinimo > 0\n  AND a.Anulado = FALSE\nORDER BY deficit DESC\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Stock Turnover (Units Sold / Average Stock)",
-    "body": "```sql\n-- Units sold per product in a period\nSELECT lv.Codigo,\n       SUM(lv.Unidades) AS units_sold\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\nGROUP BY lv.Codigo\nHAVING SUM(lv.Unidades) > 0\nORDER BY units_sold DESC\nLIMIT 50\n```\n\n*Note: Average stock requires historical snapshots (not available in the database). Use current stock as an approximation or build periodic snapshots.*",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/stock-analysis.md",
-    "heading": "Dead Stock (No Sales in 12 Months)",
-    "body": "```sql\nSELECT a.Codigo, a.Descripcion, a.Stock,\n       a.FechaModifica AS last_modified\nFROM Articulos a\nWHERE a.Stock > 0\n  AND a.Anulado = FALSE\n  AND a.RegArticulo NOT IN (\n      SELECT DISTINCT lv.NumArticulo\n      FROM LineasVentas lv\n      WHERE lv.Mes >= 202501\n  )\nORDER BY a.Stock DESC\nLIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "4d"
   },
   {
     "source": "docs/wholesale-retail-split.md",
     "heading": "1. Overview",
-    "body": "PowerShop supports two sales channels within the same database:\n\n| Aspect | Retail (B2C) | Wholesale (B2B) |\n|--------|-------------|-----------------|\n| **Tables** | Ventas, LineasVentas, PagosVentas | GCAlbaranes, GCLinAlbarane, GCFacturas, GCLinFacturas |\n| **Document flow** | Ticket -> (optional Invoice) | Order -> Delivery Note -> Invoice -> Collection |\n| **Product codes** | Standard codes (no prefix) | Often M-prefixed codes |\n| **Customers** | Clientes where Mayorista=False | Clientes where Mayorista=True |\n| **Payments** | PagosVentas (ImporteCob) | CobrosFacturas (Importe) |\n| **Pricing** | PVP (Precio1, with VAT) | Net prices (negotiated, often without VAT) |\n| **Stock source** | Exportaciones (retail stores) | CCStock (central warehouse) |\n| **Rows** | ~910K sales, ~1.69M lines | ~49K delivery notes, ~1.01M lines |\n\n---",
+    "body": "Two sales channels share the same database and the same product/customer\nmasters:\n\n| Aspect | Retail (B2C) | Wholesale (B2B) |\n|--------|-------------|-----------------|\n| **Mirror tables** | `ps_ventas`, `ps_lineas_ventas`, `ps_pagos_ventas` | `ps_gc_pedidos`, `ps_gc_lin_pedidos`, `ps_gc_albaranes`, `ps_gc_lin_albarane`, `ps_gc_facturas`, `ps_gc_lin_facturas` |\n| **Document flow** | Ticket | Order → Delivery note → Invoice |\n| **Return / credit flag** | `entrada = FALSE` (line and header) | `abono IS TRUE` (header only) |\n| **Product codes** | Standard codes | Often `M`-prefixed referencias |\n| **Customers** | `ps_clientes` rows with `ps_ventas` activity | `ps_clientes` rows with `ps_gc_*` activity |\n| **Payments** | `ps_pagos_ventas` | **not mirrored** (§10) |\n| **Amounts sin IVA** | `total_si` | `base1 + base2 + base3` (headers), `total` (invoice lines) |\n| **Stock source** | `ps_stock_tienda` (retail stores) | `ps_stock_central` (central warehouse, store 99) |\n| **Rows** | ~910K tickets, ~1.82M lines | ~52K delivery notes, ~1.05M lines, ~19K invoices |\n\nThe two channels use **different discriminators**, and that is the single\nbiggest source of wrong queries: `entrada` does not exist on GC tables, `abono`\ndoes not exist on retail tables.\n\n---",
     "hasSql": false,
-    "dialect": "n/a"
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
-    "heading": "Key Queries",
-    "body": "```sql\n-- Total retail revenue (excluding returns)\nSELECT SUM(Total) AS retail_revenue\nFROM Ventas\nWHERE FechaCreacion >= '2025-01-01'\n  AND Entrada = TRUE\n\n-- Retail revenue from non-M products only\nSELECT SUM(lv.Total) AS pure_retail\nFROM LineasVentas lv\nWHERE lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\n  AND lv.Codigo NOT LIKE 'M%'\n```\n\n---",
+    "heading": "2. The M-Prefix Convention",
+    "body": "Referencias starting with **`M`** (e.g. `M12345`) are wholesale/bulk products.\nThe prefix lives on **`ps_articulos.ccrefejofacm`**, the referencia — not on\n`codigo`.\n\n```sql\n-- Retail products only  (ccrefejofacm is nullable — the IS NULL branch matters)\nWHERE p.\"ccrefejofacm\" IS NULL OR p.\"ccrefejofacm\" NOT LIKE 'M%'\n\n-- Wholesale products only\nWHERE p.\"ccrefejofacm\" LIKE 'M%'\n```\n\n```sql\n-- Channel mix of the active catalogue\nSELECT COUNT(*) AS \"Total\",\n       COUNT(*) FILTER (WHERE p.\"ccrefejofacm\" LIKE 'M%') AS \"Mayorista\",\n       COUNT(*) FILTER (WHERE p.\"ccrefejofacm\" IS NULL\n                          OR p.\"ccrefejofacm\" NOT LIKE 'M%') AS \"Retail\"\nFROM \"public\".\"ps_articulos\" p\nWHERE p.\"anulado\" = false;\n```",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
-    "heading": "Key Queries",
-    "body": "```sql\n-- Total wholesale revenue (from invoices, excluding credit notes)\nSELECT SUM(TotalFactura) AS wholesale_revenue\nFROM GCFacturas\nWHERE FechaFactura >= '2025-01-01'\n  AND Abono = FALSE\n  AND FacturaAnulada = FALSE\n\n-- Wholesale revenue from delivery notes\nSELECT SUM(TotalAlbaran) AS ws_delivery_revenue\nFROM GCAlbaranes\nWHERE FechaEnvio >= '2025-01-01'\n  AND Abono = FALSE\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Flow of Stock",
-    "body": "```\nSupplier\n  -> Albaranes (purchase receipt) -> CCStock (central)\n      -> Traspasos -> Exportaciones (retail stores)\n      -> GCAlbaranes -> Customer (wholesale shipment)\n```",
+    "heading": "Tables",
+    "body": "| Table | Rows | Description |\n|-------|------|-------------|\n| `ps_ventas` | ~910K | Ticket headers (`reg_ventas` PK) |\n| `ps_lineas_ventas` | ~1.82M | Ticket lines (`num_ventas` → `ps_ventas.reg_ventas`) |\n| `ps_pagos_ventas` | ~964K | Payment records (`num_ventas` → `ps_ventas.reg_ventas`) |",
     "hasSql": false,
-    "dialect": "n/a"
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
-    "heading": "Stock by Channel Query",
-    "body": "```sql\n-- Central warehouse stock (serves wholesale)\nSELECT SUM(Stock) AS central_stock\nFROM CCStock\nWHERE Stock > 0\n\n-- Retail store stock\nSELECT SUM(STStock) AS retail_stock\nFROM Exportaciones\nWHERE STStock > 0\n```",
+    "heading": "Key queries",
+    "body": "```sql\n-- Net retail revenue for the period\nSELECT COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0)\n         - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\"\nFROM \"public\".\"ps_ventas\" v\nWHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99';\n```\n\n```sql\n-- Net revenue from non-M products only (pure retail)\nSELECT COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0)\n         - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)\n         AS \"Ventas Netas Retail Puro\"\nFROM \"public\".\"ps_lineas_ventas\" lv\nJOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\"\nWHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND lv.\"tienda\" <> '99'\n  AND (p.\"ccrefejofacm\" IS NULL OR p.\"ccrefejofacm\" NOT LIKE 'M%');\n```\n\nBoth `COALESCE`s are mandatory: without them a period with no returns yields\n`NULL`, and `NULL` sorts first in a `DESC` ranking\n([D-057](decisions/D-057-ventas-netas-de-devoluciones.md)).\n\n---",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
-    "heading": "Products Available per Channel",
-    "body": "```sql\n-- Products with central stock (potential wholesale)\nSELECT COUNT(DISTINCT a.Codigo)\nFROM CCStock cs\nINNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo\nWHERE cs.Stock > 0\n\n-- Products with store stock (retail)\nSELECT COUNT(DISTINCT Codigo)\nFROM Exportaciones\nWHERE STStock > 0\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Identification",
-    "body": "```sql\n-- Wholesale customers\nSELECT COUNT(*) FROM Clientes WHERE Mayorista = TRUE AND Anulado = FALSE\n\n-- Retail customers\nSELECT COUNT(*) FROM Clientes WHERE Mayorista = FALSE AND Anulado = FALSE\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Cross-Channel Customers",
-    "body": "Some customers may appear in both channels:\n\n```sql\n-- Customers that appear in both retail and wholesale\nSELECT c.Codigo, c.Cliente\nFROM Clientes c\nWHERE c.RegCliente IN (\n    SELECT DISTINCT NumCliente FROM Ventas WHERE NumCliente > 0\n)\nAND c.RegCliente IN (\n    SELECT DISTINCT NumCliente FROM GCAlbaranes\n)\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Retail Payments",
-    "body": "Tracked in `PagosVentas`:\n\n| Field | Description |\n|-------|-------------|\n| ImporteEnt | Amount tendered |\n| ImporteCob | Amount collected (**use this for revenue**) |\n| CodigoForma | Payment method code |\n| Forma | Payment method name |\n\n```sql\n-- Retail payment breakdown\nSELECT pv.Forma,\n       SUM(pv.ImporteCob) AS collected\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.Entrada = TRUE\nGROUP BY pv.Forma\nORDER BY collected DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Wholesale Payments",
-    "body": "Tracked in `CobrosFacturas`:\n\n| Field | Description |\n|-------|-------------|\n| Importe | Payment amount |\n| Fecha | Payment date |\n| Forma | Payment method |\n| Pagado | Fully paid flag |\n| NumFactura | FK -> GCFacturas |\n\n```sql\n-- Wholesale collection summary\nSELECT cf.Forma,\n       COUNT(*) AS payments,\n       SUM(cf.Importe) AS collected\nFROM CobrosFacturas cf\nWHERE cf.Fecha >= '2025-01-01'\nGROUP BY cf.Forma\nORDER BY collected DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Outstanding Wholesale Receivables",
-    "body": "```sql\n-- Unpaid wholesale invoices\nSELECT gf.NFactura, gf.Cliente, gf.FechaFactura,\n       gf.TotalFactura,\n       COALESCE(SUM(cf.Importe), 0) AS paid,\n       gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) AS outstanding\nFROM GCFacturas gf\nLEFT OUTER JOIN CobrosFacturas cf ON gf.RegFactura = cf.NumFactura\nWHERE gf.Abono = FALSE\n  AND gf.FacturaAnulada = FALSE\nGROUP BY gf.NFactura, gf.Cliente, gf.FechaFactura, gf.TotalFactura\nHAVING gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) > 0\nORDER BY outstanding DESC\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/wholesale-retail-split.md",
-    "heading": "Revenue Reports",
-    "body": "When building revenue reports, be clear about which channel:\n\n| Report Type | Source | Filters |\n|------------|--------|---------|\n| Retail revenue | Ventas.Total or SUM(LineasVentas.Total) | Entrada=True |\n| Wholesale revenue | SUM(GCFacturas.TotalFactura) | Abono=False, FacturaAnulada=False |\n| Total revenue | Sum of both | Combine in Python |\n| Pure retail | LineasVentas | Entrada=True AND Codigo NOT LIKE 'M%' |\n| Pure wholesale | GCLinFacturas | Standard query |",
+    "heading": "Tables",
+    "body": "| Table | Rows | PK | Line → header key |\n|-------|------|----|-------------------|\n| `ps_gc_pedidos` | ~101 | `reg_pedido` | `ps_gc_lin_pedidos.num_pedido` |\n| `ps_gc_lin_pedidos` | ~2.6K | `reg_linea` | |\n| `ps_gc_albaranes` | ~52K | `reg_albaran` | `ps_gc_lin_albarane.num_albaran` |\n| `ps_gc_lin_albarane` | ~1.05M | `reg_linea` | |\n| `ps_gc_facturas` | ~19K | `reg_factura` | `ps_gc_lin_facturas.num_factura` |\n| `ps_gc_lin_facturas` | ~1.01M | `reg_linea` | |\n| `ps_gc_comerciales` | 5 | `reg_comercial` | via `num_comercial` on headers |\n\n**Join lines to headers by `num_albaran` → `reg_albaran` and\n`num_factura` → `reg_factura`.** Despite the `num_` prefix these are 4D record\nids. The `n_albaran` / `n_factura` columns are the *visible document numbers* and\nare **not unique** — joining on them fans the result set out and inflates every\ntotal.",
     "hasSql": false,
-    "dialect": "n/a"
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
-    "heading": "4. Customer Count",
-    "body": "Some customers exist in Clientes but have never transacted. Always join to transaction tables for \"active customer\" counts:\n\n```sql\n-- Active retail customers (with purchases)\nSELECT COUNT(DISTINCT NumCliente)\nFROM Ventas\nWHERE NumCliente > 0\n  AND FechaCreacion >= '2025-01-01'\n  AND Entrada = TRUE\n\n-- Active wholesale customers\nSELECT COUNT(DISTINCT NumCliente)\nFROM GCAlbaranes\nWHERE FechaEnvio >= '2025-01-01'\n  AND Abono = FALSE\n```",
-    "hasSql": true,
-    "dialect": "4d"
+    "heading": "Document flow",
+    "body": "```\nps_gc_pedidos (order)\n    -> ps_gc_albaranes (delivery note — goods shipped)\n        -> ps_gc_facturas (invoice)\n            -> [collection — NOT MIRRORED, see §10]\n```",
+    "hasSql": false,
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
-    "heading": "5. Store 99 in Reports",
-    "body": "Store 99 is the central warehouse. It should typically be **excluded** from retail store performance reports:\n\n```sql\n-- Retail store performance (exclude central)\nSELECT lv.Tienda, SUM(lv.Total) AS revenue\nFROM LineasVentas lv\nWHERE lv.Tienda <> '99'\n  AND lv.Mes BETWEEN 202501 AND 202512\n  AND lv.Entrada = TRUE\nGROUP BY lv.Tienda\nORDER BY revenue DESC\n```",
+    "heading": "Key queries",
+    "body": "```sql\n-- Net invoicing for the period\nSELECT COUNT(*) FILTER (WHERE f.\"abono\" IS NOT TRUE) AS \"Facturas\",\n       COALESCE(SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") FILTER (WHERE f.\"abono\" IS TRUE), 0)\n         AS \"Facturación Neta\"\nFROM \"public\".\"ps_gc_facturas\" f\nWHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to;\n```\n\n```sql\n-- Net delivery-note volume, intragroup traffic excluded\nSELECT COUNT(*) FILTER (WHERE a.\"abono\" IS NOT TRUE) AS \"Albaranes\",\n       COALESCE(SUM(a.\"entregadas\") FILTER (WHERE a.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(a.\"entregadas\") FILTER (WHERE a.\"abono\" IS TRUE), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") FILTER (WHERE a.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") FILTER (WHERE a.\"abono\" IS TRUE), 0)\n         AS \"Importe Neto\"\nFROM \"public\".\"ps_gc_albaranes\" a\nLEFT JOIN \"public\".\"ps_clientes\" c ON a.\"num_cliente\" = c.\"reg_cliente\"\nWHERE (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01'\n            THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END)\n      BETWEEN :curr_from AND :curr_to\n  AND COALESCE(c.\"nif\", '') <> '502108150';   -- tráfico intragrupo, no es venta\n```\n\n```sql\n-- Top wholesale references by net invoiced amount\nSELECT p.\"ccrefejofacm\" AS \"Referencia\",\n       p.\"descripcion\"  AS \"Descripción\",\n       COALESCE(SUM(lf.\"unidades\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(lf.\"unidades\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0)\n         - COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS \"Importe Neto\"\nFROM \"public\".\"ps_gc_lin_facturas\" lf\nJOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"reg_factura\"\nJOIN \"public\".\"ps_articulos\" p ON lf.\"codigo\" = p.\"codigo\"\nWHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to\nGROUP BY p.\"ccrefejofacm\", p.\"descripcion\"\nORDER BY \"Importe Neto\" DESC\nLIMIT 20;\n```\n\n---",
     "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "5. Stock by Channel",
+    "body": "| Location | Mirror table | Store | Channel served |\n|----------|--------------|-------|----------------|\n| Central warehouse | `ps_stock_central` | 99 | Primarily wholesale |\n| Retail stores | `ps_stock_tienda` | all except 99 | Retail |\n\n**Store `'99'` does not appear in `ps_stock_tienda`.** Looking for central stock\nthere returns zero rows — no error, just a silently wrong answer.\n\n```\nSupplier -> [purchase receipt — NOT MIRRORED, §10] -> ps_stock_central\n                -> ps_traspasos -> ps_stock_tienda   (to the shops)\n                -> ps_gc_albaranes -> customer        (wholesale shipment)\n```\n\n```sql\nSELECT (SELECT COALESCE(SUM(sc.\"stock\"), 0)\n        FROM \"public\".\"ps_stock_central\" sc\n        WHERE sc.\"stock\" > 0) AS \"Central (mayorista)\",\n       (SELECT COALESCE(SUM(s.\"stock\"), 0)\n        FROM \"public\".\"ps_stock_tienda\" s\n        WHERE s.\"stock\" > 0 AND s.\"tienda\" <> '99') AS \"Tiendas (retail)\";\n```\n\nNote the two different join keys to the catalogue:\n`ps_stock_central.num_articulo = ps_articulos.reg_articulo`, but\n`ps_stock_tienda.codigo = ps_articulos.codigo`. Full stock cookbook in\n[stock-analysis.md](stock-analysis.md).\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "6. Customers by Channel",
+    "body": "**`ps_clientes` has no `mayorista` flag and no `anulado` flag.** Channel is\ndetermined by *where the customer transacts*, not by an attribute on the\ncustomer. Any query filtering `WHERE mayorista = TRUE` is written against the 4D\n`Clientes` table and fails here.\n\n```sql\nSELECT COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM \"public\".\"ps_ventas\" v\n                                      WHERE v.\"num_cliente\" = c.\"reg_cliente\")) AS \"Con Retail\",\n       COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM \"public\".\"ps_gc_albaranes\" a\n                                      WHERE a.\"num_cliente\" = c.\"reg_cliente\")) AS \"Con Mayorista\",\n       COUNT(*) FILTER (WHERE EXISTS (SELECT 1 FROM \"public\".\"ps_ventas\" v\n                                      WHERE v.\"num_cliente\" = c.\"reg_cliente\")\n                          AND EXISTS (SELECT 1 FROM \"public\".\"ps_gc_albaranes\" a\n                                      WHERE a.\"num_cliente\" = c.\"reg_cliente\")) AS \"Ambos Canales\"\nFROM \"public\".\"ps_clientes\" c;\n```\n\nAvailable columns are `reg_cliente`, `num_cliente`, `nombre`, `nif`, `email`,\n`codigo_postal`, `poblacion`, `pais`, `fecha_creacion`, `fecha_modifica`,\n`ultima_compra_f`. Credit terms, discounts, credit limits, assigned sales rep and\nVAT-regime flags are **not** mirrored — the sales rep is available on the\n*documents* instead (`ps_gc_albaranes.num_comercial` /\n`ps_gc_facturas.num_comercial` → `ps_gc_comerciales.reg_comercial`).\n\nNIF `502108150` (19 rows) is intragroup traffic, not a customer — exclude it from\nwholesale rankings.\n\n---",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "Retail payments — `ps_pagos_ventas`",
+    "body": "| Column | Description |\n|--------|-------------|\n| `importe_cob` | Amount charged (**use this**; includes VAT, matches `ps_ventas.total`) |\n| `forma` | Payment method name, already human-readable |\n| `codigo_forma` | Method code (`'01'` = cash) |\n| `entrada` | `FALSE` on refunds — net them out |\n| `tienda`, `fecha_creacion` | |\n\n```sql\nSELECT p.\"forma\" AS \"Forma de Pago\",\n       COUNT(*)  AS \"Movimientos\",\n       COALESCE(SUM(p.\"importe_cob\") FILTER (WHERE p.\"entrada\"), 0)\n         - COALESCE(SUM(p.\"importe_cob\") FILTER (WHERE NOT p.\"entrada\"), 0) AS \"Importe Cobrado\"\nFROM \"public\".\"ps_pagos_ventas\" p\nWHERE p.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND p.\"tienda\" <> '99'\nGROUP BY p.\"forma\"\nORDER BY \"Importe Cobrado\" DESC;\n```\n\n`forma` values seen in production: `Metálico`, `American Express`, `Metalico`,\n`Visa`, `Devolución Vale`, `Vale`, `Devolución Metálico`, `MasterCard`,\n`Maestro`, `Transferencia`, `Pago PowerShop B2C`, `Cheque`. Note `Metálico` and\n`Metalico` both occur — fold them before presenting a mix. There is no\n`FormasPago` lookup table in the mirror and no code→name mapping is needed.\n\n`importe_cob` includes VAT. Use it for payment-mix and cash-control questions;\nuse `ps_ventas.total_si` when the question is about revenue.",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "Revenue",
+    "body": "| Report | Source | Expression |\n|--------|--------|------------|\n| Retail revenue | `ps_ventas` / `ps_lineas_ventas` | net over `total_si` by `entrada`, `tienda <> '99'` |\n| Wholesale revenue | `ps_gc_facturas` | net over `base1+base2+base3` by `abono` |\n| Pure retail | `ps_lineas_ventas` + `ps_articulos` | as above, plus `ccrefejofacm` not `M%` (with the `IS NULL` branch) |\n| Group total | both | sum the two nets; both are already sin IVA |",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "Margin",
+    "body": "| Channel | Revenue | Cost |\n|---------|---------|------|\n| Retail | `ps_lineas_ventas.total_si` | `ps_lineas_ventas.total_coste_si` |\n| Wholesale | `ps_gc_lin_facturas.total` | `ps_gc_lin_facturas.total_coste` |\n\nBoth sides must be netted by the channel's own discriminator — netting revenue\nbut not cost inflates margin on any period with returns.",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "Units",
+    "body": "| Channel | Table | Field |\n|---------|-------|-------|\n| Retail | `ps_lineas_ventas` | `unidades`, netted by `entrada` |\n| Wholesale | `ps_gc_lin_facturas` / `ps_gc_lin_albarane` | `unidades`, netted by the header's `abono` |",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "Dates",
+    "body": "| Channel | Date column |\n|---------|-------------|\n| Retail | `ps_ventas.fecha_creacion` / `ps_lineas_ventas.fecha_creacion` (both populated, no NULLs) |\n| Wholesale — invoice | `ps_gc_facturas.fecha_factura` |\n| Wholesale — delivery note | the `CASE` on `fecha_envio` / `fecha_valor` (§4) |\n\n`ps_lineas_ventas.mes` (YYYYMM integer) and `ps_gc_lin_facturas.mes` exist as\nfast filters, but prefer the real date columns — `DATE_TRUNC('month', ...)` is\nindexed-friendly enough and does not need a second format to keep in sync.\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "7. Store 99 in retail reports",
+    "body": "```sql\nSELECT v.\"tienda\" AS \"Tienda\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"), 0)\n         - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\"\nFROM \"public\".\"ps_ventas\" v\nWHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to\n  AND v.\"tienda\" <> '99'\nGROUP BY v.\"tienda\"\nORDER BY \"Ventas Netas\" DESC;\n```\n\nStore `'97'` is the online shop — a real retail store, keep it.",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/wholesale-retail-split.md",
+    "heading": "10. What is not mirrored",
+    "body": "| Wanted | Status | Substitute |\n|--------|--------|------------|\n| **Wholesale collections / receivables / ageing** | `CobrosFacturas` has no `ps_*` table. | Invoiced amount from `ps_gc_facturas`; state that collection data is unavailable. |\n| **Customer channel flag, credit terms, discount, credit limit, VAT-regime flags** | Not mirrored on `ps_clientes`. | Channel by transaction table (§6); sales rep via `num_comercial` on the documents. |\n| **Per-size wholesale quantities** | 4D `Entregadas1..34` is not unpivoted into `ps_gc_lin_albarane`. | Line-level `unidades` only. |\n| **Purchase receipts (goods in)** | Purchase delivery-note *lines* are not mirrored; `ps_albaranes` is headers only. | `ps_lineas_compras` = **orders placed**, never receipts — label it \"pedido\". |\n| **`Facturas` (retail formal invoices) detail** | `ps_facturas` holds dates only (`reg_factura`, `fecha_factura`, `fecha_modifica`). | Ticket-level data from `ps_ventas`. |\n| **Register sessions (`Cajas`)** | Not mirrored. | `ps_pagos_ventas` by store and date. |\n\n---",
+    "hasSql": false,
+    "dialect": "postgres"
   },
   {
     "source": "docs/wholesale-retail-split.md",
     "heading": "Summary Decision Tree",
-    "body": "```\nQ: What channel is this data from?\n|\n+-- Table starts with \"GC\"? -> Wholesale\n|   (GCAlbaranes, GCLinAlbarane, GCFacturas, GCLinFacturas)\n|\n+-- Table is Ventas/LineasVentas/PagosVentas? -> Retail (POS)\n|\n+-- Table is Articulos/CCStock/Exportaciones? -> Both channels\n|   (Filter by Codigo LIKE/NOT LIKE 'M%' if needed)\n|\n+-- Table is Clientes? -> Both channels\n|   (Filter by Mayorista = True/False)\n|\n+-- Table is CobrosFacturas? -> Wholesale payments\n|\n+-- Table is Traspasos? -> Stock operations (supports both)\n```",
+    "body": "```\nQ: What channel is this data from?\n|\n+-- Table starts with \"ps_gc_\"? -> Wholesale\n|   (discriminator: header abono; line->header by reg_* id)\n|\n+-- ps_ventas / ps_lineas_ventas / ps_pagos_ventas? -> Retail (POS)\n|   (discriminator: entrada; exclude tienda '99')\n|\n+-- ps_articulos? -> Both channels\n|   (split by ccrefejofacm LIKE / NOT LIKE 'M%', with the IS NULL branch)\n|\n+-- ps_clientes? -> Both channels\n|   (no flag on the row — decide by which transaction table has activity)\n|\n+-- ps_stock_central? -> Central warehouse (store 99), serves wholesale\n+-- ps_stock_tienda?  -> Retail stores only (never contains '99')\n|\n+-- ps_traspasos? -> Stock operations between stores (supports both)\n```",
     "hasSql": false,
-    "dialect": "n/a"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "Schema Sources",
-    "body": "| Source | Method | Value |\n|--------|--------|-------|\n| `_USER_TABLES` / `_USER_COLUMNS` | SQL query via p4d | Table/column names, types, nullability |\n| `_USER_VIEWS` | SQL query via p4d | 100 SQL views (50+50 BI) — vendor's intended query patterns |\n| `_USER_IND_COLUMNS` | SQL query via p4d | Indexed columns per table — confirms access patterns |\n| `PowerShop.4DC` strings | `strings -n 5` on 360 MB compiled binary | 5.7M string lines — table/field/method names, form structures |\n| SQL views (`*_SQL`) | Direct `SELECT * FROM <view> LIMIT 1` | Exact column lists for all analytics-relevant views |\n| SOAP WSDL | zeep introspection | 130 WS_JS_* + 934 WS_* method signatures |",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "Key Tables Summary",
-    "body": "| Table | Rows | Cols | Domain | Description |\n|-------|------|------|--------|-------------|\n| Articulos | ~41,220 | 372 | Products | Product master catalog |\n| CCStock | ~41,222 | 582 | Stock | Central warehouse stock (store 99) per size |\n| Exportaciones | ~2,056,000 | 161 | Stock | Retail store stock per size per store |\n| Ventas | ~910,726 | 145 | Retail Sales | POS ticket headers |\n| LineasVentas | ~1,687,995 | 154 | Retail Sales | POS ticket line items |\n| PagosVentas | ~964,039 | 49 | Retail Sales | POS payment records |\n| GCAlbaranes | ~48,882 | 161 | Wholesale | Wholesale delivery notes |\n| GCLinAlbarane | ~1,014,995 | 138 | Wholesale | Wholesale delivery note lines |\n| GCFacturas | ~18,060 | 183 | Wholesale | Wholesale invoices |\n| GCLinFacturas | ~974,742 | 63 | Wholesale | Wholesale invoice lines |\n| Clientes | ~27,545 | 308 | Customers | Customer master (retail + wholesale) |\n| Traspasos | ~262,689 | 29 | Stock/Logistics | Inter-store stock transfers |\n| Compras | ~2,697 | 129 | Purchasing | Purchase orders |\n| Proveedores | ~518 | 114 | Purchasing | Supplier master |\n| Tiendas | ~51 | 207 | Stores | Store/warehouse master |\n| FamiGrupMarc | ~77 | 112 | Lookups | Family/group classification |\n| Cajas | ~42,504 | 270 | Retail Sales | Cash register sessions |\n\n---",
-    "hasSql": false,
-    "dialect": "n/a"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "1. All tables and column metadata",
-    "body": "cur.execute(\"SELECT TABLE_NAME, COLUMN_NAME, TYPE_NAME, IS_NULLABLE FROM _USER_COLUMNS ORDER BY TABLE_NAME, ORDINAL_POSITION\")\nrows = cur.fetchall()\nby_table = {}\nfor r in rows:\n    by_table.setdefault(r[0], []).append(r[1])\njson.dump(by_table, open('/tmp/4d_all_columns.json', 'w'))",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "2. All SQL views",
-    "body": "cur.execute(\"SELECT TABLE_NAME FROM _USER_VIEWS ORDER BY TABLE_NAME\")\nviews = [r[0] for r in cur.fetchall()]",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "3. All indexed columns",
-    "body": "cur.execute(\"SELECT TABLE_NAME, COLUMN_NAME, INDEX_NAME FROM _USER_IND_COLUMNS ORDER BY TABLE_NAME\")\nrows = cur.fetchall()\njson.dump(rows, open('/tmp/4d_index_columns.json', 'w'))",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "4. FK/PK constraints",
-    "body": "cur.execute(\"SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE FROM _USER_CONS_COLUMNS ORDER BY TABLE_NAME\")\nrows = cur.fetchall()\njson.dump(rows, open('/tmp/4d_cons_columns.json', 'w'))\n```\n\n```python",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "What Was Discovered vs. What Was Already Known",
-    "body": "| Finding | Was documented | Correction/addition |\n|---------|---------------|---------------------|\n| Exportaciones has 34 stock slots | Partially (17 slots) | **Corrected** to 34 (Stock1-34, Talla1-34) |\n| SQL views (_USER_VIEWS) exist | No | **New**: 100 views — 50 *_SQL + 50 *_BI |\n| FamiGrupMarc.SerieTallas | Expected to contain size series | **Confirmed blank** in all 78 production rows |\n| GCLinPedidos has 5-dim × 34-slot matrix | Partially | **Corrected**: Pedidas/Entregadas/Asignadas/Original all × 34 |\n| Ventas has TBAI, SAF-T, Aena, marketplace fields | Not documented | **New**: 30+ fiscal/channel fields added |\n| Tiendas has 208 columns | Not detailed | **New**: 11 field groups, AENA_*, CON*, groupings documented |\n| FormasPago has VP1-12 installment slots | Not detailed | **New**: full 30-column breakdown documented |\n| Clientes has Mayorista, B2B provisional, GDPR, optical measurement fields | Partially | **New**: confirmed + 15 field groups documented |\n| FamiGrupMarc has CATAdidas/CATNike brand integration fields | No | **New**: Adidas data feed and Nike catalog mapping |\n| 130 WS_JS_* SOAP methods exist | Partially (some known) | **New**: full WSDL enumeration of all signatures |\n| 88 FK relationships confirmed | Partial guess | **Confirmed** from _USER_CONS_COLUMNS |",
-    "hasSql": false,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "2. Re-query live 4D server (needs network access to 10.0.1.35)",
-    "body": "/Users/alobato/git/powershop-analytics/.venv/bin/python3 -c \"\nimport p4d, json\nconn = p4d.connect(host='10.0.1.35', port=19812, user='Administrador', password='')\ncur = conn.cursor()\ncur.execute('SELECT TABLE_NAME, COLUMN_NAME FROM _USER_COLUMNS ORDER BY TABLE_NAME, ORDINAL_POSITION')\nrows = cur.fetchall()\nby_table = {}\nfor r in rows:\n    by_table.setdefault(r[0], []).append(r[1])\njson.dump(by_table, open('/tmp/4d_all_columns.json', 'w'))\nprint('Done:', len(by_table), 'tables')\n\"",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "Exportaciones -- Retail Store Stock (~2,056,001 rows, 161 columns)",
-    "body": "One row per product per store. Same wide-format as CCStock but per retail location. Store 99 (central) does NOT appear here; it is in CCStock.\n\n| Column Pattern | Type | Description |\n|----------------|------|-------------|\n| Codigo | Alpha(60) | Product code |\n| Descripcion | Alpha(160) | Product description |\n| Tienda | Alpha(8) | Store code |\n| TiendaCodigo | Alpha(80) | Composite store+code key |\n| CCStock | Real | FK -> CCStock record |\n| STStock | Real | Aggregate stock for this store |\n| Stock1..Stock34 | Integer | Stock per size slot |\n| Talla1..Talla34 | Alpha(10) | Size labels |\n| Minimo1..Minimo34 | Integer | Minimum stock per size |\n| REPPorcentaje | Real | Replenishment percentage |\n| REPPorcentaje1..34 | Integer | Replenishment % per size |\n| Ubicacion1..3 | Alpha(160) | Store location (3 zones) |\n| PuntoPedido | Real | Reorder point |\n| UnidadesReposi | Real | Replenishment units |\n| FechaModifica | Date | Last modification |\n| HoraModifica | Time | Last modification time |",
-    "hasSql": false,
-    "dialect": "n/a"
-  },
-  {
-    "source": "docs/schema-discovery.md",
-    "heading": "LineasVentas -- POS Ticket Lines (~1,687,995 rows, 154 columns)",
-    "body": "One row per product on a ticket. Primary source for retail sales analytics.\n\n| Column | Type | Description |\n|--------|------|-------------|\n| RegLineas | Real | PK |\n| NumVentas | Real | FK -> Ventas.RegVentas |\n| NumArticulo | Real | FK -> Articulos.RegArticulo |\n| Codigo | Alpha(60) | Product code (denormalized) |\n| Descripcion | Alpha(160) | Product description (denormalized) |\n| Unidades | Real | Quantity sold |\n| PrecioNeto | Real | Net unit price |\n| PrecioBruto | Real | Gross unit price |\n| PrecioNetoSI | Real | Net price without VAT |\n| PrecioBrutoSI | Real | Gross price without VAT |\n| PrecioOriginal | Real | Original price (before discounts) |\n| PVPTarifa | Real | Price list PVP |\n| Total | Real | Line total (with VAT) |\n| TotalSI | Real | Line total without VAT |\n| TotalBruto | Real | Gross line total |\n| TotalOriginal | Real | Original total |\n| ImporteDescuento | Real | Discount amount |\n| ImporteRebajas | Real | Markdown amount |\n| ImporteRebajasSI | Real | Markdown amount without VAT |\n| PrecioCosteSI | Real | Cost price without VAT |\n| PrecioCosteCI | Real | Cost price with import costs |\n| TotalCosteSI | Real | Total cost without VAT |\n| TotalCosteCI | Real | Total cost with import costs |\n| PIva | Real | VAT percentage |\n| PRE | Real | Surcharge percentage |\n| PDescG | Real | General discount percentage |\n| **Period** | | |\n| FechaCreacion | Date | Sale date |\n| Hora | Time | Sale time |\n| Mes | Long Integer | Period as YYYYMM (e.g., 202501) |\n| NMes | Integer | Month number (1-12) |\n| NDia | Integer | Day number |\n| NSemana | Integer | Week number |\n| DiaSemana | Long Integer | Day of week |\n| **Classification FKs** | | |\n| NumFamilia | Real | FK -> FamiGrupMarc |\n| NumDepartament | Real | FK -> DepaSeccFabr |\n| NumMarca | Real | FK -> CCOPMarcTrat |\n| NumColor | Real | FK -> CCOPColores |\n| NumTemporada | Real | FK -> CCOPTempTipo |\n| NumProveedor | Real | FK -> Proveedores |\n| NumSubfamilia | Real | FK -> SubfamModelo |\n| NumCliente | Real | FK -> Clientes |\n| NFactura | Real | Invoice number |\n| **Location** | | |\n| Tienda | Alpha(8) | Store code |\n| Caja | Alpha(8) | Register code |\n| CodigoCajero | Alpha(20) | Cashier code |\n| CodigoEmpleado | Alpha(40) | Employee code |\n| **Flags** | | |\n| Entrada | Boolean | Is entry (sale=true, return=false) |\n| TipoDocumento | Alpha(20) | Document type |\n| Defectuoso | Boolean | Defective item |\n| ArticuloPropio | Boolean | Own-brand |\n| **Promotions** | | |\n| TipoPromocion | Alpha(10) | Promotion type |\n| NivelPromocion | Alpha(30) | Promotion level |\n| DesPromocion | Alpha(160) | Promotion description |\n| PromocionPorcentaje | Real | Promotion discount % |\n| PromocionImporte | Real | Promotion amount |\n| MotivoDescuento | Alpha(160) | Discount reason |\n| MotivoDevolucion | Alpha(160) | Return reason |",
-    "hasSql": false,
-    "dialect": "n/a"
-  },
-  {
-    "source": "docs/sql-views.md",
-    "heading": "PowerShop 4D SQL Views Reference",
-    "body": "> Discovered 2026-04-05 by querying `_USER_VIEWS` on the live 4D server.\n> Views are accessible via the 4D SQL port (19812) using the p4d driver.\n> All view names can be used directly in SQL: `SELECT * FROM Ventas_SQL LIMIT 100`",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sql-views.md",
-    "heading": "`*_SQL` Views (Analytics-Recommended)",
-    "body": "> Column counts validated 2026-04-05 by querying `SELECT * FROM <view> LIMIT 1` on live server.\n> Views marked **CRASH** cause the p4d driver to abort (contain Picture/Blob type fields).\n\n| View | Columns | Domain | Notes |\n|------|---------|--------|-------|\n| `Ventas_SQL` | **145** | Sales | Full POS ticket headers — TBAI, marketplace, tax-free, Aena fields |\n| `LineasVentas_SQL` | **157** | Sales | POS line items with cost prices |\n| `PagosVentas_SQL` | **49** | Sales | Payment records — PSCARD1-10 card slots |\n| `Cajas_SQL` | CRASH | Sales | Cash register sessions — contains Blob type fields |\n| `Clientes_SQL` | CRASH | Customers | Full customer master — contains Blob type fields |\n| `Exportaciones_SQL` | **161** | Stock | Retail store stock — 34-slot matrix (Stock1-34, Talla1-34, Minimo1-34) |\n| `Articulos_SQL` | CRASH | Products | Full product catalog — contains Picture/Blob fields |\n| `Albaranes_SQL` | **68** | Purchasing | Delivery notes received from suppliers |\n| `LinAlbaranes_SQL` | **108** | Purchasing | Delivery note lines |\n| `Compras_SQL` | **129** | Purchasing | Purchase orders |\n| `LineasCompras_SQL` | **56** | Purchasing | Purchase order lines |\n| `GCAlbaranes_SQL` | **162** | Wholesale | Wholesale delivery notes — tracking, SAFT, maritime expedition fields |\n| `GCLinAlbarane_SQL` | **138** | Wholesale | Wholesale delivery lines — 34 Talla/Entregadas slots |\n| `GCPedidos_SQL` | **123** | Wholesale | Wholesale orders |\n| `GCLinPedidos_SQL` | **239** | Wholesale | Wholesale order lines — 34-slot × 5 qty dimensions (widest view) |\n| `GCFacturas_SQL` | **183** | Wholesale | Wholesale invoices |\n| `GCLinFacturas_SQL` | **63** | Wholesale | Wholesale invoice lines — COSTEUNITARIO, TOTALCOSTE |\n| `GCComerciales_SQL` | **49** | Wholesale | Sales representatives |\n| `GCTransporte_SQL` | **3** | Wholesale | Wholesale transport/carriers (minimal) |\n| `Tiendas_SQL` | **208** | Stores | Full store config — accounting codes, Aena, groupings |\n| `Proveedores_SQL` | **114** | Purchasing | Supplier master |\n| `FamiGrupMarc_SQL` | **112** | Lookups | Product families — SERIETALLAS field (blank in production) |\n| `CCLineasCompr_SQL` | **234** | Stock | Central warehouse purchase reception lines (very wide) |\n| `CCMedTarReg_SQL` | **10** | Customers | Loyalty card registration |\n| `CCOPColores_SQL` | **35** | Lookups | Color master |\n| `CCOPMarcTrat_SQL` | **63** | Lookups | Brand/treatment master |\n| `CCOPTempTipo_SQL` | **75** | Lookups | Season type master |\n| `CCSexos_SQL` | **56** | Lookups | Gender classification |\n| `CCStock_SQL` | ERROR | Stock | Causes p4d error \"Unrecognized 4D type\" — skip entirely |\n| `Traspasos_SQL` | **29** | Logistics | Stock transfers — one row per article/size/store pair |\n| `Paises_SQL` | **10** | Lookups | Country master |\n| `Provincias_SQL` | **3** | Lookups | Province master (minimal) |\n| `RRHHEmpleados_SQL` | **104** | HR | Employee master |\n| `RRHHControlPresencia_SQL` | **30** | HR | Time & attendance |\n| `RRHHBajas_SQL` | **20** | HR | Sick leave |\n| `RRHHAusencias_SQL` | **15** | HR | Absences |\n| `ServicioSO_SQL` | **52** | Service | Service orders (after-sales / repairs) |\n| `SubfamModelo_SQL` | **47** | Lookups | Subfamily/model master |\n| `DepaSeccFabr_SQL` | **76** | Lookups | Department/section/fabrication master |\n| `BalanceoStock_SQL` | **13** | Stock | Stock balancing operations |\n| `BarrasAsociado_SQL` | **10** | Products | Associated barcodes |\n| `AutoReposicion_SQL` | **10** | Stock | Auto-replenishment rules |\n| `InformeReposicion_SQL` | **8** | Stock | Replenishment reports |\n| `LineasInformeReposicion_SQL` | **47** | Stock | Replenishment report lines |\n| `PackQueue_SQL` | **15** | Promotions | Pack promotion queue |\n| `PackStreet_SQL` | **19** | Promotions | Street/in-store packs |\n| `PackVisitors_SQL` | **15** | Promotions | Visitor packs |\n| `ComentariosTickets_SQL` | **34** | Sales | Ticket comments |\n| `CRMDetalleCue_SQL` | **17** | CRM | CRM survey details |\n| `Deta",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/sql-views.md",
-    "heading": "Query a view with specific columns (recommended — avoids crash on Picture/Blob types)",
-    "body": "cur.execute(\"\"\"\n    SELECT REGVENTAS, FECHACREACION, TIENDA, TOTALSI, NUMCLIENTE, MARKETPLACE\n    FROM Ventas_SQL\n    WHERE FECHACREACION >= '2025-01-01' AND ENTRADA = TRUE\n    LIMIT 100\n\"\"\")\nrows = cur.fetchall()\n```\n\n**Important notes:**\n- `CCStock_SQL` crashes the p4d driver — never query it. Use individual columns from `CCStock` directly.\n- Very wide tables (Articulos_SQL, Exportaciones_SQL, Clientes_SQL) may crash if fetching ALL columns.\n  Always specify the columns you need.\n- `BORRAR*` columns in Exportaciones are legacy/deprecated — ignore them.\n- `LIBRE*` columns are generic free-text fields with variable business use per installation.\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
+    "dialect": "postgres"
   },
   {
     "source": "docs/data-dictionary.md",
@@ -1413,244 +1308,6 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "dialect": "4d"
   },
   {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "16-bit integers over SQL (`DATA_TYPE = 3`, `DATA_LENGTH = 2`)",
-    "body": "`_USER_COLUMNS` reports **16-bit integer** fields (type **3**, length **2**) — e.g. all **`Exportaciones.Stock1`…`Stock34`** (34 columns, each type 3 / length 2 in production).\n\n- **Native 4D** (forms, compiled methods, `WORD` variables) keeps **signed** semantics: `−1` stays `−1`.\n- **4D SQL + p4d** can still return the same bit pattern widened as an **unsigned** 32-bit value, so **`−1` appears as `65535`**, **`−2` as `65534`**, etc. The **`CCStock`** column on the same row is **`DATA_TYPE = 6` (Real)** and continues to show the correct **row-level net** (e.g. `−6.0`), which is why the POS grid matches **`CCStock`** while raw **`StockN`** look “huge” until reinterpreted.\n\n**ETL fix:** `etl/db/fourd.py` → `decode_signed_int16_word()` — applied **only** when unpivoting **`Exportaciones.Stock1`…`Stock34`**, because **`_USER_COLUMNS`** marks those columns as **type 3 / length 2** only. There is **no `p4d.connect()` flag** to force signed 16-bit decoding.\n\n**Do not** apply this decode to **Real** columns (type **6**) or to any column that is not **type 3 / length 2** in `_USER_COLUMNS`: wholesale line quantities can exceed **32767** and would be mis-decoded as negative if the int16 rule were applied blindly.",
-    "hasSql": false,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Full Syntax",
-    "body": "```sql\nSELECT [ALL | DISTINCT]\n  {* | select_item, ..., select_item}\nFROM table_reference, ..., table_reference\n[WHERE search_condition]\n[GROUP BY sort_list]\n[HAVING search_condition]\n[ORDER BY sort_list]\n[LIMIT {int_number | ALL}]\n[OFFSET int_number]\n[INTO {4d_variable, ..., 4d_variable}]\n[FOR UPDATE]\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Key Clauses",
-    "body": "**DISTINCT** -- eliminates duplicate rows:\n```sql\nSELECT DISTINCT Tienda FROM LineasVentas\n```\n\n**Aliases** -- use `AS` (optional keyword):\n```sql\nSELECT Codigo AS product_code, Descripcion AS name FROM Articulos\nSELECT a.Codigo, f.FamiGrupMarc\n  FROM Articulos a, FamiGrupMarc f\n  WHERE a.NumFamilia = f.RegFamilia\n```\n\n**ORDER BY** -- ascending (default) or descending; can reference column position:\n```sql\nSELECT Codigo, Descripcion FROM Articulos ORDER BY Descripcion ASC\nSELECT Tienda, COUNT(*) FROM LineasVentas GROUP BY Tienda ORDER BY 2 DESC\n```\n\n**LIMIT / OFFSET** -- row limiting (works like standard SQL):\n```sql\nSELECT Codigo, Descripcion FROM Articulos LIMIT 10\nSELECT Codigo, Descripcion FROM Articulos LIMIT 10 OFFSET 20\n```\n\n**GROUP BY / HAVING**:\n```sql\nSELECT Tienda, SUM(Total) AS revenue\n  FROM LineasVentas\n  WHERE Mes = 202501\n  GROUP BY Tienda\n  HAVING SUM(Total) > 1000\n  ORDER BY revenue DESC\n```\n\n**Subqueries** -- supported in WHERE and FROM:\n```sql\nSELECT Codigo, Descripcion FROM Articulos\n  WHERE RegArticulo IN (\n    SELECT NumArticulo FROM LineasVentas WHERE Mes = 202501\n  )\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "LIKE Predicate",
-    "body": "Uses `%` (any sequence of characters) and `_` (any single character):\n\n```sql\n-- Products starting with \"CAMISA\"\nSELECT Codigo, Descripcion FROM Articulos WHERE Descripcion LIKE 'CAMISA%'\n\n-- Products with \"TEJANO\" anywhere in description\nSELECT Codigo, Descripcion FROM Articulos WHERE Descripcion LIKE '%TEJANO%'\n\n-- NOT LIKE\nSELECT Codigo FROM Articulos WHERE Codigo NOT LIKE '7%'\n\n-- ESCAPE clause for literal % or _\nSELECT * FROM Articulos WHERE Descripcion LIKE '%10\\%%' ESCAPE '\\'\n```\n\n**Important**: 4D SQL string comparison is **case-sensitive by default**. `'camisa'` will NOT match `'CAMISA'`. Use `UPPER()` or `LOWER()` for case-insensitive matching:\n```sql\nWHERE UPPER(Descripcion) LIKE '%CAMISA%'\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "IN Predicate",
-    "body": "```sql\nSELECT * FROM Tiendas WHERE Codigo IN ('99', '104', '121')\nSELECT Codigo, Descripcion FROM Articulos\n  WHERE NumFamilia IN (SELECT RegFamilia FROM FamiGrupMarc WHERE Clave = '10')\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "BETWEEN Predicate",
-    "body": "```sql\nSELECT Codigo, Precio1 FROM Articulos WHERE Precio1 BETWEEN 10.0 AND 50.0\nSELECT * FROM Ventas WHERE FechaCreacion BETWEEN '2025-01-01' AND '2025-01-31'\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "IS NULL / IS NOT NULL",
-    "body": "```sql\nSELECT Codigo FROM Articulos WHERE CodigoBarra IS NULL\nSELECT Codigo FROM Articulos WHERE CodigoBarra IS NOT NULL\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Supported Join Types",
-    "body": "4D supports both implicit (comma) and explicit JOIN syntax.\n\n**Implicit Inner Join (comma syntax)**:\n```sql\nSELECT lv.Codigo, lv.Descripcion, v.FechaCreacion, v.Total\n  FROM LineasVentas lv, Ventas v\n  WHERE lv.NumVentas = v.RegVentas\n```\n\n**Explicit INNER JOIN**:\n```sql\nSELECT a.Codigo, a.Descripcion, f.FamiGrupMarc AS familia\n  FROM Articulos a\n  INNER JOIN FamiGrupMarc f ON a.NumFamilia = f.RegFamilia\n```\n\n**LEFT OUTER JOIN**:\n```sql\nSELECT a.Codigo, a.Descripcion, f.FamiGrupMarc\n  FROM Articulos a\n  LEFT OUTER JOIN FamiGrupMarc f ON a.NumFamilia = f.RegFamilia\n```\n\n**RIGHT OUTER JOIN**:\n```sql\nSELECT a.Codigo, f.FamiGrupMarc\n  FROM Articulos a\n  RIGHT OUTER JOIN FamiGrupMarc f ON a.NumFamilia = f.RegFamilia\n```\n\n**FULL OUTER JOIN**:\n```sql\nSELECT a.Codigo, f.FamiGrupMarc\n  FROM Articulos a\n  FULL OUTER JOIN FamiGrupMarc f ON a.NumFamilia = f.RegFamilia\n```\n\n**CROSS JOIN** (Cartesian product):\n```sql\nSELECT a.Codigo, t.Codigo\n  FROM Articulos a CROSS JOIN Tiendas t\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "JOIN Limitations",
-    "body": "- **No NATURAL JOIN** -- not supported. Always specify ON conditions explicitly.\n- **No USING clause** -- `JOIN ... USING (column)` is not supported. Use `ON` instead.\n- **Equality only in ON clause** -- explicit JOIN conditions must use `=`. Operators like `>=`, `<`, `BETWEEN` are NOT allowed in ON clauses. Use WHERE for non-equality conditions:\n\n```sql\n-- WRONG: will fail\nFROM Articulos a INNER JOIN LineasVentas lv ON a.RegArticulo = lv.NumArticulo AND lv.Mes >= 202501\n\n-- CORRECT: move non-equality to WHERE\nFROM Articulos a INNER JOIN LineasVentas lv ON a.RegArticulo = lv.NumArticulo\nWHERE lv.Mes >= 202501\n```\n\n- **Multiple joins** can be combined in a single query, mixing implicit and explicit syntax.\n\n---",
-    "hasSql": false,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Examples with PowerShop Schema",
-    "body": "```sql\n-- Total sales count and revenue per store\nSELECT Tienda, COUNT(*) AS num_tickets, SUM(Total) AS revenue\n  FROM Ventas\n  WHERE FechaCreacion >= '2025-01-01'\n  GROUP BY Tienda\n  ORDER BY revenue DESC\n\n-- Average ticket value by store\nSELECT v.Tienda, AVG(v.Total) AS avg_ticket\n  FROM Ventas v\n  WHERE v.FechaCreacion >= '2025-01-01' AND v.Total > 0\n  GROUP BY v.Tienda\n\n-- Product count per family\nSELECT f.FamiGrupMarc AS familia, COUNT(*) AS num_products\n  FROM Articulos a\n  INNER JOIN FamiGrupMarc f ON a.NumFamilia = f.RegFamilia\n  GROUP BY f.FamiGrupMarc\n  HAVING COUNT(*) > 10\n  ORDER BY num_products DESC\n\n-- Date range with distinct count\nSELECT COUNT(DISTINCT NumCliente) AS unique_customers\n  FROM Ventas\n  WHERE FechaCreacion BETWEEN '2025-01-01' AND '2025-03-31'\n    AND NumCliente > 0\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "String Function Examples",
-    "body": "```sql\n-- Full product description with family\nSELECT CONCAT(CONCAT(a.Codigo, ' - '), a.Descripcion) AS full_desc\n  FROM Articulos a\n  LIMIT 10\n\n-- Case-insensitive search\nSELECT Codigo, Descripcion FROM Articulos\n  WHERE UPPER(Descripcion) LIKE '%CAMISA%'\n\n-- Extract first 3 characters of store code\nSELECT LEFT(Tienda, 3) AS store_prefix, COUNT(*) AS sales\n  FROM LineasVentas\n  GROUP BY LEFT(Tienda, 3)\n\n-- Clean up trailing spaces\nSELECT TRIM(Descripcion) AS clean_name FROM Articulos LIMIT 5\n\n-- COALESCE for null handling\nSELECT Codigo, COALESCE(CodigoBarra, 'NO-BARCODE') AS barcode\n  FROM Articulos LIMIT 10\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Date/Time Examples",
-    "body": "```sql\n-- Sales from current month\nSELECT COUNT(*) FROM Ventas\n  WHERE YEAR(FechaCreacion) = YEAR(CURRENT_DATE)\n    AND MONTH(FechaCreacion) = MONTH(CURRENT_DATE)\n\n-- Monthly sales summary for 2025\nSELECT YEAR(FechaCreacion) AS yr, MONTH(FechaCreacion) AS mo,\n       COUNT(*) AS num_sales, SUM(Total) AS revenue\n  FROM Ventas\n  WHERE FechaCreacion >= '2025-01-01' AND FechaCreacion < '2026-01-01'\n  GROUP BY YEAR(FechaCreacion), MONTH(FechaCreacion)\n  ORDER BY yr, mo\n\n-- Using LineasVentas.Mes for faster period filtering (integer YYYYMM)\nSELECT Mes, SUM(Total) AS revenue, COUNT(*) AS lines\n  FROM LineasVentas\n  WHERE Mes BETWEEN 202501 AND 202512\n  GROUP BY Mes\n  ORDER BY Mes\n\n-- Day-of-week analysis\nSELECT DAYOFWEEK(FechaCreacion) AS dow, COUNT(*) AS sales\n  FROM Ventas\n  WHERE FechaCreacion >= '2025-01-01'\n  GROUP BY DAYOFWEEK(FechaCreacion)\n  ORDER BY dow\n\n-- EXTRACT syntax\nSELECT EXTRACT(YEAR FROM FechaCreacion) AS year FROM Ventas LIMIT 5\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Date Arithmetic",
-    "body": "4D SQL has limited built-in date arithmetic. For complex date math, prefer computing boundaries in Python and passing them as literals:\n\n```python\nfrom datetime import date, timedelta\nstart = date.today() - timedelta(days=30)\nquery = f\"SELECT * FROM Ventas WHERE FechaCreacion >= '{start.isoformat()}'\"\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Math Examples",
-    "body": "```sql\n-- Gross margin percentage\nSELECT Codigo, Descripcion,\n       Precio1 AS pvp, PrecioCoste AS cost,\n       ROUND((Precio1 - PrecioCoste) / Precio1 * 100, 1) AS margin_pct\n  FROM Articulos\n  WHERE Precio1 > 0 AND PrecioCoste > 0\n  ORDER BY margin_pct DESC\n  LIMIT 20\n\n-- ROUND example\nSELECT ROUND(1234.1966, 2)  -- returns 1234.2000\n\n-- Random sample of products\nSELECT Codigo, Descripcion FROM Articulos\n  WHERE RAND() < 0.01\n  LIMIT 10\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "9. CAST Function",
-    "body": "Convert between types:\n\n```sql\nCAST(expression AS sql_data_type_name)\n```\n\nExamples:\n```sql\n-- Object field to text (JSON)\nSELECT CAST(Objeto AS VARCHAR) FROM Articulos WHERE Objeto IS NOT NULL LIMIT 5\n\n-- Number to string\nSELECT CAST(RegArticulo AS VARCHAR) FROM Articulos LIMIT 5\n\n-- String to integer\nSELECT * FROM LineasVentas WHERE CAST(Tienda AS INT) = 99\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_TABLES",
-    "body": "```sql\nSELECT TABLE_NAME, TABLE_ID, SCHEMA_ID FROM _USER_TABLES\n```\n\n| Column | Type | Description |\n|--------|------|-------------|\n| TABLE_NAME | VARCHAR | Table name |\n| TEMPORARY | BOOLEAN | Is temporary table |\n| TABLE_ID | INT64 | Numeric table ID |\n| SCHEMA_ID | INT32 | Schema ID |\n| REST_AVAILABLE | BOOLEAN | Exposed via REST |\n| LOGGED | BOOLEAN | Included in transaction log |",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_COLUMNS",
-    "body": "```sql\nSELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, DATA_LENGTH, NULLABLE\n  FROM _USER_COLUMNS\n  WHERE TABLE_NAME = 'Articulos'\n  ORDER BY COLUMN_ID\n```\n\n| Column | Type | Description |\n|--------|------|-------------|\n| TABLE_NAME | VARCHAR | Parent table |\n| COLUMN_NAME | VARCHAR | Column name |\n| DATA_TYPE | INT32 | SQL type code (see type IDs above) |\n| DATA_LENGTH | INT32 | Size in bytes |\n| OLD_DATA_TYPE | INT32 | Legacy 4D type code |\n| NULLABLE | BOOLEAN | Allows NULLs |\n| TABLE_ID | INT64 | Table number |\n| COLUMN_ID | INT64 | Column number |\n| UNIQUENESS | BOOLEAN | Has unique constraint |\n| AUTOGENERATE | BOOLEAN | Auto-generated value |\n| AUTOINCREMENT | BOOLEAN | Auto-increment |",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_INDEXES",
-    "body": "```sql\nSELECT INDEX_NAME, TABLE_NAME, INDEX_TYPE, UNIQUENESS\n  FROM _USER_INDEXES\n  WHERE TABLE_NAME = 'Articulos'\n```\n\n| Column | Type | Description |\n|--------|------|-------------|\n| INDEX_ID | VARCHAR | Index identifier |\n| INDEX_NAME | VARCHAR | Index name |\n| INDEX_TYPE | INT32 | 1=BTree, 3=Cluster/Keyword, 7=Auto, 8=Object-type |\n| KEYWORD | BOOLEAN | Is keyword index |\n| TABLE_NAME | VARCHAR | Table name |\n| UNIQUENESS | BOOLEAN | Unique index |",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_IND_COLUMNS",
-    "body": "```sql\nSELECT INDEX_NAME, TABLE_NAME, COLUMN_NAME, COLUMN_POSITION\n  FROM _USER_IND_COLUMNS\n  WHERE TABLE_NAME = 'Articulos'\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_CONSTRAINTS",
-    "body": "```sql\nSELECT CONSTRAINT_NAME, CONSTRAINT_TYPE, TABLE_NAME,\n       RELATED_TABLE_NAME, DELETE_RULE\n  FROM _USER_CONSTRAINTS\n```\n\n| CONSTRAINT_TYPE | Meaning |\n|-----------------|---------|\n| `P` | Primary Key |\n| `R` | Foreign Key |\n| `4DR` | 4D Relation (automatic) |",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_CONS_COLUMNS",
-    "body": "```sql\nSELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME,\n       RELATED_COLUMN_NAME\n  FROM _USER_CONS_COLUMNS\n  WHERE TABLE_NAME = 'LineasVentas'\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_SCHEMAS",
-    "body": "```sql\nSELECT SCHEMA_ID, SCHEMA_NAME FROM _USER_SCHEMAS\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "_USER_VIEWS / _USER_VIEW_COLUMNS",
-    "body": "```sql\nSELECT VIEW_NAME FROM _USER_VIEWS\nSELECT VIEW_NAME, COLUMN_NAME, DATA_TYPE FROM _USER_VIEW_COLUMNS\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Practical Gotchas",
-    "body": "1. **Never use `SELECT *`** on wide tables (CCStock: 582 cols, Articulos: 379 cols, Clientes: 311 cols). Always list specific columns.\n\n2. **Type 0 columns** cause `Unrecognized 4D type: 0` errors with p4d. Always query specific columns or pre-filter by checking `_USER_COLUMNS.DATA_TYPE != 0`.\n\n3. **Picture/Blob columns** (type 12, 18) in `SELECT *` can hang the connection. Exclude them.\n\n4. **Text returns bytes**: In Python 3.13+, p4d may return `bytes` for text columns. Always handle: `val.decode('utf-8', errors='replace') if isinstance(val, bytes) else val`.\n\n5. **Floating-point PKs**: When joining on Real-type foreign keys (e.g., `NumVentas = RegVentas`), be aware of floating-point precision. The values should match exactly since they are stored as-is, but avoid arithmetic on PK values.\n\n6. **No `ILIKE`**: Unlike PostgreSQL, there is no case-insensitive LIKE. Use `UPPER(col) LIKE 'PATTERN%'`.\n\n7. **No `::type` casting**: Use `CAST(expr AS type)` instead of PostgreSQL's `::` syntax.\n\n8. **No `COALESCE` with mixed types**: Ensure all arguments to COALESCE are the same type.\n\n9. **String comparison is byte-level**: Accented characters (common in Spanish/Portuguese data like \"Descripcion\", \"Poblacion\") sort by byte value, not linguistic order.\n\n10. **Connection stability**: The SQL server is manually started on the 4D Server. If 4D restarts, SQL may not come back without manual intervention.\n\n---",
-    "hasSql": false,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Sales Analysis",
-    "body": "```sql\n-- Daily sales summary for a store\nSELECT FechaCreacion, COUNT(*) AS tickets, SUM(Total) AS revenue\n  FROM Ventas\n  WHERE Tienda = '99' AND FechaCreacion >= '2025-01-01'\n  GROUP BY FechaCreacion\n  ORDER BY FechaCreacion\n\n-- Top 20 products by units sold in a period\nSELECT lv.Codigo, lv.Descripcion,\n       SUM(lv.Unidades) AS units, SUM(lv.Total) AS revenue\n  FROM LineasVentas lv\n  WHERE lv.Mes BETWEEN 202501 AND 202503\n  GROUP BY lv.Codigo, lv.Descripcion\n  ORDER BY units DESC\n  LIMIT 20\n\n-- Sales by family with join\nSELECT f.FamiGrupMarc AS familia,\n       SUM(lv.Total) AS revenue,\n       SUM(lv.Unidades) AS units,\n       COUNT(*) AS line_count\n  FROM LineasVentas lv\n  INNER JOIN FamiGrupMarc f ON lv.NumFamilia = f.RegFamilia\n  WHERE lv.Mes = 202501\n  GROUP BY f.FamiGrupMarc\n  ORDER BY revenue DESC\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Product Analysis",
-    "body": "```sql\n-- Products with margin below threshold\nSELECT Codigo, Descripcion, Precio1, PrecioCoste,\n       ROUND((Precio1 - PrecioCoste) / Precio1 * 100, 1) AS margin_pct\n  FROM Articulos\n  WHERE Precio1 > 0 AND PrecioCoste > 0 AND Anulado = FALSE\n    AND (Precio1 - PrecioCoste) / Precio1 < 0.3\n  ORDER BY margin_pct ASC\n  LIMIT 50\n\n-- Product catalog with classification\nSELECT a.Codigo, a.Descripcion, a.Precio1,\n       f.FamiGrupMarc AS familia,\n       d.DepaSeccFabr AS departamento,\n       a.ClaveTemporada, a.MarcaO2 AS marca\n  FROM Articulos a\n  LEFT OUTER JOIN FamiGrupMarc f ON a.NumFamilia = f.RegFamilia\n  LEFT OUTER JOIN DepaSeccFabr d ON a.NumDepartament = d.RegDepartament\n  WHERE a.Anulado = FALSE\n  ORDER BY a.Codigo\n  LIMIT 100\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Customer Analysis",
-    "body": "```sql\n-- Top customers by purchase volume\nSELECT v.NumCliente, v.Cliente,\n       COUNT(*) AS num_purchases, SUM(v.Total) AS total_spent\n  FROM Ventas v\n  WHERE v.NumCliente > 0\n    AND v.FechaCreacion >= '2025-01-01'\n  GROUP BY v.NumCliente, v.Cliente\n  HAVING SUM(v.Total) > 500\n  ORDER BY total_spent DESC\n  LIMIT 50\n\n-- Customer details lookup\nSELECT RegCliente, Cliente, Poblacion, Provincia, Postal,\n       Telefono, Movil, CIF, FormaPago\n  FROM Clientes\n  WHERE UPPER(Cliente) LIKE '%EXAMPLE%'\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Stock and Transfers",
-    "body": "```sql\n-- Transfer summary by store\nSELECT TiendaEntrada, Tipo, COUNT(*) AS transfers,\n       SUM(UnidadesE) AS total_units\n  FROM Traspasos\n  WHERE FechaE >= '2025-01-01'\n  GROUP BY TiendaEntrada, Tipo\n  ORDER BY TiendaEntrada, total_units DESC\n\n-- Products never sold (in last year)\nSELECT a.Codigo, a.Descripcion, a.Stock\n  FROM Articulos a\n  WHERE a.Anulado = FALSE AND a.Stock > 0\n    AND a.RegArticulo NOT IN (\n      SELECT DISTINCT lv.NumArticulo FROM LineasVentas lv\n      WHERE lv.Mes >= 202501\n    )\n  LIMIT 100\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/4d-sql-dialect.md",
-    "heading": "Schema Discovery",
-    "body": "```sql\n-- List all tables with row estimates\nSELECT TABLE_NAME, TABLE_ID FROM _USER_TABLES ORDER BY TABLE_NAME\n\n-- Describe a table's columns\nSELECT COLUMN_NAME, DATA_TYPE, DATA_LENGTH, NULLABLE\n  FROM _USER_COLUMNS\n  WHERE TABLE_NAME = 'Ventas'\n  ORDER BY COLUMN_ID\n\n-- Find all text columns in a table (safe to query)\nSELECT COLUMN_NAME FROM _USER_COLUMNS\n  WHERE TABLE_NAME = 'Articulos' AND DATA_TYPE = 10\n\n-- Find all numeric columns\nSELECT COLUMN_NAME FROM _USER_COLUMNS\n  WHERE TABLE_NAME = 'Articulos' AND DATA_TYPE IN (3, 4, 6)\n\n-- Find columns safe to query (exclude Picture, Blob, type 0)\nSELECT COLUMN_NAME, DATA_TYPE FROM _USER_COLUMNS\n  WHERE TABLE_NAME = 'Articulos' AND DATA_TYPE NOT IN (0, 12, 18)\n  ORDER BY COLUMN_ID\n```\n\n---",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/data-access.md",
-    "heading": "System tables",
-    "body": "| Query | Purpose |\n|-------|---------|\n| `SELECT * FROM _USER_TABLES` | List all tables (name, id, flags) |\n| `SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, DATA_LENGTH FROM _USER_COLUMNS WHERE TABLE_NAME = 'X'` | Columns for table X |",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/data-access.md",
-    "heading": "Gotchas",
-    "body": "- **Always use VAT-exclusive fields**: `Ventas.TotalSI` not `Total`, `LineasVentas.PrecioNetoSI * Unidades` not `Total`, `GCFacturas.(Base1+Base2+Base3)` not `TotalFactura`. VAT is 23% PT mainland / 22% Madeira / 21% Spain -- it distorts comparisons across regions.\n- **Primary keys are Real (float)**: Most tables use a Real field as PK with a `.99` suffix pattern (e.g. `RegArticulo = 534.99`). The `.99` is just a convention, not meaningful.\n- **Article identifier mapping**: `Articulos.CCRefeJOFACM` = **Referencia** (e.g., \"V26212484\") -- this is the **primary business identifier**: what appears on labels, what staff know, what reports should display. `Articulos.Codigo` (text, internal code like \"144880\") is used by SOAP APIs. `Articulos.RegArticulo` (float PK like \"10053347.99\") = `CCStock.NumArticulo` = `LineasVentas.NumArticulo` (used for JOINs). `Articulos.Articulo` is the supplier/provider reference. `Articulos.CodigoBarra` is the EAN/barcode. **Note**: `LineasVentas` has `Codigo` (= `Articulos.Codigo`) but does NOT have `CCRefeJOFACM` -- you must JOIN with `Articulos` on `a.RegArticulo = lv.NumArticulo` to get the Referencia. Reports should always show Referencia (`CCRefeJOFACM`) as the primary SKU column, not Codigo.\n- **Referencia prefix conventions**: Prefix `M` = wholesale/mayorista article. Prefix `MA` = **material** (bolsas, perchas, etc.) — no inventory tracked, no stock management, exclude from stock analysis and sales KPIs. When filtering for wholesale articles, use `LEFT(CCRefeJOFACM, 1) = 'M'` but be aware that MA articles are a subset that should often be excluded from business metrics.\n- **MA articles excluded at ETL level**: Articles whose CCRefeJOFACM starts with `'MA'` are filtered out during ETL sync — they are not present in `ps_articulos` or any line-item table in the PostgreSQL mirror (`ps_lineas_ventas`, `ps_stock_tienda`, `ps_gc_lin_albarane`, `ps_gc_lin_facturas`). **No need to add `WHERE ccrefejofacm NOT LIKE 'MA%'` in PostgreSQL queries** — the exclusion is already done upstream. Only the 4D source (`Articulos`) still contains MA rows.\n- **CCStock has 582 columns**: Wide-format stock matrix. Query specific columns, not `SELECT *`.\n- **Articulos has 379 columns**: Includes 15 price levels, 20 size slots, multilingual descriptions. Query specific columns.\n- **Read-only**: Never issue modification statements. The CLI blocks them, but be careful in direct Python scripts too.\n- **SQL dialect**: 4D SQL, not standard SQL. Some functions may differ. `LIMIT` works for row limiting.\n- **Connection stability**: The SQL server was manually started; if 4D Server restarts, SQL may not come back without manual intervention.\n- **PagosVentas fields**: `ImporteEnt` = \"Importe Entregado\" (physical amount handed over, e.g., a 20 EUR bill for a 5.99 EUR item) -- NOT useful for analytics. `ImporteCob` = \"Importe Cobrado\" (actual amount charged, includes VAT) -- use for payment analysis. `Ventas.TotalSI` = the real revenue number (VAT-exclusive), use for all revenue analytics. There is NO `ImporteSal` column. ~33 \"Devolucion Vale\" records have a POS bug in ImporteEnt that concatenates store codes, producing huge values -- this is not corruption, just an irrelevant field.\n- **No TLS**: SQL connection is unencrypted. Only use on trusted networks.\n- **p4d type 0 columns**: Some columns have type 0 (unknown to p4d). `SELECT *` on tables with these columns raises `Unrecognized 4D type: 0`. Always query specific columns or filter by `_USER_COLUMNS.DATA_TYPE` first.\n- **p4d cursor.description returns bytes column names**: The p4d driver returns column names in `cursor.description` as `bytes` (e.g. `b'REGARTICULO'`), not `str`. If you iterate `cursor.description` to build dict keys, you'll get bytes keys that don't match any string-based mapping. The ETL's `safe_fetch()` in `etl/db/fourd.py` handles this with `_decode_column_name()`. If writing custom queries outside the ETL, always decode: `col_name.decode('utf-8') if isinstan",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/data-access.md",
-    "heading": "CLI usage",
-    "body": "```bash\nps sql tables                          # List all tables\nps sql describe Articulos              # Show columns\nps sql query \"SELECT * FROM Tiendas\"   # Run query\nps sql sample Ventas 3                 # Sample rows\nps sql count LineasVentas              # Row count\n```",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/data-access.md",
-    "heading": "Method 1: SQL via `Exportaciones` table (discovered from legacy VFP app)",
-    "body": "The `Exportaciones` table contains per-store, per-article stock with per-size breakdown.\n\n```sql\n-- Get stock for a specific store\nSELECT *\nFROM Exportaciones\nWHERE CAST(Tienda AS INT) = 152\n  AND CCStock <> 0\n```\n\nKey columns: `Tienda` (store code), `Codigo` (article code), `CCStock` (row-level net stock, Real), `Stock1..Stock34` (per-size stock, 16-bit integer slots — see gotcha on unsigned negatives via SQL).\n\nThis method is faster for bulk queries (all articles in a store at once) and does not require SOAP authentication.\n\n**Note**: This table was used by the legacy VFP application (2014-2018). Verify the table still exists and is populated in the current schema.",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
-    "source": "docs/skills/data-access.md",
-    "heading": "To get total stock in a specific store:",
-    "body": "for art in data:\n    for tienda in art['tiendas']:\n        store_total = sum(s['stock'] for s in tienda['stock'])\n        if store_total > 0:\n            print(f\"Store {tienda['codigo_tienda']}: {store_total} units\")\n```\n\n**Important notes:**\n- The input codes must be `Articulos.Codigo` (internal numeric codes like \"144880\"), NOT the article reference (`Articulo` field like \"BOBA\") or barcode (`CodigoBarra`).\n- To map between identifiers: `SELECT Codigo, Articulo, CodigoBarra, RegArticulo FROM Articulos WHERE Codigo = 'XXXX'`\n- `CCStock.NumArticulo` corresponds to `Articulos.RegArticulo` (the float PK with .99 suffix).\n- Store code 99 is the central warehouse (company headquarters).\n- Store code 97 is the online store.\n- Negative stock values can appear (returns pending, adjustments).\n- The API returns all ~51 stores for every article, even those with zero stock.",
-    "hasSql": true,
-    "dialect": "4d"
-  },
-  {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "Dashboard SQL Pairs",
     "body": "Curated question → SQL examples for the dashboard LLM prompt.\n\nThese pairs teach the LLM how to translate natural-language business questions\ninto correct PostgreSQL queries against the `ps_*` mirror tables.\n\n**Rules for new pairs:**\n- Always use `:curr_from` / `:curr_to` for current-period date ranges (never `CURRENT_DATE` or bare `INTERVAL`).\n- Use `:comp_from` / `:comp_to` only for explicitly comparative questions (YoY, año anterior, etc.).\n- Always use `total_si` (not `total`) for sales amounts.\n- Always filter `entrada = true` for sales, `entrada = false` for returns. **`entrada` exists only on `ps_ventas`, NOT on `ps_lineas_ventas`** — when querying `ps_lineas_ventas`, JOIN `ps_ventas v ON lv.num_ventas = v.reg_ventas` and filter `v.entrada`.\n- Exclude tienda `'99'` from retail store rankings.\n- Test new SQL against the local mirror with `ps sql query \"...\"`.\n\n---",
@@ -1800,7 +1457,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué artículos tienen más stock en el almacén central?",
-    "body": "```sql\nSELECT s.\"codigo\" AS \"Código\", p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", SUM(s.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" s JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\" WHERE s.\"tienda\" = '99' AND s.\"stock\" > 0 GROUP BY s.\"codigo\", p.\"ccrefejofacm\", p.\"descripcion\" ORDER BY \"Stock\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", SUM(sc.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_central\" sc JOIN \"public\".\"ps_articulos\" p ON sc.\"num_articulo\" = p.\"reg_articulo\" WHERE sc.\"stock\" > 0 GROUP BY 1, 2 ORDER BY \"Stock\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1814,7 +1471,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué tallas se venden más de una referencia?",
-    "body": "```sql\nSELECT UPPER(lv.\"talla\") AS \"Talla\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND lv.\"talla\" IS NOT NULL GROUP BY UPPER(lv.\"talla\") ORDER BY \"Unidades\" DESC\n```",
+    "body": "```sql\nSELECT UPPER(lv.\"talla\") AS \"Talla\", COALESCE(SUM(lv.\"unidades\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Unidades\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'OUT340184' AND lv.\"talla\" IS NOT NULL GROUP BY UPPER(lv.\"talla\") ORDER BY \"Unidades\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1892,13 +1549,6 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué artículos acumulan más stock por talla?",
     "body": "```sql\nSELECT COALESCE(NULLIF(TRIM(fm.\"fami_grup_marc\"), ''), 'Sin clasificar') AS \"Familia\", s.\"talla\" AS \"Talla\", COALESCE(NULLIF(p.\"ccrefejofacm\", ''), '—') AS \"Referencia\", COALESCE(NULLIF(p.\"descripcion\", ''), '—') AS \"Descripción\", SUM(s.\"stock\") AS \"Stock\" FROM \"public\".\"ps_stock_tienda\" s JOIN \"public\".\"ps_articulos\" p ON s.\"codigo\" = p.\"codigo\" LEFT JOIN \"public\".\"ps_familias\" fm ON p.\"num_familia\" = fm.\"reg_familia\" WHERE s.\"stock\" > 0 AND s.\"tienda\" <> '99' AND p.\"anulado\" = false GROUP BY COALESCE(NULLIF(TRIM(fm.\"fami_grup_marc\"), ''), 'Sin clasificar'), s.\"talla\", COALESCE(NULLIF(p.\"ccrefejofacm\", ''), '—'), COALESCE(NULLIF(p.\"descripcion\", ''), '—') ORDER BY \"Stock\" DESC LIMIT 50\n```",
-    "hasSql": true,
-    "dialect": "postgres"
-  },
-  {
-    "source": "docs/dashboard/sql-pairs.md",
-    "heading": "¿Cuál es la facturación mayorista por comercial?",
-    "body": "```sql\nSELECT c.\"comercial\" AS \"Comercial\", COUNT(DISTINCT f.\"reg_factura\") AS \"Facturas\", SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" f JOIN \"public\".\"ps_gc_comerciales\" c ON f.\"num_comercial\" = c.\"reg_comercial\" WHERE f.\"abono\" = false GROUP BY c.\"comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -2023,29 +1673,22 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
-    "heading": "¿Margen mayorista por comercial?",
-    "body": "```sql\nWITH neto AS (SELECT c.\"comercial\" AS comercial, COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS coste FROM \"public\".\"ps_gc_lin_facturas\" lf JOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"reg_factura\" JOIN \"public\".\"ps_gc_comerciales\" c ON f.\"num_comercial\" = c.\"reg_comercial\" WHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"comercial\") SELECT comercial AS \"Comercial\", ingreso AS \"Ingreso\", coste AS \"Coste\", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS \"Margen %\" FROM neto WHERE ingreso <> 0 ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": true,
-    "dialect": "postgres"
-  },
-  {
-    "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Volumen de traspasos por ruta?",
-    "body": "```sql\nSELECT t.\"tienda_salida\" AS \"Tienda Origen\", t.\"tienda_entrada\" AS \"Tienda Destino\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"tienda_salida\", t.\"tienda_entrada\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT t.\"tienda_salida\" AS \"Tienda Origen\", t.\"tienda_entrada\" AS \"Tienda Destino\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND t.\"tipo\" = 'Autoreposicion' AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"tienda_salida\", t.\"tienda_entrada\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Traspasos diarios de stock?",
-    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"fecha_s\" ORDER BY t.\"fecha_s\"\n```",
+    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", COUNT(*) AS \"Traspasos\", SUM(t.\"unidades_s\") AS \"Unidades\" FROM \"public\".\"ps_traspasos\" t WHERE t.\"entrada\" = false AND t.\"tipo\" = 'Autoreposicion' AND t.\"fecha_s\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"fecha_s\" ORDER BY t.\"fecha_s\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Movimientos de stock de un artículo?",
-    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", t.\"tienda_salida\" AS \"Origen\", t.\"tienda_entrada\" AS \"Destino\", t.\"talla\" AS \"Talla\", t.\"unidades_s\" AS \"Unidades\", t.\"tipo\" AS \"Tipo\" FROM \"public\".\"ps_traspasos\" t JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'REFERENCIA_AQUI' AND t.\"entrada\" = false AND COALESCE(t.\"tipo\", '') NOT IN ('Apertura', 'Inventario Parcial') ORDER BY t.\"fecha_s\" DESC LIMIT 50\n```",
+    "body": "```sql\nSELECT t.\"fecha_s\" AS \"Fecha\", t.\"tienda_salida\" AS \"Origen\", t.\"tienda_entrada\" AS \"Destino\", t.\"talla\" AS \"Talla\", t.\"unidades_s\" AS \"Unidades\", t.\"tipo\" AS \"Tipo\" FROM \"public\".\"ps_traspasos\" t JOIN \"public\".\"ps_articulos\" p ON t.\"codigo\" = p.\"codigo\" WHERE p.\"ccrefejofacm\" = 'V26391168' AND t.\"entrada\" = false AND t.\"tipo\" = 'Autoreposicion' ORDER BY t.\"fecha_s\" DESC LIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

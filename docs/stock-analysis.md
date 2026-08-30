@@ -1,570 +1,608 @@
 # PowerShop Stock Analysis Guide
 
-> How stock is tracked, moved, and reconciled in the PowerShop database.
-> Covers the dual-table model (CCStock + Exportaciones), transfers, returns,
-> the SOAP web service for per-store-per-size stock, and the VFP formula.
+> How stock is tracked, moved, and reconciled — **as queried from the PostgreSQL
+> mirror** (`ps_*` tables), which is the only thing the dashboard and WrenAI can
+> execute against.
+>
+> **Dialect.** Every SQL block in this file is PostgreSQL against the mirror.
+> The 4D ERP tables it derives from (`CCStock`, `Exportaciones`, `Traspasos`,
+> `GCAlbaranes`…) are named only as *lineage*, never in a `FROM` clause: they do
+> not exist in the mirror and a query against them fails.
+>
+> Date placeholders `:curr_from` / `:curr_to` (and `:comp_from` / `:comp_to` for
+> the comparison period) are bound by the caller. Never hardcode `CURRENT_DATE`.
 
 ## Table of Contents
 
 1. [Stock Model Overview](#1-stock-model-overview)
-2. [CCStock -- Central Warehouse (Store 99)](#2-ccstock--central-warehouse)
-3. [Exportaciones -- Retail Store Stock](#3-exportaciones--retail-store-stock)
+2. [ps_stock_central — Central Warehouse (Store 99)](#2-ps_stock_central--central-warehouse-store-99)
+3. [ps_stock_tienda — Retail Store Stock](#3-ps_stock_tienda--retail-store-stock)
 4. [Total Stock Calculation](#4-total-stock-calculation)
-5. [Stock Movement Formula (VFP)](#5-stock-movement-formula-vfp)
-6. [Transfers (Traspasos)](#6-transfers-traspasos)
-7. [Returns via GCAlbaranes](#7-returns-via-gcalbaranes)
+5. [Stock Movement Formula](#5-stock-movement-formula)
+6. [Transfers (ps_traspasos)](#6-transfers-ps_traspasos)
+7. [Wholesale Returns (ps_gc_albaranes)](#7-wholesale-returns-ps_gc_albaranes)
 8. [Negative Stock](#8-negative-stock)
-9. [SOAP Web Service: WS_JS_StockTiendas](#9-soap-web-service-ws_js_stocktiendas)
-10. [Inventory Snapshots](#10-inventory-snapshots)
-11. [Common Stock Queries](#11-common-stock-queries)
+9. [Common Stock Queries](#9-common-stock-queries)
+10. [What is NOT in the mirror](#10-what-is-not-in-the-mirror)
 
 ---
 
 ## 1. Stock Model Overview
 
-PowerShop uses a **dual-table model** for stock:
+Stock is split across **two mirror tables**, by location:
 
 ```
-                    +-------------------+
-                    |    Articulos      |
-                    | (product master)  |
-                    | Stock = aggregate |
-                    +--------+----------+
-                             |
-              +--------------+--------------+
-              |                             |
-    +---------v---------+     +-------------v-----------+
-    |     CCStock        |     |     Exportaciones        |
-    | (store 99/central) |     | (all retail stores)      |
-    | 1 row per product  |     | 1 row per product/store  |
-    | ~41,222 rows       |     | ~2,056,000 rows          |
-    +--------------------+     +--------------------------+
+            +---------------------------+
+            |       ps_articulos        |
+            |  reg_articulo / codigo /  |
+            |       ccrefejofacm        |
+            +------+-------------+------+
+                   |             |
+     num_articulo  |             |  codigo
+    = reg_articulo |             |  = codigo
+                   |             |
+      +------------v----+   +----v----------------------+
+      | ps_stock_central|   |      ps_stock_tienda      |
+      | central wh (99) |   | all retail stores, by size|
+      | 1 row / article |   | 1 row / article+store+size|
+      |   ~42.8k rows   |   |        ~13.6M rows        |
+      +-----------------+   +---------------------------+
 ```
 
-### Key Rules
+### Key rules
 
-1. **CCStock** holds stock for **store 99** (the central warehouse). One row per product.
-2. **Exportaciones** holds stock for **all retail stores**. One row per product per store.
-3. **Store 99 never appears in Exportaciones.**
-4. **Articulos.Stock** is a denormalized aggregate of CCStock + all Exportaciones rows for that product.
-5. Both tables use a **wide format**: up to 34 size slots per row (Stock1..Stock34, Talla1..Talla34).
+1. **`ps_stock_central`** holds the central warehouse (store 99). One row per
+   article, keyed by `num_articulo` = `ps_articulos.reg_articulo`. It has **no
+   size breakdown** — only a total `stock`.
+2. **`ps_stock_tienda`** holds retail stores, keyed by
+   `(codigo, tienda_codigo, talla)`. It joins to `ps_articulos` by **`codigo`**,
+   not by a record id.
+3. **Store 99 does not appear in `ps_stock_tienda`.** Filtering `tienda <> '99'`
+   there is a no-op that costs nothing and documents intent; the central figure
+   must come from `ps_stock_central`. A query that looks for central stock in
+   `ps_stock_tienda` returns zero rows, not an error — which is the dangerous
+   failure mode.
+4. **Total stock for an article = central + all stores.** There is no
+   pre-aggregated total column in the mirror; `ps_articulos` has no `stock`.
+5. `ps_stock_tienda.talla` is normalised to **UPPERCASE** by the ETL, but the
+   source mixes cases (`'6Xl'`), so always compare sizes with `UPPER()` on both
+   sides when joining to `ps_lineas_ventas.talla`.
+6. `stock` is a signed `INTEGER`. Negatives are real (see §8), so
+   `SUM(stock)` is a *net* figure — add `WHERE stock > 0` when you want the
+   gross positive position.
+
+*Lineage:* `ps_stock_central` comes from 4D `CCStock` (582 columns, wide format),
+`ps_stock_tienda` from 4D `Exportaciones` (161 columns, 34 size slots per row).
+The ETL unpivots the 34 `StockN`/`TallaN` slot pairs into rows and applies the
+signed-int16 decode of [D-017](decisions/D-017-signed-int16-stock.md). None of
+that wide structure survives into the mirror.
 
 ---
 
-## 2. CCStock -- Central Warehouse
+## 2. `ps_stock_central` — Central Warehouse (Store 99)
 
-**~41,222 rows, 582 columns**
+**~42,800 rows.** One row per article at the central warehouse.
 
-Each row represents one product's stock position at the central warehouse.
+| Column | Type | Notes |
+|--------|------|-------|
+| `num_articulo` | `NUMERIC(20,3)` PK | FK → `ps_articulos.reg_articulo` |
+| `stock` | `INTEGER` | Total units, all sizes summed. Can be negative. |
+| `fecha_modifica` | `DATE` | Source modification date |
 
-### Structure
+**No per-size detail exists here.** Size-level questions about the central
+warehouse cannot be answered from the mirror — see §10.
 
-```
-NumArticulo  -> FK to Articulos.RegArticulo
-Stock        -> Total units (sum of Stock1..Stock34)
-Stock1..34   -> Units per size slot (Integer)
-Talla1..34   -> Size label per slot (Alpha)
-Compra1..34  -> Purchase price per size
-Minimo1..34  -> Minimum stock level per size
-Anulada1..34 -> Size cancelled flag
-PVP11..PVP734 -> PVP per tariff (7 tariffs) per size (34 sizes)
-Rebaja11..234 -> Markdown per level per size
-Ubicacion11..334 -> Warehouse location per zone per size
+```sql
+-- Total units at the central warehouse (net, includes negatives)
+SELECT COALESCE(SUM(sc."stock"), 0) AS "Unidades Central"
+FROM "public"."ps_stock_central" sc;
 ```
 
-### Why 582 Columns?
-
-The wide format avoids joins for size-level queries but results in a very wide table:
-- 34 stock columns
-- 34 size labels
-- 34 purchase prices
-- 34 minimums
-- 34 cancelled flags
-- 238 PVP columns (7 tariffs x 34 sizes)
-- 68 markdown columns (2 levels x 34 sizes)
-- 102 location columns (3 zones x 34 sizes)
-- Plus aggregate and metadata fields
+```sql
+-- Central stock valued at cost, active articles only
+SELECT SUM(sc."stock" * p."precio_coste") AS "Valor Coste",
+       SUM(sc."stock")                    AS "Unidades",
+       COUNT(*)                           AS "Referencias"
+FROM "public"."ps_stock_central" sc
+JOIN "public"."ps_articulos" p ON sc."num_articulo" = p."reg_articulo"
+WHERE sc."stock" > 0 AND p."anulado" = false;
+```
 
 ---
 
-## 3. Exportaciones -- Retail Store Stock
+## 3. `ps_stock_tienda` — Retail Store Stock
 
-**~2,056,001 rows, 161 columns**
+**~13.6M rows.** One row per article + store + size. The largest table in the
+mirror — always filter or aggregate, never scan it raw.
 
-Each row represents one product's stock at one retail store.
+| Column | Type | Notes |
+|--------|------|-------|
+| `codigo` | `TEXT` PK part | FK → `ps_articulos.codigo` |
+| `tienda_codigo` | `TEXT` PK part | Composite `"store/article"`, e.g. `"104/169"` |
+| `talla` | `TEXT` PK part | UPPERCASE in the ETL |
+| `tienda` | `TEXT` | Store code. **Never `'99'`.** |
+| `stock` | `INTEGER` | Units for that article+store+size. Can be negative. |
+| `fecha_modifica` | `DATE` | |
 
-### Structure
-
+```sql
+-- Total units across retail stores
+SELECT COALESCE(SUM(s."stock"), 0) AS "Unidades Tiendas"
+FROM "public"."ps_stock_tienda" s
+WHERE s."tienda" <> '99';
 ```
-Codigo       -> Product code (Alpha)
-Tienda       -> Store code (Alpha)
-TiendaCodigo -> Composite key: store+code
-CCStock      -> FK to CCStock record
-STStock      -> Total units at this store (sum of Stock1..34)
-Stock1..34   -> Units per size slot
-Talla1..34   -> Size labels
-Minimo1..34  -> Minimum stock per size
+
+```sql
+-- Per-store, per-size stock for one reference
+SELECT s."tienda"        AS "Tienda",
+       UPPER(s."talla")  AS "Talla",
+       SUM(s."stock")    AS "Stock"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI'
+  AND s."tienda" <> '99'
+GROUP BY s."tienda", UPPER(s."talla")
+ORDER BY s."tienda", UPPER(s."talla");
 ```
-
-### Key Points
-
-- **2 million+ rows** -- this is the largest table in the database.
-- Querying all stores for a product requires filtering by `Codigo`.
-- Querying all products for a store requires filtering by `Tienda`.
-- The composite `TiendaCodigo` field can be used for fast lookups.
 
 ---
 
 ## 4. Total Stock Calculation
 
-### For a Single Product
-
 ```
-Total Stock = CCStock.Stock (central)
-            + SUM(Exportaciones.STStock) for all stores
+Total = ps_stock_central.stock  (central warehouse, store 99)
+      + SUM(ps_stock_tienda.stock)  (all retail stores, all sizes)
 ```
 
-### SQL Example
+PostgreSQL does the whole thing in one statement — no Python loop, no `UNION`
+workaround (that constraint was a 4D SQL limitation, not a mirror one):
 
-Since 4D does not support UNION, run two queries and sum in Python:
-
-```python
-# Central stock
-cur.execute("""
-    SELECT cs.Stock
-    FROM CCStock cs
-    INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo
-    WHERE a.Codigo = '12345'
-""")
-central = cur.fetchone()[0] or 0
-
-# Store stock
-cur.execute("""
-    SELECT SUM(e.STStock)
-    FROM Exportaciones e
-    WHERE e.Codigo = '12345'
-""")
-stores = cur.fetchone()[0] or 0
-
-total = central + stores
+```sql
+SELECT p."ccrefejofacm" AS "Referencia",
+       p."descripcion"  AS "Descripción",
+       COALESCE(sc."stock", 0) AS "Central",
+       COALESCE((SELECT SUM(s."stock")
+                 FROM "public"."ps_stock_tienda" s
+                 WHERE s."codigo" = p."codigo" AND s."tienda" <> '99'), 0) AS "Tiendas",
+       COALESCE(sc."stock", 0)
+         + COALESCE((SELECT SUM(s."stock")
+                     FROM "public"."ps_stock_tienda" s
+                     WHERE s."codigo" = p."codigo" AND s."tienda" <> '99'), 0) AS "Total"
+FROM "public"."ps_articulos" p
+LEFT JOIN "public"."ps_stock_central" sc ON sc."num_articulo" = p."reg_articulo"
+WHERE p."ccrefejofacm" = '85170712';
 ```
 
-### Per-Size Stock for a Product
+Note the two different join keys: `ps_stock_central` joins on
+`num_articulo = reg_articulo`, `ps_stock_tienda` on `codigo = codigo`. Getting
+these the wrong way round silently returns zero rows.
 
-```python
-# Central per-size
-cur.execute("""
-    SELECT cs.Talla1, cs.Stock1, cs.Talla2, cs.Stock2,
-           cs.Talla3, cs.Stock3, cs.Talla4, cs.Stock4,
-           cs.Talla5, cs.Stock5, cs.Talla6, cs.Stock6
-    FROM CCStock cs
-    INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo
-    WHERE a.Codigo = '12345'
-""")
+A reference (`ccrefejofacm`) is **model + colour**, so it usually maps to several
+`codigo` values. Grouping by `ccrefejofacm` aggregates the colour; grouping by
+`LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2)` aggregates the model across
+colours.
+
+---
+
+## 5. Stock Movement Formula
+
+Conceptually, expected stock is opening stock plus net movements:
+
+```
+Stock_esperado = Stock_inicial + (Entradas - Salidas)
+```
+
+Of the movement legs, **only some are mirrored**:
+
+| Leg | Direction | Mirror source | Available? |
+|-----|-----------|---------------|:----------:|
+| Retail sales | out | `ps_lineas_ventas` where `entrada` | yes |
+| Retail returns | in | `ps_lineas_ventas` where `NOT entrada` | yes |
+| Transfers out | out | `ps_traspasos` where `entrada IS FALSE`, `unidades_s` | yes |
+| Transfers in | in | `ps_traspasos` where `entrada IS TRUE`, `unidades_e` | yes |
+| Wholesale shipments | out | `ps_gc_lin_albarane` + header `abono IS NOT TRUE` | yes |
+| Wholesale credit notes | in | `ps_gc_lin_albarane` + header `abono IS TRUE` | yes |
+| **Goods received from suppliers** | in | — | **no** (§10) |
+| **Returns to supplier** | out | — | **no** (§10) |
+
+Because the purchase-receipt leg is missing, **a full reconciliation
+(`Stock_esperado` vs `stock`) cannot be computed from the mirror.** Any shrinkage
+figure derived without it is wrong by the entire volume of incoming goods. Use
+the mirror for the *sales / transfer / wholesale* legs only, and say so.
+
+Net retail movement per article, which *is* computable:
+
+```sql
+SELECT p."ccrefejofacm" AS "Referencia",
+       COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0)
+         - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS "Unidades Netas",
+       COALESCE(SUM(s."stock"), 0) AS "Stock Tiendas"
+FROM "public"."ps_lineas_ventas" lv
+JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+LEFT JOIN (SELECT "codigo", SUM("stock") AS "stock"
+           FROM "public"."ps_stock_tienda"
+           WHERE "tienda" <> '99'
+           GROUP BY "codigo") s ON s."codigo" = lv."codigo"
+WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND lv."tienda" <> '99'
+GROUP BY p."ccrefejofacm", p."descripcion"
+ORDER BY "Unidades Netas" DESC
+LIMIT 30;
+```
+
+The `COALESCE` on **each** side of the subtraction is mandatory
+([D-057](decisions/D-057-ventas-netas-de-devoluciones.md)): a period with no returns makes the second
+`SUM ... FILTER` `NULL`, `x - NULL` is `NULL`, and `NULL` sorts first in
+`ORDER BY ... DESC` — the top of the ranking becomes the articles with no data.
+
+---
+
+## 6. Transfers (`ps_traspasos`)
+
+**~262,700 rows.** Movements between stores.
+
+### Dual-entry pattern
+
+Every physical transfer writes **two rows**, one per side:
+
+| Row | `entrada` | Store column | Qty column | Date column |
+|-----|-----------|--------------|------------|-------------|
+| Exit | `FALSE` | `tienda_salida` | `unidades_s` | `fecha_s` |
+| Entry | `TRUE` | `tienda_entrada` | `unidades_e` | `fecha_e` |
+
+**Never sum both sides together** — that double-counts every movement. Pick one
+side and stay on it.
+
+### `tipo` values actually present in the mirror
+
+| `tipo` | Rows | Treat as a transfer? |
+|--------|------|:--------------------:|
+| `Apertura` | ~247.5k | **No** — store opening load, not a movement |
+| `Inventario Parcial` | ~739 | **No** — stock count adjustment |
+| `Regularización` | ~14.1k | Yes (adjustment, but a real stock change) |
+| `Autoreposicion` | ~425 | Yes |
+
+`tipo` is **nullable**, so the exclusion must be written with `COALESCE`:
+
+```sql
+COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial')
+```
+
+Written as `t."tipo" NOT IN (...)` it silently drops every row with a NULL
+`tipo`, because `NULL NOT IN (...)` is `NULL`, not `TRUE`.
+
+### Transfers into a store
+
+```sql
+SELECT t."fecha_s"        AS "Fecha",
+       t."tienda_salida"  AS "Origen",
+       p."ccrefejofacm"   AS "Referencia",
+       t."talla"          AS "Talla",
+       t."unidades_s"     AS "Unidades",
+       t."tipo"           AS "Tipo",
+       t."concepto"       AS "Concepto"
+FROM "public"."ps_traspasos" t
+LEFT JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo"
+WHERE t."tienda_entrada" = '97'
+  -- `Autoreposicion` es el unico traspaso real entre tiendas y va SIEMPRE con
+  -- entrada=false, llevando origen Y destino en la misma fila. Filtrar
+  -- `entrada IS TRUE` aqui devuelve cero: la "pata de entrada" que describia la
+  -- doc antigua no existe para este tipo.
+  AND t."tipo" = 'Autoreposicion'
+  AND t."fecha_s" BETWEEN :curr_from AND :curr_to
+ORDER BY t."fecha_s" DESC
+LIMIT 50;
+```
+
+### Transfer volume by route
+
+```sql
+SELECT t."tienda_salida"  AS "Origen",
+       t."tienda_entrada" AS "Destino",
+       DATE_TRUNC('month', t."fecha_s") AS "Mes",
+       COUNT(*)           AS "Movimientos",
+       SUM(t."unidades_s") AS "Unidades"
+FROM "public"."ps_traspasos" t
+WHERE t."entrada" IS FALSE
+  AND t."fecha_s" BETWEEN :curr_from AND :curr_to
+  AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial')
+GROUP BY t."tienda_salida", t."tienda_entrada", DATE_TRUNC('month', t."fecha_s")
+ORDER BY "Unidades" DESC
+LIMIT 15;
 ```
 
 ---
 
-## 5. Stock Movement Formula (VFP)
+## 7. Wholesale Returns (`ps_gc_albaranes`)
 
-The VFP (Verificacion Fisica de Producto) formula tracks all stock movements:
+In the wholesale channel a return is a **credit note**, flagged on the *header*:
+`ps_gc_albaranes.abono IS TRUE`. `entrada` does not exist there — that is the
+retail discriminator, and using it on GC tables is a column-does-not-exist error.
 
-### Entry Components (Entradas)
+Two rules that are easy to get wrong:
 
-| Source | Table | Filter | Quantity Field |
-|--------|-------|--------|---------------|
-| Customer returns (retail) | LineasVentas | Entrada=False | Unidades |
-| Purchase receipts | LinAlbaranes / Albaranes | Abono=False | Recibidas |
-| Transfers in | Traspasos | Entrada=True | UnidadesE |
-| Wholesale returns (credit notes) | GCAlbaranes | Abono=True | Unidades |
-
-### Exit Components (Salidas)
-
-| Source | Table | Filter | Quantity Field |
-|--------|-------|--------|---------------|
-| Retail sales | LineasVentas | Entrada=True | Unidades |
-| Purchase returns | LinAlbaranes / Albaranes | Abono=True | Recibidas |
-| Transfers out | Traspasos | Entrada=False | UnidadesS |
-| Wholesale shipments | GCLinAlbarane | Abono=False | Unidades |
-
-### Formula
-
-```
-Entradas = devoluciones_retail
-         + albaranes_compra_recibidos
-         + envios_recibidos
-         + traspasos_entrada
-
-Salidas  = ventas_retail
-         + albaranes_compra_devolucion
-         + envios_salida
-         + traspasos_salida
-
-Neto     = Entradas - Salidas
-```
-
-### Expected Stock
-
-```
-Stock_esperado = Stock_inicial + Neto
-```
-
-If `Stock_esperado != Stock_actual`, the difference is shrinkage (theft, damage, counting errors).
-
----
-
-## 6. Transfers (Traspasos)
-
-**~262,689 rows, 29 columns**
-
-### Dual-Entry Pattern
-
-Every physical transfer creates **two rows** in Traspasos:
-
-| Row | Entrada | Store Fields | Qty Field |
-|-----|---------|-------------|-----------|
-| Exit row | False | TiendaSalida filled | UnidadesS |
-| Entry row | True | TiendaEntrada filled | UnidadesE |
-
-Both rows share the same `Documento` number.
-
-### Transfer Types
-
-| Tipo | Description | Stock Effect |
-|------|-------------|-------------|
-| Traspaso | Normal inter-store transfer | Moves stock |
-| Regularizacion | Stock adjustment/correction | Adjusts stock |
-| S-Robo | Theft write-off | Decreases stock |
-| Devolucion | Return to supplier | Decreases stock |
-
-### Querying Transfers
+- **Line → header joins by `num_albaran` → `reg_albaran`** (both are 4D record
+  ids, despite the `num_` prefix). `n_albaran` is the *visible* document number
+  and is **not unique** — joining on it fans out the result set.
+- **Effective date** of a delivery note is
+  `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.
+  `fecha_envio` can be NULL or a sentinel; the `CASE` falls back to `fecha_valor`.
 
 ```sql
--- All transfers INTO store 104 in January 2025
-SELECT Documento, Codigo, Descripcion, Talla,
-       UnidadesE, FechaE, Tipo, Concepto
-FROM Traspasos
-WHERE TiendaEntrada = '104'
-  AND FechaE >= '2025-01-01'
-  AND FechaE <= '2025-01-31'
-  AND Entrada = TRUE
-ORDER BY FechaE
-
--- All transfers OUT OF store 104
-SELECT Documento, Codigo, Descripcion, Talla,
-       UnidadesS, FechaS, TiendaEntrada, Tipo
-FROM Traspasos
-WHERE TiendaSalida = '104'
-  AND FechaS >= '2025-01-01'
-  AND Entrada = FALSE
-ORDER BY FechaS
+-- Credit notes by customer
+SELECT c."nombre" AS "Cliente",
+       COUNT(*)   AS "Abonos",
+       SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto",
+       SUM(a."entregadas")                    AS "Unidades"
+FROM "public"."ps_gc_albaranes" a
+JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente"
+WHERE a."abono" IS TRUE
+  AND (CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
+            THEN a."fecha_envio" ELSE a."fecha_valor" END)
+      BETWEEN :curr_from AND :curr_to
+  AND COALESCE(c."nif", '') <> '502108150'   -- tráfico intragrupo, no es venta
+GROUP BY c."nombre"
+ORDER BY "Importe Neto" DESC
+LIMIT 20;
 ```
 
-### Transfer Volume Analysis
-
 ```sql
--- Monthly transfer volume by route
-SELECT TiendaSalida, TiendaEntrada,
-       YEAR(FechaS) AS yr, MONTH(FechaS) AS mo,
-       COUNT(*) AS num_transfers,
-       SUM(UnidadesS) AS total_units
-FROM Traspasos
-WHERE FechaS >= '2025-01-01'
-  AND Entrada = FALSE
-GROUP BY TiendaSalida, TiendaEntrada, YEAR(FechaS), MONTH(FechaS)
-ORDER BY total_units DESC
+-- Credit-note detail lines
+SELECT l."fecha_albaran" AS "Fecha",
+       l."codigo"        AS "Código",
+       l."descripcion"   AS "Descripción",
+       l."unidades"      AS "Unidades",
+       l."total"         AS "Importe"
+FROM "public"."ps_gc_lin_albarane" l
+JOIN "public"."ps_gc_albaranes" a ON l."num_albaran" = a."reg_albaran"
+WHERE a."abono" IS TRUE
+  AND (CASE WHEN a."fecha_envio" >= DATE '2000-01-01'
+            THEN a."fecha_envio" ELSE a."fecha_valor" END)
+      BETWEEN :curr_from AND :curr_to
+ORDER BY l."fecha_albaran" DESC
+LIMIT 50;
 ```
 
----
+Amounts: use `base1 + base2 + base3` (the VAT bases, i.e. sin IVA). There is no
+`total_albaran` column in the mirror.
 
-## 7. Returns via GCAlbaranes
-
-Wholesale returns are tracked through `GCAlbaranes` with `Abono = True`:
-
-### How Returns Work
-
-1. A wholesale customer initiates a return.
-2. A credit note delivery note is created: `GCAlbaranes.Abono = True`.
-3. Line items in `GCLinAlbarane` also have `Abono = True`.
-4. Quantities in `Entregadas1..34` represent returned units.
-5. Stock is **added back** to the central warehouse (CCStock).
-
-### Querying Returns
+### Retail returns
 
 ```sql
--- Wholesale returns by customer
-SELECT ga.Cliente,
-       COUNT(*) AS num_returns,
-       SUM(ga.TotalAlbaran) AS total_returned,
-       SUM(ga.Unidades) AS units_returned
-FROM GCAlbaranes ga
-WHERE ga.Abono = TRUE
-  AND ga.FechaEnvio >= '2025-01-01'
-GROUP BY ga.Cliente
-ORDER BY total_returned DESC
-
--- Return detail lines
-SELECT gl.NAlbaran, gl.Codigo, gl.Descripcion,
-       gl.Unidades, gl.Total, gl.FechaAlbaran
-FROM GCLinAlbarane gl
-WHERE gl.Abono = TRUE
-  AND gl.FechaAlbaran >= '2025-01-01'
-ORDER BY gl.FechaAlbaran DESC
-LIMIT 50
+SELECT v."tienda"        AS "Tienda",
+       p."ccrefejofacm"  AS "Referencia",
+       lv."descripcion"  AS "Descripción",
+       lv."talla"        AS "Talla",
+       lv."unidades"     AS "Unidades",
+       lv."total_si"     AS "Importe",
+       lv."fecha_creacion" AS "Fecha"
+FROM "public"."ps_lineas_ventas" lv
+JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+LEFT JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+WHERE lv."entrada" IS FALSE
+  AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND v."tienda" <> '99'
+ORDER BY lv."fecha_creacion" DESC
+LIMIT 50;
 ```
 
-### Retail Returns
+`ps_lineas_ventas.entrada` is a line-level copy of the header flag (they agree
+100%), so a returns filter does not need the `ps_ventas` join at all — that
+missing join was the root cause of the "returns ignored for months" bug.
 
-Retail returns are tracked in `LineasVentas` with `Entrada = False`:
+Return rate per store:
 
 ```sql
-SELECT lv.Tienda, lv.Codigo, lv.Descripcion,
-       lv.Unidades, lv.Total, lv.FechaCreacion,
-       lv.MotivoDevolucion
-FROM LineasVentas lv
-WHERE lv.Entrada = FALSE
-  AND lv.Mes = 202501
-ORDER BY lv.FechaCreacion DESC
-LIMIT 50
+SELECT v."tienda" AS "Tienda",
+       COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0)     AS "Vendidas",
+       COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS "Devueltas",
+       ROUND(COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0)
+             / NULLIF(COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0), 0) * 100, 1)
+         AS "% Devolución"
+FROM "public"."ps_lineas_ventas" lv
+JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
+WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to
+  AND v."tienda" <> '99'
+GROUP BY v."tienda"
+ORDER BY "% Devolución" DESC;
 ```
 
 ---
 
 ## 8. Negative Stock
 
-Negative stock values can occur in the database and are a known data quality issue:
+Negative values are present in both stock tables and are a known data-quality
+issue, not a bug in the mirror.
 
-### Why Negative Stock Happens
+### Why it happens
 
-1. **Timing gaps**: A sale is recorded before the transfer that replenishes stock.
-2. **POS offline mode**: Sales recorded locally, stock not yet decremented centrally.
-3. **Data entry errors**: Manual stock adjustments with incorrect values.
-4. **Returns not processed**: Physical return received but not entered in system.
-5. **Multi-store transfers**: Exit recorded at origin but entry not yet at destination.
+1. **Timing gaps** — a sale lands before the replenishing transfer.
+2. **POS offline mode** — sales recorded locally, stock decremented later.
+3. **Manual adjustments** with wrong values.
+4. **Returns received physically but not keyed in.**
+5. **Transfers** whose exit is recorded before the destination's entry.
+6. **The unmirrored purchase leg** (§10) — goods arrive without any mirrored
+   movement, so a store can sell into apparent negative stock.
 
-### Finding Negative Stock
+### Finding it
 
 ```sql
--- Products with negative total stock
-SELECT a.Codigo, a.Descripcion, a.Stock
-FROM Articulos a
-WHERE a.Stock < 0
-  AND a.Anulado = FALSE
-ORDER BY a.Stock ASC
-LIMIT 20
-
--- Per-store negative stock
-SELECT e.Tienda, e.Codigo, e.STStock
-FROM Exportaciones e
-WHERE e.STStock < 0
-ORDER BY e.STStock ASC
-LIMIT 20
-
--- Central negative stock per size
-SELECT a.Codigo, cs.Talla1, cs.Stock1, cs.Talla2, cs.Stock2,
-       cs.Talla3, cs.Stock3
-FROM CCStock cs
-INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo
-WHERE cs.Stock1 < 0 OR cs.Stock2 < 0 OR cs.Stock3 < 0
-LIMIT 20
+-- Per store and size
+SELECT s."tienda"       AS "Tienda",
+       p."ccrefejofacm" AS "Referencia",
+       s."talla"        AS "Talla",
+       s."stock"        AS "Stock"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE s."stock" < 0
+ORDER BY s."stock" ASC
+LIMIT 20;
 ```
 
-### Impact on Analytics
-
-When calculating stock value or stock coverage, filter out or flag negative stock:
-
-```python
-# In Python, handle negative stock
-stock = max(0, raw_stock)  # Clip to zero for valuation
-# OR flag for review
-if raw_stock < 0:
-    flag_for_review(product_code, store, raw_stock)
+```sql
+-- Central warehouse
+SELECT p."ccrefejofacm" AS "Referencia",
+       p."descripcion"  AS "Descripción",
+       sc."stock"       AS "Stock Central"
+FROM "public"."ps_stock_central" sc
+JOIN "public"."ps_articulos" p ON sc."num_articulo" = p."reg_articulo"
+WHERE sc."stock" < 0
+ORDER BY sc."stock" ASC
+LIMIT 20;
 ```
+
+### Impact on analytics
+
+For **valuation**, clip at zero (`GREATEST(s."stock", 0)`) or filter
+`WHERE stock > 0` — a negative multiplied by `precio_coste` subtracts value that
+was never there. For **coverage / availability**, treat `<= 0` as out of stock.
+For **data-quality reporting**, keep the sign: the negatives are the finding.
 
 ---
 
-## 9. SOAP Web Service: WS_JS_StockTiendas
+## 9. Common Stock Queries
 
-PowerShop exposes a SOAP web service for querying per-store per-size stock in real time.
+### Stock per store, valued
 
-### Service Details
-
-| Parameter | Value |
-|-----------|-------|
-| Endpoint | `http://YOUR_4D_SERVER_IP:8080/4DWSDL` |
-| Method | `WS_JS_StockTiendas` |
-| Input | Product reference (CCRefeJOFACM) |
-| Output | JSON with per-store per-size stock |
-
-### Python Example
-
-```python
-import requests
-from xml.etree import ElementTree
-
-def get_stock_by_reference(reference):
-    """Query per-store stock via SOAP web service."""
-    soap_body = f"""<?xml version="1.0" encoding="UTF-8"?>
-    <SOAP-ENV:Envelope
-        xmlns:SOAP-ENV="http://schemas.xmlsoap.org/soap/envelope/"
-        xmlns:ns="http://www.4d.com/namespace/default">
-        <SOAP-ENV:Body>
-            <ns:WS_JS_StockTiendas>
-                <ns:param1>{reference}</ns:param1>
-            </ns:WS_JS_StockTiendas>
-        </SOAP-ENV:Body>
-    </SOAP-ENV:Envelope>"""
-
-    response = requests.post(
-        'http://YOUR_4D_SERVER_IP:8080/4DWSDL',
-        data=soap_body,
-        headers={'Content-Type': 'text/xml; charset=utf-8'},
-        timeout=30
-    )
-
-    # Parse response -- returns JSON inside SOAP envelope
-    tree = ElementTree.fromstring(response.content)
-    # Extract result and parse as JSON
-    # Structure varies by installation
-    return response.text
+```sql
+SELECT s."tienda" AS "Tienda",
+       COALESCE(NULLIF(t."identificador", ''), NULLIF(t."poblacion", ''),
+                'Tienda ' || s."tienda") AS "Nombre",
+       COUNT(DISTINCT s."codigo") AS "Referencias",
+       SUM(s."stock")             AS "Unidades",
+       ROUND(SUM(s."stock" * p."precio_coste"), 2) AS "Valor Coste"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+LEFT JOIN "public"."ps_tiendas" t ON t."codigo" = s."tienda"
+WHERE s."stock" > 0 AND s."tienda" <> '99'
+GROUP BY s."tienda",
+         COALESCE(NULLIF(t."identificador", ''), NULLIF(t."poblacion", ''),
+                  'Tienda ' || s."tienda")
+ORDER BY "Unidades" DESC;
 ```
 
-### When to Use the Web Service vs SQL
+`precio_coste` is already VAT-exclusive — it is the correct valuation basis.
 
-| Approach | Use When |
-|----------|----------|
-| SQL (CCStock + Exportaciones) | Bulk stock analysis, reporting, data export |
-| SOAP WS_JS_StockTiendas | Real-time single-product stock check, integration |
+### Stock by family
 
-The SOAP service returns the same data as querying CCStock + Exportaciones but in a single call with real-time values.
+```sql
+SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia",
+       SUM(s."stock") AS "Unidades",
+       ROUND(SUM(s."stock" * p."precio_coste"), 2) AS "Valor Coste"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
+WHERE s."stock" > 0 AND s."tienda" <> '99' AND p."anulado" = false
+GROUP BY 1
+ORDER BY "Unidades" DESC;
+```
+
+### Stock by season
+
+```sql
+SELECT p."clave_temporada" AS "Temporada",
+       COUNT(DISTINCT p."ccrefejofacm") AS "Referencias",
+       SUM(s."stock") AS "Unidades",
+       ROUND(SUM(s."stock" * p."precio_coste"), 2) AS "Valor Coste"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE s."stock" > 0 AND p."anulado" = false
+GROUP BY p."clave_temporada"
+ORDER BY "Unidades" DESC;
+```
+
+### Dead stock — stock on hand, no sales in the period
+
+```sql
+SELECT p."ccrefejofacm"   AS "Referencia",
+       p."descripcion"    AS "Descripción",
+       p."clave_temporada" AS "Temporada",
+       SUM(s."stock")     AS "Stock"
+FROM "public"."ps_stock_tienda" s
+JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+WHERE s."stock" > 10
+  AND s."tienda" <> '99'
+  AND p."anulado" = false
+  AND NOT EXISTS (SELECT 1
+                  FROM "public"."ps_lineas_ventas" lv
+                  WHERE lv."codigo" = p."codigo"
+                    AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to)
+GROUP BY p."ccrefejofacm", p."descripcion", p."clave_temporada"
+ORDER BY "Stock" DESC
+LIMIT 30;
+```
+
+### Lost sales — a size that sells but is out of stock
+
+```sql
+WITH vendido AS (
+  SELECT p."ccrefejofacm" AS ref,
+         UPPER(lv."talla") AS talla,
+         COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0)
+           - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS uds
+  FROM "public"."ps_lineas_ventas" lv
+  JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
+  WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to
+    AND lv."tienda" <> '99'
+    AND lv."talla" IS NOT NULL
+  GROUP BY 1, 2
+),
+stock AS (
+  SELECT p."ccrefejofacm" AS ref,
+         UPPER(s."talla") AS talla,
+         SUM(s."stock")   AS stock
+  FROM "public"."ps_stock_tienda" s
+  JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo"
+  WHERE s."tienda" <> '99'
+  GROUP BY 1, 2
+)
+SELECT v.ref   AS "Referencia",
+       v.talla AS "Talla",
+       v.uds   AS "Vendidas",
+       COALESCE(st.stock, 0) AS "Stock"
+FROM vendido v
+LEFT JOIN stock st ON st.ref = v.ref AND st.talla = v.talla
+WHERE v.uds > 0 AND COALESCE(st.stock, 0) <= 0
+ORDER BY v.uds DESC
+LIMIT 50;
+```
+
+Both sides `UPPER()` the size: the ETL normalises, but a join written without it
+is one bad source row away from silently dropping matches.
 
 ---
 
-## 10. Inventory Snapshots
+## 10. What is NOT in the mirror
 
-### Physical Inventory (Inventarios Table)
+These questions cannot be answered from `ps_*`. Say so rather than writing a
+query that looks right and returns a wrong or empty answer.
 
-The `Inventarios` table (14 columns) is designed for physical inventory counts but is currently **empty** (0 rows). This suggests either:
-- Physical counts are performed via external systems
-- Inventory data is archived after reconciliation
-- The module is not actively used
+| Question | Why not | Nearest usable substitute |
+|----------|---------|---------------------------|
+| **Goods received from suppliers** (units per article per delivery) | Purchase *delivery-note lines* are not mirrored. `ps_albaranes` holds only headers (`reg_albaran`, `fecha_recibido`, `num_pedido`, `num_proveedor`, `proveedor`) — no article, no quantity. | `ps_albaranes` gives counts of receipts and which supplier/order they belong to, nothing about what was inside. |
+| **Purchase quantities actually received** | `ps_lineas_compras` (4D `CCLineasCompr`) holds **purchase-order lines — what was ordered, not what arrived**. Treating it as receipts overstates incoming stock by every unmet or partial order. | `ps_lineas_compras` for *ordered* units/amounts, labelled as orders. |
+| **Returns to supplier** | Same gap: they live in the unmirrored purchase-delivery lines. | none |
+| **Full stock reconciliation / shrinkage** | Requires the receipts leg above (§5). | Net sales + transfers + wholesale movement only, stated as partial. |
+| **Per-size stock at the central warehouse** | `ps_stock_central` carries only a per-article total; the 34 size slots are collapsed by the ETL. | Per-size stock for retail stores from `ps_stock_tienda`. |
+| **Minimum / safety stock levels** | 4D `Minimo1..34` is not mirrored, and `ps_articulos` has no `stock_minimo`. | none — do not invent a threshold and present it as the system's. |
+| **Historical stock snapshots** | The mirror holds only the current position; 4D `Inventarios` / `DetalleInventa` are empty and unmirrored. | Movement history from `ps_lineas_ventas` / `ps_traspasos` / `ps_gc_lin_albarane`. |
+| **Real-time stock** | The mirror is refreshed by the nightly ETL. | `ps_stock_*.fecha_modifica` tells you how stale a row is. |
 
-### Related Tables
-
-| Table | Rows | Description |
-|-------|------|-------------|
-| Inventarios | 0 | Inventory count headers |
-| DetalleInventa | 0 | Inventory count line items |
-
-### Building Your Own Snapshots
-
-Since no historical stock snapshots exist in the database, you can build them by periodically querying current stock:
-
-```python
-import datetime
-
-def snapshot_stock(cur, snapshot_date=None):
-    """Take a stock snapshot of all products across all stores."""
-    if snapshot_date is None:
-        snapshot_date = datetime.date.today().isoformat()
-
-    # Central stock
-    cur.execute("""
-        SELECT a.Codigo, cs.Stock
-        FROM CCStock cs
-        INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo
-        WHERE a.Anulado = FALSE
-    """)
-    central = {row[0]: row[1] for row in cur.fetchall()}
-
-    # Per-store stock
-    cur.execute("""
-        SELECT e.Tienda, e.Codigo, e.STStock
-        FROM Exportaciones e
-        WHERE e.STStock <> 0
-    """)
-    store_stock = cur.fetchall()
-
-    return {
-        'date': snapshot_date,
-        'central': central,
-        'stores': store_stock
-    }
-```
-
----
-
-## 11. Common Stock Queries
-
-### Stock Value at Central Warehouse
+For the record: what *is* mirrored on the purchasing side is
+`ps_compras` (~2,800 order headers), `ps_lineas_compras` (~46,200 **order**
+lines), `ps_albaranes` (~3,800 receipt headers) and `ps_facturas_compra`
+(~4,000 invoice dates). Ordered volume by supplier, for example, is fine:
 
 ```sql
-SELECT SUM(cs.Stock * a.PrecioCoste) AS stock_value_cost,
-       SUM(cs.Stock * a.Precio1) AS stock_value_pvp,
-       SUM(cs.Stock) AS total_units,
-       COUNT(*) AS product_count
-FROM CCStock cs
-INNER JOIN Articulos a ON cs.NumArticulo = a.RegArticulo
-WHERE cs.Stock > 0
-  AND a.Anulado = FALSE
+SELECT pr."nombre" AS "Proveedor",
+       COUNT(DISTINCT lc."num_pedido") AS "Pedidos",
+       SUM(lc."unidades")              AS "Unidades Pedidas",
+       ROUND(SUM(lc."total_si"), 2)    AS "Importe sin IVA"
+FROM "public"."ps_lineas_compras" lc
+LEFT JOIN "public"."ps_proveedores" pr ON lc."num_proveedor" = pr."reg_proveedor"
+WHERE lc."fecha" BETWEEN :curr_from AND :curr_to
+GROUP BY pr."nombre"
+ORDER BY "Importe sin IVA" DESC
+LIMIT 20;
 ```
 
-### Stock Value per Store
-
-```sql
-SELECT e.Tienda,
-       COUNT(*) AS products,
-       SUM(e.STStock) AS total_units
-FROM Exportaciones e
-WHERE e.STStock > 0
-GROUP BY e.Tienda
-ORDER BY total_units DESC
-```
-
-### Products with Stock Below Minimum
-
-```sql
-SELECT a.Codigo, a.Descripcion,
-       a.Stock, a.StockMinimo,
-       a.StockMinimo - a.Stock AS deficit
-FROM Articulos a
-WHERE a.Stock < a.StockMinimo
-  AND a.StockMinimo > 0
-  AND a.Anulado = FALSE
-ORDER BY deficit DESC
-LIMIT 50
-```
-
-### Stock Turnover (Units Sold / Average Stock)
-
-```sql
--- Units sold per product in a period
-SELECT lv.Codigo,
-       SUM(lv.Unidades) AS units_sold
-FROM LineasVentas lv
-WHERE lv.Mes BETWEEN 202501 AND 202512
-  AND lv.Entrada = TRUE
-GROUP BY lv.Codigo
-HAVING SUM(lv.Unidades) > 0
-ORDER BY units_sold DESC
-LIMIT 50
-```
-
-*Note: Average stock requires historical snapshots (not available in the database). Use current stock as an approximation or build periodic snapshots.*
-
-### Dead Stock (No Sales in 12 Months)
-
-```sql
-SELECT a.Codigo, a.Descripcion, a.Stock,
-       a.FechaModifica AS last_modified
-FROM Articulos a
-WHERE a.Stock > 0
-  AND a.Anulado = FALSE
-  AND a.RegArticulo NOT IN (
-      SELECT DISTINCT lv.NumArticulo
-      FROM LineasVentas lv
-      WHERE lv.Mes >= 202501
-  )
-ORDER BY a.Stock DESC
-LIMIT 50
-```
+Label such a result **"pedido"** (ordered), never "recibido" (received).

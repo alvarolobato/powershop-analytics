@@ -161,7 +161,7 @@ SELECT s."tienda" AS "Tienda", SUM(s."stock") AS "Stock Total", COUNT(DISTINCT s
 
 ### ¿Qué artículos tienen más stock en el almacén central?
 ```sql
-SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."tienda" = '99' AND s."stock" > 0 GROUP BY s."codigo", p."ccrefejofacm", p."descripcion" ORDER BY "Stock" DESC LIMIT 20
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(sc."stock") AS "Stock" FROM "public"."ps_stock_central" sc JOIN "public"."ps_articulos" p ON sc."num_articulo" = p."reg_articulo" WHERE sc."stock" > 0 GROUP BY 1, 2 ORDER BY "Stock" DESC LIMIT 20
 ```
 
 ### ¿Cuál es el valor del stock al coste?
@@ -171,7 +171,7 @@ SELECT SUM(s."stock" * p."precio_coste") AS "Valor al Coste", SUM(s."stock") AS 
 
 ### ¿Qué tallas se venden más de una referencia?
 ```sql
-SELECT UPPER(lv."talla") AS "Talla", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND lv."talla" IS NOT NULL GROUP BY UPPER(lv."talla") ORDER BY "Unidades" DESC
+SELECT UPPER(lv."talla") AS "Talla", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'OUT340184' AND lv."talla" IS NOT NULL GROUP BY UPPER(lv."talla") ORDER BY "Unidades" DESC
 ```
 
 ### ¿Cuáles son las tallas más vendidas de toda la cadena?
@@ -229,10 +229,6 @@ WITH stock_por_codigo AS (SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''),
 SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia", s."talla" AS "Talla", COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia", COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE s."stock" > 0 AND s."tienda" <> '99' AND p."anulado" = false GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", COALESCE(NULLIF(p."ccrefejofacm", ''), '—'), COALESCE(NULLIF(p."descripcion", ''), '—') ORDER BY "Stock" DESC LIMIT 50
 ```
 
-### ¿Cuál es la facturación mayorista por comercial?
-```sql
-SELECT c."comercial" AS "Comercial", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."abono" = false GROUP BY c."comercial" ORDER BY "Facturación Neta" DESC
-```
 
 ### ¿Facturación mayorista mensual del año actual?
 ```sql
@@ -319,24 +315,20 @@ SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", COAL
 SELECT d."depa_secc_fabr" AS "Departamento", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas", COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0) AS "Coste Total", ROUND(((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0))) / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" GROUP BY d."depa_secc_fabr" HAVING COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) > 0 ORDER BY "Margen %" DESC
 ```
 
-### ¿Margen mayorista por comercial?
-```sql
-WITH neto AS (SELECT c."comercial" AS comercial, COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS TRUE), 0) AS coste FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."comercial") SELECT comercial AS "Comercial", ingreso AS "Ingreso", coste AS "Coste", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS "Margen %" FROM neto WHERE ingreso <> 0 ORDER BY "Margen %" DESC
-```
 
 ### ¿Volumen de traspasos por ruta?
 ```sql
-SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20
+SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."tipo" = 'Autoreposicion' AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20
 ```
 
 ### ¿Traspasos diarios de stock?
 ```sql
-SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"
+SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."tipo" = 'Autoreposicion' AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"
 ```
 
 ### ¿Movimientos de stock de un artículo?
 ```sql
-SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') ORDER BY t."fecha_s" DESC LIMIT 50
+SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'V26391168' AND t."entrada" = false AND t."tipo" = 'Autoreposicion' ORDER BY t."fecha_s" DESC LIMIT 50
 ```
 
 ### ¿Cuántos artículos hay por temporada?

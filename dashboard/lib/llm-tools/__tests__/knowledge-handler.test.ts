@@ -85,7 +85,7 @@ describe("search_knowledge", () => {
       const data = expectOk(await search({ query: "CCOPTallaOjo" }));
       const hit = data.results.find((r) => r.source === "docs/skills/report-generation.md");
       expect(hit?.content).toContain("CCOPTallaOjo");
-      expect(hit?.content).toContain("GROUP BY lv.CCOPTallaOjo");
+      expect(hit?.content).toContain(`GROUP BY UPPER(lv."talla")`);
     });
   });
 
@@ -95,8 +95,11 @@ describe("search_knowledge", () => {
     // the model 4D SQL unlabelled makes it write tables that do not exist —
     // the same "looked applicable, wasn't" failure the tool exists to prevent.
     it("labels a 4D-only section and shouts about it in the content", async () => {
-      // `_USER_TABLES` is a 4D system table: it exists nowhere in the mirror.
-      const data = expectOk(await search({ query: "_USER_TABLES tablas del sistema" }));
+      // Reanclado: `_USER_TABLES` vivía en `schema-discovery.md`, que ya no
+      // entra en el índice — es herramienta para explorar el ERP origen, no
+      // conocimiento que el modelo pueda ejecutar. El SQL del ERP que queda
+      // está en los docs de arquitectura, y es el que tiene que llegar avisado.
+      const data = expectOk(await search({ query: "Exportaciones stock ETL preferido" }));
       const fourD = data.results.find((r) => r.dialect === "4d");
       expect(fourD, `no 4D section in: ${data.results.map((r) => r.heading).join(" | ")}`)
         .toBeDefined();
@@ -115,17 +118,38 @@ describe("search_knowledge", () => {
       expect(offenders).toEqual([]);
     });
 
-    it("still holds 4D originals in sample-queries.md", () => {
-      const fourD = KNOWLEDGE_INDEX.filter(
-        (c) => c.source === "docs/sample-queries.md" && c.dialect === "4d",
-      );
-      expect(fourD.length, "fixture assumption: sample-queries.md holds 4D originals")
-        .toBeGreaterThan(0);
+    it("el corpus conserva originales 4D en alguna fuente", () => {
+      // Suposición de fixture para los tests de etiquetado: tiene que quedar
+      // SQL del ERP en alguna parte para poder comprobar que llega avisado.
+      // Ya no en `sample-queries.md` ni en los ficheros de análisis: se
+      // tradujeron enteros al espejo.
+      const fourD = KNOWLEDGE_INDEX.filter((c) => c.dialect === "4d");
+      expect(fourD.length, "fixture: el corpus conserva originales 4D").toBeGreaterThan(0);
       expect(
         fourD.some((c) =>
-          /\b(?:FROM|JOIN)\s+(?:Ventas|LineasVentas|Articulos|CCStock)\b/.test(c.body),
+          /\b(?:FROM|JOIN)\s+(?:Ventas|LineasVentas|Articulos|CCStock|GC\w+)\b/.test(c.body),
         ),
       ).toBe(true);
+    });
+
+    it("los ficheros traducidos ya no sirven SQL del ERP", () => {
+      // Regresión: se tradujeron al espejo y cada sección suya es ejecutable
+      // tal cual. Si vuelve a colarse una en dialecto 4D, el modelo tiene otra
+      // vez ocasión de copiar `FROM Ventas`.
+      const TRADUCIDOS = [
+        "docs/sample-queries.md",
+        "docs/stock-analysis.md",
+        "docs/skills/report-generation.md",
+        "docs/wholesale-retail-split.md",
+      ];
+      for (const f of TRADUCIDOS) {
+        const secciones = KNOWLEDGE_INDEX.filter((c) => c.source === f);
+        expect(secciones.length, `${f} debería estar en el índice`).toBeGreaterThan(0);
+        expect(
+          secciones.filter((c) => c.dialect === "4d").map((c) => c.heading),
+          `${f} volvió a exponer SQL del ERP`,
+        ).toEqual([]);
+      }
     });
 
     it("never mislabels the ps_* mirror pairs as 4D", () => {
@@ -300,31 +324,5 @@ describe("search_knowledge", () => {
     it("returns nothing for a query made only of noise", () => {
       expect(tokenize("de la el ?? !!")).toEqual([]);
     });
-  });
-});
-
-describe("etiquetado de dialecto", () => {
-  // La versión anterior de `detectDialect` usaba una lista blanca de 15 tablas
-  // del ERP. Dejaba fuera todo el mayorista, así que 28 secciones con
-  // `FROM GCFacturas`, `FROM GCAlbaranes`, `FROM PagosVentas`... salían como
-  // "n/a" y se le entregaban al modelo SIN el aviso de dialecto — justo el
-  // fallo que el etiquetado existe para evitar, y que además reaparecería con
-  // cualquier tabla nueva del ERP.
-  //
-  // La regla ahora se apoya en el espejo, que es lo único con prefijo `ps_`.
-  it("ninguna sección con SQL del ERP se sirve sin el aviso de 4D", () => {
-    const sinAviso = KNOWLEDGE_INDEX.filter(
-      (c) => c.dialect !== "4d" && c.hasSql && !/\bps_[a-z]/.test(c.body) && /```sql/i.test(c.body),
-    );
-    expect(
-      sinAviso.map((c) => `${c.source} :: ${c.heading}`),
-      "Secciones con SQL que no menciona ninguna tabla ps_ y no van etiquetadas como 4D",
-    ).toEqual([]);
-  });
-
-  it("las secciones del espejo siguen etiquetadas como postgres", () => {
-    // Contrapeso del test anterior: marcar todo como 4D también lo pasaría.
-    const postgres = KNOWLEDGE_INDEX.filter((c) => c.dialect === "postgres");
-    expect(postgres.length).toBeGreaterThan(100);
   });
 });

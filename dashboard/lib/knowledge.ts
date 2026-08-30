@@ -525,7 +525,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "ps_traspasos.tipo: EXCLUIR SIEMPRE 'Apertura' e 'Inventario Parcial' de cualquier analisis de movimiento de stock. No son traspasos entre tiendas sino asientos de inventario, y dominan la tabla: 247.502 filas de 'Apertura' y 739 de 'Inventario Parcial' sobre 262.724 totales (medido en produccion 2026-08). Sin ese filtro un 'volumen de traspasos' o una 'ruta mas usada' devuelve practicamente solo aperturas. Filtro obligatorio: WHERE COALESCE(t.tipo, '') NOT IN ('Apertura', 'Inventario Parcial'). Los tipos que SI son movimiento real son 'Autoreposicion' y 'Regularizacion'.",
+      "ps_traspasos.tipo: para movimiento REAL entre tiendas usar la lista blanca tipo = 'Autoreposicion'. Medido en produccion sobre 262.724 filas: 'Autoreposicion' (425) es el UNICO tipo con tienda_salida Y tienda_entrada en la misma fila (425 de 425) y el unico vivo (ultima actividad 2026-08-22). Los otros tres NO son traspasos: 'Apertura' (247.502) e 'Inventario Parcial' (739) son asientos de inventario, y 'Regularizacion' (14.058) son ajustes y ROBOS -- sus conceptos son 'Inventario 31-12-2020', 'S-Robo' (4.339 filas), 'INVENTARIO' -- con ultima actividad en 2020-12-31. Excluir solo Apertura e Inventario Parcial deja dentro esas 14.058 filas de ajuste como si fueran traspasos. La columna es NULLABLE, asi que una lista negra necesitaria COALESCE; la lista blanca no. Ojo tambien: la pata entrada=true solo tiene fecha_e y la de salida solo fecha_s, y entrada=true no tiene ninguna fila en 2026.",
     questions: [
       "¿Volumen de traspasos?",
       "¿Rutas de traspaso mas usadas?",
@@ -681,7 +681,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Los articulos con codigo que empieza por 'M' son de mayorista/granel. Para analisis exclusivamente retail excluye con codigo NOT LIKE 'M%'; para mayorista filtra codigo LIKE 'M%'.",
+      "Los articulos de mayorista/granel se identifican por la REFERENCIA: ccrefejofacm LIKE 'M%' (6.325 articulos). NO por el codigo: `codigo` es numerico en las 42.270 filas y `codigo LIKE 'M%'` devuelve CERO siempre. Las lineas de venta y de albaran llevan `codigo`, asi que para filtrar por M hay que unir con ps_articulos. Para analisis exclusivamente retail excluye con a.ccrefejofacm NOT LIKE 'M%'; para mayorista filtra a.ccrefejofacm LIKE 'M%'.",
     questions: [
       "que son los articulos M",
       "separar retail de mayorista",
@@ -715,10 +715,10 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "El recetario docs/sample-queries.md secciones 1-10 esta escrito en SQL de 4D contra el ERP origen (tablas Ventas, LineasVentas, Articulos, CCStock, Exportaciones, Traspasos, GCLinFacturas). El dashboard y WrenAI consultan el ESPEJO PostgreSQL con tablas ps_*. Nunca copies una consulta 4D a un widget: esas tablas no existen en PostgreSQL. Usa siempre los pares SQL en ps_*.",
+      "El recetario docs/sample-queries.md es PostgreSQL contra el espejo ps_* de principio a fin: se puede copiar tal cual a un widget. Nunca escribas una consulta contra las tablas del ERP 4D (Ventas, LineasVentas, Articulos, CCStock, Exportaciones, Traspasos, GCFacturas, o cualquier tabla sin prefijo ps_): no existen en PostgreSQL y el dashboard no puede ejecutarlas. Si una fuente de conocimiento te devuelve SQL de 4D, tradúcelo al espejo antes de usarlo.",
     questions: [
       "puedo usar las consultas del recetario",
-      "por que falla FROM Ventas",
+      "por que falla una consulta contra la tabla Ventas",
       "que dialecto uso",
     ],
   },
@@ -797,7 +797,7 @@ export const INSTRUCTIONS: Instruction[] = [
 export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Cuánto hemos vendido cada día en una tienda concreta? (neto de devoluciones)",
-    sql: `SELECT v."fecha_creacion" AS "Fecha", COUNT(*) FILTER (WHERE v."entrada") AS "Tickets", COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta" FROM "public"."ps_ventas" v WHERE v."tienda" = '99' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY v."fecha_creacion" ORDER BY v."fecha_creacion"`,
+    sql: `SELECT v."fecha_creacion" AS "Fecha", COUNT(*) FILTER (WHERE v."entrada") AS "Tickets", COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Venta Neta" FROM "public"."ps_ventas" v WHERE v."tienda" = '154' AND v."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY v."fecha_creacion" ORDER BY v."fecha_creacion"`,
   },
   {
     question: "¿Cuál es la venta neta mensual por tienda?",
@@ -873,7 +873,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuánto stock hay de una referencia en cada tienda y talla?",
-    sql: `SELECT st."tienda" AS "Tienda", st."talla" AS "Talla", st."stock" AS "Stock" FROM "public"."ps_stock_tienda" st JOIN "public"."ps_articulos" a ON a."codigo" = st."codigo" WHERE a."ccrefejofacm" = 'V26212484' AND st."stock" <> 0 ORDER BY st."tienda", st."talla"`,
+    sql: `SELECT st."tienda" AS "Tienda", st."talla" AS "Talla", st."stock" AS "Stock" FROM "public"."ps_stock_tienda" st JOIN "public"."ps_articulos" a ON a."codigo" = st."codigo" WHERE a."ccrefejofacm" = 'V26391168' AND st."stock" <> 0 ORDER BY st."tienda", st."talla"`,
   },
   {
     question: "¿Qué stock total tiene cada tienda?",
@@ -896,20 +896,16 @@ export const SQL_PAIRS: SqlPair[] = [
     sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20`,
   },
   {
-    question: "¿Cuánto vende cada comercial de mayorista?",
-    sql: `SELECT co."comercial" AS "Comercial", co."zona_comercial" AS "Zona", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_gc_comerciales" co ON co."reg_comercial" = gf."num_comercial" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY co."comercial", co."zona_comercial" ORDER BY "Facturación Neta" DESC`,
-  },
-  {
     question: "¿Cuál es el margen del canal mayorista por producto?",
     sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
-    sql: `SELECT tr."tienda_salida" AS "Origen", tr."tienda_entrada" AS "Destino", COUNT(*) AS "Movimientos", SUM(tr."unidades_s") AS "Unidades Enviadas" FROM "public"."ps_traspasos" tr WHERE tr."fecha_s" BETWEEN :curr_from AND :curr_to AND NOT tr."entrada" AND COALESCE(tr."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') GROUP BY tr."tienda_salida", tr."tienda_entrada" ORDER BY "Unidades Enviadas" DESC LIMIT 20`,
+    sql: `SELECT tr."tienda_salida" AS "Origen", tr."tienda_entrada" AS "Destino", COUNT(*) AS "Movimientos", SUM(tr."unidades_s") AS "Unidades Enviadas" FROM "public"."ps_traspasos" tr WHERE tr."fecha_s" BETWEEN :curr_from AND :curr_to AND NOT tr."entrada" AND tr."tipo" = 'Autoreposicion' GROUP BY tr."tienda_salida", tr."tienda_entrada" ORDER BY "Unidades Enviadas" DESC LIMIT 20`,
   },
   {
     question: "¿Qué tipos de traspaso se usan más?",
-    sql: `SELECT tr."tipo" AS "Tipo", tr."concepto" AS "Concepto", COUNT(*) AS "Movimientos", SUM(tr."unidades_e") AS "Unidades" FROM "public"."ps_traspasos" tr WHERE tr."fecha_e" BETWEEN :curr_from AND :curr_to AND tr."entrada" GROUP BY tr."tipo", tr."concepto" ORDER BY "Movimientos" DESC`,
+    sql: `SELECT tr."tipo" AS "Tipo", tr."concepto" AS "Concepto", COUNT(*) AS "Movimientos", SUM(tr."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" tr WHERE tr."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY tr."tipo", tr."concepto" ORDER BY "Movimientos" DESC`,
   },
   {
     question: "¿Cuánto vendemos en retail excluyendo los artículos de mayorista (prefijo M)?",
@@ -993,7 +989,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Qué artículos tienen más stock en el almacén central?",
-    sql: `SELECT s."codigo" AS "Código", p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" WHERE s."tienda" = '99' AND s."stock" > 0 GROUP BY s."codigo", p."ccrefejofacm", p."descripcion" ORDER BY "Stock" DESC LIMIT 20`,
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(sc."stock") AS "Stock" FROM "public"."ps_stock_central" sc JOIN "public"."ps_articulos" p ON sc."num_articulo" = p."reg_articulo" WHERE sc."stock" > 0 GROUP BY 1, 2 ORDER BY "Stock" DESC LIMIT 20`,
   },
   {
     question: "¿Cuál es el valor del stock al coste?",
@@ -1001,7 +997,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Qué tallas se venden más de una referencia?",
-    sql: `SELECT UPPER(lv."talla") AS "Talla", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND lv."talla" IS NOT NULL GROUP BY UPPER(lv."talla") ORDER BY "Unidades" DESC`,
+    sql: `SELECT UPPER(lv."talla") AS "Talla", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'OUT340184' AND lv."talla" IS NOT NULL GROUP BY UPPER(lv."talla") ORDER BY "Unidades" DESC`,
   },
   {
     question: "¿Cuáles son las tallas más vendidas de toda la cadena?",
@@ -1046,10 +1042,6 @@ export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Qué artículos acumulan más stock por talla?",
     sql: `SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Familia", s."talla" AS "Talla", COALESCE(NULLIF(p."ccrefejofacm", ''), '—') AS "Referencia", COALESCE(NULLIF(p."descripcion", ''), '—') AS "Descripción", SUM(s."stock") AS "Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" p ON s."codigo" = p."codigo" LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia" WHERE s."stock" > 0 AND s."tienda" <> '99' AND p."anulado" = false GROUP BY COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar'), s."talla", COALESCE(NULLIF(p."ccrefejofacm", ''), '—'), COALESCE(NULLIF(p."descripcion", ''), '—') ORDER BY "Stock" DESC LIMIT 50`,
-  },
-  {
-    question: "¿Cuál es la facturación mayorista por comercial?",
-    sql: `SELECT c."comercial" AS "Comercial", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."abono" = false GROUP BY c."comercial" ORDER BY "Facturación Neta" DESC`,
   },
   {
     question: "¿Facturación mayorista mensual del año actual?",
@@ -1120,20 +1112,16 @@ export const SQL_PAIRS: SqlPair[] = [
     sql: `SELECT d."depa_secc_fabr" AS "Departamento", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Ventas Netas", COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0) AS "Coste Total", ROUND(((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0))) / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) * 100, 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" JOIN "public"."ps_departamentos" d ON p."num_departament" = d."reg_departament" GROUP BY d."depa_secc_fabr" HAVING COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) > 0 ORDER BY "Margen %" DESC`,
   },
   {
-    question: "¿Margen mayorista por comercial?",
-    sql: `WITH neto AS (SELECT c."comercial" AS comercial, COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total_coste") FILTER (WHERE f."abono" IS TRUE), 0) AS coste FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial" WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."comercial") SELECT comercial AS "Comercial", ingreso AS "Ingreso", coste AS "Coste", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS "Margen %" FROM neto WHERE ingreso <> 0 ORDER BY "Margen %" DESC`,
-  },
-  {
     question: "¿Volumen de traspasos por ruta?",
-    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
+    sql: `SELECT t."tienda_salida" AS "Tienda Origen", t."tienda_entrada" AS "Tienda Destino", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."tipo" = 'Autoreposicion' AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."tienda_salida", t."tienda_entrada" ORDER BY "Unidades" DESC LIMIT 20`,
   },
   {
     question: "¿Traspasos diarios de stock?",
-    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
+    sql: `SELECT t."fecha_s" AS "Fecha", COUNT(*) AS "Traspasos", SUM(t."unidades_s") AS "Unidades" FROM "public"."ps_traspasos" t WHERE t."entrada" = false AND t."tipo" = 'Autoreposicion' AND t."fecha_s" BETWEEN :curr_from AND :curr_to GROUP BY t."fecha_s" ORDER BY t."fecha_s"`,
   },
   {
     question: "¿Movimientos de stock de un artículo?",
-    sql: `SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'REFERENCIA_AQUI' AND t."entrada" = false AND COALESCE(t."tipo", '') NOT IN ('Apertura', 'Inventario Parcial') ORDER BY t."fecha_s" DESC LIMIT 50`,
+    sql: `SELECT t."fecha_s" AS "Fecha", t."tienda_salida" AS "Origen", t."tienda_entrada" AS "Destino", t."talla" AS "Talla", t."unidades_s" AS "Unidades", t."tipo" AS "Tipo" FROM "public"."ps_traspasos" t JOIN "public"."ps_articulos" p ON t."codigo" = p."codigo" WHERE p."ccrefejofacm" = 'V26391168' AND t."entrada" = false AND t."tipo" = 'Autoreposicion' ORDER BY t."fecha_s" DESC LIMIT 50`,
   },
   {
     question: "¿Cuántos artículos hay por temporada?",
