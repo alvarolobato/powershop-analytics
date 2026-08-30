@@ -32,6 +32,14 @@
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersRetail } from "@/lib/template-global-filters";
+import { modeloDeReferencia } from "@/lib/sql-fragments";
+
+/**
+ * Los rankings van por MODELO, no por referencia: los dos últimos caracteres de
+ * `ccrefejofacm` son el color, así que agrupar por la referencia completa parte
+ * un mismo modelo en 3-5 filas y falsea el ranking (D-048, punto 3).
+ */
+const MODELO = modeloDeReferencia('p."ccrefejofacm"');
 
 export const name = "Responsable de Ventas";
 
@@ -261,13 +269,14 @@ ORDER BY value DESC`,
     {
       id: "ventas-top-articulos",
       type: "table",
-      title: "Top 10 Artículos por Ventas (período seleccionado)",
+      title: "Top 10 Modelos por Ventas (período seleccionado)",
       // Columna "Ventas Netas (€)" — incluye sufijo de unidad para que el
       // usuario sepa que es importe (TableWidget no aplica símbolo €
       // automáticamente). "Margen %" se renderiza con formato de porcentaje
       // (detectado por el sufijo "%").
-      sql: `SELECT p."ccrefejofacm" AS "Referencia",
-       p."descripcion" AS "Descripción",
+      sql: `SELECT ${MODELO} AS "Modelo",
+       MIN(p."descripcion") AS "Descripción",
+       COUNT(DISTINCT p."ccrefejofacm") AS "Colores",
        SUM(lv."unidades") AS "Unidades",
        ROUND(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)::numeric, 2) AS "Ventas Netas (€)",
        ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
@@ -287,7 +296,7 @@ WHERE lv."tienda" <> '99'
   AND __gf_marca__
   AND __gf_sexo__
   AND __gf_departamento__
-GROUP BY p."ccrefejofacm", p."descripcion"
+GROUP BY ${MODELO}
 ORDER BY "Ventas Netas (€)" DESC
 LIMIT 10`,
     },

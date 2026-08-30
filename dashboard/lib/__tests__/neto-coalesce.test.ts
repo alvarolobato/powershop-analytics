@@ -24,7 +24,13 @@ function ficherosConSql(): string[] {
   const salida: string[] = [];
   const visitar = (dir: string) => {
     for (const e of readdirSync(dir)) {
-      if (e === "node_modules" || e === ".git" || e === ".next" || e === "__snapshots__") continue;
+      if (
+        e === "node_modules" ||
+        e === ".git" ||
+        e === ".next" ||
+        e === "__snapshots__"
+      )
+        continue;
       const p = join(dir, e);
       if (statSync(p).isDirectory()) visitar(p);
       else if (/\.(md|ts)$/.test(e) && !/\.test\.ts$/.test(e)) salida.push(p);
@@ -82,7 +88,8 @@ function restasSinCoalesce(texto: string): string[] {
     }
     // El lado izquierdo va desnudo si justo antes no hay un COALESCE( abierto.
     const antes = texto.slice(Math.max(0, ini - 12), ini);
-    if (!/COALESCE\s*\($/i.test(antes)) fallos.push(texto.slice(ini, b[1]).slice(0, 160));
+    if (!/COALESCE\s*\($/i.test(antes))
+      fallos.push(texto.slice(ini, b[1]).slice(0, 160));
     i = b[1];
   }
   return fallos;
@@ -138,8 +145,16 @@ describe("precedencia del ticket medio", () => {
       const re =
         /COALESCE\([^\n]*FILTER[^\n]*\),\s*0\)\s*-\s*COALESCE\([^\n]*FILTER[^\n]*\),\s*0\)([\s\S]{0,24}?)\//g;
       for (const m of t.matchAll(re)) {
+        // La barra tiene que estar DENTRO del mismo SQL. Un backtick, un
+        // punto y coma o una llave significan que ya hemos salido de la
+        // cadena, y entonces esa `/` es del código -- el `/**` de un
+        // comentario, por ejemplo. Sin esto, añadir una función detrás de
+        // `netoDeAbonos` marcaba el fragmento como infractor.
+        if (/[`;{}]/.test(m[1])) continue;
         if (!m[1].includes(")")) {
-          infractores.push(`${relative(RAIZ, f)}: ${m[0].slice(0, 120).replace(/\s+/g, " ")}`);
+          infractores.push(
+            `${relative(RAIZ, f)}: ${m[0].slice(0, 120).replace(/\s+/g, " ")}`,
+          );
         }
       }
     }
@@ -175,7 +190,9 @@ describe("agregados de dinero de la home", () => {
       // `ABS(total_si)` bajo `entrada=false` es la métrica de devoluciones,
       // positiva a propósito.
       if (/entrada/.test(linea)) return;
-      const alias = /SUM\((\w+)\.(?:total_si|total_coste_si)\)/.exec(linea)?.[1];
+      const alias = /SUM\((\w+)\.(?:total_si|total_coste_si)\)/.exec(
+        linea,
+      )?.[1];
       if (alias && aliasDerivados.has(alias)) return;
       infractores.push(`route.ts:${i + 1}: ${linea.trim().slice(0, 120)}`);
     });
@@ -200,12 +217,19 @@ describe("recuento de tickets", () => {
         .forEach((linea, i) => {
           const limpia = linea.trim();
           // Comentarios (// en TS, > en MD) hablan del patrón, no lo ejecutan.
-          if (limpia.startsWith("//") || limpia.startsWith("*") || limpia.startsWith(">")) return;
+          if (
+            limpia.startsWith("//") ||
+            limpia.startsWith("*") ||
+            limpia.startsWith(">")
+          )
+            return;
           if (!/COUNT\(DISTINCT\s+\w*\.?reg_ventas\)/.test(linea)) return;
           if (/FILTER/.test(linea)) return;
           // Un WHERE con `entrada` en la misma línea también sirve.
           if (/\bentrada\b/.test(linea)) return;
-          infractores.push(`${relative(RAIZ, f)}:${i + 1}: ${linea.trim().slice(0, 110)}`);
+          infractores.push(
+            `${relative(RAIZ, f)}:${i + 1}: ${linea.trim().slice(0, 110)}`,
+          );
         });
     }
     expect(
@@ -245,7 +269,9 @@ describe("FK mayorista", () => {
       const texto = readFileSync(f, "utf8");
       for (const m of texto.matchAll(JOIN_MALO)) {
         const linea = texto.slice(0, m.index).split("\n").length;
-        infractores.push(`${relative(RAIZ, f)}:${linea}: ${m[0].replace(/\s+/g, " ")}`);
+        infractores.push(
+          `${relative(RAIZ, f)}:${linea}: ${m[0].replace(/\s+/g, " ")}`,
+        );
       }
     }
     expect(
@@ -284,12 +310,18 @@ function sinComentarios(texto: string): string {
  * De ahí el orden: primero fuera los comentarios, luego fuera el contenido de
  * las interpolaciones, y sólo entonces trocear.
  */
-function bloquesSql(texto: string, fichero: string): { sql: string; linea: number }[] {
+function bloquesSql(
+  texto: string,
+  fichero: string,
+): { sql: string; linea: number }[] {
   const bloques: { sql: string; linea: number }[] = [];
   const limpio = sinComentarios(texto);
   if (/\.md$/.test(fichero)) {
     for (const m of limpio.matchAll(/```[a-z]*\n([\s\S]*?)```/gi)) {
-      bloques.push({ sql: m[1], linea: limpio.slice(0, m.index).split("\n").length });
+      bloques.push({
+        sql: m[1],
+        linea: limpio.slice(0, m.index).split("\n").length,
+      });
     }
     return bloques;
   }
@@ -297,11 +329,17 @@ function bloquesSql(texto: string, fichero: string): { sql: string; linea: numbe
   // no rompa el troceado por comillas invertidas.
   const sinInterp = limpio.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, " ");
   for (const m of sinInterp.matchAll(/`([\s\S]*?)`/g)) {
-    bloques.push({ sql: m[1], linea: sinInterp.slice(0, m.index).split("\n").length });
+    bloques.push({
+      sql: m[1],
+      linea: sinInterp.slice(0, m.index).split("\n").length,
+    });
   }
   // SQL en cadenas normales: `dashboard/app/api/seasons/route.ts` lo hace.
   for (const m of sinInterp.matchAll(/"((?:SELECT|WITH)[\s\S]*?)"/gi)) {
-    bloques.push({ sql: m[1], linea: sinInterp.slice(0, m.index).split("\n").length });
+    bloques.push({
+      sql: m[1],
+      linea: sinInterp.slice(0, m.index).split("\n").length,
+    });
   }
   return bloques;
 }
@@ -347,11 +385,17 @@ describe("asientos de inventario en traspasos", () => {
           // fila (425/425) y el unico vivo. `Regularizacion` (14.058 filas) son
           // ajustes y robos ('S-Robo'), no traspasos, asi que una lista negra
           // de Apertura+Inventario Parcial los deja dentro.
-          new RegExp(String.raw`${col}\s*(?:=|IN\s*\()\s*'?Autoreposicion`, "i"), // 'Traspaso' no existe: medido, los tipos son Apertura, Regularizacion, Inventario Parcial y Autoreposicion
+          new RegExp(
+            String.raw`${col}\s*(?:=|IN\s*\()\s*'?Autoreposicion`,
+            "i",
+          ), // 'Traspaso' no existe: medido, los tipos son Apertura, Regularizacion, Inventario Parcial y Autoreposicion
           new RegExp(String.raw`${col}\s+IN\s*\([^)]*'?Autoreposicion'?`, "i"),
           // Formas de lista negra, aceptadas por compatibilidad: excluyen los
           // asientos de inventario aunque dejen pasar las regularizaciones.
-          new RegExp(String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`, "i"),
+          new RegExp(
+            String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`,
+            "i",
+          ),
           new RegExp(String.raw`${col}\s*(?:<>|!=)\s*'Apertura'`, "i"),
         ];
         if (seguro.some((r) => r.test(sql))) continue;
@@ -386,7 +430,8 @@ describe("fecha efectiva del albarán mayorista", () => {
         if (/CASE\s+WHEN[^]*?fecha_envio[^]*?fecha_valor/i.test(sql)) continue;
         // Sólo molesta cuando se usa para acotar u ordenar; proyectarla como
         // columna informativa junto a la efectiva es legítimo.
-        if (!/(WHERE|AND|ORDER BY|BETWEEN)[^;]*fecha_envio/i.test(sql)) continue;
+        if (!/(WHERE|AND|ORDER BY|BETWEEN)[^;]*fecha_envio/i.test(sql))
+          continue;
         infractores.push(`${relative(RAIZ, f)}:${linea}`);
       }
     }
@@ -396,4 +441,3 @@ describe("fecha efectiva del albarán mayorista", () => {
     ).toEqual([]);
   });
 });
-

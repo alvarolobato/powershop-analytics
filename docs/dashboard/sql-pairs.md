@@ -59,17 +59,24 @@ Otras reglas que gobiernan los pares de abajo:
   - albaran mayorista: fecha efectiva = fecha_envio si >= 2000-01-01, si no
     fecha_valor.
   - CIF 502108150 (19 registros de ps_clientes) es trafico intragrupo, no venta.
-  - ccrefejofacm es REFERENCIA+COLOR; el modelo es
-    LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2).
+  - ccrefejofacm es REFERENCIA+COLOR: los dos ultimos caracteres son el
+    codigo de color (V26342820=BLANCO, V26342821=BEIG, V26342899=NEGRO...).
+    El modelo es LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2). Un "top
+    articulos" agrupado por la referencia completa parte el mismo modelo en
+    3-5 filas y ninguna encabeza el ranking: medido en agosto de 2026, 2.918
+    referencias son 1.448 modelos y los mas vendidos se parten en 4-5.
+    Agrupar SIEMPRE por modelo salvo que se pida el desglose por color, y
+    filtrar LENGTH(ccrefejofacm) > 2, porque hay 9 referencias de 0-2
+    caracteres que si no se funden en un modelo fantasma.
 -->
 
 
-### ¿Cuáles son los 10 artículos más vendidos por cantidad?
+### ¿Cuáles son los 10 artículos (referencia + color) más vendidos por cantidad?
 ```sql
 SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades Vendidas" DESC LIMIT 10
 ```
 
-### ¿Cuáles son los 10 modelos más vendidos?
+### ¿Cuáles son los 10 artículos más vendidos? (por modelo, que es el nivel correcto)
 ```sql
 SELECT LEFT(p."ccrefejofacm", LENGTH(p."ccrefejofacm") - 2) AS "Modelo", MIN(p."descripcion") AS "Descripción", COUNT(DISTINCT p."ccrefejofacm") AS "Colores", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND LENGTH(p."ccrefejofacm") > 2 GROUP BY 1 ORDER BY "Unidades Vendidas" DESC LIMIT 10
 ```
@@ -126,7 +133,7 @@ SELECT TO_CHAR(v."fecha_creacion", 'Day') AS "Día", EXTRACT(DOW FROM v."fecha_c
 
 ### ¿Cuáles son los 10 artículos más vendidos por importe?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Importe Neto", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Importe Neto" DESC LIMIT 10
+SELECT CASE WHEN LENGTH(TRIM(p."ccrefejofacm")) > 2 THEN LEFT(TRIM(p."ccrefejofacm"), LENGTH(TRIM(p."ccrefejofacm")) - 2) ELSE NULLIF(TRIM(p."ccrefejofacm"), '') END AS "Modelo", MIN(p."descripcion") AS "Descripción", COUNT(DISTINCT p."ccrefejofacm") AS "Colores", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Importe Neto", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY 1 ORDER BY "Importe Neto" DESC LIMIT 10
 ```
 
 ### ¿Qué familias de producto venden más?
