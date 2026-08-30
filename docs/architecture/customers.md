@@ -138,7 +138,7 @@ erDiagram
 
 - **Clientes** has 311 columns including: multiple address sets (billing, shipping, invoicing), up to 12 payment installment fields, bank details (Banco, Agencia, CuentaCorriente, IBAN, BIC), risk management (RiesgoConcedid, BloqueoFinancials), loyalty (ImpTarjetaPuntos), and extensive CRM fields.
 - The same `Clientes` table serves both retail POS customers (linked via `Ventas.NumCliente`) and wholesale clients (linked via `GCAlbaranes.NumCliente`, `GCFacturas.NumCliente`).
-- **Wholesale flag confirmed**: `Mayorista` boolean field distinguishes B2B wholesale customers from B2C retail. `B2B1..B2B4Provisional` flags track provisional B2B portal access levels.
+- **Customer segmentation is `TipoCliente`, and none of it is mirrored.** 4D `Clientes` has both a `Mayorista` boolean and a `TipoCliente` text field; the one that actually segments the business is **`TipoCliente`** (uppercase text: `'FRANQUICIADO INTERNO'`, `'FRANQUICIADO'`, `'MAYORISTA'`, `'MINORISTA'`). **Neither field is synced into `ps_clientes`** — the mirror has only `reg_cliente, num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f`. A query against the mirror using `mayorista` fails outright with *column does not exist*; segment by **channel** instead (present in `ps_ventas` ⇒ retail, present in `ps_gc_albaranes`/`ps_gc_facturas` ⇒ wholesale). A customer can legitimately be in both. `B2B1..B2B4Provisional` flags track provisional B2B portal access levels.
 - **GCComerciales** links customers to sales representatives via `Clientes.NumComercial -> GCComerciales.RegComercial`.
 - **Optical module**: `Medida1..Medida26` + `MedidaT1..MedidaT26` store 26 optical prescription measurements per customer (eyeglass prescriptions). Label slots (MedidaT*) contain measurement names.
 - **Wapping**: `Wapping_ID` links the customer to the Wapping omnichannel loyalty platform.
@@ -154,8 +154,8 @@ erDiagram
   {
     "table": "ps_clientes",
     "alias": "Cliente",
-    "description": "Clientes. num_cliente=0 son ventas anónimas.",
-    "keyColumns": ["reg_cliente (PK)", "num_cliente", "nombre", "nif", "email", "codigo_postal", "poblacion", "pais", "mayorista", "fecha_creacion", "ultima_compra_f"]
+    "description": "Clientes. num_cliente=0 son ventas anónimas. NO tiene campo mayorista ni tipo_cliente: segmentar por canal (ps_ventas = retail, ps_gc_albaranes/ps_gc_facturas = mayorista). nif = 502108150 marca sociedades del propio grupo (19 registros).",
+    "keyColumns": ["reg_cliente (PK)", "num_cliente", "nombre", "nif", "email", "codigo_postal", "poblacion", "pais", "fecha_creacion", "fecha_modifica", "ultima_compra_f"]
   }
 ]
 ```

@@ -13,8 +13,8 @@
  * Decisiones de negocio (mantener consistentes en todos los widgets):
  *   - Tienda 99 excluida en todas las queries de retail (es la "tienda fantasma"
  *     usada para movimientos internos / no comerciales).
- *   - "Ventas Netas" = SUM(total_si) sobre tickets con entrada=true (importe sin
- *     impuestos). Las devoluciones (entrada=false) se muestran aparte y NO se
+ *   - "Ventas Netas" = ventas MENOS devoluciones, sin IVA (01VEN - 02DEV en
+ *     PowerShop). Las devoluciones se restan, no se
  *     restan del KPI principal — coherente con el desglose por tienda.
  *   - Margen: solo líneas con total_si > 0 (excluye líneas regalo / coste cero).
  *   - Marketplace / web: actualmente todo retail está consolidado (campo
@@ -49,11 +49,10 @@ export const spec: DashboardSpec = {
       items: [
         {
           label: "Ventas Netas",
-          // SUM(total_si) sobre tickets de venta (entrada=true). No incluye IVA.
-          sql: `SELECT COALESCE(SUM(v."total_si"), 0) AS value
+          // Ventas MENOS devoluciones, sin IVA (01VEN - 02DEV en PowerShop).
+          sql: `SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS value
 FROM "public"."ps_ventas" v
-WHERE v."entrada" = true
-  AND v."tienda" <> '99'
+WHERE v."tienda" <> '99'
   AND v."fecha_creacion" >= :curr_from
   AND v."fecha_creacion" <= :curr_to
   AND __gf_tienda__`,
@@ -63,10 +62,9 @@ WHERE v."entrada" = true
         {
           label: "Tickets",
           // COUNT(DISTINCT reg_ventas) — un ticket puede tener varias líneas.
-          sql: `SELECT COUNT(DISTINCT v."reg_ventas") AS value
+          sql: `SELECT COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada") AS value
 FROM "public"."ps_ventas" v
-WHERE v."entrada" = true
-  AND v."tienda" <> '99'
+WHERE v."tienda" <> '99'
   AND v."fecha_creacion" >= :curr_from
   AND v."fecha_creacion" <= :curr_to
   AND __gf_tienda__`,
@@ -74,12 +72,13 @@ WHERE v."entrada" = true
         },
         {
           label: "Ticket Medio",
-          // Importe medio por ticket = SUM(total_si) / COUNT(DISTINCT reg_ventas).
+          // Ticket medio = (ventas - devoluciones) / tickets de VENTA.
+          // Los parentesis importan: sin ellos la division ligaria antes que la
+          // resta y saldria ventas - (devoluciones/tickets).
           // NULLIF protege contra rango sin tickets (división por cero).
-          sql: `SELECT ROUND(SUM(v."total_si") / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2) AS value
+          sql: `SELECT ROUND((COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0)) / NULLIF(COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada"), 0), 2) AS value
 FROM "public"."ps_ventas" v
-WHERE v."entrada" = true
-  AND v."tienda" <> '99'
+WHERE v."tienda" <> '99'
   AND v."fecha_creacion" >= :curr_from
   AND v."fecha_creacion" <= :curr_to
   AND __gf_tienda__`,
@@ -94,11 +93,10 @@ WHERE v."entrada" = true
           // COALESCE evita "—" cuando el rango no tiene líneas.
           // Usa format: "decimal" porque es un ratio fraccional (p.ej. 1,69):
           // "number" lo redondearía a entero (→ 2) y perdería precisión.
-          sql: `SELECT COALESCE(ROUND(SUM(lv."unidades")::numeric / NULLIF(COUNT(DISTINCT v."reg_ventas"), 0), 2), 0) AS value
+          sql: `SELECT COALESCE(ROUND(SUM(lv."unidades")::numeric / NULLIF(COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada"), 0), 2), 0) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
-WHERE v."entrada" = true
-  AND lv."tienda" <> '99'
+WHERE lv."tienda" <> '99'
   AND lv."fecha_creacion" >= :curr_from
   AND lv."fecha_creacion" <= :curr_to
   AND __gf_tienda__`,
@@ -106,10 +104,9 @@ WHERE v."entrada" = true
         },
         {
           label: "Devoluciones",
-          // ABS(SUM(total_si)) sobre tickets de devolución (entrada=false).
-          // ABS porque los importes vienen negativos.
+          // Importe devuelto: se guarda en positivo, se suma tal cual (02DEV).
           // `inverted: true` indica al renderer que un valor que sube es malo.
-          sql: `SELECT COALESCE(ABS(SUM(v."total_si")), 0) AS value
+          sql: `SELECT COALESCE(SUM(v."total_si"), 0) AS value
 FROM "public"."ps_ventas" v
 WHERE v."entrada" = false
   AND v."tienda" <> '99'
@@ -128,15 +125,15 @@ WHERE v."entrada" = false
   COALESCE(devo.imp, 0) / NULLIF(ven.imp + COALESCE(devo.imp, 0), 0) * 100, 1
 ) AS value
 FROM (
-  SELECT COALESCE(SUM(v."total_si"), 0) AS imp
+  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS imp
   FROM "public"."ps_ventas" v
-  WHERE v."entrada" = true AND v."tienda" <> '99'
+  WHERE v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from
     AND v."fecha_creacion" <= :curr_to
     AND __gf_tienda__
 ) ven,
 (
-  SELECT COALESCE(ABS(SUM(v."total_si")), 0) AS imp
+  SELECT COALESCE(ABS(COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0)), 0) AS imp
   FROM "public"."ps_ventas" v
   WHERE v."entrada" = false AND v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from
@@ -156,17 +153,17 @@ FROM (
   (curr.ventas - prev.ventas) / NULLIF(ABS(prev.ventas), 0) * 100, 1
 ) AS value
 FROM (
-  SELECT COALESCE(SUM(v."total_si"), 0) AS ventas
+  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS ventas
   FROM "public"."ps_ventas" v
-  WHERE v."entrada" = true AND v."tienda" <> '99'
+  WHERE v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from
     AND v."fecha_creacion" <= :curr_to
     AND __gf_tienda__
 ) curr,
 (
-  SELECT COALESCE(SUM(v."total_si"), 0) AS ventas
+  SELECT COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS ventas
   FROM "public"."ps_ventas" v
-  WHERE v."entrada" = true AND v."tienda" <> '99'
+  WHERE v."tienda" <> '99'
     AND v."fecha_creacion" >= :curr_from::date - INTERVAL '1 year'
     AND v."fecha_creacion" <= :curr_to::date - INTERVAL '1 year'
     AND __gf_tienda__
@@ -179,10 +176,9 @@ FROM (
       id: "ventas-por-tienda",
       type: "bar_chart",
       title: "Ventas Netas por Tienda (período seleccionado)",
-      sql: `SELECT v."tienda" AS label, SUM(v."total_si") AS value
+      sql: `SELECT v."tienda" AS label, COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS value
 FROM "public"."ps_ventas" v
-WHERE v."entrada" = true
-  AND v."tienda" <> '99'
+WHERE v."tienda" <> '99'
   AND v."fecha_creacion" >= :curr_from
   AND v."fecha_creacion" <= :curr_to
   AND __gf_tienda__
@@ -198,10 +194,9 @@ ORDER BY value DESC`,
       // Bucketización diaria: para 30 días produce 30 puntos (más útil que
       // 4-5 puntos semanales en el rango por defecto). Para rangos largos
       // (>1 año) considerar cambiar a 'week' o 'month' en una versión futura.
-      sql: `SELECT v."fecha_creacion" AS x, SUM(v."total_si") AS y
+      sql: `SELECT v."fecha_creacion" AS x, COALESCE(SUM(v."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(v."total_si") FILTER (WHERE NOT v."entrada"), 0) AS y
 FROM "public"."ps_ventas" v
-WHERE v."entrada" = true
-  AND v."tienda" <> '99'
+WHERE v."tienda" <> '99'
   AND v."fecha_creacion" >= :curr_from
   AND v."fecha_creacion" <= :curr_to
   AND __gf_tienda__
@@ -222,8 +217,7 @@ ORDER BY x`,
        SUM(p."importe_cob") AS value
 FROM "public"."ps_pagos_ventas" p
 JOIN "public"."ps_ventas" v ON p."num_ventas" = v."reg_ventas"
-WHERE v."entrada" = true
-  AND p."entrada" = true
+WHERE p."entrada" = true
   AND p."tienda" <> '99'
   AND p."fecha_creacion" >= :curr_from
   AND p."fecha_creacion" <= :curr_to
@@ -242,14 +236,14 @@ ORDER BY value DESC`,
       // que distorsionan el margen calculado.
       // NULLIF evita división por cero cuando todas las líneas son 0.
       sql: `SELECT lv."tienda" AS label,
-       ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
-         / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS value
+       ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
+        - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0)))
+         / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) * 100, 1) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
 JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE v."entrada" = true
-  AND lv."tienda" <> '99'
+WHERE lv."tienda" <> '99'
   AND lv."total_si" > 0
   AND lv."fecha_creacion" >= :curr_from
   AND lv."fecha_creacion" <= :curr_to
@@ -275,15 +269,15 @@ ORDER BY value DESC`,
       sql: `SELECT p."ccrefejofacm" AS "Referencia",
        p."descripcion" AS "Descripción",
        SUM(lv."unidades") AS "Unidades",
-       ROUND(SUM(lv."total_si")::numeric, 2) AS "Ventas Netas (€)",
-       ROUND((SUM(lv."total_si") - SUM(lv."total_coste_si"))
-         / NULLIF(SUM(lv."total_si"), 0) * 100, 1) AS "Margen %"
+       ROUND(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)::numeric, 2) AS "Ventas Netas (€)",
+       ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
+        - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0)))
+         / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0), 0) * 100, 1) AS "Margen %"
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo"
 JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE v."entrada" = true
-  AND lv."tienda" <> '99'
+WHERE lv."tienda" <> '99'
   AND lv."total_si" > 0
   AND lv."fecha_creacion" >= :curr_from
   AND lv."fecha_creacion" <= :curr_to

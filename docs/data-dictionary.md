@@ -129,11 +129,38 @@ GCAlbaranes.NumCliente -> Clientes.RegCliente
 | Field | Type | Description | Notes |
 |-------|------|-------------|-------|
 | RegArticulo | Real | Primary key | `.99` suffix convention |
-| Codigo | Alpha(60) | Product code | Unique business identifier. Example: `'12345'` |
-| CCRefeJOFACM | Alpha(100) | Manufacturer reference | Example: `'I25123456'` |
+| Codigo | Alpha(60) | Internal record code | **NOT the business reference.** Short internal sequence: `'169'`, `'168'`, `'12345'`. Use it as a *join key* only (`ps_lineas_ventas.codigo`, `ps_stock_tienda.codigo`), never as a label. |
+| CCRefeJOFACM | Alpha(100) | **Referencia** -- the business identifier | This is what staff and reports call "la referencia". Example: `'V26212484'`. Display this to users. |
 | Descripcion | Alpha(160) | Product description | Spanish text |
 | CodigoBarra | Alpha(80) | Primary barcode (EAN-13) | May be blank |
 | SKU | Alpha(240) | Stock Keeping Unit | May differ from Codigo |
+
+> **Corrected 2026-08-29.** This table previously described `Codigo` as the
+> "unique business identifier" and `CCRefeJOFACM` as a "manufacturer reference".
+> That was backwards and is the kind of error that propagates into generated SQL.
+> Verified against production: `Codigo` holds values like `'169'`; the reference
+> the business uses is `CCRefeJOFACM`.
+
+### Grain: a row is model + colour, not a SKU
+
+One `Articulos` row is **a model in one colour**, not a sellable SKU. The last two
+characters of `CCRefeJOFACM` encode the colour (`V26212484` -> colour `84`).
+
+Size is **not** a column of `Articulos`. Size lives:
+
+- on the sale line, in 4D, as `LineasVentas.CCOPTallaOjo` (100 % populated);
+- in the PostgreSQL mirror, in `ps_lineas_ventas.talla`, `ps_stock_tienda.talla`
+  and `ps_traspasos.talla`.
+
+`ps_lineas_ventas.talla` mirrors `CCOPTallaOjo` desde 2026-08, **normalizada a
+MAYÚSCULAS en el ETL**. No es una rareza aislada: medido contra el 4D vivo sobre
+60.000 líneas, **9 de los 29 valores distintos** de `CCOPTallaOjo` llevan
+minúsculas (`'m'` ×330, `'l'` ×282, `'u'` ×270, `'xl'` ×241, `'xxl'` ×164,
+`'s'` ×133). Sin normalizar, cada talla se parte en dos y el ranking cambia:
+en el artículo `I26101833` la más vendida sale **M (9 uds)** porque L queda
+dividida en `'L'` (8) y `'l'` (3); normalizando gana **L con 11**. Las filas anteriores a la
+resincronización tienen la columna vacía, así que conviene filtrar
+`talla IS NOT NULL` en análisis históricos.
 
 ### Pricing Fields
 
@@ -649,3 +676,124 @@ Most major tables include `Libre01` through `Libre16` fields of various types. T
 | Libre13..Libre15 | Various |
 
 Do not assume meaning for Libre fields without verifying with the business.
+
+---
+
+## LLM:rules
+
+Reglas de negocio derivadas de este diccionario, compiladas al bundle de
+conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
+
+```json
+[
+  {
+    "instruction": "Los nombres de tablas y columnas de PowerShop estan en espanol. Equivalencias basicas: Ventas=tickets de venta, LineasVentas=lineas de ticket, PagosVentas=cobros, Compras=pedidos de compra, Albaranes=albaranes, Facturas=facturas, Traspasos=movimientos entre tiendas, Tienda=tienda, Cajero=cajero, Proveedor=proveedor, Articulo=producto, Unidades=cantidad, Importe=importe monetario, Abono=nota de credito o devolucion.",
+    "questions": [
+      "que significa LineasVentas",
+      "que quiere decir abono",
+      "glosario de nombres de tablas"
+    ]
+  },
+  {
+    "instruction": "Prefijos de columna en PowerShop: 'Reg' = clave primaria del registro (RegVentas, RegArticulo); 'Num' = clave ajena a otra tabla (NumCliente -> Clientes.RegCliente); 'N' = numero de documento visible y NO unico (NDocumento, NAlbaran); 'P' = porcentaje (PIva); 'I' = importe (IIva1); 'Clave' = codigo corto; 'Libre' = campo libre configurable por el cliente. En el espejo PostgreSQL estos nombres van en snake_case: RegVentas -> reg_ventas, NumCliente -> num_cliente.",
+    "questions": [
+      "que significa el prefijo Num",
+      "diferencia entre Reg y Num",
+      "como se traducen los nombres al espejo"
+    ]
+  },
+  {
+    "instruction": "Sufijos de importe: 'SI' = Sin Impuestos (sin IVA) y es SIEMPRE la medida de analisis; 'CI' = con costes de importacion; 'Bruto' = antes de descuentos; 'Neto' = despues de descuentos; 'Cob' = cobrado; 'Ent' = entregado o entregado en efectivo. Para facturacion e ingresos usa total_si, nunca total. En ps_pagos_ventas usa importe_cob (lo realmente cobrado), nunca importe_ent (lo entregado por el cliente, que incluye el cambio).",
+    "questions": [
+      "total o total_si",
+      "que significa SI en TotalSI",
+      "importe_cob o importe_ent"
+    ]
+  },
+  {
+    "instruction": "Las claves primarias de PowerShop son numeros Real con sufijo decimal (RegArticulo=534.99, RegVentas=12345.155) donde los decimales codifican la tienda. En el espejo se guardan como NUMERIC, nunca como FLOAT8. Son identificadores OPACOS: no hagas aritmetica, ni sumas, ni comparaciones de rango, ni CAST a entero sobre ellos. Usalos solo para igualdad en JOINs.",
+    "questions": [
+      "por que las claves tienen .99",
+      "puedo sumar reg_articulo",
+      "patron de clave primaria"
+    ]
+  },
+  {
+    "instruction": "En ps_articulos, 'codigo' NO es la referencia de negocio: contiene un codigo interno corto ('169', '168'). La referencia que usa el negocio es 'ccrefejofacm' (ej. 'V26212484'). Usa 'codigo' solo como clave de JOIN (ps_lineas_ventas.codigo, ps_stock_tienda.codigo) y muestra SIEMPRE 'ccrefejofacm' como etiqueta del producto al usuario.",
+    "questions": [
+      "cual es la referencia de un articulo",
+      "que es ccrefejofacm",
+      "como identifico un producto"
+    ]
+  },
+  {
+    "instruction": "Una fila de ps_articulos es un modelo EN UN COLOR, no un SKU vendible. Los dos ultimos caracteres de ccrefejofacm codifican el color. La talla NO esta en ps_articulos ni en ps_lineas_ventas: en 4D vive en LineasVentas.CCOPTallaOjo (poblada al 100%) pero NO esta replicada en el espejo. En PostgreSQL solo hay talla en ps_stock_tienda.talla y ps_traspasos.talla. Nunca inventes una columna talla en ps_lineas_ventas.",
+    "questions": [
+      "ventas por talla",
+      "que granularidad tiene ps_articulos",
+      "donde esta la talla"
+    ]
+  },
+  {
+    "instruction": "Semantica de 'entrada': entrada = true es una venta (dinero que entra), entrada = false es una devolucion (dinero que sale, con el importe guardado en POSITIVO). En ps_ventas y ps_pagos_ventas existe la columna 'entrada'; en ps_lineas_ventas NO existe, hay que unir con ps_ventas por lv.num_ventas = v.reg_ventas para obtenerla.",
+    "questions": [
+      "que es entrada",
+      "como distingo una devolucion",
+      "ps_lineas_ventas tiene entrada"
+    ]
+  },
+  {
+    "instruction": "'Ventas' significa SIEMPRE neto de devoluciones. El patron obligatorio es COALESCE(SUM(x) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(x) FILTER (WHERE NOT v.entrada), 0). Filtrar solo 'WHERE entrada = true' descarta las devoluciones en vez de restarlas y sobrestima la cifra entre un 7 y un 10 %. Aplica a importes y a unidades, en ps_ventas, ps_lineas_ventas y ps_pagos_ventas.",
+    "questions": [
+      "cuanto hemos vendido",
+      "ventas netas",
+      "hay que restar las devoluciones"
+    ]
+  },
+  {
+    "instruction": "ps_ventas.tipo_documento distingue el tipo de documento de caja: 'V' = venta, 'D' = devolucion, 'A' = abono o nota de credito. Es una etiqueta descriptiva; para el calculo de ventas netas usa la columna booleana 'entrada', no tipo_documento.",
+    "questions": [
+      "que es tipo_documento",
+      "valores de tipo_documento"
+    ]
+  },
+  {
+    "instruction": "En el mayorista (tablas GC*) la devolucion no es 'entrada = false' sino la bandera 'abono' en ps_gc_albaranes y ps_gc_facturas: abono = true significa nota de credito. El neto mayorista se calcula COALESCE(SUM(x) FILTER (WHERE NOT abono), 0) - COALESCE(SUM(x) FILTER (WHERE abono), 0).",
+    "questions": [
+      "devoluciones mayoristas",
+      "que es abono",
+      "neto de facturacion mayorista"
+    ]
+  },
+  {
+    "instruction": "Los articulos con codigo que empieza por 'M' son de mayorista/granel. Para analisis exclusivamente retail excluye con codigo NOT LIKE 'M%'; para mayorista filtra codigo LIKE 'M%'.",
+    "questions": [
+      "que son los articulos M",
+      "separar retail de mayorista"
+    ]
+  },
+  {
+    "instruction": "Los campos Libre01..Libre16 existen en casi todas las tablas grandes y son campos libres configurables por cada instalacion. Su significado NO se puede deducir del esquema. Nunca los uses en una consulta ni les asignes un significado sin confirmacion del negocio.",
+    "questions": [
+      "que son los campos Libre",
+      "puedo usar Libre04"
+    ]
+  },
+  {
+    "instruction": "Patron de IVA: cada importe aparece por pares, 'Total' con IVA y 'TotalSI' sin IVA. Los desgloses por tipo de IVA van en Base1/Base2/Base3 (bases imponibles), PIva1..PIva3 (porcentajes) e IIva1..IIva3 (cuotas). Los minoristas espanoles en recargo de equivalencia tienen ademas LlevaRE, PRE1..PRE3 e IRE1..IRE3. Para analitica usa siempre la version SI.",
+    "questions": [
+      "como se guarda el IVA",
+      "que es Base1",
+      "que es el recargo de equivalencia"
+    ]
+  },
+  {
+    "instruction": "ps_articulos no tiene columna de stock. El stock por tienda y talla esta en ps_stock_tienda (codigo, tienda, talla, stock) y el stock del almacen central en ps_stock_central (num_articulo -> ps_articulos.reg_articulo, stock). La columna Articulos.Stock de 4D es un agregado desnormalizado y no esta replicada.",
+    "questions": [
+      "cuanto stock hay de un articulo",
+      "donde esta el stock",
+      "ps_articulos tiene stock"
+    ]
+  }
+]
+```

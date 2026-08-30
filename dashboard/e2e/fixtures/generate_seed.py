@@ -369,8 +369,14 @@ def main() -> None:
                         * unidades,
                         2,
                     )
-                    if not entrada:
-                        line_si = -line_si
+                    # Las devoluciones se guardan en POSITIVO, igual que en
+                    # PowerShop. Verificado contra produccion: 88.891
+                    # devoluciones, CERO con importe negativo. El fixture las
+                    # generaba en negativo, o sea con la convencion contraria a
+                    # la real — y un fixture que miente es tan peligroso como
+                    # una doc que miente: valida el codigo contra una semantica
+                    # que no existe. El signo lo pone quien consulta, restando
+                    # el lado `NOT entrada`, no el almacenamiento.
                     coste = round(line_si * COST_RATIO * rng.uniform(0.9, 1.1), 2)
                     venta_total += line_si
                     linea_rows.append(
@@ -648,10 +654,14 @@ def main() -> None:
         us = rng.randint(1, 6)
         ue = rng.randint(1, 6)
         common = [
-            codigo, talla,
-            f"{us}", f"{ue}",
-            sql_str(salida), sql_str(entrada_t),
-            d(offset), d(max(0, offset - 1)),
+            codigo,
+            talla,
+            f"{us}",
+            f"{ue}",
+            sql_str(salida),
+            sql_str(entrada_t),
+            d(offset),
+            d(max(0, offset - 1)),
         ]
         tr_rows.append(", ".join([f"{600000 + i * 2 - 1}.99"] + common + ["false"]))
         tr_rows.append(", ".join([f"{600000 + i * 2}.99"] + common + ["true"]))

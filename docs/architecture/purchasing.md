@@ -147,14 +147,24 @@ erDiagram
     }
 
     LinAlbaranes {
+        float RegLineaAlbaran PK "Line record ID"
         float NumAlbaran FK "-> Albaranes.RegAlbaran"
         float NumArticulo FK "-> Articulos.RegArticulo"
+        float NumProveedor FK "-> Proveedores.RegProveedor"
+        float NPedido FK "-> Compras.RegPedido"
         text Codigo "Article code"
         text Articulo "Article name"
-        float PrecioBruto "Gross price"
-        float PrecioNeto "Net price"
-        float Unidades "Quantity"
-        float Total "Line total"
+        text Descripcion "Article description"
+        float PrecioCoste "Unit cost"
+        float PrecioNetoSI "Net unit price ex-VAT"
+        float TotalSI "Line total ex-VAT"
+        float TotalImport "Import line total"
+        float IvaUnitario "Unit VAT amount"
+        float PDescCompra "Purchase discount pct"
+        float PIva "VAT percentage"
+        float Recibidas "Units received (total)"
+        text Talla1_34 "Size labels, 34 slots"
+        float Recibidas1_34 "Units received per size, 34 slots"
     }
 
     Albaranes ||--o{ LinAlbaranes : "RegAlbaran -> NumAlbaran"
@@ -166,7 +176,7 @@ erDiagram
 | Table | Rows | Columns | Description |
 |-------|------|---------|-------------|
 | **Compras** | 2,697 | 129 | Purchase orders to suppliers. Contains totals, VAT, payment terms, season, and fulfillment status. |
-| **LineasCompras** | 0 | 57 | Purchase order line items. Currently empty (see CCLineasCompr). |
+| **LineasCompras** | 0 | 57 | Purchase order line items. **The table exists** but is empty — the populated equivalent is `CCLineasCompr`. |
 | **CCLineasCompr** | 44,395 | -- | Alternative purchase line items table (populated). |
 | **Proveedores** | 518 | 115 | Supplier master. Address, contacts, bank, payment terms, import terms (Incoterm, IBAN). |
 | **FacturasCompra** | 3,884 | -- | Purchase invoices from suppliers. |
@@ -174,7 +184,7 @@ erDiagram
 | **DivisionCompra** | 10,981 | -- | Purchase order allocation across stores. |
 | **Facturas** | 2,356 | 118 | Retail invoices. Formal fiscal documents from POS sales with TBAI/SAFT compliance. |
 | **Albaranes** | 3,669 | 68 | Retail delivery notes for goods received from suppliers. |
-| **LinAlbaranes** | 44,335 | 109 | Line items on delivery notes with size-level detail (Talla1-17). |
+| **LinAlbaranes** | 44,335 | 109 | Line items on delivery notes with size-level detail: `Talla1..34` (labels) + `Recibidas1..34` (units received per size). |
 
 ## Empty / Unused Tables
 
@@ -189,10 +199,12 @@ erDiagram
 
 ## Notes
 
-- **Two purchase line tables exist**: `LineasCompras` (empty, 57 cols) and `CCLineasCompr` (44,395 rows). The CC-prefixed version appears to be the active one.
+- **Two purchase line tables exist**: `LineasCompras` (exists, 57 cols, 0 rows) and `CCLineasCompr` (44,395 rows). The CC-prefixed version is the active one. `LineasCompras` **is a real table** — do not repeat the claim that it "does not exist"; it is simply empty.
 - **Purchase flow**: Compras (order) -> Albaranes (receipt) -> FacturasCompra (supplier invoice) -> PagosCompras (payment).
 - **Retail invoicing**: `Facturas` are formal invoices generated from POS sales (Ventas), separate from wholesale invoices (GCFacturas).
-- **LinAlbaranes** has size-level columns (Talla1-17) matching the CCStock wide format for receiving goods per size.
+- **LinAlbaranes has 34 size slots, not 17.** Verified against 4D `_USER_COLUMNS` (109 columns total): `Talla1..Talla34` (size labels) **and** `Recibidas1..Recibidas34` (units received per size) — 68 of the 109 columns. The "Talla1-17" that used to appear here was the loop bound of a legacy Visual FoxPro report, copied into this doc as if it were the schema. Anything iterating sizes must go to 34 or it silently drops the tail of the size run.
+- **LinAlbaranes money/quantity columns** (verified, not guessed): `PrecioCoste`, `PrecioNetoSI`, `TotalSI`, `TotalImport`, `IvaUnitario`, `PDescCompra`, `PIva`, `Recibidas`. There is **no** `PrecioBruto`, `PrecioNeto`, `Unidades` or `Total` on this table — those names were invented in an earlier revision of this file.
+- **Purchases are `Albaranes` + `LinAlbaranes`, not `Compras` + `LineasCompras`.** `Compras`/`CCLineasCompr` are *orders* (what was asked for); `Albaranes`/`LinAlbaranes` are *goods actually received*. Any "what did we buy" analysis must use the delivery-note pair — the order pair overstates, because orders get cancelled and partially served. `LineasCompras` itself is empty in production.
 - **DivisionCompra** (10,981 rows) tracks how purchase orders are allocated across multiple stores.
 - Proveedores links to Articulos via `Articulos.NumProveedor -> Proveedores.RegProveedor`.
 

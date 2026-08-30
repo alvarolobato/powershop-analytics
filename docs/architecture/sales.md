@@ -103,7 +103,8 @@ erDiagram
         text CodigoEmpleado "Employee code"
         text Caja "Register code"
         text Tienda "Store code"
-        boolean Entrada "Is entry (vs return)"
+        boolean Entrada "Is entry (vs return) — NOT mirrored"
+        text MovimientoCaja "Venta / Devolucion — NOT mirrored"
         text TipoDocumento "Document type"
         float PIva "VAT percentage"
     }
@@ -337,6 +338,10 @@ When an invoice is issued by an external system (e.g., facturas emitted outside 
 - **Denormalization**: LineasVentas carries copies of Codigo, Descripcion, NumFamilia, NumDepartament, etc., from Articulos for reporting efficiency.
 - **TBAI annulment fields** share the same lifecycle pattern as the primary TBAI fields; use `TBAI_ANULADOFECHA` to detect annulled tickets.
 - **LIBRE fields**: `Ventas` has `LIBRE03` and `LIBRE06..LIBRE15` (free/custom fields, typically NULL). `PagosVentas` has `LIBRE01..LIBRE12`.
+- **`LineasVentas.Entrada` exists in the source; the mirror is only now catching up.** Earlier revisions of this file said the field "does not exist", which contradicted the ER diagram above. Verified against 4D `_USER_COLUMNS` (`LineasVentas`, 159 columns): the table **does** have `Entrada` (boolean) and `MovimientoCaja` (text, `'Venta'` / `'Devolucion'`), and the two agree 100% of the time. What was missing was the **mirror** column. As of commit `e4491b5` the ETL selects `entrada`, `movimiento_caja` and `talla` into `ps_lineas_ventas`, but **production has not been re-synced yet** — the deployed mirror still has only the original 14 columns. Until that sync runs, every line-level query must `JOIN ps_ventas` and use the net pattern:
+  `COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0) - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0)`.
+  The `COALESCE` wrappers are not optional: `SUM(...) FILTER (...)` is NULL when a group has no row on one side, and `NULL - x` is NULL, which silently blanks 30.6% of article-level groups.
+- **`LineasVentas.PDescG` / `ImporteDescuento` are the same story**: present in 4D, absent from `ps_lineas_ventas`. Discount metrics cannot be computed from the mirror today — see the discount rule in [etl-sync-strategy.md](../etl-sync-strategy.md).
 
 ## ETL Sync Strategy
 
@@ -374,7 +379,7 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
   {
     "table": "ps_lineas_ventas",
     "alias": "LineaVenta",
-    "description": "Líneas de venta (detalle por artículo). NO tiene campo entrada — usar JOIN con ps_ventas.",
+    "description": "Líneas de venta (detalle por artículo). El espejo NO tiene entrada — el ETL no la selecciona todavía; en 4D LineasVentas SÍ la tiene. Usar JOIN con ps_ventas y el patrón neto FILTER.",
     "keyColumns": ["reg_lineas (PK)", "num_ventas (FK -> ps_ventas.reg_ventas)", "mes (YYYYMM)", "tienda", "codigo (FK -> ps_articulos.codigo)", "descripcion", "unidades", "precio_neto_si", "total_si", "total_coste_si", "fecha_creacion"]
   },
   {

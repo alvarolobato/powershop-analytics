@@ -169,9 +169,9 @@ export async function GET(req: NextRequest) {
     const pivotRow = await query(
       `SELECT
          (SELECT MAX(fecha_creacion) FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99')::text AS max_synced,
+           WHERE tienda<>'99')::text AS max_synced,
          (SELECT MIN(fecha_creacion) FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99')::text AS min_synced,
+           WHERE tienda<>'99')::text AS min_synced,
          (NOW() AT TIME ZONE 'Europe/Madrid')::date::text AS today_madrid,
          NOW() AS now_utc,
          -- Latest hour observed in today's mirror, in Madrid local hour. Used
@@ -180,11 +180,11 @@ export async function GET(req: NextRequest) {
          -- compares "today=0 (no rows yet)" vs "yesterday up to hour 14"
          -- and the deltas turn even more deeply red than before.
          (SELECT EXTRACT(HOUR FROM MAX(hora_creacion))::int FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99'
+           WHERE tienda<>'99'
              AND hora_creacion IS NOT NULL
              AND fecha_creacion = (NOW() AT TIME ZONE 'Europe/Madrid')::date) AS today_mirror_hour,
          (SELECT COUNT(*)::int FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99'
+           WHERE tienda<>'99'
              AND fecha_creacion = (NOW() AT TIME ZONE 'Europe/Madrid')::date) AS today_row_count`,
     );
     const maxSyncedStr = String(pivotRow.rows[0][0] ?? "");
@@ -311,21 +311,21 @@ export async function GET(req: NextRequest) {
       // row qualifies, so the cutoff column equals the full column.
       query(
         `SELECT
-           COALESCE(SUM(CASE WHEN fecha_creacion = $1::date           THEN total_si END), 0) AS hoy,
-           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date THEN total_si END), 0) AS ayer_full,
+           COALESCE(SUM(CASE WHEN fecha_creacion = $1::date           THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS hoy,
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS ayer_full,
            COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date
                               AND (NOT $3::bool
                                    OR (hora_creacion IS NOT NULL
                                        AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
-                            THEN total_si END), 0) AS ayer_cutoff,
-           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS ly_full,
+                            THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS ayer_cutoff,
+           COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS ly_full,
            COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date
                               AND (NOT $3::bool
                                    OR (hora_creacion IS NOT NULL
                                        AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
-                            THEN total_si END), 0) AS ly_cutoff
+                            THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS ly_cutoff
          FROM ps_ventas
-         WHERE entrada = true AND tienda <> '99'
+         WHERE tienda <> '99'
            AND fecha_creacion BETWEEN ($1::date - INTERVAL '1 year' - INTERVAL '7 days')::date AND $1::date`,
         [asOfDate, cutoffHour, cutoffActive],
       ),
@@ -343,9 +343,9 @@ export async function GET(req: NextRequest) {
          ),
          per_hour AS (
            SELECT EXTRACT(HOUR FROM hora_creacion)::int AS h,
-                  SUM(total_si)::numeric AS s
+                  (COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0))::numeric AS s
            FROM ps_ventas
-           WHERE entrada = true AND tienda <> '99'
+           WHERE tienda <> '99'
              AND fecha_creacion = $1::date
              AND hora_creacion IS NOT NULL
            GROUP BY EXTRACT(HOUR FROM hora_creacion)
@@ -369,9 +369,9 @@ export async function GET(req: NextRequest) {
          ),
          per_hour AS (
            SELECT EXTRACT(HOUR FROM hora_creacion)::int AS h,
-                  SUM(total_si)::numeric AS s
+                  (COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0))::numeric AS s
            FROM ps_ventas
-           WHERE entrada = true AND tienda <> '99'
+           WHERE tienda <> '99'
              AND fecha_creacion = ($1::date - INTERVAL '7 days')::date
              AND hora_creacion IS NOT NULL
            GROUP BY EXTRACT(HOUR FROM hora_creacion)
@@ -389,19 +389,19 @@ export async function GET(req: NextRequest) {
       // is still in progress.
       query(
         `SELECT
-           COALESCE(SUM(CASE WHEN fecha_creacion = $1::date           THEN total_si END), 0) AS hoy,
+           COALESCE(SUM(CASE WHEN fecha_creacion = $1::date           THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS hoy,
            COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 day')::date
                               AND (NOT $3::bool
                                    OR (hora_creacion IS NOT NULL
                                        AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
-                            THEN total_si END), 0) AS ayer,
+                            THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS ayer,
            COALESCE(SUM(CASE WHEN fecha_creacion = ($1::date - INTERVAL '1 year')::date
                               AND (NOT $3::bool
                                    OR (hora_creacion IS NOT NULL
                                        AND EXTRACT(HOUR FROM hora_creacion) <= $2::int))
-                            THEN total_si END), 0) AS lyear
+                            THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS lyear
          FROM ps_ventas
-         WHERE entrada = true AND tienda <> '99'
+         WHERE tienda <> '99'
            AND fecha_creacion BETWEEN ($1::date - INTERVAL '1 year' - INTERVAL '2 days')::date AND $1::date`,
         [asOfDate, cutoffHour, cutoffActive],
       ),
@@ -410,13 +410,13 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('week', $1::date)::date
-                              AND fecha_creacion <= $1::date THEN total_si END), 0) AS curr,
+                              AND fecha_creacion <= $1::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS curr,
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 week'))::date
-                              AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date THEN total_si END), 0) AS prev,
+                              AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS prev,
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 year'))::date
-                              AND fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS lyear
+                              AND fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS lyear
          FROM ps_ventas
-         WHERE entrada = true AND tienda <> '99'
+         WHERE tienda <> '99'
            AND fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 weeks')::date
            AND fecha_creacion <= $1::date`,
         [asOfDate],
@@ -426,13 +426,13 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('month', $1::date)::date
-                              AND fecha_creacion <= $1::date THEN total_si END), 0) AS curr,
+                              AND fecha_creacion <= $1::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS curr,
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 month')::date
-                              AND fecha_creacion <  DATE_TRUNC('month', $1::date)::date THEN total_si END), 0) AS prev,
+                              AND fecha_creacion <  DATE_TRUNC('month', $1::date)::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS prev,
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 year')::date
-                              AND fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS lyear
+                              AND fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS lyear
          FROM ps_ventas
-         WHERE entrada = true AND tienda <> '99'
+         WHERE tienda <> '99'
            AND fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 months')::date
            AND fecha_creacion <= $1::date`,
         [asOfDate],
@@ -442,11 +442,11 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('year', $1::date)::date
-                              AND fecha_creacion <= $1::date THEN total_si END), 0) AS curr,
+                              AND fecha_creacion <= $1::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS curr,
            COALESCE(SUM(CASE WHEN fecha_creacion >= DATE_TRUNC('year', $1::date - INTERVAL '1 year')::date
-                              AND fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN total_si END), 0) AS lyear
+                              AND fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN CASE WHEN entrada THEN total_si ELSE -total_si END END), 0) AS lyear
          FROM ps_ventas
-         WHERE entrada = true AND tienda <> '99'
+         WHERE tienda <> '99'
            AND fecha_creacion >= ($1::date - INTERVAL '2 years')::date
            AND fecha_creacion <= $1::date`,
         [asOfDate],
@@ -454,11 +454,11 @@ export async function GET(req: NextRequest) {
 
       // Hoy spark: last 7 days
       query(
-        `SELECT day::date AS day, COALESCE(SUM(v.total_si), 0)::numeric AS value
+        `SELECT day::date AS day, COALESCE(SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END), 0)::numeric AS value
          FROM generate_series(($1::date - INTERVAL '6 days')::date, $1::date, '1 day') day
          LEFT JOIN ps_ventas v
            ON v.fecha_creacion = day::date
-          AND v.entrada = true AND v.tienda <> '99'
+          AND v.tienda <> '99'
          GROUP BY day ORDER BY day`,
         [asOfDate],
       ),
@@ -474,12 +474,12 @@ export async function GET(req: NextRequest) {
          )
          SELECT w.week_start::date AS week_start,
                 EXTRACT(WEEK FROM w.week_start)::int AS iso_week,
-                COALESCE(SUM(v.total_si), 0)::numeric AS value
+                COALESCE(SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END), 0)::numeric AS value
          FROM weeks w
          LEFT JOIN ps_ventas v
            ON v.fecha_creacion >= w.week_start
           AND v.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
-          AND v.entrada = true AND v.tienda <> '99'
+          AND v.tienda <> '99'
          GROUP BY w.week_start ORDER BY w.week_start`,
         [asOfDate],
       ),
@@ -495,12 +495,12 @@ export async function GET(req: NextRequest) {
          )
          SELECT m.month_start::date AS month_start,
                 EXTRACT(MONTH FROM m.month_start)::int AS mon,
-                COALESCE(SUM(v.total_si), 0)::numeric AS value
+                COALESCE(SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END), 0)::numeric AS value
          FROM months m
          LEFT JOIN ps_ventas v
            ON v.fecha_creacion >= m.month_start
           AND v.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
-          AND v.entrada = true AND v.tienda <> '99'
+          AND v.tienda <> '99'
          GROUP BY m.month_start ORDER BY m.month_start`,
         [asOfDate],
       ),
@@ -516,12 +516,12 @@ export async function GET(req: NextRequest) {
          )
          SELECT m.month_start::date AS month_start,
                 EXTRACT(MONTH FROM m.month_start)::int AS mon,
-                COALESCE(SUM(v.total_si), 0)::numeric AS value
+                COALESCE(SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END), 0)::numeric AS value
          FROM months m
          LEFT JOIN ps_ventas v
            ON v.fecha_creacion >= m.month_start
           AND v.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
-          AND v.entrada = true AND v.tienda <> '99'
+          AND v.tienda <> '99'
          GROUP BY m.month_start ORDER BY m.month_start`,
         [asOfDate],
       ),
@@ -548,9 +548,9 @@ export async function GET(req: NextRequest) {
          sales_agg AS (
            SELECT
              DATE_TRUNC('week', fecha_creacion)::date AS sale_week,
-             SUM(total_si) AS weekly_total
+             COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS weekly_total
            FROM ps_ventas
-           WHERE entrada = true AND tienda <> '99'
+           WHERE tienda <> '99'
              AND fecha_creacion >= (DATE_TRUNC('week', $1::date - INTERVAL '16 weeks') - INTERVAL '1 year')::date
              AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date
            GROUP BY DATE_TRUNC('week', fecha_creacion)::date
@@ -583,16 +583,16 @@ export async function GET(req: NextRequest) {
          ),
          stores AS (
            SELECT DISTINCT tienda FROM ps_ventas
-           WHERE entrada = true AND tienda <> '99'
+           WHERE tienda <> '99'
              AND fecha_creacion >= ($1::date - INTERVAL '30 days')::date
          ),
          sales_agg AS (
            SELECT
              tienda,
              DATE_TRUNC('week', fecha_creacion)::date AS sale_week,
-             SUM(total_si) AS weekly_total
+             COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS weekly_total
            FROM ps_ventas
-           WHERE entrada = true AND tienda <> '99'
+           WHERE tienda <> '99'
              AND fecha_creacion >= (DATE_TRUNC('week', $1::date - INTERVAL '16 weeks') - INTERVAL '1 year')::date
              AND fecha_creacion <  DATE_TRUNC('week', $1::date)::date
            GROUP BY tienda, DATE_TRUNC('week', fecha_creacion)::date
@@ -620,11 +620,11 @@ export async function GET(req: NextRequest) {
            )::date AS day
          )
          SELECT EXTRACT(DAY FROM d.day)::int AS day_num,
-                COALESCE((SELECT SUM(v.total_si) FROM ps_ventas v
-                          WHERE v.entrada=true AND v.tienda<>'99'
+                COALESCE((SELECT SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END) FROM ps_ventas v
+                          WHERE v.tienda<>'99'
                             AND v.fecha_creacion = d.day), 0)::numeric AS actual,
-                COALESCE((SELECT SUM(v.total_si) FROM ps_ventas v
-                          WHERE v.entrada=true AND v.tienda<>'99'
+                COALESCE((SELECT SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END) FROM ps_ventas v
+                          WHERE v.tienda<>'99'
                             AND v.fecha_creacion = (d.day - INTERVAL '1 year')::date), 0)::numeric AS ly,
                 d.day > $1::date AS is_future
          FROM days d
@@ -653,17 +653,17 @@ export async function GET(req: NextRequest) {
                 COALESCE(s.tickets, 0)::int AS tickets
          FROM ps_tiendas t
          LEFT JOIN (
-           SELECT tienda, SUM(total_si) AS sales, COUNT(DISTINCT reg_ventas)::int AS tickets
+           SELECT tienda, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS sales, COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada)::int AS tickets
            FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99' AND fecha_creacion = $1::date
+           WHERE tienda<>'99' AND fecha_creacion = $1::date
            GROUP BY tienda
          ) s ON s.tienda = t.codigo
          LEFT JOIN (
            SELECT tienda, AVG(daily_total)::numeric AS avg7
            FROM (
-             SELECT tienda, fecha_creacion, SUM(total_si) AS daily_total
+             SELECT tienda, fecha_creacion, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS daily_total
              FROM ps_ventas
-             WHERE entrada=true AND tienda<>'99'
+             WHERE tienda<>'99'
                AND fecha_creacion >= ($1::date - INTERVAL '7 days')::date
                AND fecha_creacion <  $1::date
              GROUP BY tienda, fecha_creacion
@@ -671,9 +671,9 @@ export async function GET(req: NextRequest) {
            GROUP BY tienda
          ) avg7 ON avg7.tienda = t.codigo
          LEFT JOIN (
-           SELECT tienda, SUM(total_si) AS total_30d
+           SELECT tienda, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS total_30d
            FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99'
+           WHERE tienda<>'99'
              AND fecha_creacion >= ($1::date - INTERVAL '30 days')::date
              AND fecha_creacion <= $1::date
            GROUP BY tienda
@@ -688,20 +688,20 @@ export async function GET(req: NextRequest) {
            -- in lib/db.ts rejects them as multi-statement.)
            SELECT tienda, MAX(fecha_creacion) AS last_sale_date
            FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99'
+           WHERE tienda<>'99'
            GROUP BY tienda
          ) last_sale ON last_sale.tienda = t.codigo
          LEFT JOIN (
-           SELECT tienda, SUM(total_si) AS sales_ly
+           SELECT tienda, COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS sales_ly
            FROM ps_ventas
-           WHERE entrada=true AND tienda<>'99'
+           WHERE tienda<>'99'
              AND fecha_creacion = ($1::date - INTERVAL '1 year')::date
            GROUP BY tienda
          ) ly ON ly.tienda = t.codigo
          LEFT JOIN (
            SELECT tienda,
                   COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric
-                    / NULLIF(COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0), 0) AS returns_rate
+                    / NULLIF(COALESCE(SUM(CASE WHEN entrada THEN total_si ELSE -total_si END), 0), 0) AS returns_rate
            FROM ps_ventas
            WHERE fecha_creacion = $1::date AND tienda <> '99'
            GROUP BY tienda
@@ -717,9 +717,8 @@ export async function GET(req: NextRequest) {
            SELECT generate_series(($1::date - INTERVAL '6 days')::date, $1::date, '1 day')::date AS day
          )
          SELECT t.codigo, d.day,
-                COALESCE((SELECT SUM(v.total_si) FROM ps_ventas v
-                          WHERE v.entrada=true
-                            AND v.tienda = t.codigo
+                COALESCE((SELECT SUM(CASE WHEN v.entrada THEN v.total_si ELSE -v.total_si END) FROM ps_ventas v
+                          WHERE v.tienda = t.codigo
                             AND v.fecha_creacion = d.day), 0)::numeric AS sales
          FROM ps_tiendas t CROSS JOIN days d
          WHERE t.codigo <> '99'
@@ -731,7 +730,7 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT
            COUNT(DISTINCT CASE WHEN entrada=true THEN reg_ventas END)::int AS tickets,
-           COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0)::numeric AS gross,
+           COALESCE(SUM(CASE WHEN entrada THEN total_si ELSE -total_si END), 0)::numeric AS gross,
            COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric AS devolu
          FROM ps_ventas
          WHERE tienda<>'99' AND fecha_creacion = $1::date`,
@@ -741,11 +740,11 @@ export async function GET(req: NextRequest) {
       // Retail ops: month margin
       query(
         `SELECT
-           COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
-           COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+           COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
+           COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= DATE_TRUNC('month', $1::date)::date
            AND lv.fecha_creacion <= $1::date`,
         [asOfDate],
@@ -755,7 +754,7 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT
            COUNT(DISTINCT CASE WHEN entrada=true THEN reg_ventas END)::int AS tickets_prev,
-           COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0)::numeric AS gross_prev,
+           COALESCE(SUM(CASE WHEN entrada THEN total_si ELSE -total_si END), 0)::numeric AS gross_prev,
            COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric AS devolu_prev
          FROM ps_ventas
          WHERE tienda<>'99'
@@ -769,11 +768,11 @@ export async function GET(req: NextRequest) {
       // Retail ops prev-month margin: previous full calendar month rev + cost
       query(
         `SELECT
-           COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
-           COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+           COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
+           COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 month')::date
            AND lv.fecha_creacion < DATE_TRUNC('month', $1::date)::date`,
         [asOfDate],
@@ -785,7 +784,7 @@ export async function GET(req: NextRequest) {
       query(
         `SELECT
            COALESCE(SUM(CASE WHEN entrada=false THEN ABS(total_si) END), 0)::numeric
-             / NULLIF(COALESCE(SUM(CASE WHEN entrada=true THEN total_si END), 0), 0) AS rate_30d
+             / NULLIF(COALESCE(SUM(CASE WHEN entrada THEN total_si ELSE -total_si END), 0), 0) AS rate_30d
          FROM ps_ventas
          WHERE tienda<>'99'
            AND fecha_creacion >= ($1::date - INTERVAL '29 days')::date
@@ -827,7 +826,7 @@ export async function GET(req: NextRequest) {
                             THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 days')::date
            AND lv.fecha_creacion <= $1::date`,
         [asOfDate],
@@ -850,7 +849,7 @@ export async function GET(req: NextRequest) {
                               AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 weeks')::date
            AND lv.fecha_creacion <= $1::date`,
         [asOfDate],
@@ -873,7 +872,7 @@ export async function GET(req: NextRequest) {
                               AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 months')::date
            AND lv.fecha_creacion <= $1::date`,
         [asOfDate],
@@ -892,7 +891,7 @@ export async function GET(req: NextRequest) {
                               AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '2 years')::date
            AND lv.fecha_creacion <= $1::date`,
         [asOfDate],
@@ -901,14 +900,21 @@ export async function GET(req: NextRequest) {
       // Margin hoy spark: last 7 days daily margin
       query(
         `SELECT day::date AS day,
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM generate_series(($1::date - INTERVAL '6 days')::date, $1::date, '1 day') day
          LEFT JOIN (
-           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           -- Una devolución revierte importe Y coste: el signo se aplica a las
+           -- dos columnas para que el margen siga cuadrando.
+           SELECT lv.fecha_creacion,
+                  CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END AS total_si,
+                  CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END AS total_coste_si
            FROM ps_lineas_ventas lv
-           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
-           WHERE lv.tienda <> '99' AND lv.total_si > 0
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+           WHERE lv.tienda <> '99'
          ) lv ON lv.fecha_creacion = day::date
          GROUP BY day ORDER BY day`,
         [asOfDate],
@@ -925,14 +931,21 @@ export async function GET(req: NextRequest) {
          )
          SELECT w.week_start::date AS week_start,
                 EXTRACT(WEEK FROM w.week_start)::int AS iso_week,
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM weeks w
          LEFT JOIN (
-           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           -- Una devolución revierte importe Y coste: el signo se aplica a las
+           -- dos columnas para que el margen siga cuadrando.
+           SELECT lv.fecha_creacion,
+                  CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END AS total_si,
+                  CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END AS total_coste_si
            FROM ps_lineas_ventas lv
-           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
-           WHERE lv.tienda <> '99' AND lv.total_si > 0
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+           WHERE lv.tienda <> '99'
          ) lv ON lv.fecha_creacion >= w.week_start
               AND lv.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
          GROUP BY w.week_start ORDER BY w.week_start`,
@@ -950,14 +963,21 @@ export async function GET(req: NextRequest) {
          )
          SELECT m.month_start::date AS month_start,
                 EXTRACT(MONTH FROM m.month_start)::int AS mon,
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM months m
          LEFT JOIN (
-           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           -- Una devolución revierte importe Y coste: el signo se aplica a las
+           -- dos columnas para que el margen siga cuadrando.
+           SELECT lv.fecha_creacion,
+                  CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END AS total_si,
+                  CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END AS total_coste_si
            FROM ps_lineas_ventas lv
-           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
-           WHERE lv.tienda <> '99' AND lv.total_si > 0
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+           WHERE lv.tienda <> '99'
          ) lv ON lv.fecha_creacion >= m.month_start
               AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
          GROUP BY m.month_start ORDER BY m.month_start`,
@@ -975,14 +995,21 @@ export async function GET(req: NextRequest) {
          )
          SELECT m.month_start::date AS month_start,
                 EXTRACT(MONTH FROM m.month_start)::int AS mon,
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
                 COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
                 COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM months m
          LEFT JOIN (
-           SELECT lv.fecha_creacion, lv.total_si, lv.total_coste_si
+           -- Una devolución revierte importe Y coste: el signo se aplica a las
+           -- dos columnas para que el margen siga cuadrando.
+           SELECT lv.fecha_creacion,
+                  CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END AS total_si,
+                  CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END AS total_coste_si
            FROM ps_lineas_ventas lv
-           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas AND v.entrada = true
-           WHERE lv.tienda <> '99' AND lv.total_si > 0
+           JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
+           WHERE lv.tienda <> '99'
          ) lv ON lv.fecha_creacion >= m.month_start
               AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
          GROUP BY m.month_start ORDER BY m.month_start`,
@@ -992,11 +1019,11 @@ export async function GET(req: NextRequest) {
       // Per-store margin for the as-of date
       query(
         `SELECT lv.tienda,
-                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
-                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
+                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
+                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
          FROM ps_lineas_ventas lv
          JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
-         WHERE v.entrada=true AND lv.tienda<>'99' AND lv.total_si > 0
+         WHERE lv.tienda<>'99'
            AND lv.fecha_creacion = $1::date
          GROUP BY lv.tienda`,
         [asOfDate],

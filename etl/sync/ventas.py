@@ -56,6 +56,25 @@ def _to_decimal(value: Any) -> Any:
     return value
 
 
+#: Claves cuyo valor se normaliza a MAYUSCULAS al escribir en el espejo.
+#:
+#: El origen mezcla mayusculas y minusculas en la talla: en agosto 2026 habia
+#: 46 valores distintos que eran 34 reales ('l'/'L', 'xl'/'XL', 'xxl'/'XXL'...,
+#: unas 2.650 lineas). Sin normalizar, "L" y "l" salen como dos tallas y parten
+#: los rankings: en el articulo I26101833 la mas vendida es M (9 uds) porque L
+#: queda dividida en 'L' (8) y 'l' (3); normalizando gana L con 11. Verificado
+#: contra el 4D vivo.
+#:
+#: ps_stock_tienda.talla NO venia limpia tampoco (traia '6Xl'), asi que se
+#: normaliza igual en etl/sync/stock.py -- en el unpivot y en traspasos. Los
+#: tres caminos escriben en el mismo eje, y basta con que uno deje pasar la
+#: caja del origen para que el cruce entre ellos pierda filas sin dar error.
+#:
+#: Se normaliza en el ETL y no en cada consulta: asi el espejo queda limpio y
+#: ninguna consulta futura puede olvidarse del UPPER().
+_UPPERCASE_KEYS: set[str] = {"ccoptallaojo"}
+
+
 def _map_row(
     source: dict[str, Any], mapping: dict[str, str], numeric_keys: set[str]
 ) -> dict[str, Any]:
@@ -63,12 +82,17 @@ def _map_row(
 
     Keys absent from *mapping* are silently dropped.
     Fields listed in *numeric_keys* are converted to Decimal.
+    Fields listed in `_UPPERCASE_KEYS` are trimmed and upper-cased.
     """
     result: dict[str, Any] = {}
     for src_key, pg_key in mapping.items():
         value = source.get(src_key)
         if src_key in numeric_keys:
             value = _to_decimal(value)
+        elif src_key in _UPPERCASE_KEYS and isinstance(value, str):
+            stripped = value.strip().upper()
+            # Cadena vacia -> NULL: "sin talla" no es una talla llamada "".
+            value = stripped or None
         result[pg_key] = value
     return result
 
@@ -190,6 +214,9 @@ _LINEAS_MAPPING: dict[str, str] = {
     "totalsi": "total_si",
     "preciocosteci": "precio_coste_ci",
     "totalcostesi": "total_coste_si",
+    "ccoptallaojo": "talla",
+    "entrada": "entrada",
+    "movimientocaja": "movimiento_caja",
     "fechacreacion": "fecha_creacion",
     "fechamodifica": "fecha_modifica",
 }
@@ -234,9 +261,23 @@ _SQL_VENTAS_BASE = (
 _SQL_LINEAS_BASE = (
     "SELECT RegLineas, NumVentas, NDocumento, Mes, Tienda, Codigo, Descripcion,"
     " Unidades, PrecioNetoSI, TotalSI, PrecioCosteCI, TotalCosteSI,"
+    " CCOPTallaOjo, Entrada, MovimientoCaja,"
     " FechaCreacion, FechaModifica"
     " FROM LineasVentas"
 )
+# CCOPTallaOjo es la TALLA de la linea de venta. Esta poblada al 100 % (31.944
+# de 31.944 lineas en agosto 2026) y es lo que usa el codigo de produccion
+# (`pw_sacarventas.prg`, en explotacion desde hace anos). No confundir con
+# BarrasAsociado: el PR #914 intento resolver la talla uniendo
+# LineasVentas.CodigoAsociado con BarrasAsociado.Codigo y midio 0 % de
+# cobertura sobre 60.048 lineas, porque CodigoAsociado esta vacio siempre. La
+# talla nunca estuvo en el articulo — el articulo codifica modelo + COLOR.
+#
+# Entrada y MovimientoCaja son el discriminador venta/devolucion A NIVEL DE
+# LINEA. Verificado contra el 4D: coinciden al 100 % con la cabecera
+# ('Venta'/true 30.213, 'Devolucion'/false 1.729, 'Otras Entradas'/true 2).
+# Traerlos elimina el JOIN obligatorio con ps_ventas, que fue la causa raiz
+# del bug de devoluciones ignoradas.
 
 _SQL_PAGOS_BASE = (
     "SELECT RegPagos, NumVentas, Forma, CodigoForma, ImporteCob,"

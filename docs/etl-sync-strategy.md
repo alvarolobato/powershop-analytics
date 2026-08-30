@@ -10,7 +10,7 @@ This document defines the sync strategy for each table in the ETL pipeline from 
 
 - **Ventas/LineasVentas/PagosVentas are NOT append-only.** 19–21% of historical records have `FechaModifica > FechaCreacion`, caused by returns, TBAI fiscal corrections, and payment flag updates. All three tables require **UPSERT by `FechaModifica`**.
 - **`FechaDocumento` is NULL for all records in Ventas.** Never use it as a delta field. Use `FechaModifica` or `FechaCreacion`.
-- **`LineasCompras` does not exist.** The correct table name is `CCLineasCompr` (44K rows). Links to `Compras` via `NumPedido`.
+- **`LineasCompras` exists but is empty (0 rows, 57 columns).** The populated purchase-order line table is `CCLineasCompr` (44K rows), linked to `Compras` via `NumPedido`. Earlier revisions claimed `LineasCompras` "does not exist" — it does; querying it just returns nothing.
 - **`Exportaciones.TiendaCodigo`** has the format `"tienda/articulo"` (e.g. `"104/169"`), not just a store code. The compound PK is `(Codigo, TiendaCodigo)`.
 - **PKs are REAL (float) with `.99` suffix** (e.g. `RegVentas = 10028816.641`). Store as `NUMERIC` in PostgreSQL, not `FLOAT8`, to avoid precision loss.
 - **Referencia prefix `MA` = material (no inventory).** Articles whose `CCRefeJOFACM` starts with `MA` are materials (bolsas, perchas, etc.) — no stock tracking, no inventory management. Exclude from stock analysis and sales KPIs. `M` (non-MA) = wholesale. No prefix = retail.
@@ -92,18 +92,29 @@ SELECT ... FROM Ventas WHERE FechaModifica > :last_sync
 
 **Parent-join delta pattern for lines:**
 ```sql
--- Fetch lines for recently modified delivery notes
+-- Fetch lines for recently modified delivery notes.
+-- The parent key is the 4D record ID (RegAlbaran), never the visible NAlbaran.
 SELECT * FROM GCLinAlbarane
-WHERE NAlbaran IN (
-    SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync
+WHERE NumAlbaran IN (
+    SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= :last_sync
 )
--- → DELETE FROM ps_gc_lin_albarane WHERE n_albaran = ANY(:changed_ids)
+-- → DELETE FROM ps_gc_lin_albarane WHERE num_albaran = ANY(:changed_reg_albaran)
 -- → INSERT INTO ps_gc_lin_albarane ...
 ```
 
-**FK corrections (important):**
-- `GCLinAlbarane.NAlbaran` → `GCAlbaranes.NAlbaran` (not RegAlbaran — these are different fields)
-- `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)
+**Line → header join key (corrected 2026-08-29):**
+Despite the `Num` prefix, the line tables carry the parent's **4D record ID**:
+- `GCLinAlbarane.NumAlbaran` → `GCAlbaranes.RegAlbaran` (4000/4000 on a production sample)
+- `GCLinFacturas.NumFactura` → `GCFacturas.RegFactura` (4000/4000)
+
+The *visible* document numbers are the wrong key on both counts:
+`GCLinFacturas.NumFactura` matches `GCFacturas.NFactura` **0/4000**, and neither
+visible number is unique (52,148 GCAlbaranes rows carry 40,727 distinct
+`NAlbaran` values; 19,351 GCFacturas rows carry 14,515 distinct `NFactura`
+values), so joining on them mixes lines from unrelated documents.  The ETL used
+the visible numbers until 2026-08-29: the invoice-line delta re-inserted 0 rows
+on every nightly run, and the mirror had drifted 1,873 invoice lines and 3,826
+delivery-note lines behind 4D.
 
 **GCAlbaranes daily volume:** ~19 modified/day, ~833/month. Lines delta is lightweight.
 
@@ -145,7 +156,9 @@ WHERE NAlbaran IN (
 | Albaranes | 3,672 | `RegAlbaran` (verify) | `Modificada` | Full refresh |
 | FacturasCompra | 3,884 | — (verify) | `FechaFactura` | Full refresh |
 
-**Important:** `LineasCompras` does not exist as a table. The line items for purchase orders are in `CCLineasCompr`. It links to `Compras` via `NumPedido` (not a direct `NumCompra` field), and to `Tiendas` via `NumTienda`.
+**Important:** `LineasCompras` **does** exist as a table (57 columns) but holds 0 rows in production. The populated line items for purchase orders are in `CCLineasCompr`, which links to `Compras` via `NumPedido` (not a direct `NumCompra` field), and to `Tiendas` via `NumTienda`.
+
+**Orders are not purchases.** `Compras` + `CCLineasCompr` record what was *ordered*; `Albaranes` + `LinAlbaranes` record what was *received*. Every "what did we buy / what did it cost us" question must be answered from the delivery-note pair, because orders get cancelled and partially served. `LinAlbaranes` carries the per-size detail (`Talla1..34` labels + `Recibidas1..34` units received) and the real money columns (`PrecioCoste`, `PrecioNetoSI`, `TotalSI`, `TotalImport`, `IvaUnitario`, `PDescCompra`, `PIva`, `Recibidas`).
 
 **Enrichment added 2026-05-01 (issue #429):**
 - `CCLineasCompr` now also syncs: `Unidades`, `PrecioCoste`, `PrecioNetoSI`, `TotalSI`, `NumProveedor` (all `DATA_TYPE=6`, Real).
@@ -215,7 +228,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Ventas del primer trimestre?", "¿Ventas de enero a marzo?", "¿Rendimiento del año 2025?"]
   },
   {
-    "instruction": "En la tabla Venta, el campo entrada indica si es venta (entrada=true) o devolución (entrada=false). Para ventas brutas filtrar entrada=true. Para devoluciones filtrar entrada=false. Para calcular ventas netas, sumar ventas con entrada=true y restar el importe de devoluciones con entrada=false. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.",
+    "instruction": "VENTAS = NETO DE DEVOLUCIONES. En Venta, entrada=true es venta y entrada=false es devolución, y PowerShop presenta tres cifras distintas: 01VEN (ventas brutas), 02DEV (devoluciones) y NETO (01VEN - 02DEV). Cuando el usuario pide 'ventas' SIN más matices se refiere al NETO: filtrar entrada=true a secas descarta las devoluciones en vez de restarlas y sobrestima las ventas entre un 7 y un 10 por ciento (medido en produccion 2026-08). El patron obligatorio es: COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS ventas_netas. Usar entrada=true a secas SOLO si el usuario pide explicitamente ventas brutas o excluir devoluciones. Para ver las tres cifras como en el ERP: COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) AS ventas_brutas, COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0) AS devoluciones, y la resta como ventas_netas. Los importes de devolucion se guardan en POSITIVO, por eso hay que restarlos explicitamente. El campo tipo_documento contiene 'Ticket' para ventas POS normales. NO filtrar por tipo_documento='V' que no existe en el mirror.",
     "questions": ["¿Cuántas devoluciones hubo?", "¿Ventas netas sin devoluciones?", "¿Cuánto se devolvió este mes?", "¿Tasa de devolución?"]
   },
   {
@@ -223,7 +236,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Ventas por tienda?", "¿Qué tiendas venden más?", "¿Rendimiento de tiendas retail?", "¿Ranking de tiendas?"]
   },
   {
-    "instruction": "El ticket medio se calcula como: SUM(total_si) / COUNT(DISTINCT reg_ventas) de la tabla Venta. Usar siempre total_si (sin IVA). Filtrar entrada=true para excluir devoluciones del cálculo.",
+    "instruction": "El ticket medio es ventas NETAS entre numero de tickets de VENTA: (COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)) / NULLIF(COUNT(DISTINCT reg_ventas) FILTER (WHERE entrada), 0). Usar siempre total_si (sin IVA). El numerador es neto porque una devolucion reduce lo vendido; el denominador cuenta solo tickets de venta, que es lo que hace PowerShop. No filtrar entrada=true en el numerador: eso ignora las devoluciones en vez de restarlas.",
     "questions": ["¿Cuál es el ticket medio?", "¿Cuánto gasta cada cliente de media?", "¿Valor medio por transacción?"]
   },
   {
@@ -275,11 +288,11 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Cuántos clientes únicos?", "¿Clientes identificados vs anónimos?", "¿Porcentaje de ventas anónimas?"]
   },
   {
-    "instruction": "Los clientes mayoristas tienen mayorista=true en ps_clientes. Los clientes retail tienen mayorista=false. Un mismo cliente puede aparecer en ambos canales. Para clientes activos retail: COUNT(DISTINCT num_cliente) FROM ps_ventas WHERE num_cliente > 0. Para activos mayoristas: COUNT(DISTINCT num_cliente) FROM ps_gc_albaranes.",
+    "instruction": "SEGMENTACION DE CLIENTES: ps_clientes NO tiene campo mayorista. Sus unicas columnas son reg_cliente, num_cliente, nombre, nif, email, codigo_postal, poblacion, pais, fecha_creacion, fecha_modifica, ultima_compra_f. NUNCA escribir WHERE mayorista = true / false: la consulta falla con column does not exist. El campo que segmenta de verdad es Clientes.TipoCliente en 4D (texto en MAYUSCULAS, valores 'FRANQUICIADO INTERNO', 'FRANQUICIADO', 'MAYORISTA', 'MINORISTA') y NO esta espejado. Mientras no lo este, segmentar por CANAL, que es lo unico observable en el espejo: cliente retail = aparece en ps_ventas con num_cliente > 0; cliente mayorista = aparece en ps_gc_albaranes.num_cliente o ps_gc_facturas.num_cliente. Un mismo cliente puede estar en ambos canales. Para clientes activos retail: COUNT(DISTINCT num_cliente) FROM ps_ventas WHERE num_cliente > 0. Para activos mayoristas: COUNT(DISTINCT num_cliente) FROM ps_gc_albaranes.",
     "questions": ["¿Cuántos clientes mayoristas?", "¿Clientes activos retail?", "¿Cuántos clientes B2B?"]
   },
   {
-    "instruction": "Los top clientes retail se obtienen de ps_ventas agrupando por num_cliente y sumando total_si, filtrando num_cliente > 0 y entrada=true. Para identificarlos hacer JOIN con ps_clientes. La frecuencia de compra se calcula como COUNT(DISTINCT reg_ventas) por cliente.",
+    "instruction": "Los top clientes retail se obtienen de ps_ventas agrupando por num_cliente y sumando el NETO de devoluciones (COALESCE(SUM(total_si) FILTER (WHERE entrada), 0) - COALESCE(SUM(total_si) FILTER (WHERE NOT entrada), 0)) y filtrando num_cliente > 0. Un cliente que devuelve mucho no debe aparecer como top solo por su bruto. Para identificarlos hacer JOIN con ps_clientes. La frecuencia de compra se calcula como COUNT(DISTINCT reg_ventas) por cliente.",
     "questions": ["¿Mejores clientes retail?", "¿Top clientes por compras?", "¿Clientes más fieles?", "¿Frecuencia de compra?"]
   },
   {
@@ -351,7 +364,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Traspasos enviados por tienda?", "¿Cuántas unidades se traspasaron?", "¿Movimientos de stock entre tiendas?"]
   },
   {
-    "instruction": "La fórmula VFP (Verificación Física de Producto) para calcular el stock esperado: Entradas = devoluciones_retail + albaranes_compra + traspasos_entrada. Salidas = ventas_retail + traspasos_salida + envíos_mayoristas. Stock_esperado = Stock_inicial + Entradas - Salidas. Si stock_esperado != stock_actual = merma o error de inventario.",
+    "instruction": "MOVIMIENTO DE STOCK. 'VFP' = Visual FoxPro, el lenguaje de los programas historicos que sacan estos informes; NO es un acronimo de 'Verificacion Fisica de Producto', que fue un invento de una revision anterior de esta doc y no significa nada. Formula: Stock_esperado = Stock_inicial + Entradas - Salidas. ENTRADAS: devoluciones retail (ps_ventas.entrada=false), mercancia recibida de proveedor (Albaranes + LinAlbaranes.Recibidas1..34), traspasos de entrada (ps_traspasos.entrada=true), abonos mayoristas (ps_gc_albaranes.abono=true, el cliente mayorista devuelve) y la pata de ENTRADA intragrupo (mercancia que vuelve de una sociedad del grupo, CIF 502108150). SALIDAS: ventas retail (ps_ventas.entrada=true), traspasos de salida (ps_traspasos.entrada=false), envios mayoristas (ps_gc_albaranes.abono=false), devoluciones de compra al proveedor (Albaranes con Abono=true) y la pata de SALIDA intragrupo. Si stock_esperado <> stock_actual hay merma o error de inventario. Las cuatro patas que faltaban en la version anterior de esta regla (devoluciones de compra, abonos mayoristas y las dos intragrupo) descuadran el calculo si se omiten. LIMITACION DEL ESPEJO: las lineas de albaran de compra NO estan espejadas (ps_albaranes es solo cabecera, y ps_lineas_compras son PEDIDOS, no mercancia recibida), asi que la pata de compras no se puede calcular hoy en PostgreSQL. Decirlo explicitamente en vez de sustituirla por pedidos.",
     "questions": ["¿Cómo calcular el stock esperado?", "¿Merma de inventario?", "¿Movimiento neto de stock?"]
   },
   {
@@ -359,7 +372,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Margen estimado de un artículo?", "¿PVP sin IVA?", "¿Precio de coste de un artículo?"]
   },
   {
-    "instruction": "En ps_lineas_ventas, el precio de venta unitario sin IVA está en precio_neto_si. El descuento aplicado en el campo p_desc_g (porcentaje) o importe_descuento (importe). Para calcular el descuento medio solo en ventas (no devoluciones): AVG(lv.p_desc_g) FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas WHERE v.entrada=true. Un descuento alto indica outlet o rebajas.",
+    "instruction": "DESCUENTOS: ps_lineas_ventas NO tiene p_desc_g ni importe_descuento. Esas columnas SI existen en 4D (LineasVentas.PDescG, LineasVentas.ImporteDescuento) pero el ETL no las selecciona, asi que el descuento medio NO se puede calcular desde el espejo. Si el usuario lo pide, responder que el dato no esta sincronizado en lugar de inventar la columna: cualquier consulta con p_desc_g o importe_descuento falla. Las columnas de ps_lineas_ventas en el espejo DESPLEGADO hoy son exactamente: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica (el ETL ya selecciona ademas talla, entrada y movimiento_caja, pero produccion aun no se ha resincronizado). El precio de venta unitario sin IVA es precio_neto_si. Aproximacion posible, y hay que etiquetarla SIEMPRE como aproximacion: comparar precio_neto_si contra el PVP sin IVA del articulo, ps_articulos.precio1 / (1 + ps_articulos.p_iva / 100).",
     "questions": ["¿Descuento medio aplicado?", "¿Precio de venta vs PVP?", "¿Nivel de descuentos?"]
   },
   {
@@ -367,7 +380,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Compras a proveedores?", "¿Pedidos pendientes de recibir?", "¿Cuánto compramos al proveedor X?"]
   },
   {
-    "instruction": "El campo 'entrada' (boolean: true=venta, false=devolución) SOLO existe en la tabla Venta (ps_ventas), NO en LineaVenta (ps_lineas_ventas). Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. NO tiene: entrada, tipo_documento, forma, num_cliente, cajero_nombre. Para filtrar devoluciones en consultas con LineaVenta, hacer JOIN con Venta y filtrar Venta.entrada.",
+    "instruction": "El campo 'entrada' existe en Venta (ps_ventas) Y, desde 2026-08, tambien en LineaVenta (ps_lineas_ventas) junto a 'movimiento_caja' y 'talla', tomados de 4D donde coinciden al 100 % con la cabecera. Eso permite netear sin unir con Venta. Las filas anteriores a la resincronizacion los tienen vacios. Las columnas de LineaVenta son: reg_lineas, num_ventas, n_documento, mes, tienda, codigo, descripcion, unidades, precio_neto_si, total_si, precio_coste_ci, total_coste_si, fecha_creacion, fecha_modifica. mas talla, entrada y movimiento_caja anadidas en 2026-08. NO tiene: tipo_documento, forma, num_cliente, cajero_nombre. Patron neto SOBRE LineaVenta, valido en cuanto produccion se resincronice: COALESCE(SUM(lv.total_si) FILTER (WHERE lv.entrada), 0) - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT lv.entrada), 0). Mientras el espejo de produccion no tenga las columnas pobladas, el mismo patron con JOIN a Venta y v.entrada da el mismo resultado y es el camino seguro. Filtrar entrada=true a secas descarta las devoluciones en vez de restarlas.",
     "questions": ["¿Artículos más vendidos?", "¿Unidades vendidas por producto?", "¿Ventas por artículo sin devoluciones?"]
   },
   {
@@ -383,12 +396,72 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Ventas totales históricas?", "¿Todo el historial de ventas?", "¿Ventas de siempre?", "¿Consulta sin filtro de fecha?"]
   },
   {
-    "instruction": "Al hacer JOIN entre ps_ventas y ps_lineas_ventas (o cualquier JOIN cabecera→líneas), usar COUNT(DISTINCT v.reg_ventas) para contar tickets — NUNCA COUNT(*) sin DISTINCT. COUNT(*) cuenta una fila por artículo en el ticket (un ticket con 3 artículos = 3 filas en ps_lineas_ventas). Para totales monetarios de cabecera (total_si, descuento), usar ps_ventas directamente SIN JOIN con líneas — evita multiplicar la cabecera.",
+    "instruction": "Al hacer JOIN entre ps_ventas y ps_lineas_ventas (o cualquier JOIN cabecera→líneas), usar COUNT(DISTINCT v.reg_ventas) FILTER (WHERE v.entrada) para contar tickets — NUNCA COUNT(*) sin DISTINCT, y NUNCA sin el FILTER: sin el, una devolucion cuenta como un ticket mas y el ticket medio sale bajo (Ferrol 2026-08-29: 46 tickets y 25,67 EUR en vez de 37 y 31,91 EUR). COUNT(*) cuenta una fila por artículo en el ticket (un ticket con 3 artículos = 3 filas en ps_lineas_ventas). Para totales monetarios de cabecera (total_si, descuento), usar ps_ventas directamente SIN JOIN con líneas — evita multiplicar la cabecera.",
     "questions": ["¿Cuántos tickets hay?", "¿Por qué se duplican los totales al hacer JOIN?", "¿Número de transacciones únicas?"]
   },
   {
-    "instruction": "GUARDIA DE MAGNITUD — solo aplicar cuando el resultado parece imposible, no cuando es simplemente bajo o alto. Los rangos siguientes son para TODA LA CADENA y PERÍODO MENSUAL: ventas netas retail €200K–€3M; ticket medio €30–€250; stock total en unidades 20K–400K; valor del stock al coste €500K–€15M. Escalar proporcionalmente si la consulta es más estrecha: una tienda ÷ ~50, un día ÷ ~30, una familia de producto ÷ ~20. NO añadir advertencias de magnitud en consultas acotadas a una tienda, un artículo, un día o un departamento — el resultado bajo es correcto. Solo revisar filtros si el resultado es > 10x el rango esperado (probable JOIN sin DISTINCT o falta de entrada=true) o exactamente 0 en un período con ventas conocidas.",
+    "instruction": "GUARDIA DE MAGNITUD — solo aplicar cuando el resultado parece imposible, no cuando es simplemente bajo o alto. Los rangos siguientes son para TODA LA CADENA y PERÍODO MENSUAL: ventas netas retail €200K–€3M; ticket medio €30–€250; stock total en unidades 20K–400K; valor del stock al coste €500K–€15M. Escalar proporcionalmente si la consulta es más estrecha: una tienda ÷ ~50, un día ÷ ~30, una familia de producto ÷ ~20. NO añadir advertencias de magnitud en consultas acotadas a una tienda, un artículo, un día o un departamento — el resultado bajo es correcto. Solo revisar filtros si el resultado es > 10x el rango esperado (probable JOIN sin DISTINCT) o exactamente 0 en un período con ventas conocidas.",
     "questions": ["¿El resultado parece correcto?", "¿Por qué el stock vale €1.000 millones?", "¿Cuál es el rango esperado de ventas?", "¿Los números parecen razonables?"]
+  },
+  {
+    "instruction": "ps_traspasos.tipo: EXCLUIR SIEMPRE 'Apertura' e 'Inventario Parcial' de cualquier analisis de movimiento de stock. No son traspasos entre tiendas sino asientos de inventario, y dominan la tabla: 247.502 filas de 'Apertura' y 739 de 'Inventario Parcial' sobre 262.724 totales (medido en produccion 2026-08). Sin ese filtro un 'volumen de traspasos' o una 'ruta mas usada' devuelve practicamente solo aperturas. Filtro obligatorio: WHERE t.tipo NOT IN ('Apertura', 'Inventario Parcial'). Los tipos que SI son movimiento real son 'Autoreposicion' y 'Regularizacion'.",
+    "questions": [
+      "¿Volumen de traspasos?",
+      "¿Rutas de traspaso mas usadas?",
+      "¿Movimientos de stock entre tiendas?",
+      "¿Traspasos diarios?"
+    ]
+  },
+  {
+    "instruction": "INVENTARIO ANUAL: la tabla Inventarios esta vacia, pero eso NO significa que no haya inventarios. El inventario anual esta en ps_traspasos con tipo='Apertura' y fecha de 1 de enero: una fila por tienda, articulo y TALLA, con las unidades contadas. Se valora a ps_articulos.precio_coste (unidades * precio_coste). Es la fuente de inventario del negocio y la unica que existe. No concluir 'no hay datos de inventario' por mirar solo la tabla Inventarios.",
+    "questions": [
+      "¿Hay datos de inventario?",
+      "¿Inventario anual por tienda?",
+      "¿Valoracion del inventario?",
+      "¿Recuento de existencias?"
+    ]
+  },
+  {
+    "instruction": "FECHA EFECTIVA DE UN ALBARAN MAYORISTA: usar fecha_envio si es >= 2000-01-01, y si no fecha_valor. En SQL: CASE WHEN a.fecha_envio >= DATE '2000-01-01' THEN a.fecha_envio ELSE a.fecha_valor END. Los albaranes aun no enviados llevan fecha_envio nula o con una fecha centinela anterior a 2000, y filtrar el periodo solo por fecha_envio los descarta silenciosamente. En el espejo el impacto hoy es 1 fila de 52.148 (medido 2026-08), pero el patron es obligatorio porque la fecha centinela reaparece en cuanto se sincronizan albaranes pendientes.",
+    "questions": [
+      "¿Albaranes mayoristas del mes?",
+      "¿Envios mayoristas por periodo?",
+      "¿Abonos mayoristas del año?"
+    ]
+  },
+  {
+    "instruction": "TRAFICO INTRAGRUPO: el CIF 502108150 (LINFE LDA / MHIA, Portugal) identifica sociedades del propio grupo. Esta repartido en 19 registros distintos de ps_clientes, con num_cliente diferentes y nombres diferentes (LINFE FUNCHAL, LINFE FACTORY, MHIA CALDAS, MHIA TOMAR, MHIA ABRANTES, Linfe Moda Feminina Lda...). Un albaran o factura mayorista a ese CIF NO es una venta fuera del grupo: es un movimiento interno. Para 'ventas mayoristas reales' hay que excluirlo por NIF, nunca por nombre: JOIN ps_clientes c ON a.num_cliente = c.reg_cliente WHERE COALESCE(c.nif, '') <> '502108150'. En 2026 supone 38 albaranes y unos 29.900 EUR.",
+    "questions": [
+      "¿Ventas mayoristas reales?",
+      "¿Facturacion fuera del grupo?",
+      "¿Movimientos intragrupo?",
+      "¿Ventas a Portugal?"
+    ]
+  },
+  {
+    "instruction": "VALORACION DE INVENTARIO: el filtro obligatorio de todo calculo de inventario es Articulos.NoInventariabl = FALSE. Los articulos marcados NoInventariabl (bolsas, portes, servicios, cargos) no son mercancia y no deben contar ni en unidades ni en valoracion; incluirlos infla el inventario. AVISO: ese campo existe en 4D Articulos pero NO esta espejado en ps_articulos, asi que hoy no se puede aplicar desde PostgreSQL. Si el usuario pide una valoracion de inventario, dar el numero y advertir de que incluye articulos no inventariables. El filtro mas cercano disponible en el espejo es ps_articulos.anulado = false, que NO es lo mismo y no sustituye a NoInventariabl.",
+    "questions": [
+      "¿Valor del inventario?",
+      "¿Cuanto stock tenemos al coste?",
+      "¿Valoracion de existencias por tienda?"
+    ]
+  },
+  {
+    "instruction": "RANKINGS DE ARTICULOS: ps_articulos.ccrefejofacm ES COLOR, NO MODELO. Identifica referencia + color, y los 2 ultimos caracteres son el codigo de color. Agrupar por ccrefejofacm parte un mismo modelo en varias filas: hay 42.244 valores distintos de ccrefejofacm frente a 19.941 modelos, o sea 2,12 colores por modelo de media (medido en produccion 2026-08). Un modelo que vende bien puede quedarse fuera del top porque su volumen esta repartido entre sus colores. Para rankear por MODELO agrupar por LEFT(ccrefejofacm, LENGTH(ccrefejofacm) - 2). Ejemplo real: 75221411, 75221420, 75221421, 75221470, 75221490 y 75221496 son 6 colores del modelo 752214. Usar ccrefejofacm tal cual SOLO si el usuario pide explicitamente el desglose por color.",
+    "questions": [
+      "¿Articulos mas vendidos?",
+      "¿Top modelos?",
+      "¿Ranking de referencias?",
+      "¿Que modelo vende mas?"
+    ]
+  },
+  {
+    "instruction": "SERIE DE TALLAS DE UN ARTICULO: la definicion canonica es Articulos.ClaveSerie -> CCOPSeriCali.Clave, y las etiquetas de talla estan en CCOPSeriCali.Talla1..Talla34 (esa tabla tiene 219 columnas). NO usar FamiGrupMarc.SerieTallas: esta en blanco en las 78 filas de produccion, pero el motivo por el que no sirve no es que las tallas se lean de Exportaciones, sino que la serie cuelga del ARTICULO via ClaveSerie, no de la familia. Ninguna de las dos tablas esta espejada en PostgreSQL: en el espejo las etiquetas de talla ya vienen resueltas en ps_stock_tienda.talla y ps_traspasos.talla, asi que para consultas sobre el espejo se usan esas.",
+    "questions": [
+      "¿Que tallas tiene un articulo?",
+      "¿Serie de tallas?",
+      "¿Como se decodifican las tallas?"
+    ]
   }
 ]
 ```

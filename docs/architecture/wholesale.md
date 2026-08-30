@@ -100,7 +100,7 @@ erDiagram
 
     GCLinAlbarane {
         float RegLinea PK "Line record ID"
-        float NumAlbaran FK "-> GCAlbaranes.NAlbaran"
+        float NumAlbaran FK "-> GCAlbaranes.RegAlbaran (record ID, not the visible number)"
         float NumArticulo FK "-> Articulos.RegArticulo"
         text Codigo "Article code"
         text Descripcion "Description"
@@ -151,7 +151,7 @@ erDiagram
 
     GCLinFacturas {
         float RegLinea PK "Line record ID"
-        float NumFactura FK "-> GCFacturas.NFactura"
+        float NumFactura FK "-> GCFacturas.RegFactura (record ID, not the visible number)"
         float NumArticulo FK "-> Articulos.RegArticulo"
         text Codigo "Article code"
         text Descripcion "Description"
@@ -257,6 +257,8 @@ flowchart LR
 - **GCLinPedidos** is the widest wholesale table (239 columns) due to the 5-dimension × 34-slot size matrix.
 - **Wholesale also handles e-commerce**: GCAlbaranes has Marketplace, IDOrderMarket, and IntegradorMK fields — same pattern as retail Ventas. Discovered 2026-04-05.
 - **Jewelry weight-based pricing**: GCAlbaranes has JoPorPesoUni, JoConversion, PesoJoGramos, JoGramosTotal — indicates the business sells jewelry priced by weight in the wholesale channel. Discovered 2026-04-05.
+- **Effective date of a delivery note = `FechaEnvio` if `>= 2000-01-01`, else `FechaValor`.** Not-yet-shipped notes carry a NULL or pre-2000 sentinel in `FechaEnvio`, so filtering a period on `fecha_envio` alone drops them silently. Use `CASE WHEN a.fecha_envio >= DATE '2000-01-01' THEN a.fecha_envio ELSE a.fecha_valor END`. Mirror impact today is 1 row out of 52,148 (measured 2026-08), but the sentinel reappears as soon as pending notes sync, so the pattern is mandatory rather than optional.
+- **CIF `502108150` marks intra-group traffic.** That tax ID (LINFE LDA / MHIA, Portugal) belongs to the group's own companies and is spread across **19 distinct `ps_clientes` rows** with different `num_cliente` *and different names* (LINFE FUNCHAL, LINFE FACTORY, MHIA CALDAS, MHIA TOMAR, MHIA ABRANTES, Linfe Moda Feminina Lda…). A wholesale delivery note or invoice to that CIF is **not a sale outside the group** — it is an internal movement. Exclude it by NIF, never by name: `JOIN ps_clientes c ON a.num_cliente = c.reg_cliente WHERE COALESCE(c.nif,'') <> '502108150'`. In 2026 it accounts for 38 delivery notes and ~€29,900.
 
 ## Wholesale Size Matrix
 
@@ -346,15 +348,26 @@ Use the `_SQL` suffix when querying via `ps sql query` or the p4d driver.
 
 **Lines delta pattern** (no modification timestamp on line tables):
 ```sql
--- Fetch lines for recently changed delivery notes
+-- Fetch lines for recently changed delivery notes.
+-- The parent key is the 4D record ID (RegAlbaran), never the visible NAlbaran.
 SELECT * FROM GCLinAlbarane
-WHERE NAlbaran IN (SELECT NAlbaran FROM GCAlbaranes WHERE Modifica > :last_sync)
--- → DELETE + INSERT in PostgreSQL for those NAlbaran values
+WHERE NumAlbaran IN (SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= :last_sync)
+-- → DELETE + INSERT in PostgreSQL for those RegAlbaran values
 ```
 
-**FK corrections (important):**
-- `GCLinAlbarane.NAlbaran` → `GCAlbaranes.NAlbaran` (not RegAlbaran — these are different fields)
-- `GCLinFacturas.NumFactura` → `GCFacturas.NFactura` (note asymmetric naming)
+**Line → header join key (corrected 2026-08-29):**
+Despite the `Num` prefix, the line tables carry the parent's **4D record ID**:
+- `GCLinAlbarane.NumAlbaran` → `GCAlbaranes.RegAlbaran` (4000/4000 on a production sample)
+- `GCLinFacturas.NumFactura` → `GCFacturas.RegFactura` (4000/4000)
+
+The *visible* document numbers are the wrong key on both counts:
+`GCLinFacturas.NumFactura` matches `GCFacturas.NFactura` **0/4000**, and neither
+visible number is unique (52,148 GCAlbaranes rows carry 40,727 distinct
+`NAlbaran` values; 19,351 GCFacturas rows carry 14,515 distinct `NFactura`
+values), so joining on them mixes lines from unrelated documents.  The ETL used
+the visible numbers until 2026-08-29: the invoice-line delta re-inserted 0 rows
+on every nightly run, and the mirror had drifted 1,873 invoice lines and 3,826
+delivery-note lines behind 4D.
 
 See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
 
@@ -367,8 +380,8 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
   {
     "table": "ps_gc_albaranes",
     "alias": "AlbaranMayorista",
-    "description": "Albaranes mayorista. Importe neto = base1 + base2 + base3.",
-    "keyColumns": ["reg_albaran (PK)", "n_albaran", "num_cliente (FK)", "num_comercial (FK)", "fecha_envio", "base1", "base2", "base3", "entregadas", "abono", "temporada"]
+    "description": "Albaranes mayorista. Importe neto = base1 + base2 + base3. Fecha efectiva = fecha_envio si >= 2000-01-01, si no fecha_valor. abono=true son devoluciones del cliente (entrada de stock), abono=false son envios.",
+    "keyColumns": ["reg_albaran (PK)", "n_albaran", "num_cliente (FK)", "num_comercial (FK)", "fecha_envio (usar con fecha_valor como fallback)", "fecha_valor", "base1", "base2", "base3", "entregadas", "abono", "temporada"]
   },
   {
     "table": "ps_gc_lin_albarane",
@@ -411,15 +424,37 @@ See [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.
 
 ## LLM:relationships
 
+<!--
+LAS LÍNEAS SE UNEN POR EL ID DE REGISTRO 4D, NUNCA POR EL NÚMERO VISIBLE.
+
+`Num*` en una tabla de líneas apunta al `Reg*` de su cabecera (el ID interno de
+4D), NO al `N*` (el número que ve el usuario en el documento). Los nombres
+inducen a error justo al revés de lo que parece.
+
+Medido contra el 4D de producción sobre muestras de 2.000-4.000 líneas:
+
+  GCLinFacturas.NumFactura -> RegFactura  4000/4000   -> NFactura  0/4000
+  GCLinAlbarane.NumAlbaran -> RegAlbaran  4000/4000   -> NAlbaran  0/4000
+  GCLinPedidos.NumPedido   -> RegPedido   2000/2000   -> NPedido   0/2000
+
+Y los números visibles NO son únicos (40.727 NAlbaran distintos para 52.148
+albaranes; 76 NPedido para 120 pedidos), así que unir por ellos además mezcla
+líneas de documentos distintos.
+
+Este fichero declaraba las tres relaciones al revés. Consecuencia real: el ETL
+mayorista perdió 5.699 líneas y toda consulta mayorista que generase el
+dashboard salía vacía o se multiplicaba.
+-->
+
 ```json
 [
-  {"from": "ps_gc_lin_albarane", "fromColumn": "n_albaran",   "to": "ps_gc_albaranes",   "toColumn": "n_albaran",    "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas",    "toColumn": "n_factura",    "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_albarane", "fromColumn": "num_albaran", "to": "ps_gc_albaranes",   "toColumn": "reg_albaran",  "type": "MANY_TO_ONE"},
+  {"from": "ps_gc_lin_facturas", "fromColumn": "num_factura", "to": "ps_gc_facturas",    "toColumn": "reg_factura",  "type": "MANY_TO_ONE"},
   {"from": "ps_gc_albaranes",    "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
   {"from": "ps_gc_facturas",     "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
   {"from": "ps_gc_albaranes",    "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
   {"from": "ps_gc_facturas",     "fromColumn": "num_comercial", "to": "ps_gc_comerciales", "toColumn": "reg_comercial", "type": "MANY_TO_ONE"},
   {"from": "ps_gc_pedidos",      "fromColumn": "num_cliente", "to": "ps_clientes",       "toColumn": "reg_cliente",  "type": "MANY_TO_ONE"},
-  {"from": "ps_gc_lin_pedidos",  "fromColumn": "num_pedido",  "to": "ps_gc_pedidos",     "toColumn": "n_pedido",     "type": "MANY_TO_ONE"}
+  {"from": "ps_gc_lin_pedidos",  "fromColumn": "num_pedido",  "to": "ps_gc_pedidos",     "toColumn": "reg_pedido",   "type": "MANY_TO_ONE"}
 ]
 ```

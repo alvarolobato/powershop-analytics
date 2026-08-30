@@ -217,6 +217,28 @@ CREATE TABLE IF NOT EXISTS ps_lineas_ventas (
     total_si            NUMERIC(15,2),  -- VAT-exclusive line total
     precio_coste_ci     NUMERIC(15,2),
     total_coste_si      NUMERIC(15,2),
+    -- Talla de la linea (4D LineasVentas.CCOPTallaOjo). Poblada al 100 % en
+    -- origen. VARCHAR(10) porque es lo que declara el ESQUEMA de 4D
+    -- (_USER_COLUMNS: DATA_TYPE=10, DATA_LENGTH=10). El `talla c(5)` del que
+    -- venia la version anterior sale de pw_sacarventas.prg, un programa VFP de
+    -- informes -- no del esquema, y es mas estrecho que el origen.
+    --
+    -- Hoy el valor mas largo real son 4 caracteres sobre 500.000 lineas, asi
+    -- que era latente, pero Postgres no trunca: aborta. Una talla de 6
+    -- caracteres dada de alta en 4D reventaria el lote de upsert() y caeria al
+    -- fallback fila-a-fila de D-050, que SE SALTA la fila y la registra. La
+    -- linea existiria en el ERP y nunca llegaria al espejo, con la evidencia
+    -- enterrada en el log de saltados.
+    --
+    -- Se normaliza a MAYUSCULAS en el ETL: el origen mezcla 'L' y 'l' (9 de 29
+    -- valores distintos llevan minusculas), y ps_stock_tienda.talla tampoco
+    -- venia limpia ('6Xl'), asi que ambos lados se normalizan en el ETL.
+    talla               VARCHAR(10),
+    -- Discriminador venta/devolucion A NIVEL DE LINEA. Coinciden al 100 % con
+    -- la cabecera; tenerlos aqui evita el JOIN con ps_ventas que fue la causa
+    -- raiz del bug de devoluciones ignoradas.
+    entrada             BOOLEAN,
+    movimiento_caja     TEXT,
     fecha_creacion      DATE,
     fecha_modifica      DATE
 );
@@ -575,6 +597,73 @@ BEGIN
     END IF;
   END IF;
 END $$;
+
+-- One-time migration: talla y discriminador de devolucion en las lineas de venta.
+--
+-- `talla` sale de 4D LineasVentas.CCOPTallaOjo, poblada al 100 %. Hasta ahora
+-- la talla vendida era inaccesible desde el dashboard pese a que el codigo de
+-- produccion la usa desde hace anos; eso hizo que el PR #914 construyera un
+-- join contra BarrasAsociado con 0 % de cobertura.
+--
+-- `entrada` / `movimiento_caja` existen tambien a nivel de linea y coinciden
+-- al 100 % con la cabecera, asi que evitan el JOIN obligatorio con ps_ventas.
+--
+-- Llegan vacias hasta que el ETL vuelva a barrer el historico.
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS talla           VARCHAR(10);
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS entrada         BOOLEAN;
+ALTER TABLE ps_lineas_ventas ADD COLUMN IF NOT EXISTS movimiento_caja TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_lv_talla ON ps_lineas_ventas (talla);
+
+-- One-time migration: normalizar la talla del stock y de los traspasos. El
+-- origen trae un '6Xl' suelto entre miles de '6XL'; ps_lineas_ventas.talla se
+-- normaliza en el ETL y sin esto el join ventas<->stock perderia esa talla.
+--
+-- `talla` forma parte de la PK de ps_stock_tienda (codigo, tienda_codigo,
+-- talla), asi que un UPDATE a secas revienta con unique_violation en cuanto
+-- coexistan '6Xl' y '6XL' para el mismo articulo y tienda -- y al abortar se
+-- lleva por delante el resto de init.sql. Hoy en produccion no hay ninguna
+-- colision, pero esto corre en un despliegue futuro contra datos que habran
+-- cambiado: se fusiona primero y se actualiza despues.
+-- Se borran las filas del grupo y se reinserta una sola ya normalizada. Un
+-- UPDATE+DELETE ingenuo pierde datos cuando el grupo colisiona SIN que exista
+-- la fila canonica ('6Xl' + '6xL' y ningun '6XL'): no hay nada que actualizar
+-- y el delete se lleva las dos.
+-- Sin ON COMMIT DROP: init.sql no corre necesariamente dentro de una
+-- transaccion, y fuera de una cada sentencia es su propia transaccion, asi
+-- que la temporal se destruiria antes del DELETE que la usa.
+DROP TABLE IF EXISTS _talla_fusion;
+CREATE TEMP TABLE _talla_fusion AS
+SELECT codigo, tienda_codigo, UPPER(talla) AS talla,
+       SUM(stock)                                          AS stock,
+       (ARRAY_AGG(tienda          ORDER BY fecha_modifica DESC NULLS LAST))[1] AS tienda,
+       (ARRAY_AGG(cc_stock        ORDER BY fecha_modifica DESC NULLS LAST))[1] AS cc_stock,
+       (ARRAY_AGG(st_stock        ORDER BY fecha_modifica DESC NULLS LAST))[1] AS st_stock,
+       MAX(fecha_modifica)                                 AS fecha_modifica
+  FROM ps_stock_tienda
+ WHERE talla IS NOT NULL
+ GROUP BY codigo, tienda_codigo, UPPER(talla)
+HAVING COUNT(*) > 1;
+
+DELETE FROM ps_stock_tienda t
+ USING _talla_fusion f
+ WHERE t.codigo = f.codigo AND t.tienda_codigo = f.tienda_codigo
+   AND UPPER(t.talla) = f.talla;
+
+INSERT INTO ps_stock_tienda
+       (codigo, tienda_codigo, tienda, talla, stock, cc_stock, st_stock, fecha_modifica)
+SELECT codigo, tienda_codigo, tienda, talla, stock, cc_stock, st_stock, fecha_modifica
+  FROM _talla_fusion;
+
+DROP TABLE _talla_fusion;
+
+UPDATE ps_stock_tienda SET talla = UPPER(talla)
+ WHERE talla IS NOT NULL AND talla <> UPPER(talla);
+
+-- ps_traspasos tiene PK sintetica (reg_traspaso), asi que aqui no hay riesgo
+-- de colision: basta con normalizar.
+UPDATE ps_traspasos SET talla = UPPER(talla)
+ WHERE talla IS NOT NULL AND talla <> UPPER(talla);
 
 -- ============================================================
 -- Weekly reviews (Dashboard App — weekly business review)
@@ -1096,6 +1185,13 @@ CREATE INDEX IF NOT EXISTS idx_gla_codigo     ON ps_gc_lin_albarane(codigo);
 -- idx_glf_numfactura accelerates the line→header join: num_factura points to
 -- ps_gc_facturas.reg_factura (4D record ID), not n_factura.
 CREATE INDEX IF NOT EXISTS idx_glf_numfactura ON ps_gc_lin_facturas(num_factura);
+-- idx_gla_numalbaran es el gemelo del anterior para albaranes, y faltaba:
+-- num_albaran es la clave del join linea->cabecera Y la del DELETE del delta
+-- nocturno (mayorista.py), mientras que el unico indice existente cubria
+-- n_albaran, el numero visible que este mismo esquema marca como no valido
+-- para unir. Medido en produccion: 1,1 ms con indice en facturas frente a
+-- 378 ms de Parallel Seq Scan en albaranes.
+CREATE INDEX IF NOT EXISTS idx_gla_numalbaran ON ps_gc_lin_albarane(num_albaran);
 CREATE INDEX IF NOT EXISTS idx_glf_codigo     ON ps_gc_lin_facturas(codigo);
 
 -- ============================================================
