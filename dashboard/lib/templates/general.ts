@@ -107,7 +107,7 @@ WHERE v."entrada" = true
           label: "Facturacion Mayorista (período seleccionado)",
           sql: `SELECT ${NETO_GF} AS value
 FROM "public"."ps_gc_facturas" gf
-WHERE   AND ${sinIntragrupo("gf")}
+WHERE ${sinIntragrupo("gf")}
   AND "fecha_factura" >= :curr_from
   AND "fecha_factura" <= :curr_to`,
           format: "currency",
@@ -177,14 +177,14 @@ FROM (
 FROM (
   SELECT ${NETO_GF} AS facturacion
   FROM "public"."ps_gc_facturas" gf
-  WHERE     AND ${sinIntragrupo("gf")}
+  WHERE ${sinIntragrupo("gf")}
     AND "fecha_factura" >= :curr_from
     AND "fecha_factura" <= :curr_to
 ) curr,
 (
   SELECT ${NETO_GF} AS facturacion
   FROM "public"."ps_gc_facturas" gf
-  WHERE     AND ${sinIntragrupo("gf")}
+  WHERE ${sinIntragrupo("gf")}
     AND "fecha_factura" >= :curr_from::date - INTERVAL '1 year'
     AND "fecha_factura" <= :curr_to::date - INTERVAL '1 year'
 ) prev`,
@@ -249,7 +249,7 @@ UNION ALL
 SELECT 'Mayorista' AS label,
        ${NETO_GF} AS value
 FROM "public"."ps_gc_facturas" gf
-WHERE   AND ${sinIntragrupo("gf")}
+WHERE ${sinIntragrupo("gf")}
   AND "fecha_factura" >= :curr_from
   AND "fecha_factura" <= :curr_to`,
       x: "label",
