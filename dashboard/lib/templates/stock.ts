@@ -443,7 +443,7 @@ WHERE t."entrada" = false
   -- 'Apertura' e 'Inventario Parcial' son asientos de inventario, no
   -- traspasos entre tiendas, y dominan la tabla: 247.502 + 739 filas sobre
   -- 262.724. Sin excluirlos, una tabla de "movimientos por ruta" muestra
-  -- sobre todo inventario con el destino vacio.
+  -- sobre todo inventario con el destino vacío.
   AND t."tipo" NOT IN ('Apertura', 'Inventario Parcial')
   AND t."fecha_s" >= :curr_from
   AND t."fecha_s" <= :curr_to

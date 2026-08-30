@@ -255,6 +255,25 @@ describe("FK mayorista", () => {
   });
 });
 
+/**
+ * Trocea un fichero en las consultas SQL que contiene, de verdad.
+ *
+ * Una ventana de N caracteres alrededor de la coincidencia NO sirve: en
+ * `sql-pairs.md` las consultas van pegadas, así que la ventana de una alcanza
+ * el filtro de la siguiente y la da por buena. Un guardián verde por el motivo
+ * equivocado es peor que no tenerlo.
+ */
+function bloquesSql(texto: string, fichero: string): { sql: string; linea: number }[] {
+  const bloques: { sql: string; linea: number }[] = [];
+  const patron = /\.md$/.test(fichero)
+    ? /```sql\n([\s\S]*?)```/g // vallas de markdown
+    : /`([\s\S]*?)`/g; // literales de plantilla en TS
+  for (const m of texto.matchAll(patron)) {
+    bloques.push({ sql: m[1], linea: texto.slice(0, m.index).split("\n").length });
+  }
+  return bloques;
+}
+
 describe("asientos de inventario en traspasos", () => {
   // `ps_traspasos.tipo` = 'Apertura' / 'Inventario Parcial' no son traspasos
   // entre tiendas sino asientos de inventario, y DOMINAN la tabla: 247.502 +
@@ -268,18 +287,14 @@ describe("asientos de inventario en traspasos", () => {
     for (const f of ficherosConSql()) {
       if (/knowledge(-index)?\.ts$/.test(f)) continue;
       const texto = readFileSync(f, "utf8");
-      // Cada consulta que lee ps_traspasos, delimitada por el bloque que la
-      // contiene: se mira si en ~1200 caracteres a la redonda aparece la
-      // exclusión, o un GROUP BY por tipo (ahí el desglose es el objetivo).
-      for (const m of texto.matchAll(/ps_traspasos/g)) {
-        const ventana = texto.slice(Math.max(0, m.index - 600), m.index + 1200);
-        if (!/SELECT/i.test(ventana)) continue;
-        if (/Apertura/.test(ventana)) continue;
-        if (/GROUP BY[^;]*"?tipo"?/i.test(ventana)) continue;
-        // comentarios y textos de regla, no consultas
-        const linea = texto.slice(0, m.index).split("\n").length;
-        const suLinea = texto.split("\n")[linea - 1].trim();
-        if (suLinea.startsWith("//") || suLinea.startsWith("*") || /"instruction"/.test(ventana)) continue;
+      for (const { sql, linea } of bloquesSql(texto, f)) {
+        // Sólo en posición de tabla: una mención en prosa no ejecuta nada.
+        if (!/\b(?:FROM|JOIN)\s+(?:"public"\s*\.\s*)?"?ps_traspasos"?/i.test(sql)) continue;
+        // El filtro REAL sobre `tipo`, no una mención cualquiera de "Apertura":
+        // un comentario cerca bastaba para darla por buena.
+        if (/"?tipo"?\s*NOT\s+IN\s*\([^)]*Apertura/i.test(sql)) continue;
+        // Agrupar por `tipo` es el caso en que el desglose ES el objetivo.
+        if (/GROUP BY[^;]*"?tipo"?/i.test(sql)) continue;
         infractores.push(`${relative(RAIZ, f)}:${linea}`);
       }
     }
@@ -289,4 +304,3 @@ describe("asientos de inventario en traspasos", () => {
     ).toEqual([]);
   });
 });
-
