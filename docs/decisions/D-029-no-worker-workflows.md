@@ -22,4 +22,31 @@ date: 2026-05-11
 - **Use a fine-grained PAT with `workflow` OAuth scope** stored as a secret: same risk profile (delegated trust to the worker for self-modifying writes), plus a secret to rotate and lose.
 - **Leave the line in and ship a follow-up fix later**: not viable — the factory is unusable while the line is present.
 **Rationale**: The factory needs to be live more than it needs to auto-ship new workflow files. Workflow YAML changes are infrequent (#558 is the first in months) and the human-copy step is a 30-second cost. The original error in #564 was a real problem but PR #568 fixed it with the wrong knob and a worse problem.
+## Adenda (2026-08-30): a quién aplica, y a quién no
+
+La regla se estaba aplicando de más. Dice "el worker (y cualquier job de
+claude-code-action en este repo)", y eso es exactamente su alcance: **procesos
+automáticos que empujan con el token de instalación de la GitHub App**.
+
+**No aplica a una sesión interactiva dirigida por el dueño**, que empuja con la
+clave SSH del propio dueño. Comprobado hoy: `ssh -T git@github.com` responde
+`Hi alvarolobato!`, y un push que modificaba `release.yml` y `release-beta.yml`
+se aceptó sin rechazo. Los dos motivos de la decisión original desaparecen en
+ese caso:
+
+1. **El técnico** — "refusing to allow a GitHub App to create or update
+   workflow" — no se da: no hay App de por medio.
+2. **El de diseño** — que el worker pueda reescribir los ficheros que lo
+   programan es un sistema que se automodifica — tampoco: aquí quien decide es
+   el dueño, en el momento, y ve el cambio.
+
+Lo que **sigue vigente sin matices**: el worker no empuja workflows, y nadie
+añade `workflows: write` al bloque `permissions:` — esa clave no existe en la
+lista de GitHub y deja el workflow en `startup-failure`, que fue el fallo que
+tumbó la fábrica 21 horas. Eso es un hecho de la plataforma, no una política.
+
+En la práctica: si un issue pide un cambio de workflow, el worker sigue
+proponiendo el YAML en el cuerpo del PR. Si el dueño está delante y lo pide, se
+hace y punto.
+
 **See**: `.github/workflows/ai-worker.yml` (permissions block), `AGENTS.md` "No worker writes to `.github/workflows/`", issues #558 / #564 / #568 / #580 / #729 (same class of bug — CI-remediation commits masking Copilot review in the watchdog's `LATEST_BOT_ACTIVITY` signal).
