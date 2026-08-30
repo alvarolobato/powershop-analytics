@@ -133,3 +133,53 @@ def test_no_reescanea_la_lista_en_cada_trozo(monkeypatch):
         f"la lista se recorrio {filas.leidas} veces mas de lo necesario: "
         "el troceado esta re-escaneando"
     )
+
+
+def test_el_limite_es_por_filas_de_destino_no_de_origen(monkeypatch):
+    """El troceado cuenta filas MAPEADAS, no leidas (#918).
+
+    Con un mapper que devuelve listas, contar filas de origen dejaba entrar
+    `chunk_size * N` mapeadas de golpe: con 50.000 lineas de albaran y 6,33
+    tallas de media serian ~316.000 vivas a la vez, justo lo que este helper
+    existe para no hacer. Lo vio Copilot revisando el PR.
+    """
+    lotes = []
+    monkeypatch.setattr(
+        "psycopg2.extras.execute_values",
+        lambda cur, stmt, vals, page_size=None: lotes.append(len(vals)),
+    )
+    n = truncate_and_insert_streaming(
+        _conn([]),
+        "t",
+        list(range(100)),
+        lambda r: [{"a": r, "b": i} for i in range(10)],
+        chunk_size=25,
+    )
+    assert n == 1000, f"esperadas 1.000 filas de destino, insertadas {n}"
+    assert lotes, "no se llamo a execute_values"
+    assert max(lotes) <= 25, (
+        f"un lote llevaba {max(lotes)} filas con chunk_size=25: "
+        "el troceado esta contando filas de origen, no de destino"
+    )
+    assert sum(lotes) == 1000
+
+
+def test_un_tramo_sin_filas_de_destino_no_corta_el_recorrido(monkeypatch):
+    """Un bloque entero que no produce nada no puede terminar la carga.
+
+    Con `if not trozo: break`, un tramo de lineas sin ninguna talla se habria
+    llevado por delante todo lo que viniera detras, en silencio.
+    """
+    lotes = []
+    monkeypatch.setattr(
+        "psycopg2.extras.execute_values",
+        lambda cur, stmt, vals, page_size=None: lotes.append(len(vals)),
+    )
+    n = truncate_and_insert_streaming(
+        _conn([]),
+        "t",
+        list(range(100)),
+        lambda r: [] if r < 50 else [{"a": r}],
+        chunk_size=10,
+    )
+    assert n == 50, f"se perdieron filas posteriores al hueco: {n} de 50"

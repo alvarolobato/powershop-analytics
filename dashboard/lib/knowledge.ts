@@ -431,7 +431,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "MOVIMIENTO DE STOCK. 'VFP' = Visual FoxPro, el lenguaje de los programas historicos que sacan estos informes; NO es un acronimo de 'Verificacion Fisica de Producto', que fue un invento de una revision anterior de esta doc y no significa nada. Formula: Stock_esperado = Stock_inicial + Entradas - Salidas. ENTRADAS: devoluciones retail (ps_ventas.entrada=false), mercancia recibida de proveedor (Albaranes + LinAlbaranes.Recibidas1..34), traspasos de entrada (ps_traspasos.entrada=true), abonos mayoristas (ps_gc_albaranes.abono=true, el cliente mayorista devuelve) y la pata de ENTRADA intragrupo (mercancia que vuelve de una sociedad del grupo, CIF 502108150). SALIDAS: ventas retail (ps_ventas.entrada=true), traspasos de salida (ps_traspasos.entrada=false), envios mayoristas (ps_gc_albaranes.abono=false), devoluciones de compra al proveedor (Albaranes con Abono=true) y la pata de SALIDA intragrupo. Si stock_esperado <> stock_actual hay merma o error de inventario. Las cuatro patas que faltaban en la version anterior de esta regla (devoluciones de compra, abonos mayoristas y las dos intragrupo) descuadran el calculo si se omiten. LIMITACION DEL ESPEJO: las lineas de albaran de compra NO estan espejadas (ps_albaranes es solo cabecera, y ps_lineas_compras son PEDIDOS, no mercancia recibida), asi que la pata de compras no se puede calcular hoy en PostgreSQL. Decirlo explicitamente en vez de sustituirla por pedidos.",
+      "MOVIMIENTO DE STOCK. 'VFP' = Visual FoxPro, el lenguaje de los programas historicos que sacan estos informes; NO es un acronimo de 'Verificacion Fisica de Producto', que fue un invento de una revision anterior de esta doc y no significa nada. Formula: Stock_esperado = Stock_inicial + Entradas - Salidas. ENTRADAS: devoluciones retail (ps_ventas.entrada=false), mercancia recibida de proveedor (ps_lin_albaranes.recibidas, ya espejada y en formato largo por talla), traspasos de entrada (ps_traspasos.entrada=true), abonos mayoristas (ps_gc_albaranes.abono=true, el cliente mayorista devuelve) y la pata de ENTRADA intragrupo (mercancia que vuelve de una sociedad del grupo, CIF 502108150). SALIDAS: ventas retail (ps_ventas.entrada=true), traspasos de salida (ps_traspasos.entrada=false), envios mayoristas (ps_gc_albaranes.abono=false), devoluciones de compra al proveedor (ps_lin_albaranes.abono = true; OJO: ps_albaranes NO tiene columna abono -- sus columnas son reg_albaran, fecha_recibido, modificada, num_pedido, num_proveedor y proveedor -- asi que la marca de devolucion se lee SIEMPRE de la linea, nunca de la cabecera) y la pata de SALIDA intragrupo. Si stock_esperado <> stock_actual hay merma o error de inventario. Las cuatro patas que faltaban en la version anterior de esta regla (devoluciones de compra, abonos mayoristas y las dos intragrupo) descuadran el calculo si se omiten. La pata de compras YA SE PUEDE calcular: ps_lin_albaranes espeja LinAlbaranes en formato largo, una fila por talla, con num_albaran -> ps_albaranes.reg_albaran (verificado 3.759 de 3.759). Son 291.068 filas desde 45.967 lineas de origen, 43 tallas distintas, y la suma de los slots cuadra con la raiz Recibidas en 45.966 de 45.967 lineas (100,00 %). OJO: ps_lineas_compras sigue siendo PEDIDOS, no mercancia recibida; para lo recibido usar SIEMPRE ps_lin_albaranes.recibidas. La talla U es talla unica y acumula el 75 % de las unidades (447 de media por linea frente a 19 en la M), asi que un ranking de tallas compradas la tapa todo si no se excluye.",
     questions: [
       "¿Cómo calcular el stock esperado?",
       "¿Merma de inventario?",
@@ -560,6 +560,17 @@ export const INSTRUCTIONS: Instruction[] = [
       "¿Facturacion fuera del grupo?",
       "¿Movimientos intragrupo?",
       "¿Ventas a Portugal?",
+    ],
+  },
+  {
+    instruction:
+      "COMPRAS POR TALLA: ps_lin_albaranes es la mercancia RECIBIDA, en formato largo, una fila por linea de albaran y talla. Columnas: reg_linea_albaran + talla forman la PK, num_albaran -> ps_albaranes.reg_albaran (verificado 3.759 de 3.759; NUNCA por n_albaran, que es el numero visible y no es unico), codigo -> ps_articulos.codigo, recibidas (unidades de esa talla), recibidas_total (la raiz Real de la linea, suma de sus tallas), precio_coste, precio_neto_si, total_si, abono. 291.068 filas desde 45.967 lineas, 43 tallas, medido 2026-08-30. NO confundir con ps_lineas_compras, que son PEDIDOS y no mercancia recibida. Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras<->ventas<->stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades (447 de media por linea frente a 19 en la M): en un ranking de tallas compradas hay que excluirla o sale ella sola. Los slots Recibidas1..34 son enteros de 16 bits con signo y el ETL les aplica decode_signed_int16_word (D-017); hoy no hay ningun negativo en origen. Integridad comprobada: la suma de los slots cuadra con la raiz en 45.966 de 45.967 lineas; la unica que no es el articulo 113246 (raiz 112, slots 0).",
+    questions: [
+      "¿Que tallas he comprado?",
+      "¿Compras por talla?",
+      "¿Que tallas compro y cuales vendo?",
+      "¿Mercancia recibida por talla?",
+      "¿Cuantas unidades he recibido de cada talla?",
     ],
   },
   {
@@ -1146,6 +1157,18 @@ export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Ventas por tienda del período de comparación?",
     sql: `SELECT v."tienda" AS "label", SUM(v."total_si") AS "value" FROM "public"."ps_ventas" v WHERE v."tienda" <> '99' AND v."fecha_creacion" BETWEEN :comp_from AND :comp_to GROUP BY v."tienda" ORDER BY "value" DESC`,
+  },
+  {
+    question: "¿Qué tallas he comprado?",
+    sql: `SELECT la."talla" AS "Talla", SUM(la."recibidas") AS "Unidades Recibidas", COUNT(DISTINCT la."num_albaran") AS "Albaranes" FROM "public"."ps_lin_albaranes" la WHERE la."abono" IS NOT TRUE AND la."talla" <> 'U' GROUP BY la."talla" ORDER BY "Unidades Recibidas" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Qué tallas compro y cuáles vendo? (compras vs ventas por talla)",
+    sql: `WITH compras_talla AS (SELECT la."talla" AS talla, SUM(la."recibidas") AS recibidas FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" WHERE la."abono" IS NOT TRUE AND la."talla" <> 'U' AND a."fecha_recibido" BETWEEN :curr_from AND :curr_to GROUP BY la."talla"), ventas_talla AS (SELECT lv."talla" AS talla, COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS vendidas FROM "public"."ps_lineas_ventas" lv WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' AND lv."talla" IS NOT NULL AND lv."talla" <> 'U' GROUP BY lv."talla") SELECT COALESCE(c.talla, v.talla) AS "Talla", COALESCE(c.recibidas, 0) AS "Compradas", COALESCE(v.vendidas, 0) AS "Vendidas Netas", ROUND(COALESCE(v.vendidas, 0)::numeric / NULLIF(COALESCE(c.recibidas, 0), 0) * 100, 1) AS "% Vendido sobre Comprado" FROM compras_talla c FULL OUTER JOIN ventas_talla v ON v.talla = c.talla ORDER BY "Compradas" DESC LIMIT 25`,
+  },
+  {
+    question: "¿Qué he recibido en un albarán de compra, desglosado por talla?",
+    sql: `SELECT la."codigo" AS "Código", la."descripcion" AS "Descripción", la."color" AS "Color", la."talla" AS "Talla", la."recibidas" AS "Unidades", la."precio_coste" AS "Coste Unitario" FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" WHERE a."fecha_recibido" BETWEEN :curr_from AND :curr_to AND la."recibidas" <> 0 ORDER BY la."codigo", la."talla" LIMIT 200`,
   }
 ];
 
@@ -1342,6 +1365,23 @@ export const SCHEMA: TableSchema[] = [
     ],
   },
   {
+    table: "ps_lin_albaranes",
+    alias: "LineaAlbaranCompra",
+    description:
+      "Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.",
+    keyColumns: [
+      "reg_linea_albaran (PK junto con talla)",
+      "talla (PK)",
+      "num_albaran (FK → ps_albaranes.reg_albaran)",
+      "codigo (FK → ps_articulos.codigo)",
+      "recibidas",
+      "recibidas_total",
+      "precio_coste",
+      "total_si",
+      "abono",
+    ],
+  },
+  {
     table: "ps_lineas_compras",
     alias: "LineaPedidoCompra",
     description:
@@ -1512,6 +1552,8 @@ export const RELATIONSHIPS: Relationship[] = [
   { from: "ps_traspasos", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_lineas_compras", fromColumn: "num_pedido", to: "ps_compras", toColumn: "reg_pedido", type: "MANY_TO_ONE" },
   { from: "ps_compras", fromColumn: "num_proveedor", to: "ps_proveedores", toColumn: "reg_proveedor", type: "MANY_TO_ONE" },
+  { from: "ps_lin_albaranes", fromColumn: "num_albaran", to: "ps_albaranes", toColumn: "reg_albaran", type: "MANY_TO_ONE" },
+  { from: "ps_lin_albaranes", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_familia", to: "ps_familias", toColumn: "reg_familia", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_departament", to: "ps_departamentos", toColumn: "reg_departament", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_color", to: "ps_colores", toColumn: "reg_color", type: "MANY_TO_ONE" },

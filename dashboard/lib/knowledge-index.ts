@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 16 ficheros. 248 secciones (167 con SQL,
+// Fuente: 16 ficheros. 251 secciones (170 con SQL,
 // 11 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -1142,14 +1142,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/architecture/purchasing.md",
     "heading": "LLM:tables",
-    "body": "```json\n[\n  {\n    \"table\": \"ps_compras\",\n    \"alias\": \"PedidoCompra\",\n    \"description\": \"Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.\",\n    \"keyColumns\": [\"reg_pedido (PK)\", \"num_proveedor (FK)\", \"fecha_pedido\", \"fecha_recibido\", \"modificada\"]\n  },\n  {\n    \"table\": \"ps_lineas_compras\",\n    \"alias\": \"LineaPedidoCompra\",\n    \"description\": \"Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.\",\n    \"keyColumns\": [\"reg_linea_compra (PK)\", \"num_pedido (FK → ps_compras.reg_pedido)\", \"num_tienda (FK)\", \"num_articulo (FK)\", \"fecha\"]\n  },\n  {\n    \"table\": \"ps_albaranes\",\n    \"alias\": \"AlbaranRecepcion\",\n    \"description\": \"Albaranes de recepción de mercancía. La fecha de recepción es fecha_recibido (NO fecha_creacion).\",\n    \"keyColumns\": [\"reg_albaran (PK)\", \"fecha_recibido\", \"modificada\"]\n  },\n  {\n    \"table\": \"ps_facturas_compra\",\n    \"alias\": \"FacturaCompra\",\n    \"description\": \"Facturas de compra a proveedores.\",\n    \"keyColumns\": [\"reg_factura (PK)\"]\n  },\n  {\n    \"table\": \"ps_proveedores\",\n    \"alias\": \"Proveedor\",\n    \"description\": \"Proveedores de mercancía.\",\n    \"keyColumns\": [\"reg_proveedor (PK)\", \"nombre\"]\n  }\n]\n```",
+    "body": "```json\n[\n  {\n    \"table\": \"ps_compras\",\n    \"alias\": \"PedidoCompra\",\n    \"description\": \"Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.\",\n    \"keyColumns\": [\"reg_pedido (PK)\", \"num_proveedor (FK)\", \"fecha_pedido\", \"fecha_recibido\", \"modificada\"]\n  },\n  {\n    \"table\": \"ps_lin_albaranes\",\n    \"alias\": \"LineaAlbaranCompra\",\n    \"description\": \"Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.\",\n    \"keyColumns\": [\n      \"reg_linea_albaran (PK junto con talla)\",\n      \"talla (PK)\",\n      \"num_albaran (FK → ps_albaranes.reg_albaran)\",\n      \"codigo (FK → ps_articulos.codigo)\",\n      \"recibidas\",\n      \"recibidas_total\",\n      \"precio_coste\",\n      \"total_si\",\n      \"abono\"\n    ]\n  },\n  {\n    \"table\": \"ps_lineas_compras\",\n    \"alias\": \"LineaPedidoCompra\",\n    \"description\": \"Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.\",\n    \"keyColumns\": [\"reg_linea_compra (PK)\", \"num_pedido (FK → ps_compras.reg_pedido)\", \"num_tienda (FK)\", \"num_articulo (FK)\", \"fecha\"]\n  },\n  {\n    \"table\": \"ps_albaranes\",\n    \"alias\": \"AlbaranRecepcion\",\n    \"description\": \"Albaranes de recepción de mercancía. La fecha de recepción es fecha_recibido (NO fecha_creacion).\",\n    \"keyColumns\": [\"reg_albaran (PK)\", \"fecha_recibido\", \"modificada\"]\n  },\n  {\n    \"table\": \"ps_facturas_compra\",\n    \"alias\": \"FacturaCompra\",\n    \"description\": \"Facturas de compra a proveedores.\",\n    \"keyColumns\": [\"reg_factura (PK)\"]\n  },\n  {\n    \"table\": \"ps_proveedores\",\n    \"alias\": \"Proveedor\",\n    \"description\": \"Proveedores de mercancía.\",\n    \"keyColumns\": [\"reg_proveedor (PK)\", \"nombre\"]\n  }\n]\n```",
     "hasSql": false,
     "dialect": "postgres"
   },
   {
     "source": "docs/architecture/purchasing.md",
     "heading": "LLM:relationships",
-    "body": "```json\n[\n  {\"from\": \"ps_lineas_compras\", \"fromColumn\": \"num_pedido\",    \"to\": \"ps_compras\",      \"toColumn\": \"reg_pedido\",     \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_compras\",        \"fromColumn\": \"num_proveedor\", \"to\": \"ps_proveedores\",  \"toColumn\": \"reg_proveedor\",  \"type\": \"MANY_TO_ONE\"}\n]\n```",
+    "body": "```json\n[\n  {\"from\": \"ps_lineas_compras\", \"fromColumn\": \"num_pedido\",    \"to\": \"ps_compras\",      \"toColumn\": \"reg_pedido\",     \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_compras\",        \"fromColumn\": \"num_proveedor\", \"to\": \"ps_proveedores\",  \"toColumn\": \"reg_proveedor\",  \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_lin_albaranes\",  \"fromColumn\": \"num_albaran\",   \"to\": \"ps_albaranes\",    \"toColumn\": \"reg_albaran\",    \"type\": \"MANY_TO_ONE\"},\n  {\"from\": \"ps_lin_albaranes\",  \"fromColumn\": \"codigo\",        \"to\": \"ps_articulos\",    \"toColumn\": \"codigo\",         \"type\": \"MANY_TO_ONE\"}\n]\n```",
     "hasSql": false,
     "dialect": "postgres"
   },
@@ -1738,6 +1738,27 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Ventas por tienda del período de comparación?",
     "body": "```sql\nSELECT v.\"tienda\" AS \"label\", SUM(v.\"total_si\") AS \"value\" FROM \"public\".\"ps_ventas\" v WHERE v.\"tienda\" <> '99' AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to GROUP BY v.\"tienda\" ORDER BY \"value\" DESC\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Qué tallas he comprado?",
+    "body": "```sql\nSELECT la.\"talla\" AS \"Talla\", SUM(la.\"recibidas\") AS \"Unidades Recibidas\", COUNT(DISTINCT la.\"num_albaran\") AS \"Albaranes\" FROM \"public\".\"ps_lin_albaranes\" la WHERE la.\"abono\" IS NOT TRUE AND la.\"talla\" <> 'U' GROUP BY la.\"talla\" ORDER BY \"Unidades Recibidas\" DESC LIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Qué tallas compro y cuáles vendo? (compras vs ventas por talla)",
+    "body": "```sql\nWITH compras_talla AS (SELECT la.\"talla\" AS talla, SUM(la.\"recibidas\") AS recibidas FROM \"public\".\"ps_lin_albaranes\" la JOIN \"public\".\"ps_albaranes\" a ON a.\"reg_albaran\" = la.\"num_albaran\" WHERE la.\"abono\" IS NOT TRUE AND la.\"talla\" <> 'U' AND a.\"fecha_recibido\" BETWEEN :curr_from AND :curr_to GROUP BY la.\"talla\"), ventas_talla AS (SELECT lv.\"talla\" AS talla, COALESCE(SUM(lv.\"unidades\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"unidades\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS vendidas FROM \"public\".\"ps_lineas_ventas\" lv WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' AND lv.\"talla\" IS NOT NULL AND lv.\"talla\" <> 'U' GROUP BY lv.\"talla\") SELECT COALESCE(c.talla, v.talla) AS \"Talla\", COALESCE(c.recibidas, 0) AS \"Compradas\", COALESCE(v.vendidas, 0) AS \"Vendidas Netas\", ROUND(COALESCE(v.vendidas, 0)::numeric / NULLIF(COALESCE(c.recibidas, 0), 0) * 100, 1) AS \"% Vendido sobre Comprado\" FROM compras_talla c FULL OUTER JOIN ventas_talla v ON v.talla = c.talla ORDER BY \"Compradas\" DESC LIMIT 25\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Qué he recibido en un albarán de compra, desglosado por talla?",
+    "body": "```sql\nSELECT la.\"codigo\" AS \"Código\", la.\"descripcion\" AS \"Descripción\", la.\"color\" AS \"Color\", la.\"talla\" AS \"Talla\", la.\"recibidas\" AS \"Unidades\", la.\"precio_coste\" AS \"Coste Unitario\" FROM \"public\".\"ps_lin_albaranes\" la JOIN \"public\".\"ps_albaranes\" a ON a.\"reg_albaran\" = la.\"num_albaran\" WHERE a.\"fecha_recibido\" BETWEEN :curr_from AND :curr_to AND la.\"recibidas\" <> 0 ORDER BY la.\"codigo\", la.\"talla\" LIMIT 200\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

@@ -539,6 +539,9 @@ def _ident(nombre: str) -> str:
     return f'"{nombre}"'
 
 
+_AGOTADO = object()
+
+
 def truncate_and_insert_streaming(
     conn,
     table: str,
@@ -569,7 +572,6 @@ def truncate_and_insert_streaming(
     Devuelve el numero de filas insertadas. Hace commit al terminar; ante
     cualquier error hace rollback y re-lanza.
     """
-    from itertools import islice
 
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
@@ -591,10 +593,41 @@ def truncate_and_insert_streaming(
             # copia que este helper existe para no hacer. Consumir el iterador
             # evita las dos cosas.
             it = iter(raw_rows)
+            origen_leidas = 0
+            agotado = False
+            # Remanente: lo que sobra cuando la ultima fila de origen leida
+            # aporta mas filas de las que caben en el lote. Sin arrastrarlo, un
+            # mapper que expanda x10 desborda el lote hasta `chunk_size + 9`.
+            pendientes: list[dict] = []
             while True:
-                trozo = [mapper(r) for r in islice(it, chunk_size)]
-                if not trozo:
+                # El mapper puede devolver un dict (una fila de origen -> una
+                # de destino) o una LISTA de dicts, para tablas que se
+                # despivotan: una linea de albaran trae 34 slots de talla y
+                # produce 6,33 filas de media (issue #918).
+                #
+                # El limite es por filas de DESTINO, que son las que ocupan
+                # memoria. Contar filas de ORIGEN dejaba entrar
+                # `chunk_size * N` mapeadas de golpe -- con 50.000 lineas de
+                # albaran serian ~316.000 vivas, justo lo que este helper
+                # existe para no hacer.
+                while not agotado and len(pendientes) < chunk_size:
+                    fila = next(it, _AGOTADO)
+                    if fila is _AGOTADO:
+                        agotado = True
+                        break
+                    origen_leidas += 1
+                    mapeado = mapper(fila)
+                    if isinstance(mapeado, list):
+                        pendientes.extend(mapeado)
+                    else:
+                        pendientes.append(mapeado)
+                if not pendientes:
+                    # Solo con el origen agotado: el bucle de arriba sigue
+                    # leyendo hasta llenar el lote, asi que un tramo de filas
+                    # que no aportan nada no lo corta.
                     break
+                trozo = pendientes[:chunk_size]
+                pendientes = pendientes[chunk_size:]
                 cols = list(trozo[0].keys())
                 cols_sql = ", ".join(_ident(c) for c in cols)
                 execute_values(
@@ -604,7 +637,13 @@ def truncate_and_insert_streaming(
                     page_size=1000,
                 )
                 total += len(trozo)
-                logger.info("%s: insertadas %d / %d filas", table, total, len(raw_rows))
+                logger.info(
+                    "%s: insertadas %d filas de destino (%d / %d de origen)",
+                    table,
+                    total,
+                    origen_leidas,
+                    len(raw_rows),
+                )
         conn.commit()
         return total
     except Exception:

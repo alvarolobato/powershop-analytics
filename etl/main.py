@@ -491,6 +491,7 @@ SYNC_NAMES_WITH_WATERMARK: tuple[str, ...] = (
 # more than one ps_* table) are intentionally absent — the column would
 # be ambiguous, so it stays NULL for those rows.
 SYNC_TARGET_TABLE: dict[str, str] = {
+    "lin_albaranes": "ps_lin_albaranes",
     "articulos": "ps_articulos",
     "tiendas": "ps_tiendas",
     "clientes": "ps_clientes",
@@ -536,6 +537,7 @@ SYNC_NAMES: tuple[str, ...] = (
     "lineas_compras",
     "facturas",
     "albaranes",
+    "lin_albaranes",
     "facturas_compra",
     "stock",
     "ccstock",
@@ -675,6 +677,7 @@ def run_full_sync(
         sync_gc_pedidos,
     )
     from etl.sync.ccstock import sync_ccstock
+    from etl.sync.lin_albaranes import sync_lin_albaranes
     from etl.sync.stock import sync_stock, sync_traspasos
     from etl.sync.ventas import sync_lineas_ventas, sync_pagos_ventas, sync_ventas
 
@@ -919,6 +922,10 @@ def run_full_sync(
         )  # full-only (CCLineasCompr has only Fecha)
         _s("facturas", sync_facturas, wm=True)
         _s("albaranes", sync_albaranes)  # full-only (only FechaRecibido)
+        # Lineas de albaran de compra: sin campo de modificacion, refresco
+        # completo. Va DESPUES de albaranes porque num_albaran apunta a su
+        # cabecera (issue #918).
+        _s("lin_albaranes", sync_lin_albaranes)
         _s("facturas_compra", sync_facturas_compra)  # full-only (only FechaFactura)
 
         # ------------------------------------------------------------------
