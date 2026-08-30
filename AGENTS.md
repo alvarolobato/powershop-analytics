@@ -7,12 +7,11 @@ Guidance for AI assistants. Use the **skills** ([docs/skills/skills.md](docs/ski
 
 **PowerShop Analytics** is an AI-powered analytics platform for a retail/wholesale business. It extracts data from a vendor-managed PowerShop ERP (4D database), mirrors it into PostgreSQL, and provides two analytics interfaces:
 
-1. **WrenAI** — Ad-hoc single-question text-to-SQL ("¿Cuánto vendimos ayer?")
-2. **Dashboard App** — AI-generated multi-widget dashboards from natural language ("Créame un cuadro de mandos para ventas") — **NEW, in development**
+Una sola interfaz: el **Dashboard App**, que genera cuadros de mando de varios widgets desde lenguaje natural ("Créame un cuadro de mandos para ventas") y también responde preguntas sueltas ("¿Cuánto vendimos ayer?"). WrenAI cubría esa segunda parte y se retiró el 2026-08-30 ([D-058](docs/decisions/D-058-wrenai-retirado.md)).
 
 **Data source:** PowerShop 4D v18.0.6 at `YOUR_4D_SERVER_IP` (Windows, compiled mode).
 **Access paths:** P4D SQL driver (port 19812) for bulk extraction, SOAP web services (port 8080) for business-enriched data.
-**Target:** PostgreSQL (mirror) → WrenAI + Dashboard App. LLM via OpenRouter; the model is configuration, not a constant — see [Supported models](#supported-models).
+**Target:** PostgreSQL (mirror) → Dashboard App. LLM via OpenRouter; the model is configuration, not a constant — see [Supported models](#supported-models).
 
 **Architecture**: See [ARCHITECTURE.md](ARCHITECTURE.md) for system diagrams and component details.
 **Decisions**: See [DECISIONS.md](DECISIONS.md) for binding one-line rules; `docs/decisions/D-NN-<slug>.md` for full rationale per decision.
@@ -27,16 +26,16 @@ This is a **public repository** -- no credentials, customer data, or business-sp
 |------|---------|
 | `dashboard/` | **Dashboard App** — Next.js + Tremor AI dashboard generator |
 | `cli/` | Unified CLI (`ps`) — commands, dispatcher |
-| `cli/commands/` | Command implementations (sql.sh, config.sh, stack.sh, etl.sh, wren.sh) |
+| `cli/commands/` | Command implementations (sql.sh, config.sh, stack.sh, etl.sh, prod.sh, wren.sh) |
 | `etl/` | Python ETL service — syncs 4D → PostgreSQL (nightly) |
-| `scripts/` | Operational scripts (wren-push-metadata.py, migrate-volumes.sh, wren-setup.sh) |
-| `wren/mdl/` | WrenAI semantic model reference (MDL JSON) |
+| `scripts/` | Operational scripts (wren-push-metadata.py — hoy sólo el validador de pares SQL —, migrate-volumes.sh) |
+| `wren/mdl/` | Modelo semántico de WrenAI (MDL JSON). Histórico: WrenAI se retiró (D-058) |
 | `docs/` | Documentation, schema discovery, architecture |
 | `docs/architecture/` | Domain ER diagrams + ETL sync strategy per domain |
 | `docs/skills/` | AI agent skills (domain-specific guides) |
 | `local/` | Local config/credentials (git-ignored) |
-| `data/` | Bind-mounted data (postgres, qdrant, wren) — git-ignored |
-| `docker-compose.yml` | Full stack: PostgreSQL + ETL + WrenAI + Dashboard App |
+| `data/` | Bind-mounted data (postgres, dashboard) — git-ignored |
+| `docker-compose.yml` | Stack completo: PostgreSQL + ETL + Dashboard App + collector OTel |
 | `.env.example` | Environment variable template (no real secrets) |
 | `ARCHITECTURE.md` | System architecture, component diagrams, data flow |
 | `DECISIONS.md` | Decision index — one-line binding rules; full rationale in `docs/decisions/D-NN-<slug>.md` |
@@ -54,7 +53,7 @@ Single entry point for all operations. **Usage:** `ps <group> [subcommand] [opti
 - `stack` — start/stop/restart/status/logs for the full Docker Compose stack
 - `etl` — run nightly sync once, watermark status, table row counts, logs
 - `sql` — read-only queries against the 4D source (list/describe/query/sample/count)
-- `wren` — push knowledge, validate SQL pairs, show counts
+- `wren` — sólo `validate`: ejecuta los pares SQL contra el espejo PostgreSQL
 - `dashboard` — open/logs/restart/status for the Dashboard container
 - `prod` — operate the production Mac over SSH (deploy, update, restart, health, login, ssh)
 - `config` — show loaded configuration
@@ -99,77 +98,57 @@ Priority (highest to lowest):
 | `SOAP_URL` | SOAP endpoint URL |
 | `SOAP_WSDL` | WSDL URL |
 | `POSTGRES_DSN` | PostgreSQL connection string (ETL target) |
-| `OPENROUTER_API_KEY` | OpenRouter API key for WrenAI LLM + embeddings |
+| `OPENROUTER_API_KEY` | Clave de OpenRouter para el LLM del dashboard |
 | `ETL_CRON_HOUR` | Hour to run nightly sync (default: 2) |
-| `WREN_LLM_MODEL` | LLM model for WrenAI text-to-SQL (schema default `anthropic/claude-sonnet-4`; production runs `deepseek/deepseek-v4-pro`) |
+| `DASHBOARD_LLM_MODEL_OPENROUTER` | Modelo del dashboard vía OpenRouter (producción: `deepseek/deepseek-v4-pro`) |
 
 ---
 
-## WrenAI Configuration
+## Conocimiento del LLM (el bundle del dashboard)
 
-### LLM and Embeddings (via OpenRouter)
+> **WrenAI se retiró el 2026-08-30** ([D-058](docs/decisions/D-058-wrenai-retirado.md)).
+> Sus seis contenedores (wren-ui, wren-ai-service, wren-engine, ibis-server,
+> qdrant y el bootstrap) ya no están en el compose ni en producción: el
+> dashboard hace el mismo trabajo y costaban 1,2 GB en una máquina que estaba
+> matando al ETL por falta de memoria. No existen `ps wren push`,
+> `ps wren status` ni `ps wren crosscheck`; hablaban con wren-ui y qdrant.
 
-WrenAI uses two AI providers, both routed through OpenRouter with a single API key:
-- **LLM**: model per `WREN_LLM_MODEL` via litellm, configured in `wren-config.yaml`. Production runs `deepseek/deepseek-v4-pro`.
-- **Embeddings**: `openai/text-embedding-3-large` via litellm. Note: litellm does NOT support the `openrouter/` prefix for embeddings — use `openai/` prefix with `OPENAI_API_BASE` set to `https://openrouter.ai/api/v1`.
+El único consumidor de conocimiento es el **dashboard**, que lee un bundle
+compilado (`dashboard/lib/knowledge.ts`) desde las MDs fuente.
 
-Model IDs must match OpenRouter's catalog exactly — check https://openrouter.ai/models, or `curl -s https://openrouter.ai/api/v1/models | jq '.data[].id'`. Undated slugs (`anthropic/claude-sonnet-4`) track the current pointer; dated ones (`anthropic/claude-sonnet-4-20250514`) pin a snapshot and are also valid where the catalog lists them — several repo defaults use the dated form. What breaks is an id the catalog does not list at all.
+### Cómo se actualiza
 
-### Semantic Model
-
-Relationships and models are managed through WrenAI's GraphQL API at `http://localhost:3000/api/graphql`:
-- `createRelation(data: { fromModelId, fromColumnId, toModelId, toColumnId, type })` — create relationship
-- `mutation { deploy(force: true) }` — deploy/re-index the semantic model
-
-The MDL JSON at `wren/mdl/model.json` is a reference but WrenAI community edition manages its own model internally via the UI/API, not by loading external JSON files.
-
-### Data Persistence
-
-All data lives in bind-mounted directories under `./data/`:
-- `./data/postgres/` — PostgreSQL data files
-- `./data/qdrant/` — Qdrant vector store
-- `./data/wren/` — WrenAI config, SQLite DB, MDL
-
-This survives `docker compose down` and container recreation. Only `docker compose down -v` or deleting `./data/` will destroy it.
-
-### Knowledge Management
-
-WrenAI has two knowledge channels that feed the RAG pipeline for text-to-SQL generation:
-
-#### Instructions (business rules)
-- Stored in SQLite `instruction` table + indexed in qdrant `instructions` collection
-- Source instructions: managed by `scripts/wren-push-metadata.py`, marked `is_default=1`
-- User instructions: created via WrenAI UI, marked `is_default=0` — **never touched by the script**
-- Current count: **40 source instructions** covering retail sales, wholesale, stock, customers, payments, margins, products, transfers, pricing, and data quality rules
-
-#### SQL Pairs (example query patterns)
-- Stored in SQLite `sql_pair` table + indexed in qdrant `sql_pairs` collection
-- Source pairs tracked by question text (deterministic). On update: delete matching, re-insert new.
-- User pairs with different question text survive updates.
-- Current count: **52 source SQL pairs** across all business domains
-
-#### Merge strategy
-Run `ps wren push` to update source knowledge without losing user entries:
 ```bash
-ps wren push                     # update knowledge
-ps wren validate                 # test SQL pairs against PostgreSQL
-ps wren status                   # show counts
+npm run build:knowledge   # regenera knowledge.ts -- hay que commitearlo
+ps wren validate          # ejecuta los pares SQL contra el espejo PostgreSQL
 ```
 
-The script:
-1. Deletes `instruction` rows where `is_default=1`, inserts new source instructions with `is_default=1`
-2. Deletes `sql_pair` rows whose question matches any source question, inserts new source pairs
-3. Restarts wren-ui, deploys (re-indexes schema embeddings)
-4. POSTs instructions and SQL pairs to qdrant AI service
+`build:knowledge` es obligatorio tras tocar cualquier MD con marcadores
+`## LLM:*`: CI falla si `knowledge.ts` está desactualizado (drift guard del job
+`dashboard-test`).
 
-#### Critical: deploy does NOT index instructions/sql_pairs
-`mutation { deploy(force: true) }` only re-indexes the schema (table/column embeddings). Instructions and SQL pairs require separate POST calls to the AI service at port 5555.
+`ps wren validate` conserva el nombre por inercia, pero ya no habla con WrenAI:
+ejecuta cada par de `docs/dashboard/sql-pairs.md` contra PostgreSQL y enseña la
+primera fila, para que un error de magnitud se vea a simple vista. Es lo que
+evita que un par mal escrito llegue al modelo.
 
-#### Adding new knowledge
-To add new instructions: add a JSON entry to the `## LLM:rules` array in `docs/etl-sync-strategy.md` (or the relevant architecture / skill MD), then run `npm run build:knowledge` (dashboard) and `ps wren push` (WrenAI).
-To add new SQL pairs: add a `### question\n```sql\n...\n``` ` block to `docs/dashboard/sql-pairs.md` under `## LLM:sql-pairs`, then run both commands above. All SQL must be valid PostgreSQL against `ps_*` mirror tables; date placeholders (`:curr_from`, `:curr_to`, etc.) are automatically expanded for WrenAI.
+### Persistencia
 
----
+Los datos viven en bind mounts bajo `./data/`:
+- `./data/postgres/` — datos de PostgreSQL
+- `./data/dashboard/conversations/` — logs de contexto por turno ([D-040](docs/decisions/D-040-context-log-files.md))
+
+Sobrevive a `docker compose down` y a recrear contenedores. Sólo
+`docker compose down -v` o borrar `./data/` los destruye.
+
+### Añadir conocimiento nuevo
+
+Instrucciones: una entrada JSON en el array `## LLM:rules` de
+`docs/etl-sync-strategy.md` (o la MD de arquitectura/skill que corresponda).
+Pares SQL: un bloque `### pregunta` + ```sql en `docs/dashboard/sql-pairs.md`
+bajo `## LLM:sql-pairs`. En ambos casos, `npm run build:knowledge` después.
+
+Todo el SQL debe ser PostgreSQL válido contra las tablas `ps_*`.
 
 ## Data Architecture
 
@@ -502,8 +481,8 @@ Two real incidents in `finanzas`, same cause: Compose resolves **relative bind
 mounts against the current directory**, and a worktree's copy of `./data/` is
 empty. One `docker compose up` from a worktree recreated the Postgres container
 and triggered an `initdb`. Applies directly here - `docker-compose.yml` bind-mounts
-`./data/postgres`, `./data/qdrant` and `./data/wren`, which hold the mirror, the
-vector store and WrenAI's SQLite.
+`./data/postgres` and `./data/dashboard`, which hold the mirror and los logs
+de contexto por turno del dashboard.
 
 1. No `docker compose up` or `run` from a worktree. To exercise something in a
    container, use `docker build` + `docker run`, which does not touch the
@@ -570,7 +549,7 @@ When recording a new decision:
    **Rationale**: <why this is the right call>
    **See**: <files, PRs, issues, related decisions>
    ```
-3. **Add one line to `DECISIONS.md`** in the appropriate group (`AI Factory — policy and lifecycle` / `Runtime / infrastructure` / `Data / ETL` / `WrenAI knowledge` / `Dashboard App`, or create a new group if none fits). The line must:
+3. **Add one line to `DECISIONS.md`** in the appropriate group (`AI Factory — policy and lifecycle` / `Runtime / infrastructure` / `Data / ETL` / `Dashboard App`, or create a new group if none fits). The line must:
    - State the **binding rule**, not the title (use imperative: "Do X" / "Don't Y" / "X must Y").
    - Stay ≤ 180 characters.
    - Link to the per-decision file: `[D-NN](docs/decisions/D-NN-<slug>.md)`.
@@ -633,19 +612,19 @@ If you discover something during a session — a null field, an unexpected table
 
 **Both LLM consumers draw from the same source MDs:**
 - **Dashboard runtime LLM** (`dashboard/lib/knowledge.ts`) — compiled by `npm run build:knowledge` from the `## LLM:*` marker sections.
-- **WrenAI** (instructions + SQL pairs in SQLite + qdrant) — loaded by `scripts/wren-push-metadata.py` from the same `## LLM:rules` / `## LLM:sql-pairs` marker sections.
+- **Validador de pares** (`scripts/wren-push-metadata.py`) — lee los mismos `## LLM:sql-pairs` y los ejecuta contra PostgreSQL. Ya no indexa nada: WrenAI se retiró (D-058).
 
 When you change anything that affects what either LLM consumer should know about the data platform, **both commands are required**:
 ```bash
 npm run build:knowledge   # update dashboard/lib/knowledge.ts — commit the result
-ps wren push              # update WrenAI's SQLite + qdrant index
+ps wren validate          # ejecutar los pares SQL contra el espejo
 ```
 
 **After changing any source MD with `## LLM:*` markers**: run `npm run build:knowledge` and commit the updated `dashboard/lib/knowledge.ts`. CI will fail if `knowledge.ts` is stale (drift guard step in the `dashboard-test` job).
 
 The runtime LLM in the dashboard sees a compiled bundle (`dashboard/lib/knowledge.ts`) generated from a curated set of MDs (`docs/etl-sync-strategy.md`, `docs/architecture/*.md`, `docs/skills/{4d-sql-dialect,data-access}.md`, [`docs/dashboard/sql-pairs.md`](docs/dashboard/sql-pairs.md)). Markers `## LLM:tables`, `## LLM:relationships`, `## LLM:rules`, `## LLM:sql-pairs` carve the LLM-relevant sections from each file.
 
-WrenAI reads `## LLM:rules` (JSON instruction arrays) and `## LLM:sql-pairs` (### heading + ```sql``` blocks) from the same list of source MDs. Date placeholders (`:curr_from`, `:curr_to`, `:comp_from`, `:comp_to`) in SQL pairs are automatically transformed to native PostgreSQL `CURRENT_DATE` / `DATE_TRUNC` expressions before insertion, so both consumers see syntactically valid SQL for their respective execution contexts.
+El validador de pares (`scripts/wren-push-metadata.py --validate`) lee los mismos `## LLM:sql-pairs` de la lista de MDs fuente y los ejecuta contra PostgreSQL. Los marcadores de fecha (`:curr_from`, `:curr_to`, `:comp_from`, `:comp_to`) se transforman a expresiones nativas de PostgreSQL antes de ejecutarlos, así que se valida SQL sintácticamente válido para el motor real.
 
 Pure plumbing decisions (containers, OAuth, CI, review policy, dashboard chrome, agent factory rules) **do not** belong in `data-decisions.md` — record them as a one-liner in `DECISIONS.md` + a `docs/decisions/D-NN-<slug>.md` file.
 
@@ -673,9 +652,9 @@ git diff --exit-code dashboard/lib/knowledge.ts
 CI runs `npm run build:knowledge` and fails if `dashboard/lib/knowledge.ts` differs from what the sources produce (drift guard in the `dashboard-test` job).
 Never hand-edit `dashboard/lib/knowledge.ts` — edit the source MDs and regenerate.
 
-### Prod knowledge sync
+### Conocimiento en producción
 
-`ps prod deploy` / `ps prod update` push WrenAI knowledge automatically after restarting containers — no manual step needed after a deployment. For a knowledge-only refresh (source MDs changed, no deploy), use `ps prod push-knowledge`. Full procedure and options: **[docs/skills/prod-deploy.md](docs/skills/prod-deploy.md)**.
+El bundle viaja **dentro de la imagen del dashboard**: se compila en el build desde las MDs fuente, así que `ps prod deploy` / `ps prod update` lo llevan sin ningún paso extra. No hay `push-knowledge` que ejecutar — eso hablaba con WrenAI, que se retiró ([D-058](docs/decisions/D-058-wrenai-retirado.md)). Para refrescar el conocimiento hay que cortar release y desplegar, como con cualquier otro cambio de código.
 
 ---
 
