@@ -101,7 +101,9 @@ WHERE v."tienda" <> '99'
           // COALESCE evita "—" cuando el rango no tiene líneas.
           // Usa format: "decimal" porque es un ratio fraccional (p.ej. 1,69):
           // "number" lo redondearía a entero (→ 2) y perdería precisión.
-          sql: `SELECT COALESCE(ROUND(SUM(lv."unidades")::numeric / NULLIF(COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada"), 0), 2), 0) AS value
+          sql: `SELECT COALESCE(ROUND((COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0)
+        - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0))::numeric
+        / NULLIF(COUNT(DISTINCT v."reg_ventas") FILTER (WHERE v."entrada"), 0), 2), 0) AS value
 FROM "public"."ps_lineas_ventas" lv
 JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas"
 WHERE lv."tienda" <> '99'
@@ -277,7 +279,8 @@ ORDER BY value DESC`,
       sql: `SELECT ${MODELO} AS "Modelo",
        MIN(p."descripcion") AS "Descripción",
        COUNT(DISTINCT p."ccrefejofacm") AS "Colores",
-       SUM(lv."unidades") AS "Unidades",
+       COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0)
+        - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades",
        ROUND(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)::numeric, 2) AS "Ventas Netas (€)",
        ROUND((COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)
         - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT v."entrada"), 0)))
