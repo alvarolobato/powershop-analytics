@@ -255,21 +255,53 @@ describe("FK mayorista", () => {
   });
 });
 
+/** Quita comentarios SQL y JS: un filtro comentado no filtra nada. */
+function sinComentarios(texto: string): string {
+  // Se conservan los saltos de línea: si un comentario de bloque se colapsara
+  // a un espacio, todos los números de línea posteriores saldrían desplazados
+  // y el test señalaría un sitio que no es.
+  const enBlanco = (t: string) => t.replace(/[^\n]/g, " ");
+  return texto
+    .replace(/\/\*[\s\S]*?\*\//g, enBlanco) // bloque, en ambos lenguajes
+    .replace(/--[^\n]*/g, enBlanco) // línea SQL
+    .replace(/\/\/[^\n]*/g, enBlanco); // línea JS
+}
+
 /**
- * Trocea un fichero en las consultas SQL que contiene, de verdad.
+ * Trocea un fichero en las consultas SQL que contiene.
  *
- * Una ventana de N caracteres alrededor de la coincidencia NO sirve: en
- * `sql-pairs.md` las consultas van pegadas, así que la ventana de una alcanza
- * el filtro de la siguiente y la da por buena. Un guardián verde por el motivo
- * equivocado es peor que no tenerlo.
+ * Historial de fallos de esta función, todos encontrados ejecutándola:
+ *  - una ventana de N caracteres alcanzaba el filtro de la consulta SIGUIENTE
+ *    (en `sql-pairs.md` van pegadas);
+ *  - sólo reconocía vallas ```sql, no ```postgresql ni las que no llevan
+ *    lenguaje;
+ *  - en `.ts` partía por comillas invertidas, así que un backtick suelto
+ *    dentro de un comentario desincronizaba el emparejado y ocultaba el
+ *    literal siguiente entero;
+ *  - un `${...}` con su propio literal dentro partía el bloque en dos y
+ *    separaba el `FROM` de su filtro.
+ *
+ * De ahí el orden: primero fuera los comentarios, luego fuera el contenido de
+ * las interpolaciones, y sólo entonces trocear.
  */
 function bloquesSql(texto: string, fichero: string): { sql: string; linea: number }[] {
   const bloques: { sql: string; linea: number }[] = [];
-  const patron = /\.md$/.test(fichero)
-    ? /```sql\n([\s\S]*?)```/g // vallas de markdown
-    : /`([\s\S]*?)`/g; // literales de plantilla en TS
-  for (const m of texto.matchAll(patron)) {
-    bloques.push({ sql: m[1], linea: texto.slice(0, m.index).split("\n").length });
+  const limpio = sinComentarios(texto);
+  if (/\.md$/.test(fichero)) {
+    for (const m of limpio.matchAll(/```[a-z]*\n([\s\S]*?)```/gi)) {
+      bloques.push({ sql: m[1], linea: limpio.slice(0, m.index).split("\n").length });
+    }
+    return bloques;
+  }
+  // `${...}` con anidamiento equilibrado: se vacía para que un literal interno
+  // no rompa el troceado por comillas invertidas.
+  const sinInterp = limpio.replace(/\$\{(?:[^{}]|\{[^{}]*\})*\}/g, " ");
+  for (const m of sinInterp.matchAll(/`([\s\S]*?)`/g)) {
+    bloques.push({ sql: m[1], linea: sinInterp.slice(0, m.index).split("\n").length });
+  }
+  // SQL en cadenas normales: `dashboard/app/api/seasons/route.ts` lo hace.
+  for (const m of sinInterp.matchAll(/"((?:SELECT|WITH)[\s\S]*?)"/gi)) {
+    bloques.push({ sql: m[1], linea: sinInterp.slice(0, m.index).split("\n").length });
   }
   return bloques;
 }
@@ -277,24 +309,46 @@ function bloquesSql(texto: string, fichero: string): { sql: string; linea: numbe
 describe("asientos de inventario en traspasos", () => {
   // `ps_traspasos.tipo` = 'Apertura' / 'Inventario Parcial' no son traspasos
   // entre tiendas sino asientos de inventario, y DOMINAN la tabla: 247.502 +
-  // 739 filas sobre 262.724 (94 %). Una tabla de "movimientos por ruta" que no
-  // los excluya muestra sobre todo inventario, con el destino vacío.
+  // 739 filas sobre 262.724 (94 %).
   //
-  // Filtrar por `entrada` no basta: los pares ya corregidos llevan las dos
-  // condiciones.
-  it("todo análisis de movimiento entre tiendas los excluye", () => {
+  // Y `tipo` es NULLABLE: `tipo NOT IN (...)` con NULL da NULL, así que
+  // descarta la fila. Sobre el fixture eso daba 178 filas donde la forma
+  // correcta da 248 -- y con el fixture anterior, que no poblaba `tipo`,
+  // devolvía CERO y ningún test se enteraba. La forma obligatoria es
+  // `COALESCE(tipo,'') NOT IN (...)`.
+  it("todo análisis de movimiento entre tiendas los excluye, sin perder los NULL", () => {
     const infractores: string[] = [];
     for (const f of ficherosConSql()) {
       if (/knowledge(-index)?\.ts$/.test(f)) continue;
       const texto = readFileSync(f, "utf8");
       for (const { sql, linea } of bloquesSql(texto, f)) {
-        // Sólo en posición de tabla: una mención en prosa no ejecuta nada.
-        if (!/\b(?:FROM|JOIN)\s+(?:"public"\s*\.\s*)?"?ps_traspasos"?/i.test(sql)) continue;
-        // El filtro REAL sobre `tipo`, no una mención cualquiera de "Apertura":
-        // un comentario cerca bastaba para darla por buena.
-        if (/"?tipo"?\s*NOT\s+IN\s*\([^)]*Apertura/i.test(sql)) continue;
+        // Posición de tabla, incluido el join por coma y `public.` sin comillas.
+        const ref = new RegExp(
+          // El alias NO puede ser una palabra clave: `FROM ps_traspasos WHERE`
+          // hacía capturar "WHERE" como alias y exigir luego `WHERE.tipo`,
+          // marcando como infractora una consulta correcta.
+          String.raw`(?:FROM|JOIN|,)\s+(?:"?public"?\s*\.\s*)?"?ps_traspasos"?(?:\s+(?:AS\s+)?(?!(?:WHERE|GROUP|ORDER|LIMIT|JOIN|LEFT|RIGHT|INNER|ON|UNION|HAVING|WINDOW|OFFSET|FETCH|CROSS|FULL)\b)"?(\w+)"?)?`,
+          "i",
+        );
+        const m = ref.exec(sql);
+        if (!m) continue;
         // Agrupar por `tipo` es el caso en que el desglose ES el objetivo.
-        if (/GROUP BY[^;]*"?tipo"?/i.test(sql)) continue;
+        // \b para no aceptar `prototipo`, y sin cruzar a la siguiente cláusula.
+        if (/GROUP BY[^)]*\btipo\b/i.test(sql)) continue;
+
+        // El filtro tiene que ser sobre ESTA tabla, no sobre otra de un CTE
+        // vecino: se exige el alias (o el nombre pelado si no lo hay).
+        const a = m[1] ? `"?${m[1]}"?\\s*\\.\\s*` : "(?:\\w+\\s*\\.\\s*)?";
+        const col = String.raw`${a}"?tipo"?`;
+        const seguro = [
+          // COALESCE(t.tipo,'') NOT IN ('Apertura', ...) -- la forma correcta
+          new RegExp(String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`, "i"),
+          // t.tipo <> 'Apertura' AND t.tipo <> 'Inventario Parcial'
+          new RegExp(String.raw`${col}\s*(?:<>|!=)\s*'Apertura'`, "i"),
+          // lista blanca: sólo los tipos que SON movimiento real
+          new RegExp(String.raw`${col}\s+IN\s*\(`, "i"),
+        ];
+        if (seguro.some((r) => r.test(sql))) continue;
         infractores.push(`${relative(RAIZ, f)}:${linea}`);
       }
     }
