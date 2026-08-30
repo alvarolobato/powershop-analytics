@@ -302,3 +302,29 @@ describe("search_knowledge", () => {
     });
   });
 });
+
+describe("etiquetado de dialecto", () => {
+  // La versión anterior de `detectDialect` usaba una lista blanca de 15 tablas
+  // del ERP. Dejaba fuera todo el mayorista, así que 28 secciones con
+  // `FROM GCFacturas`, `FROM GCAlbaranes`, `FROM PagosVentas`... salían como
+  // "n/a" y se le entregaban al modelo SIN el aviso de dialecto — justo el
+  // fallo que el etiquetado existe para evitar, y que además reaparecería con
+  // cualquier tabla nueva del ERP.
+  //
+  // La regla ahora se apoya en el espejo, que es lo único con prefijo `ps_`.
+  it("ninguna sección con SQL del ERP se sirve sin el aviso de 4D", () => {
+    const sinAviso = KNOWLEDGE_INDEX.filter(
+      (c) => c.dialect !== "4d" && c.hasSql && !/\bps_[a-z]/.test(c.body) && /```sql/i.test(c.body),
+    );
+    expect(
+      sinAviso.map((c) => `${c.source} :: ${c.heading}`),
+      "Secciones con SQL que no menciona ninguna tabla ps_ y no van etiquetadas como 4D",
+    ).toEqual([]);
+  });
+
+  it("las secciones del espejo siguen etiquetadas como postgres", () => {
+    // Contrapeso del test anterior: marcar todo como 4D también lo pasaría.
+    const postgres = KNOWLEDGE_INDEX.filter((c) => c.dialect === "postgres");
+    expect(postgres.length).toBeGreaterThan(100);
+  });
+});

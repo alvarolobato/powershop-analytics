@@ -70,6 +70,8 @@ const FOURD_FROM_RE = new RegExp(`\\b(?:FROM|JOIN|INTO|UPDATE)\\s+(?:${FOURD_TAB
 const FOURD_SYSTEM_RE = /\b_USER_(?:TABLES|COLUMNS|VIEWS|INDEXES|CONSTRAINTS|INDEX_COLUMNS)\b/i;
 /** El espejo: todo lo consultable desde el dashboard lleva prefijo `ps_`. */
 const POSTGRES_RE = /\bps_[a-z][a-z0-9_]*\b/;
+/** Una valla ```sql: si hay SQL y no hay `ps_`, la seccion es del ERP. */
+const SQL_FENCE_RE = /```sql\b|\bSELECT\s+[\s\S]*?\bFROM\b/i;
 
 /**
  * Etiqueta el dialecto de una sección. Ante la duda gana `4d`: una consulta 4D
@@ -77,9 +79,22 @@ const POSTGRES_RE = /\bps_[a-z][a-z0-9_]*\b/;
  * marcada de más sólo cuesta una línea de aviso.
  */
 export function detectDialect(body) {
-  const isFourD = FOURD_FROM_RE.test(body) || FOURD_SYSTEM_RE.test(body);
-  if (isFourD) return "4d";
+  if (FOURD_FROM_RE.test(body) || FOURD_SYSTEM_RE.test(body)) return "4d";
   if (POSTGRES_RE.test(body)) return "postgres";
+  // Regla por defecto, y la que de verdad hace el trabajo: si la seccion trae
+  // SQL y NO menciona ninguna tabla del espejo, es del ERP.
+  //
+  // La lista blanca de arriba no basta y no puede bastar: cubria 15 tablas y
+  // dejaba fuera todo el mayorista, asi que 28 secciones con `FROM GCFacturas`,
+  // `FROM GCAlbaranes`, `FROM PagosVentas`... salian como "n/a" y se le
+  // entregaban al modelo SIN el aviso de dialecto — justo el fallo que el
+  // etiquetado existe para evitar. Cualquier tabla nueva del ERP reproducia el
+  // problema.
+  //
+  // Invertirlo es robusto porque el espejo es lo unico con prefijo `ps_`. Una
+  // seccion sin tablas (`SELECT CURRENT_DATE`) se marca 4D de mas, y eso cuesta
+  // una linea de aviso; al reves rompe consultas en produccion.
+  if (SQL_FENCE_RE.test(body)) return "4d";
   return "n/a";
 }
 
