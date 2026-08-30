@@ -111,7 +111,12 @@ cmd_deploy() {
     echo -e "${DIM}Pulling latest Docker Hub images...${NC}"
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) pull"
     echo -e "${DIM}Restarting stack...${NC}"
-    remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) up -d"
+    # --remove-orphans: al retirar WrenAI (D-058) el compose perdió seis
+    # servicios, y sin esta bandera sus contenedores quedan en el proyecto como
+    # huérfanos -- parados pero presentes, y `docker compose` avisando en cada
+    # operación. Prod corre un único proyecto en su directorio, así que lo que
+    # borra es exactamente lo que ya no está declarado.
+    remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) up -d --remove-orphans"
     echo -e "${GREEN}Deploy complete.${NC}"
 
     # WrenAI se retiró de producción (2026-08-30): el dashboard hace el mismo
