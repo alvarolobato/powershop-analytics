@@ -18,6 +18,7 @@ import { isAssistantContent, getMessageText } from "@/lib/conversation-types";
 import { InitialContextPanel } from "@/components/InitialContextPanel";
 import LogBlock, { type LogLine } from "@/components/LogBlock";
 import type { DashboardSpec } from "@/lib/schema";
+import { ecoYaPersistido } from "@/lib/conversation-echo";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -1047,13 +1048,7 @@ export function ConversationPane({
     if (!pendingTurnId) return null;
 
     const turnData = turns.get(pendingTurnId);
-    // ¿El eco optimista ya llegó persistido desde el servidor?
-    const ultimoUsuario = [...messages].reverse().find((m) => m.role === "user");
-    const textoUltimo =
-      typeof ultimoUsuario?.content === "object" && ultimoUsuario?.content !== null
-        ? ((ultimoUsuario.content as Record<string, unknown>).text as string | undefined)
-        : undefined;
-    const yaPersistido = pendingUserMsg.trim().length > 0 && textoUltimo?.trim() === pendingUserMsg.trim();
+    const yaPersistido = ecoYaPersistido(messages, pendingUserMsg);
 
     const hasLogs = turnData && turnData.logs.length > 0;
     const liveThinking = turnData?.thinking ?? "";

@@ -10,20 +10,15 @@
  *
  * El eco no tiene id con el que casar contra el persistido, así que la
  * comparación es por texto contra el último mensaje de usuario.
+ *
+ * Este test importa la MISMA función que usa el componente. La primera versión
+ * reimplementaba la lógica aquí, y eso la habría dejado pasando en verde
+ * mientras el componente volvía a duplicar.
  */
 import { describe, it, expect } from "vitest";
+import { ecoYaPersistido, textoDelMensaje } from "../conversation-echo";
 
 type Msg = { role: string; content: unknown };
-
-/** Misma lógica que `ConversationPane`: ¿el eco ya llegó persistido? */
-function yaPersistido(messages: Msg[], pendingUserMsg: string): boolean {
-  const ultimoUsuario = [...messages].reverse().find((m) => m.role === "user");
-  const textoUltimo =
-    typeof ultimoUsuario?.content === "object" && ultimoUsuario?.content !== null
-      ? ((ultimoUsuario.content as Record<string, unknown>).text as string | undefined)
-      : undefined;
-  return pendingUserMsg.trim().length > 0 && textoUltimo?.trim() === pendingUserMsg.trim();
-}
 
 const TEXTO = "Ordenalo por tallas no por ventas así puedo ver la distribución";
 
@@ -34,7 +29,7 @@ describe("eco optimista del mensaje de usuario", () => {
       { role: "assistant", content: { text: "respuesta" } },
       { role: "user", content: { text: TEXTO } },
     ];
-    expect(yaPersistido(messages, TEXTO)).toBe(true);
+    expect(ecoYaPersistido(messages, TEXTO)).toBe(true);
   });
 
   it("se sigue mostrando mientras el servidor no lo ha devuelto", () => {
@@ -42,17 +37,17 @@ describe("eco optimista del mensaje de usuario", () => {
       { role: "user", content: { text: "pregunta anterior" } },
       { role: "assistant", content: { text: "respuesta" } },
     ];
-    expect(yaPersistido(messages, TEXTO)).toBe(false);
+    expect(ecoYaPersistido(messages, TEXTO)).toBe(false);
   });
 
   it("no se confunde con un mensaje anterior de texto distinto", () => {
     const messages: Msg[] = [{ role: "user", content: { text: "otra cosa" } }];
-    expect(yaPersistido(messages, TEXTO)).toBe(false);
+    expect(ecoYaPersistido(messages, TEXTO)).toBe(false);
   });
 
   it("tolera espacios de más al comparar", () => {
     const messages: Msg[] = [{ role: "user", content: { text: `  ${TEXTO}  ` } }];
-    expect(yaPersistido(messages, TEXTO)).toBe(true);
+    expect(ecoYaPersistido(messages, TEXTO)).toBe(true);
   });
 
   it("compara con el ÚLTIMO mensaje de usuario, no con cualquiera", () => {
@@ -63,11 +58,25 @@ describe("eco optimista del mensaje de usuario", () => {
       { role: "assistant", content: { text: "respuesta" } },
       { role: "user", content: { text: "otra pregunta" } },
     ];
-    expect(yaPersistido(messages, TEXTO)).toBe(false);
+    expect(ecoYaPersistido(messages, TEXTO)).toBe(false);
   });
 
   it("no oculta nada cuando no hay eco pendiente", () => {
     const messages: Msg[] = [{ role: "user", content: { text: TEXTO } }];
-    expect(yaPersistido(messages, "")).toBe(false);
+    expect(ecoYaPersistido(messages, "")).toBe(false);
+  });
+
+  it("tolera el formato antiguo, con content como cadena", () => {
+    // Hoy no hay ninguno en producción (312 mensajes, todos objeto), pero si
+    // apareciera, el eco quedaría sin detectar y volvería el duplicado.
+    const messages = [{ role: "user", content: TEXTO }];
+    expect(ecoYaPersistido(messages, TEXTO)).toBe(true);
+  });
+
+  it("textoDelMensaje entiende ambos formatos y descarta el resto", () => {
+    expect(textoDelMensaje({ text: "hola" })).toBe("hola");
+    expect(textoDelMensaje("hola")).toBe("hola");
+    expect(textoDelMensaje(null)).toBeUndefined();
+    expect(textoDelMensaje({ otra: "cosa" })).toBeUndefined();
   });
 });
