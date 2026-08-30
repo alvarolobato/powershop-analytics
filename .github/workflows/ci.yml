@@ -112,8 +112,9 @@ jobs:
       - name: Run seeded regression tests (require the DB)
         working-directory: dashboard
         env:
+          # E2E_DATABASE_URL lo hereda del job: duplicarlo aqui es una copia
+          # que se desalinea en cuanto cambie el DSN.
           REQUIRE_TEST_DB: "1"
-          E2E_DATABASE_URL: postgresql://powershop:powershop@localhost:5432/powershop
         run: npx vitest run lib/__tests__/ventas-netas-regresion.test.ts
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
