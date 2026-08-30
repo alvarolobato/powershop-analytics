@@ -171,13 +171,61 @@ cmd_update() {
     remote "cd $(printf %q "$PROD_PATH") && \
         curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/docker-compose.prod.yml' -o docker-compose.yml && \
         mkdir -p otel/local && \
-        curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/otelcol-config.yaml' -o otel/otelcol-config.yaml && \
+        curl -fsSL '${GITHUB_RELEASE_DL}/${latest}/otelcol-config.yaml' -o otel/otelcol-config.yaml"
+
+    # Las etiquetas de imagen NO salen de .version: el compose lee
+    # ${ETL_VERSION} y ${DASHBOARD_VERSION} de .env. Escribir solo .version
+    # dejaba corriendo la imagen anterior mientras el comando anunciaba la
+    # nueva -- un despliegue que decia "Deploy complete" sin desplegar nada.
+    # Pasó de verdad con v0.10.0: .version decia v0.10.0 y los contenedores
+    # llevaban cuatro horas en v0.9.2.
+    echo -e "${DIM}Pinning image tags to ${latest} in .env...${NC}"
+    remote "cd $(printf %q "$PROD_PATH") && \
+        cp .env .env.bak.\$(date +%Y%m%d%H%M%S) && \
+        for v in ETL_VERSION DASHBOARD_VERSION; do \
+            if grep -q \"^\${v}=\" .env; then \
+                sed -i '' \"s|^\${v}=.*|\${v}=${latest}|\" .env; \
+            else \
+                printf '%s=%s\\n' \"\${v}\" '${latest}' >> .env; \
+            fi; \
+        done && \
         echo '${latest}' > .version"
+
+    # Comprobar que ha quedado escrito antes de seguir.
+    local escritas
+    escritas=$(remote "cd $(printf %q "$PROD_PATH") && grep -cE '^(ETL|DASHBOARD)_VERSION=${latest}$' .env" || echo 0)
+    if [ "${escritas:-0}" -ne 2 ]; then
+        echo -e "${RED}No se pudieron fijar ETL_VERSION y DASHBOARD_VERSION a ${latest} en .env${NC}" >&2
+        echo -e "${DIM}El compose seguiría levantando la imagen anterior. Abortando antes de tocar los contenedores.${NC}" >&2
+        exit 1
+    fi
 
     echo -e "${GREEN}Stack files updated to ${latest}.${NC}"
 
     # Now deploy (pull images + restart)
     cmd_deploy
+
+    # Y verificar contra los contenedores, no contra .version: es la unica
+    # comprobacion que distingue un despliegue real de uno que solo lo dice.
+    verificar_imagenes_en_ejecucion "$latest"
+}
+
+# ---------------------------------------------------------------------------
+# verificar_imagenes_en_ejecucion — el despliegue no vale si los contenedores
+# siguen en la etiqueta anterior. Comprueba lo que corre, no lo que se pidio.
+# ---------------------------------------------------------------------------
+verificar_imagenes_en_ejecucion() {
+    local esperada="$1"
+    local malas
+    malas=$(remote "docker ps --filter name=powershop --format '{{.Names}} {{.Image}}' \
+        | grep -E 'powershop-(etl|dashboard)' \
+        | grep -v ':${esperada}\$' || true")
+    if [ -n "$malas" ]; then
+        echo -e "${RED}Los contenedores NO corren ${esperada}:${NC}" >&2
+        echo "$malas" >&2
+        exit 1
+    fi
+    echo -e "${GREEN}Verificado: etl y dashboard corren ${esperada}.${NC}"
 }
 
 # ---------------------------------------------------------------------------
