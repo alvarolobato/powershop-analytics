@@ -304,3 +304,36 @@ describe("asientos de inventario en traspasos", () => {
     ).toEqual([]);
   });
 });
+
+describe("fecha efectiva del albarán mayorista", () => {
+  // Un albarán aún no enviado lleva NULL o un centinela anterior a 2000 en
+  // `fecha_envio`. Como `NULL >= fecha` es NULL, filtrar un periodo por
+  // `fecha_envio` los descarta en silencio — y son justo los que interesan en
+  // "albaranes pendientes de facturar". Sobre tres albaranes sembrados (uno
+  // enviado, uno sin enviar, uno con centinela), la forma antigua devolvía 1 y
+  // la correcta 3.
+  //
+  // Regla: `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE
+  // fecha_valor END`.
+  it("ninguna consulta filtra u ordena por fecha_envio a secas", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      const texto = readFileSync(f, "utf8");
+      for (const { sql, linea } of bloquesSql(texto, f)) {
+        if (!/fecha_envio/.test(sql)) continue;
+        // Con la fecha efectiva presente, la consulta ya sigue la regla.
+        if (/CASE\s+WHEN[^]*?fecha_envio[^]*?fecha_valor/i.test(sql)) continue;
+        // Sólo molesta cuando se usa para acotar u ordenar; proyectarla como
+        // columna informativa junto a la efectiva es legítimo.
+        if (!/(WHERE|AND|ORDER BY|BETWEEN)[^;]*fecha_envio/i.test(sql)) continue;
+        infractores.push(`${relative(RAIZ, f)}:${linea}`);
+      }
+    }
+    expect(
+      [...new Set(infractores)],
+      `Consultas que acotan por fecha_envio sin la fecha efectiva (pierden los albaranes sin enviar):\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+

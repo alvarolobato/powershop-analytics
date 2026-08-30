@@ -245,17 +245,23 @@ LIMIT 20`,
       title: "Albaranes Recientes",
       sql: `SELECT (f."n_albaran")::bigint AS "Albarán",
        ${CLIENTE_LABEL} AS "Cliente",
-       f."fecha_envio" AS "Fecha",
+       (CASE WHEN f."fecha_envio" >= DATE '2000-01-01'
+             THEN f."fecha_envio" ELSE f."fecha_valor" END) AS "Fecha",
        f."entregadas" AS "Unidades",
        (COALESCE(f."base1",0) + COALESCE(f."base2",0)
         + COALESCE(f."base3",0)) AS "Importe Neto"
 FROM "public"."ps_gc_albaranes" f
 JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
 WHERE f."abono" IS NOT TRUE
-  AND f."fecha_envio" >= :curr_from
-  AND f."fecha_envio" <= :curr_to
+  -- Fecha efectiva: los albaranes sin enviar llevan NULL o un centinela
+  -- anterior a 2000, asi que filtrar por fecha_envio nunca los muestra.
+  AND (CASE WHEN f."fecha_envio" >= DATE '2000-01-01'
+            THEN f."fecha_envio" ELSE f."fecha_valor" END) >= :curr_from
+  AND (CASE WHEN f."fecha_envio" >= DATE '2000-01-01'
+            THEN f."fecha_envio" ELSE f."fecha_valor" END) <= :curr_to
   AND __gf_cliente_mayorista__
-ORDER BY f."fecha_envio" DESC, f."reg_albaran" DESC
+ORDER BY (CASE WHEN f."fecha_envio" >= DATE '2000-01-01'
+               THEN f."fecha_envio" ELSE f."fecha_valor" END) DESC, f."reg_albaran" DESC
 LIMIT 20`,
     },
     {

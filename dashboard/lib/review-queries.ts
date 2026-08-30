@@ -217,17 +217,27 @@ LIMIT 3`,
   {
     name: "albaranes_pendientes_facturar",
     domain: "canal_mayorista",
-    sql: `SELECT COUNT(*) AS albaranes_pendientes
-FROM ps_gc_albaranes a
+    // Fecha efectiva, no fecha_envio a secas: un albaran aun no enviado lleva
+    // NULL o un centinela anterior a 2000, y `NULL >= fecha` es NULL, asi que
+    // filtrar por fecha_envio los descarta -- justo los que mas probablemente
+    // esten pendientes de facturar, que es lo que esta consulta cuenta.
+    sql: `WITH alb AS (
+  SELECT a.*,
+         CASE WHEN a.fecha_envio >= DATE '2000-01-01'
+              THEN a.fecha_envio ELSE a.fecha_valor END AS fecha_efectiva
+  FROM ps_gc_albaranes a
+)
+SELECT COUNT(*) AS albaranes_pendientes
+FROM alb a
 WHERE NOT EXISTS (
     SELECT 1 FROM ps_gc_facturas f
     WHERE f.num_cliente = a.num_cliente
       AND f.abono IS NOT TRUE
-      AND f.fecha_factura >= a.fecha_envio
-      AND f.fecha_factura < a.fecha_envio + INTERVAL '30 days'
+      AND f.fecha_factura >= a.fecha_efectiva
+      AND f.fecha_factura < a.fecha_efectiva + INTERVAL '30 days'
   )
-  AND a.fecha_envio >= $1::date - INTERVAL '30 days'
-  AND a.fecha_envio < $2::date`,
+  AND a.fecha_efectiva >= $1::date - INTERVAL '30 days'
+  AND a.fecha_efectiva < $2::date`,
   },
 
   // ── Stock ──────────────────────────────────────────────────────────────────
