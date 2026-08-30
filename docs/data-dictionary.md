@@ -735,7 +735,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "Semantica de 'entrada': entrada = true es una venta (dinero que entra), entrada = false es una devolucion (dinero que sale, con el importe guardado en POSITIVO). En ps_ventas y ps_pagos_ventas existe la columna 'entrada'; en ps_lineas_ventas NO existe, hay que unir con ps_ventas por lv.num_ventas = v.reg_ventas para obtenerla.",
+    "instruction": "Semantica de 'entrada': entrada = true es una venta (dinero que entra), entrada = false es una devolucion (dinero que sale, con el importe guardado en POSITIVO). La columna 'entrada' existe en ps_ventas, ps_pagos_ventas Y ps_lineas_ventas (junto a 'movimiento_caja' y 'talla', anadidas en 2026-08; las filas anteriores a la resincronizacion completa del 2026-08-30 las tienen vacias). El JOIN con ps_ventas sigue siendo necesario para atributos de cabecera como tienda, num_cliente o tipo_documento, pero no para obtener 'entrada'.",
     "questions": [
       "que es entrada",
       "como distingo una devolucion",
