@@ -248,7 +248,7 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Tendencia de ventas semanal?", "¿Últimas 12 semanas?", "¿Evolución semanal de ventas?"]
   },
   {
-    "instruction": "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true.",
+    "instruction": "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Las notas de credito (abono=true) NO se excluyen, se RESTAN: se guardan en POSITIVO, asi que un WHERE abono = false las ignora en vez de descontarlas. Ver la regla de abonos mayoristas.",
     "questions": ["¿Cuánto facturamos en mayorista?", "¿Cuál es la facturación B2B?", "¿Ventas mayoristas del año?", "¿Ingresos del canal wholesale?"]
   },
   {
@@ -256,11 +256,11 @@ Business rules and field conventions the dashboard LLM must follow when generati
     "questions": ["¿Cuántos pedidos mayoristas?", "¿Estado de cobros B2B?", "¿Albaranes pendientes de facturar?"]
   },
   {
-    "instruction": "Los abonos mayoristas (ps_gc_albaranes con abono=true o ps_gc_facturas con abono=true) son notas de crédito por devoluciones. Para calcular facturación neta mayorista, excluirlos: WHERE abono = false.",
+    "instruction": "Los abonos mayoristas (ps_gc_albaranes o ps_gc_facturas con abono=true) son notas de credito por devoluciones y SE GUARDAN EN POSITIVO, igual que las devoluciones de retail (D-057). Medido en produccion 2026-08-30: de 220.967 lineas de abono, 220.885 son positivas y 4 negativas; en cabecera, 8.595 de 8.597 abonos tienen base1+2+3 positiva. Por eso WHERE abono = false NO resta la devolucion, la IGNORA, y la facturacion sale inflada: 3.677.893 EUR frente a 3.199.868 EUR reales en 2026, un 13,0 % de mas (53.880.139 frente a 47.169.063 en el historico). El neto mayorista se calcula SIEMPRE asi: COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). El COALESCE va en LOS DOS lados y es obligatorio: sin el, un periodo sin abonos da algo - NULL = NULL y la cifra desaparece. AVISO: si se netea con FILTER, hay que QUITAR el WHERE abono IS NOT TRUE de la consulta; dejarlo vacia el lado del abono y el neto vuelve a ser el bruto sin que se note.",
     "questions": ["¿Devoluciones de clientes mayoristas?", "¿Facturación neta mayorista?", "¿Cuántos abonos mayoristas?"]
   },
   {
-    "instruction": "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto. Excluir abono=true.",
+    "instruction": "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto, restando los abonos con el patron FILTER (no excluyendolos: estan en positivo).",
     "questions": ["¿Facturación por comercial?", "¿Qué comercial vende más?", "¿Rendimiento de representantes de ventas?"]
   },
   {

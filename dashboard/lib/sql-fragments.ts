@@ -46,3 +46,32 @@ export function sinIntragrupo(alias: string): string {
       AND COALESCE(ci."nif", '') = '${CIF_INTRAGRUPO}'
   )`;
 }
+
+/**
+ * Importe mayorista NETO de abonos.
+ *
+ * Los abonos (notas de crédito) se guardan **en positivo**, igual que las
+ * devoluciones de retail en [D-057]. Medido en producción 2026-08-30 sobre
+ * `ps_gc_lin_facturas`: de 220.967 líneas de abono, 220.885 son positivas y 4
+ * negativas; en cabecera, 8.595 de 8.597 abonos tienen `base1+2+3` positiva.
+ *
+ * Por eso `WHERE abono IS NOT TRUE` **no resta la devolución, la ignora**, y la
+ * facturación sale inflada:
+ *
+ * |            | excluyendo abonos | neto        | diferencia |
+ * |------------|-------------------|-------------|------------|
+ * | 2026       | 3.677.893 €       | 3.199.868 € | −13,0 %    |
+ * | histórico  | 53.880.139 €      | 47.169.063 €| −12,5 %    |
+ *
+ * El `COALESCE` va en **cada lado** y es obligatorio: sin él, un periodo sin
+ * abonos hace `SUM(...) FILTER (WHERE abono)` → NULL, y `algo − NULL` es NULL,
+ * de modo que la cifra desaparece en vez de quedarse igual. Es exactamente el
+ * fallo que D-057 documenta para retail.
+ *
+ * @param expr  expresión de importe, ya cualificada (p. ej. `f."total_factura"`)
+ * @param alias alias de la tabla que aporta la columna `abono`
+ */
+export function netoDeAbonos(expr: string, alias: string): string {
+  return `COALESCE(SUM(${expr}) FILTER (WHERE ${alias}."abono" IS NOT TRUE), 0)
+        - COALESCE(SUM(${expr}) FILTER (WHERE ${alias}."abono" IS TRUE), 0)`;
+}

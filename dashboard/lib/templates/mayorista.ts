@@ -45,7 +45,7 @@
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersMayorista } from "@/lib/template-global-filters";
-import { sinIntragrupo } from "@/lib/sql-fragments";
+import { netoDeAbonos, sinIntragrupo } from "@/lib/sql-fragments";
 
 export const name = "Director Mayorista";
 
@@ -72,6 +72,18 @@ const CLIENTE_LABEL = `COALESCE(NULLIF(TRIM(c."nombre"), ''),
  */
 const SIN_INTRAGRUPO_F = sinIntragrupo("f");
 
+/**
+ * Importes netos de abono. Los abonos se guardan en POSITIVO, así que
+ * `WHERE abono IS NOT TRUE` los ignora en vez de restarlos (issue #920).
+ */
+const NETO_BASES = netoDeAbonos(
+  '(COALESCE(f."base1", 0) + COALESCE(f."base2", 0) + COALESCE(f."base3", 0))',
+  "f",
+);
+const NETO_LF_TOTAL = netoDeAbonos('lf."total"', "f");
+const NETO_LF_COSTE = netoDeAbonos('lf."total_coste"', "f");
+const NETO_LF_UNIDADES = netoDeAbonos('lf."unidades"', "f");
+
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
   description,
@@ -88,12 +100,9 @@ export const spec: DashboardSpec = {
           // the row still contributes its non-null bases instead of being
           // silently dropped from the aggregate. Outer COALESCE handles
           // the empty-result case.
-          sql: `SELECT COALESCE(SUM(COALESCE(f."base1", 0)
-                  + COALESCE(f."base2", 0)
-                  + COALESCE(f."base3", 0)), 0) AS value
+          sql: `SELECT ${NETO_BASES} AS value
 FROM "public"."ps_gc_facturas" f
-WHERE f."abono" IS NOT TRUE
-  AND f."fecha_factura" >= :curr_from
+WHERE f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
   AND ${SIN_INTRAGRUPO_F}`,
@@ -125,16 +134,16 @@ WHERE f."abono" IS NOT TRUE
           // Join key: lf.num_factura = f.reg_factura (NOT f.n_factura).
           label: "Margen Mayorista",
           sql: `SELECT ROUND(
-  (SUM(lf."total") - SUM(lf."total_coste"))
-  / NULLIF(SUM(lf."total"), 0) * 100, 1
+  ((${NETO_LF_TOTAL}) - (${NETO_LF_COSTE}))
+  / NULLIF((${NETO_LF_TOTAL}), 0) * 100, 1
 ) AS value
 FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
 LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
 LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE lf."total" > 0
-  AND f."abono" IS NOT TRUE
-  AND f."fecha_factura" >= :curr_from
+-- Sin lf."total" > 0: las lineas de abono tambien estan en positivo, asi
+-- que ese filtro no las excluia; ahora se restan explicitamente.
+WHERE f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
   AND ${SIN_INTRAGRUPO_F}
@@ -165,13 +174,10 @@ WHERE f."abono" IS NOT TRUE
       title: "Facturacion por Comercial",
       sql: `SELECT COALESCE(NULLIF(TRIM(c."comercial"), ''),
                 '(Sin comercial asignado)') AS label,
-       SUM(COALESCE(f."base1", 0)
-           + COALESCE(f."base2", 0)
-           + COALESCE(f."base3", 0)) AS value
+       ${NETO_BASES} AS value
 FROM "public"."ps_gc_facturas" f
 LEFT JOIN "public"."ps_gc_comerciales" c ON f."num_comercial" = c."reg_comercial"
-WHERE f."abono" IS NOT TRUE
-  AND f."fecha_factura" >= :curr_from
+WHERE f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
   AND ${SIN_INTRAGRUPO_F}
@@ -187,27 +193,32 @@ ORDER BY value DESC`,
       type: "table",
       title: "Top 10 Clientes Mayorista",
       sql: `WITH facturas_periodo AS (
+  -- Aqui el neto se firma POR FILA en vez de con FILTER, porque el margen
+  -- de mas abajo necesita el mismo signo aplicado a las lineas.
   SELECT f."reg_factura",
          f."num_cliente",
-         (COALESCE(f."base1", 0)
-          + COALESCE(f."base2", 0)
-          + COALESCE(f."base3", 0)) AS neto
+         f."abono" AS es_abono,
+         (CASE WHEN f."abono" IS TRUE THEN -1 ELSE 1 END) AS signo,
+         (CASE WHEN f."abono" IS TRUE THEN -1 ELSE 1 END)
+           * (COALESCE(f."base1", 0)
+              + COALESCE(f."base2", 0)
+              + COALESCE(f."base3", 0)) AS neto
   FROM "public"."ps_gc_facturas" f
-  WHERE f."abono" IS NOT TRUE
-    AND f."fecha_factura" >= :curr_from
+  WHERE f."fecha_factura" >= :curr_from
     AND f."fecha_factura" <= :curr_to
     AND __gf_cliente_mayorista__
   AND ${SIN_INTRAGRUPO_F}
 ), margenes AS (
   SELECT lf."num_factura",
-         SUM(lf."total")       AS total_ingreso,
-         SUM(lf."total_coste") AS total_coste
+         SUM(lf."total" * fp."signo")       AS total_ingreso,
+         SUM(lf."total_coste" * fp."signo") AS total_coste
   FROM "public"."ps_gc_lin_facturas" lf
-  WHERE lf."num_factura" IN (SELECT "reg_factura" FROM facturas_periodo)
+  JOIN facturas_periodo fp ON fp."reg_factura" = lf."num_factura"
   GROUP BY lf."num_factura"
 )
 SELECT ${CLIENTE_LABEL} AS "Cliente",
-       COUNT(DISTINCT fy."reg_factura") AS "Facturas",
+       COUNT(DISTINCT fy."reg_factura")
+         FILTER (WHERE fy."es_abono" IS NOT TRUE) AS "Facturas",
        SUM(fy.neto) AS "Facturacion Neta",
        ROUND((SUM(m.total_ingreso) - SUM(m.total_coste))
          / NULLIF(SUM(m.total_ingreso), 0) * 100, 1) AS "Margen %",
@@ -293,17 +304,17 @@ LIMIT 20`,
        COALESCE(NULLIF(TRIM(p."descripcion"), ''),
                 NULLIF(TRIM(lf."descripcion"), ''),
                 '—') AS "Descripción",
-       SUM(lf."unidades") AS "Unidades",
-       SUM(lf."total") AS "Importe",
-       ROUND((SUM(lf."total") - SUM(lf."total_coste"))
-         / NULLIF(SUM(lf."total"), 0) * 100, 1) AS "Margen %"
+       ${NETO_LF_UNIDADES} AS "Unidades",
+       ${NETO_LF_TOTAL} AS "Importe",
+       ROUND(((${NETO_LF_TOTAL}) - (${NETO_LF_COSTE}))
+         / NULLIF((${NETO_LF_TOTAL}), 0) * 100, 1) AS "Margen %"
 FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
 LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo"
 LEFT JOIN "public"."ps_familias" fm ON p."num_familia" = fm."reg_familia"
-WHERE f."abono" IS NOT TRUE
-  AND lf."unidades" > 0
-  AND f."fecha_factura" >= :curr_from
+-- Sin abono IS NOT TRUE ni unidades > 0: las lineas de abono estan en
+-- positivo, asi que ninguno de los dos filtros las excluia. Ahora se restan.
+WHERE f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
   AND ${SIN_INTRAGRUPO_F}
@@ -331,12 +342,9 @@ LIMIT 10`,
       type: "line_chart",
       title: "Facturación Mensual (últimos 12 meses o más)",
       sql: `SELECT DATE_TRUNC('month', f."fecha_factura")::date AS x,
-       SUM(COALESCE(f."base1", 0)
-           + COALESCE(f."base2", 0)
-           + COALESCE(f."base3", 0)) AS y
+       ${NETO_BASES} AS y
 FROM "public"."ps_gc_facturas" f
-WHERE f."abono" IS NOT TRUE
-  AND f."fecha_factura" >= LEAST(
+WHERE f."fecha_factura" >= LEAST(
         :curr_from::date,
         (DATE_TRUNC('month', :curr_to::date) - INTERVAL '12 months')::date)
   AND f."fecha_factura" <= :curr_to

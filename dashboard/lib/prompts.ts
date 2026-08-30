@@ -244,7 +244,7 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 4. ALWAYS filter entrada = true for sales (false = returns)
 5. ALWAYS exclude tienda <> '99' for retail analysis (99 = almacén central)
 6. For wholesale revenue: base1 + base2 + base3 (NEVER total_factura)
-7. For wholesale: exclude abono = true (credit notes)
+7. For wholesale: credit notes (abono = true) are stored POSITIVE, so NEVER exclude them -- SUBTRACT them: COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). Excluding them inflates wholesale revenue by 13% (measured in production). If you use that FILTER form, do NOT also add WHERE abono IS NOT TRUE: it empties the credit-note side and the "net" silently becomes the gross again
 8. PKs are NUMERIC(20,3) — never do arithmetic on them
 9. ps_lineas_ventas does NOT have "entrada" — JOIN with ps_ventas to filter
 10. Each KPI sql in a kpi_row must return a single row with a "value" column
@@ -264,29 +264,25 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 export function formatSchema(schema: TableSchema[]): string {
   const lines = schema.map(
     (t) =>
-      `- **${t.table}** (${t.alias}): ${t.description}\n  Columns: ${t.keyColumns.join(", ")}`
+      `- **${t.table}** (${t.alias}): ${t.description}\n  Columns: ${t.keyColumns.join(", ")}`,
   );
   return `## PostgreSQL Schema (ps_* tables)\n\n${lines.join("\n\n")}`;
 }
 
 export function formatRelationships(rels: Relationship[]): string {
   const lines = rels.map(
-    (r) => `- ${r.from}.${r.fromColumn} → ${r.to}.${r.toColumn} (${r.type})`
+    (r) => `- ${r.from}.${r.fromColumn} → ${r.to}.${r.toColumn} (${r.type})`,
   );
   return `## Table Relationships\n\n${lines.join("\n")}`;
 }
 
 export function formatInstructions(instructions: Instruction[]): string {
-  const lines = instructions.map(
-    (inst, i) => `${i + 1}. ${inst.instruction}`
-  );
+  const lines = instructions.map((inst, i) => `${i + 1}. ${inst.instruction}`);
   return `## Business Rules\n\n${lines.join("\n")}`;
 }
 
 function formatSqlPairs(pairs: SqlPair[]): string {
-  const lines = pairs.map(
-    (p) => `Q: ${p.question}\nSQL: ${p.sql}`
-  );
+  const lines = pairs.map((p) => `Q: ${p.question}\nSQL: ${p.sql}`);
   return `## Example SQL Patterns (${pairs.length} pairs)\n\nUse these as reference for writing correct SQL:\n\n${lines.join("\n\n")}`;
 }
 
@@ -332,7 +328,10 @@ export function buildGeneratePrompt(): string {
  * by the provider layer. The `volatile` portion (empty for generate) is sent
  * as a separate un-cached block so it does not bust the cache.
  */
-export function buildGeneratePromptSplit(): { stable: string; volatile?: string } {
+export function buildGeneratePromptSplit(): {
+  stable: string;
+  volatile?: string;
+} {
   const roleHeader = [
     "# Role",
     "",
@@ -462,7 +461,10 @@ export function buildAgenticToolPreamble(): string {
  *   instructions (apply_dashboard_modification). When false (tools disabled),
  *   falls back to the legacy "return raw JSON" contract.
  */
-export function buildModifyPrompt(currentSpec: string, agenticMode = true): string {
+export function buildModifyPrompt(
+  currentSpec: string,
+  agenticMode = true,
+): string {
   const { stable, volatile } = buildModifyPromptSplit(currentSpec, agenticMode);
   return [stable, "", volatile].join("\n");
 }

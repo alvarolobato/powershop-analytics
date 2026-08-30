@@ -53,6 +53,7 @@
 | [D-017](docs/decisions/D-017-signed-int16-stock.md) | Apply `decode_signed_int16_word()` ONLY to `Exportaciones.Stock1..Stock34` (and `CCStock.Stock1..Stock34`) — the type-3/length-2 columns. Never on Real (type-6) columns. |
 | [D-050](docs/decisions/D-050-upsert-batch-loss.md) | `upsert()` pre-filters NULL/NaN-PK rows, falls back to row-by-row SAVEPOINT inserts on batch failure, and raises if zero rows survive — never a quiet 0-row "ok". |
 | [D-051](docs/decisions/D-051-fetch-anomaly-guard.md) | `safe_fetch()` scans every fetch for decode-corruption-shaped rows and refetches once to discriminate transient corruption from real data; evidence goes to `etl_fetch_anomalies`, never the D-050 skip log. |
+| [D-059](docs/decisions/D-059-tablas-grandes-troceadas.md) | Toda tabla de más de 100.000 filas usa `truncate_and_insert_streaming`, nunca `truncate_and_insert`, que materializa la lista entera. |
 
 ## Dashboard App
 
@@ -80,3 +81,4 @@
 | [D-054](docs/decisions/D-054-conversation-list-actions-desktop-only.md) | Below `md` the conversations list drops the checkbox/pencil/Acciones columns and gives the width to a 2-line title; those actions live in the conversation header instead. |
 | [D-056](docs/decisions/D-056-multi-model-support.md) | DeepSeek, Anthropic and OpenAI are all supported. Cost comes from the provider (never a rate table), no single tool-call dialect may be assumed, output budgets are configurable. |
 | [D-057](docs/decisions/D-057-ventas-netas-de-devoluciones.md) | "Ventas" es el NETO: `COALESCE(SUM(x) FILTER (WHERE entrada),0) - COALESCE(SUM(x) FILTER (WHERE NOT entrada),0)`. El COALESCE es obligatorio: sin él NULL se come el ranking. |
+| [D-060](docs/decisions/D-060-abonos-mayoristas-netos.md) | Los abonos mayoristas se RESTAN, nunca se excluyen: se guardan en positivo. Si se netea con FILTER, quitar el `WHERE abono IS NOT TRUE` o el neto vuelve a ser el bruto. |
