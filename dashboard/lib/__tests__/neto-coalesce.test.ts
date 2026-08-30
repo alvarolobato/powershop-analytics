@@ -255,3 +255,38 @@ describe("FK mayorista", () => {
   });
 });
 
+describe("asientos de inventario en traspasos", () => {
+  // `ps_traspasos.tipo` = 'Apertura' / 'Inventario Parcial' no son traspasos
+  // entre tiendas sino asientos de inventario, y DOMINAN la tabla: 247.502 +
+  // 739 filas sobre 262.724 (94 %). Una tabla de "movimientos por ruta" que no
+  // los excluya muestra sobre todo inventario, con el destino vacío.
+  //
+  // Filtrar por `entrada` no basta: los pares ya corregidos llevan las dos
+  // condiciones.
+  it("todo análisis de movimiento entre tiendas los excluye", () => {
+    const infractores: string[] = [];
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      const texto = readFileSync(f, "utf8");
+      // Cada consulta que lee ps_traspasos, delimitada por el bloque que la
+      // contiene: se mira si en ~1200 caracteres a la redonda aparece la
+      // exclusión, o un GROUP BY por tipo (ahí el desglose es el objetivo).
+      for (const m of texto.matchAll(/ps_traspasos/g)) {
+        const ventana = texto.slice(Math.max(0, m.index - 600), m.index + 1200);
+        if (!/SELECT/i.test(ventana)) continue;
+        if (/Apertura/.test(ventana)) continue;
+        if (/GROUP BY[^;]*"?tipo"?/i.test(ventana)) continue;
+        // comentarios y textos de regla, no consultas
+        const linea = texto.slice(0, m.index).split("\n").length;
+        const suLinea = texto.split("\n")[linea - 1].trim();
+        if (suLinea.startsWith("//") || suLinea.startsWith("*") || /"instruction"/.test(ventana)) continue;
+        infractores.push(`${relative(RAIZ, f)}:${linea}`);
+      }
+    }
+    expect(
+      [...new Set(infractores)],
+      `Consultas de traspasos sin excluir los asientos de inventario (94 % de la tabla):\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+
