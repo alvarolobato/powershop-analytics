@@ -348,7 +348,7 @@ describe("asientos de inventario en traspasos", () => {
           // ajustes y robos ('S-Robo'), no traspasos, asi que una lista negra
           // de Apertura+Inventario Parcial los deja dentro.
           new RegExp(String.raw`${col}\s*(?:=|IN\s*\()\s*'?(?:Autoreposicion|Traspaso)`, "i"),
-          new RegExp(String.raw`${col}\s+IN\s*\(`, "i"),
+          new RegExp(String.raw`${col}\s+IN\s*\([^)]*'?Autoreposicion'?`, "i"),
           // Formas de lista negra, aceptadas por compatibilidad: excluyen los
           // asientos de inventario aunque dejen pasar las regularizaciones.
           new RegExp(String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`, "i"),

@@ -230,7 +230,7 @@ LIMIT 30;
 ```
 
 The `COALESCE` on **each** side of the subtraction is mandatory
-([D-057](../DECISIONS.md)): a period with no returns makes the second
+([D-057](decisions/D-057-ventas-netas-de-devoluciones.md)): a period with no returns makes the second
 `SUM ... FILTER` `NULL`, `x - NULL` is `NULL`, and `NULL` sorts first in
 `ORDER BY ... DESC` — the top of the ranking becomes the articles with no data.
 

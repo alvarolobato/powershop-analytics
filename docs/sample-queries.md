@@ -26,7 +26,7 @@
    retail (`v.tienda <> '99'`).
 3. **Un artículo es modelo + COLOR**, no un SKU ([D-048](decisions/D-048-sales-by-size.md)).
    Para «top artículos» se agrupa por `LEFT(a.ccrefejofacm, LENGTH(a.ccrefejofacm) - 2)`;
-   los dos últimos caracteres de la referencia son la talla/variante.
+   los dos últimos caracteres de la referencia son el color.
 4. **Importes sin IVA** (`total_si`, `precio_neto_si`, `total_coste_si`). `total`
    lleva IVA y no se usa para facturación.
 5. **Mayorista netea por `abono`**, no por `entrada`: `gf.abono IS TRUE` es el abono
