@@ -917,7 +917,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuáles son los 10 artículos más vendidos? (por modelo, que es el nivel correcto)",
-    sql: `SELECT LEFT(p."ccrefejofacm", LENGTH(p."ccrefejofacm") - 2) AS "Modelo", MIN(p."descripcion") AS "Descripción", COUNT(DISTINCT p."ccrefejofacm") AS "Colores", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND LENGTH(p."ccrefejofacm") > 2 GROUP BY 1 ORDER BY "Unidades Vendidas" DESC LIMIT 10`,
+    sql: `SELECT CASE WHEN LENGTH(TRIM(p."ccrefejofacm")) > 2 THEN LEFT(TRIM(p."ccrefejofacm"), LENGTH(TRIM(p."ccrefejofacm")) - 2) ELSE NULLIF(TRIM(p."ccrefejofacm"), '') END AS "Modelo", MIN(p."descripcion") AS "Descripción", COUNT(DISTINCT TRIM(p."ccrefejofacm")) AS "Colores", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades Vendidas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY "Unidades Vendidas" DESC LIMIT 10`,
   },
   {
     question: "¿Cuáles son las ventas netas por tienda este mes?",
@@ -961,7 +961,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuáles son los 10 artículos más vendidos por importe?",
-    sql: `SELECT CASE WHEN LENGTH(TRIM(p."ccrefejofacm")) > 2 THEN LEFT(TRIM(p."ccrefejofacm"), LENGTH(TRIM(p."ccrefejofacm")) - 2) ELSE NULLIF(TRIM(p."ccrefejofacm"), '') END AS "Modelo", MIN(p."descripcion") AS "Descripción", COUNT(DISTINCT p."ccrefejofacm") AS "Colores", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Importe Neto", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY 1 ORDER BY "Importe Neto" DESC LIMIT 10`,
+    sql: `SELECT CASE WHEN LENGTH(TRIM(p."ccrefejofacm")) > 2 THEN LEFT(TRIM(p."ccrefejofacm"), LENGTH(TRIM(p."ccrefejofacm")) - 2) ELSE NULLIF(TRIM(p."ccrefejofacm"), '') END AS "Modelo", MIN(p."descripcion") AS "Descripción", COUNT(DISTINCT TRIM(p."ccrefejofacm")) AS "Colores", COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0) AS "Importe Neto", COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_ventas" v ON lv."num_ventas" = v."reg_ventas" JOIN "public"."ps_articulos" p ON lv."codigo" = p."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY 1 ORDER BY "Importe Neto" DESC LIMIT 10`,
   },
   {
     question: "¿Qué familias de producto venden más?",

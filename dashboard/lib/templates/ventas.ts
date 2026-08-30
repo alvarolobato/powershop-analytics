@@ -278,7 +278,7 @@ ORDER BY value DESC`,
       // (detectado por el sufijo "%").
       sql: `SELECT ${MODELO} AS "Modelo",
        MIN(p."descripcion") AS "Descripción",
-       COUNT(DISTINCT p."ccrefejofacm") AS "Colores",
+       COUNT(DISTINCT TRIM(p."ccrefejofacm")) AS "Colores",
        COALESCE(SUM(lv."unidades") FILTER (WHERE v."entrada"), 0)
         - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT v."entrada"), 0) AS "Unidades",
        ROUND(COALESCE(SUM(lv."total_si") FILTER (WHERE v."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT v."entrada"), 0)::numeric, 2) AS "Ventas Netas (€)",
