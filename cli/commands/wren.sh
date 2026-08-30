@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+#
+# Sólo queda `validate`. WrenAI se retiró de producción el 2026-08-30 (el
+# dashboard hace el mismo trabajo y sus seis contenedores costaban 1,2 GB en
+# una máquina que estaba matando al ETL por falta de memoria), así que `push`,
+# `status` y `crosscheck` -- que hablaban con wren-ui y qdrant -- ya no tienen
+# con quién hablar.
+#
+# `validate` sí se queda: ejecuta los pares SQL contra PostgreSQL y no depende
+# de WrenAI para nada. Es la comprobación que evita que un par mal escrito
+# llegue al bundle del modelo.
 # ps wren — WrenAI knowledge management
 set -e
 
@@ -51,73 +61,11 @@ Notes:
 EOF
 }
 
-cmd_push() {
-    echo -e "${CYAN}Pushing knowledge to WrenAI at ${WREN_URL}...${NC}"
-    "$PYTHON" "$WREN_SCRIPT" --url "$WREN_URL" "$@"
-    echo -e "${GREEN}Done.${NC}"
-}
-
 cmd_validate() {
     local dsn="${POSTGRES_DSN:-postgresql://postgres:change_me@localhost:5432/powershop}"
     echo -e "${CYAN}Validating SQL pairs against PostgreSQL...${NC}"
     echo -e "${YELLOW}DSN: ${dsn}${NC}"
     POSTGRES_DSN="$dsn" "$PYTHON" "$WREN_SCRIPT" --validate
-}
-
-cmd_crosscheck() {
-    local dsn="${POSTGRES_DSN:-postgresql://postgres:change_me@localhost:5432/powershop}"
-    echo -e "${CYAN}Running cross-validation against PostgreSQL...${NC}"
-    echo -e "${YELLOW}DSN: ${dsn}${NC}"
-    POSTGRES_DSN="$dsn" "$PYTHON" "$WREN_SCRIPT" --crosscheck
-}
-
-cmd_status() {
-    echo -e "${CYAN}Checking WrenAI knowledge status...${NC}"
-
-    # Count source knowledge in the script
-    local n_instructions n_pairs
-    n_instructions=$(python3 -c "
-import ast
-with open('${WREN_SCRIPT}') as f:
-    src = f.read()
-tree = ast.parse(src)
-for node in ast.walk(tree):
-    if isinstance(node, ast.Assign):
-        for t in node.targets:
-            if isinstance(t, ast.Name) and t.id == 'INSTRUCTIONS':
-                print(len(node.value.elts))
-" 2>/dev/null || echo "?")
-    n_pairs=$(python3 -c "
-import ast
-with open('${WREN_SCRIPT}') as f:
-    src = f.read()
-tree = ast.parse(src)
-for node in ast.walk(tree):
-    if isinstance(node, ast.Assign):
-        for t in node.targets:
-            if isinstance(t, ast.Name) and t.id == 'SQL_PAIRS':
-                print(len(node.value.elts))
-" 2>/dev/null || echo "?")
-
-    echo ""
-    echo -e "  Source knowledge in script:"
-    echo -e "    Instructions: ${n_instructions} (source-managed, replace on push)"
-    echo -e "    SQL Pairs:    ${n_pairs} (source-managed, replace on push)"
-    echo ""
-
-    # Try to check WrenAI GraphQL
-    if curl -sf --max-time 3 "${WREN_URL}/api/graphql" -X POST \
-        -H "Content-Type: application/json" \
-        -d '{"query":"{ instructions { id } }"}' \
-        -o /tmp/wren_inst_check.json 2>/dev/null; then
-        local inst_count
-        inst_count=$(python3 -c "import json; d=json.load(open('/tmp/wren_inst_check.json')); print(len(d.get('data',{}).get('instructions',[])))" 2>/dev/null || echo "?")
-        echo -e "  WrenAI live knowledge (${WREN_URL}):"
-        echo -e "    Instructions: ${inst_count}"
-    else
-        echo -e "  ${YELLOW}WrenAI not reachable at ${WREN_URL}${NC}"
-    fi
-    rm -f /tmp/wren_inst_check.json
 }
 
 SUBCMD="${1:-}"
@@ -141,10 +89,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 case "$SUBCMD" in
-    push)       cmd_push "$@" ;;
     validate)   cmd_validate ;;
-    crosscheck) cmd_crosscheck ;;
-    status)     cmd_status ;;
     *)
         echo -e "${RED}ps wren: unknown subcommand '${SUBCMD}'${NC}" >&2
         usage >&2

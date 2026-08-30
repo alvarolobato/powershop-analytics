@@ -118,18 +118,13 @@ cmd_deploy() {
     remote "cd $(printf %q "$PROD_PATH") && $(prod_compose_cmd) up -d"
     echo -e "${GREEN}Deploy complete.${NC}"
 
+    # WrenAI se retiró de producción (2026-08-30): el dashboard hace el mismo
+    # trabajo y sus seis contenedores costaban 1,2 GB en una máquina de 16 GB
+    # que estaba matando al ETL por falta de memoria. El conocimiento que
+    # consumía este paso vive ahora sólo en `dashboard/lib/knowledge.ts`, que
+    # viaja dentro de la imagen del dashboard: no hay nada que empujar.
     if [ "$skip_knowledge" = false ]; then
-        echo
-        echo -e "${DIM}Waiting for wren-ui to be healthy before pushing knowledge...${NC}"
-        # Poll until wren-ui responds on port 3000 (up to 60 s); exit 0 on success, 1 on timeout
-        if remote "for i in \$(seq 1 12); do curl -fsSL --max-time 5 http://localhost:3000 >/dev/null 2>&1 && exit 0 || sleep 5; done; exit 1"; then
-            echo -e "${CYAN}Pushing WrenAI knowledge...${NC}"
-            cmd_push_knowledge
-        else
-            echo -e "${YELLOW}wren-ui did not respond within 60s — skipping knowledge push. Run 'ps prod push-knowledge' manually once the stack is healthy.${NC}" >&2
-        fi
-    else
-        echo -e "${DIM}Skipping knowledge push (--skip-knowledge).${NC}"
+        echo -e "${DIM}Knowledge push omitido: WrenAI ya no forma parte del stack.${NC}"
     fi
 
     echo

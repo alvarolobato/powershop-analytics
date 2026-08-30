@@ -22,7 +22,6 @@ Available commands:
   stack        Docker Compose stack management (up/down/update/status/logs/open/destroy)
   etl          ETL operations (run/status/tables/logs)
   sql          4D SQL operations (schema, query, explore)
-  wren         WrenAI knowledge management (push/validate/status)
   dashboard    Dashboard App management (open/logs/restart/status)
   prod         Production stack control (bootstrap/deploy/logs/status/restart/login/ssh)
   config       Show current configuration
@@ -40,11 +39,9 @@ Examples:
   ps stack logs [svc]      Tail logs
   ps etl run               Run ETL sync once
   ps sql tables            List all 4D tables
+  ps wren validate         Validar los pares SQL contra PostgreSQL
   ps sql query "SELECT ..."  Run a read-only SQL query
   ps sql describe <table>  Show columns for a table
-  ps wren push             Push knowledge to WrenAI (merge strategy)
-  ps wren validate         Validate SQL pairs against PostgreSQL
-  ps wren status           Show knowledge counts
   ps dashboard open        Open Dashboard App in browser
   ps dashboard status      Show dashboard container status
   ps prod deploy           Deploy main to production (git pull + compose up)
