@@ -525,6 +525,84 @@ def insert_ignore(conn, table: str, rows: list[dict], pk_cols: list[str]) -> int
     return len(rows)
 
 
+def _ident(nombre: str) -> str:
+    """Comilla un identificador simple, rechazando cualquier otra cosa.
+
+    Sólo admite `[a-z_][a-z0-9_]*`: los nombres de tabla y columna de este ETL
+    salen del esquema, no de entrada de usuario, así que cualquier otra forma es
+    un error de programación y conviene que reviente aquí.
+    """
+    import re as _re
+
+    if not _re.fullmatch(r"[a-z_][a-z0-9_]*", nombre):
+        raise ValueError(f"identificador no válido: {nombre!r}")
+    return f'"{nombre}"'
+
+
+def truncate_and_insert_streaming(
+    conn,
+    table: str,
+    raw_rows: list,
+    mapper,
+    *,
+    chunk_size: int = 50_000,
+) -> int:
+    """TRUNCATE *table* y luego INSERT por lotes, mapeando sobre la marcha.
+
+    `truncate_and_insert` materializa la lista mapeada entera antes de
+    insertar. Para las tablas de linea del mayorista (~1M filas) eso deja tres
+    copias vivas a la vez -- las tuplas crudas, los diccionarios mapeados y el
+    lote que construye psycopg2 -- y el proceso muere sin traza de Python:
+    salida limpia, contenedor reiniciado, la pasada marcada como fallida. Le
+    paso dos veces seguidas a `ps_gc_lin_albarane` en produccion (runs 1504 y
+    1506), con la maquina a 75 MB libres de 16 GB.
+
+    Aqui el mapeo va por trozos y cada trozo se inserta antes de mapear el
+    siguiente, asi que en memoria solo hay `chunk_size` filas mapeadas ademas
+    del crudo. Todo en una transaccion: si algo falla, la tabla no queda a
+    medias.
+
+    Args:
+        raw_rows: filas tal cual salen de 4D.
+        mapper:   funcion fila_cruda -> dict listo para insertar.
+
+    Devuelve el numero de filas insertadas. Hace commit al terminar; ante
+    cualquier error hace rollback y re-lanza.
+    """
+    from psycopg2.extras import execute_values  # type: ignore[import-untyped]
+
+    # Identificadores compuestos a mano en vez de con `psycopg2.sql`: su
+    # `as_string()` exige una conexion real, lo que obliga a que cualquier test
+    # del troceado necesite una base de datos. Los nombres vienen de nuestro
+    # propio esquema, nunca de entrada de usuario, y `_ident` rechaza cualquier
+    # cosa que no sea un identificador simple, asi que no hay superficie de
+    # inyeccion.
+    tbl = _ident(table)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(f"TRUNCATE {tbl} CASCADE")
+            total = 0
+            for i in range(0, len(raw_rows), chunk_size):
+                trozo = [mapper(r) for r in raw_rows[i : i + chunk_size]]
+                if not trozo:
+                    continue
+                cols = list(trozo[0].keys())
+                cols_sql = ", ".join(_ident(c) for c in cols)
+                execute_values(
+                    cur,
+                    f"INSERT INTO {tbl} ({cols_sql}) VALUES %s",
+                    [tuple(row[c] for c in cols) for row in trozo],
+                    page_size=1000,
+                )
+                total += len(trozo)
+                logger.info("%s: insertadas %d / %d filas", table, total, len(raw_rows))
+        conn.commit()
+        return total
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def truncate_and_insert(
     conn,
     table: str,

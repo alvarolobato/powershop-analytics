@@ -59,7 +59,11 @@ from decimal import Decimal
 from typing import Any
 
 from etl.db.fourd import safe_fetch
-from etl.db.postgres import truncate_and_insert, upsert
+from etl.db.postgres import (
+    truncate_and_insert,
+    truncate_and_insert_streaming,
+    upsert,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -430,8 +434,14 @@ def sync_gc_lin_albarane(
     if since is None:
         logger.info("sync_gc_lin_albarane: initial load (full truncate+insert)")
         raw_rows = safe_fetch(conn_4d, _SQL_LIN_ALBARANE_ALL)
-        pg_rows = [_map_row(r, _LIN_ALBARANE_MAPPING) for r in raw_rows]
-        count = truncate_and_insert(conn_pg, "ps_gc_lin_albarane", pg_rows)
+        # Por lotes: materializar el millon de filas mapeadas ademas del crudo
+        # mataba el proceso (ver truncate_and_insert_streaming).
+        count = truncate_and_insert_streaming(
+            conn_pg,
+            "ps_gc_lin_albarane",
+            raw_rows,
+            lambda r: _map_row(r, _LIN_ALBARANE_MAPPING),
+        )
         logger.info("sync_gc_lin_albarane: inserted %d rows (full refresh)", count)
         return count
 
@@ -523,8 +533,12 @@ def sync_gc_lin_facturas(
     if since is None:
         logger.info("sync_gc_lin_facturas: initial load (full truncate+insert)")
         raw_rows = safe_fetch(conn_4d, _SQL_LIN_FACTURAS_ALL)
-        pg_rows = [_map_row(r, _LIN_FACTURAS_MAPPING) for r in raw_rows]
-        count = truncate_and_insert(conn_pg, "ps_gc_lin_facturas", pg_rows)
+        count = truncate_and_insert_streaming(
+            conn_pg,
+            "ps_gc_lin_facturas",
+            raw_rows,
+            lambda r: _map_row(r, _LIN_FACTURAS_MAPPING),
+        )
         logger.info("sync_gc_lin_facturas: inserted %d rows (full refresh)", count)
         return count
 
