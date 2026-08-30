@@ -727,7 +727,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "Una fila de ps_articulos es un modelo EN UN COLOR, no un SKU vendible. Los dos ultimos caracteres de ccrefejofacm codifican el color. La talla NO esta en ps_articulos ni en ps_lineas_ventas: en 4D vive en LineasVentas.CCOPTallaOjo (poblada al 100%) pero NO esta replicada en el espejo. En PostgreSQL solo hay talla en ps_stock_tienda.talla y ps_traspasos.talla. Nunca inventes una columna talla en ps_lineas_ventas.",
+    "instruction": "Una fila de ps_articulos es un modelo EN UN COLOR, no un SKU vendible. Los dos ultimos caracteres de ccrefejofacm codifican el color. La talla NO esta en ps_articulos, pero SI en ps_lineas_ventas.talla, replicada desde LineasVentas.CCOPTallaOjo y normalizada a MAYUSCULAS en el ETL (D-048). Esta en produccion desde la resincronizacion completa del 2026-08-30 y poblada al 99,9 % (31.944 de 31.978 lineas de agosto de 2026). En PostgreSQL hay talla ademas en ps_stock_tienda.talla y ps_traspasos.talla, las tres en mayusculas, asi que un cruce ventas-stock por talla casa sin normalizar en la consulta. Lo que sigue sin existir es la talla a nivel de ARTICULO: una fila de ps_articulos es un modelo en un color, no un SKU vendible, y la talla solo aparece cuando se vende o se mueve una unidad concreta.",
     "questions": [
       "ventas por talla",
       "que granularidad tiene ps_articulos",
@@ -735,7 +735,7 @@ conocimiento (`dashboard/lib/knowledge.ts`) y a WrenAI. Editar aqui, no alli.
     ]
   },
   {
-    "instruction": "Semantica de 'entrada': entrada = true es una venta (dinero que entra), entrada = false es una devolucion (dinero que sale, con el importe guardado en POSITIVO). En ps_ventas y ps_pagos_ventas existe la columna 'entrada'; en ps_lineas_ventas NO existe, hay que unir con ps_ventas por lv.num_ventas = v.reg_ventas para obtenerla.",
+    "instruction": "Semantica de 'entrada': entrada = true es una venta (dinero que entra), entrada = false es una devolucion (dinero que sale, con el importe guardado en POSITIVO). La columna 'entrada' existe en ps_ventas, ps_pagos_ventas Y ps_lineas_ventas (junto a 'movimiento_caja' y 'talla', anadidas en 2026-08; las filas anteriores a la resincronizacion completa del 2026-08-30 las tienen vacias). El JOIN con ps_ventas sigue siendo necesario para atributos de cabecera como tienda, num_cliente o tipo_documento, pero no para obtener 'entrada'.",
     "questions": [
       "que es entrada",
       "como distingo una devolucion",
