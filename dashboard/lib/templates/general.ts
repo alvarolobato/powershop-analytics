@@ -25,7 +25,7 @@
  *      `f.fecha_factura`. Treat them as comparable revenue accruals (both are issuance
  *      dates of the underlying transaction).
  *   4. Devoluciones: retail abonos = `v.entrada = false`; wholesale abonos =
- *      `f.abono = true` (excluded from facturación). The retail "Devoluciones %" KPI
+ *      `f.abono IS TRUE` (excluded from facturación). The retail "Devoluciones %" KPI
  *      below uses retail-only data — wholesale credit notes are tracked separately.
  *
  * ## YoY definition
@@ -95,7 +95,7 @@ WHERE v."entrada" = true
           label: "Facturacion Mayorista (período seleccionado)",
           sql: `SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
-WHERE "abono" = false
+WHERE "abono" IS NOT TRUE
   AND "fecha_factura" >= :curr_from
   AND "fecha_factura" <= :curr_to`,
           format: "currency",
@@ -165,14 +165,14 @@ FROM (
 FROM (
   SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS facturacion
   FROM "public"."ps_gc_facturas"
-  WHERE "abono" = false
+  WHERE "abono" IS NOT TRUE
     AND "fecha_factura" >= :curr_from
     AND "fecha_factura" <= :curr_to
 ) curr,
 (
   SELECT COALESCE(SUM("base1" + "base2" + "base3"), 0) AS facturacion
   FROM "public"."ps_gc_facturas"
-  WHERE "abono" = false
+  WHERE "abono" IS NOT TRUE
     AND "fecha_factura" >= :curr_from::date - INTERVAL '1 year'
     AND "fecha_factura" <= :curr_to::date - INTERVAL '1 year'
 ) prev`,
@@ -189,7 +189,7 @@ FROM (
 ) AS value
 FROM "public"."ps_gc_lin_facturas" lf
 JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura"
-WHERE f."abono" = false
+WHERE f."abono" IS NOT TRUE
   AND lf."total" > 0
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to`,
@@ -197,7 +197,7 @@ WHERE f."abono" = false
         },
         {
           // Devoluciones retail (entrada=false) as % of bruto retail (entrada=true).
-          // Wholesale credit notes (f.abono=true) are excluded from this metric
+          // Wholesale credit notes (f.abono IS TRUE) are excluded from this metric
           // because the executive view treats devoluciones as a retail-quality signal.
           label: "Devoluciones Retail %",
           sql: `SELECT ROUND(
@@ -234,7 +234,7 @@ UNION ALL
 SELECT 'Mayorista' AS label,
        COALESCE(SUM("base1" + "base2" + "base3"), 0) AS value
 FROM "public"."ps_gc_facturas"
-WHERE "abono" = false
+WHERE "abono" IS NOT TRUE
   AND "fecha_factura" >= :curr_from
   AND "fecha_factura" <= :curr_to`,
       x: "label",
@@ -284,7 +284,7 @@ ORDER BY value DESC`,
   SELECT DATE_TRUNC('month', "fecha_factura") AS mes,
          SUM("base1" + "base2" + "base3") AS importe
   FROM "public"."ps_gc_facturas"
-  WHERE "abono" = false
+  WHERE "abono" IS NOT TRUE
     AND "fecha_factura" >= LEAST(
       :curr_from::date,
       (DATE_TRUNC('month', :curr_to::date) - INTERVAL '11 months')::date
@@ -403,7 +403,7 @@ WHERE "stock" > 0`,
           sql: `SELECT COUNT(DISTINCT "reg_pedido") AS value
 FROM "public"."ps_gc_pedidos"
 WHERE "pedido_cerrado" = false
-  AND "abono" = false
+  AND "abono" IS NOT TRUE
   AND "pendientes" > 0`,
           format: "number",
         },

@@ -582,14 +582,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto facturamos a mayoristas por mes? (neto de abonos)",
-    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\"), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\"), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los mejores clientes mayoristas?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\"), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\"), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -603,7 +603,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto vende cada comercial de mayorista?",
-    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE NOT gf.\"abono\"), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\"), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
+    "body": "```sql\nSELECT co.\"comercial\" AS \"Comercial\", co.\"zona_comercial\" AS \"Zona\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_gc_comerciales\" co ON co.\"reg_comercial\" = gf.\"num_comercial\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY co.\"comercial\", co.\"zona_comercial\" ORDER BY \"Facturación Neta\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -2024,7 +2024,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Margen mayorista por comercial?",
-    "body": "```sql\nSELECT c.\"comercial\" AS \"Comercial\", SUM(lf.\"total\") AS \"Ingreso\", SUM(lf.\"total_coste\") AS \"Coste\", ROUND((SUM(lf.\"total\") - SUM(lf.\"total_coste\")) / NULLIF(SUM(lf.\"total\"), 0) * 100, 1) AS \"Margen %\" FROM \"public\".\"ps_gc_lin_facturas\" lf JOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"n_factura\" JOIN \"public\".\"ps_gc_comerciales\" c ON f.\"num_comercial\" = c.\"reg_comercial\" WHERE lf.\"total\" > 0 GROUP BY c.\"comercial\" ORDER BY \"Margen %\" DESC\n```",
+    "body": "```sql\nWITH neto AS (SELECT c.\"comercial\" AS comercial, COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(lf.\"total\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS ingreso, COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(lf.\"total_coste\") FILTER (WHERE f.\"abono\" IS TRUE), 0) AS coste FROM \"public\".\"ps_gc_lin_facturas\" lf JOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"reg_factura\" JOIN \"public\".\"ps_gc_comerciales\" c ON f.\"num_comercial\" = c.\"reg_comercial\" WHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"comercial\") SELECT comercial AS \"Comercial\", ingreso AS \"Ingreso\", coste AS \"Coste\", ROUND((ingreso - coste) / NULLIF(ingreso, 0) * 100, 1) AS \"Margen %\" FROM neto WHERE ingreso <> 0 ORDER BY \"Margen %\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

@@ -214,3 +214,44 @@ describe("recuento de tickets", () => {
     ).toEqual([]);
   });
 });
+
+describe("FK mayorista", () => {
+  // Las líneas mayoristas unen por el ID de registro de 4D (`reg_factura` /
+  // `reg_albaran`), NUNCA por el número visible: medido contra el 4D vivo,
+  // 311/311 casan con `RegFactura` y 0/311 con `NFactura`, que además no es
+  // único (19.351 cabeceras, 14.515 valores distintos). El ETL ya se arregló,
+  // pero el join equivocado sobrevivió en un par de ejemplo -- que es lo que
+  // copia el modelo.
+  it("ningún ejemplo une líneas con cabecera por el número visible", () => {
+    const infractores: string[] = [];
+    // Se escanea el fichero entero, no línea a línea: un join partido en dos
+    // líneas se escapaba. El alias puede ir entrecomillado y llevar espacios
+    // alrededor del punto, así que ambos son opcionales.
+    // Los dos órdenes. El corpus escribe sistemáticamente la cabecera primero
+    // (`ON v."reg_ventas" = lv."num_ventas"`), así que exigir `num_*` a la
+    // izquierda dejaba pasar justo la forma más probable. El lado puede ser un
+    // nombre de tres partes (`"public"."ps_gc_facturas"."n_factura"`) y llevar
+    // un cast, de ahí que el prefijo sea repetible y el cast opcional.
+    const REF = String.raw`(?:"?\w+"?\s*\.\s*)*`;
+    const CAST = String.raw`(?:::\s*\w+)?`;
+    const NUM = String.raw`${REF}"?num_(?:factura|albaran)"?${CAST}`;
+    const VIS = String.raw`${REF}"?n_(?:factura|albaran)"?${CAST}`;
+    const JOIN_MALO = new RegExp(
+      String.raw`(?:${NUM}\s*=\s*${VIS}|${VIS}\s*=\s*${NUM})`,
+      "gi",
+    );
+    for (const f of ficherosConSql()) {
+      if (/knowledge(-index)?\.ts$/.test(f)) continue;
+      const texto = readFileSync(f, "utf8");
+      for (const m of texto.matchAll(JOIN_MALO)) {
+        const linea = texto.slice(0, m.index).split("\n").length;
+        infractores.push(`${relative(RAIZ, f)}:${linea}: ${m[0].replace(/\s+/g, " ")}`);
+      }
+    }
+    expect(
+      infractores,
+      `Join mayorista por el número visible (no único, 0 % de coincidencia):\n${infractores.join("\n")}`,
+    ).toEqual([]);
+  });
+});
+

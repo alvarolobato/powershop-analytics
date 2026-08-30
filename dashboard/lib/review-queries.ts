@@ -188,7 +188,7 @@ WHERE tienda <> '99'
   COALESCE(SUM(base1 + base2 + base3), 0) AS facturacion_neta,
   COUNT(*) AS num_facturas
 FROM ps_gc_facturas
-WHERE abono = false
+WHERE abono IS NOT TRUE
   AND fecha_factura >= $1::date
   AND fecha_factura < $2::date`,
   },
@@ -207,7 +207,7 @@ WHERE abono = false
   COUNT(*) AS num_facturas
 FROM ps_gc_facturas f
 LEFT JOIN ps_clientes c ON c.reg_cliente = f.num_cliente
-WHERE f.abono = false
+WHERE f.abono IS NOT TRUE
   AND f.fecha_factura >= $1::date
   AND f.fecha_factura < $2::date
 GROUP BY f.num_cliente, c.nombre
@@ -222,7 +222,7 @@ FROM ps_gc_albaranes a
 WHERE NOT EXISTS (
     SELECT 1 FROM ps_gc_facturas f
     WHERE f.num_cliente = a.num_cliente
-      AND f.abono = false
+      AND f.abono IS NOT TRUE
       AND f.fecha_factura >= a.fecha_envio
       AND f.fecha_factura < a.fecha_envio + INTERVAL '30 days'
   )
