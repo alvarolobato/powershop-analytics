@@ -193,7 +193,9 @@ cmd_update() {
 
     # Comprobar que ha quedado escrito antes de seguir.
     local escritas
-    escritas=$(remote "cd $(printf %q "$PROD_PATH") && grep -cE '^(ETL|DASHBOARD)_VERSION=${latest}$' .env" || echo 0)
+    local latest_re
+    latest_re=$(printf '%s' "$latest" | sed 's/[.[\*^$()+?{|]/\\&/g')
+    escritas=$(remote "cd $(printf %q "$PROD_PATH") && grep -cE '^(ETL|DASHBOARD)_VERSION=${latest_re}\$' .env" || echo 0)
     if [ "${escritas:-0}" -ne 2 ]; then
         echo -e "${RED}No se pudieron fijar ETL_VERSION y DASHBOARD_VERSION a ${latest} en .env${NC}" >&2
         echo -e "${DIM}El compose seguiría levantando la imagen anterior. Abortando antes de tocar los contenedores.${NC}" >&2
@@ -216,17 +218,37 @@ cmd_update() {
 # ---------------------------------------------------------------------------
 verificar_imagenes_en_ejecucion() {
     local esperada="$1"
+    # Los puntos de una version (v0.10.0) son comodines en una regex, asi que
+    # se escapan: si no, v0y10z0 tambien casaria.
+    local esperada_re
+    esperada_re=$(printf '%s' "$esperada" | sed 's/[.[\*^$()+?{|]/\\&/g')
+
+    local lineas
+    lineas=$(remote "docker ps --filter name=powershop --format '{{.Names}} {{.Image}}' | grep -E 'powershop-(etl|dashboard)-' || true")
+
+    # Comprobar PRESENCIA antes que etiqueta. Sin esto, un despliegue que deja
+    # los contenedores muertos da la lista vacia, no hay ninguno "malo" y la
+    # verificacion pasaria -- justo el agujero que este comando venia a tapar.
+    local svc
+    for svc in etl dashboard; do
+        if ! printf '%s\n' "$lineas" | grep -q "powershop-${svc}-"; then
+            echo -e "${RED}El contenedor de ${svc} no esta corriendo tras el despliegue.${NC}" >&2
+            echo -e "${DIM}Contenedores vistos:${NC}" >&2
+            printf '%s\n' "${lineas:-(ninguno)}" >&2
+            exit 1
+        fi
+    done
+
     local malas
-    malas=$(remote "docker ps --filter name=powershop --format '{{.Names}} {{.Image}}' \
-        | grep -E 'powershop-(etl|dashboard)' \
-        | grep -v ':${esperada}\$' || true")
+    malas=$(printf '%s\n' "$lineas" | grep -vE ":${esperada_re}\$" || true)
     if [ -n "$malas" ]; then
         echo -e "${RED}Los contenedores NO corren ${esperada}:${NC}" >&2
-        echo "$malas" >&2
+        printf '%s\n' "$malas" >&2
         exit 1
     fi
     echo -e "${GREEN}Verificado: etl y dashboard corren ${esperada}.${NC}"
 }
+
 
 # ---------------------------------------------------------------------------
 # restart
