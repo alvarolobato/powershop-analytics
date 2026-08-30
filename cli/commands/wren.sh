@@ -9,7 +9,7 @@
 # `validate` sí se queda: ejecuta los pares SQL contra PostgreSQL y no depende
 # de WrenAI para nada. Es la comprobación que evita que un par mal escrito
 # llegue al bundle del modelo.
-# ps wren — validacion de los pares SQL contra el espejo PostgreSQL
+# ps wren — validación de los pares SQL contra el espejo PostgreSQL
 set -e
 
 REPO_ROOT="${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
@@ -27,23 +27,30 @@ NC='\033[0m'
 
 usage() {
     cat <<EOF
-Usage: ps wren validate
+Uso: ps wren validate
 
 Ejecuta cada par SQL de docs/dashboard/sql-pairs.md contra el espejo
 PostgreSQL y muestra la primera fila de cada uno, para que un error de
-magnitud (un total que sale x1000, un ranking vacio) se vea a simple vista.
+magnitud —un total que sale x1000, un ranking vacío— se vea a simple vista.
 
-Los pares alimentan el bundle de conocimiento del dashboard, asi que esto
-sigue siendo util aunque WrenAI se retirara: es lo que evita que un par mal
+Los pares alimentan el bundle de conocimiento del dashboard, así que esto
+sigue siendo útil aunque WrenAI se retirara: es lo que evita que un par mal
 escrito llegue al modelo.
 
-Requiere POSTGRES_DSN (si no, usa localhost:5432/powershop).
+Lee la conexión de POSTGRES_DSN. Si no está definida usa
+postgresql://postgres:change_me@localhost:5432/powershop, que sólo sirve
+para un Postgres local de desarrollo.
 
-Ejemplo:
-  POSTGRES_DSN=postgresql://user:pass@host:5432/powershop ps wren validate
+Ejemplos:
+  # contra el espejo local
+  ps wren validate
 
-Nota: 'push', 'status' y 'crosscheck' se retiraron con WrenAI el 2026-08-30
-(D-058). Hablaban con wren-ui y qdrant, que ya no existen.
+  # contra producción, con un túnel SSH abierto al Mac:
+  #   ssh -f -N -L 15432:localhost:5432 usuario@servidor
+  POSTGRES_DSN=postgresql://USUARIO:CLAVE@localhost:15432/powershop ps wren validate
+
+Nota: 'push', 'status' y 'crosscheck' se retiraron junto con WrenAI el
+2026-08-30 (D-058). Hablaban con wren-ui y qdrant, que ya no existen.
 EOF
 }
 
