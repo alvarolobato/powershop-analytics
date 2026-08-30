@@ -807,7 +807,7 @@ SELECT a.ccrefejofacm AS "Referencia",
        SUM(st.stock) AS "Unidades en Tienda"
 FROM ps_articulos a
 JOIN ps_stock_tienda st ON st.codigo = a.codigo
-WHERE a.codigo NOT LIKE 'M%'
+WHERE a.ccrefejofacm NOT LIKE 'M%'
   AND a.anulado IS NOT TRUE
   AND st.stock > 0
 GROUP BY a.ccrefejofacm, a.descripcion, a.precio1
@@ -837,7 +837,8 @@ SELECT DATE_TRUNC('month', v.fecha_creacion)::date AS "Mes",
      - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS "Venta Neta Retail"
 FROM ps_lineas_ventas lv
 JOIN ps_ventas v ON v.reg_ventas = lv.num_ventas
-WHERE lv.codigo NOT LIKE 'M%'
+JOIN ps_articulos a ON a.codigo = lv.codigo
+WHERE a.ccrefejofacm NOT LIKE 'M%'
   AND v.tienda <> '99'
   AND v.fecha_creacion BETWEEN :curr_from AND :curr_to
 GROUP BY 1

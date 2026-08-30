@@ -347,7 +347,7 @@ describe("asientos de inventario en traspasos", () => {
           // fila (425/425) y el unico vivo. `Regularizacion` (14.058 filas) son
           // ajustes y robos ('S-Robo'), no traspasos, asi que una lista negra
           // de Apertura+Inventario Parcial los deja dentro.
-          new RegExp(String.raw`${col}\s*(?:=|IN\s*\()\s*'?(?:Autoreposicion|Traspaso)`, "i"),
+          new RegExp(String.raw`${col}\s*(?:=|IN\s*\()\s*'?Autoreposicion`, "i"), // 'Traspaso' no existe: medido, los tipos son Apertura, Regularizacion, Inventario Parcial y Autoreposicion
           new RegExp(String.raw`${col}\s+IN\s*\([^)]*'?Autoreposicion'?`, "i"),
           // Formas de lista negra, aceptadas por compatibilidad: excluyen los
           // asientos de inventario aunque dejen pasar las regularizaciones.

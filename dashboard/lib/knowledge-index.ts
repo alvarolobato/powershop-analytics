@@ -316,7 +316,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Artículos de retail con stock",
-    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\",\n       SUM(st.stock) AS \"Unidades en Tienda\"\nFROM ps_articulos a\nJOIN ps_stock_tienda st ON st.codigo = a.codigo\nWHERE a.codigo NOT LIKE 'M%'\n  AND a.anulado IS NOT TRUE\n  AND st.stock > 0\nGROUP BY a.ccrefejofacm, a.descripcion, a.precio1\nORDER BY \"Unidades en Tienda\" DESC\nLIMIT 50\n```",
+    "body": "```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\",\n       SUM(st.stock) AS \"Unidades en Tienda\"\nFROM ps_articulos a\nJOIN ps_stock_tienda st ON st.codigo = a.codigo\nWHERE a.ccrefejofacm NOT LIKE 'M%'\n  AND a.anulado IS NOT TRUE\n  AND st.stock > 0\nGROUP BY a.ccrefejofacm, a.descripcion, a.precio1\nORDER BY \"Unidades en Tienda\" DESC\nLIMIT 50\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -330,7 +330,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Venta retail excluyendo artículos de mayorista",
-    "body": "```sql\nSELECT DATE_TRUNC('month', v.fecha_creacion)::date AS \"Mes\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta Retail\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nWHERE lv.codigo NOT LIKE 'M%'\n  AND v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', v.fecha_creacion)::date AS \"Mes\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta Retail\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nWHERE a.ccrefejofacm NOT LIKE 'M%'\n  AND v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
