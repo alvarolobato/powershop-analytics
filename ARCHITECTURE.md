@@ -149,7 +149,13 @@ file when "Contexto original" is expanded. See [D-039](docs/decisions/D-039-cont
 
 ## Production
 
-Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) contains only `docker-compose.yml`, `.env`, `.version`, and `./data/` bind mounts. ETL and Dashboard images are pulled pre-built from Docker Hub (`alobato/powershop-etl`, `alobato/powershop-dashboard`). WrenAI images come from `ghcr.io/canner/*`.
+Production runs the same Docker Compose stack on a dedicated Mac. It is a **flat Docker Hub deployment** — no git checkout on the prod machine. The directory (`~/powershop/` by default) holds `docker-compose.yml`, `.env`, `.version`, `otel/` and the `./data/` bind mounts. Todas las imágenes se descargan ya construidas de Docker Hub: `alobato/powershop-etl` y `alobato/powershop-dashboard`, más `postgres:16-alpine` y el collector de Elastic.
+
+> El directorio acumula además ficheros que nadie lee, y conviene saberlo antes de mirarlo y pensar que falta o sobra algo:
+> un `wren-config.yaml` huérfano de la retirada de WrenAI, copias antiguas del compose (`docker-compose.yml.pre-*`), y un
+> respaldo de `.env` con marca de tiempo **por cada `ps prod update`** —el comando lo hace antes de fijar las etiquetas de
+> imagen, para no dejar el fichero a medias si algo falla—. A 2026-08-30 hay 13 de esos respaldos; crecen sin límite y
+> limpiarlos es seguro.
 
 `PROD_HOST` and `PROD_PATH` in `~/.config/powershop-analytics/.env` are **local-operator** config — they tell the `ps prod *` CLI on your local Mac where to SSH. The prod Mac itself doesn't need these variables.
 
