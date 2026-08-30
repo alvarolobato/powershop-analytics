@@ -47,7 +47,7 @@ def _tablas_con_insercion_sin_trocear() -> set[str]:
     """Tablas pasadas a `truncate_and_insert` como literal en etl/sync/."""
     encontradas = set()
     for f in (pathlib.Path(__file__).parent.parent / "sync").glob("*.py"):
-        texto = f.read_text()
+        texto = f.read_text(encoding="utf-8")
         # `truncate_and_insert(conn_pg, "ps_x", ...)` -- solo el no-streaming
         for m in re.finditer(r'(?<!_streaming)\(\s*conn_pg\s*,\s*"(ps_\w+)"', texto):
             i = texto.rfind("truncate_and_insert", 0, m.start())

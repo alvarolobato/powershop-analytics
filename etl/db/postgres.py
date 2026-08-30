@@ -569,6 +569,8 @@ def truncate_and_insert_streaming(
     Devuelve el numero de filas insertadas. Hace commit al terminar; ante
     cualquier error hace rollback y re-lanza.
     """
+    from itertools import islice
+
     from psycopg2.extras import execute_values  # type: ignore[import-untyped]
 
     # Identificadores compuestos a mano en vez de con `psycopg2.sql`: su
@@ -583,7 +585,10 @@ def truncate_and_insert_streaming(
             cur.execute(f"TRUNCATE {tbl} CASCADE")
             total = 0
             for i in range(0, len(raw_rows), chunk_size):
-                trozo = [mapper(r) for r in raw_rows[i : i + chunk_size]]
+                # islice en vez de `raw_rows[i:i+chunk]`: el corte de lista
+                # copia el trozo crudo, que es justo la copia extra que este
+                # helper existe para no hacer.
+                trozo = [mapper(r) for r in islice(raw_rows, i, i + chunk_size)]
                 if not trozo:
                     continue
                 cols = list(trozo[0].keys())
