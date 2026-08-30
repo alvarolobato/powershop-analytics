@@ -287,7 +287,7 @@ LIMIT 20`,
   COALESCE(SUM(unidades_s), 0) AS unidades_enviadas,
   COALESCE(SUM(unidades_e), 0) AS unidades_recibidas
 FROM ps_traspasos
-WHERE COALESCE(tipo, '') NOT IN ('Apertura', 'Inventario Parcial')
+WHERE tipo = 'Autoreposicion'
   AND ((fecha_s >= $1::date AND fecha_s < $2::date)
     OR (fecha_e >= $1::date AND fecha_e < $2::date))`,
   },

@@ -31,6 +31,15 @@ const DOCS = join(ROOT, "docs");
  * motivo es obligatorio.
  */
 const FUERA_DE_ALCANCE: Record<string, string> = {
+  // Los cuatro de abajo son herramienta para consultar el ERP ORIGEN: sintaxis
+  // del dialecto 4D, tablas de sistema `_USER_*`, catálogo de vistas. El modelo
+  // consulta el espejo PostgreSQL y no puede ejecutar nada de eso; servírselo
+  // sólo le da ocasión de copiar `FROM Ventas`. Son para el ETL y para quien
+  // explora el origen.
+  "docs/skills/4d-sql-dialect.md": "referencia del dialecto del ERP origen",
+  "docs/skills/data-access.md": "cómo conectar al ERP origen (p4d, SOAP)",
+  "docs/schema-discovery.md": "exploración del esquema del ERP origen",
+  "docs/sql-views.md": "catálogo de vistas del ERP origen",
   "docs/deployment/production.md": "guía de instalación, no consultas de negocio",
   "docs/deployment/getting-started.md": "puesta en marcha local",
   "docs/ai-factory.md": "proceso interno de la fábrica de agentes",

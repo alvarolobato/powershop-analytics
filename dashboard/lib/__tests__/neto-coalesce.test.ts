@@ -341,12 +341,18 @@ describe("asientos de inventario en traspasos", () => {
         const a = m[1] ? `"?${m[1]}"?\\s*\\.\\s*` : "(?:\\w+\\s*\\.\\s*)?";
         const col = String.raw`${a}"?tipo"?`;
         const seguro = [
-          // COALESCE(t.tipo,'') NOT IN ('Apertura', ...) -- la forma correcta
-          new RegExp(String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`, "i"),
-          // t.tipo <> 'Apertura' AND t.tipo <> 'Inventario Parcial'
-          new RegExp(String.raw`${col}\s*(?:<>|!=)\s*'Apertura'`, "i"),
-          // lista blanca: sólo los tipos que SON movimiento real
+          // Lista blanca, que es la forma CORRECTA y la que usa el repo:
+          // `Autoreposicion` es el unico tipo que es un traspaso real entre
+          // tiendas -- el unico con tienda_salida Y tienda_entrada en la misma
+          // fila (425/425) y el unico vivo. `Regularizacion` (14.058 filas) son
+          // ajustes y robos ('S-Robo'), no traspasos, asi que una lista negra
+          // de Apertura+Inventario Parcial los deja dentro.
+          new RegExp(String.raw`${col}\s*(?:=|IN\s*\()\s*'?(?:Autoreposicion|Traspaso)`, "i"),
           new RegExp(String.raw`${col}\s+IN\s*\(`, "i"),
+          // Formas de lista negra, aceptadas por compatibilidad: excluyen los
+          // asientos de inventario aunque dejen pasar las regularizaciones.
+          new RegExp(String.raw`COALESCE\s*\(\s*${col}[^)]*\)\s*NOT\s+IN\s*\([^)]*Apertura`, "i"),
+          new RegExp(String.raw`${col}\s*(?:<>|!=)\s*'Apertura'`, "i"),
         ];
         if (seguro.some((r) => r.test(sql))) continue;
         infractores.push(`${relative(RAIZ, f)}:${linea}`);

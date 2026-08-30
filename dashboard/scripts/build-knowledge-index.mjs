@@ -30,8 +30,6 @@ export const SOURCES = [
   "docs/skills/report-generation.md",
   "docs/stock-analysis.md",
   "docs/wholesale-retail-split.md",
-  "docs/schema-discovery.md",
-  "docs/sql-views.md",
   "docs/data-dictionary.md",
   "docs/etl-sync-strategy.md",
   "docs/architecture/overview.md",
@@ -42,11 +40,16 @@ export const SOURCES = [
   "docs/architecture/customers.md",
   "docs/architecture/wholesale.md",
   "docs/architecture/stores-hr.md",
-  "docs/skills/4d-sql-dialect.md",
-  "docs/skills/data-access.md",
   "docs/dashboard/sql-pairs.md",
   "DECISIONS.md",
 ];
+
+// Deliberadamente FUERA del indice: `4d-sql-dialect.md`, `data-access.md`,
+// `schema-discovery.md` y `sql-views.md`. Documentan como consultar el ERP
+// origen -- sintaxis del dialecto 4D, tablas de sistema `_USER_*`, catalogo de
+// vistas. Eso es herramienta para el ETL y para quien explora el origen; el
+// modelo consulta el espejo PostgreSQL y no puede ejecutar nada de eso.
+// Servirselo solo le da ocasion de copiar `FROM Ventas`.
 
 // ── Dialecto ────────────────────────────────────────────────────────────────
 // Varios de los MDs de origen (`sample-queries.md`, `report-generation.md`,
@@ -71,7 +74,11 @@ const FOURD_SYSTEM_RE = /\b_USER_(?:TABLES|COLUMNS|VIEWS|INDEXES|CONSTRAINTS|IND
 /** El espejo: todo lo consultable desde el dashboard lleva prefijo `ps_`. */
 const POSTGRES_RE = /\bps_[a-z][a-z0-9_]*\b/;
 /** Una valla ```sql: si hay SQL y no hay `ps_`, la seccion es del ERP. */
-const SQL_FENCE_RE = /```sql\b|\bSELECT\s+[\s\S]*?\bFROM\b/i;
+// Solo la valla explicita. La alternativa `SELECT ... FROM` era perezosa e
+// insensible a mayusculas, asi que enlazaba un `SELECT 1;` de un ejemplo de
+// bash con un "From Python" en prosa catorce lineas mas abajo y marcaba la
+// seccion como 4D.
+const SQL_FENCE_RE = /```sql\b/i;
 
 /**
  * Etiqueta el dialecto de una sección. Ante la duda gana `4d`: una consulta 4D
