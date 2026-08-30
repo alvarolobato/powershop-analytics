@@ -1,7 +1,7 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
 // Fuente: 20 ficheros. 298 secciones (225 con SQL,
-// 122 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
+// 149 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
 export interface KnowledgeChunk {
@@ -164,42 +164,42 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Wholesale Delivery Notes by Customer",
     "body": "```sql\nSELECT ga.Cliente,\n       COUNT(*) AS num_albaranes,\n       SUM(ga.Unidades) AS total_units,\n       SUM(ga.TotalAlbaran) AS total_amount\nFROM GCAlbaranes ga\nWHERE ga.FechaEnvio >= '2025-01-01'\n  AND ga.Abono = FALSE\nGROUP BY ga.Cliente\nORDER BY total_amount DESC\nLIMIT 20\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Wholesale Invoice Summary by Month",
     "body": "```sql\nSELECT YEAR(gf.FechaFactura) AS yr,\n       MONTH(gf.FechaFactura) AS mo,\n       COUNT(*) AS invoices,\n       SUM(gf.TotalFactura) AS total\nFROM GCFacturas gf\nWHERE gf.FechaFactura >= '2025-01-01'\n  AND gf.Abono = FALSE\n  AND gf.FacturaAnulada = FALSE\nGROUP BY YEAR(gf.FechaFactura), MONTH(gf.FechaFactura)\nORDER BY yr, mo\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Top Wholesale Products",
     "body": "```sql\nSELECT gl.Codigo, gl.Descripcion,\n       SUM(gl.Unidades) AS units,\n       SUM(gl.Total) AS revenue\nFROM GCLinFacturas gl\nWHERE gl.Mes BETWEEN 202501 AND 202512\n  AND gl.Unidades > 0\nGROUP BY gl.Codigo, gl.Descripcion\nORDER BY revenue DESC\nLIMIT 20\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Wholesale by Sales Representative",
     "body": "```sql\nSELECT gc.Comercial,\n       COUNT(*) AS invoices,\n       SUM(gf.TotalFactura) AS total\nFROM GCFacturas gf\nINNER JOIN GCComerciales gc ON gf.NumComercial = gc.RegComercial\nWHERE gf.FechaFactura >= '2025-01-01'\n  AND gf.Abono = FALSE\nGROUP BY gc.Comercial\nORDER BY total DESC\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Wholesale Credit Notes (Returns)",
     "body": "```sql\nSELECT ga.Cliente,\n       COUNT(*) AS abonos,\n       SUM(ga.TotalAlbaran) AS total_returned\nFROM GCAlbaranes ga\nWHERE ga.FechaEnvio >= '2025-01-01'\n  AND ga.Abono = TRUE\nGROUP BY ga.Cliente\nORDER BY total_returned DESC\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Wholesale Collections Status",
     "body": "```sql\nSELECT gf.NFactura, gf.Cliente, gf.TotalFactura,\n       SUM(cf.Importe) AS cobrado,\n       gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) AS pendiente\nFROM GCFacturas gf\nLEFT OUTER JOIN CobrosFacturas cf ON gf.RegFactura = cf.NumFactura\nWHERE gf.FechaFactura >= '2025-01-01'\nGROUP BY gf.NFactura, gf.Cliente, gf.TotalFactura\nHAVING gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) > 0\nORDER BY pendiente DESC\nLIMIT 20\n```\n\n---",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
@@ -283,28 +283,28 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Revenue by Payment Method (using ImporteCob)",
     "body": "```sql\nSELECT pv.Forma,\n       COUNT(*) AS payment_count,\n       SUM(pv.ImporteCob) AS collected\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.FechaCreacion <= '2025-01-31'\n  AND pv.Entrada = TRUE\nGROUP BY pv.Forma\nORDER BY collected DESC\n```\n\n**Important**: Use `ImporteCob` (amount collected), not `ImporteEnt` (amount tendered).",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Payment Method Mix by Store",
     "body": "```sql\nSELECT pv.Tienda, pv.Forma,\n       SUM(pv.ImporteCob) AS collected\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.Entrada = TRUE\nGROUP BY pv.Tienda, pv.Forma\nORDER BY pv.Tienda, collected DESC\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Daily Cash vs Card",
     "body": "```sql\nSELECT pv.FechaCreacion,\n       SUM(CASE WHEN pv.CodigoForma = '01' THEN pv.ImporteCob ELSE 0 END) AS cash,\n       SUM(CASE WHEN pv.CodigoForma <> '01' THEN pv.ImporteCob ELSE 0 END) AS non_cash,\n       SUM(pv.ImporteCob) AS total\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.Entrada = TRUE\nGROUP BY pv.FechaCreacion\nORDER BY pv.FechaCreacion\n```\n\n*Note: `CodigoForma = '01'` is typically cash/metalico -- verify with FormasPago table.*",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Voucher Redemptions",
     "body": "```sql\nSELECT v.TiendaRec AS store,\n       YEAR(v.Recepcion) AS yr,\n       MONTH(v.Recepcion) AS mo,\n       COUNT(*) AS vouchers_used,\n       SUM(v.Importe) AS total_redeemed\nFROM Vales v\nWHERE v.Recepcion IS NOT NULL\n  AND v.Recepcion >= '2025-01-01'\nGROUP BY v.TiendaRec, YEAR(v.Recepcion), MONTH(v.Recepcion)\nORDER BY yr, mo, store\n```\n\n---",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
@@ -332,7 +332,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Wholesale Margin (from GCLinFacturas)",
     "body": "```sql\nSELECT gl.Codigo, gl.Descripcion,\n       SUM(gl.Unidades) AS units,\n       SUM(gl.Total) AS revenue,\n       SUM(gl.TotalCoste) AS cost,\n       SUM(gl.Total) - SUM(gl.TotalCoste) AS margin,\n       ROUND((SUM(gl.Total) - SUM(gl.TotalCoste)) / SUM(gl.Total) * 100, 1) AS margin_pct\nFROM GCLinFacturas gl\nWHERE gl.Mes BETWEEN 202501 AND 202512\n  AND gl.Unidades > 0\n  AND gl.Total > 0\nGROUP BY gl.Codigo, gl.Descripcion\nORDER BY margin DESC\nLIMIT 20\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
@@ -395,7 +395,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Wholesale Delivery Notes with M-Prefix Products",
     "body": "```sql\nSELECT gl.NAlbaran, gl.Codigo, gl.Descripcion,\n       gl.Unidades, gl.Total\nFROM GCLinAlbarane gl\nWHERE gl.Codigo LIKE 'M%'\n  AND gl.FechaAlbaran >= '2025-01-01'\nORDER BY gl.FechaAlbaran DESC\nLIMIT 50\n```\n\n---",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sample-queries.md",
@@ -724,14 +724,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Step 11: Wholesale channel",
     "body": "```sql\n-- Invoices YTD (sin IVA: sum of tax bases)\nSELECT COUNT(RegFactura), SUM(Base1 + Base2 + Base3) AS tot_si\nFROM GCFacturas\nWHERE FechaFactura >= '{ytd_start}' AND FechaFactura <= '{today}'\n\n-- Previous year comparison (sin IVA)\nSELECT COUNT(RegFactura), SUM(Base1 + Base2 + Base3) AS tot_si\nFROM GCFacturas\nWHERE FechaFactura >= '{last_year_start}' AND FechaFactura <= '{last_year_end}'\n\n-- Delivery notes\nSELECT COUNT(RegAlbaran), SUM(BaseImponible)\nFROM GCAlbaranes\nWHERE FechaEnvio >= '{ytd_start}' AND FechaEnvio <= '{today}'\n\n-- Collections\nSELECT COUNT(RegCobro), SUM(ImporteCobro)\nFROM CobrosFacturas\nWHERE Fecha >= '{ytd_start}' AND Fecha <= '{today}'\n\n-- Also get previous year collections\nSELECT SUM(ImporteCobro)\nFROM CobrosFacturas\nWHERE Fecha >= '{last_year_start}' AND Fecha <= '{last_year_end}'\n\n-- Recent orders\nSELECT RegPedido, NPedido, FechaPedido, Cliente, BaseE\nFROM GCPedidos\nORDER BY RegPedido DESC\nLIMIT 10\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/skills/report-generation.md",
     "heading": "Step 12: Payment methods",
     "body": "```sql\n-- NOTE: ImporteCob includes VAT (matches Ventas.Total). Use COUNT for method mix\n-- proportions, or JOIN with Ventas.TotalSI for VAT-exclusive revenue by payment method.\nSELECT pv.Forma, COUNT(pv.RegPagos) AS cnt, SUM(pv.ImporteCob) AS tot_inc_vat\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '{ytd_start}' AND pv.FechaCreacion <= '{today}'\nGROUP BY pv.Forma\nORDER BY COUNT(pv.RegPagos) DESC\n```\n\nMap `Forma` codes to names using FormasPago table or hardcoded: 1=Metalico(cash), 2=Tarjeta(card), 3=Vales, etc.\n\n**Cash vs card by store** (use COUNT for proportions -- ImporteCob includes VAT):\n\n```sql\nSELECT pv.Tienda, pv.Forma, COUNT(pv.RegPagos) AS cnt\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '{ytd_start}' AND pv.FechaCreacion <= '{today}'\nGROUP BY pv.Tienda, pv.Forma\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/skills/report-generation.md",
@@ -815,7 +815,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Querying Returns",
     "body": "```sql\n-- Wholesale returns by customer\nSELECT ga.Cliente,\n       COUNT(*) AS num_returns,\n       SUM(ga.TotalAlbaran) AS total_returned,\n       SUM(ga.Unidades) AS units_returned\nFROM GCAlbaranes ga\nWHERE ga.Abono = TRUE\n  AND ga.FechaEnvio >= '2025-01-01'\nGROUP BY ga.Cliente\nORDER BY total_returned DESC\n\n-- Return detail lines\nSELECT gl.NAlbaran, gl.Codigo, gl.Descripcion,\n       gl.Unidades, gl.Total, gl.FechaAlbaran\nFROM GCLinAlbarane gl\nWHERE gl.Abono = TRUE\n  AND gl.FechaAlbaran >= '2025-01-01'\nORDER BY gl.FechaAlbaran DESC\nLIMIT 50\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/stock-analysis.md",
@@ -899,7 +899,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Key Queries",
     "body": "```sql\n-- Total wholesale revenue (from invoices, excluding credit notes)\nSELECT SUM(TotalFactura) AS wholesale_revenue\nFROM GCFacturas\nWHERE FechaFactura >= '2025-01-01'\n  AND Abono = FALSE\n  AND FacturaAnulada = FALSE\n\n-- Wholesale revenue from delivery notes\nSELECT SUM(TotalAlbaran) AS ws_delivery_revenue\nFROM GCAlbaranes\nWHERE FechaEnvio >= '2025-01-01'\n  AND Abono = FALSE\n```\n\n---",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/wholesale-retail-split.md",
@@ -941,21 +941,21 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Retail Payments",
     "body": "Tracked in `PagosVentas`:\n\n| Field | Description |\n|-------|-------------|\n| ImporteEnt | Amount tendered |\n| ImporteCob | Amount collected (**use this for revenue**) |\n| CodigoForma | Payment method code |\n| Forma | Payment method name |\n\n```sql\n-- Retail payment breakdown\nSELECT pv.Forma,\n       SUM(pv.ImporteCob) AS collected\nFROM PagosVentas pv\nWHERE pv.FechaCreacion >= '2025-01-01'\n  AND pv.Entrada = TRUE\nGROUP BY pv.Forma\nORDER BY collected DESC\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/wholesale-retail-split.md",
     "heading": "Wholesale Payments",
     "body": "Tracked in `CobrosFacturas`:\n\n| Field | Description |\n|-------|-------------|\n| Importe | Payment amount |\n| Fecha | Payment date |\n| Forma | Payment method |\n| Pagado | Fully paid flag |\n| NumFactura | FK -> GCFacturas |\n\n```sql\n-- Wholesale collection summary\nSELECT cf.Forma,\n       COUNT(*) AS payments,\n       SUM(cf.Importe) AS collected\nFROM CobrosFacturas cf\nWHERE cf.Fecha >= '2025-01-01'\nGROUP BY cf.Forma\nORDER BY collected DESC\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/wholesale-retail-split.md",
     "heading": "Outstanding Wholesale Receivables",
     "body": "```sql\n-- Unpaid wholesale invoices\nSELECT gf.NFactura, gf.Cliente, gf.FechaFactura,\n       gf.TotalFactura,\n       COALESCE(SUM(cf.Importe), 0) AS paid,\n       gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) AS outstanding\nFROM GCFacturas gf\nLEFT OUTER JOIN CobrosFacturas cf ON gf.RegFactura = cf.NumFactura\nWHERE gf.Abono = FALSE\n  AND gf.FacturaAnulada = FALSE\nGROUP BY gf.NFactura, gf.Cliente, gf.FechaFactura, gf.TotalFactura\nHAVING gf.TotalFactura - COALESCE(SUM(cf.Importe), 0) > 0\nORDER BY outstanding DESC\n```\n\n---",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/wholesale-retail-split.md",
@@ -1018,14 +1018,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "3. All indexed columns",
     "body": "cur.execute(\"SELECT TABLE_NAME, COLUMN_NAME, INDEX_NAME FROM _USER_IND_COLUMNS ORDER BY TABLE_NAME\")\nrows = cur.fetchall()\njson.dump(rows, open('/tmp/4d_index_columns.json', 'w'))",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/schema-discovery.md",
     "heading": "4. FK/PK constraints",
     "body": "cur.execute(\"SELECT TABLE_NAME, COLUMN_NAME, CONSTRAINT_NAME, CONSTRAINT_TYPE FROM _USER_CONS_COLUMNS ORDER BY TABLE_NAME\")\nrows = cur.fetchall()\njson.dump(rows, open('/tmp/4d_cons_columns.json', 'w'))\n```\n\n```python",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/schema-discovery.md",
@@ -1067,7 +1067,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "`*_SQL` Views (Analytics-Recommended)",
     "body": "> Column counts validated 2026-04-05 by querying `SELECT * FROM <view> LIMIT 1` on live server.\n> Views marked **CRASH** cause the p4d driver to abort (contain Picture/Blob type fields).\n\n| View | Columns | Domain | Notes |\n|------|---------|--------|-------|\n| `Ventas_SQL` | **145** | Sales | Full POS ticket headers — TBAI, marketplace, tax-free, Aena fields |\n| `LineasVentas_SQL` | **157** | Sales | POS line items with cost prices |\n| `PagosVentas_SQL` | **49** | Sales | Payment records — PSCARD1-10 card slots |\n| `Cajas_SQL` | CRASH | Sales | Cash register sessions — contains Blob type fields |\n| `Clientes_SQL` | CRASH | Customers | Full customer master — contains Blob type fields |\n| `Exportaciones_SQL` | **161** | Stock | Retail store stock — 34-slot matrix (Stock1-34, Talla1-34, Minimo1-34) |\n| `Articulos_SQL` | CRASH | Products | Full product catalog — contains Picture/Blob fields |\n| `Albaranes_SQL` | **68** | Purchasing | Delivery notes received from suppliers |\n| `LinAlbaranes_SQL` | **108** | Purchasing | Delivery note lines |\n| `Compras_SQL` | **129** | Purchasing | Purchase orders |\n| `LineasCompras_SQL` | **56** | Purchasing | Purchase order lines |\n| `GCAlbaranes_SQL` | **162** | Wholesale | Wholesale delivery notes — tracking, SAFT, maritime expedition fields |\n| `GCLinAlbarane_SQL` | **138** | Wholesale | Wholesale delivery lines — 34 Talla/Entregadas slots |\n| `GCPedidos_SQL` | **123** | Wholesale | Wholesale orders |\n| `GCLinPedidos_SQL` | **239** | Wholesale | Wholesale order lines — 34-slot × 5 qty dimensions (widest view) |\n| `GCFacturas_SQL` | **183** | Wholesale | Wholesale invoices |\n| `GCLinFacturas_SQL` | **63** | Wholesale | Wholesale invoice lines — COSTEUNITARIO, TOTALCOSTE |\n| `GCComerciales_SQL` | **49** | Wholesale | Sales representatives |\n| `GCTransporte_SQL` | **3** | Wholesale | Wholesale transport/carriers (minimal) |\n| `Tiendas_SQL` | **208** | Stores | Full store config — accounting codes, Aena, groupings |\n| `Proveedores_SQL` | **114** | Purchasing | Supplier master |\n| `FamiGrupMarc_SQL` | **112** | Lookups | Product families — SERIETALLAS field (blank in production) |\n| `CCLineasCompr_SQL` | **234** | Stock | Central warehouse purchase reception lines (very wide) |\n| `CCMedTarReg_SQL` | **10** | Customers | Loyalty card registration |\n| `CCOPColores_SQL` | **35** | Lookups | Color master |\n| `CCOPMarcTrat_SQL` | **63** | Lookups | Brand/treatment master |\n| `CCOPTempTipo_SQL` | **75** | Lookups | Season type master |\n| `CCSexos_SQL` | **56** | Lookups | Gender classification |\n| `CCStock_SQL` | ERROR | Stock | Causes p4d error \"Unrecognized 4D type\" — skip entirely |\n| `Traspasos_SQL` | **29** | Logistics | Stock transfers — one row per article/size/store pair |\n| `Paises_SQL` | **10** | Lookups | Country master |\n| `Provincias_SQL` | **3** | Lookups | Province master (minimal) |\n| `RRHHEmpleados_SQL` | **104** | HR | Employee master |\n| `RRHHControlPresencia_SQL` | **30** | HR | Time & attendance |\n| `RRHHBajas_SQL` | **20** | HR | Sick leave |\n| `RRHHAusencias_SQL` | **15** | HR | Absences |\n| `ServicioSO_SQL` | **52** | Service | Service orders (after-sales / repairs) |\n| `SubfamModelo_SQL` | **47** | Lookups | Subfamily/model master |\n| `DepaSeccFabr_SQL` | **76** | Lookups | Department/section/fabrication master |\n| `BalanceoStock_SQL` | **13** | Stock | Stock balancing operations |\n| `BarrasAsociado_SQL` | **10** | Products | Associated barcodes |\n| `AutoReposicion_SQL` | **10** | Stock | Auto-replenishment rules |\n| `InformeReposicion_SQL` | **8** | Stock | Replenishment reports |\n| `LineasInformeReposicion_SQL` | **47** | Stock | Replenishment report lines |\n| `PackQueue_SQL` | **15** | Promotions | Pack promotion queue |\n| `PackStreet_SQL` | **19** | Promotions | Street/in-store packs |\n| `PackVisitors_SQL` | **15** | Promotions | Visitor packs |\n| `ComentariosTickets_SQL` | **34** | Sales | Ticket comments |\n| `CRMDetalleCue_SQL` | **17** | CRM | CRM survey details |\n| `Deta",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/sql-views.md",
@@ -1389,7 +1389,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "ETL Sync Strategy",
     "body": "> Validated against production data 2026-03-30.\n\n| Table | Rows | Delta field | Strategy |\n|-------|------|-------------|---------|\n| GCAlbaranes | 48,948 | `Modifica` (~19 modified/day, ~833/month) | UPSERT delta |\n| GCLinAlbarane | 1,016,290 | **None** | Delete+reinsert via parent `Modifica` |\n| GCFacturas | 18,060 | `Modifica` (all rows populated) | UPSERT delta |\n| GCLinFacturas | 974,742 | **None** | Delete+reinsert via parent `Modifica` |\n| GCPedidos | 101 | `Modifica` | Full refresh (trivially small) |\n| GCLinPedidos | 2,645 | None | Full refresh (trivially small) |\n\n**Lines delta pattern** (no modification timestamp on line tables):\n```sql\n-- Fetch lines for recently changed delivery notes.\n-- The parent key is the 4D record ID (RegAlbaran), never the visible NAlbaran.\nSELECT * FROM GCLinAlbarane\nWHERE NumAlbaran IN (SELECT RegAlbaran FROM GCAlbaranes WHERE Modifica >= :last_sync)\n-- → DELETE + INSERT in PostgreSQL for those RegAlbaran values\n```\n\n**Line → header join key (corrected 2026-08-29):**\nDespite the `Num` prefix, the line tables carry the parent's **4D record ID**:\n- `GCLinAlbarane.NumAlbaran` → `GCAlbaranes.RegAlbaran` (4000/4000 on a production sample)\n- `GCLinFacturas.NumFactura` → `GCFacturas.RegFactura` (4000/4000)\n\nThe *visible* document numbers are the wrong key on both counts:\n`GCLinFacturas.NumFactura` matches `GCFacturas.NFactura` **0/4000**, and neither\nvisible number is unique (52,148 GCAlbaranes rows carry 40,727 distinct\n`NAlbaran` values; 19,351 GCFacturas rows carry 14,515 distinct `NFactura`\nvalues), so joining on them mixes lines from unrelated documents.  The ETL used\nthe visible numbers until 2026-08-29: the invoice-line delta re-inserted 0 rows\non every nightly run, and the mirror had drifted 1,873 invoice lines and 3,826\ndelivery-note lines behind 4D.\n\nSee [etl-sync-strategy.md](../etl-sync-strategy.md) for the full sync plan.\n\n---",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/architecture/wholesale.md",
@@ -1424,7 +1424,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "Full Syntax",
     "body": "```sql\nSELECT [ALL | DISTINCT]\n  {* | select_item, ..., select_item}\nFROM table_reference, ..., table_reference\n[WHERE search_condition]\n[GROUP BY sort_list]\n[HAVING search_condition]\n[ORDER BY sort_list]\n[LIMIT {int_number | ALL}]\n[OFFSET int_number]\n[INTO {4d_variable, ..., 4d_variable}]\n[FOR UPDATE]\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/skills/4d-sql-dialect.md",
@@ -1543,7 +1543,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "_USER_IND_COLUMNS",
     "body": "```sql\nSELECT INDEX_NAME, TABLE_NAME, COLUMN_NAME, COLUMN_POSITION\n  FROM _USER_IND_COLUMNS\n  WHERE TABLE_NAME = 'Articulos'\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/skills/4d-sql-dialect.md",
@@ -1557,14 +1557,14 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "_USER_CONS_COLUMNS",
     "body": "```sql\nSELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME,\n       RELATED_COLUMN_NAME\n  FROM _USER_CONS_COLUMNS\n  WHERE TABLE_NAME = 'LineasVentas'\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/skills/4d-sql-dialect.md",
     "heading": "_USER_SCHEMAS",
     "body": "```sql\nSELECT SCHEMA_ID, SCHEMA_NAME FROM _USER_SCHEMAS\n```",
     "hasSql": true,
-    "dialect": "n/a"
+    "dialect": "4d"
   },
   {
     "source": "docs/skills/4d-sql-dialect.md",
