@@ -584,13 +584,17 @@ def truncate_and_insert_streaming(
         with conn.cursor() as cur:
             cur.execute(f"TRUNCATE {tbl} CASCADE")
             total = 0
-            for i in range(0, len(raw_rows), chunk_size):
-                # islice en vez de `raw_rows[i:i+chunk]`: el corte de lista
-                # copia el trozo crudo, que es justo la copia extra que este
-                # helper existe para no hacer.
-                trozo = [mapper(r) for r in islice(raw_rows, i, i + chunk_size)]
+            # Un unico iterador consumido hacia delante. `islice(lista, i, ...)`
+            # dentro de un bucle por indices re-escanea desde el principio en
+            # cada vuelta -- O(n^2) sobre un millon de filas -- y cortar la
+            # lista (`raw_rows[i:i+chunk]`) copia el trozo crudo, que es la
+            # copia que este helper existe para no hacer. Consumir el iterador
+            # evita las dos cosas.
+            it = iter(raw_rows)
+            while True:
+                trozo = [mapper(r) for r in islice(it, chunk_size)]
                 if not trozo:
-                    continue
+                    break
                 cols = list(trozo[0].keys())
                 cols_sql = ", ".join(_ident(c) for c in cols)
                 execute_values(

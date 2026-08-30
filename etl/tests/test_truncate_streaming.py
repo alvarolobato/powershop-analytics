@@ -98,3 +98,38 @@ def test_deshace_la_transaccion_si_falla_un_lote(monkeypatch):
         "una tabla truncada a medias es peor que no sincronizar"
     )
     assert ("commit", "") not in registro
+
+
+def test_no_reescanea_la_lista_en_cada_trozo(monkeypatch):
+    """El troceado consume un iterador, no corta ni re-escanea.
+
+    `islice(lista, i, i+chunk)` dentro de un bucle por indices vuelve a
+    recorrer desde el principio en cada vuelta: O(n^2) sobre un millon de
+    filas, justo en el camino que este helper existe para aligerar. Un objeto
+    que cuenta sus lecturas lo delata.
+    """
+    monkeypatch.setattr("psycopg2.extras.execute_values", lambda *a, **k: None)
+
+    class Contador:
+        def __init__(self, n):
+            self.datos = list(range(n))
+            self.leidas = 0
+
+        def __len__(self):
+            return len(self.datos)
+
+        def __iter__(self):
+            for x in self.datos:
+                self.leidas += 1
+                yield x
+
+    filas = Contador(1000)
+    registro = []
+    truncate_and_insert_streaming(
+        _conn(registro), "t", filas, lambda r: {"a": r}, chunk_size=100
+    )
+    # Con re-escaneo serian ~50.000 lecturas (10 trozos x media de 500).
+    assert filas.leidas == 1000, (
+        f"la lista se recorrio {filas.leidas} veces mas de lo necesario: "
+        "el troceado esta re-escaneando"
+    )
