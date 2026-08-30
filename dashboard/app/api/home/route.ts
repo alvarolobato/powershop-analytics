@@ -900,8 +900,11 @@ export async function GET(req: NextRequest) {
       // Margin hoy spark: last 7 days daily margin
       query(
         `SELECT day::date AS day,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM generate_series(($1::date - INTERVAL '6 days')::date, $1::date, '1 day') day
          LEFT JOIN (
            -- Una devolución revierte importe Y coste: el signo se aplica a las
@@ -928,8 +931,11 @@ export async function GET(req: NextRequest) {
          )
          SELECT w.week_start::date AS week_start,
                 EXTRACT(WEEK FROM w.week_start)::int AS iso_week,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM weeks w
          LEFT JOIN (
            -- Una devolución revierte importe Y coste: el signo se aplica a las
@@ -957,8 +963,11 @@ export async function GET(req: NextRequest) {
          )
          SELECT m.month_start::date AS month_start,
                 EXTRACT(MONTH FROM m.month_start)::int AS mon,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM months m
          LEFT JOIN (
            -- Una devolución revierte importe Y coste: el signo se aplica a las
@@ -986,8 +995,11 @@ export async function GET(req: NextRequest) {
          )
          SELECT m.month_start::date AS month_start,
                 EXTRACT(MONTH FROM m.month_start)::int AS mon,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_si ELSE -lv.total_si END), 0)::numeric AS rev,
-                COALESCE(SUM(CASE WHEN v.entrada THEN lv.total_coste_si ELSE -lv.total_coste_si END), 0)::numeric AS cost
+                -- la tabla derivada de abajo ya firma el importe y el coste:
+                -- volver a aplicar el signo aqui lo anularia, y ademas el alias
+                -- de ps_ventas no existe en este ambito.
+                COALESCE(SUM(lv.total_si), 0)::numeric AS rev,
+                COALESCE(SUM(lv.total_coste_si), 0)::numeric AS cost
          FROM months m
          LEFT JOIN (
            -- Una devolución revierte importe Y coste: el signo se aplica a las
