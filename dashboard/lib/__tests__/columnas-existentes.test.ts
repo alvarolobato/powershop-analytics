@@ -45,6 +45,11 @@ describe("el bundle no niega columnas que existen", () => {
       ),
       new RegExp(`${columna}\\s+NO\\s+esta\\s+en\\s+${tabla}`, "i"),
       new RegExp(`${tabla}[^.]{0,60}(no tiene|sin)\\s+${columna}\\b`, "i"),
+      // "en ps_lineas_ventas NO existe [entrada]" -- lo señaló Opus: mis
+      // patrones cubrían "no está replicada/espejada/sincronizada" pero no
+      // "NO existe", que es como estaba escrita una de las reglas.
+      new RegExp(`${tabla}[^.]{0,60}NO\\s+existe[^.]{0,60}${columna}`, "i"),
+      new RegExp(`${columna}[^.]{0,60}NO\\s+existe[^.]{0,60}${tabla}`, "i"),
       new RegExp(
         `nunca inventes una columna ${columna}[^.]{0,40}${tabla}`,
         "i",
