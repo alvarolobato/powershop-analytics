@@ -127,6 +127,11 @@ def normalizar_linea(src: dict) -> list[dict]:
         # Una linea no deberia repetir talla, pero si el origen lo hiciera la
         # PK (reg_linea_albaran, talla) reventaria el lote entero. Se suman las
         # unidades en la primera aparicion en vez de perder la insercion.
+        #
+        # La busqueda lineal es O(n^2) sobre `filas`, y es deliberado: n <= 34
+        # por definicion (son los slots de la linea) y los duplicados no
+        # existen en los datos de hoy. Un dict indice costaria mas de leer que
+        # de ejecutar. Si esto se reutilizara con muchas mas ranuras, cambiar.
         crudo = src.get(f"recibidas{i}")
         unidades = 0 if crudo is None else int(decode_signed_int16_word(crudo))
         if talla in vistas:

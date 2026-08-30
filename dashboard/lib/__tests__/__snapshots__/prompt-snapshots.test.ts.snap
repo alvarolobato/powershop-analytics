@@ -404,6 +404,9 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - **ps_compras** (PedidoCompra): Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.
   Columns: reg_pedido (PK), num_proveedor (FK), fecha_pedido, fecha_recibido, modificada
 
+- **ps_lin_albaranes** (LineaAlbaranCompra): Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.
+  Columns: reg_linea_albaran (PK junto con talla), talla (PK), num_albaran (FK → ps_albaranes.reg_albaran), codigo (FK → ps_articulos.codigo), recibidas, recibidas_total, precio_coste, total_si, abono
+
 - **ps_lineas_compras** (LineaPedidoCompra): Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.
   Columns: reg_linea_compra (PK), num_pedido (FK → ps_compras.reg_pedido), num_tienda (FK), num_articulo (FK), fecha
 
@@ -462,6 +465,8 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - ps_traspasos.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_lineas_compras.num_pedido → ps_compras.reg_pedido (MANY_TO_ONE)
 - ps_compras.num_proveedor → ps_proveedores.reg_proveedor (MANY_TO_ONE)
+- ps_lin_albaranes.num_albaran → ps_albaranes.reg_albaran (MANY_TO_ONE)
+- ps_lin_albaranes.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_articulos.num_familia → ps_familias.reg_familia (MANY_TO_ONE)
 - ps_articulos.num_departament → ps_departamentos.reg_departament (MANY_TO_ONE)
 - ps_articulos.num_color → ps_colores.reg_color (MANY_TO_ONE)
@@ -906,6 +911,9 @@ No dashboards have been created yet. All areas are uncovered.
 - **ps_compras** (PedidoCompra): Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.
   Columns: reg_pedido (PK), num_proveedor (FK), fecha_pedido, fecha_recibido, modificada
 
+- **ps_lin_albaranes** (LineaAlbaranCompra): Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.
+  Columns: reg_linea_albaran (PK junto con talla), talla (PK), num_albaran (FK → ps_albaranes.reg_albaran), codigo (FK → ps_articulos.codigo), recibidas, recibidas_total, precio_coste, total_si, abono
+
 - **ps_lineas_compras** (LineaPedidoCompra): Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.
   Columns: reg_linea_compra (PK), num_pedido (FK → ps_compras.reg_pedido), num_tienda (FK), num_articulo (FK), fecha
 
@@ -964,6 +972,8 @@ No dashboards have been created yet. All areas are uncovered.
 - ps_traspasos.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_lineas_compras.num_pedido → ps_compras.reg_pedido (MANY_TO_ONE)
 - ps_compras.num_proveedor → ps_proveedores.reg_proveedor (MANY_TO_ONE)
+- ps_lin_albaranes.num_albaran → ps_albaranes.reg_albaran (MANY_TO_ONE)
+- ps_lin_albaranes.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_articulos.num_familia → ps_familias.reg_familia (MANY_TO_ONE)
 - ps_articulos.num_departament → ps_departamentos.reg_departament (MANY_TO_ONE)
 - ps_articulos.num_color → ps_colores.reg_color (MANY_TO_ONE)
@@ -1335,6 +1345,9 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - **ps_compras** (PedidoCompra): Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.
   Columns: reg_pedido (PK), num_proveedor (FK), fecha_pedido, fecha_recibido, modificada
 
+- **ps_lin_albaranes** (LineaAlbaranCompra): Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.
+  Columns: reg_linea_albaran (PK junto con talla), talla (PK), num_albaran (FK → ps_albaranes.reg_albaran), codigo (FK → ps_articulos.codigo), recibidas, recibidas_total, precio_coste, total_si, abono
+
 - **ps_lineas_compras** (LineaPedidoCompra): Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.
   Columns: reg_linea_compra (PK), num_pedido (FK → ps_compras.reg_pedido), num_tienda (FK), num_articulo (FK), fecha
 
@@ -1393,6 +1406,8 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - ps_traspasos.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_lineas_compras.num_pedido → ps_compras.reg_pedido (MANY_TO_ONE)
 - ps_compras.num_proveedor → ps_proveedores.reg_proveedor (MANY_TO_ONE)
+- ps_lin_albaranes.num_albaran → ps_albaranes.reg_albaran (MANY_TO_ONE)
+- ps_lin_albaranes.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_articulos.num_familia → ps_familias.reg_familia (MANY_TO_ONE)
 - ps_articulos.num_departament → ps_departamentos.reg_departament (MANY_TO_ONE)
 - ps_articulos.num_color → ps_colores.reg_color (MANY_TO_ONE)
@@ -2074,6 +2089,9 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - **ps_compras** (PedidoCompra): Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.
   Columns: reg_pedido (PK), num_proveedor (FK), fecha_pedido, fecha_recibido, modificada
 
+- **ps_lin_albaranes** (LineaAlbaranCompra): Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.
+  Columns: reg_linea_albaran (PK junto con talla), talla (PK), num_albaran (FK → ps_albaranes.reg_albaran), codigo (FK → ps_articulos.codigo), recibidas, recibidas_total, precio_coste, total_si, abono
+
 - **ps_lineas_compras** (LineaPedidoCompra): Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.
   Columns: reg_linea_compra (PK), num_pedido (FK → ps_compras.reg_pedido), num_tienda (FK), num_articulo (FK), fecha
 
@@ -2132,6 +2150,8 @@ All SQL must be valid PostgreSQL executed against the "public" schema.
 - ps_traspasos.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_lineas_compras.num_pedido → ps_compras.reg_pedido (MANY_TO_ONE)
 - ps_compras.num_proveedor → ps_proveedores.reg_proveedor (MANY_TO_ONE)
+- ps_lin_albaranes.num_albaran → ps_albaranes.reg_albaran (MANY_TO_ONE)
+- ps_lin_albaranes.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_articulos.num_familia → ps_familias.reg_familia (MANY_TO_ONE)
 - ps_articulos.num_departament → ps_departamentos.reg_departament (MANY_TO_ONE)
 - ps_articulos.num_color → ps_colores.reg_color (MANY_TO_ONE)
@@ -2584,6 +2604,9 @@ None yet.
 - **ps_compras** (PedidoCompra): Pedidos de compra a proveedores. La fecha del pedido es fecha_pedido (NO fecha_creacion). fecha_recibido es NULL mientras el pedido está pendiente de recibir.
   Columns: reg_pedido (PK), num_proveedor (FK), fecha_pedido, fecha_recibido, modificada
 
+- **ps_lin_albaranes** (LineaAlbaranCompra): Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.
+  Columns: reg_linea_albaran (PK junto con talla), talla (PK), num_albaran (FK → ps_albaranes.reg_albaran), codigo (FK → ps_articulos.codigo), recibidas, recibidas_total, precio_coste, total_si, abono
+
 - **ps_lineas_compras** (LineaPedidoCompra): Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.
   Columns: reg_linea_compra (PK), num_pedido (FK → ps_compras.reg_pedido), num_tienda (FK), num_articulo (FK), fecha
 
@@ -2642,6 +2665,8 @@ None yet.
 - ps_traspasos.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_lineas_compras.num_pedido → ps_compras.reg_pedido (MANY_TO_ONE)
 - ps_compras.num_proveedor → ps_proveedores.reg_proveedor (MANY_TO_ONE)
+- ps_lin_albaranes.num_albaran → ps_albaranes.reg_albaran (MANY_TO_ONE)
+- ps_lin_albaranes.codigo → ps_articulos.codigo (MANY_TO_ONE)
 - ps_articulos.num_familia → ps_familias.reg_familia (MANY_TO_ONE)
 - ps_articulos.num_departament → ps_departamentos.reg_departament (MANY_TO_ONE)
 - ps_articulos.num_color → ps_colores.reg_color (MANY_TO_ONE)

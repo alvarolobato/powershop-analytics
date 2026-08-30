@@ -1365,6 +1365,23 @@ export const SCHEMA: TableSchema[] = [
     ],
   },
   {
+    table: "ps_lin_albaranes",
+    alias: "LineaAlbaranCompra",
+    description:
+      "Lineas de albaran de COMPRA en formato largo: una fila por linea y TALLA. Es la mercancia RECIBIDA, no confundir con ps_lineas_compras, que son PEDIDOS. 291.068 filas desde 45.967 lineas de origen (medido 2026-08-30). recibidas son las unidades de esa talla; recibidas_total es la raiz de la linea y equivale a la suma de sus tallas (cuadra en 45.966 de 45.967 lineas). Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras-ventas-stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades: excluirla en cualquier ranking de tallas. La marca de devolucion al proveedor esta en la LINEA (abono); ps_albaranes, la cabecera, NO tiene columna abono.",
+    keyColumns: [
+      "reg_linea_albaran (PK junto con talla)",
+      "talla (PK)",
+      "num_albaran (FK → ps_albaranes.reg_albaran)",
+      "codigo (FK → ps_articulos.codigo)",
+      "recibidas",
+      "recibidas_total",
+      "precio_coste",
+      "total_si",
+      "abono",
+    ],
+  },
+  {
     table: "ps_lineas_compras",
     alias: "LineaPedidoCompra",
     description:
@@ -1535,6 +1552,8 @@ export const RELATIONSHIPS: Relationship[] = [
   { from: "ps_traspasos", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_lineas_compras", fromColumn: "num_pedido", to: "ps_compras", toColumn: "reg_pedido", type: "MANY_TO_ONE" },
   { from: "ps_compras", fromColumn: "num_proveedor", to: "ps_proveedores", toColumn: "reg_proveedor", type: "MANY_TO_ONE" },
+  { from: "ps_lin_albaranes", fromColumn: "num_albaran", to: "ps_albaranes", toColumn: "reg_albaran", type: "MANY_TO_ONE" },
+  { from: "ps_lin_albaranes", fromColumn: "codigo", to: "ps_articulos", toColumn: "codigo", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_familia", to: "ps_familias", toColumn: "reg_familia", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_departament", to: "ps_departamentos", toColumn: "reg_departament", type: "MANY_TO_ONE" },
   { from: "ps_articulos", fromColumn: "num_color", to: "ps_colores", toColumn: "reg_color", type: "MANY_TO_ONE" },
