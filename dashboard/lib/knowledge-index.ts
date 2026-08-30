@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 16 ficheros. 247 secciones (164 con SQL,
+// Fuente: 16 ficheros. 248 secciones (165 con SQL,
 // 11 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -120,35 +120,35 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Albaranes por cliente (neto de abonos)",
-    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(DISTINCT ga.reg_albaran) AS \"Albaranes\",\n       COALESCE(SUM(gl.unidades) FILTER (WHERE ga.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.unidades) FILTER (WHERE ga.abono IS TRUE), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_gc_albaranes ga ON ga.reg_albaran = gl.num_albaran\nJOIN ps_clientes c ON c.reg_cliente = ga.num_cliente\nWHERE (CASE WHEN ga.fecha_envio >= DATE '2000-01-01' THEN ga.fecha_envio ELSE ga.fecha_valor END)\n      BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```\n\nDos trampas de esta tabla:\n\n- La FK línea → cabecera es `num_albaran` → `reg_albaran`. `n_albaran` es el\n  número visible del albarán y **no** es único: no lo uses para unir.\n- **La fecha efectiva no es `fecha_envio` a secas.** Un albarán aún sin enviar\n  lleva `NULL` o un centinela anterior al año 2000, y como `NULL >= fecha` es\n  `NULL`, acotar por `fecha_envio` los descarta en silencio. Usa siempre\n  `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(DISTINCT ga.reg_albaran) AS \"Albaranes\",\n       COALESCE(SUM(gl.unidades) FILTER (WHERE ga.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.unidades) FILTER (WHERE ga.abono IS TRUE), 0) AS \"Unidades Netas\",\n       COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_gc_albaranes ga ON ga.reg_albaran = gl.num_albaran\nLEFT JOIN ps_clientes c ON c.reg_cliente = ga.num_cliente\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = ga.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND (CASE WHEN ga.fecha_envio >= DATE '2000-01-01' THEN ga.fecha_envio ELSE ga.fecha_valor END)\n      BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```\n\nDos trampas de esta tabla:\n\n- La FK línea → cabecera es `num_albaran` → `reg_albaran`. `n_albaran` es el\n  número visible del albarán y **no** es único: no lo uses para unir.\n- **La fecha efectiva no es `fecha_envio` a secas.** Un albarán aún sin enviar\n  lleva `NULL` o un centinela anterior al año 2000, y como `NULL >= fecha` es\n  `NULL`, acotar por `fecha_envio` los descarta en silencio. Usa siempre\n  `CASE WHEN fecha_envio >= DATE '2000-01-01' THEN fecha_envio ELSE fecha_valor END`.",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Facturación mensual (neta de abonos)",
-    "body": "```sql\nSELECT DATE_TRUNC('month', gf.fecha_factura)::date AS \"Mes\",\n       COUNT(*) FILTER (WHERE gf.abono IS NOT TRUE) AS \"Facturas\",\n       COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Facturación Neta\"\nFROM ps_gc_facturas gf\nWHERE gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', gf.fecha_factura)::date AS \"Mes\",\n       COUNT(*) FILTER (WHERE gf.abono IS NOT TRUE) AS \"Facturas\",\n       COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Facturación Neta\"\nFROM ps_gc_facturas gf\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY 1\nORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Top productos del canal mayorista",
-    "body": "```sql\nSELECT gl.codigo AS \"Código\",\n       MIN(gl.descripcion) AS \"Descripción\",\n       COALESCE(SUM(gl.unidades) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.unidades) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Unidades\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nWHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY gl.codigo\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```",
+    "body": "```sql\nSELECT gl.codigo AS \"Código\",\n       MIN(gl.descripcion) AS \"Descripción\",\n       COALESCE(SUM(gl.unidades) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.unidades) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Unidades\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY gl.codigo\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Abonos (devoluciones) por cliente",
-    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Abonos\",\n       SUM(gf.total_factura) AS \"Importe Abonado\"\nFROM ps_gc_facturas gf\nJOIN ps_clientes c ON c.reg_cliente = gf.num_cliente\nWHERE gf.abono IS TRUE\n  AND gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Abonado\" DESC\nLIMIT 20\n```",
+    "body": "```sql\nSELECT c.nombre AS \"Cliente\",\n       COUNT(*) AS \"Abonos\",\n       SUM(gf.total_factura) AS \"Importe Abonado\"\nFROM ps_gc_facturas gf\nLEFT JOIN ps_clientes c ON c.reg_cliente = gf.num_cliente\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND gf.abono IS TRUE\n  AND gf.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY c.nombre\nORDER BY \"Importe Abonado\" DESC\nLIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Facturación mayorista por familia",
-    "body": "La línea de factura mayorista lleva sus propias FK de dimensión, así que no hace\nfalta pasar por `ps_articulos`.\n\n```sql\nSELECT f.fami_grup_marc AS \"Familia\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nJOIN ps_familias f ON f.reg_familia = gl.num_familia\nWHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY f.fami_grup_marc\nORDER BY \"Importe Neto\" DESC\n```",
+    "body": "La línea de factura mayorista lleva sus propias FK de dimensión, así que no hace\nfalta pasar por `ps_articulos`.\n\n```sql\nSELECT f.fami_grup_marc AS \"Familia\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nJOIN ps_familias f ON f.reg_familia = gl.num_familia\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY f.fami_grup_marc\nORDER BY \"Importe Neto\" DESC\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -280,6 +280,13 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   },
   {
     "source": "docs/sample-queries.md",
+    "heading": "Margen del canal mayorista por producto",
+    "body": "```sql\nSELECT gl.codigo AS \"Código\",\n       MIN(gl.descripcion) AS \"Descripción\",\n       COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Importe Neto\",\n       COALESCE(SUM(gl.total_coste) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n     - COALESCE(SUM(gl.total_coste) FILTER (WHERE gf.abono IS TRUE), 0) AS \"Coste\",\n       ROUND(100.0 * ((COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n                     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0))\n                    - (COALESCE(SUM(gl.total_coste) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n                     - COALESCE(SUM(gl.total_coste) FILTER (WHERE gf.abono IS TRUE), 0)))\n             / NULLIF(COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS NOT TRUE), 0)\n                    - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0), 0), 1) AS \"Margen %\"\nFROM ps_gc_lin_facturas gl\nJOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND gl.fecha_factura BETWEEN :curr_from AND :curr_to\nGROUP BY gl.codigo\nORDER BY \"Importe Neto\" DESC\nLIMIT 20\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/sample-queries.md",
     "heading": "Artículos con margen teórico bajo (< 30 %)",
     "body": "Margen de tarifa, no de venta real: compara PVP contra coste en la ficha del\nartículo.\n\n```sql\nSELECT a.ccrefejofacm AS \"Referencia\",\n       a.descripcion AS \"Descripción\",\n       a.precio1 AS \"PVP\",\n       a.precio_coste AS \"Coste\",\n       ROUND(100.0 * (a.precio1 - a.precio_coste) / NULLIF(a.precio1, 0), 1) AS \"Margen %\"\nFROM ps_articulos a\nWHERE a.anulado IS NOT TRUE\n  AND a.precio1 > 0\n  AND a.precio_coste > 0\n  AND (a.precio1 - a.precio_coste) / a.precio1 < 0.3\nORDER BY \"Margen %\" ASC\nLIMIT 50\n```\n\n---",
     "hasSql": true,
@@ -337,7 +344,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "Líneas de albarán mayorista con artículos M",
-    "body": "```sql\nSELECT gl.n_albaran AS \"Nº Albarán\",\n       gl.fecha_albaran AS \"Fecha\",\n       gl.codigo AS \"Código\",\n       gl.descripcion AS \"Descripción\",\n       gl.unidades AS \"Unidades\",\n       gl.total AS \"Importe\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_articulos a ON gl.codigo = a.codigo\nWHERE a.ccrefejofacm LIKE 'M%'\n  AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to\nORDER BY gl.fecha_albaran DESC\nLIMIT 50\n```\n\n---",
+    "body": "```sql\nSELECT gl.n_albaran AS \"Nº Albarán\",\n       gl.fecha_albaran AS \"Fecha\",\n       gl.codigo AS \"Código\",\n       gl.descripcion AS \"Descripción\",\n       gl.unidades AS \"Unidades\",\n       gl.total AS \"Importe\"\nFROM ps_gc_lin_albarane gl\nJOIN ps_gc_albaranes ga ON ga.reg_albaran = gl.num_albaran\nJOIN ps_articulos a ON gl.codigo = a.codigo\nWHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = ga.num_cliente AND COALESCE(ci.nif, '') = '502108150')\n  AND a.ccrefejofacm LIKE 'M%'\n  AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to\nORDER BY gl.fecha_albaran DESC\nLIMIT 50\n```\n\n---",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -526,28 +533,28 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuánto facturamos a mayoristas por mes? (neto de abonos)",
-    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', gf.\"fecha_factura\")::date AS \"Mes\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf WHERE NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = gf.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') AND gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuáles son los mejores clientes mayoristas?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS NOT TRUE), 0) - COALESCE(SUM(gf.\"total_factura\") FILTER (WHERE gf.\"abono\" IS TRUE), 0) AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" gf LEFT JOIN \"public\".\"ps_clientes\" c ON c.\"reg_cliente\" = gf.\"num_cliente\" WHERE NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = gf.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') AND gf.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 30\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Qué productos se venden más en el canal mayorista?",
-    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"unidades\") AS \"Unidades\", SUM(gl.\"total\") AS \"Importe\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Importe\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"unidades\") AS \"Unidades\", SUM(gl.\"total\") AS \"Importe\" FROM \"public\".\"ps_gc_lin_facturas\" gl JOIN \"public\".\"ps_gc_facturas\" gf ON gf.\"reg_factura\" = gl.\"num_factura\" WHERE gf.\"abono\" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = gf.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') AND gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Importe\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen del canal mayorista por producto?",
-    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"total\") AS \"Importe\", SUM(gl.\"total_coste\") AS \"Coste\", SUM(gl.\"total\") - SUM(gl.\"total_coste\") AS \"Margen\", ROUND(100.0 * (SUM(gl.\"total\") - SUM(gl.\"total_coste\")) / NULLIF(SUM(gl.\"total\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_gc_lin_facturas\" gl WHERE gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT gl.\"codigo\" AS \"Código\", gl.\"descripcion\" AS \"Descripción\", SUM(gl.\"total\") AS \"Importe\", SUM(gl.\"total_coste\") AS \"Coste\", SUM(gl.\"total\") - SUM(gl.\"total_coste\") AS \"Margen\", ROUND(100.0 * (SUM(gl.\"total\") - SUM(gl.\"total_coste\")) / NULLIF(SUM(gl.\"total\"), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_gc_lin_facturas\" gl JOIN \"public\".\"ps_gc_facturas\" gf ON gf.\"reg_factura\" = gl.\"num_factura\" WHERE gf.\"abono\" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = gf.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') AND gl.\"fecha_factura\" BETWEEN :curr_from AND :curr_to GROUP BY gl.\"codigo\", gl.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
@@ -1555,35 +1562,35 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Facturación mayorista mensual del año actual?",
-    "body": "```sql\nSELECT DATE_TRUNC('month', f.\"fecha_factura\") AS \"Mes\", COUNT(DISTINCT f.\"reg_factura\") AS \"Facturas\", SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") AS \"Importe Neto\" FROM \"public\".\"ps_gc_facturas\" f WHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to AND f.\"abono\" = false GROUP BY DATE_TRUNC('month', f.\"fecha_factura\") ORDER BY \"Mes\"\n```",
+    "body": "```sql\nSELECT DATE_TRUNC('month', f.\"fecha_factura\") AS \"Mes\", COUNT(DISTINCT f.\"reg_factura\") AS \"Facturas\", SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") AS \"Importe Neto\" FROM \"public\".\"ps_gc_facturas\" f WHERE f.\"fecha_factura\" BETWEEN :curr_from AND :curr_to AND f.\"abono\" = false AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = f.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') GROUP BY DATE_TRUNC('month', f.\"fecha_factura\") ORDER BY \"Mes\"\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Cuáles son los principales clientes mayoristas por facturación?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(DISTINCT f.\"reg_factura\") AS \"Facturas\", SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" f JOIN \"public\".\"ps_clientes\" c ON f.\"num_cliente\" = c.\"reg_cliente\" WHERE f.\"abono\" = false GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(DISTINCT f.\"reg_factura\") AS \"Facturas\", SUM(f.\"base1\" + f.\"base2\" + f.\"base3\") AS \"Facturación Neta\" FROM \"public\".\"ps_gc_facturas\" f LEFT JOIN \"public\".\"ps_clientes\" c ON f.\"num_cliente\" = c.\"reg_cliente\" WHERE f.\"abono\" = false AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = f.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') GROUP BY c.\"nombre\" ORDER BY \"Facturación Neta\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Cuántos albaranes mayoristas se enviaron este mes?",
-    "body": "```sql\nSELECT COUNT(*) AS \"Albaranes\", SUM(a.\"entregadas\") AS \"Unidades\", SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") AS \"Importe Neto\" FROM \"public\".\"ps_gc_albaranes\" a LEFT JOIN \"public\".\"ps_clientes\" c ON a.\"num_cliente\" = c.\"reg_cliente\" WHERE (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01' THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END) BETWEEN :curr_from AND :curr_to AND a.\"abono\" = false AND COALESCE(c.\"nif\", '') <> '502108150'\n```",
+    "body": "```sql\nSELECT COUNT(*) AS \"Albaranes\", SUM(a.\"entregadas\") AS \"Unidades\", SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") AS \"Importe Neto\" FROM \"public\".\"ps_gc_albaranes\" a WHERE (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01' THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END) BETWEEN :curr_from AND :curr_to AND a.\"abono\" = false AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = a.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150')\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Notas de crédito mayoristas (abonos) del año?",
-    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(*) AS \"Abonos\", SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") AS \"Total Abonado\" FROM \"public\".\"ps_gc_albaranes\" a JOIN \"public\".\"ps_clientes\" c ON a.\"num_cliente\" = c.\"reg_cliente\" WHERE a.\"abono\" = true AND (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01' THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END) BETWEEN :curr_from AND :curr_to AND COALESCE(c.\"nif\", '') <> '502108150' GROUP BY c.\"nombre\" ORDER BY \"Total Abonado\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT c.\"nombre\" AS \"Cliente\", COUNT(*) AS \"Abonos\", SUM(a.\"base1\" + a.\"base2\" + a.\"base3\") AS \"Total Abonado\" FROM \"public\".\"ps_gc_albaranes\" a LEFT JOIN \"public\".\"ps_clientes\" c ON a.\"num_cliente\" = c.\"reg_cliente\" WHERE a.\"abono\" = true AND (CASE WHEN a.\"fecha_envio\" >= DATE '2000-01-01' THEN a.\"fecha_envio\" ELSE a.\"fecha_valor\" END) BETWEEN :curr_from AND :curr_to AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = a.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') GROUP BY c.\"nombre\" ORDER BY \"Total Abonado\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Productos más vendidos en canal mayorista?",
-    "body": "```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", SUM(lf.\"unidades\") AS \"Unidades\", SUM(lf.\"total\") AS \"Importe\" FROM \"public\".\"ps_gc_lin_facturas\" lf JOIN \"public\".\"ps_articulos\" p ON lf.\"codigo\" = p.\"codigo\" WHERE lf.\"unidades\" > 0 GROUP BY p.\"ccrefejofacm\", p.\"descripcion\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
+    "body": "```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", SUM(lf.\"unidades\") AS \"Unidades\", SUM(lf.\"total\") AS \"Importe\" FROM \"public\".\"ps_gc_lin_facturas\" lf JOIN \"public\".\"ps_gc_facturas\" f ON lf.\"num_factura\" = f.\"reg_factura\" LEFT JOIN \"public\".\"ps_articulos\" p ON lf.\"codigo\" = p.\"codigo\" WHERE lf.\"unidades\" > 0 AND f.\"abono\" = false AND NOT EXISTS (SELECT 1 FROM \"public\".\"ps_clientes\" ci WHERE ci.\"reg_cliente\" = f.\"num_cliente\" AND COALESCE(ci.\"nif\", '') = '502108150') GROUP BY p.\"ccrefejofacm\", p.\"descripcion\" ORDER BY \"Unidades\" DESC LIMIT 20\n```",
     "hasSql": true,
     "dialect": "postgres"
   },

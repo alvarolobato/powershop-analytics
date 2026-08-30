@@ -13,6 +13,7 @@
  */
 
 import type { QueryResult } from "./db";
+import { sinIntragrupo } from "@/lib/sql-fragments";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -39,7 +40,7 @@ export interface ReviewQueryResult {
 export function formatQueryResultAsText(
   name: string,
   columns: string[],
-  rows: unknown[][]
+  rows: unknown[][],
 ): string {
   if (rows.length === 0) {
     return `${name}: (sin datos)`;
@@ -56,17 +57,15 @@ export function formatQueryResultAsText(
   const colWidths = columns.map((c, ci) => {
     const maxDataWidth = rows.reduce(
       (max, row) => Math.max(max, fmtVal(row[ci]).length),
-      0
+      0,
     );
     return Math.max(c.length, maxDataWidth);
   });
 
-  const header = columns
-    .map((c, i) => c.padEnd(colWidths[i]))
-    .join(" | ");
+  const header = columns.map((c, i) => c.padEnd(colWidths[i])).join(" | ");
   const separator = colWidths.map((w) => "-".repeat(w)).join("-+-");
   const dataRows = rows.map((row) =>
-    row.map((v, i) => fmtVal(v).padEnd(colWidths[i])).join(" | ")
+    row.map((v, i) => fmtVal(v).padEnd(colWidths[i])).join(" | "),
   );
 
   return [`${name}:`, header, separator, ...dataRows].join("\n");
@@ -187,8 +186,9 @@ WHERE tienda <> '99'
     sql: `SELECT
   COALESCE(SUM(base1 + base2 + base3), 0) AS facturacion_neta,
   COUNT(*) AS num_facturas
-FROM ps_gc_facturas
+FROM ps_gc_facturas gf
 WHERE abono IS NOT TRUE
+  AND ${sinIntragrupo("gf")}
   AND fecha_factura >= $1::date
   AND fecha_factura < $2::date`,
   },
@@ -208,6 +208,7 @@ WHERE abono IS NOT TRUE
 FROM ps_gc_facturas f
 LEFT JOIN ps_clientes c ON c.reg_cliente = f.num_cliente
 WHERE f.abono IS NOT TRUE
+  AND ${sinIntragrupo("f")}
   AND f.fecha_factura >= $1::date
   AND f.fecha_factura < $2::date
 GROUP BY f.num_cliente, c.nombre
@@ -229,7 +230,8 @@ LIMIT 3`,
 )
 SELECT COUNT(*) AS albaranes_pendientes
 FROM alb a
-WHERE NOT EXISTS (
+WHERE ${sinIntragrupo("a")}
+  AND NOT EXISTS (
     SELECT 1 FROM ps_gc_facturas f
     WHERE f.num_cliente = a.num_cliente
       AND f.abono IS NOT TRUE
@@ -440,7 +442,7 @@ export async function executeReviewQueries(
       // error — that's the expected loud failure for a malformed query.
       const params = n === 0 ? undefined : weekParams.slice(0, n);
       return queryFn(q.sql, params);
-    })
+    }),
   );
 
   return REVIEW_QUERIES.map((q, i) => {
@@ -534,7 +536,7 @@ export function formatAllResults(results: ReviewQueryResult[]): string {
     return formatQueryResultAsText(
       r.query.name,
       r.result.columns,
-      r.result.rows
+      r.result.rows,
     );
   });
 

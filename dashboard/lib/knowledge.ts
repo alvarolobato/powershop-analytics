@@ -554,7 +554,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "TRAFICO INTRAGRUPO: el CIF 502108150 (LINFE LDA / MHIA, Portugal) identifica sociedades del propio grupo. Esta repartido en 19 registros distintos de ps_clientes, con num_cliente diferentes y nombres diferentes (LINFE FUNCHAL, LINFE FACTORY, MHIA CALDAS, MHIA TOMAR, MHIA ABRANTES, Linfe Moda Feminina Lda...). Un albaran o factura mayorista a ese CIF NO es una venta fuera del grupo: es un movimiento interno. Para 'ventas mayoristas reales' hay que excluirlo por NIF, nunca por nombre: JOIN ps_clientes c ON a.num_cliente = c.reg_cliente WHERE COALESCE(c.nif, '') <> '502108150'. En 2026 supone 38 albaranes y unos 29.900 EUR.",
+      "TRAFICO INTRAGRUPO: el CIF 502108150 (LINFE LDA / MHIA, Portugal) identifica sociedades del propio grupo. Esta repartido en 19 registros distintos de ps_clientes, con num_cliente diferentes y nombres diferentes (LINFE FUNCHAL, LINFE FACTORY, MHIA CALDAS, MHIA TOMAR, MHIA ABRANTES, Linfe Moda Feminina Lda...). Un albaran o factura mayorista a ese CIF NO es una venta fuera del grupo: es un movimiento interno. Para 'ventas mayoristas reales' hay que excluirlo por NIF, nunca por nombre, y SIEMPRE con NOT EXISTS, nunca con un JOIN: AND NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = a.num_cliente AND COALESCE(ci.nif, '') = '502108150'). El JOIN es INNER y descarta en silencio los albaranes cuyo num_cliente no existe en ps_clientes: medido en produccion 2026-08-30, 70 albaranes de 52.148 son huerfanos y en 2026 el JOIN devolvia 5.383 albaranes donde NOT EXISTS devuelve 5.386 (5.424 totales menos 38 intragrupo). NOT EXISTS ademas es seguro ante NULL, mientras que un NOT IN se rompe en cuanto la subconsulta devuelve un NULL. En 2026 el trafico intragrupo supone 38 albaranes y unos 29.900 EUR.",
     questions: [
       "¿Ventas mayoristas reales?",
       "¿Facturacion fuera del grupo?",
@@ -885,19 +885,19 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Cuánto facturamos a mayoristas por mes? (neto de abonos)",
-    sql: `SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1`,
+    sql: `SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1`,
   },
   {
     question: "¿Cuáles son los mejores clientes mayoristas?",
-    sql: `SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30`,
+    sql: `SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf LEFT JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30`,
   },
   {
     question: "¿Qué productos se venden más en el canal mayorista?",
-    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20`,
+    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE gf."abono" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20`,
   },
   {
     question: "¿Cuál es el margen del canal mayorista por producto?",
-    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20`,
+    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE gf."abono" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
@@ -1045,23 +1045,23 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Facturación mayorista mensual del año actual?",
-    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND f."abono" = false GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
+    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
   },
   {
     question: "¿Cuáles son los principales clientes mayoristas por facturación?",
-    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20`,
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántos albaranes mayoristas se enviaron este mes?",
-    sql: `SELECT COUNT(*) AS "Albaranes", SUM(a."entregadas") AS "Unidades", SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" a LEFT JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente" WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND a."abono" = false AND COALESCE(c."nif", '') <> '502108150'`,
+    sql: `SELECT COUNT(*) AS "Albaranes", SUM(a."entregadas") AS "Unidades", SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" a WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND a."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = a."num_cliente" AND COALESCE(ci."nif", '') = '502108150')`,
   },
   {
     question: "¿Notas de crédito mayoristas (abonos) del año?",
-    sql: `SELECT c."nombre" AS "Cliente", COUNT(*) AS "Abonos", SUM(a."base1" + a."base2" + a."base3") AS "Total Abonado" FROM "public"."ps_gc_albaranes" a JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente" WHERE a."abono" = true AND (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND COALESCE(c."nif", '') <> '502108150' GROUP BY c."nombre" ORDER BY "Total Abonado" DESC LIMIT 20`,
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(*) AS "Abonos", SUM(a."base1" + a."base2" + a."base3") AS "Total Abonado" FROM "public"."ps_gc_albaranes" a LEFT JOIN "public"."ps_clientes" c ON a."num_cliente" = c."reg_cliente" WHERE a."abono" = true AND (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = a."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY c."nombre" ORDER BY "Total Abonado" DESC LIMIT 20`,
   },
   {
     question: "¿Productos más vendidos en canal mayorista?",
-    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lf."unidades") AS "Unidades", SUM(lf."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE lf."unidades" > 0 GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20`,
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lf."unidades") AS "Unidades", SUM(lf."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE lf."unidades" > 0 AND f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20`,
   },
   {
     question: "¿Cuáles son los mejores clientes retail por compras?",

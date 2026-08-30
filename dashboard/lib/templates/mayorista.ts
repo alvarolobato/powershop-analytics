@@ -45,6 +45,7 @@
  */
 import type { DashboardSpec } from "@/lib/schema";
 import { templateGlobalFiltersMayorista } from "@/lib/template-global-filters";
+import { sinIntragrupo } from "@/lib/sql-fragments";
 
 export const name = "Director Mayorista";
 
@@ -64,6 +65,12 @@ const CLIENTE_LABEL = `COALESCE(NULLIF(TRIM(c."nombre"), ''),
                 NULLIF(TRIM(c."nif"), ''),
                 NULLIF('Cliente ' || COALESCE(c."num_cliente"::text, ''), 'Cliente '),
                 'Cliente desconocido')`;
+
+/**
+ * El trafico intragrupo no es venta: se excluye en TODA consulta mayorista.
+ * Alias `f` = tabla de cabecera (ps_gc_facturas / ps_gc_albaranes / ps_gc_pedidos).
+ */
+const SIN_INTRAGRUPO_F = sinIntragrupo("f");
 
 export const spec: DashboardSpec = {
   title: "Cuadro de Mandos — Mayorista",
@@ -88,7 +95,8 @@ FROM "public"."ps_gc_facturas" f
 WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
-  AND __gf_cliente_mayorista__`,
+  AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}`,
           format: "currency",
           prefix: "€",
         },
@@ -99,7 +107,8 @@ FROM "public"."ps_gc_facturas" f
 WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
-  AND __gf_cliente_mayorista__`,
+  AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}`,
           format: "number",
         },
         {
@@ -128,6 +137,7 @@ WHERE lf."total" > 0
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__`,
@@ -140,7 +150,8 @@ FROM "public"."ps_gc_facturas" f
 WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
-  AND __gf_cliente_mayorista__`,
+  AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}`,
           format: "number",
         },
       ],
@@ -163,6 +174,7 @@ WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
 GROUP BY 1
 ORDER BY value DESC`,
       x: "label",
@@ -185,6 +197,7 @@ ORDER BY value DESC`,
     AND f."fecha_factura" >= :curr_from
     AND f."fecha_factura" <= :curr_to
     AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
 ), margenes AS (
   SELECT lf."num_factura",
          SUM(lf."total")       AS total_ingreso,
@@ -200,7 +213,7 @@ SELECT ${CLIENTE_LABEL} AS "Cliente",
          / NULLIF(SUM(m.total_ingreso), 0) * 100, 1) AS "Margen %",
        MAX(c."ultima_compra_f") AS "Última Compra"
 FROM facturas_periodo fy
-JOIN "public"."ps_clientes" c ON fy."num_cliente" = c."reg_cliente"
+LEFT JOIN "public"."ps_clientes" c ON fy."num_cliente" = c."reg_cliente"
 LEFT JOIN margenes m ON m."num_factura" = fy."reg_factura"
 GROUP BY c."reg_cliente", c."nombre", c."nif", c."num_cliente"
 ORDER BY "Facturacion Neta" DESC
@@ -228,11 +241,12 @@ LIMIT 10`,
              / NULLIF(f."unidades", 0) * 100, 1) AS "% Cumplimiento",
        f."temporada" AS "Temporada"
 FROM "public"."ps_gc_pedidos" f
-JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
+LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
 WHERE f."pedido_cerrado" = false
   AND f."abono" IS NOT TRUE
   AND COALESCE(f."pendientes", 0) > 0
   AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
 ORDER BY (CURRENT_DATE - f."fecha_pedido") DESC,
          f."pendientes" DESC
 LIMIT 20`,
@@ -251,7 +265,7 @@ LIMIT 20`,
        (COALESCE(f."base1",0) + COALESCE(f."base2",0)
         + COALESCE(f."base3",0)) AS "Importe Neto"
 FROM "public"."ps_gc_albaranes" f
-JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
+LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente"
 WHERE f."abono" IS NOT TRUE
   -- Fecha efectiva: los albaranes sin enviar llevan NULL o un centinela
   -- anterior a 2000, asi que filtrar por fecha_envio nunca los muestra.
@@ -260,6 +274,7 @@ WHERE f."abono" IS NOT TRUE
   AND (CASE WHEN f."fecha_envio" >= DATE '2000-01-01'
             THEN f."fecha_envio" ELSE f."fecha_valor" END) <= :curr_to
   AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
 ORDER BY (CASE WHEN f."fecha_envio" >= DATE '2000-01-01'
                THEN f."fecha_envio" ELSE f."fecha_valor" END) DESC, f."reg_albaran" DESC
 LIMIT 20`,
@@ -291,6 +306,7 @@ WHERE f."abono" IS NOT TRUE
   AND f."fecha_factura" >= :curr_from
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
   AND __gf_familia__
   AND __gf_temporada__
   AND __gf_marca__
@@ -325,6 +341,7 @@ WHERE f."abono" IS NOT TRUE
         (DATE_TRUNC('month', :curr_to::date) - INTERVAL '12 months')::date)
   AND f."fecha_factura" <= :curr_to
   AND __gf_cliente_mayorista__
+  AND ${SIN_INTRAGRUPO_F}
 GROUP BY 1
 ORDER BY 1`,
       x: "x",

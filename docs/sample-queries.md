@@ -278,8 +278,9 @@ SELECT c.nombre AS "Cliente",
      - COALESCE(SUM(gl.total) FILTER (WHERE ga.abono IS TRUE), 0) AS "Importe Neto"
 FROM ps_gc_lin_albarane gl
 JOIN ps_gc_albaranes ga ON ga.reg_albaran = gl.num_albaran
-JOIN ps_clientes c ON c.reg_cliente = ga.num_cliente
-WHERE (CASE WHEN ga.fecha_envio >= DATE '2000-01-01' THEN ga.fecha_envio ELSE ga.fecha_valor END)
+LEFT JOIN ps_clientes c ON c.reg_cliente = ga.num_cliente
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = ga.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND (CASE WHEN ga.fecha_envio >= DATE '2000-01-01' THEN ga.fecha_envio ELSE ga.fecha_valor END)
       BETWEEN :curr_from AND :curr_to
 GROUP BY c.nombre
 ORDER BY "Importe Neto" DESC
@@ -303,7 +304,8 @@ SELECT DATE_TRUNC('month', gf.fecha_factura)::date AS "Mes",
        COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS NOT TRUE), 0)
      - COALESCE(SUM(gf.total_factura) FILTER (WHERE gf.abono IS TRUE), 0) AS "Facturación Neta"
 FROM ps_gc_facturas gf
-WHERE gf.fecha_factura BETWEEN :curr_from AND :curr_to
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND gf.fecha_factura BETWEEN :curr_from AND :curr_to
 GROUP BY 1
 ORDER BY 1
 ```
@@ -319,7 +321,8 @@ SELECT gl.codigo AS "Código",
      - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0) AS "Importe Neto"
 FROM ps_gc_lin_facturas gl
 JOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura
-WHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND gl.fecha_factura BETWEEN :curr_from AND :curr_to
 GROUP BY gl.codigo
 ORDER BY "Importe Neto" DESC
 LIMIT 20
@@ -332,8 +335,9 @@ SELECT c.nombre AS "Cliente",
        COUNT(*) AS "Abonos",
        SUM(gf.total_factura) AS "Importe Abonado"
 FROM ps_gc_facturas gf
-JOIN ps_clientes c ON c.reg_cliente = gf.num_cliente
-WHERE gf.abono IS TRUE
+LEFT JOIN ps_clientes c ON c.reg_cliente = gf.num_cliente
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND gf.abono IS TRUE
   AND gf.fecha_factura BETWEEN :curr_from AND :curr_to
 GROUP BY c.nombre
 ORDER BY "Importe Abonado" DESC
@@ -352,7 +356,8 @@ SELECT f.fami_grup_marc AS "Familia",
 FROM ps_gc_lin_facturas gl
 JOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura
 JOIN ps_familias f ON f.reg_familia = gl.num_familia
-WHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND gl.fecha_factura BETWEEN :curr_from AND :curr_to
 GROUP BY f.fami_grup_marc
 ORDER BY "Importe Neto" DESC
 ```
@@ -693,7 +698,8 @@ SELECT gl.codigo AS "Código",
                     - COALESCE(SUM(gl.total) FILTER (WHERE gf.abono IS TRUE), 0), 0), 1) AS "Margen %"
 FROM ps_gc_lin_facturas gl
 JOIN ps_gc_facturas gf ON gf.reg_factura = gl.num_factura
-WHERE gl.fecha_factura BETWEEN :curr_from AND :curr_to
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = gf.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND gl.fecha_factura BETWEEN :curr_from AND :curr_to
 GROUP BY gl.codigo
 ORDER BY "Importe Neto" DESC
 LIMIT 20
@@ -855,8 +861,10 @@ SELECT gl.n_albaran AS "Nº Albarán",
        gl.unidades AS "Unidades",
        gl.total AS "Importe"
 FROM ps_gc_lin_albarane gl
+JOIN ps_gc_albaranes ga ON ga.reg_albaran = gl.num_albaran
 JOIN ps_articulos a ON gl.codigo = a.codigo
-WHERE a.ccrefejofacm LIKE 'M%'
+WHERE NOT EXISTS (SELECT 1 FROM ps_clientes ci WHERE ci.reg_cliente = ga.num_cliente AND COALESCE(ci.nif, '') = '502108150')
+  AND a.ccrefejofacm LIKE 'M%'
   AND gl.fecha_albaran BETWEEN :curr_from AND :curr_to
 ORDER BY gl.fecha_albaran DESC
 LIMIT 50
@@ -1153,22 +1161,22 @@ SELECT a."ccrefejofacm" AS "Referencia", a."descripcion" AS "Descripción", st."
 
 ### ¿Cuánto facturamos a mayoristas por mes? (neto de abonos)
 ```sql
-SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1
+SELECT DATE_TRUNC('month', gf."fecha_factura")::date AS "Mes", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY 1 ORDER BY 1
 ```
 
 ### ¿Cuáles son los mejores clientes mayoristas?
 ```sql
-SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30
+SELECT c."nombre" AS "Cliente", COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gf."total_factura") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" gf LEFT JOIN "public"."ps_clientes" c ON c."reg_cliente" = gf."num_cliente" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gf."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 30
 ```
 
 ### ¿Qué productos se venden más en el canal mayorista?
 ```sql
-SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20
+SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE gf."abono" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20
 ```
 
 ### ¿Cuál es el margen del canal mayorista por producto?
 ```sql
-SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl WHERE gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20
+SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE gf."abono" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20
 ```
 
 ### ¿Cuántas unidades se traspasan entre tiendas y por qué ruta?

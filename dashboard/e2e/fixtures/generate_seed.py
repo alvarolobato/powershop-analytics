@@ -158,6 +158,30 @@ def weighted_forma(rng: random.Random) -> str:
     return rng.choices([f for f, _ in FORMAS], weights=[w for _, w in FORMAS])[0]
 
 
+CIF_INTRAGRUPO = "502108150"
+# num_cliente (1..N_CLIENTES) que pertenecen al grupo
+CLIENTES_INTRAGRUPO = {1, 2, 3}
+NOMBRE_INTRAGRUPO = ["LINFE FUNCHAL", "MHIA TOMAR", "LINFE FACTORY"]
+# num_cliente que NO existe en ps_clientes: reproduce los 70 albaranes
+# huerfanos de produccion, que un INNER JOIN descarta en silencio.
+CLIENTE_HUERFANO = 9999
+
+
+def cliente_mayorista(i: int, rng, n_clientes: int) -> str:
+    """num_cliente para la fila mayorista i, con reparto DETERMINISTA.
+
+    Uno de cada 10 va a una sociedad del grupo y uno de cada 37 a un cliente
+    que no existe en ps_clientes. Los recuentos tienen que ser exactos para
+    que un test pueda afirmar un numero concreto en vez de "algo distinto".
+    El resto nunca cae en 1..3, o el recuento dejaria de ser exacto.
+    """
+    if i % 10 == 0:
+        return f"{3000 + ((i // 10 - 1) % 3 + 1)}.99"
+    if i % 37 == 0:
+        return f"{CLIENTE_HUERFANO}.99"
+    return f"{3000 + rng.randint(len(CLIENTES_INTRAGRUPO) + 1, n_clientes)}.99"
+
+
 def main() -> None:
     rng = random.Random(SEED)
     out = sys.stdout
@@ -203,6 +227,15 @@ def main() -> None:
         "etl_sync_runs",
     ]
     out.write("TRUNCATE " + ", ".join(populated) + " RESTART IDENTITY CASCADE;\n\n")
+
+    # ---- Trafico intragrupo (issue #922) ---------------------------------
+    # Sin clientes intragrupo sembrados, una consulta que suma el movimiento
+    # interno como venta da EXACTAMENTE lo mismo que la correcta, y ningun
+    # test puede distinguirlas. Igual con los huerfanos: sin filas cuyo
+    # num_cliente no exista en ps_clientes, un INNER JOIN parece inofensivo.
+    # Los tres ultimos num_cliente son del grupo, repartidos en varios
+    # registros con nombres distintos -- como en produccion, donde el CIF
+    # 502108150 esta en 19 clientes.
 
     # ---- Dimensions ------------------------------------------------------
     # Tiendas
@@ -285,10 +318,12 @@ def main() -> None:
     emit_insert(
         out,
         "ps_clientes",
-        ["reg_cliente", "num_cliente", "nombre", "pais", "fecha_creacion"],
+        ["reg_cliente", "num_cliente", "nombre", "nif", "pais", "fecha_creacion"],
         [
-            f"{3000 + i}.99, {3000 + i}.99, {sql_str(f'Cliente {i:04d}')}, "
-            f"{sql_str('ES')}, {d(rng.randint(200, 900))}"
+            f"{3000 + i}.99, {3000 + i}.99, "
+            f"{sql_str(NOMBRE_INTRAGRUPO[i % len(NOMBRE_INTRAGRUPO)] if i in CLIENTES_INTRAGRUPO else f'Cliente {i:04d}')}, "
+            f"{sql_str(CIF_INTRAGRUPO if i in CLIENTES_INTRAGRUPO else f'B{10000000 + i}')}, "
+            f"{sql_str('PT' if i in CLIENTES_INTRAGRUPO else 'ES')}, {d(rng.randint(200, 900))}"
             for i in range(1, N_CLIENTES + 1)
         ],
     )
@@ -566,7 +601,7 @@ def main() -> None:
                     f"{round(abs(total) / 1.21, 2)}",
                     "0",
                     "0",
-                    f"{3000 + rng.randint(1, N_CLIENTES)}.99",
+                    cliente_mayorista(i, rng, N_CLIENTES),
                     "true" if abono else "false",
                     f"{total}",
                 ]
@@ -603,7 +638,7 @@ def main() -> None:
                 [
                     f"{910000 + i}.99",
                     f"{200 + i}.99",
-                    f"{3000 + rng.randint(1, N_CLIENTES)}.99",
+                    cliente_mayorista(i, rng, N_CLIENTES),
                     d(offset),
                     d(max(0, offset - 2)),
                     d(offset),
