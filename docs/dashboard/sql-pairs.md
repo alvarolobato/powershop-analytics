@@ -232,17 +232,17 @@ SELECT COALESCE(NULLIF(TRIM(fm."fami_grup_marc"), ''), 'Sin clasificar') AS "Fam
 
 ### ¿Facturación mayorista mensual del año actual?
 ```sql
-SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"
+SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") FILTER (WHERE f."abono" IS NOT TRUE) AS "Facturas", COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS TRUE), 0) AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"
 ```
 
 ### ¿Cuáles son los principales clientes mayoristas por facturación?
 ```sql
-SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20
+SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") FILTER (WHERE f."abono" IS NOT TRUE) AS "Facturas", COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" f LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20
 ```
 
 ### ¿Cuántos albaranes mayoristas se enviaron este mes?
 ```sql
-SELECT COUNT(*) AS "Albaranes", SUM(a."entregadas") AS "Unidades", SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" a WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND a."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = a."num_cliente" AND COALESCE(ci."nif", '') = '502108150')
+SELECT COUNT(*) FILTER (WHERE a."abono" IS NOT TRUE) AS "Albaranes", COALESCE(SUM(a."entregadas") FILTER (WHERE a."abono" IS NOT TRUE), 0) - COALESCE(SUM(a."entregadas") FILTER (WHERE a."abono" IS TRUE), 0) AS "Unidades", COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS NOT TRUE), 0) - COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS TRUE), 0) AS "Importe Neto" FROM "public"."ps_gc_albaranes" a WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = a."num_cliente" AND COALESCE(ci."nif", '') = '502108150')
 ```
 
 ### ¿Notas de crédito mayoristas (abonos) del año?
@@ -252,7 +252,7 @@ SELECT c."nombre" AS "Cliente", COUNT(*) AS "Abonos", SUM(a."base1" + a."base2" 
 
 ### ¿Productos más vendidos en canal mayorista?
 ```sql
-SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lf."unidades") AS "Unidades", SUM(lf."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE lf."unidades" > 0 AND f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20
+SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", COALESCE(SUM(lf."unidades") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."unidades") FILTER (WHERE f."abono" IS TRUE), 0) AS "Unidades", COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20
 ```
 
 ### ¿Cuáles son los mejores clientes retail por compras?

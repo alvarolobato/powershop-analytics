@@ -166,7 +166,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Excluir notas de crédito con abono=true.",
+      "Para facturación mayorista (canal B2B), el importe neto sin IVA se calcula como base1 + base2 + base3 de las tablas ps_gc_facturas o ps_gc_albaranes. NUNCA usar total_factura o total_albaran que incluyen IVA. Las notas de credito (abono=true) NO se excluyen, se RESTAN: se guardan en POSITIVO, asi que un WHERE abono = false las ignora en vez de descontarlas. Ver la regla de abonos mayoristas.",
     questions: [
       "¿Cuánto facturamos en mayorista?",
       "¿Cuál es la facturación B2B?",
@@ -185,7 +185,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Los abonos mayoristas (ps_gc_albaranes con abono=true o ps_gc_facturas con abono=true) son notas de crédito por devoluciones. Para calcular facturación neta mayorista, excluirlos: WHERE abono = false.",
+      "Los abonos mayoristas (ps_gc_albaranes o ps_gc_facturas con abono=true) son notas de credito por devoluciones y SE GUARDAN EN POSITIVO, igual que las devoluciones de retail (D-057). Medido en produccion 2026-08-30: de 220.967 lineas de abono, 220.885 son positivas y 4 negativas; en cabecera, 8.595 de 8.597 abonos tienen base1+2+3 positiva. Por eso WHERE abono = false NO resta la devolucion, la IGNORA, y la facturacion sale inflada: 3.677.893 EUR frente a 3.199.868 EUR reales en 2026, un 13,0 % de mas (53.880.139 frente a 47.169.063 en el historico). El neto mayorista se calcula SIEMPRE asi: COALESCE(SUM(x) FILTER (WHERE abono IS NOT TRUE), 0) - COALESCE(SUM(x) FILTER (WHERE abono IS TRUE), 0). El COALESCE va en LOS DOS lados y es obligatorio: sin el, un periodo sin abonos da algo - NULL = NULL y la cifra desaparece. AVISO: si se netea con FILTER, hay que QUITAR el WHERE abono IS NOT TRUE de la consulta; dejarlo vacia el lado del abono y el neto vuelve a ser el bruto sin que se note.",
     questions: [
       "¿Devoluciones de clientes mayoristas?",
       "¿Facturación neta mayorista?",
@@ -194,7 +194,7 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto. Excluir abono=true.",
+      "La facturación mayorista por comercial se obtiene de ps_gc_facturas JOIN ps_gc_comerciales usando num_comercial = reg_comercial. Usar base1+base2+base3 para el importe neto, restando los abonos con el patron FILTER (no excluyendolos: estan en positivo).",
     questions: [
       "¿Facturación por comercial?",
       "¿Qué comercial vende más?",
@@ -893,11 +893,11 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Qué productos se venden más en el canal mayorista?",
-    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."unidades") AS "Unidades", SUM(gl."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE gf."abono" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20`,
+    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", COALESCE(SUM(gl."unidades") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."unidades") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Unidades", COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Importe" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Importe" DESC LIMIT 20`,
   },
   {
     question: "¿Cuál es el margen del canal mayorista por producto?",
-    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", SUM(gl."total") AS "Importe", SUM(gl."total_coste") AS "Coste", SUM(gl."total") - SUM(gl."total_coste") AS "Margen", ROUND(100.0 * (SUM(gl."total") - SUM(gl."total_coste")) / NULLIF(SUM(gl."total"), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE gf."abono" IS NOT TRUE AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20`,
+    sql: `SELECT gl."codigo" AS "Código", gl."descripcion" AS "Descripción", COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Importe", COALESCE(SUM(gl."total_coste") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total_coste") FILTER (WHERE gf."abono" IS TRUE), 0) AS "Coste", (COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS TRUE), 0)) - (COALESCE(SUM(gl."total_coste") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total_coste") FILTER (WHERE gf."abono" IS TRUE), 0)) AS "Margen", ROUND(100.0 * ((COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS TRUE), 0)) - (COALESCE(SUM(gl."total_coste") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total_coste") FILTER (WHERE gf."abono" IS TRUE), 0))) / NULLIF((COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS NOT TRUE), 0) - COALESCE(SUM(gl."total") FILTER (WHERE gf."abono" IS TRUE), 0)), 0), 1) AS "Margen %" FROM "public"."ps_gc_lin_facturas" gl JOIN "public"."ps_gc_facturas" gf ON gf."reg_factura" = gl."num_factura" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = gf."num_cliente" AND COALESCE(ci."nif", '') = '502108150') AND gl."fecha_factura" BETWEEN :curr_from AND :curr_to GROUP BY gl."codigo", gl."descripcion" ORDER BY "Margen" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántas unidades se traspasan entre tiendas y por qué ruta?",
@@ -1045,15 +1045,15 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Facturación mayorista mensual del año actual?",
-    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
+    sql: `SELECT DATE_TRUNC('month', f."fecha_factura") AS "Mes", COUNT(DISTINCT f."reg_factura") FILTER (WHERE f."abono" IS NOT TRUE) AS "Facturas", COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS TRUE), 0) AS "Importe Neto" FROM "public"."ps_gc_facturas" f WHERE f."fecha_factura" BETWEEN :curr_from AND :curr_to AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY DATE_TRUNC('month', f."fecha_factura") ORDER BY "Mes"`,
   },
   {
     question: "¿Cuáles son los principales clientes mayoristas por facturación?",
-    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") AS "Facturas", SUM(f."base1" + f."base2" + f."base3") AS "Facturación Neta" FROM "public"."ps_gc_facturas" f LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20`,
+    sql: `SELECT c."nombre" AS "Cliente", COUNT(DISTINCT f."reg_factura") FILTER (WHERE f."abono" IS NOT TRUE) AS "Facturas", COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(f."base1" + f."base2" + f."base3") FILTER (WHERE f."abono" IS TRUE), 0) AS "Facturación Neta" FROM "public"."ps_gc_facturas" f LEFT JOIN "public"."ps_clientes" c ON f."num_cliente" = c."reg_cliente" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY c."nombre" ORDER BY "Facturación Neta" DESC LIMIT 20`,
   },
   {
     question: "¿Cuántos albaranes mayoristas se enviaron este mes?",
-    sql: `SELECT COUNT(*) AS "Albaranes", SUM(a."entregadas") AS "Unidades", SUM(a."base1" + a."base2" + a."base3") AS "Importe Neto" FROM "public"."ps_gc_albaranes" a WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND a."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = a."num_cliente" AND COALESCE(ci."nif", '') = '502108150')`,
+    sql: `SELECT COUNT(*) FILTER (WHERE a."abono" IS NOT TRUE) AS "Albaranes", COALESCE(SUM(a."entregadas") FILTER (WHERE a."abono" IS NOT TRUE), 0) - COALESCE(SUM(a."entregadas") FILTER (WHERE a."abono" IS TRUE), 0) AS "Unidades", COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS NOT TRUE), 0) - COALESCE(SUM(a."base1" + a."base2" + a."base3") FILTER (WHERE a."abono" IS TRUE), 0) AS "Importe Neto" FROM "public"."ps_gc_albaranes" a WHERE (CASE WHEN a."fecha_envio" >= DATE '2000-01-01' THEN a."fecha_envio" ELSE a."fecha_valor" END) BETWEEN :curr_from AND :curr_to AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = a."num_cliente" AND COALESCE(ci."nif", '') = '502108150')`,
   },
   {
     question: "¿Notas de crédito mayoristas (abonos) del año?",
@@ -1061,7 +1061,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Productos más vendidos en canal mayorista?",
-    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", SUM(lf."unidades") AS "Unidades", SUM(lf."total") AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE lf."unidades" > 0 AND f."abono" = false AND NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20`,
+    sql: `SELECT p."ccrefejofacm" AS "Referencia", p."descripcion" AS "Descripción", COALESCE(SUM(lf."unidades") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."unidades") FILTER (WHERE f."abono" IS TRUE), 0) AS "Unidades", COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS NOT TRUE), 0) - COALESCE(SUM(lf."total") FILTER (WHERE f."abono" IS TRUE), 0) AS "Importe" FROM "public"."ps_gc_lin_facturas" lf JOIN "public"."ps_gc_facturas" f ON lf."num_factura" = f."reg_factura" LEFT JOIN "public"."ps_articulos" p ON lf."codigo" = p."codigo" WHERE NOT EXISTS (SELECT 1 FROM "public"."ps_clientes" ci WHERE ci."reg_cliente" = f."num_cliente" AND COALESCE(ci."nif", '') = '502108150') GROUP BY p."ccrefejofacm", p."descripcion" ORDER BY "Unidades" DESC LIMIT 20`,
   },
   {
     question: "¿Cuáles son los mejores clientes retail por compras?",

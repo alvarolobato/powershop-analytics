@@ -192,3 +192,58 @@ test("el tráfico intragrupo se excluye sin perder las filas huérfanas", async 
     await cli.end();
   }
 });
+
+/**
+ * Los abonos mayoristas se guardan en POSITIVO (issue #920), así que
+ * `WHERE abono IS NOT TRUE` no resta la devolución: la ignora. Medido en
+ * producción, eso inflaba la facturación mayorista un 13 % (3.677.893 € frente
+ * a 3.199.868 € reales en 2026).
+ *
+ * El fixture siembra 44 abonos y 64 facturas normales (tras excluir el
+ * intragrupo), así que excluir y netear dan cifras claramente distintas y el
+ * test no puede pasar por accidente.
+ */
+test("los abonos mayoristas se restan, no se excluyen", async () => {
+  const { Client } = await import("pg");
+  const cli = new Client({ connectionString: buildE2eDsn() });
+  await cli.connect();
+  try {
+    const SIN_INTRA = `NOT EXISTS (SELECT 1 FROM ps_clientes ci
+      WHERE ci.reg_cliente = f.num_cliente AND COALESCE(ci.nif, '') = '502108150')`;
+    const BASE =
+      "(COALESCE(f.base1,0) + COALESCE(f.base2,0) + COALESCE(f.base3,0))";
+
+    const { rows } = await cli.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE f.abono IS NOT TRUE)::int             AS n_facturas,
+        COUNT(*) FILTER (WHERE f.abono IS TRUE)::int                 AS n_abonos,
+        COALESCE(SUM(${BASE}) FILTER (WHERE f.abono IS NOT TRUE), 0) AS excluyendo,
+        COALESCE(SUM(${BASE}) FILTER (WHERE f.abono IS NOT TRUE), 0)
+          - COALESCE(SUM(${BASE}) FILTER (WHERE f.abono IS TRUE), 0) AS neto
+      FROM ps_gc_facturas f WHERE ${SIN_INTRA}`);
+    const r = rows[0];
+
+    // El fixture tiene abonos de sobra para discriminar.
+    expect(r.n_facturas, "facturas normales sembradas").toBe(64);
+    expect(r.n_abonos, "abonos sembrados").toBe(44);
+
+    // Y las dos cifras difieren: si alguien vuelve a excluir en vez de restar,
+    // el neto se igualaría al bruto y esto falla.
+    expect(Number(r.neto)).toBeLessThan(Number(r.excluyendo));
+
+    // El COALESCE del lado del abono es obligatorio: sin él, un periodo sin
+    // devoluciones da `algo - NULL` = NULL. Se comprueba en un rango vacío.
+    const vacio = await cli.query(`
+      SELECT COALESCE(SUM(${BASE}) FILTER (WHERE f.abono IS NOT TRUE), 0)
+           - COALESCE(SUM(${BASE}) FILTER (WHERE f.abono IS TRUE), 0) AS neto
+      FROM ps_gc_facturas f
+      WHERE ${SIN_INTRA} AND f.fecha_factura < DATE '1990-01-01'`);
+    expect(
+      vacio.rows[0].neto,
+      "un rango sin filas debe dar 0, nunca NULL",
+    ).not.toBeNull();
+    expect(Number(vacio.rows[0].neto)).toBe(0);
+  } finally {
+    await cli.end();
+  }
+});

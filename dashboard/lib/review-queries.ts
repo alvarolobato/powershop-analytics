@@ -13,7 +13,7 @@
  */
 
 import type { QueryResult } from "./db";
-import { sinIntragrupo } from "@/lib/sql-fragments";
+import { netoDeAbonos, sinIntragrupo } from "@/lib/sql-fragments";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -184,11 +184,11 @@ WHERE tienda <> '99'
     name: "facturacion_mayorista_semana_cerrada",
     domain: "canal_mayorista",
     sql: `SELECT
-  COALESCE(SUM(base1 + base2 + base3), 0) AS facturacion_neta,
-  COUNT(*) AS num_facturas
+  ${netoDeAbonos("(COALESCE(gf.base1,0) + COALESCE(gf.base2,0) + COALESCE(gf.base3,0))", "gf")}
+    AS facturacion_neta,
+  COUNT(*) FILTER (WHERE gf.abono IS NOT TRUE) AS num_facturas
 FROM ps_gc_facturas gf
-WHERE abono IS NOT TRUE
-  AND ${sinIntragrupo("gf")}
+WHERE ${sinIntragrupo("gf")}
   AND fecha_factura >= $1::date
   AND fecha_factura < $2::date`,
   },
@@ -203,12 +203,12 @@ WHERE abono IS NOT TRUE
     sql: `SELECT
   f.num_cliente,
   COALESCE(c.nombre, f.num_cliente::text) AS nombre_cliente,
-  COALESCE(SUM(f.base1 + f.base2 + f.base3), 0) AS facturacion_neta,
-  COUNT(*) AS num_facturas
+  ${netoDeAbonos("(COALESCE(f.base1,0) + COALESCE(f.base2,0) + COALESCE(f.base3,0))", "f")}
+    AS facturacion_neta,
+  COUNT(*) FILTER (WHERE f.abono IS NOT TRUE) AS num_facturas
 FROM ps_gc_facturas f
 LEFT JOIN ps_clientes c ON c.reg_cliente = f.num_cliente
-WHERE f.abono IS NOT TRUE
-  AND ${sinIntragrupo("f")}
+WHERE ${sinIntragrupo("f")}
   AND f.fecha_factura >= $1::date
   AND f.fecha_factura < $2::date
 GROUP BY f.num_cliente, c.nombre
