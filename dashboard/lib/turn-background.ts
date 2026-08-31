@@ -504,7 +504,13 @@ export async function runTurnBackground(
     // ve como un muro de JSON, así que persistirlo como `complete` deja al
     // usuario sin respuesta y sin señal de que algo fue mal -- que fue
     // exactamente lo que pasó el 2026-08-31.
+    //
+    // Acotado a free-chat A PROPÓSITO: `runTurnBackground` sirve a TODOS los
+    // modos, y en `generate`/`modify` la respuesta legítimamente ES un spec de
+    // dashboard. Sin esta condición el guardián convertiría en error la salida
+    // correcta de esos flujos. Lo vio Copilot revisando el PR.
     if (
+      isFreeChatConv &&
       looksLikeDashboardSpecInsteadOfAnswer(
         assistantText,
         assistantToolCalls.some((c) => c.name === "start_dashboard_generation"),

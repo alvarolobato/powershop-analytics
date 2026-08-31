@@ -60,7 +60,9 @@ vi.mock("@/lib/llm-provider/config", () => ({
 
 vi.mock("@/lib/llm-client", () => ({
   createDashboardAgenticAdapter: () => ({}),
-  llmComplete: vi.fn().mockResolvedValue({ text: "Generic LLM reply", usage: {}, model: "m" }),
+  llmComplete: vi
+    .fn()
+    .mockResolvedValue({ text: "Generic LLM reply", usage: {}, model: "m" }),
 }));
 
 vi.mock("@/lib/llm-context", () => ({
@@ -144,7 +146,11 @@ describe("runTurnBackground — free-chat path", () => {
   it("transitions status streaming→complete on success", async () => {
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    expect(mockUpdateTurnStatus).toHaveBeenNthCalledWith(1, TURN_ID, "streaming");
+    expect(mockUpdateTurnStatus).toHaveBeenNthCalledWith(
+      1,
+      TURN_ID,
+      "streaming",
+    );
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
   });
 
@@ -162,7 +168,10 @@ describe("runTurnBackground — free-chat path", () => {
     expect(turnId).toBe(TURN_ID);
     expect(ctx.system_prompt_stable).toBe("SYSTEM PROMPT");
     // …and the pointer is recorded on the turn.
-    expect(mockSetTurnContextFile).toHaveBeenCalledWith(TURN_ID, "abcdef012345/turn-1.json");
+    expect(mockSetTurnContextFile).toHaveBeenCalledWith(
+      TURN_ID,
+      "abcdef012345/turn-1.json",
+    );
     // No heavy "context" event is stored in Postgres — only a lightweight ref.
     const types = mockInsertTurnEvent.mock.calls.map((c) => c[2]);
     expect(types).not.toContain("context");
@@ -172,7 +181,9 @@ describe("runTurnBackground — free-chat path", () => {
   it("emits a lightweight context_ref event pointing at the file", async () => {
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    const refCall = mockInsertTurnEvent.mock.calls.find((c) => c[2] === "context_ref");
+    const refCall = mockInsertTurnEvent.mock.calls.find(
+      (c) => c[2] === "context_ref",
+    );
     expect(refCall).toBeDefined();
     const payload = refCall![3] as Record<string, unknown>;
     expect(payload.file).toBe("abcdef012345/turn-1.json");
@@ -245,9 +256,14 @@ describe("runTurnBackground — free-chat path", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "consulta algo");
 
-    const assistantCall = mockAppendMessage.mock.calls.find(([, role]) => role === "assistant");
+    const assistantCall = mockAppendMessage.mock.calls.find(
+      ([, role]) => role === "assistant",
+    );
     expect(assistantCall).toBeDefined();
-    const content = assistantCall?.[2] as { text: string; tool_calls?: Array<Record<string, unknown>> };
+    const content = assistantCall?.[2] as {
+      text: string;
+      tool_calls?: Array<Record<string, unknown>>;
+    };
     expect(content.text).toBe("Hecho.");
     expect(content.tool_calls).toHaveLength(1);
     expect(content.tool_calls?.[0]).toMatchObject({
@@ -263,8 +279,13 @@ describe("runTurnBackground — free-chat path", () => {
 
   it("omits tool_calls on the assistant message when the turn made none", async () => {
     await runTurnBackground(TURN_ID, makeConv(), "hola");
-    const assistantCall = mockAppendMessage.mock.calls.find(([, role]) => role === "assistant");
-    const content = assistantCall?.[2] as { text: string; tool_calls?: unknown };
+    const assistantCall = mockAppendMessage.mock.calls.find(
+      ([, role]) => role === "assistant",
+    );
+    const content = assistantCall?.[2] as {
+      text: string;
+      tool_calls?: unknown;
+    };
     expect(content.tool_calls).toBeUndefined();
   });
 
@@ -284,7 +305,10 @@ describe("runTurnBackground — free-chat path", () => {
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
     expect(mockWriteTurnContext).toHaveBeenCalledTimes(1);
-    const ctx = mockWriteTurnContext.mock.calls[0][2] as Record<string, unknown>;
+    const ctx = mockWriteTurnContext.mock.calls[0][2] as Record<
+      string,
+      unknown
+    >;
     expect(ctx.system_prompt_stable).toBe("FULL SYSTEM PROMPT");
     expect(ctx.tools).toEqual([{ name: "execute_query", schema: {} }]);
     expect(ctx.flow).toBe("chat");
@@ -326,7 +350,11 @@ describe("runTurnBackground — error path", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    expect(mockUpdateTurnStatus).toHaveBeenCalledWith(TURN_ID, "error", "LLM unavailable");
+    expect(mockUpdateTurnStatus).toHaveBeenCalledWith(
+      TURN_ID,
+      "error",
+      "LLM unavailable",
+    );
   });
 
   it("marks turn as error when loadMessages throws", async () => {
@@ -334,7 +362,11 @@ describe("runTurnBackground — error path", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    expect(mockUpdateTurnStatus).toHaveBeenCalledWith(TURN_ID, "error", "DB down");
+    expect(mockUpdateTurnStatus).toHaveBeenCalledWith(
+      TURN_ID,
+      "error",
+      "DB down",
+    );
   });
 
   it("stores error event with message and timestamp", async () => {
@@ -342,7 +374,9 @@ describe("runTurnBackground — error path", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hello");
 
-    const errCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "error");
+    const errCall = mockInsertTurnEvent.mock.calls.find(
+      ([, , type]) => type === "error",
+    );
     expect(errCall).toBeDefined();
     expect((errCall?.[3] as Record<string, unknown>).message).toBe("boom");
   });
@@ -363,8 +397,12 @@ describe("runTurnBackground — error path", () => {
     });
     // The error event carries the messageId so the client can attach the
     // turn's logs/context panel to the persisted error message.
-    const errCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "error");
-    expect((errCall?.[3] as Record<string, unknown>).messageId).toBe("err-msg-001");
+    const errCall = mockInsertTurnEvent.mock.calls.find(
+      ([, , type]) => type === "error",
+    );
+    expect((errCall?.[3] as Record<string, unknown>).messageId).toBe(
+      "err-msg-001",
+    );
   });
 
   it("prunes transient stream events after an errored turn (#834)", async () => {
@@ -397,8 +435,14 @@ describe("runTurnBackground — error path", () => {
       const opts = args[4] as {
         ctx?: { onAgenticProgress?: (ev: Record<string, unknown>) => void };
       };
-      opts?.ctx?.onAgenticProgress?.({ type: "model_text_delta", text: "parcial" });
-      opts?.ctx?.onAgenticProgress?.({ type: "model_thinking_delta", text: "hmm" });
+      opts?.ctx?.onAgenticProgress?.({
+        type: "model_text_delta",
+        text: "parcial",
+      });
+      opts?.ctx?.onAgenticProgress?.({
+        type: "model_thinking_delta",
+        text: "hmm",
+      });
       throw new Error("mid-stream crash");
     });
 
@@ -425,7 +469,10 @@ describe("runTurnBackground — stream-state durability (#825/#834)", () => {
       };
       opts?.ctx?.onSystemPromptReady?.("SYSTEM PROMPT", []);
       // Cumulative thinking deltas — the LAST one is the final text.
-      opts?.ctx?.onAgenticProgress?.({ type: "model_thinking_delta", text: "pensando…" });
+      opts?.ctx?.onAgenticProgress?.({
+        type: "model_thinking_delta",
+        text: "pensando…",
+      });
       opts?.ctx?.onAgenticProgress?.({
         type: "model_thinking_delta",
         text: "pensando… ya casi está",
@@ -475,7 +522,10 @@ describe("runTurnBackground — stream-state durability (#825/#834)", () => {
         ctx?: { onAgenticProgress?: (ev: Record<string, unknown>) => void };
       };
       for (let i = 1; i <= 5; i++) {
-        opts?.ctx?.onAgenticProgress?.({ type: "model_text_delta", text: `t${i}` });
+        opts?.ctx?.onAgenticProgress?.({
+          type: "model_text_delta",
+          text: `t${i}`,
+        });
       }
       return { text: "done", usage: {}, model: "m" };
     });
@@ -489,7 +539,11 @@ describe("runTurnBackground — stream-state durability (#825/#834)", () => {
 
 describe("runTurnBackground — dashboard analyze path", () => {
   it("calls analyzeDashboard and completes turn", async () => {
-    const conv = makeConv({ mode: "analyze", context_kind: "dashboard", context_ref: "42" });
+    const conv = makeConv({
+      mode: "analyze",
+      context_kind: "dashboard",
+      context_ref: "42",
+    });
     mockSql.mockResolvedValue([{ spec: { widgets: [] } }]);
 
     await runTurnBackground(TURN_ID, conv, "explain the data");
@@ -499,17 +553,27 @@ describe("runTurnBackground — dashboard analyze path", () => {
   });
 
   it("does NOT emit spec_update for analyze turns", async () => {
-    const conv = makeConv({ mode: "analyze", context_kind: "dashboard", context_ref: "42" });
+    const conv = makeConv({
+      mode: "analyze",
+      context_kind: "dashboard",
+      context_ref: "42",
+    });
     mockSql.mockResolvedValue([]);
 
     await runTurnBackground(TURN_ID, conv, "analyze");
 
-    const specCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "spec_update");
+    const specCall = mockInsertTurnEvent.mock.calls.find(
+      ([, , type]) => type === "spec_update",
+    );
     expect(specCall).toBeUndefined();
   });
 
   it("handles missing dashboard spec gracefully", async () => {
-    const conv = makeConv({ mode: "analyze", context_kind: "dashboard", context_ref: "999" });
+    const conv = makeConv({
+      mode: "analyze",
+      context_kind: "dashboard",
+      context_ref: "999",
+    });
     mockSql.mockResolvedValue([]);
 
     await runTurnBackground(TURN_ID, conv, "analyze");
@@ -520,12 +584,19 @@ describe("runTurnBackground — dashboard analyze path", () => {
 
 describe("runTurnBackground — dashboard modify path", () => {
   it("emits spec_update when modifyDashboard sets modifyResult", async () => {
-    const conv = makeConv({ mode: "modify", context_kind: "dashboard", context_ref: "42" });
+    const conv = makeConv({
+      mode: "modify",
+      context_kind: "dashboard",
+      context_ref: "42",
+    });
     mockSql.mockResolvedValue([{ spec: { widgets: [] } }]);
     mockUpdateDashboardSpecWithVersion.mockResolvedValue({ id: 42 });
     mockModifyDashboard.mockImplementation(
       (_spec: unknown, _msg: unknown, agenticCtx: Record<string, unknown>) => {
-        agenticCtx.modifyResult = { spec: { widgets: [{ type: "kpi" }] }, summary: "Updated" };
+        agenticCtx.modifyResult = {
+          spec: { widgets: [{ type: "kpi" }] },
+          summary: "Updated",
+        };
         return Promise.resolve("I've updated the dashboard.");
       },
     );
@@ -538,25 +609,41 @@ describe("runTurnBackground — dashboard modify path", () => {
       { widgets: [{ type: "kpi" }] },
       "add a KPI widget",
     );
-    const specCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "spec_update");
+    const specCall = mockInsertTurnEvent.mock.calls.find(
+      ([, , type]) => type === "spec_update",
+    );
     expect(specCall).toBeDefined();
-    expect((specCall?.[3] as Record<string, unknown>).prompt).toBe("add a KPI widget");
+    expect((specCall?.[3] as Record<string, unknown>).prompt).toBe(
+      "add a KPI widget",
+    );
   });
 
   it("does not emit spec_update when modifyResult is absent", async () => {
-    const conv = makeConv({ mode: "modify", context_kind: "dashboard", context_ref: "42" });
+    const conv = makeConv({
+      mode: "modify",
+      context_kind: "dashboard",
+      context_ref: "42",
+    });
     mockSql.mockResolvedValue([{ spec: { widgets: [] } }]);
 
     await runTurnBackground(TURN_ID, conv, "change colors");
 
-    const specCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "spec_update");
+    const specCall = mockInsertTurnEvent.mock.calls.find(
+      ([, , type]) => type === "spec_update",
+    );
     expect(specCall).toBeUndefined();
   });
 
   it("completes without spec_update when DB persist fails", async () => {
-    const conv = makeConv({ mode: "modify", context_kind: "dashboard", context_ref: "42" });
+    const conv = makeConv({
+      mode: "modify",
+      context_kind: "dashboard",
+      context_ref: "42",
+    });
     mockSql.mockResolvedValue([{ spec: { widgets: [] } }]);
-    mockUpdateDashboardSpecWithVersion.mockRejectedValueOnce(new Error("DB write failure"));
+    mockUpdateDashboardSpecWithVersion.mockRejectedValueOnce(
+      new Error("DB write failure"),
+    );
     mockModifyDashboard.mockImplementation(
       (_spec: unknown, _msg: unknown, agenticCtx: Record<string, unknown>) => {
         agenticCtx.modifyResult = { spec: { widgets: [] }, summary: "" };
@@ -568,7 +655,9 @@ describe("runTurnBackground — dashboard modify path", () => {
 
     // Turn completes successfully even if spec persist failed
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
-    const specCall = mockInsertTurnEvent.mock.calls.find(([, , type]) => type === "spec_update");
+    const specCall = mockInsertTurnEvent.mock.calls.find(
+      ([, , type]) => type === "spec_update",
+    );
     expect(specCall).toBeUndefined();
   });
 });
@@ -599,7 +688,10 @@ describe("runTurnBackground — fabricated tool-log guard", () => {
   function assembleReturns(text: string) {
     mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
       const opts = args[4] as {
-        ctx?: { onSystemPromptReady?: (p: string, t?: unknown[]) => void; toolCalls?: unknown[] };
+        ctx?: {
+          onSystemPromptReady?: (p: string, t?: unknown[]) => void;
+          toolCalls?: unknown[];
+        };
       };
       opts?.ctx?.onSystemPromptReady?.("SYSTEM PROMPT", []);
       return { text, usage: {}, model: "m" };
@@ -609,7 +701,11 @@ describe("runTurnBackground — fabricated tool-log guard", () => {
   it("ends the turn as error, not complete, when the model fabricates a tool log", async () => {
     assembleReturns(FABRICATED);
 
-    await runTurnBackground(TURN_ID, makeConv(), "v265103 sacame el mismo informe");
+    await runTurnBackground(
+      TURN_ID,
+      makeConv(),
+      "v265103 sacame el mismo informe",
+    );
 
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(
       TURN_ID,
@@ -624,9 +720,15 @@ describe("runTurnBackground — fabricated tool-log guard", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hola");
 
-    const assistantCalls = mockAppendMessage.mock.calls.filter(([, role]) => role === "assistant");
+    const assistantCalls = mockAppendMessage.mock.calls.filter(
+      ([, role]) => role === "assistant",
+    );
     expect(assistantCalls.length).toBe(1);
-    const [, , content] = assistantCalls[0] as [string, string, Record<string, unknown>];
+    const [, , content] = assistantCalls[0] as [
+      string,
+      string,
+      Record<string, unknown>,
+    ];
     expect(content.is_error).toBe(true);
     // The fabricated text must NOT be persisted as the answer.
     expect(String(content.text)).not.toContain("execute_query");
@@ -650,10 +752,14 @@ describe("runTurnBackground — fabricated tool-log guard", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hola");
 
-    const evidence = mockInsertTurnEvent.mock.calls.find((c) => c[2] === "guard_evidence");
+    const evidence = mockInsertTurnEvent.mock.calls.find(
+      (c) => c[2] === "guard_evidence",
+    );
     expect(evidence, "evidence is persisted for auditing").toBeTruthy();
     const payload = (evidence as unknown[])[3] as Record<string, unknown>;
-    expect(payload.sample, "the sample is kept for a human to query").toContain("execute_query");
+    expect(payload.sample, "the sample is kept for a human to query").toContain(
+      "execute_query",
+    );
     expect(payload.text, "but NOT under a key the UI renders").toBeUndefined();
     expect(payload.label, "and not under `label` either").toBeUndefined();
 
@@ -677,16 +783,93 @@ describe("runTurnBackground — fabricated tool-log guard", () => {
 
     await runTurnBackground(TURN_ID, makeConv(), "hola");
 
-    const logged = err.mock.calls.flat().find((a) => typeof a === "object" && a !== null && "realToolCalls" in (a as object));
+    const logged = err.mock.calls
+      .flat()
+      .find(
+        (a) =>
+          typeof a === "object" &&
+          a !== null &&
+          "realToolCalls" in (a as object),
+      );
     expect(logged, "the count is logged, not assumed").toBeTruthy();
     err.mockRestore();
   });
 
   it("leaves a normal answer completely alone", async () => {
-    assembleReturns("La referencia V265103 se vendió 42 unidades en la temporada V26.");
+    assembleReturns(
+      "La referencia V265103 se vendió 42 unidades en la temporada V26.",
+    );
 
     await runTurnBackground(TURN_ID, makeConv(), "hola");
 
     expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
+  });
+});
+
+describe("runTurnBackground — guardián de spec-como-respuesta", () => {
+  // El guardián vive en el mismo punto de persistencia que el de arriba, que
+  // sirve a TODOS los modos. En `generate`/`modify` la respuesta legítimamente
+  // ES un spec de dashboard, así que sin acotarlo a free-chat convertiría en
+  // error la salida correcta de esos flujos. Lo señaló Copilot; estos tests
+  // fijan las dos mitades.
+
+  const SPEC = [
+    "He verificado los datos. Este es el dashboard:",
+    "```json",
+    '{"title":"Rentabilidad V26","widgets":[{"id":"w1","type":"kpi_row","items":[{"label":"Ventas","sql":"SELECT 1"}]}]}',
+    "```",
+  ].join("\n");
+
+  function assembleReturns(text: string) {
+    mockAssembleRequest.mockImplementation(async (...args: unknown[]) => {
+      const opts = args[4] as {
+        ctx?: {
+          onSystemPromptReady?: (p: string, t?: unknown[]) => void;
+          toolCalls?: unknown[];
+        };
+      };
+      opts?.ctx?.onSystemPromptReady?.("SYSTEM PROMPT", []);
+      return { text, usage: {}, model: "m" };
+    });
+  }
+
+  it("en free-chat termina en error, no en complete", async () => {
+    assembleReturns(SPEC);
+
+    await runTurnBackground(
+      TURN_ID,
+      makeConv(),
+      "Rentabilidad proveedor Lucas fashion v26",
+    );
+
+    expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(
+      TURN_ID,
+      "error",
+      expect.stringContaining("definición de un panel"),
+    );
+    expect(mockUpdateTurnStatus).not.toHaveBeenCalledWith(TURN_ID, "complete");
+  });
+
+  it("NO dispara fuera de free-chat, donde un spec puede ser la salida correcta", async () => {
+    // Modo `view`: cae en la rama genérica, que llega al MISMO punto de
+    // persistencia. Es el caso que hace falta para que este test signifique
+    // algo: con `analyze`/`modify` el spec viaja en `dashResult.spec`, no en
+    // el texto, así que el guardián no lo vería y el test pasaría con y sin
+    // la condición -- verde por no mirar nada.
+    assembleReturns(SPEC);
+
+    await runTurnBackground(
+      TURN_ID,
+      makeConv({ mode: "view", context_kind: "dashboard", context_ref: "7" }),
+      "enséñame el panel",
+    );
+
+    expect(mockUpdateTurnStatus).toHaveBeenLastCalledWith(TURN_ID, "complete");
+    const matados = mockUpdateTurnStatus.mock.calls.filter(
+      ([, estado, msg]) =>
+        estado === "error" &&
+        String(msg ?? "").includes("definición de un panel"),
+    );
+    expect(matados).toEqual([]);
   });
 });
