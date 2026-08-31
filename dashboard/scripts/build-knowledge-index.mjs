@@ -116,7 +116,8 @@ export function chunk(path, text) {
     if (!body) return;
     // Sólo indexamos secciones con SQL o con densidad de nombres de tabla:
     // el resto es prosa que no ayuda a escribir una consulta.
-    const hasSql = /\bSELECT\b[\s\S]{0,600}?\bFROM\b/i.test(body);
+    const hasSql = /\bSELECT\b[\s\S]{0,600}?\bFROM\b/i.test(body) ||
+      (SQL_FENCE_RE.test(body) && POSTGRES_RE.test(body));
     const tableRefs = (body.match(/\b(ps_[a-z_]+|LineasVentas|Ventas|Articulos|Exportaciones|BarrasAsociado|CCStock|Clientes|Traspasos)\b/g) || []).length;
     if (hasSql || tableRefs >= 3) {
       const clipped = body.slice(0, 4000);
