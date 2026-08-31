@@ -1207,7 +1207,7 @@ export const SQL_PAIRS: SqlPair[] = [
   },
   {
     question: "¿Qué rentabilidad deja un proveedor en una temporada concreta?",
-    sql: `SELECT p."nombre" AS "Proveedor", a."clave_temporada" AS "Temporada", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Coste", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE p."nombre" ILIKE :proveedor AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY p."nombre", a."clave_temporada" ORDER BY "Ventas Netas" DESC LIMIT 20`,
+    sql: `SELECT p."nombre" AS "Proveedor", a."clave_temporada" AS "Temporada", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Coste", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE p."nombre" ILIKE '%LUCAS%' AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY p."nombre", a."clave_temporada" ORDER BY "Ventas Netas" DESC LIMIT 20`,
   },
   {
     question: "¿Qué temporadas son las más rentables?",
@@ -1216,6 +1216,26 @@ export const SQL_PAIRS: SqlPair[] = [
   {
     question: "¿Qué familias dejan más margen?",
     sql: `SELECT fm."fami_grup_marc" AS "Familia", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_familias" fm ON fm."reg_familia" = a."num_familia" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Cuál es el stock actual de una temporada?",
+    sql: `SELECT a."clave_temporada" AS "Temporada", COUNT(DISTINCT s."codigo") AS "Referencias", SUM(s."stock") AS "Unidades en Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" a ON a."codigo" = s."codigo" WHERE a."clave_temporada" = 'V26' AND s."stock" <> 0 GROUP BY a."clave_temporada"`,
+  },
+  {
+    question: "¿Qué stock tengo de un proveedor en una temporada?",
+    sql: `SELECT p."nombre" AS "Proveedor", a."clave_temporada" AS "Temporada", COUNT(DISTINCT s."codigo") AS "Referencias", SUM(s."stock") AS "Unidades en Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" a ON a."codigo" = s."codigo" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE p."nombre" ILIKE '%YIWU%' AND a."clave_temporada" = 'V26' AND s."stock" <> 0 GROUP BY p."nombre", a."clave_temporada"`,
+  },
+  {
+    question: "¿Qué stock tengo por familia en una temporada?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", COUNT(DISTINCT s."codigo") AS "Referencias", SUM(s."stock") AS "Unidades en Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" a ON a."codigo" = s."codigo" JOIN "public"."ps_familias" fm ON fm."reg_familia" = a."num_familia" WHERE a."clave_temporada" = 'V26' AND s."stock" <> 0 GROUP BY fm."fami_grup_marc" ORDER BY "Unidades en Stock" DESC LIMIT 25`,
+  },
+  {
+    question: "¿Qué familias se han vendido mejor en una temporada?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS "Unidades", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_familias" fm ON fm."reg_familia" = a."num_familia" WHERE a."clave_temporada" = 'V26' AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC LIMIT 25`,
+  },
+  {
+    question: "¿Son rentables estas referencias? (rentabilidad de una lista de artículos)",
+    sql: `SELECT LEFT(TRIM(a."ccrefejofacm"), LENGTH(TRIM(a."ccrefejofacm")) - 2) AS "Modelo", MIN(a."descripcion") AS "Descripción", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" WHERE a."ccrefejofacm" LIKE 'I26101%' AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' AND LENGTH(TRIM(COALESCE(a."ccrefejofacm", ''))) > 2 GROUP BY 1 ORDER BY "Ventas Netas" DESC LIMIT 40`,
   }
 ];
 
