@@ -209,9 +209,9 @@ export function formatToolCallsForHistory(toolCalls: ToolCallRecord[]): string {
  */
 export function looksLikeDashboardSpecInsteadOfAnswer(
   text: string,
-  llamoAGenerarDashboard: boolean,
+  calledDashboardGeneration: boolean,
 ): boolean {
-  if (llamoAGenerarDashboard) return false;
+  if (calledDashboardGeneration) return false;
   const t = text ?? "";
   if (!t) return false;
   // Un spec real trae `widgets` como array JUNTO con `sql` o un tipo de widget.
