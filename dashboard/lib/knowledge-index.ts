@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 16 ficheros. 262 secciones (176 con SQL,
+// Fuente: 16 ficheros. 262 secciones (192 con SQL,
 // 11 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -261,21 +261,21 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/sample-queries.md",
     "heading": "Margen por artículo (retail)",
     "body": "```sql\nSELECT LEFT(a.ccrefejofacm, LENGTH(a.ccrefejofacm) - 2) AS \"Artículo\",\n       MIN(a.descripcion) AS \"Descripción\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0) AS \"Coste\",\n       (COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n      - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0))\n     - (COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n      - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0)) AS \"Margen\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\n  AND LENGTH(COALESCE(a.ccrefejofacm, '')) > 2\nGROUP BY 1\nORDER BY \"Margen\" DESC\nLIMIT 20\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Porcentaje de margen por familia",
     "body": "```sql\nSELECT f.fami_grup_marc AS \"Familia\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       ROUND(100.0 * ((COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0))\n                    - (COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0)))\n             / NULLIF(COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                    - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0), 0), 1) AS \"Margen %\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_articulos a ON a.codigo = lv.codigo\nJOIN ps_familias f ON f.reg_familia = a.num_familia\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY f.fami_grup_marc\nORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "Margen por tienda",
     "body": "```sql\nSELECT t.identificador AS \"Tienda\",\n       COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0) AS \"Venta Neta\",\n       ROUND(100.0 * ((COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0))\n                    - (COALESCE(SUM(lv.total_coste_si) FILTER (WHERE v.entrada), 0)\n                     - COALESCE(SUM(lv.total_coste_si) FILTER (WHERE NOT v.entrada), 0)))\n             / NULLIF(COALESCE(SUM(lv.total_si) FILTER (WHERE v.entrada), 0)\n                    - COALESCE(SUM(lv.total_si) FILTER (WHERE NOT v.entrada), 0), 0), 1) AS \"Margen %\"\nFROM ps_lineas_ventas lv\nJOIN ps_ventas v ON v.reg_ventas = lv.num_ventas\nJOIN ps_tiendas t ON t.codigo = v.tienda\nWHERE v.tienda <> '99'\n  AND v.fecha_creacion BETWEEN :curr_from AND :curr_to\nGROUP BY t.identificador\nORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
@@ -485,21 +485,21 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen bruto por producto en retail?",
     "body": "```sql\nSELECT a.\"ccrefejofacm\" AS \"Referencia\", a.\"descripcion\" AS \"Descripción\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Coste\", (COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) AS \"Margen\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY a.\"ccrefejofacm\", a.\"descripcion\" ORDER BY \"Margen\" DESC LIMIT 20\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el porcentaje de margen por familia?",
     "body": "```sql\nSELECT f.\"fami_grup_marc\" AS \"Familia\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" f ON f.\"reg_familia\" = a.\"num_familia\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY f.\"fami_grup_marc\" ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/sample-queries.md",
     "heading": "¿Cuál es el margen por tienda?",
     "body": "```sql\nSELECT t.\"identificador\" AS \"Tienda\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Venta Neta\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON v.\"reg_ventas\" = lv.\"num_ventas\" JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\" WHERE v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to GROUP BY t.\"identificador\" ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
@@ -639,7 +639,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/skills/report-generation.md",
     "heading": "Step 5: Per-store performance with YoY",
     "body": "```sql\nSELECT v.\"tienda\" AS \"Tienda\",\n       COALESCE(NULLIF(t.\"identificador\", ''), NULLIF(t.\"poblacion\", ''),\n                'Tienda ' || v.\"tienda\") AS \"Nombre\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to), 0)\n       - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to), 0) AS \"Actual\",\n       COALESCE(SUM(v.\"total_si\") FILTER (WHERE v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to), 0)\n       - COALESCE(SUM(v.\"total_si\") FILTER (WHERE NOT v.\"entrada\"\n            AND v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to), 0) AS \"Comparado\"\nFROM \"public\".\"ps_ventas\" v\nLEFT JOIN \"public\".\"ps_tiendas\" t ON t.\"codigo\" = v.\"tienda\"\nWHERE v.\"tienda\" <> '99'\n  AND (v.\"fecha_creacion\" BETWEEN :comp_from AND :comp_to\n       OR v.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to)\nGROUP BY v.\"tienda\",\n         COALESCE(NULLIF(t.\"identificador\", ''), NULLIF(t.\"poblacion\", ''),\n                  'Tienda ' || v.\"tienda\")\nORDER BY \"Actual\" DESC;\n```\n\nStore names come from `ps_tiendas` (`identificador` → `poblacion` → fallback).\nThere is no `provincia` column in the mirror.",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
@@ -1654,28 +1654,28 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Margen bruto por familia de producto?",
     "body": "```sql\nSELECT fm.\"fami_grup_marc\" AS \"Familia\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Coste Total\", ROUND(((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0) * 100, 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" JOIN \"public\".\"ps_familias\" fm ON p.\"num_familia\" = fm.\"reg_familia\" GROUP BY fm.\"fami_grup_marc\" HAVING COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) > 0 ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Margen bruto por tienda?",
     "body": "```sql\nSELECT lv.\"tienda\" AS \"Tienda\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Coste Total\", ROUND(((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0) * 100, 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" WHERE lv.\"tienda\" <> '99' GROUP BY lv.\"tienda\" HAVING COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) > 0 ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Productos con bajo margen (menos del 30%)?",
     "body": "```sql\nSELECT p.\"ccrefejofacm\" AS \"Referencia\", p.\"descripcion\" AS \"Descripción\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\", ROUND(((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0) * 100, 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" GROUP BY p.\"ccrefejofacm\", p.\"descripcion\" HAVING COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) > 0 AND ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0) < 0.30 ORDER BY \"Margen %\" ASC LIMIT 30\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Margen bruto por departamento?",
     "body": "```sql\nSELECT d.\"depa_secc_fabr\" AS \"Departamento\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Ventas Netas\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0) AS \"Coste Total\", ROUND(((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT v.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0), 0) * 100, 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_ventas\" v ON lv.\"num_ventas\" = v.\"reg_ventas\" JOIN \"public\".\"ps_articulos\" p ON lv.\"codigo\" = p.\"codigo\" JOIN \"public\".\"ps_departamentos\" d ON p.\"num_departament\" = d.\"reg_departament\" GROUP BY d.\"depa_secc_fabr\" HAVING COALESCE(SUM(lv.\"total_si\") FILTER (WHERE v.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT v.\"entrada\"), 0) > 0 ORDER BY \"Margen %\" DESC\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
@@ -1766,28 +1766,28 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Cuál es la rentabilidad de un proveedor?",
     "body": "```sql\nSELECT p.\"nombre\" AS \"Proveedor\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Coste\", (COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) AS \"Margen\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0))) / NULLIF((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_proveedores\" p ON p.\"reg_proveedor\" = a.\"num_proveedor\" WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' GROUP BY p.\"nombre\" ORDER BY \"Margen\" DESC LIMIT 25\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué rentabilidad deja un proveedor en una temporada concreta?",
     "body": "```sql\nSELECT p.\"nombre\" AS \"Proveedor\", a.\"clave_temporada\" AS \"Temporada\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\", COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Coste\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0))) / NULLIF((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_proveedores\" p ON p.\"reg_proveedor\" = a.\"num_proveedor\" WHERE p.\"nombre\" ILIKE '%LUCAS%' AND lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' GROUP BY p.\"nombre\", a.\"clave_temporada\" ORDER BY \"Ventas Netas\" DESC LIMIT 20\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué temporadas son las más rentables?",
     "body": "```sql\nSELECT a.\"clave_temporada\" AS \"Temporada\", COUNT(DISTINCT a.\"codigo\") AS \"Referencias\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0))) / NULLIF((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' AND a.\"clave_temporada\" IS NOT NULL AND a.\"clave_temporada\" <> '' GROUP BY a.\"clave_temporada\" HAVING (COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) > 0 ORDER BY \"Ventas Netas\" DESC LIMIT 20\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Qué familias dejan más margen?",
     "body": "```sql\nSELECT fm.\"fami_grup_marc\" AS \"Familia\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0))) / NULLIF((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" JOIN \"public\".\"ps_familias\" fm ON fm.\"reg_familia\" = a.\"num_familia\" WHERE lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' GROUP BY fm.\"fami_grup_marc\" ORDER BY \"Ventas Netas\" DESC LIMIT 20\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
@@ -1822,7 +1822,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Son rentables estas referencias? (rentabilidad de una lista de artículos)",
     "body": "```sql\nSELECT LEFT(TRIM(a.\"ccrefejofacm\"), LENGTH(TRIM(a.\"ccrefejofacm\")) - 2) AS \"Modelo\", MIN(a.\"descripcion\") AS \"Descripción\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE a.\"ccrefejofacm\" LIKE 'I26101%' AND lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' AND LENGTH(TRIM(COALESCE(a.\"ccrefejofacm\", ''))) > 2 GROUP BY 1 ORDER BY \"Ventas Netas\" DESC LIMIT 40\n```",
-    "hasSql": false,
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
