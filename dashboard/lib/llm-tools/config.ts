@@ -86,8 +86,12 @@ export function getAgenticConfig() {
  * without a deploy — the right value depends on how verbose the configured
  * model's reasoning is, and the dashboard targets three model families.
  *
- * `assembleRequest` uses this as its default, so there is ONE number rather
- * than a schema default and a separate hardcoded 8192 drifting apart. An
+ * `assembleRequest` usa este valor por defecto, y desde 2026-08-31 TODOS los
+ * flujos también: `llm.ts` tenía 8192 codificado en generateDashboard,
+ * modifyDashboard, suggestDashboards y analyzeGaps, y 4096 en analyzeDashboard
+ * y las dos reseñas -- justo el valor que ya provocó LLM_EMPTY una vez. El
+ * respaldo de `llm-client.ts` también sale de aquí. Lo vio Copilot: el
+ * comentario decía "ONE number" y era falso. An
  * earlier revision scoped this to free chat only, which meant an operator
  * raising it because dashboard GENERATION was truncating got no effect.
  *

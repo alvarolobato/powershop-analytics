@@ -33,8 +33,12 @@ import { createDashboardAgenticAdapter } from "./llm-provider/registry";
 import { logUsage } from "./llm-usage";
 import { callWithCircuitBreaker } from "./llm-circuit-breaker";
 import { assertLlmEnabled } from "./llm-enabled";
-import type { DashboardLlmFlow, DashboardLlmProviderId } from "./llm-provider/types";
+import type {
+  DashboardLlmFlow,
+  DashboardLlmProviderId,
+} from "./llm-provider/types";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { getLlmMaxOutputTokens } from "@/lib/llm-tools/config";
 
 // Re-exports for callers that previously imported directly from provider modules.
 export { resetOpenRouterClient as resetClient };
@@ -71,7 +75,15 @@ export interface LlmRequest {
    * Logical flow name — used for telemetry, per-flow model selection, and as
    * the default `endpoint` when none is provided.
    */
-  flow: "generate" | "modify" | "analyze" | "suggest" | "gap" | "summary" | "weekly" | string;
+  flow:
+    | "generate"
+    | "modify"
+    | "analyze"
+    | "suggest"
+    | "gap"
+    | "summary"
+    | "weekly"
+    | string;
   /**
    * System prompt split into stable (cache-friendly) and optional volatile
    * (dynamic context). Task 4 will inject `cache_control` on the stable part.
@@ -140,8 +152,15 @@ export class E2eStubProviderError extends Error {
   }
 }
 
-function narrowDashboardLlmFlow(flow: string | undefined): DashboardLlmFlow | undefined {
-  if (flow === "generate" || flow === "modify" || flow === "analyze" || flow === "weekly") {
+function narrowDashboardLlmFlow(
+  flow: string | undefined,
+): DashboardLlmFlow | undefined {
+  if (
+    flow === "generate" ||
+    flow === "modify" ||
+    flow === "analyze" ||
+    flow === "weekly"
+  ) {
     return flow;
   }
   return undefined;
@@ -209,7 +228,9 @@ export const CLI_SYSTEM_PROMPT_SAFE_FLOWS = new Set([
  * stable portion of the system prompt when non-empty. The volatile portion is
  * appended as a separate uncached text block so it does not bust the cache.
  */
-function buildMessagesOpenRouter(req: LlmRequest): ChatCompletionMessageParam[] {
+function buildMessagesOpenRouter(
+  req: LlmRequest,
+): ChatCompletionMessageParam[] {
   const { stable, volatile } = req.systemPrompt;
   const userMessages = req.messages.map(
     (m) => ({ role: m.role, content: m.content }) as ChatCompletionMessageParam,
@@ -261,7 +282,10 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
   const requestId = req.requestId ?? null;
   const endpoint = req.endpoint ?? req.flow;
   const temperature = req.temperature ?? 0.2;
-  const maxOutputTokens = req.maxOutputTokens ?? 8192;
+  // El respaldo sale de la configuracion, no de un 8192 fijo: si no, un
+  // llamante que no pase el valor se salta el ajuste global y con un modelo
+  // de razonamiento se queda sin presupuesto (LLM_EMPTY).
+  const maxOutputTokens = req.maxOutputTokens ?? getLlmMaxOutputTokens();
 
   // ── CLI provider ────────────────────────────────────────────────────────────
   if (cfg.provider === "cli") {
@@ -274,18 +298,26 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
     const cliSystemPromptSafe = CLI_SYSTEM_PROMPT_SAFE_FLOWS.has(req.flow);
     const cliSystemPrompt = cliSystemPromptSafe ? req.systemPrompt.stable : "";
     const stdinReq: LlmRequest = cliSystemPromptSafe
-      ? { ...req, systemPrompt: { stable: "", volatile: req.systemPrompt.volatile } }
+      ? {
+          ...req,
+          systemPrompt: { stable: "", volatile: req.systemPrompt.volatile },
+        }
       : req;
     const messages = buildMessagesPlain(stdinReq);
     const combined = messages
       .map((m) => {
-        const body = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+        const body =
+          typeof m.content === "string" ? m.content : JSON.stringify(m.content);
         return `## ${m.role}\n${body}`;
       })
       .join("\n\n");
 
     const { text, usage: cliUsage } = await callWithCircuitBreaker(() =>
-      claudeCliSingleShot({ cfg, prompt: combined, systemPrompt: cliSystemPrompt }),
+      claudeCliSingleShot({
+        cfg,
+        prompt: combined,
+        systemPrompt: cliSystemPrompt,
+      }),
     );
 
     // Real token counts + the CLI's own `total_cost_usd`, instead of the
@@ -351,7 +383,7 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
     // Cast explicitly to Stream<ChatCompletionChunk> so TypeScript knows the
     // for-await loop is valid (the openai overload is lost after wrapping in
     // callWithCircuitBreaker<T> which returns Promise<T> not the overloaded type).
-    const stream = await callWithCircuitBreaker(() =>
+    const stream = (await callWithCircuitBreaker(() =>
       client.chat.completions.create({
         model,
         messages,
@@ -360,7 +392,9 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
         stream: true as const,
         ...openRouterExtras(openRouterProvider),
       }),
-    ) as import("openai/streaming").Stream<import("openai/resources/chat/completions").ChatCompletionChunk>;
+    )) as import("openai/streaming").Stream<
+      import("openai/resources/chat/completions").ChatCompletionChunk
+    >;
 
     let textContent = "";
     let totalCharsEmitted = 0;
@@ -423,7 +457,11 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
   }
 
   // Non-streaming path (default).
-  const { content, usage: rawUsage, reportedCostUsd: nonStreamCost } = await callWithCircuitBreaker(() =>
+  const {
+    content,
+    usage: rawUsage,
+    reportedCostUsd: nonStreamCost,
+  } = await callWithCircuitBreaker(() =>
     openRouterChatCompletion({
       client,
       model,
@@ -443,6 +481,9 @@ export async function llmComplete(req: LlmRequest): Promise<LlmResponse> {
     cache_read_input_tokens: u.cache_read_input_tokens ?? null,
   };
 
-  logUsage(endpoint, model, usage, meta, { requestId, reportedCostUsd: nonStreamCost });
+  logUsage(endpoint, model, usage, meta, {
+    requestId,
+    reportedCostUsd: nonStreamCost,
+  });
   return { text: content, usage, provider: "openrouter" };
 }
