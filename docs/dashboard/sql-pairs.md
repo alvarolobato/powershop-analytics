@@ -383,3 +383,14 @@ WITH compras_talla AS (SELECT la."talla" AS talla, SUM(la."recibidas") AS recibi
 SELECT la."codigo" AS "Código", la."descripcion" AS "Descripción", la."color" AS "Color", la."talla" AS "Talla", la."recibidas" AS "Unidades", la."precio_coste" AS "Coste Unitario" FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" WHERE a."fecha_recibido" BETWEEN :curr_from AND :curr_to AND la."recibidas" <> 0 ORDER BY la."codigo", la."talla" LIMIT 200
 ```
 
+### ¿Cuánto he comprado a un proveedor, en unidades e importe?
+```sql
+WITH lineas AS (SELECT la."reg_linea_albaran", MAX(la."total_si") AS importe_linea, SUM(la."recibidas") AS unidades_linea FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE la."abono" IS NOT TRUE AND p."nombre" ILIKE :proveedor AND a."fecha_recibido" BETWEEN :curr_from AND :curr_to GROUP BY la."reg_linea_albaran") SELECT COUNT(*) AS "Líneas", SUM(unidades_linea) AS "Unidades Recibidas", ROUND(SUM(importe_linea), 2) AS "Importe al Coste" FROM lineas
+```
+
+### ¿Cuál es el valor del stock por tienda?
+```sql
+WITH por_articulo AS (SELECT s."tienda", s."codigo", s."tienda_codigo", MAX(s."cc_stock") AS cc, SUM(s."stock") AS unidades FROM "public"."ps_stock_tienda" s GROUP BY s."tienda", s."codigo", s."tienda_codigo") SELECT "tienda" AS "Tienda", SUM(unidades) AS "Unidades", ROUND(SUM(cc), 2) AS "Valor" FROM por_articulo GROUP BY "tienda" ORDER BY "Valor" DESC LIMIT 30
+```
+
+
