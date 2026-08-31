@@ -29,5 +29,16 @@ export function toolsForFlow(flow: string): ChatCompletionTool[] {
   if (!isLlmFlow(flow)) return [];
   if (SINGLE_SHOT_FLOWS.has(flow)) return [];
   if (flow === "chat" || flow === "summary") return FREE_CHAT_TOOLS;
-  return DASHBOARD_AGENTIC_TOOLS;
+  // Un flujo de dashboard NUNCA puede lanzar otra generación de dashboard.
+  //
+  // `DASHBOARD_AGENTIC_TOOLS` incluye `start_dashboard_generation` porque
+  // `FREE_CHAT_TOOLS` se deriva de él por filtro, pero dársela a `generate`
+  // significa entregarle al generador la herramienta para arrancar otro
+  // generador: cada llamada crea un turno de seguimiento que a su vez puede
+  // volver a llamarla. El propio handler ya avisa por texto ("NO vuelvas a
+  // llamar a start_dashboard_generation en este turno"), y una instrucción no
+  // es una garantía. Quitarla del catálogo sí lo es.
+  return DASHBOARD_AGENTIC_TOOLS.filter(
+    (t) => !(t.type === "function" && t.function.name === "start_dashboard_generation"),
+  );
 }
