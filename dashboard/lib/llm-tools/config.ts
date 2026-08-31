@@ -26,6 +26,22 @@ function readInt(name: string, key: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * Como `readInt`, pero 0 es un valor VÁLIDO, no "sin configurar".
+ *
+ * `readInt` colapsa el 0 al valor por defecto (`n > 0 ? n : fallback`), lo cual
+ * es correcto para rondas o timeouts —un 0 ahí no significa nada— pero no para
+ * un contador de reintentos, donde 0 es precisamente cómo se apagan. Sin esto,
+ * poner `DASHBOARD_AGENTIC_MAX_STREAM_RETRIES=0` no desactivaba nada: devolvía
+ * 2 en silencio.
+ */
+function readIntCeroValido(name: string, key: string, fallback: number): number {
+  const raw = readRaw(name, key);
+  if (raw === undefined || raw === "") return fallback;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
 function readBool(name: string, key: string, defaultTrue: boolean): boolean {
   const raw = readRaw(name, key)?.toLowerCase();
   if (raw === undefined || raw === "") return defaultTrue;
@@ -74,6 +90,15 @@ export function getAgenticConfig() {
       "DASHBOARD_AGENTIC_MAX_RESULT_CHARS",
       "dashboard.agentic_max_result_chars",
       20_000,
+    ),
+    // Reintentos de UN paso del modelo cuando el stream se corta a mitad.
+    // No es un timeout: es el caso "el otro extremo cerró la conexión" que
+    // mató al turno 7 del 31/08 tras 10 rondas ya pagadas. Ver
+    // `esCorteTransitorioDeStream` en runner.ts.
+    maxStreamRetries: readIntCeroValido(
+      "DASHBOARD_AGENTIC_MAX_STREAM_RETRIES",
+      "dashboard.agentic_max_stream_retries",
+      2,
     ),
   };
 }

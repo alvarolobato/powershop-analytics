@@ -10,6 +10,7 @@ import type { ReviewLlmOutput } from "@/lib/review-schema";
 export type AgenticProgressEvent =
   | { type: "round"; round: number; maxRounds: number }
   | { type: "model_step_start"; round: number; provider: DashboardLlmProviderId; driver: DashboardCliDriverId | null }
+  | { type: "model_step_retry"; round: number; attempt: number; reason: string }
   | {
       type: "model_text_delta";
       round: number;

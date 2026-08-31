@@ -37,6 +37,7 @@ import { createBackgroundTurn, insertTurnEvent, updateTurnStatus } from "@/lib/t
 import { publish } from "@/lib/sse-pubsub";
 import { toolOk, toolError, type ToolResponseBody } from "@/lib/llm-tools/tool-payload";
 import type { AgenticProgressEvent, LlmAgenticContext } from "@/lib/llm-tools/types";
+import { getAppPublicUrl } from "@/lib/public-urls";
 
 interface StartDashboardGenerationArgs {
   prompt: string;
@@ -306,9 +307,17 @@ async function generateAndPersist(
     }
   }
 
+  // El resumen lo lee una persona en el chat, que se renderiza como markdown.
+  // Una ruta suelta ("/dashboard/22?tab=modify&...") sale como texto plano: no
+  // se puede pinchar y copiarla a mano es incómodo porque lleva query string.
+  // Se emite un enlace markdown absoluto contra la URL pública configurada.
+  const urlAbsoluta = `${getAppPublicUrl()}${redirectUrl}`;
+
   return {
     dashboardId,
     redirectUrl,
-    summary: `Panel "${title}" creado con ${spec.widgets.length} widget(s). Visita ${redirectUrl} para revisarlo y modificarlo.`,
+    summary:
+      `Panel "${title}" creado con ${spec.widgets.length} widget(s). ` +
+      `[Abrir el panel](${urlAbsoluta}) para revisarlo y modificarlo.`,
   };
 }

@@ -83,10 +83,72 @@ export interface AgenticRunnerErrorDiagnostic {
   };
 }
 
+/**
+ * ¿El fallo es un corte transitorio de la conexión, o un error de aplicación?
+ *
+ * Una generación son ~11 llamadas de streaming encadenadas. El único reintento
+ * que existía (`withOpenRouterRetry`) envuelve el `create()` inicial, no el
+ * `for await` del cuerpo: si el stream se corta a mitad de la ronda 10, se
+ * pierden las diez rondas ya pagadas. Eso es lo que mató al turno 7 del 31/08
+ * (`GENERATE_FAILED: terminated`, undici cuando el otro extremo cierra en seco)
+ * tras 168 s y 20 tool calls correctas.
+ *
+ * Reintentar el paso es seguro: `messages` no se muta hasta DESPUÉS de que el
+ * paso vuelva bien, y las herramientas de este catálogo son de sólo lectura.
+ * Reenviar la misma petición es idempotente.
+ *
+ * Deliberadamente estrecho: sólo cortes de red. Un error de aplicación
+ * (presupuesto agotado, 400, tool inexistente) debe fallar a la primera.
+ */
+export function esCorteTransitorioDeStream(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  const partes = [e.message];
+  let causa: unknown = (e as { cause?: unknown }).cause;
+  for (let i = 0; i < 3 && causa; i++) {
+    if (causa instanceof Error) {
+      partes.push(causa.message, causa.name);
+      causa = (causa as { cause?: unknown }).cause;
+    } else {
+      partes.push(String(causa));
+      break;
+    }
+  }
+  const txt = partes.join(" | ").toLowerCase();
+  return (
+    txt.includes("terminated") ||
+    txt.includes("econnreset") ||
+    txt.includes("socket hang up") ||
+    txt.includes("other side closed") ||
+    txt.includes("premature close") ||
+    txt.includes("epipe") ||
+    txt.includes("und_err")
+  );
+}
+
+/** Aplana `cause` en el mensaje: undici mete ahí el detalle real y se perdía. */
+export function conCausa(e: unknown): string {
+  if (!(e instanceof Error)) return "Model step failed.";
+  const causa = (e as { cause?: unknown }).cause;
+  if (causa instanceof Error && causa.message && causa.message !== e.message) {
+    return `${e.message} (causa: ${causa.message})`;
+  }
+  return e.message;
+}
+
 export class AgenticRunnerError extends Error {
   readonly code: string;
   readonly requestId: string;
   readonly diagnostic?: AgenticRunnerErrorDiagnostic;
+  /**
+   * Gasto acumulado hasta el momento del fallo.
+   *
+   * Un run que muere en la ronda 10 ya ha pagado diez llamadas al modelo. Sin
+   * esto se pierden: `logUsage` sólo corre cuando el runner RETORNA, así que
+   * el turno 7 del 31/08 quemó ~10 rondas de ~300k tokens y no dejó ni una
+   * fila en `llm_usage` — invisible para `checkDailyBudget` y para
+   * /admin/usage. Lo rellena `attachUsage()` en el camino de salida.
+   */
+  usage?: AgenticUsageTotals;
 
   constructor(
     code: string,
@@ -276,6 +338,44 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
   let lastToolArgs: string | null = null;
   const startedAt = Date.now();
 
+  /**
+   * Reintenta UN paso del modelo cuando la conexión se corta a mitad.
+   *
+   * Sólo ante cortes de red (ver `esCorteTransitorioDeStream`), y como mucho
+   * `cfg.maxStreamRetries` veces. Cada reintento re-paga los tokens de entrada
+   * de esa ronda, que con caché de OpenRouter son céntimos, frente a perder un
+   * run entero de cuatro minutos y diez rondas ya pagadas.
+   */
+  const runStepConReintento = async (
+    adapterLocal: typeof adapter,
+    stepInputLocal: Parameters<typeof adapter.runStep>[0],
+    roundLocal: number,
+  ) => {
+    let ultimo: unknown;
+    for (let intento = 0; intento <= cfg.maxStreamRetries; intento++) {
+      try {
+        return await adapterLocal.runStep(stepInputLocal);
+      } catch (e) {
+        ultimo = e;
+        const puedeReintentar =
+          intento < cfg.maxStreamRetries && esCorteTransitorioDeStream(e);
+        if (!puedeReintentar) throw e;
+        emitAgenticProgress(ctx, {
+          type: "model_step_retry",
+          round: roundLocal + 1,
+          attempt: intento + 1,
+          reason: conCausa(e).slice(0, 200),
+        });
+        console.warn(
+          `[${ctx.requestId}] ronda ${roundLocal + 1}: stream cortado (${conCausa(e).slice(0, 120)}), ` +
+            `reintento ${intento + 1}/${cfg.maxStreamRetries}`,
+        );
+        await new Promise((r) => setTimeout(r, 1000 * (intento + 1)));
+      }
+    }
+    throw ultimo;
+  };
+
   // ── helpers ─────────────────────────────────────────────────────────────
   const buildLimits = () => ({
     maxRounds: cfg.maxToolRounds,
@@ -307,6 +407,9 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
     innerErrorCode: e.details.innerErrorCode ?? null,
   });
 
+  // Todo el bucle va envuelto para que NINGUNA salida por error pierda el
+  // gasto ya realizado. Ver el comentario de `AgenticRunnerError.usage`.
+  try {
   for (let round = 0; round < cfg.maxToolRounds; round++) {
     emitAgenticProgress(ctx, {
       type: "round",
@@ -350,7 +453,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
           });
         },
       };
-      step = await adapter.runStep(stepInput);
+      step = await runStepConReintento(adapter, stepInput, round);
     } catch (e) {
       if (e instanceof AgenticRunnerError) throw e;
       if (e instanceof CliRunnerError) {
@@ -363,7 +466,7 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
       }
       throw new AgenticRunnerError(
         "AGENTIC_ADAPTER",
-        e instanceof Error ? e.message : "Model step failed.",
+        conCausa(e),
         ctx.requestId,
         buildBaseDiag("tool_call", round),
       );
@@ -499,17 +602,23 @@ export async function runAgenticChat(params: AgenticRunParams): Promise<AgenticR
     }
   }
 
-  throw new AgenticRunnerError(
-    "AGENTIC_MAX_ROUNDS",
-    `Exceeded maximum tool rounds (${cfg.maxToolRounds}).`,
-    ctx.requestId,
-    {
-      phase: "limits",
-      toolRoundsUsed: cfg.maxToolRounds,
-      toolCallsUsed: toolCallsTotal,
-      durationMs: Date.now() - startedAt,
-      lastToolCall: buildLastToolCall(),
-      limitsAtFailure: buildLimits(),
-    },
-  );
+    throw new AgenticRunnerError(
+      "AGENTIC_MAX_ROUNDS",
+      `Exceeded maximum tool rounds (${cfg.maxToolRounds}).`,
+      ctx.requestId,
+      {
+        phase: "limits",
+        toolRoundsUsed: cfg.maxToolRounds,
+        toolCallsUsed: toolCallsTotal,
+        durationMs: Date.now() - startedAt,
+        lastToolCall: buildLastToolCall(),
+        limitsAtFailure: buildLimits(),
+      },
+    );
+  } catch (e) {
+    if (e instanceof AgenticRunnerError && e.usage === undefined) {
+      (e as { usage?: AgenticUsageTotals }).usage = { ...usage };
+    }
+    throw e;
+  }
 }
