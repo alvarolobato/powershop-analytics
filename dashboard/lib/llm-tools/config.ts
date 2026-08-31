@@ -86,8 +86,10 @@ export function getAgenticConfig() {
  * without a deploy — the right value depends on how verbose the configured
  * model's reasoning is, and the dashboard targets three model families.
  *
- * `assembleRequest` usa este valor por defecto, y desde 2026-08-31 TODOS los
- * flujos también: `llm.ts` tenía 8192 codificado en generateDashboard,
+ * `assembleRequest` usa este valor por defecto, y desde 2026-08-31 los flujos
+ * principales también (se quedan fuera `generateSuggestions`=512 y la
+ * generación de títulos=30, ambos deliberados): `llm.ts` tenía 8192 codificado
+ * en generateDashboard,
  * modifyDashboard, suggestDashboards y analyzeGaps, y 4096 en analyzeDashboard
  * y las dos reseñas -- justo el valor que ya provocó LLM_EMPTY una vez. El
  * respaldo de `llm-client.ts` también sale de aquí. Lo vio Copilot: el
