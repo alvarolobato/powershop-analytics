@@ -176,10 +176,16 @@ services:
     # Sin limite, macOS mata lo que le parece cuando falta memoria:
     # el ETL murio asi 104 veces sin dejar traza (ExitCode=0, sin OOMKilled).
     # Con limite, Docker mata al que se pasa y lo dice.
-    mem_limit: 1g
+    mem_limit: 2g
     image: ${DOCKERHUB_NAMESPACE:-alobato}/powershop-dashboard:${DASHBOARD_VERSION:-latest}
     restart: unless-stopped
     environment:
+      # Node deriva su heap del mem_limit del contenedor: con 1g eran 524 MB,
+      # y el flujo agentico de free-chat los agotaba. 13 reinicios y dos
+      # conversaciones perdidas el 2026-08-31, cada proceso muriendo a los
+      # 12-30 s con 'Reached heap limit'. Explicito para que el tope sea una
+      # decision y no un efecto secundario del limite del contenedor.
+      NODE_OPTIONS: ${DASHBOARD_NODE_OPTIONS:---max-old-space-size=1536}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
       POSTGRES_DB: ${POSTGRES_DB:-powershop}

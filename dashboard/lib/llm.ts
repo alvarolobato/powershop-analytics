@@ -25,14 +25,21 @@
 import { ReviewLlmOutputSchema, type ReviewLlmOutput } from "./review-schema";
 import { AgenticRunnerError } from "./llm-tools/runner";
 import { resetClient } from "./llm-client";
-import type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
+import type {
+  LlmAgenticContext,
+  AgenticProgressEvent,
+} from "./llm-tools/types";
 import { assembleRequest } from "./llm-context";
 import type { FlowVars } from "./llm-context";
+import { getLlmMaxOutputTokens } from "@/lib/llm-tools/config";
 
 export { BudgetExceededError } from "./llm-usage";
 export { CircuitBreakerOpenError } from "./llm-circuit-breaker";
 export { AgenticRunnerError };
-export type { LlmAgenticContext, AgenticProgressEvent } from "./llm-tools/types";
+export type {
+  LlmAgenticContext,
+  AgenticProgressEvent,
+} from "./llm-tools/types";
 export { resetClient };
 
 // ── Public API ─────────────────────────────────────────────────────────────────
@@ -51,19 +58,13 @@ export async function generateDashboard(
     endpoint: "generateDashboard",
   };
 
-  const result = await assembleRequest(
-    "generate",
-    {},
-    null,
-    userPrompt,
-    {
-      ctx: requestCtx,
-      requestId: requestCtx.requestId ?? "req_local",
-      endpoint: "generateDashboard",
-      temperature: 0.2,
-      maxOutputTokens: 8192,
-    },
-  );
+  const result = await assembleRequest("generate", {}, null, userPrompt, {
+    ctx: requestCtx,
+    requestId: requestCtx.requestId ?? "req_local",
+    endpoint: "generateDashboard",
+    temperature: 0.2,
+    maxOutputTokens: getLlmMaxOutputTokens(),
+  });
 
   if (!result.text) {
     throw new Error("LLM returned an empty response");
@@ -95,20 +96,14 @@ export async function modifyDashboard(
 
   const vars: FlowVars = { currentSpec };
 
-  const result = await assembleRequest(
-    "modify",
-    vars,
-    null,
-    userPrompt,
-    {
-      ctx: requestCtx,
-      priorMessages,
-      requestId: requestCtx.requestId ?? "req_local",
-      endpoint: "modifyDashboard",
-      temperature: 0.2,
-      maxOutputTokens: 8192,
-    },
-  );
+  const result = await assembleRequest("modify", vars, null, userPrompt, {
+    ctx: requestCtx,
+    priorMessages,
+    requestId: requestCtx.requestId ?? "req_local",
+    endpoint: "modifyDashboard",
+    temperature: 0.2,
+    maxOutputTokens: getLlmMaxOutputTokens(),
+  });
 
   return result.text;
 }
@@ -134,7 +129,7 @@ export async function suggestDashboards(
       requestId: opts?.requestId ?? null,
       endpoint: "suggestDashboards",
       temperature: 0.2,
-      maxOutputTokens: 8192,
+      maxOutputTokens: getLlmMaxOutputTokens(),
     },
   );
 
@@ -168,7 +163,7 @@ export async function analyzeGaps(
       requestId: opts?.requestId ?? null,
       endpoint: "analyzeGaps",
       temperature: 0.2,
-      maxOutputTokens: 8192,
+      maxOutputTokens: getLlmMaxOutputTokens(),
     },
   );
 
@@ -206,20 +201,14 @@ export async function analyzeDashboard(
     dashboardId: requestCtx.dashboardId,
   };
 
-  const result = await assembleRequest(
-    "analyze",
-    vars,
-    null,
-    userPrompt,
-    {
-      ctx: requestCtx,
-      priorMessages,
-      requestId: requestCtx.requestId ?? "req_local",
-      endpoint: "analyzeDashboard",
-      temperature: 0.3,
-      maxOutputTokens: 4096,
-    },
-  );
+  const result = await assembleRequest("analyze", vars, null, userPrompt, {
+    ctx: requestCtx,
+    priorMessages,
+    requestId: requestCtx.requestId ?? "req_local",
+    endpoint: "analyzeDashboard",
+    temperature: 0.3,
+    maxOutputTokens: getLlmMaxOutputTokens(),
+  });
 
   return result.text;
 }
@@ -228,8 +217,15 @@ export async function analyzeDashboard(
  * Generate a weekly business review with optional agentic progress callbacks.
  */
 export async function generateReviewWithProgress(
-  vars: { queryResults: string; reviewedWeekDescription: string; generationMode: "initial" | "refresh_data" | "alternate_angle" },
-  opts?: { requestId?: string; onAgenticProgress?: (ev: AgenticProgressEvent) => void },
+  vars: {
+    queryResults: string;
+    reviewedWeekDescription: string;
+    generationMode: "initial" | "refresh_data" | "alternate_angle";
+  },
+  opts?: {
+    requestId?: string;
+    onAgenticProgress?: (ev: AgenticProgressEvent) => void;
+  },
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
 
@@ -252,7 +248,7 @@ export async function generateReviewWithProgress(
       requestId,
       endpoint: "generateReview",
       temperature: 0.2,
-      maxOutputTokens: 4096,
+      maxOutputTokens: getLlmMaxOutputTokens(),
     },
   );
 
@@ -288,7 +284,11 @@ export async function generateReviewWithProgress(
  * Generate a weekly business review from query results (in Spanish).
  */
 export async function generateReview(
-  vars: { queryResults: string; reviewedWeekDescription: string; generationMode: "initial" | "refresh_data" | "alternate_angle" },
+  vars: {
+    queryResults: string;
+    reviewedWeekDescription: string;
+    generationMode: "initial" | "refresh_data" | "alternate_angle";
+  },
   opts?: { requestId?: string },
 ): Promise<{ content: ReviewLlmOutput; message: string }> {
   const requestId = opts?.requestId ?? "req_local";
@@ -302,7 +302,7 @@ export async function generateReview(
       requestId,
       endpoint: "generateReview",
       temperature: 0.2,
-      maxOutputTokens: 4096,
+      maxOutputTokens: getLlmMaxOutputTokens(),
     },
   );
 
@@ -346,18 +346,12 @@ export async function generateSuggestions(
     const { buildSuggestionPrompt } = await import("./analyze-prompts");
     const userMessage = buildSuggestionPrompt(serializedData, lastExchange);
 
-    const result = await assembleRequest(
-      "summary",
-      vars,
-      null,
-      userMessage,
-      {
-        requestId: opts?.requestId ?? null,
-        endpoint: "generateSuggestions",
-        temperature: 0.5,
-        maxOutputTokens: 512,
-      },
-    );
+    const result = await assembleRequest("summary", vars, null, userMessage, {
+      requestId: opts?.requestId ?? null,
+      endpoint: "generateSuggestions",
+      temperature: 0.5,
+      maxOutputTokens: 512,
+    });
 
     const content = result.text;
     const fenced = content.match(/```(?:json)?\s*\n?([\s\S]*?)```/);

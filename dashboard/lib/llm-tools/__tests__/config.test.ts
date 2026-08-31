@@ -12,7 +12,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const getSystemConfig = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/system-config/loader", () => ({ getSystemConfig }));
 
-import { getAgenticConfig, isAgenticToolsEnabled, getLlmMaxOutputTokens } from "../config";
+import {
+  getAgenticConfig,
+  isAgenticToolsEnabled,
+  getLlmMaxOutputTokens,
+} from "../config";
 
 // EVERY env var the module under test reads. Clearing only three left four
 // assertions dependent on the developer's or CI's shell — a precedence test
@@ -52,8 +56,14 @@ describe("getAgenticConfig", () => {
       "dashboard.agentic_max_tool_calls": { value: 100 },
     });
     const cfg = getAgenticConfig();
-    expect(cfg.maxToolRounds, "config.yaml's 40 must win over the hardcoded 8").toBe(40);
-    expect(cfg.maxToolCalls, "config.yaml's 100 must win over the hardcoded 24").toBe(100);
+    expect(
+      cfg.maxToolRounds,
+      "config.yaml's 40 must win over the hardcoded 8",
+    ).toBe(40);
+    expect(
+      cfg.maxToolCalls,
+      "config.yaml's 100 must win over the hardcoded 24",
+    ).toBe(100);
   });
 
   it("falls back to schema defaults when neither env nor config.yaml sets it", () => {
@@ -96,12 +106,20 @@ describe("getAgenticConfig", () => {
 });
 
 describe("getLlmMaxOutputTokens", () => {
-  it("defaults to 8192, matching every other call site", () => {
-    // The old hardcoded 4096 starved a reasoning model: two production turns
-    // recorded exactly 4096 thinking events, zero token events, then failed
-    // with "The model returned empty content."
+  it("defaults to 32000 -- con el antiguo 8192 un modelo de razonamiento agota el presupuesto pensando y devuelve LLM_EMPTY", () => {
+    // Este fallo ya ha ocurrido DOS veces, y la segunda es la que fija el 32000.
+    //
+    // Con 4096: dos turnos de produccion registraron exactamente 4096 eventos
+    // de pensamiento, cero de texto, y fallaron con "The model returned empty
+    // content." Se subio a 8192.
+    //
+    // Con 8192 volvio a pasar el 2026-08-31: una pregunta de rentabilidad por
+    // proveedor con deepseek-v4-pro murio con LLM_EMPTY tras 7 rondas de
+    // herramientas. La misma pregunta con 32000 completo en 254 s gastando
+    // 21.933 tokens de salida -- casi el triple del tope anterior -- y 0,059
+    // USD. Duplicar no bastaba: el consumo real estaba a 2,7x del limite.
     getSystemConfig.mockReturnValue({});
-    expect(getLlmMaxOutputTokens()).toBe(8192);
+    expect(getLlmMaxOutputTokens()).toBe(32000);
   });
 
   it("is tunable from config.yaml without a deploy", () => {
