@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { execSync } from "node:child_process";
+import { readdirSync } from "node:fs";
 import * as path from "node:path";
 
 /**
@@ -40,13 +40,22 @@ function bloquesSql(fichero: string): string[] {
   return [...texto.matchAll(/```sql\n([\s\S]*?)```/g)].map((m) => m[1]);
 }
 
-const FICHEROS = execSync(
-  `grep -rl 'ps_lin_albaranes\\|ps_stock_tienda' '${RAIZ}/docs' --include='*.md'`,
-)
-  .toString()
-  .trim()
-  .split("\n")
-  .filter(Boolean);
+// Sin `grep` externo: recorrer el árbol con fs no depende del shell ni de
+// que grep esté disponible con las mismas opciones en CI.
+function mdsBajo(dir: string): string[] {
+  const salida: string[] = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) salida.push(...mdsBajo(p));
+    else if (e.name.endsWith(".md")) salida.push(p);
+  }
+  return salida;
+}
+
+const FICHEROS = mdsBajo(path.join(RAIZ, "docs")).filter((f) => {
+  const t = readFileSync(f, "utf8");
+  return t.includes("ps_lin_albaranes") || t.includes("ps_stock_tienda");
+});
 
 describe("no sumar columnas de línea en tablas despivotadas", () => {
   it("encuentra documentos que usan las tablas largas", () => {
@@ -62,9 +71,14 @@ describe("no sumar columnas de línea en tablas despivotadas", () => {
           // SUM sobre la columna de línea, cualificada o no.
           const suma = new RegExp(`SUM\\s*\\(\\s*(?:\\w+\\.)?"?${col}"?`, "i");
           if (!suma.test(sql)) continue;
-          // El idioma correcto colapsa antes con MAX por la clave de línea.
-          // Si no hay MAX en la consulta, se está sumando la repetición.
-          if (!/\bMAX\s*\(/i.test(sql)) {
+          // El idioma correcto colapsa ESA columna con MAX antes de sumarla.
+          // Comprobar sólo que exista algún MAX en la consulta era demasiado
+          // laxo: un MAX sobre otra columna daba el visto bueno.
+          const colapsa = new RegExp(
+            `MAX\\s*\\(\\s*(?:\\w+\\.)?"?${col}"?`,
+            "i",
+          );
+          if (!colapsa.test(sql)) {
             infractores.push(
               `${tabla}.${col} en: ${sql.slice(0, 90).replace(/\s+/g, " ")}`,
             );

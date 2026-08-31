@@ -1765,7 +1765,7 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
   {
     "source": "docs/dashboard/sql-pairs.md",
     "heading": "¿Cuánto he comprado a un proveedor, en unidades e importe?",
-    "body": "```sql\nWITH lineas AS (SELECT la.\"reg_linea_albaran\", MAX(la.\"total_si\") AS importe_linea, SUM(la.\"recibidas\") AS unidades_linea FROM \"public\".\"ps_lin_albaranes\" la JOIN \"public\".\"ps_albaranes\" a ON a.\"reg_albaran\" = la.\"num_albaran\" JOIN \"public\".\"ps_proveedores\" p ON p.\"reg_proveedor\" = a.\"num_proveedor\" WHERE la.\"abono\" IS NOT TRUE AND p.\"nombre\" ILIKE :proveedor AND a.\"fecha_recibido\" BETWEEN :curr_from AND :curr_to GROUP BY la.\"reg_linea_albaran\") SELECT COUNT(*) AS \"Líneas\", SUM(unidades_linea) AS \"Unidades Recibidas\", ROUND(SUM(importe_linea), 2) AS \"Importe al Coste\" FROM lineas\n```",
+    "body": "```sql\nWITH lineas AS (SELECT la.\"reg_linea_albaran\", MAX(la.\"total_si\") AS importe_linea, SUM(la.\"recibidas\") AS unidades_linea FROM \"public\".\"ps_lin_albaranes\" la JOIN \"public\".\"ps_albaranes\" a ON a.\"reg_albaran\" = la.\"num_albaran\" JOIN \"public\".\"ps_proveedores\" p ON p.\"reg_proveedor\" = a.\"num_proveedor\" WHERE la.\"abono\" IS NOT TRUE AND p.\"nombre\" ILIKE '%LUCAS%' AND a.\"fecha_recibido\" BETWEEN :curr_from AND :curr_to GROUP BY la.\"reg_linea_albaran\") SELECT COUNT(*) AS \"Líneas\", SUM(unidades_linea) AS \"Unidades Recibidas\", ROUND(SUM(importe_linea), 2) AS \"Importe al Coste\" FROM lineas\n```",
     "hasSql": true,
     "dialect": "postgres"
   },
