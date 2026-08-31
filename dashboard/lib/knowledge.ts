@@ -564,6 +564,37 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
+      "PROVEEDOR DE UN ARTICULO: ps_articulos.num_proveedor -> ps_proveedores.reg_proveedor, poblado al 100 % (42.270 de 42.270, medido 2026-08-31). Es el camino DIRECTO y el que hay que usar. NO hace falta dar la vuelta por ps_lin_albaranes -> ps_albaranes -> ps_proveedores: eso da los articulos RECIBIDOS de ese proveedor, que es otra pregunta (509 articulos para LUCAS por esa via, frente a los que le pertenecen por ficha). El nombre esta en ps_proveedores.nombre. Buscar con ILIKE y AVISAR si casan varios: '%LUCAS%' devuelve LUCAS FASHION y CHLOE&LUCAS S.L, que son proveedores distintos.",
+    questions: [
+      "¿De que proveedor es este articulo?",
+      "¿Ventas por proveedor?",
+      "¿Como uno articulos con proveedores?",
+    ],
+  },
+  {
+    instruction:
+      "RENTABILIDAD Y MARGEN: se calculan SIEMPRE sobre ventas NETAS de devoluciones y con el coste tambien neto. Importe: ps_lineas_ventas.total_si. Coste: ps_lineas_ventas.total_coste_si (existe a nivel de LINEA, no hay que unir con nada). Formula: margen_% = 100 * (ventas_netas - coste_neto) / ventas_netas, donde cada termino es COALESCE(SUM(x) FILTER (WHERE lv.entrada), 0) - COALESCE(SUM(x) FILTER (WHERE NOT lv.entrada), 0). El COALESCE en cada lado es obligatorio (D-057) y el NULLIF en el divisor tambien. Excluir siempre la tienda 99, que es el almacen central y no vende. Comprobado 2026-08-31: LUCAS FASHION temporada V26 da 53.210,28 EUR netos, 18.002,22 de coste y 66,2 % de margen. Margenes del 55-70 % son NORMALES en este negocio: es PVP sin IVA contra coste de compra, no incluye estructura ni personal. No hace falta explorar el esquema para esto: total_si y total_coste_si estan en la misma fila.",
+    questions: [
+      "¿Rentabilidad de un proveedor?",
+      "¿Margen por temporada?",
+      "¿Que margen deja esta marca?",
+      "¿Rentabilidad por familia?",
+      "¿Cuanto gano con cada articulo?",
+    ],
+  },
+  {
+    instruction:
+      "TEMPORADAS (ps_articulos.clave_temporada): hay 64 codigos vivos y conviven TRES formatos, asi que no hace falta hacer SELECT DISTINCT para averiguarlo. (1) LETRA+ANO de dos digitos, que es el formato actual: V=Verano y I=Invierno, V25 V26 V27 I24 I25 I26. (2) NUMERICOS de dos digitos, 74 a 99, formato heredado que SIGUE VIVO: el 99 lleva 26.576 lineas de venta en 2025-26 y el 98 otras 14.306, asi que no son historicos muertos. (3) Prefijo M para las versiones mayoristas: M80..M99, MV25, MV26, MI24..MI26. Ademas OUT/OU (outlet), BA, TE, TEKG, TEYD. OJO CON EL ANO: una temporada se empieza a vender ANTES de su ano nominal. V26 registra su primera venta el 2025-12-06 e I26 el 2026-06-01, asi que filtrar por ano natural pierde el arranque de la temporada. Para 'la temporada actual' usar la clave (V26), no un rango de fechas. Medido 2026-08-31: las temporadas con mas venta reciente son V25, V26 e I25.",
+    questions: [
+      "¿Que temporadas hay?",
+      "¿Cual es la temporada actual?",
+      "¿Ventas de la temporada V26?",
+      "¿Que significa clave_temporada?",
+      "¿Los codigos numericos de temporada estan muertos?",
+    ],
+  },
+  {
+    instruction:
       "FORMATO LARGO: OJO CON SUMAR COLUMNAS DE LINEA. ps_lin_albaranes y ps_stock_tienda estan despivotadas, una fila por TALLA, y las columnas del nivel superior SE REPITEN identicas en cada fila de talla. Sumarlas a ciegas multiplica por el numero de tallas. Medido en produccion 2026-08-31: SUM(ps_lin_albaranes.total_si) da 168.172.072 EUR cuando el valor real es 38.660.308 (4,35x); SUM(ps_stock_tienda.cc_stock) da 754.547 cuando el real es 135.464 (5,6x). Una linea de albaran con 14 tallas repite su total_si catorce veces. COLUMNAS POR TALLA (estas SI se suman): ps_lin_albaranes.recibidas, ps_stock_tienda.stock. COLUMNAS DE LINEA (estas NO se suman directamente): ps_lin_albaranes.recibidas_total, total_si, precio_coste, precio_neto_si; ps_stock_tienda.cc_stock, st_stock. Para agregarlas hay que colapsar primero a una fila por linea: SELECT SUM(t) FROM (SELECT MAX(total_si) AS t FROM ps_lin_albaranes GROUP BY reg_linea_albaran) x. MAX y no SUM dentro del subquery, porque el valor es el mismo en todas las filas del grupo. Si lo que se quiere es el importe de UNA talla, no existe: el desglose por talla esta en unidades (recibidas), no en dinero.",
     questions: [
       "¿Cuanto he comprado a un proveedor?",
@@ -1182,6 +1213,42 @@ export const SQL_PAIRS: SqlPair[] = [
     sql: `SELECT la."codigo" AS "Código", la."descripcion" AS "Descripción", la."color" AS "Color", la."talla" AS "Talla", la."recibidas" AS "Unidades", la."precio_coste" AS "Coste Unitario" FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" WHERE a."fecha_recibido" BETWEEN :curr_from AND :curr_to AND la."recibidas" <> 0 ORDER BY la."codigo", la."talla" LIMIT 200`,
   },
   {
+    question: "¿Cuál es la rentabilidad de un proveedor?",
+    sql: `SELECT p."nombre" AS "Proveedor", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Coste", (COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0)) AS "Margen", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY p."nombre" ORDER BY "Margen" DESC LIMIT 25`,
+  },
+  {
+    question: "¿Qué rentabilidad deja un proveedor en una temporada concreta?",
+    sql: `SELECT p."nombre" AS "Proveedor", a."clave_temporada" AS "Temporada", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Coste", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE p."nombre" ILIKE '%LUCAS%' AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY p."nombre", a."clave_temporada" ORDER BY "Ventas Netas" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Qué temporadas son las más rentables?",
+    sql: `SELECT a."clave_temporada" AS "Temporada", COUNT(DISTINCT a."codigo") AS "Referencias", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' AND a."clave_temporada" IS NOT NULL AND a."clave_temporada" <> '' GROUP BY a."clave_temporada" HAVING (COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) > 0 ORDER BY "Ventas Netas" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Qué familias dejan más margen?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_familias" fm ON fm."reg_familia" = a."num_familia" WHERE lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC LIMIT 20`,
+  },
+  {
+    question: "¿Cuál es el stock actual de una temporada?",
+    sql: `SELECT a."clave_temporada" AS "Temporada", COUNT(DISTINCT s."codigo") AS "Referencias", SUM(s."stock") AS "Unidades en Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" a ON a."codigo" = s."codigo" WHERE a."clave_temporada" = 'V26' AND s."stock" <> 0 GROUP BY a."clave_temporada"`,
+  },
+  {
+    question: "¿Qué stock tengo de un proveedor en una temporada?",
+    sql: `SELECT p."nombre" AS "Proveedor", a."clave_temporada" AS "Temporada", COUNT(DISTINCT s."codigo") AS "Referencias", SUM(s."stock") AS "Unidades en Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" a ON a."codigo" = s."codigo" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE p."nombre" ILIKE '%YIWU%' AND a."clave_temporada" = 'V26' AND s."stock" <> 0 GROUP BY p."nombre", a."clave_temporada"`,
+  },
+  {
+    question: "¿Qué stock tengo por familia en una temporada?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", COUNT(DISTINCT s."codigo") AS "Referencias", SUM(s."stock") AS "Unidades en Stock" FROM "public"."ps_stock_tienda" s JOIN "public"."ps_articulos" a ON a."codigo" = s."codigo" JOIN "public"."ps_familias" fm ON fm."reg_familia" = a."num_familia" WHERE a."clave_temporada" = 'V26' AND s."stock" <> 0 GROUP BY fm."fami_grup_marc" ORDER BY "Unidades en Stock" DESC LIMIT 25`,
+  },
+  {
+    question: "¿Qué familias se han vendido mejor en una temporada?",
+    sql: `SELECT fm."fami_grup_marc" AS "Familia", COALESCE(SUM(lv."unidades") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."unidades") FILTER (WHERE NOT lv."entrada"), 0) AS "Unidades", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" JOIN "public"."ps_familias" fm ON fm."reg_familia" = a."num_familia" WHERE a."clave_temporada" = 'V26' AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' GROUP BY fm."fami_grup_marc" ORDER BY "Ventas Netas" DESC LIMIT 25`,
+  },
+  {
+    question: "¿Son rentables estas referencias? (rentabilidad de una lista de artículos)",
+    sql: `SELECT LEFT(TRIM(a."ccrefejofacm"), LENGTH(TRIM(a."ccrefejofacm")) - 2) AS "Modelo", MIN(a."descripcion") AS "Descripción", COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0) AS "Ventas Netas", ROUND(100.0 * ((COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0)) - (COALESCE(SUM(lv."total_coste_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_coste_si") FILTER (WHERE NOT lv."entrada"), 0))) / NULLIF(COALESCE(SUM(lv."total_si") FILTER (WHERE lv."entrada"), 0) - COALESCE(SUM(lv."total_si") FILTER (WHERE NOT lv."entrada"), 0), 0), 1) AS "Margen %" FROM "public"."ps_lineas_ventas" lv JOIN "public"."ps_articulos" a ON a."codigo" = lv."codigo" WHERE a."ccrefejofacm" LIKE 'I26101%' AND lv."fecha_creacion" BETWEEN :curr_from AND :curr_to AND lv."tienda" <> '99' AND LENGTH(TRIM(COALESCE(a."ccrefejofacm", ''))) > 2 GROUP BY 1 ORDER BY "Ventas Netas" DESC LIMIT 40`,
+  },
+  {
     question: "¿Cuánto he comprado a un proveedor, en unidades e importe?",
     sql: `WITH lineas AS (SELECT la."reg_linea_albaran", MAX(la."total_si") AS importe_linea, SUM(la."recibidas") AS unidades_linea FROM "public"."ps_lin_albaranes" la JOIN "public"."ps_albaranes" a ON a."reg_albaran" = la."num_albaran" JOIN "public"."ps_proveedores" p ON p."reg_proveedor" = a."num_proveedor" WHERE la."abono" IS NOT TRUE AND p."nombre" ILIKE '%LUCAS%' AND a."fecha_recibido" BETWEEN :curr_from AND :curr_to GROUP BY la."reg_linea_albaran") SELECT COUNT(*) AS "Líneas", SUM(unidades_linea) AS "Unidades Recibidas", ROUND(SUM(importe_linea), 2) AS "Importe al Coste" FROM lineas`,
   },
@@ -1404,7 +1471,7 @@ export const SCHEMA: TableSchema[] = [
     table: "ps_lineas_compras",
     alias: "LineaPedidoCompra",
     description:
-      "Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.",
+      "Líneas de pedido de compra. NOTA: NO tiene columna `codigo` — el artículo se referencia por `num_articulo` (FK NUMERIC) y la tienda por `num_tienda`. SÍ tiene `unidades`, `precio_coste`, `precio_neto_si` y `total_si`: una revisión anterior de esta nota decía que `unidades` no existía y era falso (verificado 2026-08-31), lo que llevaba al modelo a evitar una columna que funciona. Columnas reales: reg_linea_compra, num_pedido, num_tienda, fecha, num_articulo, unidades, precio_coste, precio_neto_si, total_si, num_proveedor.",
     keyColumns: [
       "reg_linea_compra (PK)",
       "num_pedido (FK → ps_compras.reg_pedido)",

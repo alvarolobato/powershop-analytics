@@ -439,6 +439,34 @@ Business rules and field conventions the dashboard LLM must follow when generati
     ]
   },
   {
+    "instruction": "PROVEEDOR DE UN ARTICULO: ps_articulos.num_proveedor -> ps_proveedores.reg_proveedor, poblado al 100 % (42.270 de 42.270, medido 2026-08-31). Es el camino DIRECTO y el que hay que usar. NO hace falta dar la vuelta por ps_lin_albaranes -> ps_albaranes -> ps_proveedores: eso da los articulos RECIBIDOS de ese proveedor, que es otra pregunta (509 articulos para LUCAS por esa via, frente a los que le pertenecen por ficha). El nombre esta en ps_proveedores.nombre. Buscar con ILIKE y AVISAR si casan varios: '%LUCAS%' devuelve LUCAS FASHION y CHLOE&LUCAS S.L, que son proveedores distintos.",
+    "questions": [
+      "¿De que proveedor es este articulo?",
+      "¿Ventas por proveedor?",
+      "¿Como uno articulos con proveedores?"
+    ]
+  },
+  {
+    "instruction": "RENTABILIDAD Y MARGEN: se calculan SIEMPRE sobre ventas NETAS de devoluciones y con el coste tambien neto. Importe: ps_lineas_ventas.total_si. Coste: ps_lineas_ventas.total_coste_si (existe a nivel de LINEA, no hay que unir con nada). Formula: margen_% = 100 * (ventas_netas - coste_neto) / ventas_netas, donde cada termino es COALESCE(SUM(x) FILTER (WHERE lv.entrada), 0) - COALESCE(SUM(x) FILTER (WHERE NOT lv.entrada), 0). El COALESCE en cada lado es obligatorio (D-057) y el NULLIF en el divisor tambien. Excluir siempre la tienda 99, que es el almacen central y no vende. Comprobado 2026-08-31: LUCAS FASHION temporada V26 da 53.210,28 EUR netos, 18.002,22 de coste y 66,2 % de margen. Margenes del 55-70 % son NORMALES en este negocio: es PVP sin IVA contra coste de compra, no incluye estructura ni personal. No hace falta explorar el esquema para esto: total_si y total_coste_si estan en la misma fila.",
+    "questions": [
+      "¿Rentabilidad de un proveedor?",
+      "¿Margen por temporada?",
+      "¿Que margen deja esta marca?",
+      "¿Rentabilidad por familia?",
+      "¿Cuanto gano con cada articulo?"
+    ]
+  },
+  {
+    "instruction": "TEMPORADAS (ps_articulos.clave_temporada): hay 64 codigos vivos y conviven TRES formatos, asi que no hace falta hacer SELECT DISTINCT para averiguarlo. (1) LETRA+ANO de dos digitos, que es el formato actual: V=Verano y I=Invierno, V25 V26 V27 I24 I25 I26. (2) NUMERICOS de dos digitos, 74 a 99, formato heredado que SIGUE VIVO: el 99 lleva 26.576 lineas de venta en 2025-26 y el 98 otras 14.306, asi que no son historicos muertos. (3) Prefijo M para las versiones mayoristas: M80..M99, MV25, MV26, MI24..MI26. Ademas OUT/OU (outlet), BA, TE, TEKG, TEYD. OJO CON EL ANO: una temporada se empieza a vender ANTES de su ano nominal. V26 registra su primera venta el 2025-12-06 e I26 el 2026-06-01, asi que filtrar por ano natural pierde el arranque de la temporada. Para 'la temporada actual' usar la clave (V26), no un rango de fechas. Medido 2026-08-31: las temporadas con mas venta reciente son V25, V26 e I25.",
+    "questions": [
+      "¿Que temporadas hay?",
+      "¿Cual es la temporada actual?",
+      "¿Ventas de la temporada V26?",
+      "¿Que significa clave_temporada?",
+      "¿Los codigos numericos de temporada estan muertos?"
+    ]
+  },
+  {
     "instruction": "FORMATO LARGO: OJO CON SUMAR COLUMNAS DE LINEA. ps_lin_albaranes y ps_stock_tienda estan despivotadas, una fila por TALLA, y las columnas del nivel superior SE REPITEN identicas en cada fila de talla. Sumarlas a ciegas multiplica por el numero de tallas. Medido en produccion 2026-08-31: SUM(ps_lin_albaranes.total_si) da 168.172.072 EUR cuando el valor real es 38.660.308 (4,35x); SUM(ps_stock_tienda.cc_stock) da 754.547 cuando el real es 135.464 (5,6x). Una linea de albaran con 14 tallas repite su total_si catorce veces. COLUMNAS POR TALLA (estas SI se suman): ps_lin_albaranes.recibidas, ps_stock_tienda.stock. COLUMNAS DE LINEA (estas NO se suman directamente): ps_lin_albaranes.recibidas_total, total_si, precio_coste, precio_neto_si; ps_stock_tienda.cc_stock, st_stock. Para agregarlas hay que colapsar primero a una fila por linea: SELECT SUM(t) FROM (SELECT MAX(total_si) AS t FROM ps_lin_albaranes GROUP BY reg_linea_albaran) x. MAX y no SUM dentro del subquery, porque el valor es el mismo en todas las filas del grupo. Si lo que se quiere es el importe de UNA talla, no existe: el desglose por talla esta en unidades (recibidas), no en dinero.",
     "questions": [
       "¿Cuanto he comprado a un proveedor?",

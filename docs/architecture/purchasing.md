@@ -260,7 +260,7 @@ All confirmed `DATA_TYPE=6` (Real) or `DATA_TYPE=10` (text):
   {
     "table": "ps_lineas_compras",
     "alias": "LineaPedidoCompra",
-    "description": "Líneas de pedido de compra. NOTA: la tabla NO tiene columnas codigo ni unidades; el artículo se referencia por num_articulo (FK NUMERIC) y la tienda por num_tienda.",
+    "description": "Líneas de pedido de compra. NOTA: NO tiene columna `codigo` — el artículo se referencia por `num_articulo` (FK NUMERIC) y la tienda por `num_tienda`. SÍ tiene `unidades`, `precio_coste`, `precio_neto_si` y `total_si`: una revisión anterior de esta nota decía que `unidades` no existía y era falso (verificado 2026-08-31), lo que llevaba al modelo a evitar una columna que funciona. Columnas reales: reg_linea_compra, num_pedido, num_tienda, fecha, num_articulo, unidades, precio_coste, precio_neto_si, total_si, num_proveedor.",
     "keyColumns": ["reg_linea_compra (PK)", "num_pedido (FK → ps_compras.reg_pedido)", "num_tienda (FK)", "num_articulo (FK)", "fecha"]
   },
   {
