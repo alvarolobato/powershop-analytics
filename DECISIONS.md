@@ -83,3 +83,4 @@
 | [D-056](docs/decisions/D-056-multi-model-support.md) | DeepSeek, Anthropic and OpenAI are all supported. Cost comes from the provider (never a rate table), no single tool-call dialect may be assumed, output budgets are configurable. |
 | [D-057](docs/decisions/D-057-ventas-netas-de-devoluciones.md) | "Ventas" es el NETO: `COALESCE(SUM(x) FILTER (WHERE entrada),0) - COALESCE(SUM(x) FILTER (WHERE NOT entrada),0)`. El COALESCE es obligatorio: sin él NULL se come el ranking. |
 | [D-060](docs/decisions/D-060-abonos-mayoristas-netos.md) | Los abonos mayoristas se RESTAN, nunca se excluyen: se guardan en positivo. Si se netea con FILTER, quitar el `WHERE abono IS NOT TRUE` o el neto vuelve a ser el bruto. |
+| [D-062](docs/decisions/D-062-reintento-de-stream.md) | Un corte de red a mitad de stream reintenta el PASO (`agentic_max_stream_retries`, 2); errores de aplicación fallan a la primera. El gasto se registra aunque el run muera. |

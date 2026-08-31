@@ -104,3 +104,26 @@ inherently-long operation.
 `dashboard/lib/turn-events.ts` (`createBackgroundTurn`, `createTurnIfIdle`),
 `etl/schema/init.sql` (`conversation_turns.source`), `dashboard/lib/turn-background.ts`,
 `dashboard/lib/llm-tools/runner.ts` (`withTimeout`), `dashboard/lib/llm-tools/catalog.ts`.
+
+## No sobrevive a un reinicio, y se acepta (2026-08-31)
+
+La generación vive dentro del proceso de Node, así que un `ps prod update` la
+mata a mitad. Se ve en producción: el barrido de arranque de `turn-events.ts`
+marca esos turnos como "El servidor se reinició mientras se procesaba este
+turno".
+
+Se evaluó moverla a una tabla `generation_jobs` en PostgreSQL —mismo patrón que
+`etl_manual_trigger` ([D-016](D-016-etl-manual-trigger-table.md))— con
+re-encolado de huérfanos al arrancar. **Descartado por el dueño**: una sola
+instalación, pocos usuarios y despliegues poco frecuentes, así que la
+probabilidad de que un despliegue pille una generación en vuelo no justifica el
+mecanismo. Si algún día hay más carga o despliegues continuos, se reevalúa.
+
+Descartado también, y con más motivo, un worker o contenedor aparte: se
+liberaron 1,2 GB retirando WrenAI ([D-058](D-058-wrenai-retirado.md)) en una
+máquina que asfixiaba al ETL; añadir otro runtime revierte eso para comprar una
+durabilidad que la tabla daba más barata.
+
+Lo que sí se arregló, porque era otra cosa: un corte de red a mitad de stream
+mataba el run entero y su gasto no se registraba — ver
+[D-062](D-062-reintento-de-stream.md).
