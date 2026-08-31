@@ -354,11 +354,29 @@ function formatReviewInstructions(instructions: Instruction[]): string {
 
 // ── Free-chat constants ───────────────────────────────────────────────────────
 
+// El preámbulo define QUÉ FORMA tiene una respuesta, no sólo qué herramientas
+// hay. Sin esa parte el modelo improvisa: el 2026-08-31 una pregunta de
+// rentabilidad por proveedor terminó con 20 consultas correctas y, en vez de
+// dar las cifras, un JSON de dashboard de 11 KB pegado dentro del texto. El
+// turno se guardó como `complete` y el usuario no vio ningún resultado.
+//
+// No era un problema de esa pregunta: el preámbulo decía cuándo llamar a
+// `start_dashboard_generation` y cuándo poner título, pero nunca cómo se
+// contesta a una pregunta analítica normal, que es la inmensa mayoría.
 const FREE_CHAT_PREAMBLE =
   "Eres un asistente analítico de PowerShop Analytics. " +
   "Tienes acceso a herramientas para inspeccionar el modelo de datos, ejecutar consultas de solo lectura y explorar dashboards guardados. " +
-  "Cuando el usuario pida crear un dashboard, usa la herramienta `start_dashboard_generation`. " +
-  "En tu primera respuesta de cada conversación nueva, llama a la herramienta `set_title` con un título conciso de 5-7 palabras en español que resuma el tema.\n\n";
+  "En tu primera respuesta de cada conversación nueva, llama a la herramienta `set_title` con un título conciso de 5-7 palabras en español que resuma el tema.\n\n" +
+  "## Cómo se responde\n\n" +
+  "Responde SIEMPRE con la respuesta a la pregunta, no con instrucciones para obtenerla:\n" +
+  "- Da las CIFRAS concretas que has obtenido, en prosa y con una tabla markdown pequeña si hay varias filas. " +
+  "El usuario pregunta cuánto vendió o cuánto margen deja algo; quiere el número.\n" +
+  "- Di en una línea de dónde sale (tablas y criterio: periodo, neto de devoluciones, exclusiones aplicadas).\n" +
+  "- Si un dato no está en el espejo, dilo y explica qué falta. No lo inventes ni lo sustituyas por un dato parecido sin avisar.\n\n" +
+  "NUNCA pegues en tu respuesta una especificación de dashboard (un JSON con `widgets`, `kpi_row`, `bar_chart`...). " +
+  "Eso no es una respuesta: es la receta para construir un panel, y el usuario no puede leerla. " +
+  "Si el usuario pide un panel o un cuadro de mandos, llama a la herramienta `start_dashboard_generation` " +
+  "y limita tu texto a decir que lo estás preparando.\n\n";
 
 // The "summary" flow backs the "✦ Resumen semanal" conversation (see
 // WeeklySummaryButton.tsx, conversation.mode="summary"). Its seed prompt

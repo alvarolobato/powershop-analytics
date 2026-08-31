@@ -23,16 +23,23 @@ import {
 } from "@/lib/conversations";
 import { publish } from "@/lib/sse-pubsub";
 import { generateRequestId } from "@/lib/errors";
-import { loadDashboardLlmConfig, getEffectiveDashboardModel } from "@/lib/llm-provider/config";
+import {
+  loadDashboardLlmConfig,
+  getEffectiveDashboardModel,
+} from "@/lib/llm-provider/config";
 import {
   flattenStoredMessage,
   capHistory,
+  looksLikeDashboardSpecInsteadOfAnswer,
   looksLikeFabricatedToolLog,
   HISTORY_MAX_MESSAGES,
 } from "@/lib/llm-context/history";
 import { isLlmFlow } from "@/lib/llm-context/types";
 import type { AgenticToolCallRecord } from "@/lib/llm-tools/types";
-import type { AssistantMessageContent, ToolCallRecord } from "@/lib/conversation-types";
+import type {
+  AssistantMessageContent,
+  ToolCallRecord,
+} from "@/lib/conversation-types";
 
 // Re-export for use in tests without importing from route
 export type { ConversationRow };
@@ -52,7 +59,9 @@ function parseToolArgs(raw: string): Record<string, unknown> {
 }
 
 /** Map runner-captured tool calls to the persisted conversation_messages shape. */
-function toDbToolCalls(calls: AgenticToolCallRecord[] | undefined): ToolCallRecord[] {
+function toDbToolCalls(
+  calls: AgenticToolCallRecord[] | undefined,
+): ToolCallRecord[] {
   return (calls ?? []).map((c) => ({
     id: c.id,
     name: c.name,
@@ -77,7 +86,10 @@ function formatToolArgs(toolName: string, argsPreview?: string): string {
     const m = json.match(re);
     if (!m) return null;
     // Unescape JSON string escapes in the extracted value
-    return m[1].replace(/\\"/g, '"').replace(/\\n/g, " ").replace(/\\\\/g, "\\");
+    return m[1]
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, " ")
+      .replace(/\\\\/g, "\\");
   }
 
   if (toolName === "execute_query" || toolName === "execute_write_query") {
@@ -85,7 +97,9 @@ function formatToolArgs(toolName: string, argsPreview?: string): string {
     if (sql) return sql.replace(/\s+/g, " ").slice(0, 160);
   }
   if (toolName === "describe_table") {
-    const name = extractField(argsPreview, "table_name") ?? extractField(argsPreview, "name");
+    const name =
+      extractField(argsPreview, "table_name") ??
+      extractField(argsPreview, "name");
     if (name) return name;
   }
   // Generic: try first string field
@@ -100,7 +114,9 @@ function formatToolArgs(toolName: string, argsPreview?: string): string {
 
 /** Progress emitter handle: the callback plus turn-final accessors. */
 interface ProgressEmitter {
-  handler: (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => void;
+  handler: (
+    event: import("@/lib/llm-tools/types").AgenticProgressEvent,
+  ) => void;
   /** Resolves once every queued event insert has settled (issue #834 ordering). */
   flush: () => Promise<void>;
   /** Latest cumulative extended-thinking text seen this turn ("" if none). */
@@ -142,7 +158,9 @@ function makeProgressHandler(
     );
   };
 
-  const handler = (event: import("@/lib/llm-tools/types").AgenticProgressEvent) => {
+  const handler = (
+    event: import("@/lib/llm-tools/types").AgenticProgressEvent,
+  ) => {
     if (event.type === "round") {
       inToolRound = false;
     } else if (event.type === "assistant_tools") {
@@ -255,7 +273,10 @@ function makeSystemPromptReadyHandler(
       try {
         await setTurnContextFile(turnId, file);
       } catch (err) {
-        console.warn(`[turn-background] setTurnContextFile failed for ${turnId}:`, err);
+        console.warn(
+          `[turn-background] setTurnContextFile failed for ${turnId}:`,
+          err,
+        );
       }
       await emitTurnEvent(conversationId, turnId, eventSeq, "context_ref", {
         turnId,
@@ -302,7 +323,8 @@ export async function runTurnBackground(
   const seq = makeSeq();
   const conversationId = conversation.id;
   const mode = conversation.mode;
-  const isFreeChatConv = conversation.context_kind === "global" || mode === "chat";
+  const isFreeChatConv =
+    conversation.context_kind === "global" || mode === "chat";
   // One progress emitter per turn: serialised event inserts + final thinking
   // capture. Token streaming is suppressed for dashboard modes (analyze/modify
   // always end with a tool call, never prose — text deltas are tool-call JSON).
@@ -326,7 +348,9 @@ export async function runTurnBackground(
     // as a compact block so tool results stay in context across turns.
     const flattened = prior
       .map((m) => flattenStoredMessage(m))
-      .filter((m): m is { role: "user" | "assistant"; content: string } => m !== null);
+      .filter(
+        (m): m is { role: "user" | "assistant"; content: string } => m !== null,
+      );
     // Cap the history BEFORE the context log is written so "Contexto original"
     // shows exactly what the LLM receives. Older messages beyond the cap are
     // summarised into one synthetic assistant message (see capHistory); the
@@ -474,6 +498,36 @@ export async function runTurnBackground(
       );
     }
 
+    // Mismo principio que el guardián de arriba, otra forma de fallo: el turno
+    // hizo el trabajo (26 llamadas reales) pero contestó con una
+    // ESPECIFICACIÓN de dashboard en vez de con las cifras. En el chat eso se
+    // ve como un muro de JSON, así que persistirlo como `complete` deja al
+    // usuario sin respuesta y sin señal de que algo fue mal -- que fue
+    // exactamente lo que pasó el 2026-08-31.
+    if (
+      looksLikeDashboardSpecInsteadOfAnswer(
+        assistantText,
+        assistantToolCalls.some((c) => c.name === "start_dashboard_generation"),
+      )
+    ) {
+      console.error(
+        `[${requestId}] turn ${turnId}: model answered with a dashboard spec instead of an answer`,
+        {
+          chars: assistantText.length,
+          realToolCalls: assistantToolCalls.length,
+        },
+      );
+      await emitTurnEvent(conversationId, turnId, seq(), "guard_evidence", {
+        guard: "dashboard_spec_as_answer",
+        realToolCalls: assistantToolCalls.length,
+        sample: assistantText.slice(0, 500),
+        ts: new Date().toISOString(),
+      });
+      throw new Error(
+        "El modelo devolvió la definición de un panel en vez de contestar a tu pregunta. Vuelve a enviarla; si querías un cuadro de mandos, pídelo explícitamente.",
+      );
+    }
+
     // All streamed events are inserted before the assistant message/complete
     // event so replay ordering is deterministic (issue #834).
     await progress.flush();
@@ -513,7 +567,10 @@ export async function runTurnBackground(
     ]).catch(() => {});
   } catch (err) {
     const errText = err instanceof Error ? err.message : String(err);
-    console.error(`[${requestId}] runTurnBackground error for turn ${turnId}:`, err);
+    console.error(
+      `[${requestId}] runTurnBackground error for turn ${turnId}:`,
+      err,
+    );
     // Settle any queued streaming inserts BEFORE the error event and prune:
     // without this, late token/thinking inserts could publish after the error
     // frame and re-create rows pruneStreamEvents just deleted.
@@ -590,27 +647,21 @@ async function runFreeChatTurn(
   };
 
   try {
-    const result = await assembleRequest(
-      "chat",
-      {},
-      null,
-      userMessage,
-      {
-        ctx: agenticCtx,
-        priorMessages,
-        requestId,
-        endpoint: "freeChat",
-        temperature: 0.3,
-        // No override: assembleRequest's default is now config-driven
-        // (dashboard.llm_max_output_tokens). This used to hardcode 4096 while
-        // every other call site used 8192 — the tightest budget in the
-        // codebase on the flow doing the hardest reasoning. Production runs a
-        // reasoning model whose reasoning tokens count against max_tokens, so
-        // the budget was spent before any answer was emitted: two turns
-        // recorded EXACTLY 4096 thinking events, zero token events, then
-        // failed with "The model returned empty content."
-      },
-    );
+    const result = await assembleRequest("chat", {}, null, userMessage, {
+      ctx: agenticCtx,
+      priorMessages,
+      requestId,
+      endpoint: "freeChat",
+      temperature: 0.3,
+      // No override: assembleRequest's default is now config-driven
+      // (dashboard.llm_max_output_tokens). This used to hardcode 4096 while
+      // every other call site used 8192 — the tightest budget in the
+      // codebase on the flow doing the hardest reasoning. Production runs a
+      // reasoning model whose reasoning tokens count against max_tokens, so
+      // the budget was spent before any answer was emitted: two turns
+      // recorded EXACTLY 4096 thinking events, zero token events, then
+      // failed with "The model returned empty content."
+    });
     await ctxWrite.done; // ensure the context-log file + pointer are persisted
     return { text: result.text, toolCalls: agenticCtx.toolCalls ?? [] };
   } catch (err) {
@@ -651,8 +702,7 @@ async function runDashboardTurn(
   const agenticCtx: import("@/lib/llm-tools/types").LlmAgenticContext = {
     requestId,
     endpoint: (mode === "analyze" ? "analyzeDashboard" : "modifyDashboard") as
-      | "analyzeDashboard"
-      | "modifyDashboard",
+      "analyzeDashboard" | "modifyDashboard",
     conversationId: conversation.id,
     // Wire agentic progress events to SSE. The emitter was created with token
     // streaming suppressed for dashboard modes — analyze/modify always end with
@@ -699,7 +749,12 @@ async function runDashboardTurn(
     return { text, toolCalls: agenticCtx.toolCalls ?? [] };
   } else {
     const { modifyDashboard } = await import("@/lib/llm");
-    const text = await modifyDashboard(currentSpec, userMessage, agenticCtx, priorMessages);
+    const text = await modifyDashboard(
+      currentSpec,
+      userMessage,
+      agenticCtx,
+      priorMessages,
+    );
     await ctxWrite.done; // ensure the context-log file + pointer are persisted
     const toolCalls = agenticCtx.toolCalls ?? [];
 
@@ -709,17 +764,31 @@ async function runDashboardTurn(
     // save via PUT /api/dashboard/:id. The server is the ONLY writer for
     // chat-driven modifications — the frontend only updates local state on
     // the spec_update event (no second PUT).
-    if (agenticCtx.modifyResult && dashId !== undefined && Number.isFinite(dashId)) {
+    if (
+      agenticCtx.modifyResult &&
+      dashId !== undefined &&
+      Number.isFinite(dashId)
+    ) {
       const { spec, summary } = agenticCtx.modifyResult;
       try {
-        const { updateDashboardSpecWithVersion } = await import("@/lib/db-write");
-        const persisted = await updateDashboardSpecWithVersion(dashId, spec, userMessage);
+        const { updateDashboardSpecWithVersion } =
+          await import("@/lib/db-write");
+        const persisted = await updateDashboardSpecWithVersion(
+          dashId,
+          spec,
+          userMessage,
+        );
         if (persisted !== null) {
           return { text, toolCalls, spec, summary };
         }
-        console.error(`[turn-background] spec persist skipped: dashboard ${dashId} not found`);
+        console.error(
+          `[turn-background] spec persist skipped: dashboard ${dashId} not found`,
+        );
       } catch (err) {
-        console.error(`[turn-background] spec persist failed for dashboard ${dashId}:`, err);
+        console.error(
+          `[turn-background] spec persist failed for dashboard ${dashId}:`,
+          err,
+        );
       }
     }
 
@@ -770,18 +839,12 @@ async function runGenericTurn(
       ctxWrite,
     ),
   };
-  const result = await assembleRequest(
-    flowRaw,
-    {},
-    null,
-    userMessage,
-    {
-      priorMessages,
-      requestId,
-      endpoint: flowRaw,
-      ctx: agenticCtx,
-    },
-  );
+  const result = await assembleRequest(flowRaw, {}, null, userMessage, {
+    priorMessages,
+    requestId,
+    endpoint: flowRaw,
+    ctx: agenticCtx,
+  });
   await ctxWrite.done; // ensure the context-log file + pointer are persisted
   return { text: result.text, toolCalls: agenticCtx.toolCalls ?? [] };
 }
