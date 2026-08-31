@@ -35,18 +35,46 @@ function readBool(name: string, key: string, defaultTrue: boolean): boolean {
 }
 
 export function isAgenticToolsEnabled(): boolean {
-  return readBool("DASHBOARD_AGENTIC_TOOLS_ENABLED", "dashboard.agentic_tools_enabled", true);
+  return readBool(
+    "DASHBOARD_AGENTIC_TOOLS_ENABLED",
+    "dashboard.agentic_tools_enabled",
+    true,
+  );
 }
 
 export function getAgenticConfig() {
   return {
     // Dashboard generation often needs several explore→SQL rounds; defaults are conservative caps.
-    maxToolRounds: readInt("DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS", "dashboard.agentic_max_tool_rounds", 8),
-    maxToolCalls: readInt("DASHBOARD_AGENTIC_MAX_TOOL_CALLS", "dashboard.agentic_max_tool_calls", 24),
-    toolTimeoutMs: readInt("DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS", "dashboard.agentic_tool_timeout_ms", 15_000),
-    maxRows: readInt("DASHBOARD_AGENTIC_MAX_ROWS", "dashboard.agentic_max_rows", 200),
-    maxColumns: readInt("DASHBOARD_AGENTIC_MAX_COLUMNS", "dashboard.agentic_max_columns", 30),
-    maxResultChars: readInt("DASHBOARD_AGENTIC_MAX_RESULT_CHARS", "dashboard.agentic_max_result_chars", 20_000),
+    maxToolRounds: readInt(
+      "DASHBOARD_AGENTIC_MAX_TOOL_ROUNDS",
+      "dashboard.agentic_max_tool_rounds",
+      8,
+    ),
+    maxToolCalls: readInt(
+      "DASHBOARD_AGENTIC_MAX_TOOL_CALLS",
+      "dashboard.agentic_max_tool_calls",
+      24,
+    ),
+    toolTimeoutMs: readInt(
+      "DASHBOARD_AGENTIC_TOOL_TIMEOUT_MS",
+      "dashboard.agentic_tool_timeout_ms",
+      15_000,
+    ),
+    maxRows: readInt(
+      "DASHBOARD_AGENTIC_MAX_ROWS",
+      "dashboard.agentic_max_rows",
+      200,
+    ),
+    maxColumns: readInt(
+      "DASHBOARD_AGENTIC_MAX_COLUMNS",
+      "dashboard.agentic_max_columns",
+      30,
+    ),
+    maxResultChars: readInt(
+      "DASHBOARD_AGENTIC_MAX_RESULT_CHARS",
+      "dashboard.agentic_max_result_chars",
+      20_000,
+    ),
   };
 }
 
@@ -62,7 +90,19 @@ export function getAgenticConfig() {
  * than a schema default and a separate hardcoded 8192 drifting apart. An
  * earlier revision scoped this to free chat only, which meant an operator
  * raising it because dashboard GENERATION was truncating got no effect.
+ *
+ * El defecto era 8192 y con un modelo de razonamiento fallaba de verdad.
+ * Medido en produccion el 2026-08-31 con deepseek-v4-pro: una pregunta de
+ * rentabilidad por proveedor agoto el presupuesto RAZONANDO y devolvio
+ * contenido vacio (`LLM_EMPTY`) tras 7 rondas de herramientas. La misma
+ * pregunta con 32000 completo en 254 s, gastando 21.933 tokens de salida y
+ * 0,059 USD. Subirlo no encarece por si solo: se cobra lo consumido, no el
+ * tope; lo que costaba dinero era pagar 8 rondas para no obtener respuesta.
  */
 export function getLlmMaxOutputTokens(): number {
-  return readInt("DASHBOARD_LLM_MAX_OUTPUT_TOKENS", "dashboard.llm_max_output_tokens", 8192);
+  return readInt(
+    "DASHBOARD_LLM_MAX_OUTPUT_TOKENS",
+    "dashboard.llm_max_output_tokens",
+    32000,
+  );
 }
