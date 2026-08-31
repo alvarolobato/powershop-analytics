@@ -326,6 +326,55 @@ function buildStableKnowledgePart(): string {
   ].join("\n");
 }
 
+/**
+ * Conocimiento para los flujos de CONVERSACIÓN (`chat`, `summary`).
+ *
+ * Igual que `buildStableKnowledgePart()` pero SIN el material de fabricar
+ * especificaciones: `WIDGET_TYPES` (11.131 chars) y `OUTPUT_FORMAT` (1.960).
+ *
+ * Por qué: el chat tiene PROHIBIDO emitir un spec — los paneles salen por
+ * `start_dashboard_generation` (D-032). Aun así heredaba el bloque completo de
+ * `generate`, con sus ejemplos JSON por tipo de widget y su formato de salida.
+ * Medido el 31/08 sobre el payload real de un turno: el 86 % del prompt de chat
+ * era material de construir dashboards.
+ *
+ * Eso no es sólo peso. Un flujo de conversación cuyo prompt son mayormente
+ * instrucciones y ejemplos de fabricar paneles empuja al modelo a fabricar
+ * paneles: el 31/08 una pregunta de rentabilidad acabó con 20 consultas
+ * correctas y un JSON de dashboard de 11 KB pegado en el texto en vez de las
+ * cifras, y el dueño tuvo que escribir "No quiero un dashboard, quiero El
+ * resultado". El primer parche añadió preámbulo para contrarrestarlo; esto
+ * quita la contradicción en origen, que es lo que había que hacer.
+ *
+ * Se conserva una descripción breve de qué puede hacer un panel, porque el chat
+ * necesita saber cuándo merece la pena ofrecer uno — pero no cómo se escribe.
+ */
+const QUE_ES_UN_PANEL = `## Cuadros de mando
+
+Puedes poner en marcha la creación de un cuadro de mandos con
+\`start_dashboard_generation\`. Un panel combina varios widgets —indicadores,
+barras, líneas, áreas, donuts, tablas y rankings— cada uno con su propia
+consulta, y admite filtros globales (fechas, tienda, familia, proveedor,
+temporada).
+
+TÚ NO ESCRIBES LA ESPECIFICACIÓN. Le pasas a la herramienta una descripción en
+prosa de lo que debe contener y ella se encarga. No pegues nunca JSON de
+widgets en tu respuesta.`;
+
+function buildChatKnowledgePart(): string {
+  return [
+    QUE_ES_UN_PANEL,
+    SQL_RULES,
+    formatSchema(SCHEMA),
+    "",
+    formatRelationships(RELATIONSHIPS),
+    "",
+    formatInstructions(INSTRUCTIONS),
+    "",
+    formatSqlPairs(SQL_PAIRS),
+  ].join("\n");
+}
+
 // ── Analyze-specific helpers ──────────────────────────────────────────────────
 
 const ACTION_INSTRUCTIONS: Record<AnalyzeAction, string> = {
@@ -860,7 +909,7 @@ export interface FreeChatContext {
 
 export function buildFreeChatContext(): FreeChatContext {
   return {
-    systemPrompt: { stable: FREE_CHAT_PREAMBLE + buildStableKnowledgePart() },
+    systemPrompt: { stable: FREE_CHAT_PREAMBLE + buildChatKnowledgePart() },
     tools: FREE_CHAT_TOOLS,
   };
 }
@@ -967,7 +1016,7 @@ export function buildSystemPrompt(
     // preamble, since it is a distinct, deliberate mapping rather than a
     // runtime fallback onto "chat" (D-045).
     case "summary": {
-      return { stable: SUMMARY_PREAMBLE + buildStableKnowledgePart() };
+      return { stable: SUMMARY_PREAMBLE + buildChatKnowledgePart() };
     }
 
     case "title":

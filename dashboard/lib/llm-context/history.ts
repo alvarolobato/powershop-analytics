@@ -30,6 +30,21 @@ const HISTORY_TOOL_RESULT_MAX = 600;
 /** Max chars kept per tool argument string when folding it into history. */
 const HISTORY_TOOL_ARGS_MAX = 240;
 /**
+ * Tope TOTAL del bloque de herramientas ya ejecutadas, en caracteres.
+ *
+ * Cada resultado ya se capaba a `HISTORY_TOOL_RESULT_MAX` (600) y el historial
+ * a 10 mensajes, pero no había tope por mensaje ni total. Un turno que explora
+ * mucho genera un bloque enorme que viaja en CADA llamada de CADA turno
+ * posterior de esa conversación, para siempre: medido el 31/08 en la
+ * conversación 39990d7e7b0b, un solo mensaje de 25.419 chars (~8,5k tokens)
+ * procedente de una exploración de 20 consultas.
+ *
+ * Se conservan las entradas MÁS RECIENTES —son las que tienen que ver con lo
+ * que se está hablando ahora— y las viejas se resumen en una línea.
+ */
+const HISTORY_TOOL_LOG_MAX = 4_000;
+
+/**
  * Max prior messages sent to the LLM per request. When a conversation exceeds
  * this, older messages are summarised into one synthetic assistant message
  * (see capHistory). Same cap the retired /api/dashboard/{modify,analyze}
@@ -152,10 +167,26 @@ export const LEGACY_TOOL_LOG_HEADER =
 
 export function formatToolCallsForHistory(toolCalls: ToolCallRecord[]): string {
   if (!toolCalls || toolCalls.length === 0) return "";
-  const lines = toolCalls.map((tc) => {
+  const todas = toolCalls.map((tc) => {
     const status = tc.success === false ? " [error]" : "";
     return `- ${tc.name}(${compactArgs(tc.arguments)})${status} → ${compactResult(tc.result)}`;
   });
+
+  // Se recorta desde el final hacia atrás: lo reciente es lo relevante.
+  const lines: string[] = [];
+  let usados = 0;
+  for (let i = todas.length - 1; i >= 0; i--) {
+    const coste = todas[i].length + 1;
+    if (usados + coste > HISTORY_TOOL_LOG_MAX && lines.length > 0) break;
+    lines.unshift(todas[i]);
+    usados += coste;
+  }
+  const omitidas = todas.length - lines.length;
+  if (omitidas > 0) {
+    lines.unshift(
+      `- (…y ${omitidas} llamada(s) anterior(es) de ese turno, omitidas por longitud)`,
+    );
+  }
   // Framed as a tagged system record rather than a bracketed heading, and
   // prepended to the assistant's own words in `flattenStoredMessage`.
   //
