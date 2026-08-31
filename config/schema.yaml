@@ -362,6 +362,16 @@
   requires_restart: []
   components: [dashboard]
 
+- key: dashboard.agentic_max_stream_retries
+  env: DASHBOARD_AGENTIC_MAX_STREAM_RETRIES
+  type: int
+  sensitive: false
+  default: 2
+  section: "Agentic"
+  description: "Reintentos de UN paso del modelo cuando la conexión se corta a mitad del stream (terminated, ECONNRESET). 0 lo desactiva. No afecta a errores de aplicación, que fallan a la primera."
+  requires_restart: []
+  components: [dashboard]
+
 - key: dashboard.llm_max_output_tokens
   env: DASHBOARD_LLM_MAX_OUTPUT_TOKENS
   type: int

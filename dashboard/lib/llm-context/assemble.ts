@@ -53,7 +53,7 @@ import {
   getEffectiveOpenRouterProvider,
 } from "@/lib/llm-provider/config";
 import { isAgenticToolsEnabled } from "@/lib/llm-tools/config";
-import type { LlmAgenticContext, AgenticProgressEvent } from "@/lib/llm-tools/types";
+import type { LlmAgenticContext, AgenticProgressEvent, AgenticUsageTotals } from "@/lib/llm-tools/types";
 import type { NormalizedUsage } from "@/lib/llm-client";
 import type {
   ChatCompletionMessageParam,
@@ -201,21 +201,53 @@ export async function assembleRequest(
         ? buildCachedSystemMessage(stable, volatile)
         : undefined;
 
-    const { content, usage } = await callWithCircuitBreaker(() =>
-      runAgenticChat({
-        adapter,
-        model,
-        openRouterProvider,
-        systemPrompt: fullSystemPrompt,
-        cachedSystemMessage: cachedMsg,
-        userContent: userMessage,
-        ctx: agenticCtx,
-        temperature,
-        maxTokens: maxOutputTokens,
-        priorMessages,
-        tools,
-      }),
-    );
+    let content: string;
+    let usage: AgenticUsageTotals;
+    try {
+      ({ content, usage } = await callWithCircuitBreaker(() =>
+        runAgenticChat({
+          adapter,
+          model,
+          openRouterProvider,
+          systemPrompt: fullSystemPrompt,
+          cachedSystemMessage: cachedMsg,
+          userContent: userMessage,
+          ctx: agenticCtx,
+          temperature,
+          maxTokens: maxOutputTokens,
+          priorMessages,
+          tools,
+        }),
+      ));
+    } catch (e) {
+      // Un run que muere en la ronda 10 ya ha pagado diez llamadas al modelo.
+      // Antes se perdían: `logUsage` sólo corría al RETORNAR, así que el turno 7
+      // del 31/08 quemó ~10 rondas de ~300k tokens sin dejar una sola fila en
+      // `llm_usage` — dinero real, invisible para `checkDailyBudget` y para
+      // /admin/usage. El runner adjunta lo gastado al error; lo registramos
+      // aquí y volvemos a lanzar sin tocar el flujo de error.
+      const parcial = (e as { usage?: AgenticUsageTotals }).usage;
+      if (parcial && parcial.total_tokens > 0) {
+        try {
+          logUsage(
+            endpoint,
+            model,
+            {
+              prompt_tokens: parcial.prompt_tokens,
+              completion_tokens: parcial.completion_tokens,
+              total_tokens: parcial.total_tokens,
+              cache_creation_input_tokens: parcial.cache_creation_input_tokens ?? null,
+              cache_read_input_tokens: parcial.cache_read_input_tokens ?? null,
+            },
+            { provider: cfg.provider, driver: cfg.provider === "cli" ? cfg.cliDriver : null },
+            { requestId, reportedCostUsd: parcial.reported_cost_usd },
+          );
+        } catch {
+          // registrar el gasto nunca puede tapar el error original
+        }
+      }
+      throw e;
+    }
 
     // Normalise AgenticUsageTotals → NormalizedUsage
     const normalizedUsage: NormalizedUsage = {
