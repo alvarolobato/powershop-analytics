@@ -14,7 +14,10 @@ import {
   getEffectiveDashboardModel,
   getEffectiveOpenRouterProvider,
 } from "@/lib/llm-provider/config";
-import { getOpenRouterClient, openRouterChatCompletion } from "@/lib/llm-provider/openrouter";
+import {
+  getOpenRouterClient,
+  openRouterChatCompletion,
+} from "@/lib/llm-provider/openrouter";
 import { claudeCliSingleShot } from "@/lib/llm-provider/cli/claude-code";
 import { isLlmEnabled } from "@/lib/llm-enabled";
 import { callWithCircuitBreaker } from "@/lib/llm-circuit-breaker";
@@ -53,13 +56,16 @@ function compactArgs(args: unknown): string {
 
 function compactResult(result: unknown): string {
   if (result === undefined || result === null) return "(sin resultado)";
-  const s = typeof result === "string" ? result : (() => {
-    try {
-      return JSON.stringify(result);
-    } catch {
-      return String(result);
-    }
-  })();
+  const s =
+    typeof result === "string"
+      ? result
+      : (() => {
+          try {
+            return JSON.stringify(result);
+          } catch {
+            return String(result);
+          }
+        })();
   return truncate(s.replace(/\s+/g, " ").trim(), HISTORY_TOOL_RESULT_MAX);
 }
 
@@ -183,6 +189,41 @@ export function formatToolCallsForHistory(toolCalls: ToolCallRecord[]): string {
  * genuine turn — one that really ran tools and happens to quote itself — from
  * tripping the guard.
  */
+/**
+ * ¿La respuesta es una ESPECIFICACIÓN de dashboard en vez de una respuesta?
+ *
+ * En free-chat el usuario pregunta por cifras. Un JSON con `widgets` no es la
+ * respuesta: es la receta para construir un panel, y en el chat se ve como un
+ * muro de JSON. El 2026-08-31 una pregunta de rentabilidad por proveedor
+ * terminó así -- 20 consultas correctas, 11 KB de spec pegados en el texto, el
+ * turno guardado como `complete` y el usuario sin ningún resultado.
+ *
+ * `looksLikeFabricatedToolLog` no lo cazaba y no debía: exige
+ * `actualToolCalls === 0` para sus formas ambiguas, y aquí hubo 26 llamadas
+ * reales. El turno hizo el trabajo; lo que falló fue la FORMA de contestar.
+ *
+ * Para pedir un panel existe `start_dashboard_generation`. Un spec inline
+ * significa que el modelo se saltó la herramienta, así que exigir que no haya
+ * habido llamada a esa herramienta evita marcar el caso legítimo en el que el
+ * modelo explica lo que la herramienta acaba de generar.
+ */
+export function looksLikeDashboardSpecInsteadOfAnswer(
+  text: string,
+  calledDashboardGeneration: boolean,
+): boolean {
+  if (calledDashboardGeneration) return false;
+  const t = text ?? "";
+  if (!t) return false;
+  // Un spec real trae `widgets` como array JUNTO con `sql` o un tipo de widget.
+  // Sólo `widgets` es demasiado laxo: cabe en una frase ("el panel tiene 4
+  // widgets") y marcaría respuestas correctas.
+  const tieneWidgets = /"widgets"\s*:\s*\[/.test(t);
+  if (!tieneWidgets) return false;
+  return /"(sql|kpi_row|bar_chart|line_chart|area_chart|donut_chart|ranked_bars|insights_strip)"/.test(
+    t,
+  );
+}
+
 export function looksLikeFabricatedToolLog(
   text: string,
   actualToolCalls: number,
@@ -215,7 +256,8 @@ export function looksLikeFabricatedToolLog(
   // defeated an anchored check, and this PR changes the very block the model
   // imitates, so betting the imitation stays at position 0 is unwarranted. The
   // call-line requirement below is what makes searching anywhere safe.
-  const framed = t.includes(TOOL_LOG_OPEN_TAG) || t.includes(LEGACY_TOOL_LOG_HEADER);
+  const framed =
+    t.includes(TOOL_LOG_OPEN_TAG) || t.includes(LEGACY_TOOL_LOG_HEADER);
   if (!framed) return false;
   // A turn that merely *mentions* the framing (the user asked what the block
   // is) must survive: it has to actually list call-shaped lines.
@@ -266,7 +308,10 @@ export function flattenStoredMessage(row: {
   // affects blocks RENDERED from tool_calls; a fabrication is plain text and
   // is immune to it. Skipping these rows costs nothing (they contain no real
   // answer) and stops old damage causing new damage.
-  if (row.role === "assistant" && looksLikeFabricatedToolLog(text, toolCalls?.length ?? 0)) {
+  if (
+    row.role === "assistant" &&
+    looksLikeFabricatedToolLog(text, toolCalls?.length ?? 0)
+  ) {
     return null;
   }
 
@@ -296,7 +341,8 @@ export async function buildHistory(
   conversationId: string | null,
   opts?: { priorMessages?: HistoryMessage[]; flow?: string },
 ): Promise<HistoryMessage[]> {
-  if (opts?.priorMessages) return capHistory(opts.priorMessages, HISTORY_MAX_MESSAGES, opts.flow);
+  if (opts?.priorMessages)
+    return capHistory(opts.priorMessages, HISTORY_MAX_MESSAGES, opts.flow);
   if (!conversationId) return [];
 
   const rows = await loadMessages(conversationId);
@@ -355,7 +401,10 @@ export async function capHistory(
  * SUMMARY_INPUT_MAX_CHARS (most recent prompts win) so the summarisation
  * request stays small regardless of conversation length.
  */
-async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<string> {
+async function buildSummary(
+  messages: HistoryMessage[],
+  flow?: string,
+): Promise<string> {
   // Most recent old prompts are the most relevant — accumulate from the end
   // until the char budget is spent, then restore chronological order.
   const bullets: string[] = [];
@@ -410,7 +459,8 @@ async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<
           prompt_tokens: usage?.prompt_tokens ?? 0,
           completion_tokens: usage?.completion_tokens ?? 0,
           total_tokens: usage?.total_tokens ?? 0,
-          cache_creation_input_tokens: usage?.cache_creation_input_tokens ?? null,
+          cache_creation_input_tokens:
+            usage?.cache_creation_input_tokens ?? null,
           cache_read_input_tokens: usage?.cache_read_input_tokens ?? null,
         },
         { provider: "cli", driver: cfg.cliDriver },
@@ -424,15 +474,16 @@ async function buildSummary(messages: HistoryMessage[], flow?: string): Promise<
 
   try {
     const client = getOpenRouterClient();
-    const { content, usage, reportedCostUsd } = await callWithCircuitBreaker(() =>
-      openRouterChatCompletion({
-        client,
-        model,
-        messages: [{ role: "user" as const, content: prompt }],
-        temperature: 0.1,
-        maxTokens: 200,
-        provider,
-      }),
+    const { content, usage, reportedCostUsd } = await callWithCircuitBreaker(
+      () =>
+        openRouterChatCompletion({
+          client,
+          model,
+          messages: [{ role: "user" as const, content: prompt }],
+          temperature: 0.1,
+          maxTokens: 200,
+          provider,
+        }),
     );
     if (usage) {
       logUsage(
