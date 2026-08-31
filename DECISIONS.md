@@ -41,6 +41,7 @@
 | [D-025](docs/decisions/D-025-oauth-single-refresher.md) | Only the host `claude` CLI ever refreshes the OAuth token. The launchd agent only mirrors the macOS Keychain into `~/.claude/.credentials.json`. Never POST to the OAuth endpoint from code. |
 | [D-042](docs/decisions/D-042-otel-head-sampling.md) | ETL/dashboard use SDK head sampling (`parentbased_traceidratio`, default 0.1); the pinned elastic-agent collector lacks `tail_sampling`/`zpages` — don't re-add without switching images. |
 | [D-058](docs/decisions/D-058-wrenai-retirado.md) | WrenAI sale de producción y del compose (con qdrant, ibis-server, wren-engine y bootstrap). El conocimiento vive sólo en el bundle del dashboard. |
+| [D-061](docs/decisions/D-061-heap-del-dashboard-explicito.md) | El heap de Node del dashboard se fija con `NODE_OPTIONS=--max-old-space-size`, nunca se hereda del `mem_limit`: derivarlo dio 524 MB y 13 reinicios. |
 
 ## Data / ETL
 

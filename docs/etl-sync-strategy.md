@@ -467,6 +467,16 @@ Business rules and field conventions the dashboard LLM must follow when generati
     ]
   },
   {
+    "instruction": "FORMATO LARGO: OJO CON SUMAR COLUMNAS DE LINEA. ps_lin_albaranes y ps_stock_tienda estan despivotadas, una fila por TALLA, y las columnas del nivel superior SE REPITEN identicas en cada fila de talla. Sumarlas a ciegas multiplica por el numero de tallas. Medido en produccion 2026-08-31: SUM(ps_lin_albaranes.total_si) da 168.172.072 EUR cuando el valor real es 38.660.308 (4,35x); SUM(ps_stock_tienda.cc_stock) da 754.547 cuando el real es 135.464 (5,6x). Una linea de albaran con 14 tallas repite su total_si catorce veces. COLUMNAS POR TALLA (estas SI se suman): ps_lin_albaranes.recibidas, ps_stock_tienda.stock. COLUMNAS DE LINEA (estas NO se suman directamente): ps_lin_albaranes.recibidas_total, total_si, precio_coste, precio_neto_si; ps_stock_tienda.cc_stock, st_stock. Para agregarlas hay que colapsar primero a una fila por linea: SELECT SUM(t) FROM (SELECT MAX(total_si) AS t FROM ps_lin_albaranes GROUP BY reg_linea_albaran) x. MAX y no SUM dentro del subquery, porque el valor es el mismo en todas las filas del grupo. Si lo que se quiere es el importe de UNA talla, no existe: el desglose por talla esta en unidades (recibidas), no en dinero.",
+    "questions": [
+      "¿Cuanto he comprado a un proveedor?",
+      "¿Valor de la mercancia recibida?",
+      "¿Importe por linea de albaran?",
+      "¿Valor del stock por tienda?",
+      "¿Por que me sale un importe altisimo al sumar?"
+    ]
+  },
+  {
     "instruction": "COMPRAS POR TALLA: ps_lin_albaranes es la mercancia RECIBIDA, en formato largo, una fila por linea de albaran y talla. Columnas: reg_linea_albaran + talla forman la PK, num_albaran -> ps_albaranes.reg_albaran (verificado 3.759 de 3.759; NUNCA por n_albaran, que es el numero visible y no es unico), codigo -> ps_articulos.codigo, recibidas (unidades de esa talla), recibidas_total (la raiz Real de la linea, suma de sus tallas), precio_coste, precio_neto_si, total_si, abono. 291.068 filas desde 45.967 lineas, 43 tallas, medido 2026-08-30. NO confundir con ps_lineas_compras, que son PEDIDOS y no mercancia recibida. Las tallas van en MAYUSCULAS, igual que ps_lineas_ventas.talla y ps_stock_tienda.talla, asi que un cruce compras<->ventas<->stock por talla casa sin normalizar. La talla U es talla unica y acumula el 75 % de las unidades (447 de media por linea frente a 19 en la M): en un ranking de tallas compradas hay que excluirla o sale ella sola. Los slots Recibidas1..34 son enteros de 16 bits con signo y el ETL les aplica decode_signed_int16_word (D-017); hoy no hay ningun negativo en origen. Integridad comprobada: la suma de los slots cuadra con la raiz en 45.966 de 45.967 lineas; la unica que no es el articulo 113246 (raiz 112, slots 0).",
     "questions": [
       "¿Que tallas he comprado?",

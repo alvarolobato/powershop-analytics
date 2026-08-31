@@ -366,9 +366,9 @@
   env: DASHBOARD_LLM_MAX_OUTPUT_TOKENS
   type: int
   sensitive: false
-  default: 8192
+  default: 32000
   section: "Agentic"
-  description: "Máximo de tokens de salida por llamada al modelo (todos los flujos). En modelos de razonamiento los tokens de razonamiento cuentan contra este límite, así que un valor bajo agota el presupuesto antes de emitir la respuesta y el turno falla con LLM_EMPTY."
+  description: "Máximo de tokens de salida por llamada al modelo (todos los flujos). En modelos de razonamiento los tokens de razonamiento cuentan contra este límite, así que un valor bajo agota el presupuesto antes de emitir la respuesta y el turno falla con LLM_EMPTY. El defecto era 8192 y con deepseek-v4-pro fallaba de verdad: medido en produccion el 2026-08-31, una pregunta de rentabilidad por proveedor murio con LLM_EMPTY tras 7 rondas de herramientas, y la misma pregunta con 32000 completo en 254 s gastando 21.933 tokens de salida y 0,059 USD. Un valor alto no se gasta si no hace falta: se cobra lo consumido, no el tope."
   requires_restart: []
   components: [dashboard]
 

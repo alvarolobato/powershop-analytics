@@ -1,6 +1,6 @@
 // GENERADO por dashboard/scripts/build-knowledge-index.mjs — NO editar a mano.
 // Regenerar con `npm run build:knowledge` (lo ejecuta también el prebuild).
-// Fuente: 16 ficheros. 260 secciones (174 con SQL,
+// Fuente: 16 ficheros. 262 secciones (176 con SQL,
 // 11 en dialecto 4D del ERP origen, no ejecutables contra el espejo PostgreSQL).
 // Se consulta con la tool `search_knowledge`; no va en el prompt del sistema.
 
@@ -1823,6 +1823,20 @@ export const KNOWLEDGE_INDEX: KnowledgeChunk[] = [
     "heading": "¿Son rentables estas referencias? (rentabilidad de una lista de artículos)",
     "body": "```sql\nSELECT LEFT(TRIM(a.\"ccrefejofacm\"), LENGTH(TRIM(a.\"ccrefejofacm\")) - 2) AS \"Modelo\", MIN(a.\"descripcion\") AS \"Descripción\", COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0) AS \"Ventas Netas\", ROUND(100.0 * ((COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0)) - (COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_coste_si\") FILTER (WHERE NOT lv.\"entrada\"), 0))) / NULLIF(COALESCE(SUM(lv.\"total_si\") FILTER (WHERE lv.\"entrada\"), 0) - COALESCE(SUM(lv.\"total_si\") FILTER (WHERE NOT lv.\"entrada\"), 0), 0), 1) AS \"Margen %\" FROM \"public\".\"ps_lineas_ventas\" lv JOIN \"public\".\"ps_articulos\" a ON a.\"codigo\" = lv.\"codigo\" WHERE a.\"ccrefejofacm\" LIKE 'I26101%' AND lv.\"fecha_creacion\" BETWEEN :curr_from AND :curr_to AND lv.\"tienda\" <> '99' AND LENGTH(TRIM(COALESCE(a.\"ccrefejofacm\", ''))) > 2 GROUP BY 1 ORDER BY \"Ventas Netas\" DESC LIMIT 40\n```",
     "hasSql": false,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Cuánto he comprado a un proveedor, en unidades e importe?",
+    "body": "```sql\nWITH lineas AS (SELECT la.\"reg_linea_albaran\", MAX(la.\"total_si\") AS importe_linea, SUM(la.\"recibidas\") AS unidades_linea FROM \"public\".\"ps_lin_albaranes\" la JOIN \"public\".\"ps_albaranes\" a ON a.\"reg_albaran\" = la.\"num_albaran\" JOIN \"public\".\"ps_proveedores\" p ON p.\"reg_proveedor\" = a.\"num_proveedor\" WHERE la.\"abono\" IS NOT TRUE AND p.\"nombre\" ILIKE '%LUCAS%' AND a.\"fecha_recibido\" BETWEEN :curr_from AND :curr_to GROUP BY la.\"reg_linea_albaran\") SELECT COUNT(*) AS \"Líneas\", SUM(unidades_linea) AS \"Unidades Recibidas\", ROUND(SUM(importe_linea), 2) AS \"Importe al Coste\" FROM lineas\n```",
+    "hasSql": true,
+    "dialect": "postgres"
+  },
+  {
+    "source": "docs/dashboard/sql-pairs.md",
+    "heading": "¿Cuál es el valor del stock por tienda?",
+    "body": "```sql\nWITH por_articulo AS (SELECT s.\"tienda\", s.\"codigo\", s.\"tienda_codigo\", MAX(s.\"cc_stock\") AS cc, SUM(s.\"stock\") AS unidades FROM \"public\".\"ps_stock_tienda\" s GROUP BY s.\"tienda\", s.\"codigo\", s.\"tienda_codigo\") SELECT \"tienda\" AS \"Tienda\", SUM(unidades) AS \"Unidades\", ROUND(SUM(cc), 2) AS \"Valor\" FROM por_articulo GROUP BY \"tienda\" ORDER BY \"Valor\" DESC LIMIT 30\n```",
+    "hasSql": true,
     "dialect": "postgres"
   },
   {
