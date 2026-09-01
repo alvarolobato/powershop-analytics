@@ -33,6 +33,7 @@ import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -423,6 +424,15 @@ def _rows_to_dicts(columns: list[str], rows: list[tuple], sql: str) -> list[dict
     return result
 
 
+class FetchAnomalyError(RuntimeError):
+    """Se hallo una fila anomala durante una lectura troceada.
+
+    En modo troceado no se refetchea para discriminar: las filas anteriores ya
+    se han entregado. Se aborta, y como el consumidor carga en una sola
+    transaccion, la tabla se queda intacta.
+    """
+
+
 class FetchTruncatedError(RuntimeError):
     """Llegaron menos filas de las que el servidor 4D dijo que tenia.
 
@@ -469,6 +479,101 @@ def _conexion_limpia_o_la_de_siempre(conn) -> tuple[object, bool]:
             exc,
         )
         return conn, False
+
+
+def safe_fetch_streaming(
+    conn,
+    sql: str,
+    *,
+    guard_pk: str | None = None,
+    chunk_size: int = 50_000,
+) -> tuple[int, Iterator[dict]]:
+    """Como `safe_fetch`, pero sin materializar el resultado entero.
+
+    Devuelve `(filas_declaradas_por_el_servidor, iterador_de_dicts)`.
+
+    Por que existe
+    --------------
+    `safe_fetch` hace `fetchall()` y despues `_rows_to_dicts()`, asi que durante
+    la conversion conviven en memoria el millon de tuplas crudas Y el millon de
+    diccionarios. D-059 arreglo la mitad del problema -- la INSERCION va por
+    lotes -- pero la LECTURA seguia materializandolo todo, y es la que mata al
+    proceso: 11 pasadas full muertas en 3 dias, sin traceback, salida limpia y
+    contenedor reiniciado. Con 2 GiB de limite y `ps_gc_lin_albarane` en 1,05 M
+    de filas, no hay margen.
+
+    Y no es solo el coste de la caida: cada muerte reinicia el contenedor, que
+    lanza otro full inmediato contra un 4D que todavia esta digiriendo el
+    statement abandonado. Esa concentracion de lecturas grandes de madrugada es
+    lo que multiplica las papeletas de que una venga truncada.
+
+    Diferencia de comportamiento, deliberada
+    ----------------------------------------
+    Aqui una anomalia ABORTA en vez de refetchear y discriminar. No se puede
+    "devolver el refetch en su lugar" cuando las filas ya se han entregado
+    aguas abajo. Y abortar es seguro justamente aqui, porque el unico consumidor
+    es `truncate_and_insert_streaming`, que trabaja en UNA transaccion: al
+    propagarse la excepcion se deshace la carga entera y la tabla se queda como
+    estaba.
+
+    Ademas es la decision correcta a la luz de lo ocurrido: persistir lo dudoso
+    es lo que hizo desaparecer el 43 % del catalogo el 2026-09-01. Las tablas
+    pequenas conservan la discriminacion por refetch, que ahi si vale la pena.
+    """
+    cursor = conn.cursor()
+    try:
+        cursor.execute(sql)
+        if cursor.description is None:
+            raise RuntimeError(
+                f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
+            )
+        columns = [_decode_column_name(desc[0]) for desc in cursor.description]
+        declaradas = getattr(cursor, "rowcount", None)
+    except Exception:
+        cursor.close()
+        raise
+
+    if declaradas is None or declaradas < 0:
+        cursor.close()
+        raise RuntimeError(
+            f"el servidor no declaro el numero de filas, y sin ese dato una "
+            f"lectura truncada es indetectable en modo troceado. SQL: {sql[:200]}"
+        )
+
+    def _iterar() -> Iterator[dict]:
+        leidas = 0
+        try:
+            while True:
+                trozo = cursor.fetchmany(chunk_size)
+                if not trozo:
+                    break
+                anomalias = scan_rows_for_anomalies(columns, trozo, guard_pk)
+                if anomalias:
+                    evidencia = _build_evidence(sql, trozo, anomalias)
+                    evidencia["refetch_outcome"] = "streaming_abort"
+                    _anomaly_log.append(evidencia)
+                    raise FetchAnomalyError(
+                        f"lectura troceada abortada: {len(anomalias)} fila(s) "
+                        f"anomala(s) en el trozo que empieza en la fila {leidas}. "
+                        f"En modo troceado no se refetchea -- las filas ya "
+                        f"entregadas no se pueden retirar -- asi que se aborta y "
+                        f"la transaccion de carga se deshace entera. "
+                        f"SQL: {sql[:200]}"
+                    )
+                for fila in _rows_to_dicts(columns, trozo, sql):
+                    yield fila
+                leidas += len(trozo)
+
+            if leidas != declaradas:
+                raise FetchTruncatedError(
+                    f"lectura incompleta: el servidor declaro {declaradas} filas "
+                    f"y llegaron {leidas} ({declaradas - leidas} menos). "
+                    f"SQL: {sql[:200]}"
+                )
+        finally:
+            cursor.close()
+
+    return declaradas, _iterar()
 
 
 def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:

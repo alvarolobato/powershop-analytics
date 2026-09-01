@@ -48,7 +48,7 @@ from __future__ import annotations
 import logging
 from decimal import Decimal
 
-from etl.db.fourd import decode_signed_int16_word, safe_fetch
+from etl.db.fourd import decode_signed_int16_word, safe_fetch_streaming
 from etl.db.postgres import truncate_and_insert_streaming
 
 logger = logging.getLogger(__name__)
@@ -157,13 +157,19 @@ def sync_lin_albaranes(conn_4d, conn_pg, since=None) -> int:
             "sync_lin_albaranes: LinAlbaranes no tiene campo de modificacion; "
             "refresco completo pese al watermark"
         )
-    crudas = safe_fetch(conn_4d, SQL_LIN_ALBARANES)
+    # Lectura troceada: ver el comentario en mayorista.py. `len(crudas)` ya no
+    # existe -- es un iterador -- pero el total lo declara el propio servidor.
+    declaradas, crudas = safe_fetch_streaming(conn_4d, SQL_LIN_ALBARANES)
     total = truncate_and_insert_streaming(
-        conn_pg, "ps_lin_albaranes", crudas, normalizar_linea
+        conn_pg,
+        "ps_lin_albaranes",
+        crudas,
+        normalizar_linea,
+        filas_origen=declaradas,
     )
     logger.info(
         "sync_lin_albaranes: %d filas de destino desde %d lineas de origen",
         total,
-        len(crudas),
+        declaradas,
     )
     return total

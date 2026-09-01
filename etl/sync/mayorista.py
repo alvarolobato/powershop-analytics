@@ -58,7 +58,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from etl.db.fourd import safe_fetch
+from etl.db.fourd import safe_fetch, safe_fetch_streaming
 from etl.db.postgres import (
     truncate_and_insert,
     truncate_and_insert_streaming,
@@ -433,14 +433,18 @@ def sync_gc_lin_albarane(
     """
     if since is None:
         logger.info("sync_gc_lin_albarane: initial load (full truncate+insert)")
-        raw_rows = safe_fetch(conn_4d, _SQL_LIN_ALBARANE_ALL)
-        # Por lotes: materializar el millon de filas mapeadas ademas del crudo
-        # mataba el proceso (ver truncate_and_insert_streaming).
+        # Lectura troceada tambien, no solo la insercion. `safe_fetch` hacia
+        # fetchall() y luego construia un dict por fila, asi que el millon de
+        # tuplas crudas y el millon de dicts convivian en memoria: eso mataba al
+        # proceso por OOM (11 pasadas full muertas en 3 dias, sin traceback).
+        # D-059 arreglo la insercion; esto arregla la otra mitad.
+        declaradas, raw_rows = safe_fetch_streaming(conn_4d, _SQL_LIN_ALBARANE_ALL)
         count = truncate_and_insert_streaming(
             conn_pg,
             "ps_gc_lin_albarane",
             raw_rows,
             lambda r: _map_row(r, _LIN_ALBARANE_MAPPING),
+            filas_origen=declaradas,
         )
         logger.info("sync_gc_lin_albarane: inserted %d rows (full refresh)", count)
         return count
@@ -532,12 +536,13 @@ def sync_gc_lin_facturas(
     """
     if since is None:
         logger.info("sync_gc_lin_facturas: initial load (full truncate+insert)")
-        raw_rows = safe_fetch(conn_4d, _SQL_LIN_FACTURAS_ALL)
+        declaradas, raw_rows = safe_fetch_streaming(conn_4d, _SQL_LIN_FACTURAS_ALL)
         count = truncate_and_insert_streaming(
             conn_pg,
             "ps_gc_lin_facturas",
             raw_rows,
             lambda r: _map_row(r, _LIN_FACTURAS_MAPPING),
+            filas_origen=declaradas,
         )
         logger.info("sync_gc_lin_facturas: inserted %d rows (full refresh)", count)
         return count
