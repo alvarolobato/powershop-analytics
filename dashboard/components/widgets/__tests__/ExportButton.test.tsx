@@ -64,9 +64,17 @@ describe("ExportButton", () => {
   });
 
   it("libera el blob: si no, se queda en memoria mientras viva la pestaña", () => {
+    // Se comprueba el INVARIANTE -- se libera exactamente la url que se creó --
+    // en vez de un literal. La versión anterior afirmaba `"blob:falso"` y
+    // pasaba en local pero fallaba en CI, porque daba por hecho qué mock
+    // estaba activo en ese momento en lugar de leerlo.
     render(<ExportButton data={datos} titulo="Ventas" />);
     fireEvent.click(screen.getByTestId("export-csv"));
-    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith("blob:falso");
+
+    const creadas = (global.URL.createObjectURL as ReturnType<typeof vi.fn>).mock.results;
+    expect(creadas.length).toBe(1);
+    const url = creadas[0].value;
+    expect(global.URL.revokeObjectURL).toHaveBeenCalledWith(url);
   });
 
   it("tiene nombre accesible", () => {

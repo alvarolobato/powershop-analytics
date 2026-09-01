@@ -20,6 +20,7 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "child_process";
 import * as path from "path";
+import { readFileSync } from "fs";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -257,7 +258,11 @@ test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async (
 }) => {
   expect(dashboardIds.length).toBeGreaterThan(0);
 
-  let encontrado = false;
+  // Se recoge lo que se ve en cada panel para que, si no hay donde probar, el
+  // fallo diga POR QUE en vez de dejar adivinando: cuantas tablas hay, cuantas
+  // tienen filas, y cuantos botones aparecen.
+  const diagnostico: string[] = [];
+  let probado = false;
 
   for (const id of dashboardIds) {
     await page.goto(`/dashboard/${id}`);
@@ -268,13 +273,17 @@ test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async (
       { timeout: 30_000 },
     );
 
+    const tablas = await page.locator("table").count();
+    const filas = await page.locator("table tbody tr").count();
     const botones = page.locator('[data-testid="export-csv"]');
-    if ((await botones.count()) === 0) continue;
-    encontrado = true;
+    const nBotones = await botones.count();
+    diagnostico.push(`panel ${id}: ${tablas} tabla(s), ${filas} fila(s), ${nBotones} boton(es)`);
 
-    // Discreto: presente pero atenuado hasta que el ratón pasa por encima.
+    if (nBotones === 0) continue;
+
     const primero = botones.first();
     await expect(primero).toBeVisible();
+    // Discreto: presente pero atenuado hasta que el raton pasa por encima.
     expect(Number(await primero.evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(1);
 
     const descarga = page.waitForEvent("download", { timeout: 15_000 });
@@ -285,21 +294,22 @@ test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async (
 
     const ruta = await fichero.path();
     expect(ruta).not.toBeNull();
-    const contenido = require("fs").readFileSync(ruta as string, "utf8");
+    const contenido = readFileSync(ruta as string, "utf8");
 
-    // BOM: sin él Excel rompe los acentos.
+    // BOM: sin el, Excel rompe los acentos.
     expect(contenido.charCodeAt(0)).toBe(0xfeff);
     // Separador `;`: con coma, Excel-es lo mete todo en una columna.
-    const cabecera = contenido.split("\r\n")[0];
-    expect(cabecera).toContain(";");
-    // Y hay al menos una fila de datos además de la cabecera.
+    expect(contenido.split("\r\n")[0]).toContain(";");
+    // Y hay al menos una fila de datos ademas de la cabecera.
     expect(contenido.split("\r\n").length).toBeGreaterThan(1);
 
+    probado = true;
     break;
   }
 
   expect(
-    encontrado,
-    "ningún panel sembrado tiene tabla ni gráfico con datos: el test no probó nada",
+    probado,
+    "no se pudo probar la exportacion en ningun panel sembrado.\n" +
+      diagnostico.join("\n"),
   ).toBe(true);
 });
