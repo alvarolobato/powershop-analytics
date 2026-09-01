@@ -38,9 +38,16 @@ export function ExportButton({ data, titulo }: Props) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // No revocamos el blob URL: el navegador lo invalida al cerrar o navegar,
-    // lo que es suficiente para ficheros pequeños. Revocarlo antes produce una
-    // carrera con la lectura CDP de Playwright en CI y causa download.path()===null.
+    // El blob se libera, pero DESPUÉS de que el navegador haya empezado a
+    // leerlo. Revocarlo justo tras `click()` es una carrera: la descarga puede
+    // no haber leído todavía y el fichero sale vacío (en CI se veía como
+    // `download.path() === null`).
+    //
+    // La remediación automática de CI "arregló" esto quitando el revoke del
+    // todo, lo cual hace pasar el test a cambio de dejar el blob en memoria
+    // mientras viva la pestaña. Aplazarlo conserva la limpieza y quita la
+    // carrera, que es lo que había que hacer.
+    window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 
     setCopiado(true);
     window.setTimeout(() => setCopiado(false), 1200);

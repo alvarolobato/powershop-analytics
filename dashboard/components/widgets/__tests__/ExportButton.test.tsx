@@ -18,6 +18,7 @@ describe("ExportButton", () => {
   let creado: string | null = null;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     creado = null;
     // jsdom no implementa createObjectURL.
     global.URL.createObjectURL = vi.fn(() => "blob:falso");
@@ -29,7 +30,10 @@ describe("ExportButton", () => {
     });
   });
 
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
 
   it("no se pinta si no hay datos: un botón que baja un fichero vacío estorba", () => {
     const { container } = render(<ExportButton data={null} titulo="Ventas" />);
@@ -74,6 +78,12 @@ describe("ExportButton", () => {
     const creadas = (global.URL.createObjectURL as ReturnType<typeof vi.fn>).mock.results;
     expect(creadas.length).toBe(1);
     const url = creadas[0].value;
+
+    // Aplazado a proposito: revocar justo tras `click()` es una carrera con la
+    // lectura de la descarga y el fichero puede salir vacio. Se comprueba que
+    // la limpieza EXISTE, no que sea inmediata.
+    expect(global.URL.revokeObjectURL).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(10_000);
     expect(global.URL.revokeObjectURL).toHaveBeenCalledWith(url);
   });
 
