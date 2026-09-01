@@ -67,10 +67,17 @@ const WIDGET_TYPES = `
 | line_chart    | Time series                             | title, sql, x, y                         |
 | area_chart    | Stacked time series                     | title, sql, x, y                         |
 | donut_chart   | Proportions                             | title, sql, x, y                         |
-| table         | Detailed data rows                      | title, sql                               |
+| table         | Detailed data rows                      | title, sql, heat?                        |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 | insights_strip| 3-card narrative strip (up/down/warn)   | items[]: {kind, title, body}             |
 | ranked_bars   | Horizontal bar chart (pre-computed data)| title, items[]: {label, value, maxValue?, flag?, unit?} |
+
+> **\`table.heat\`**: las celdas numéricas llevan por defecto una barra de calor
+> detrás del número, y cada una reserva 120 px de ancho. Con muchas columnas
+> numéricas —una tabla pivotada por tallas son 30, o sea 3.600 px— la tabla no
+> cabe a lo ancho. Usa \`"heat": false\` cuando la tabla sea ancha o el usuario
+> pida quitar las barras. A partir de 8 columnas numéricas se desactivan solas,
+> así que normalmente no hace falta ponerlo.
 
 > **Note**: \`ranked_bars\` is **data-driven** — supply the \`items\` array directly; it does **not** take a \`sql\` field. \`bar_chart\` is the SQL-driven equivalent and renders **vertical bars only** (there is no \`stacked\` or \`horizontal\` variant in the renderer).
 
