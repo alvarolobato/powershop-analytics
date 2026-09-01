@@ -104,6 +104,18 @@ export function TableWidget({
   padded = true,
 }: TableWidgetProps) {
   const titleNode = applyGlossary(widget.title, glossary);
+
+  /**
+   * ¿Se pintan las barras de calor detrás de los números?
+   *
+   * Manda el spec si lo dice. Si no, se decide por el número de columnas
+   * numéricas: cada celda con barra reserva 120 px de ancho mínimo, así que a
+   * partir de cierto punto la tabla no cabe y hay que desplazarla en
+   * horizontal para leer nada. Con 30 columnas —una tabla pivotada por tallas—
+   * son 3.600 px, y además nadie compara treinta barras entre sí: el adorno
+   * deja de informar justo cuando empieza a estorbar.
+   */
+  const MAX_COLUMNAS_CON_BARRAS = 8;
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -210,6 +222,11 @@ export function TableWidget({
     if (total === 0) return false;
     return numeric / total >= 0.8;
   });
+
+  // El spec manda; si no dice nada, se decide por el número de columnas
+  // numéricas. Ver `MAX_COLUMNAS_CON_BARRAS` arriba.
+  const columnasNumericas = colIsNumericRight.filter(Boolean).length;
+  const conBarras = widget.heat ?? columnasNumericas <= MAX_COLUMNAS_CON_BARRAS;
 
   return (
     <div
@@ -423,10 +440,31 @@ export function TableWidget({
                   // identifier column (e.g. a "2024" inside Temporada) does
                   // not render right-aligned while its sibling rows render
                   // left-aligned as text.
-                  if (isNumeric && colIsNumericRight[cIdx] && colMax > 0) {
+                  if (isNumeric && colIsNumericRight[cIdx] && colMax > 0 && conBarras) {
                     return (
                       <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10, textAlign: "right" }}>
                         <HeatCell value={numVal} max={colMax} />
+                      </td>
+                    );
+                  }
+
+                  // Sin barras: el número a secas, alineado a la derecha y en
+                  // la misma tipografía monoespaciada, para que las columnas
+                  // sigan leyéndose en vertical.
+                  if (isNumeric && colIsNumericRight[cIdx]) {
+                    return (
+                      <td
+                        key={cIdx}
+                        className="table-widget-cell"
+                        style={{
+                          paddingTop: 10,
+                          paddingBottom: 10,
+                          textAlign: "right",
+                          fontFamily: "var(--font-jetbrains, monospace)",
+                          fontSize: 11,
+                        }}
+                      >
+                        {numVal.toLocaleString("es-ES", { maximumFractionDigits: 0 })}
                       </td>
                     );
                   }

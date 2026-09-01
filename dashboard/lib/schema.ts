@@ -124,6 +124,23 @@ const TableWidgetSchema = z.object({
   type: z.literal("table"),
   title: z.string().min(1),
   sql: widgetSql,
+  /**
+   * Barras de calor detrás de los números.
+   *
+   * Sin especificar NO es `true`: se decide automáticamente por el número de
+   * columnas numéricas (se pintan con 8 o menos, se apagan con más). Decirlo
+   * importa: quien lea "por defecto true" puede poner `heat: true` explícito
+   * creyendo que no cambia nada, y clavarle 3.600 px a una tabla de tallas.
+   *
+   * Cada celda numérica reserva 120 px de ancho mínimo para alojar la barra.
+   * Con pocas columnas ayuda a comparar de un vistazo; con muchas —una tabla
+   * pivotada por tallas son 30 columnas numéricas, o sea 3.600 px— hace la
+   * tabla inusable a lo ancho y no aporta nada, porque nadie compara treinta
+   * barras entre sí.
+   *
+   * Ponerlo a `false` deja los números desnudos y compactos.
+   */
+  heat: z.boolean().optional(),
 }).strict();
 
 const NumberWidgetSchema = z.object({
