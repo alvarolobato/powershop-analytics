@@ -84,7 +84,9 @@ def test_trunca_antes_de_insertar(monkeypatch):
     # el TRUNCATE sea la primera sentencia del todo: la guarda de encogimiento
     # lee el historico de la tabla antes, y esa lectura es deliberada (es la
     # ultima oportunidad de saber cuantas filas habia).
-    sentencias = [r[1].upper() for r in registro if len(r) > 1 and isinstance(r[1], str)]
+    sentencias = [
+        r[1].upper() for r in registro if len(r) > 1 and isinstance(r[1], str)
+    ]
     i_truncate = next(i for i, q in enumerate(sentencias) if "TRUNCATE" in q)
     inserts = [i for i, q in enumerate(sentencias) if "INSERT" in q]
     assert all(i > i_truncate for i in inserts), "se inserto antes de truncar"
