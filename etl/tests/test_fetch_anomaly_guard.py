@@ -233,7 +233,14 @@ class TestBuildEvidenceIndexRangeAndPageFields:
         assert evidence["run_start_mod_100"] == 0
         assert evidence["run_end_mod_100"] == 99
         assert evidence["page_aligned_end"] is True
-        assert evidence["page_size"] == 100
+        # `page_size` registra el tamano REAL con el que se leyo, que es
+        # configurable (`P4D_PAGE_SIZE`, hoy 5000). Los campos `*_mod_100`
+        # siguen razonando sobre 100 a proposito: viven asi en
+        # `etl_fetch_anomalies` con historico, y atarlos al valor configurable
+        # los volveria incomparables entre pasadas.
+        from etl.db.fourd import _P4D_FETCH_PAGE_SIZE
+
+        assert evidence["page_size"] == _P4D_FETCH_PAGE_SIZE
         assert evidence["anomaly_count"] == 100
         assert evidence["kinds"] == {"all_null": 100}
         # last_index + 1 == len(rows): no "first good row after" sample.

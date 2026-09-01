@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal
@@ -268,6 +269,29 @@ def _compress_index_ranges(indices: list[int]) -> str:
 # run should be confined to one 100-row-aligned window, ending at an index
 # ≡ 99 (mod 100). We record the fields needed to check that prediction
 # against real incidents without asserting the hypothesis is proven.
+#: Filas que el servidor 4D manda por cada viaje de red.
+#:
+#: El driver trae 100 por defecto, y con eso un millon de filas son 10.000
+#: viajes -- y cada viaje es una oportunidad para el fallo que vacio media
+#: tabla el 2026-09-01: `fourd_next_row` no distingue un FETCH-RESULT fallido
+#: del fin de los datos, asi que un tropiezo de red se entrega como resultado
+#: completo. A 5000 son 200 viajes: 50 veces menos exposicion.
+#:
+#: Medido contra el 4D de produccion sobre Articulos (42.275 filas): 27,8 s con
+#: 100, 26,9 s con 5000, lectura integra en ambos casos. NO se gana velocidad
+#: -- la diferencia es ruido --; se gana superficie de fallo.
+_P4D_FETCH_PAGE_SIZE = int(os.environ.get("P4D_PAGE_SIZE", "5000"))
+
+#: Tamano de pagina para el ANALISIS de anomalias, que es cosa distinta del
+#: tamano que se pide al servidor.
+#:
+#: Los campos de evidencia se llaman `run_start_mod_100` / `run_end_mod_100` y
+#: viven asi en `etl_fetch_anomalies`, con historico. Atarlos al tamano
+#: configurable haria que esos nombres mintieran y que el historico dejara de
+#: ser comparable entre pasadas con distinta configuracion. El analisis sigue
+#: razonando sobre 100, que es el tamano con el que se registraron los casos
+#: conocidos; el `page_size` real de cada lectura se guarda aparte, en la
+#: columna `page_size`.
 _P4D_PAGE_SIZE = 100
 
 
@@ -313,7 +337,7 @@ def _build_evidence(sql: str, rows: list[tuple], anomalies: list[Anomaly]) -> di
         "first_index": first_index,
         "last_index": last_index,
         "index_ranges": _compress_index_ranges(indices),
-        "page_size": _P4D_PAGE_SIZE,
+        "page_size": _P4D_FETCH_PAGE_SIZE,
         "run_start_mod_100": first_index % _P4D_PAGE_SIZE,
         "run_end_mod_100": last_index % _P4D_PAGE_SIZE,
         "page_aligned_end": last_index % _P4D_PAGE_SIZE == _P4D_PAGE_SIZE - 1,
@@ -321,6 +345,18 @@ def _build_evidence(sql: str, rows: list[tuple], anomalies: list[Anomaly]) -> di
         "sample": sample[:5],
         "refetch_outcome": None,
     }
+
+
+def _fijar_pagina(cursor) -> None:
+    """Ajusta el tamano de pagina del cursor, si el driver lo permite.
+
+    `cursor.pagesize` es asignable en p4d 1.8 (comprobado contra produccion:
+    acepta 5000). Un driver que no lo exponga no debe tumbar la lectura.
+    """
+    try:
+        cursor.pagesize = _P4D_FETCH_PAGE_SIZE
+    except Exception:  # noqa: BLE001 - un cursor sin `pagesize` sigue valiendo
+        pass
 
 
 def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
@@ -332,6 +368,7 @@ def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
     """
     cursor = conn.cursor()
     try:
+        _fijar_pagina(cursor)
         cursor.execute(sql)
         if cursor.description is None:
             raise RuntimeError(
@@ -522,6 +559,7 @@ def safe_fetch_streaming(
     """
     cursor = conn.cursor()
     try:
+        _fijar_pagina(cursor)
         cursor.execute(sql)
         if cursor.description is None:
             raise RuntimeError(
@@ -544,7 +582,20 @@ def safe_fetch_streaming(
         leidas = 0
         try:
             while True:
-                trozo = cursor.fetchmany(chunk_size)
+                # `fetchone()` en bucle, NO `cursor.fetchmany()`.
+                #
+                # `fetchmany` de p4d 1.8 esta roto: su cuerpo hace
+                # `if row is none:` -- con `none` en minuscula -- que es un
+                # NameError. Solo se alcanza esa linea cuando `fetchone()`
+                # devuelve None, o sea al terminar el resultado, asi que
+                # `fetchmany` revienta SIEMPRE en el ultimo trozo. Comprobado
+                # contra el driver instalado en produccion.
+                trozo = []
+                for _ in range(chunk_size):
+                    fila = cursor.fetchone()
+                    if fila is None:
+                        break
+                    trozo.append(fila)
                 if not trozo:
                     break
                 anomalias = scan_rows_for_anomalies(columns, trozo, guard_pk)

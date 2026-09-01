@@ -27,16 +27,23 @@ class _Cursor:
         self._i = 0
         self.description = [(c.encode(),) for c in (columnas or ["reg", "codigo"])]
         self.cerrado = False
-        self.peticiones = []
 
     def execute(self, _sql):
         pass
 
-    def fetchmany(self, n):
-        trozo = self._filas[self._i : self._i + n]
-        self._i += len(trozo)
-        self.peticiones.append(len(trozo))
-        return trozo
+    # El doble expone `fetchone`, igual que el driver real. NO `fetchmany`: el
+    # de p4d 1.8 esta roto (`if row is none:`, minuscula -> NameError al llegar
+    # al final del resultado), y por eso el codigo hace el bucle a mano. Un
+    # doble con `fetchmany` habria escondido justo ese fallo.
+    def fetchone(self):
+        if self._i >= len(self._filas):
+            return None
+        fila = self._filas[self._i]
+        self._i += 1
+        return fila
+
+    def leidas(self):
+        return self._i
 
     def close(self):
         self.cerrado = True
@@ -61,12 +68,12 @@ def test_no_materializa_el_resultado_entero():
         _Conn(cur), "SELECT reg, codigo FROM t", chunk_size=100
     )
     assert declaradas == 1000
-    # Aún no se ha pedido nada: el iterador es perezoso.
-    assert cur.peticiones == []
+    # Aún no se ha leído nada: el iterador es perezoso.
+    assert cur.leidas() == 0
     primera = next(it)
     assert primera == {"reg": 0.0, "codigo": "c0"}
-    # Se ha pedido UN trozo, no las mil filas.
-    assert cur.peticiones == [100]
+    # Se ha leído UN trozo, no las mil filas.
+    assert cur.leidas() == 100
 
 
 def test_entrega_todas_las_filas_y_en_orden():
@@ -184,15 +191,19 @@ def test_lee_e_inserta_intercalado_no_lee_todo_primero(monkeypatch):
     )
 
     cur = _Cursor(300, _filas(300))
-    original = cur.fetchmany
+    original = cur.fetchone
+    estado = {"ultimo": -1}
 
-    def fetchmany_vigilado(n):
-        trozo = original(n)
-        if trozo:
+    def fetchone_vigilado():
+        fila = original()
+        # Una marca por trozo, no por fila: lo que se compara es el ORDEN de
+        # lecturas e inserciones, y una marca por fila ahogaria la senal.
+        if fila is not None and cur.leidas() // 100 != estado["ultimo"]:
+            estado["ultimo"] = cur.leidas() // 100
             orden.append("lee")
-        return trozo
+        return fila
 
-    cur.fetchmany = fetchmany_vigilado
+    cur.fetchone = fetchone_vigilado
 
     declaradas, it = safe_fetch_streaming(
         _Conn(cur), "SELECT reg, codigo FROM t", chunk_size=100
