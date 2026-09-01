@@ -6,6 +6,7 @@ import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE, resolveXY, safeNumber } from "./types";
 import { applyGlossary } from "@/lib/glossary";
 import { WidgetSkeleton } from "./WidgetSkeleton";
+import { ExportButton } from "./ExportButton";
 
 interface LineChartWidgetProps {
   widget: LineChartWidgetSpec;
@@ -201,6 +202,10 @@ export function LineChartWidget({
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--fg)", letterSpacing: "-0.005em" }}>
           {titleNode}
         </h3>
+        {/* Un grafico tiene los mismos datos tabulares detras, asi que exportar
+            tiene el mismo sentido: se lleva las filas de origen, no los puntos
+            ya redondeados para pintar. */}
+        <ExportButton data={data} titulo={widget.title} />
       </div>
 
       {/* Chart body. Mobile item 9: horizontal scroll instead of shrinking

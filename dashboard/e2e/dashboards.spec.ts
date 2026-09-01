@@ -247,3 +247,59 @@ test("los abonos mayoristas se restan, no se excluyen", async () => {
     await cli.end();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Exportar a CSV (D-041: toda superficie visible nueva lleva su e2e)
+// ---------------------------------------------------------------------------
+
+test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async ({
+  page,
+}) => {
+  expect(dashboardIds.length).toBeGreaterThan(0);
+
+  let encontrado = false;
+
+  for (const id of dashboardIds) {
+    await page.goto(`/dashboard/${id}`);
+    await page.waitForFunction(
+      () =>
+        document.querySelectorAll('[data-testid="widget-skeleton"]').length === 0 ||
+        document.querySelectorAll('[data-testid="error-display"]').length > 0,
+      { timeout: 30_000 },
+    );
+
+    const botones = page.locator('[data-testid="export-csv"]');
+    if ((await botones.count()) === 0) continue;
+    encontrado = true;
+
+    // Discreto: presente pero atenuado hasta que el ratón pasa por encima.
+    const primero = botones.first();
+    await expect(primero).toBeVisible();
+    expect(Number(await primero.evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(1);
+
+    const descarga = page.waitForEvent("download", { timeout: 15_000 });
+    await primero.click();
+    const fichero = await descarga;
+
+    expect(fichero.suggestedFilename()).toMatch(/\.csv$/);
+
+    const ruta = await fichero.path();
+    expect(ruta).not.toBeNull();
+    const contenido = require("fs").readFileSync(ruta as string, "utf8");
+
+    // BOM: sin él Excel rompe los acentos.
+    expect(contenido.charCodeAt(0)).toBe(0xfeff);
+    // Separador `;`: con coma, Excel-es lo mete todo en una columna.
+    const cabecera = contenido.split("\r\n")[0];
+    expect(cabecera).toContain(";");
+    // Y hay al menos una fila de datos además de la cabecera.
+    expect(contenido.split("\r\n").length).toBeGreaterThan(1);
+
+    break;
+  }
+
+  expect(
+    encontrado,
+    "ningún panel sembrado tiene tabla ni gráfico con datos: el test no probó nada",
+  ).toBe(true);
+});

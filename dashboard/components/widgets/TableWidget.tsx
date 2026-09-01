@@ -6,6 +6,7 @@ import type { OnDataPointClick, WidgetData } from "./types";
 import { EMPTY_MESSAGE } from "./types";
 import { applyGlossary } from "@/lib/glossary";
 import { toTitleCase } from "./format";
+import { ExportButton } from "./ExportButton";
 
 interface TableWidgetProps {
   widget: TableWidgetSpec;
@@ -222,10 +223,24 @@ export function TableWidget({
       {/* Header. Left/right padding lives in `.panel-header`
           (globals.css) — unconditional base matches the 16px literal,
           phone media query narrows to `--pad-x`. */}
-      <div className="panel-header" style={{ paddingTop: 12, paddingBottom: 12, borderBottom: "1px solid var(--border)" }}>
+      <div
+        className="panel-header"
+        style={{
+          paddingTop: 12,
+          paddingBottom: 12,
+          borderBottom: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
         <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "var(--fg)", letterSpacing: "-0.005em" }}>
           {titleNode}
         </h3>
+        {/* Exporta las filas ORDENADAS como se ven, no el orden de origen: si
+            el usuario ha ordenado por margen y exporta, espera ese orden. */}
+        <ExportButton data={data ? { columns: data.columns, rows: sortedRows } : null} titulo={widget.title} />
       </div>
 
       {/* Table */}
