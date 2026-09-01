@@ -38,6 +38,36 @@ describe("escaparCelda", () => {
     expect(escaparCelda(Infinity)).toBe("");
   });
 
+  // --- Lo que los tests no cubrían y por eso el bug llegó a producción ---
+  //
+  // Postgres devuelve NUMERIC y BIGINT como TEXTO. Los tests de arriba sólo
+  // alimentaban `number` de JS, así que pasaban en vacío justo en el caso
+  // central: con datos reales el CSV salía con punto decimal y el Excel
+  // español lo leía como texto no sumable.
+  it("un decimal que llega COMO TEXTO también se convierte", () => {
+    // Lo que devuelve de verdad /api/query para total_si.
+    expect(escaparCelda("12.20")).toBe("12,20");
+    expect(escaparCelda("0.00")).toBe("0,00");
+    expect(escaparCelda("53246.93")).toBe("53246,93");
+  });
+
+  it("un negativo en texto también", () => {
+    expect(escaparCelda("-1234.56")).toBe("-1234,56");
+  });
+
+  it("un entero en texto se deja como está: convertirlo no cambia nada", () => {
+    expect(escaparCelda("43")).toBe("43");
+  });
+
+  it("una referencia con pinta de número NO se toca", () => {
+    // `ccrefejofacm` y códigos similares: si se tratasen como número, Excel
+    // podría comerse ceros a la izquierda o pasarlos a notación científica.
+    expect(escaparCelda("V26490995")).toBe("V26490995");
+    expect(escaparCelda("0012")).toBe("0012");
+    expect(escaparCelda("1.2.3")).toBe("1.2.3");
+    expect(escaparCelda("12,20")).toBe("12,20");
+  });
+
   it("un texto normal no se toca", () => {
     expect(escaparCelda("LUCAS FASHION")).toBe("LUCAS FASHION");
   });
@@ -58,6 +88,15 @@ describe("aCsv", () => {
 
   it("una tabla vacía sigue exportando la cabecera", () => {
     expect(aCsv(["a", "b"], [])).toBe("﻿a;b");
+  });
+
+  it("una fila TAL CUAL la devuelve /api/query", () => {
+    // Medido: los NUMERIC llegan como string, el COUNT(*)::int como number.
+    const csv = aCsv(
+      ["Referencia", "Importe", "Unidades", "Tickets"],
+      [["V26490995", "12.20", "1.00", 43]],
+    );
+    expect(csv.split("\r\n")[1]).toBe("V26490995;12,20;1,00;43");
   });
 
   it("un caso real del panel de rentabilidad", () => {

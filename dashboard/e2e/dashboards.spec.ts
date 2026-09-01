@@ -281,7 +281,14 @@ test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async (
           id: "w1",
           type: "table",
           title: "Ventas por tienda",
-          sql: 'SELECT tienda AS "Tienda", COUNT(*)::int AS "Tickets" FROM ps_ventas GROUP BY tienda ORDER BY 1',
+          // Con una columna NUMERIC a proposito, no un COUNT(*)::int.
+          //
+          // Postgres devuelve NUMERIC como TEXTO y int4 como number, asi que un
+          // e2e que solo mire enteros esquiva el bug de los decimales sin
+          // enterarse -- que es justo lo que pasaba: el CSV salia con punto
+          // decimal y el Excel espanol lo leia como texto no sumable, y este
+          // test lo daba por bueno.
+          sql: 'SELECT tienda AS "Tienda", COUNT(*)::int AS "Tickets", ROUND(SUM(total_si)::numeric, 2) AS "Importe" FROM ps_ventas GROUP BY tienda ORDER BY 1',
         },
       ],
     };
@@ -322,7 +329,13 @@ test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async (
   expect(contenido.charCodeAt(0)).toBe(0xfeff);
   // Separador `;`: con coma, Excel-es lo mete todo en una columna.
   const lineas = contenido.split("\r\n");
-  expect(lineas[0]).toContain("Tienda;Tickets");
+  expect(lineas[0]).toContain("Tienda;Tickets;Importe");
+  // El importe DEBE llevar coma decimal: con punto, Excel-es lo lee como texto.
+  const primeraFila = lineas[1];
+  expect(
+    primeraFila,
+    `el importe deberia llevar coma decimal, y la fila es: ${primeraFila}`,
+  ).toMatch(/;-?\d+,\d+$/);
   // Y hay filas de datos ademas de la cabecera.
   expect(lineas.length).toBeGreaterThan(1);
 });
