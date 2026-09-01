@@ -55,6 +55,8 @@
 | [D-050](docs/decisions/D-050-upsert-batch-loss.md) | `upsert()` pre-filters NULL/NaN-PK rows, falls back to row-by-row SAVEPOINT inserts on batch failure, and raises if zero rows survive — never a quiet 0-row "ok". |
 | [D-051](docs/decisions/D-051-fetch-anomaly-guard.md) | `safe_fetch()` scans every fetch for decode-corruption-shaped rows and refetches once to discriminate transient corruption from real data; evidence goes to `etl_fetch_anomalies`, never the D-050 skip log. |
 | [D-059](docs/decisions/D-059-tablas-grandes-troceadas.md) | Toda tabla de más de 100.000 filas usa `truncate_and_insert_streaming`, nunca `truncate_and_insert`, que materializa la lista entera. |
+| [D-063](docs/decisions/D-063-una-carga-corta-es-perdida-de-datos.md) | Un full refresh que encoge >10 % aborta sin tocar la tabla (`allow_shrink` para lo legítimo); un refetch más corto que el fetch lanza. |
+| [D-064](docs/decisions/D-064-temporadas-sin-formato-fijo.md) | `clave_temporada` es texto opaco sin formato fijo: búscala en `ps_temporadas` con LEFT JOIN, nunca la deduzcas del nombre. |
 
 ## Dashboard App
 
