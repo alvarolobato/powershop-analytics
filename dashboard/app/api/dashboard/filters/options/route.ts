@@ -48,13 +48,28 @@ function parseDashboardId(raw: unknown): number | null {
   return null;
 }
 
+/** `YYYY-MM-DD…` -> medianoche local de ese día. Null si no es una fecha. */
+function aMedianocheLocal(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  if (!m) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 function parseIsoDateRange(dr: {
   from: string;
   to: string;
 }): { from: Date; to: Date } | null {
-  const from = new Date(dr.from);
-  const to = new Date(dr.to);
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return null;
+  // Medianoche LOCAL, no UTC. `new Date("2026-08-24")` da medianoche UTC, que
+  // en una zona al este del meridiano es el día anterior por la tarde — y
+  // `toDateStr` (que extrae con getters locales, ver date-params.ts) lo
+  // serializaría como el día 23. Los dos orígenes de fechas del dashboard, el
+  // selector y este parseo, deben codificar "un día de calendario" igual.
+  const from = aMedianocheLocal(dr.from);
+  const to = aMedianocheLocal(dr.to);
+  if (!from || !to) return null;
   return { from, to };
 }
 

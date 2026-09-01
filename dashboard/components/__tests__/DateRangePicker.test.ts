@@ -6,9 +6,8 @@ import {
   formatPeriodLabel,
   CURRENT_PRESETS,
   PREVIOUS_PRESETS,
-  isoWeekMonday,
-  currentQuarterStart,
 } from "../DateRangePicker";
+import { isoWeekMonday, currentQuarterStart } from "@/lib/time-range";
 import type { DateRange } from "../DateRangePicker";
 
 function d(year: number, month: number, day: number, h = 0, min = 0, sec = 0, ms = 0): Date {

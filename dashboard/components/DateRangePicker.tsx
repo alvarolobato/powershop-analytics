@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
+import { isoWeekMonday, currentQuarterStart } from "@/lib/time-range";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,18 +67,7 @@ export function endOfDay(d: Date): Date {
 }
 
 // ISO week: Monday = day 1. Returns the Monday of the week containing `d`.
-export function isoWeekMonday(d: Date): Date {
-  const day = d.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
-  const diff = day === 0 ? -6 : 1 - day; // shift so Monday = 0
-  const monday = new Date(d);
-  monday.setDate(d.getDate() + diff);
-  return monday;
-}
 
-export function currentQuarterStart(d: Date): Date {
-  const q = Math.floor(d.getMonth() / 3);
-  return new Date(d.getFullYear(), q * 3, 1);
-}
 
 // Current-period presets (in-progress)
 export const CURRENT_PRESETS: Preset[] = [
@@ -590,6 +580,21 @@ const COMPARISON_LABELS: Record<ComparisonType, string> = {
  */
 export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
+  /**
+   * Desplazamiento horizontal para que el panel no se salga de la pantalla.
+   *
+   * El panel mide 440 px y va anclado con `right: 0`, o sea que crece hacia la
+   * IZQUIERDA del botón. Mientras el botón está a la derecha eso es lo
+   * correcto; pero al abrir la barra lateral del chat la barra de herramientas
+   * se parte en dos filas, el botón queda pegado al borde izquierdo y el panel
+   * se sale por ese lado — que es lo que reportó el dueño.
+   *
+   * Se mide al abrir y se corrige lo justo para dejarlo dentro con 8 px de
+   * margen. Medir hace falta: dónde acaba el botón depende de si la barra
+   * lateral está abierta y de cómo se haya partido la fila, y eso el CSS por sí
+   * solo no lo sabe.
+   */
+  const [desplazamiento, setDesplazamiento] = useState(0);
   /** When non-null, ← / → use this period even if the range matches another (e.g. Mon-only current week). */
   const [navPeriodMode, setNavPeriodMode] = useState<PeriodType | null>(null);
   const [preferQuarterForLabel, setPreferQuarterForLabel] = useState(false);
@@ -784,6 +789,33 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     );
   })?.label;
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setDesplazamiento(0);
+      return;
+    }
+    // Se mide el ANCLA, no el panel: el panel lleva el `translateX` aplicado,
+    // así que medirlo se retroalimenta y obliga a descontar el desplazamiento
+    // vigente — que era justo el fallo. El listener de `resize` capturaba el
+    // valor del render en que corrió el efecto (siempre 0, porque al abrir se
+    // resetea), así que al ensanchar la ventana restaba 0 y el panel saltaba
+    // fuera de la pantalla.
+    //
+    // El borde izquierdo real del panel es `derecha_del_ancla - ANCHO`, y eso
+    // no depende de ninguna corrección previa.
+    const ajustar = () => {
+      const ancla = containerRef.current;
+      if (!ancla) return;
+      const ANCHO = 440;
+      const MARGEN = 8;
+      const izquierda = ancla.getBoundingClientRect().right - ANCHO;
+      setDesplazamiento(izquierda < MARGEN ? MARGEN - izquierda : 0);
+    };
+    ajustar();
+    window.addEventListener("resize", ajustar);
+    return () => window.removeEventListener("resize", ajustar);
+  }, [open]);
+
   return (
     <div style={{ position: "relative" }} ref={containerRef} data-testid="date-range-picker">
       {/* Pill trigger with prev/next arrows */}
@@ -915,6 +947,10 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
             right: 0,
             zIndex: 40,
             width: 440,
+            // Nunca más ancho que la pantalla: en un móvil estrecho los 440 px
+            // se salen solos, sin necesidad de barra lateral.
+            maxWidth: "calc(100vw - 16px)",
+            transform: desplazamiento ? `translateX(${desplazamiento}px)` : undefined,
             background: "var(--bg-1)",
             border: "1px solid var(--border-strong)",
             borderRadius: 10,
