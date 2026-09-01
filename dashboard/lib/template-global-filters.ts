@@ -68,7 +68,16 @@ ORDER BY 1`,
 
 /**
  * Temporada (season code stored on ps_articulos.clave_temporada as text,
- * e.g. "PV26" for Primavera-Verano 2026, "OI25" for Otoño-Invierno 2025).
+ * e.g. "V26" = Verano 2026, "I25" = Invierno 2025).
+ *
+ * NO existe el convenio "PV26"/"OI25" que este comentario afirmaba: medido
+ * contra produccion el 2026-08-31, los codigos vivos son letra+ano (V26, I25),
+ * numericos heredados 74-99 con venta reciente, M-prefijados de mayorista
+ * (M80..M99, MV25, MI24) y sueltos (OUT, OU, BA, TE, TEKG, TEYD).
+ *
+ * Esa invencion no era inofensiva: la misma afirmacion vivia en el bundle de
+ * conocimiento y el modelo escribia `clave_temporada = 'PV26'`, que devuelve
+ * cero filas, y respondia al usuario que no habia datos de esa temporada.
  *
  * We source options from ps_articulos.clave_temporada directly (not
  * ps_temporadas.clave) so that the option values are guaranteed to match

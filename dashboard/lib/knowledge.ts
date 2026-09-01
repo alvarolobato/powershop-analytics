@@ -403,21 +403,11 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Las temporadas y colecciones en ps_articulos usan el campo clave_temporada (texto, ej: 'PV26' = Primavera-Verano 2026). Para análisis de temporada, hacer JOIN con ps_temporadas usando num_temporada = reg_temporada. El campo temporada en albaranes mayoristas es texto libre.",
+      "Las temporadas y colecciones en ps_articulos usan el campo clave_temporada (texto, ej: 'V26' = Verano 2026, 'I25' = Invierno 2025). El formato exacto y sus tres variantes vivas estan en la regla TEMPORADAS -- consultala antes de filtrar, y NO inventes claves. Para analisis de temporada se puede unir con ps_temporadas por num_temporada = reg_temporada (FK verificado), pero OJO: hazlo con LEFT JOIN, nunca INNER, porque si al catalogo le falta una clave moderna un INNER JOIN se come esas ventas en silencio. Para filtrar por temporada basta clave_temporada, sin unir con nada. El campo temporada en albaranes mayoristas es texto libre.",
     questions: [
       "¿Ventas por temporada?",
       "¿Stock de la temporada actual?",
       "¿Artículos de la colección?",
-    ],
-  },
-  {
-    instruction:
-      "El usuario puede filtrar por temporada (colección) usando el campo clave_temporada de ps_articulos. Claves de temporada: PV = Primavera-Verano, OI = Otoño-Invierno, seguido del año en 2 dígitos (ej: PV26, OI25, PV25). Al generar SQL, filtra por clave_temporada cuando el usuario mencione una temporada o colección específica: JOIN ps_articulos p ON lv.codigo = p.codigo WHERE p.clave_temporada = 'PV26'.",
-    questions: [
-      "¿Ventas de la colección PV26?",
-      "¿Stock de la temporada actual PV26?",
-      "¿Artículos de primavera-verano 2026?",
-      "¿Rendimiento de la colección OI25?",
     ],
   },
   {
