@@ -27,20 +27,30 @@ describe("parseSeason", () => {
     });
   });
 
-  it("returns null for unknown prefix", () => {
-    expect(parseSeason("XX26")).toBeNull();
+  // CONTRATO INVERTIDO A PROPÓSITO (2026-09-01).
+  //
+  // Estos tests exigían que un código no reconocido devolviera null, y la ruta
+  // descarta los null. Eso es precisamente lo que hacía desaparecer del filtro
+  // las temporadas reales: el parser sólo aceptaba PV##/OI##, un convenio que
+  // los datos NO usan (son V26, I25, numéricos 74-99, M-prefijados, OUT, TE...).
+  // El dueño lo vio como "faltan V25, I25, V26, I26, 92-99, A91-A99".
+  //
+  // Un código feo en el desplegable es cosmético; un código ausente es dato
+  // inalcanzable. Ahora sólo lo vacío devuelve null.
+  it("un prefijo desconocido se muestra tal cual, no se descarta", () => {
+    expect(parseSeason("XX26")?.label).toBe("XX26");
   });
 
-  it("returns null for malformed code (no year digits)", () => {
-    expect(parseSeason("PV")).toBeNull();
+  it("un código sin año se muestra tal cual", () => {
+    expect(parseSeason("PV")?.label).toBe("PV");
   });
 
-  it("returns null for empty string", () => {
+  it("sigue devolviendo null para la cadena vacía", () => {
     expect(parseSeason("")).toBeNull();
   });
 
-  it("returns null for code with extra chars", () => {
-    expect(parseSeason("PV2026")).toBeNull();
+  it("un código con más dígitos se muestra tal cual", () => {
+    expect(parseSeason("PV2026")?.label).toBe("PV2026");
   });
 
   it("is case-insensitive", () => {
@@ -70,15 +80,20 @@ describe("GET /api/seasons", () => {
     });
   });
 
-  it("excludes unknown/malformed codes", async () => {
+  it("sólo descarta lo vacío: todo código real llega al filtro", async () => {
     mockQuery.mockResolvedValue({
       columns: ["clave_temporada"],
       rows: [["PV26"], ["XX99"], [""], ["BADCODE"]],
     });
     const res = await GET();
     const body = await res.json();
-    expect(body.seasons).toHaveLength(1);
-    expect(body.seasons[0].code).toBe("PV26");
+    // 3, no 1: sólo cae la cadena vacía.
+    expect(body.seasons).toHaveLength(3);
+    expect(body.seasons.map((s: { code: string }) => s.code)).toEqual([
+      "PV26",
+      "XX99",
+      "BADCODE",
+    ]);
   });
 
   it("returns empty seasons array on DB error", async () => {

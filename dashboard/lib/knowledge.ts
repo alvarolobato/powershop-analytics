@@ -403,21 +403,11 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "Las temporadas y colecciones en ps_articulos usan el campo clave_temporada (texto, ej: 'PV26' = Primavera-Verano 2026). Para análisis de temporada, hacer JOIN con ps_temporadas usando num_temporada = reg_temporada. El campo temporada en albaranes mayoristas es texto libre.",
+      "Las temporadas y colecciones en ps_articulos usan el campo clave_temporada (texto, ej: 'V26', 'I25', '92'). El formato NO es fijo: consulta la regla TEMPORADAS antes de filtrar y no inventes claves. Para analisis de temporada se puede unir con ps_temporadas por num_temporada = reg_temporada (FK verificado), pero SIEMPRE con LEFT JOIN, nunca INNER: si al catalogo le falta una clave, un INNER se come esas ventas en silencio. Para filtrar basta clave_temporada, sin unir con nada. El campo temporada en albaranes mayoristas es texto libre.",
     questions: [
       "¿Ventas por temporada?",
       "¿Stock de la temporada actual?",
       "¿Artículos de la colección?",
-    ],
-  },
-  {
-    instruction:
-      "El usuario puede filtrar por temporada (colección) usando el campo clave_temporada de ps_articulos. Claves de temporada: PV = Primavera-Verano, OI = Otoño-Invierno, seguido del año en 2 dígitos (ej: PV26, OI25, PV25). Al generar SQL, filtra por clave_temporada cuando el usuario mencione una temporada o colección específica: JOIN ps_articulos p ON lv.codigo = p.codigo WHERE p.clave_temporada = 'PV26'.",
-    questions: [
-      "¿Ventas de la colección PV26?",
-      "¿Stock de la temporada actual PV26?",
-      "¿Artículos de primavera-verano 2026?",
-      "¿Rendimiento de la colección OI25?",
     ],
   },
   {
@@ -584,13 +574,13 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
-      "TEMPORADAS (ps_articulos.clave_temporada): hay 64 codigos vivos y conviven TRES formatos, asi que no hace falta hacer SELECT DISTINCT para averiguarlo. (1) LETRA+ANO de dos digitos, que es el formato actual: V=Verano y I=Invierno, V25 V26 V27 I24 I25 I26. (2) NUMERICOS de dos digitos, 74 a 99, formato heredado que SIGUE VIVO: el 99 lleva 26.576 lineas de venta en 2025-26 y el 98 otras 14.306, asi que no son historicos muertos. (3) Prefijo M para las versiones mayoristas: M80..M99, MV25, MV26, MI24..MI26. Ademas OUT/OU (outlet), BA, TE, TEKG, TEYD. OJO CON EL ANO: una temporada se empieza a vender ANTES de su ano nominal. V26 registra su primera venta el 2025-12-06 e I26 el 2026-06-01, asi que filtrar por ano natural pierde el arranque de la temporada. Para 'la temporada actual' usar la clave (V26), no un rango de fechas. Medido 2026-08-31: las temporadas con mas venta reciente son V25, V26 e I25.",
+      "TEMPORADAS: clave_temporada NO TIENE FORMATO FIJO y no debes suponerle ninguno. Es texto opaco que el negocio cambia cuando quiere: hoy conviven numericos (92, 93, 99), letra+ano (V26, I25), M-prefijados de mayorista (M80, MI26), PV26 y sueltos como BA, OU o TE, y manana puede aparecer cualquier otra cosa. NUNCA inventes una clave ni la deduzcas del nombre: preguntar por 'primavera-verano 2026' NO significa que la clave sea PV26. Ya paso: una regla anterior afirmaba un convenio de prefijos que no era universal, el modelo construia la clave a partir del nombre en vez de mirarla, la consulta devolvia cero filas y el usuario recibia un 'no hay datos de esa temporada' que era falso. EL CATALOGO ES ps_temporadas, y para eso esta: clave (el codigo) y temporada_tipo (el nombre legible, p.ej. V26 -> 'PRI/VER.-26', I25 -> 'OUT/INV 25/26'). Si el usuario nombra una temporada en palabras, BUSCALA ahi con ILIKE sobre temporada_tipo en vez de construir la clave. Si no sabes que existe, mirala: SELECT clave, temporada_tipo FROM ps_temporadas ORDER BY clave. Medido 2026-09-01: 71 filas en el catalogo, y cubre el 100 % de las claves de ps_articulos. Aun asi une SIEMPRE con LEFT JOIN, nunca INNER. Para FILTRAR basta ps_articulos.clave_temporada. NO USES ps_temporadas.inicio_ventas ni fin_ventas: estan vacias en las 71 filas. Y temporada_activ NO indica la temporada actual (V26 esta a false y 92 a true), asi que no la uses para eso. Tampoco filtres por ano natural: una temporada se vende ANTES de su ano nominal (V26 registra su primera venta el 2025-12-06). Para 'la temporada actual', pregunta o usa la clave.",
     questions: [
       "¿Que temporadas hay?",
-      "¿Cual es la temporada actual?",
+      "¿Cual es la clave de primavera-verano 2026?",
       "¿Ventas de la temporada V26?",
+      "¿Como se llama la temporada I25?",
       "¿Que significa clave_temporada?",
-      "¿Los codigos numericos de temporada estan muertos?",
     ],
   },
   {

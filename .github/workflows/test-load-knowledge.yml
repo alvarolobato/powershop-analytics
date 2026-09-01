@@ -42,18 +42,27 @@ jobs:
             exit 1
           fi
           missing=()
-          # Header that the action wraps every non-empty bundle with.
+          # Comparacion en bash puro, SIN tuberia. La version anterior hacia
+          # `printf '%s' "$BUNDLE" | grep -q`, y `grep -q` sale en cuanto
+          # encuentra la coincidencia: cierra la tuberia, printf recibe SIGPIPE
+          # y, con `pipefail`, el fallo de printf TAPA el exito de grep. El
+          # resultado es que los tres centinelas salian como ausentes -- el
+          # primero de ellos la cabecera que anade la propia accion, o sea algo
+          # que no puede faltar. Latente hasta que el bundle supero el buffer de
+          # tuberia (64 KB): con un bundle pequeno printf terminaba de escribir
+          # antes de que grep saliera, y el fallo no se veia.
           for sentinel in "## Data Platform Knowledge" "data-decisions.md" "etl-sync-strategy.md"; do
-            if ! printf '%s' "$BUNDLE" | grep -q -- "$sentinel"; then
-              missing+=("$sentinel")
-            fi
+            case "$BUNDLE" in
+              *"$sentinel"*) ;;
+              *) missing+=("$sentinel") ;;
+            esac
           done
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "::error::Bundle is missing expected sentinels: ${missing[*]}"
-            printf '%s\n' "$BUNDLE" | head -40
+            printf '%s\n' "${BUNDLE:0:4000}"
             exit 1
           fi
-          echo "✓ bundle contains all expected sentinels ($(printf '%s' "$BUNDLE" | wc -c) bytes)"
+          echo "✓ bundle contains all expected sentinels (${#BUNDLE} bytes)"
 
       - name: Load knowledge bundle (unknown slice — should warn, not fail)
         id: load_unknown

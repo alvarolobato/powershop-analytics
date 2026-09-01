@@ -651,12 +651,62 @@ def truncate_and_insert_streaming(
         raise
 
 
+class FullRefreshShrankError(RuntimeError):
+    """Un full refresh iba a dejar la tabla con muchas menos filas de las que tenia.
+
+    El 2026-09-01 la pasada 1553 escribio 23.898 articulos donde habia 42.275 y
+    se marco `ok`: el 43 % del catalogo desaparecio en silencio y el dashboard
+    empezo a responder que no habia datos de la temporada V26. El guardian de
+    anomalias (D-051) SI vio la corrupcion y la registro, pero nada comparaba el
+    volumen contra lo que ya habia, asi que la carga corta se dio por buena.
+
+    Un full refresh que encoge asi no es un refresh: es una perdida de datos con
+    otro nombre. Mejor abortar y dejar la tabla anterior intacta -- datos de ayer
+    son infinitamente mejores que medio catalogo de hoy.
+    """
+
+
+#: Cuanto puede encoger un full refresh antes de considerarse perdida de datos.
+#: Un catalogo real puede encoger un poco (bajas, depuraciones); no a la mitad.
+_MAX_SHRINK_RATIO = 0.10
+
+#: Por debajo de esto no se aplica la guarda: en tablas diminutas una variacion
+#: de dos filas es un porcentaje enorme y no significa nada.
+_SHRINK_GUARD_MIN_ROWS = 100
+
+
+def _guard_full_refresh_shrink(conn, table: str, incoming: int) -> None:
+    """Aborta si *incoming* es mucho menor que lo que la tabla tiene ahora.
+
+    Se consulta ANTES del TRUNCATE, que es la ultima oportunidad: despues, el
+    recuento anterior ya no existe.
+    """
+    with conn.cursor() as cur:
+        cur.execute(f"SELECT count(*) FROM {_ident(table)}")
+        actual = cur.fetchone()[0]
+
+    if actual < _SHRINK_GUARD_MIN_ROWS:
+        return
+    if incoming >= actual * (1 - _MAX_SHRINK_RATIO):
+        return
+
+    perdidas = actual - incoming
+    raise FullRefreshShrankError(
+        f"{table}: el full refresh traia {incoming} filas y la tabla tiene "
+        f"{actual} ({perdidas} menos, {100 * perdidas / actual:.1f} %). "
+        f"Se aborta sin tocar la tabla: una carga corta es perdida de datos, "
+        f"no un refresh. Si el encogimiento es legitimo, resincroniza con "
+        f"force_full tras confirmar el origen."
+    )
+
+
 def truncate_and_insert(
     conn,
     table: str,
     rows: list[dict],
     *,
     restart_identity: bool = False,
+    allow_shrink: bool = False,
 ) -> int:
     """TRUNCATE *table* then INSERT *rows* in a single transaction.
 
@@ -681,6 +731,12 @@ def truncate_and_insert(
     )
 
     if not rows:
+        # Vaciar la tabla porque el origen no devolvio nada es la version
+        # extrema de la carga corta: un corte del 4D a las 2 de la manana
+        # borraba el catalogo entero y la pasada se marcaba `ok`. `upsert()`
+        # ya se protege de esto (D-050); esta funcion no lo hacia.
+        if not allow_shrink:
+            _guard_full_refresh_shrink(conn, table, 0)
         try:
             with conn.cursor() as cur:
                 cur.execute(truncate_stmt)
@@ -697,6 +753,9 @@ def truncate_and_insert(
         tbl=tbl_id,
         cols=pgsql.SQL(", ").join(pgsql.Identifier(c) for c in columns),
     )
+
+    if not allow_shrink:
+        _guard_full_refresh_shrink(conn, table, len(rows))
 
     try:
         with conn.cursor() as cur:
