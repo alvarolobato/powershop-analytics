@@ -533,7 +533,12 @@ export function ConversationPane({
         // Poll THIS turn's status — not the conversation's active_turn_id,
         // which is merely "the most recent in-flight turn" and would falsely
         // report our turn as finished if another client started a newer one.
-        const turnRes = await fetch(`/api/conversations/${convId}/turns/${turnId}`);
+        // `fields=status` porque de aquí sólo se lee `turn.status`. Sin él, la
+        // respuesta arrastra TODOS los turn_events (161 MB medidos en un turno
+        // con razonamiento largo) y este sondeo cada 2,5 s tumbaba el servidor.
+        const turnRes = await fetch(
+          `/api/conversations/${convId}/turns/${turnId}?fields=status`,
+        );
         if (!turnRes.ok) return;
         const turnData = (await turnRes.json()) as { turn?: { status?: string } };
         const status = turnData.turn?.status;

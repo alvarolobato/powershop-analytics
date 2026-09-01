@@ -137,7 +137,7 @@ interface ProgressEmitter {
  * durably on the assistant message before the transient thinking events are
  * pruned (issues #825/#834).
  */
-function makeProgressHandler(
+export function makeProgressHandler(
   conversationId: string,
   turnId: string,
   seq: () => number,
@@ -158,6 +158,49 @@ function makeProgressHandler(
     );
   };
 
+  // ── Acotado de los eventos ACUMULATIVOS ─────────────────────────────────
+  //
+  // `thinking` y `token` llevan el texto acumulado ENTERO, no el incremento.
+  // Encolar uno por delta hacia una cadena de promesas que espera a Postgres
+  // significa retener en memoria un closure por delta, cada uno con su copia
+  // del texto: memoria cuadrática en la longitud del razonamiento.
+  //
+  // Medido en produccion el 2026-09-01 con `modifyDashboard` sobre el panel 24:
+  // el proceso pasaba de 99 MB a 3,2 GB en cuatro minutos y el contenedor lo
+  // mataba, dejando el turno como "El servidor se reinició mientras se
+  // procesaba este turno". Subir el limite de 2 a 4 GB solo retrasaba la
+  // muerte, porque el crecimiento no tiene techo.
+  //
+  // Cada evento acumulativo REEMPLAZA al anterior por definicion, asi que
+  // escribirlos todos es redundante ademas de ruinoso. Se emite como mucho uno
+  // cada `MS_ENTRE_ACUMULATIVOS`, y el ultimo valor se garantiza en el `flush`
+  // final: la UI sigue viendose fluida y la memoria queda acotada por tiempo,
+  // no por numero de deltas.
+  const MS_ENTRE_ACUMULATIVOS = 150;
+  const ultimaEmision: Record<string, number> = {};
+  const pendiente: Record<string, Record<string, unknown>> = {};
+
+  const enqueueAcumulativo = (
+    eventType: string,
+    payload: Record<string, unknown>,
+  ) => {
+    pendiente[eventType] = payload;
+    const ahora = Date.now();
+    if (ahora - (ultimaEmision[eventType] ?? 0) < MS_ENTRE_ACUMULATIVOS) return;
+    ultimaEmision[eventType] = ahora;
+    const p = pendiente[eventType];
+    delete pendiente[eventType];
+    enqueue(eventType, p);
+  };
+
+  /** Emite lo que quedara pendiente. El ultimo valor NUNCA se pierde. */
+  const vaciarPendientes = () => {
+    for (const [eventType, payload] of Object.entries(pendiente)) {
+      delete pendiente[eventType];
+      enqueue(eventType, payload);
+    }
+  };
+
   const handler = (
     event: import("@/lib/llm-tools/types").AgenticProgressEvent,
   ) => {
@@ -168,13 +211,19 @@ function makeProgressHandler(
       // Clear streaming tokens that appeared before we knew this was a tool round.
       // Thinking text is preserved — it remains visible while tools execute.
       if (!suppressTokens) {
+        // Descartar el token pendiente ANTES de encolar el borrado. Si no, el
+        // acotado lo emitiria DESPUES del clear y el texto anterior a las
+        // herramientas reaparecia en pantalla durante la ronda. Es una
+        // regresion que introdujo el acotado: antes el orden era estricto
+        // porque cada delta se encolaba en el acto.
+        delete pendiente["token"];
         enqueue("token", { text: "" });
       }
       return;
     } else if (event.type === "model_thinking_delta" && event.text) {
       if (!inToolRound) {
         latestThinking = event.text;
-        enqueue("thinking", { text: event.text });
+        enqueueAcumulativo("thinking", { text: event.text });
       }
       return;
     } else if (event.type === "model_text_delta" && event.text) {
@@ -182,7 +231,7 @@ function makeProgressHandler(
       // For dashboard modes (analyze/modify), ALL text deltas are tool-call JSON —
       // suppress them so users don't see raw JSON streaming.
       if (!inToolRound && !suppressTokens) {
-        enqueue("token", { text: event.text });
+        enqueueAcumulativo("token", { text: event.text });
       }
       return;
     }
@@ -206,7 +255,12 @@ function makeProgressHandler(
 
   return {
     handler,
-    flush: () => chain,
+    flush: () => {
+      // Antes de esperar la cadena, volcar lo que el acotado dejo pendiente:
+      // si no, el ultimo trozo de razonamiento no llegaria nunca.
+      vaciarPendientes();
+      return chain;
+    },
     thinkingText: () => latestThinking,
   };
 }
