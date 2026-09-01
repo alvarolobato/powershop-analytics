@@ -38,8 +38,10 @@ export function ExportButton({ data, titulo }: Props) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // Sin esto el blob se queda en memoria mientras viva la pestaña.
-    URL.revokeObjectURL(url);
+    // Retrasamos la revocación 1 s: si la llamamos sincronamente, Chromium
+    // (sobre todo en modo headless / CI) puede no haber resuelto el blob URL
+    // antes de que desaparezca, y la descarga falla silenciosamente.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 
     setCopiado(true);
     window.setTimeout(() => setCopiado(false), 1200);
