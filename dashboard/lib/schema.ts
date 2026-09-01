@@ -202,12 +202,29 @@ export const GlossaryItemSchema = z.object({
   definition: z.string().min(1),
 }).strict();
 
+/**
+ * Períodos que una definición de cuadro de mandos puede fijar por defecto.
+ *
+ * La lista refleja lo que el selector de fechas ya ofrece al usuario: no tiene
+ * sentido que la interfaz sepa elegir "semana anterior" y una definición no
+ * pueda pedirlo. Los nombres `*_week`, `*_month`, `*_quarter` y `*_year` son
+ * períodos NATURALES y cerrados, no ventanas móviles: "semana anterior" es de
+ * lunes a domingo ya terminada, que es lo que quiere un informe semanal — no
+ * los últimos siete días, que se arrastran y mezclan dos semanas.
+ */
 export const TimeRangePresetSchema = z.enum([
   "today",
+  "yesterday",
+  "current_week",
+  "last_week",
   "last_7_days",
   "last_30_days",
   "current_month",
   "last_month",
+  "current_quarter",
+  "last_quarter",
+  "current_year",
+  "last_year",
   "year_to_date",
 ]);
 

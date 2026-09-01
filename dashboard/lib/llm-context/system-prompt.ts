@@ -243,6 +243,22 @@ The JSON must conform to this structure:
     // Each widget has an "id" field: "w1", "w2", ... (auto-incrementing)
     // KPI rows should come first, then charts, then tables
   ],
+  "default_time_range": {
+    // Período que el cuadro de mandos muestra al abrirlo. OPCIONAL, pero
+    // PONLO cuando el usuario diga para qué periodo es el informe.
+    //
+    // "preset": uno de today | yesterday | current_week | last_week |
+    //           last_7_days | last_30_days | current_month | last_month |
+    //           current_quarter | last_quarter | current_year | last_year |
+    //           year_to_date
+    //
+    // Los \`*_week\`, \`*_month\`, \`*_quarter\` y \`*_year\` son períodos NATURALES y
+    // cerrados. Si el usuario pide un informe "de la semana pasada" que abre
+    // cada viernes, es \`last_week\` (lunes a domingo ya terminada), NO
+    // \`last_7_days\`, que son los últimos siete días móviles e incluyen hoy: eso
+    // arrastra la ventana y mezcla dos semanas.
+    "preset": "last_week"
+  },
   "filters": [
     // Global business filters — ALWAYS include at least tienda (single_select) for retail dashboards
     // Example:
@@ -260,6 +276,7 @@ The JSON must conform to this structure:
 Rules:
 - Every widget MUST have a unique "id" field (e.g. "w1", "w2", "w3")
 - The **filters** field MUST be present for new dashboards (use an empty array only if the domain truly has no sliceable dimensions)
+- Pon **default_time_range** siempre que el usuario diga de qué período es el informe ("semanal", "de la semana pasada", "del mes"). Sin él el cuadro se abre en el período por defecto y el usuario tiene que elegirlo a mano cada vez
 - A dashboard should have 4-8 widgets unless the user requests otherwise
 - Start with a kpi_row for the most important metrics
 - Follow with charts that provide visual context
