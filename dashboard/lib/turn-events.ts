@@ -346,6 +346,31 @@ export async function pruneStreamEvents(turnId: string): Promise<void> {
   );
 }
 
+/**
+ * Sólo la fila del turno, SIN sus eventos.
+ *
+ * `ConversationPane` sondea este turno cada 2,5 s mientras está en vuelo, como
+ * red de seguridad por si el SSE se pierde (#836) — y del JSON que recibía leía
+ * UN campo: `turn.status`. Pero `getTurnWithEvents` trae también todos los
+ * `turn_events` sin filtro ni límite, y con streaming de razonamiento eso son
+ * decenas de miles de filas con el texto acumulado en cada una.
+ *
+ * Medido en producción el 2026-09-01: la respuesta de un turno pesaba
+ * **161.624.012 bytes** y tardaba 2,7 s. Como el sondeo es un `setInterval` que
+ * NO espera al anterior, las peticiones se solapaban y cada una retenía
+ * cientos de MB en tránsito: el proceso pasaba de 106 MB a 780 MB con una sola
+ * llamada, y a 3,2 GB en cuatro minutos hasta que el contenedor lo mataba.
+ *
+ * Traer sólo el turno cuesta lo mismo que leer una fila.
+ */
+export async function getTurnStatusOnly(turnId: string): Promise<TurnRow | null> {
+  const turns = await sql<TurnRow>(
+    `SELECT * FROM conversation_turns WHERE id = $1`,
+    [turnId],
+  );
+  return turns[0] ?? null;
+}
+
 export async function getTurnWithEvents(turnId: string): Promise<TurnWithEvents | null> {
   const turns = await sql<TurnRow>(
     `SELECT * FROM conversation_turns WHERE id = $1`,

@@ -6,7 +6,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { getTurnWithEvents } from "@/lib/turn-events";
+import { getTurnWithEvents, getTurnStatusOnly } from "@/lib/turn-events";
 import { formatApiError, generateRequestId } from "@/lib/errors";
 
 type RouteContext = { params: Promise<{ id: string; turnId: string }> | { id: string; turnId: string } };
@@ -15,7 +15,7 @@ const ID_PATTERN = /^[a-f0-9]{12}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   context: RouteContext,
 ): Promise<NextResponse> {
   const requestId = generateRequestId();
@@ -35,9 +35,17 @@ export async function GET(
     );
   }
 
+  // `?fields=status` sirve el sondeo de vivacidad sin arrastrar los eventos.
+  // Ver el comentario largo en `getTurnStatusOnly`: con streaming de
+  // razonamiento la respuesta completa llegaba a 161 MB, y el sondeo la pedía
+  // cada 2,5 segundos.
+  const soloEstado = request.nextUrl.searchParams.get("fields") === "status";
+
   let result: Awaited<ReturnType<typeof getTurnWithEvents>>;
   try {
-    result = await getTurnWithEvents(turnId);
+    result = soloEstado
+      ? await getTurnStatusOnly(turnId).then((t) => (t ? { turn: t, events: [] } : null))
+      : await getTurnWithEvents(turnId);
   } catch (err) {
     console.error(`[${requestId}] GET /api/conversations/${id}/turns/${turnId} DB error:`, err);
     return NextResponse.json(

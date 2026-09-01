@@ -211,6 +211,12 @@ export function makeProgressHandler(
       // Clear streaming tokens that appeared before we knew this was a tool round.
       // Thinking text is preserved — it remains visible while tools execute.
       if (!suppressTokens) {
+        // Descartar el token pendiente ANTES de encolar el borrado. Si no, el
+        // acotado lo emitiria DESPUES del clear y el texto anterior a las
+        // herramientas reaparecia en pantalla durante la ronda. Es una
+        // regresion que introdujo el acotado: antes el orden era estricto
+        // porque cada delta se encolaba en el acto.
+        delete pendiente["token"];
         enqueue("token", { text: "" });
       }
       return;

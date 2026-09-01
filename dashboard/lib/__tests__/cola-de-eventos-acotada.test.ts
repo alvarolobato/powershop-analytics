@@ -28,16 +28,13 @@ vi.mock("@/lib/turn-events", async (orig) => {
         return 1;
       },
     ),
-    publish: vi.fn(),
   };
 });
 
 describe("la cola de eventos no crece con cada delta", () => {
   beforeEach(() => {
     emitidos.length = 0;
-    vi.useFakeTimers();
   });
-  afterEach(() => vi.useRealTimers());
 
   it("mil deltas de pensamiento NO producen mil escrituras", async () => {
     const { makeProgressHandler } = await import("@/lib/turn-background");
@@ -53,5 +50,49 @@ describe("la cola de eventos no crece con cada delta", () => {
     expect(thinking.length).toBeLessThan(50);
     // …pero el ÚLTIMO valor no se pierde nunca.
     expect((thinking.at(-1)!.payload as { text: string }).text).toHaveLength(3000);
+  });
+});
+
+
+describe("el acotado no resucita texto viejo", () => {
+  beforeEach(() => { emitidos.length = 0; });
+
+  /**
+   * Regresión que introdujo el propio acotado, encontrada al validarlo: en
+   * `assistant_tools` se encola un `token` vacío para limpiar lo que se había
+   * escrito antes de saber que era una ronda de herramientas. Si el token
+   * pendiente no se descarta, el siguiente vaciado lo emite DESPUÉS del
+   * borrado y el texto anterior reaparece en pantalla durante la ronda.
+   */
+  it("el clear de una ronda de herramientas no lo pisa un token pendiente", async () => {
+    const { makeProgressHandler } = await import("@/lib/turn-background");
+    let n = 0;
+    const { handler, flush } = makeProgressHandler("c1", "t1", () => n++);
+
+    // DOS deltas seguidos: el primero se emite en el acto, el segundo se queda
+    // retenido por el acotado. Con uno solo no hay nada pendiente y el bug no
+    // se reproduce — la primera versión de este test pasaba sin el arreglo.
+    handler({ type: "model_text_delta", round: 1, chars: 5, totalChars: 5, text: "vie" });
+    handler({ type: "model_text_delta", round: 1, chars: 5, totalChars: 5, text: "viejo" });
+    handler({ type: "assistant_tools", round: 1, count: 1 } as never);
+    await flush();
+
+    const tokens = emitidos.filter((e) => e.tipo === "token");
+    // El ÚLTIMO token que ve el cliente debe ser el borrado, nunca "viejo".
+    expect((tokens.at(-1)!.payload as { text: string }).text).toBe("");
+  });
+
+  it("el pensamiento SÍ sobrevive a la ronda de herramientas", async () => {
+    const { makeProgressHandler } = await import("@/lib/turn-background");
+    let n = 0;
+    const { handler, flush } = makeProgressHandler("c1", "t2", () => n++);
+
+    handler({ type: "model_thinking_delta", round: 1, chars: 3, totalChars: 3, text: "pen" });
+    handler({ type: "model_thinking_delta", round: 1, chars: 6, totalChars: 6, text: "pensar" });
+    handler({ type: "assistant_tools", round: 1, count: 1 } as never);
+    await flush();
+
+    const thinking = emitidos.filter((e) => e.tipo === "thinking");
+    expect((thinking.at(-1)!.payload as { text: string }).text).toBe("pensar");
   });
 });
