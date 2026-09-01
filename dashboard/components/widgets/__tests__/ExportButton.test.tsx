@@ -4,6 +4,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { ExportButton } from "../ExportButton";
 import { TableWidget } from "../TableWidget";
+import { aCsv } from "@/lib/csv";
 
 const datos = {
   columns: ["Proveedor", "Ventas Netas"],
@@ -91,5 +92,56 @@ describe("la tabla trae el botón puesto", () => {
   it("no aparece si la tabla está vacía", () => {
     render(<TableWidget widget={widget} data={{ columns: ["a"], rows: [] }} />);
     expect(screen.queryByTestId("export-csv")).toBeNull();
+  });
+});
+
+describe("exporta TODO, no lo que se ve en pantalla", () => {
+  beforeEach(() => {
+    global.URL.createObjectURL = vi.fn(() => "blob:falso");
+    global.URL.revokeObjectURL = vi.fn();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  const widget = { type: "table" as const, title: "Detalle", sql: "SELECT 1" };
+  const muchas = {
+    columns: ["Referencia", "Unidades"],
+    rows: Array.from({ length: 500 }, (_, i) => [`REF${i}`, i]),
+  };
+
+  /**
+   * Hoy `TableWidget` no pagina: pinta todas las filas y el botón se lleva esas
+   * mismas. Este test fija ese contrato — si alguien añade paginación y pasa al
+   * botón sólo la página visible, el fichero saldría recortado SIN AVISAR, que
+   * es el peor resultado posible: parece completo y no lo está.
+   */
+  it("con 500 filas, el botón anuncia las 500", () => {
+    render(<TableWidget widget={widget} data={muchas} />);
+    expect(screen.getByTestId("export-csv")).toHaveAttribute(
+      "title",
+      "Exportar 500 fila(s) a CSV",
+    );
+  });
+
+  it("y el CSV lleva las 500, de la primera a la última", () => {
+    const csv = aCsv(muchas.columns, muchas.rows);
+    // cabecera + 500 filas
+    expect(csv.split("\r\n")).toHaveLength(501);
+    expect(csv).toContain("REF0;0");
+    expect(csv).toContain("REF499;499");
+  });
+
+  it("el orden que se exporta es el que se ve, no el de la consulta", () => {
+    const datosSinOrdenar = {
+      columns: ["Proveedor", "Margen"],
+      rows: [["B", 10], ["A", 30], ["C", 20]],
+    };
+    render(<TableWidget widget={widget} data={datosSinOrdenar} />);
+    // Ordenar por la segunda columna cambia lo que se ve...
+    fireEvent.click(screen.getAllByRole("columnheader")[1]);
+    // ...y el botón sigue anunciando las 3 filas, no un subconjunto.
+    expect(screen.getByTestId("export-csv")).toHaveAttribute(
+      "title",
+      "Exportar 3 fila(s) a CSV",
+    );
   });
 });
