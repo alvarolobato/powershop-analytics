@@ -20,6 +20,7 @@
 import { test, expect } from "@playwright/test";
 import { execSync } from "child_process";
 import * as path from "path";
+import { readFileSync } from "fs";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -246,4 +247,82 @@ test("los abonos mayoristas se restan, no se excluyen", async () => {
   } finally {
     await cli.end();
   }
+});
+
+// ---------------------------------------------------------------------------
+// Exportar a CSV (D-041: toda superficie visible nueva lleva su e2e)
+// ---------------------------------------------------------------------------
+
+test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async ({
+  page,
+}) => {
+  // Se siembra un panel PROPIO con una tabla que seguro tiene filas.
+  //
+  // Los paneles de plantilla no sirven: el fixture no produce datos para sus
+  // tablas, asi que pintan "Sin datos" y ni siquiera renderizan un `<table>`.
+  // El diagnostico del primer intento lo dejo claro -- "panel N: 0 tabla(s),
+  // 0 fila(s), 0 boton(es)" en los seis. Depender de ellos haria que este test
+  // midiera el fixture en vez de la exportacion.
+  const { Client } = await import("pg");
+  const cli = new Client({ connectionString: buildE2eDsn() });
+  await cli.connect();
+  let idPanel: number;
+  try {
+    const ventas = Number(
+      (await cli.query("SELECT COUNT(*)::int AS n FROM ps_ventas")).rows[0].n,
+    );
+    expect(ventas, "el fixture no tiene ventas: no habria nada que exportar").toBeGreaterThan(0);
+
+    const spec = {
+      title: "Exportacion",
+      description: "Panel de prueba para la exportacion a CSV",
+      widgets: [
+        {
+          id: "w1",
+          type: "table",
+          title: "Ventas por tienda",
+          sql: 'SELECT tienda AS "Tienda", COUNT(*)::int AS "Tickets" FROM ps_ventas GROUP BY tienda ORDER BY 1',
+        },
+      ],
+    };
+    const filas = await cli.query(
+      "INSERT INTO dashboards (name, spec) VALUES ($1, $2::jsonb) RETURNING id",
+      ["e2e - exportacion CSV", JSON.stringify(spec)],
+    );
+    idPanel = Number(filas.rows[0].id);
+  } finally {
+    await cli.end();
+  }
+
+  await page.goto(`/dashboard/${idPanel}`);
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll('[data-testid="widget-skeleton"]').length === 0 ||
+      document.querySelectorAll('[data-testid="error-display"]').length > 0,
+    { timeout: 30_000 },
+  );
+
+  const boton = page.locator('[data-testid="export-csv"]').first();
+  await expect(boton).toBeVisible();
+
+  // Discreto: presente pero atenuado hasta que el raton pasa por encima.
+  expect(Number(await boton.evaluate((el) => getComputedStyle(el).opacity))).toBeLessThan(1);
+
+  const descarga = page.waitForEvent("download", { timeout: 15_000 });
+  await boton.click();
+  const fichero = await descarga;
+
+  expect(fichero.suggestedFilename()).toMatch(/\.csv$/);
+
+  const ruta = await fichero.path();
+  expect(ruta).not.toBeNull();
+  const contenido = readFileSync(ruta as string, "utf8");
+
+  // BOM: sin el, Excel rompe los acentos.
+  expect(contenido.charCodeAt(0)).toBe(0xfeff);
+  // Separador `;`: con coma, Excel-es lo mete todo en una columna.
+  const lineas = contenido.split("\r\n");
+  expect(lineas[0]).toContain("Tienda;Tickets");
+  // Y hay filas de datos ademas de la cabecera.
+  expect(lineas.length).toBeGreaterThan(1);
 });
