@@ -40,6 +40,18 @@ describe("barras de calor en las columnas numéricas", () => {
     expect(cuentaBarras(container)).toBe(0);
   });
 
+  // El borde exacto, que es donde vive cualquier off-by-one entre el código y
+  // lo que se le cuenta al modelo en el prompt.
+  it("con 8 columnas todavía se pintan", () => {
+    const { container } = render(<TableWidget widget={widget} data={datos(8)} />);
+    expect(cuentaBarras(container)).toBeGreaterThan(0);
+  });
+
+  it("con 9 ya no", () => {
+    const { container } = render(<TableWidget widget={widget} data={datos(9)} />);
+    expect(cuentaBarras(container)).toBe(0);
+  });
+
   it("`heat: false` las quita aunque haya pocas columnas", () => {
     const { container } = render(
       <TableWidget widget={{ ...widget, heat: false }} data={datos(3)} />,

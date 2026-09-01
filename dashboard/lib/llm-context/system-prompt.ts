@@ -76,8 +76,8 @@ const WIDGET_TYPES = `
 > detrás del número, y cada una reserva 120 px de ancho. Con muchas columnas
 > numéricas —una tabla pivotada por tallas son 30, o sea 3.600 px— la tabla no
 > cabe a lo ancho. Usa \`"heat": false\` cuando la tabla sea ancha o el usuario
-> pida quitar las barras. A partir de 8 columnas numéricas se desactivan solas,
-> así que normalmente no hace falta ponerlo.
+> pida quitar las barras. Con MÁS DE 8 columnas numéricas se desactivan solas
+> (con 8 exactas todavía se pintan), así que normalmente no hace falta ponerlo.
 
 > **Note**: \`ranked_bars\` is **data-driven** — supply the \`items\` array directly; it does **not** take a \`sql\` field. \`bar_chart\` is the SQL-driven equivalent and renders **vertical bars only** (there is no \`stacked\` or \`horizontal\` variant in the renderer).
 
