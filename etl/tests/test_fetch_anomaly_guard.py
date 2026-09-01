@@ -60,6 +60,13 @@ class _QueuedCursor:
     def __init__(self, description: list[tuple], rows: list[tuple]) -> None:
         self.description = description
         self._rows = rows
+        # p4d expone en `rowcount` el total que declara el servidor al EXECUTE,
+        # y `_fetch_raw` lo compara con lo que llega para detectar una lectura
+        # truncada (el driver la entrega como si fuera completa). Estos dobles
+        # representan lecturas INTEGRAS, asi que declaran justo lo que sirven.
+        # Un doble que declarase otra cosa estaria simulando una truncacion, y
+        # eso se prueba aparte en test_lectura_truncada.py.
+        self.rowcount = len(rows)
 
     def execute(self, sql: str) -> None:
         self.executed_sql = sql

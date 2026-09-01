@@ -337,9 +337,62 @@ def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
                 f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
             )
         columns = [_decode_column_name(desc[0]) for desc in cursor.description]
+
+        # El servidor 4D declara CUANTAS filas tiene el statement en su
+        # respuesta al EXECUTE, antes de enviar ninguna. p4d lo expone aqui,
+        # sin leer todavia una sola fila. Es la unica forma que tenemos de
+        # saber si la lectura llego entera -- ver el porque abajo.
+        # `getattr` y no `cursor.rowcount`: un cursor sin ese atributo no debe
+        # tumbar el ETL entero. Con p4d siempre esta (verificado contra el 4D
+        # de produccion), asi que en el camino real la comprobacion siempre
+        # corre; esto solo evita que un cursor atipico rompa la carga.
+        declaradas = getattr(cursor, "rowcount", None)
+
         rows = cursor.fetchall()
     finally:
         cursor.close()
+
+    # ── Por que hace falta comprobar esto ────────────────────────────────────
+    #
+    # El driver NO distingue "se acabaron los datos" de "fallo la red". En
+    # `fourd.c:176`:
+    #
+    #     if(res->numRow >= res->row_count) return 0;        /* fin legitimo */
+    #     if(res->numRow > res->first_row + res->row_count_sent - 1) {
+    #         if(_fetch_result(res,123))  return 0;          /* FALLO: tambien 0 */
+    #     }
+    #
+    # Los dos casos devuelven 0, y en Python (`p4d.py:474`) 0 se traduce a
+    # `None`, que `fetchall()` interpreta como final limpio. Un fallo de red a
+    # mitad de la paginacion se convierte en un resultado corto y CORRECTO a
+    # ojos del llamador: ni excepcion, ni aviso, nada.
+    #
+    # Ademas `__fetch_result` (`fourd_interne.c:322-338`) descarta el valor de
+    # retorno de `socket_receiv_data`, asi que si el parseo de una pagina falla
+    # a mitad, el resto de esa pagina queda sin rellenar y llega como filas
+    # todo-NULL.
+    #
+    # Eso paso el 2026-09-01 con Articulos: el servidor declaro 42.275, la
+    # pagina 398 se recibio hasta su fila 71 y el resto llego como 29 filas
+    # vacias, el siguiente FETCH-RESULT fallo sobre la conexion ya rota y
+    # `fetchall()` devolvio 39.800 filas -- 398 paginas exactas de 100 -- sin
+    # una sola queja. Se escribieron en el espejo y la pasada se marco `ok`:
+    # el 43 % del catalogo desaparecio y el dashboard empezo a responder que no
+    # habia datos de la temporada V26.
+    #
+    # Comparar con `rowcount` cuesta cero (ya viene en la respuesta al EXECUTE),
+    # no tiene carrera -- las filas y el total salen del MISMO statement, cosa
+    # que un `SELECT COUNT(*)` aparte no garantiza -- y cubre todos los caminos:
+    # full, delta, streaming y upsert.
+    if declaradas is not None and declaradas >= 0 and len(rows) != declaradas:
+        raise FetchTruncatedError(
+            f"lectura incompleta: el servidor declaro {declaradas} filas y "
+            f"llegaron {len(rows)} ({declaradas - len(rows)} menos). El driver "
+            f"no distingue un fallo de red del fin de los datos, asi que una "
+            f"lectura corta llega sin error. Se aborta en vez de escribir "
+            f"datos incompletos. SQL: {sql[:200]}"
+        )
+
     return columns, list(rows)
 
 
@@ -370,6 +423,16 @@ def _rows_to_dicts(columns: list[str], rows: list[tuple], sql: str) -> list[dict
     return result
 
 
+class FetchTruncatedError(RuntimeError):
+    """Llegaron menos filas de las que el servidor 4D dijo que tenia.
+
+    Es la deteccion de raiz: el driver convierte un fallo de red a mitad de la
+    paginacion en un final de resultados limpio, asi que sin esta comprobacion
+    una lectura truncada es indistinguible de una completa. Ver el comentario
+    largo en `_fetch_raw`.
+    """
+
+
 class FetchShrankError(RuntimeError):
     """El refetch del guardian trajo bastantes menos filas que el fetch original.
 
@@ -385,6 +448,27 @@ _MAX_REFETCH_SHRINK_RATIO = 0.05
 #: Por debajo de esto la guarda no aplica: en lecturas diminutas un par de
 #: filas de diferencia es un porcentaje enorme y no significa nada.
 _SHRINK_GUARD_MIN_ROWS = 100
+
+
+def _conexion_limpia_o_la_de_siempre(conn) -> tuple[object, bool]:
+    """Devuelve (conexion_para_el_refetch, hay_que_cerrarla).
+
+    Intenta abrir una conexion nueva al 4D para que el refetch no herede el
+    estado de la que acaba de dar problemas. Si no se puede -- credenciales no
+    disponibles en este contexto, servidor rechazando conexiones nuevas --,
+    devuelve la original y que el refetch haga lo que pueda.
+    """
+    try:
+        from etl.config import Config
+
+        return get_connection(Config()), True
+    except Exception as exc:  # noqa: BLE001 - cualquier fallo cae a la de siempre
+        logger.warning(
+            "safe_fetch: no se pudo abrir una conexion nueva para el refetch "
+            "(%s); se reusa la original, que puede estar desincronizada",
+            exc,
+        )
+        return conn, False
 
 
 def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:
@@ -441,7 +525,26 @@ def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:
     )
 
     try:
-        refetch_columns, refetch_rows = _fetch_raw(conn, sql)
+        # El refetch va por una conexion NUEVA, no por la que acaba de fallar.
+        #
+        # Antes reusaba la misma, y ese es un error de bulto: si la anomalia
+        # viene de un desync del protocolo -- que es justo lo que produce las
+        # filas todo-NULL y las lecturas cortas -- la conexion esta rota, y
+        # volver a leer por ella no discrimina nada. El 2026-09-01 el refetch
+        # sobre la conexion rota trajo 23.900 filas donde el original traia
+        # 39.800, y esa lectura aun peor se dio por buena.
+        #
+        # Si no se puede abrir una nueva, se cae de vuelta a la vieja: es mejor
+        # un refetch imperfecto que ninguno.
+        conn_refetch, hay_que_cerrarla = _conexion_limpia_o_la_de_siempre(conn)
+        try:
+            refetch_columns, refetch_rows = _fetch_raw(conn_refetch, sql)
+        finally:
+            if hay_que_cerrarla:
+                try:
+                    conn_refetch.close()
+                except Exception:
+                    pass
     except Exception:
         evidence["refetch_outcome"] = "refetch_failed"
         _anomaly_log.append(evidence)
