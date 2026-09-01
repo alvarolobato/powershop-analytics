@@ -30,9 +30,11 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -267,6 +269,29 @@ def _compress_index_ranges(indices: list[int]) -> str:
 # run should be confined to one 100-row-aligned window, ending at an index
 # ≡ 99 (mod 100). We record the fields needed to check that prediction
 # against real incidents without asserting the hypothesis is proven.
+#: Filas que el servidor 4D manda por cada viaje de red.
+#:
+#: El driver trae 100 por defecto, y con eso un millon de filas son 10.000
+#: viajes -- y cada viaje es una oportunidad para el fallo que vacio media
+#: tabla el 2026-09-01: `fourd_next_row` no distingue un FETCH-RESULT fallido
+#: del fin de los datos, asi que un tropiezo de red se entrega como resultado
+#: completo. A 5000 son 200 viajes: 50 veces menos exposicion.
+#:
+#: Medido contra el 4D de produccion sobre Articulos (42.275 filas): 27,8 s con
+#: 100, 26,9 s con 5000, lectura integra en ambos casos. NO se gana velocidad
+#: -- la diferencia es ruido --; se gana superficie de fallo.
+_P4D_FETCH_PAGE_SIZE = int(os.environ.get("P4D_PAGE_SIZE", "5000"))
+
+#: Tamano de pagina para el ANALISIS de anomalias, que es cosa distinta del
+#: tamano que se pide al servidor.
+#:
+#: Los campos de evidencia se llaman `run_start_mod_100` / `run_end_mod_100` y
+#: viven asi en `etl_fetch_anomalies`, con historico. Atarlos al tamano
+#: configurable haria que esos nombres mintieran y que el historico dejara de
+#: ser comparable entre pasadas con distinta configuracion. El analisis sigue
+#: razonando sobre 100, que es el tamano con el que se registraron los casos
+#: conocidos; el `page_size` real de cada lectura se guarda aparte, en la
+#: columna `page_size`.
 _P4D_PAGE_SIZE = 100
 
 
@@ -312,7 +337,7 @@ def _build_evidence(sql: str, rows: list[tuple], anomalies: list[Anomaly]) -> di
         "first_index": first_index,
         "last_index": last_index,
         "index_ranges": _compress_index_ranges(indices),
-        "page_size": _P4D_PAGE_SIZE,
+        "page_size": _P4D_FETCH_PAGE_SIZE,
         "run_start_mod_100": first_index % _P4D_PAGE_SIZE,
         "run_end_mod_100": last_index % _P4D_PAGE_SIZE,
         "page_aligned_end": last_index % _P4D_PAGE_SIZE == _P4D_PAGE_SIZE - 1,
@@ -320,6 +345,18 @@ def _build_evidence(sql: str, rows: list[tuple], anomalies: list[Anomaly]) -> di
         "sample": sample[:5],
         "refetch_outcome": None,
     }
+
+
+def _fijar_pagina(cursor) -> None:
+    """Ajusta el tamano de pagina del cursor, si el driver lo permite.
+
+    `cursor.pagesize` es asignable en p4d 1.8 (comprobado contra produccion:
+    acepta 5000). Un driver que no lo exponga no debe tumbar la lectura.
+    """
+    try:
+        cursor.pagesize = _P4D_FETCH_PAGE_SIZE
+    except Exception:  # noqa: BLE001 - un cursor sin `pagesize` sigue valiendo
+        pass
 
 
 def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
@@ -331,15 +368,69 @@ def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
     """
     cursor = conn.cursor()
     try:
+        _fijar_pagina(cursor)
         cursor.execute(sql)
         if cursor.description is None:
             raise RuntimeError(
                 f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
             )
         columns = [_decode_column_name(desc[0]) for desc in cursor.description]
+
+        # El servidor 4D declara CUANTAS filas tiene el statement en su
+        # respuesta al EXECUTE, antes de enviar ninguna. p4d lo expone aqui,
+        # sin leer todavia una sola fila. Es la unica forma que tenemos de
+        # saber si la lectura llego entera -- ver el porque abajo.
+        # `getattr` y no `cursor.rowcount`: un cursor sin ese atributo no debe
+        # tumbar el ETL entero. Con p4d siempre esta (verificado contra el 4D
+        # de produccion), asi que en el camino real la comprobacion siempre
+        # corre; esto solo evita que un cursor atipico rompa la carga.
+        declaradas = getattr(cursor, "rowcount", None)
+
         rows = cursor.fetchall()
     finally:
         cursor.close()
+
+    # ── Por que hace falta comprobar esto ────────────────────────────────────
+    #
+    # El driver NO distingue "se acabaron los datos" de "fallo la red". En
+    # `fourd.c:176`:
+    #
+    #     if(res->numRow >= res->row_count) return 0;        /* fin legitimo */
+    #     if(res->numRow > res->first_row + res->row_count_sent - 1) {
+    #         if(_fetch_result(res,123))  return 0;          /* FALLO: tambien 0 */
+    #     }
+    #
+    # Los dos casos devuelven 0, y en Python (`p4d.py:474`) 0 se traduce a
+    # `None`, que `fetchall()` interpreta como final limpio. Un fallo de red a
+    # mitad de la paginacion se convierte en un resultado corto y CORRECTO a
+    # ojos del llamador: ni excepcion, ni aviso, nada.
+    #
+    # Ademas `__fetch_result` (`fourd_interne.c:322-338`) descarta el valor de
+    # retorno de `socket_receiv_data`, asi que si el parseo de una pagina falla
+    # a mitad, el resto de esa pagina queda sin rellenar y llega como filas
+    # todo-NULL.
+    #
+    # Eso paso el 2026-09-01 con Articulos: el servidor declaro 42.275, la
+    # pagina 398 se recibio hasta su fila 71 y el resto llego como 29 filas
+    # vacias, el siguiente FETCH-RESULT fallo sobre la conexion ya rota y
+    # `fetchall()` devolvio 39.800 filas -- 398 paginas exactas de 100 -- sin
+    # una sola queja. Se escribieron en el espejo y la pasada se marco `ok`:
+    # el 43 % del catalogo desaparecio y el dashboard empezo a responder que no
+    # habia datos de la temporada V26.
+    #
+    # Comparar con `rowcount` cuesta cero (ya viene en la respuesta al EXECUTE),
+    # no tiene carrera -- las filas y el total salen del MISMO statement, cosa
+    # que un `SELECT COUNT(*)` aparte no garantiza -- y cubre todos los caminos:
+    # full, delta, streaming y upsert.
+    if declaradas is not None and declaradas >= 0 and len(rows) != declaradas:
+        raise FetchTruncatedError(
+            f"lectura incompleta: el servidor declaro {declaradas} filas y "
+            f"llegaron {len(rows)} ({declaradas - len(rows)} menos). El driver "
+            f"no distingue un fallo de red del fin de los datos, asi que una "
+            f"lectura corta llega sin error. Se aborta en vez de escribir "
+            f"datos incompletos. SQL: {sql[:200]}"
+        )
+
     return columns, list(rows)
 
 
@@ -370,6 +461,25 @@ def _rows_to_dicts(columns: list[str], rows: list[tuple], sql: str) -> list[dict
     return result
 
 
+class FetchAnomalyError(RuntimeError):
+    """Se hallo una fila anomala durante una lectura troceada.
+
+    En modo troceado no se refetchea para discriminar: las filas anteriores ya
+    se han entregado. Se aborta, y como el consumidor carga en una sola
+    transaccion, la tabla se queda intacta.
+    """
+
+
+class FetchTruncatedError(RuntimeError):
+    """Llegaron menos filas de las que el servidor 4D dijo que tenia.
+
+    Es la deteccion de raiz: el driver convierte un fallo de red a mitad de la
+    paginacion en un final de resultados limpio, asi que sin esta comprobacion
+    una lectura truncada es indistinguible de una completa. Ver el comentario
+    largo en `_fetch_raw`.
+    """
+
+
 class FetchShrankError(RuntimeError):
     """El refetch del guardian trajo bastantes menos filas que el fetch original.
 
@@ -385,6 +495,136 @@ _MAX_REFETCH_SHRINK_RATIO = 0.05
 #: Por debajo de esto la guarda no aplica: en lecturas diminutas un par de
 #: filas de diferencia es un porcentaje enorme y no significa nada.
 _SHRINK_GUARD_MIN_ROWS = 100
+
+
+def _conexion_limpia_o_la_de_siempre(conn) -> tuple[object, bool]:
+    """Devuelve (conexion_para_el_refetch, hay_que_cerrarla).
+
+    Intenta abrir una conexion nueva al 4D para que el refetch no herede el
+    estado de la que acaba de dar problemas. Si no se puede -- credenciales no
+    disponibles en este contexto, servidor rechazando conexiones nuevas --,
+    devuelve la original y que el refetch haga lo que pueda.
+    """
+    try:
+        from etl.config import Config
+
+        return get_connection(Config()), True
+    except Exception as exc:  # noqa: BLE001 - cualquier fallo cae a la de siempre
+        logger.warning(
+            "safe_fetch: no se pudo abrir una conexion nueva para el refetch "
+            "(%s); se reusa la original, que puede estar desincronizada",
+            exc,
+        )
+        return conn, False
+
+
+def safe_fetch_streaming(
+    conn,
+    sql: str,
+    *,
+    guard_pk: str | None = None,
+    chunk_size: int = 50_000,
+) -> tuple[int, Iterator[dict]]:
+    """Como `safe_fetch`, pero sin materializar el resultado entero.
+
+    Devuelve `(filas_declaradas_por_el_servidor, iterador_de_dicts)`.
+
+    Por que existe
+    --------------
+    `safe_fetch` hace `fetchall()` y despues `_rows_to_dicts()`, asi que durante
+    la conversion conviven en memoria el millon de tuplas crudas Y el millon de
+    diccionarios. D-059 arreglo la mitad del problema -- la INSERCION va por
+    lotes -- pero la LECTURA seguia materializandolo todo, y es la que mata al
+    proceso: 11 pasadas full muertas en 3 dias, sin traceback, salida limpia y
+    contenedor reiniciado. Con 2 GiB de limite y `ps_gc_lin_albarane` en 1,05 M
+    de filas, no hay margen.
+
+    Y no es solo el coste de la caida: cada muerte reinicia el contenedor, que
+    lanza otro full inmediato contra un 4D que todavia esta digiriendo el
+    statement abandonado. Esa concentracion de lecturas grandes de madrugada es
+    lo que multiplica las papeletas de que una venga truncada.
+
+    Diferencia de comportamiento, deliberada
+    ----------------------------------------
+    Aqui una anomalia ABORTA en vez de refetchear y discriminar. No se puede
+    "devolver el refetch en su lugar" cuando las filas ya se han entregado
+    aguas abajo. Y abortar es seguro justamente aqui, porque el unico consumidor
+    es `truncate_and_insert_streaming`, que trabaja en UNA transaccion: al
+    propagarse la excepcion se deshace la carga entera y la tabla se queda como
+    estaba.
+
+    Ademas es la decision correcta a la luz de lo ocurrido: persistir lo dudoso
+    es lo que hizo desaparecer el 43 % del catalogo el 2026-09-01. Las tablas
+    pequenas conservan la discriminacion por refetch, que ahi si vale la pena.
+    """
+    cursor = conn.cursor()
+    try:
+        _fijar_pagina(cursor)
+        cursor.execute(sql)
+        if cursor.description is None:
+            raise RuntimeError(
+                f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
+            )
+        columns = [_decode_column_name(desc[0]) for desc in cursor.description]
+        declaradas = getattr(cursor, "rowcount", None)
+    except Exception:
+        cursor.close()
+        raise
+
+    if declaradas is None or declaradas < 0:
+        cursor.close()
+        raise RuntimeError(
+            f"el servidor no declaro el numero de filas, y sin ese dato una "
+            f"lectura truncada es indetectable en modo troceado. SQL: {sql[:200]}"
+        )
+
+    def _iterar() -> Iterator[dict]:
+        leidas = 0
+        try:
+            while True:
+                # `fetchone()` en bucle, NO `cursor.fetchmany()`.
+                #
+                # `fetchmany` de p4d 1.8 esta roto: su cuerpo hace
+                # `if row is none:` -- con `none` en minuscula -- que es un
+                # NameError. Solo se alcanza esa linea cuando `fetchone()`
+                # devuelve None, o sea al terminar el resultado, asi que
+                # `fetchmany` revienta SIEMPRE en el ultimo trozo. Comprobado
+                # contra el driver instalado en produccion.
+                trozo = []
+                for _ in range(chunk_size):
+                    fila = cursor.fetchone()
+                    if fila is None:
+                        break
+                    trozo.append(fila)
+                if not trozo:
+                    break
+                anomalias = scan_rows_for_anomalies(columns, trozo, guard_pk)
+                if anomalias:
+                    evidencia = _build_evidence(sql, trozo, anomalias)
+                    evidencia["refetch_outcome"] = "streaming_abort"
+                    _anomaly_log.append(evidencia)
+                    raise FetchAnomalyError(
+                        f"lectura troceada abortada: {len(anomalias)} fila(s) "
+                        f"anomala(s) en el trozo que empieza en la fila {leidas}. "
+                        f"En modo troceado no se refetchea -- las filas ya "
+                        f"entregadas no se pueden retirar -- asi que se aborta y "
+                        f"la transaccion de carga se deshace entera. "
+                        f"SQL: {sql[:200]}"
+                    )
+                for fila in _rows_to_dicts(columns, trozo, sql):
+                    yield fila
+                leidas += len(trozo)
+
+            if leidas != declaradas:
+                raise FetchTruncatedError(
+                    f"lectura incompleta: el servidor declaro {declaradas} filas "
+                    f"y llegaron {leidas} ({declaradas - leidas} menos). "
+                    f"SQL: {sql[:200]}"
+                )
+        finally:
+            cursor.close()
+
+    return declaradas, _iterar()
 
 
 def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:
@@ -441,7 +681,26 @@ def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:
     )
 
     try:
-        refetch_columns, refetch_rows = _fetch_raw(conn, sql)
+        # El refetch va por una conexion NUEVA, no por la que acaba de fallar.
+        #
+        # Antes reusaba la misma, y ese es un error de bulto: si la anomalia
+        # viene de un desync del protocolo -- que es justo lo que produce las
+        # filas todo-NULL y las lecturas cortas -- la conexion esta rota, y
+        # volver a leer por ella no discrimina nada. El 2026-09-01 el refetch
+        # sobre la conexion rota trajo 23.900 filas donde el original traia
+        # 39.800, y esa lectura aun peor se dio por buena.
+        #
+        # Si no se puede abrir una nueva, se cae de vuelta a la vieja: es mejor
+        # un refetch imperfecto que ninguno.
+        conn_refetch, hay_que_cerrarla = _conexion_limpia_o_la_de_siempre(conn)
+        try:
+            refetch_columns, refetch_rows = _fetch_raw(conn_refetch, sql)
+        finally:
+            if hay_que_cerrarla:
+                try:
+                    conn_refetch.close()
+                except Exception:
+                    pass
     except Exception:
         evidence["refetch_outcome"] = "refetch_failed"
         _anomaly_log.append(evidence)

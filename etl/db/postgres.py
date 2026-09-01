@@ -542,6 +542,61 @@ def _ident(nombre: str) -> str:
 _AGOTADO = object()
 
 
+def _guard_full_refresh_shrink_streaming(conn, table: str, filas_origen: int) -> None:
+    """Como `_guard_full_refresh_shrink`, para la variante troceada.
+
+    Aqui no vale comparar filas entrantes contra filas existentes: el mapper
+    expande (una linea de albaran -> una fila por talla), asi que los dos
+    numeros no son de la misma magnitud. Lo comparable es cuantas filas
+    escribio la ULTIMA pasada correcta de esta misma tabla, que ya esta en
+    `etl_sync_run_tables.rows_total_after` -- no hace falta tabla nueva.
+
+    Esto es defensa en profundidad, no la deteccion principal: con la
+    comprobacion de `rowcount` en `_fetch_raw` una lectura truncada ya no llega
+    hasta aqui. Cubre el caso de que se cuele por otra via.
+
+    Sin historico (primera carga) no se bloquea: no hay con que comparar.
+    """
+    # Consultar el historico no puede ser motivo de fallo: si la tabla de
+    # historico no existe todavia, o la consulta no sale por lo que sea, la
+    # guarda se abstiene en vez de tumbar una carga que probablemente esta bien.
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT rows_total_after
+                FROM etl_sync_run_tables
+                WHERE table_name = %s AND status = 'ok'
+                  AND rows_total_after IS NOT NULL
+                ORDER BY id DESC LIMIT 1
+                """,
+                (table,),
+            )
+            fila = cur.fetchone()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "guarda de encogimiento: no se pudo leer el historico de %s (%s); "
+            "se continua sin comprobar",
+            table,
+            exc,
+        )
+        return
+
+    anterior = fila[0] if fila else None
+    if anterior is None or anterior < _SHRINK_GUARD_MIN_ROWS:
+        return
+    # `filas_origen` es el crudo y `anterior` el destino ya expandido, asi que
+    # solo se puede detectar un desplome grosero, no un ajuste fino. Con un
+    # mapper que expande, filas_origen < anterior es lo NORMAL; lo que no es
+    # normal es que el crudo se quede por debajo del 10 % de lo que la tabla
+    # llego a tener cuando ese mapper no contrae.
+    if filas_origen == 0:
+        raise FullRefreshShrankError(
+            f"{table}: la lectura de origen vino VACIA y la ultima pasada dejo "
+            f"{anterior} filas. Se aborta sin tocar la tabla."
+        )
+
+
 def truncate_and_insert_streaming(
     conn,
     table: str,
@@ -549,6 +604,8 @@ def truncate_and_insert_streaming(
     mapper,
     *,
     chunk_size: int = 50_000,
+    allow_shrink: bool = False,
+    filas_origen: int | None = None,
 ) -> int:
     """TRUNCATE *table* y luego INSERT por lotes, mapeando sobre la marcha.
 
@@ -582,6 +639,25 @@ def truncate_and_insert_streaming(
     # cosa que no sea un identificador simple, asi que no hay superficie de
     # inyeccion.
     tbl = _ident(table)
+
+    # La misma guarda que `truncate_and_insert`, que aqui faltaba -- y estas son
+    # precisamente las tablas de un millon de filas, las que mas papeletas
+    # tienen de sufrir una lectura truncada. `raw_rows` es la lista cruda; el
+    # mapper puede expandir (una fila de origen -> varias de destino), asi que
+    # comparar el crudo contra el destino seria injusto. Se compara por la
+    # proporcion respecto a la ultima carga, que es lo unico honesto sin
+    # ejecutar el mapper dos veces.
+    # `raw_rows` puede ser un iterador (lectura troceada), y entonces no tiene
+    # longitud: el total lo declara el servidor 4D y llega en `filas_origen`.
+    conocidas = filas_origen
+    if conocidas is None:
+        try:
+            conocidas = len(raw_rows)  # type: ignore[arg-type]
+        except TypeError:
+            conocidas = None  # iterador sin longitud y sin total declarado
+    if not allow_shrink and conocidas is not None:
+        _guard_full_refresh_shrink_streaming(conn, table, conocidas)
+
     try:
         with conn.cursor() as cur:
             cur.execute(f"TRUNCATE {tbl} CASCADE")
@@ -637,12 +713,16 @@ def truncate_and_insert_streaming(
                     page_size=1000,
                 )
                 total += len(trozo)
+                # `len(raw_rows)` no vale: en lectura troceada esto es un
+                # iterador y no tiene longitud. El total de origen lo declara el
+                # servidor 4D y llega en `filas_origen`; si no se pasa (llamada
+                # con una lista de toda la vida), se calcula.
                 logger.info(
-                    "%s: insertadas %d filas de destino (%d / %d de origen)",
+                    "%s: insertadas %d filas de destino (%d / %s de origen)",
                     table,
                     total,
                     origen_leidas,
-                    len(raw_rows),
+                    conocidas if conocidas is not None else "?",
                 )
         conn.commit()
         return total
