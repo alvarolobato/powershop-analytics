@@ -38,10 +38,9 @@ export function ExportButton({ data, titulo }: Props) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // Retrasamos la revocación 1 s: si la llamamos sincronamente, Chromium
-    // (sobre todo en modo headless / CI) puede no haber resuelto el blob URL
-    // antes de que desaparezca, y la descarga falla silenciosamente.
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    // No revocamos el blob URL: el navegador lo invalida al cerrar o navegar,
+    // lo que es suficiente para ficheros pequeños. Revocarlo antes produce una
+    // carrera con la lectura CDP de Playwright en CI y causa download.path()===null.
 
     setCopiado(true);
     window.setTimeout(() => setCopiado(false), 1200);
