@@ -370,6 +370,23 @@ def _rows_to_dicts(columns: list[str], rows: list[tuple], sql: str) -> list[dict
     return result
 
 
+class FetchShrankError(RuntimeError):
+    """El refetch del guardian trajo bastantes menos filas que el fetch original.
+
+    Ver el comentario en `safe_fetch`. Se lanza en vez de devolver la lectura
+    corta, para que la pasada falle de forma visible en lugar de escribir medio
+    catalogo y marcarse `ok`.
+    """
+
+
+#: Cuanto puede encoger un refetch antes de considerarse un segundo fallo.
+_MAX_REFETCH_SHRINK_RATIO = 0.05
+
+#: Por debajo de esto la guarda no aplica: en lecturas diminutas un par de
+#: filas de diferencia es un porcentaje enorme y no significa nada.
+_SHRINK_GUARD_MIN_ROWS = 100
+
+
 def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:
     """Execute *sql* and return a list of dicts with lowercase str keys.
 
@@ -432,6 +449,26 @@ def safe_fetch(conn, sql: str, *, guard_pk: str | None = None) -> list[dict]:
 
     refetch_anomalies = scan_rows_for_anomalies(refetch_columns, refetch_rows, guard_pk)
     evidence["refetch_total_rows"] = len(refetch_rows)
+
+    # Un refetch MAS CORTO que el original no es un refetch limpio: es un
+    # segundo fallo, peor que el primero. Las dos ramas de abajo devuelven las
+    # filas del refetch, y ninguna comparaba el volumen -- asi que el
+    # 2026-09-01 la pasada 1553 pidio 39.800 articulos, el refetch trajo 23.900
+    # y se persistio el corto: 43 % del catalogo perdido, la pasada marcada
+    # `ok`, y el dashboard respondiendo que no habia datos de la temporada V26.
+    #
+    # Crecer esta bien (filas nuevas entre las dos lecturas). Encoger, no.
+    if len(rows) >= _SHRINK_GUARD_MIN_ROWS and len(refetch_rows) < len(rows) * (
+        1 - _MAX_REFETCH_SHRINK_RATIO
+    ):
+        evidence["refetch_outcome"] = "refetch_shrank"
+        _anomaly_log.append(evidence)
+        raise FetchShrankError(
+            f"refetch devolvio {len(refetch_rows)} filas donde el fetch "
+            f"original trajo {len(rows)}. Un refetch que encoge no discrimina "
+            f"nada: se aborta en vez de escribir la lectura corta. SQL: "
+            f"{sql[:200]}"
+        )
 
     if not refetch_anomalies:
         evidence["refetch_outcome"] = "clean_after_refetch"

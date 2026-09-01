@@ -22,25 +22,47 @@ const TEXTO = [
 ].join("\n");
 
 describe("el bundle no puede enseñar un convenio de temporada inventado", () => {
-  it("no aparece ninguna clave PV##", () => {
-    expect(TEXTO).not.toMatch(/\bPV\d{2}\b/);
+  // OJO: no se prohíbe la cadena "PV26". Es un código que existe, y la regla
+  // lo cita precisamente para advertir de que no se deduzca. Lo que se prohíbe
+  // es AFIRMAR un convenio y filtrar por una clave construida a partir de él.
+  it("no define PV/OI como el convenio de temporadas", () => {
+    expect(TEXTO).not.toMatch(/PV\s*=\s*Primavera[- ]?Verano\s*,/i);
+    expect(TEXTO).not.toMatch(/OI\s*=\s*Oto[ñn]o[- ]?Invierno\s*,/i);
   });
 
-  it("no aparece ninguna clave OI##", () => {
-    expect(TEXTO).not.toMatch(/\bOI\d{2}\b/);
+  it("no manda filtrar por una clave deducida del nombre", () => {
+    // La forma exacta que rompió: `WHERE p.clave_temporada = 'PV26'` como
+    // instrucción, sin haberla mirado en el catálogo.
+    const instrucciones = INSTRUCTIONS.map((i) => i.instruction).join("\n");
+    expect(instrucciones).not.toMatch(/clave_temporada\s*=\s*'PV\d{2}'/i);
+    expect(instrucciones).not.toMatch(/clave_temporada\s*=\s*'OI\d{2}'/i);
   });
 
-  it("no se define PV/OI como prefijos de temporada", () => {
-    expect(TEXTO).not.toMatch(/PV\s*=\s*Primavera/i);
-    expect(TEXTO).not.toMatch(/OI\s*=\s*Oto/i);
+  // Lo importante no es que enumere los códigos de hoy —cambian— sino que
+  // enseñe a NO suponer formato y a mirar el catálogo.
+  it("enseña que no hay formato fijo, en vez de enumerar uno", () => {
+    const t = INSTRUCTIONS.find((i) => i.instruction.startsWith("TEMPORADAS"));
+    expect(t).toBeDefined();
+    expect(t!.instruction).toMatch(/NO TIENE FORMATO FIJO/);
+    expect(t!.instruction).toContain("ps_temporadas");
+    // y que una en palabras se busca, no se construye
+    expect(t!.instruction).toMatch(/ILIKE/);
   });
 
-  it("sí enseña el convenio real, medido contra producción", () => {
-    const temporadas = INSTRUCTIONS.find((i) => i.instruction.startsWith("TEMPORADAS"));
-    expect(temporadas).toBeDefined();
-    for (const codigo of ["V26", "I25", "M80", "OUT"]) {
-      expect(temporadas!.instruction).toContain(codigo);
-    }
+  it("avisa de los campos del catálogo que están vacíos", () => {
+    const t = INSTRUCTIONS.find((i) => i.instruction.startsWith("TEMPORADAS"))!;
+    // inicio_ventas/fin_ventas: 0 de 71 filas pobladas, medido 2026-09-01.
+    expect(t.instruction).toMatch(/inicio_ventas/);
+    expect(t.instruction).toMatch(/vacias|vacías/);
+    // temporada_activ no marca la actual: V26=false y 92=true.
+    expect(t.instruction).toMatch(/temporada_activ/);
+  });
+
+  it("no le dice al modelo que se ahorre mirar", () => {
+    const t = INSTRUCTIONS.find((i) => i.instruction.startsWith("TEMPORADAS"))!;
+    // La versión anterior decía "no hace falta hacer SELECT DISTINCT", que es
+    // justo lo contrario de lo que hay que enseñar cuando el dominio cambia.
+    expect(t.instruction).not.toMatch(/no hace falta hacer SELECT DISTINCT/i);
   });
 
   // Acotado a las reglas que enseñan a FILTRAR por temporada. Otras reglas
