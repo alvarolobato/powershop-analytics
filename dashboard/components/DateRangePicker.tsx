@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { isoWeekMonday, currentQuarterStart } from "@/lib/time-range";
 
 // ---------------------------------------------------------------------------
@@ -594,7 +594,6 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
    * lateral está abierta y de cómo se haya partido la fila, y eso el CSS por sí
    * solo no lo sabe.
    */
-  const panelRef = useRef<HTMLDivElement | null>(null);
   const [desplazamiento, setDesplazamiento] = useState(0);
   /** When non-null, ← / → use this period even if the range matches another (e.g. Mon-only current week). */
   const [navPeriodMode, setNavPeriodMode] = useState<PeriodType | null>(null);
@@ -790,28 +789,31 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
     );
   })?.label;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) {
       setDesplazamiento(0);
       return;
     }
-    const el = panelRef.current;
-    if (!el) return;
+    // Se mide el ANCLA, no el panel: el panel lleva el `translateX` aplicado,
+    // así que medirlo se retroalimenta y obliga a descontar el desplazamiento
+    // vigente — que era justo el fallo. El listener de `resize` capturaba el
+    // valor del render en que corrió el efecto (siempre 0, porque al abrir se
+    // resetea), así que al ensanchar la ventana restaba 0 y el panel saltaba
+    // fuera de la pantalla.
+    //
+    // El borde izquierdo real del panel es `derecha_del_ancla - ANCHO`, y eso
+    // no depende de ninguna corrección previa.
     const ajustar = () => {
-      const r = el.getBoundingClientRect();
-      // Se descuenta el desplazamiento vigente para no acumularlo entre medidas.
-      const izquierdaSinAjuste = r.left - desplazamiento;
+      const ancla = containerRef.current;
+      if (!ancla) return;
+      const ANCHO = 440;
       const MARGEN = 8;
-      setDesplazamiento(
-        izquierdaSinAjuste < MARGEN ? MARGEN - izquierdaSinAjuste : 0,
-      );
+      const izquierda = ancla.getBoundingClientRect().right - ANCHO;
+      setDesplazamiento(izquierda < MARGEN ? MARGEN - izquierda : 0);
     };
     ajustar();
     window.addEventListener("resize", ajustar);
     return () => window.removeEventListener("resize", ajustar);
-    // `desplazamiento` queda fuera a propósito: se lee dentro para descontarlo,
-    // y ponerlo en las dependencias haría un bucle de medida.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   return (
@@ -939,7 +941,6 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
         <div
           role="dialog"
           aria-label="Selector de rango de fechas"
-          ref={panelRef}
           style={{
             position: "absolute",
             top: "calc(100% + 6px)",

@@ -28,15 +28,32 @@ export interface DateParamRanges {
   comp?: { from: Date; to: Date };
 }
 
+/**
+ * El día de calendario que representa *d*, tal y como se construyó.
+ *
+ * Con getters UTC esto estaba MAL: el selector y `presetToDateRange` construyen
+ * medianoches LOCALES, y en Madrid la medianoche del lunes son las 22:00Z del
+ * domingo. Resultado medido con TZ=Europe/Madrid: la "semana anterior" salía
+ * como `BETWEEN '2026-08-23' AND '2026-08-30'` — domingo a domingo, OCHO días,
+ * cuando el rango pedido era lunes 24 a domingo 30. Todo `from` de todo período
+ * retrocedía un día; el `to` no, porque las 23:59 locales siguen en el mismo
+ * día UTC.
+ *
+ * Getters locales es lo que casa con cómo se crean las fechas. Para que no
+ * dependa de la zona del proceso, `parseIsoDateRange` también construye
+ * medianoches locales.
+ */
 function toDateStr(d: Date): string {
-  const year  = d.getUTCFullYear();
-  const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-  const day   = String(d.getUTCDate()).padStart(2, "0");
+  const year  = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day   = String(d.getDate()).padStart(2, "0");
   return "'" + year + "-" + month + "-" + day + "'";
 }
 
 function toMesInt(d: Date): string {
-  return String(d.getUTCFullYear() * 100 + (d.getUTCMonth() + 1));
+  // Locales por el mismo motivo que `toDateStr`: con UTC, el día 1 de un mes a
+  // medianoche local cae en el mes anterior.
+  return String(d.getFullYear() * 100 + (d.getMonth() + 1));
 }
 
 /**

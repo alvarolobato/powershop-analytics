@@ -3,6 +3,8 @@ import { describe, it, expect } from "vitest";
 import { presetToDateRange } from "@/lib/time-range";
 import { CURRENT_PRESETS, PREVIOUS_PRESETS } from "@/components/DateRangePicker";
 import { TimeRangePresetSchema } from "@/lib/schema";
+import { substituteDateParams } from "@/lib/date-params";
+import { vi, afterEach } from "vitest";
 
 /**
  * El selector de fechas ya sabía elegir "Semana anterior", pero una definición
@@ -76,5 +78,53 @@ describe("el esquema", () => {
 
   it("sigue rechazando lo que no existe", () => {
     expect(TimeRangePresetSchema.safeParse("la_semana_pasada").success).toBe(false);
+  });
+});
+
+
+describe("lo que llega al SQL, que es donde estaba el bug", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /**
+   * `presetToDateRange` construye medianoches LOCALES y `toDateStr` extraía con
+   * getters UTC. En Madrid la medianoche del lunes son las 22:00Z del domingo,
+   * así que la "semana anterior" llegaba al SQL como
+   * `BETWEEN '2026-08-23' AND '2026-08-30'` — domingo a domingo, OCHO días.
+   *
+   * El test anterior sólo comparaba objetos `Date`, así que no lo veía.
+   */
+  function sqlDe(preset: Parameters<typeof presetToDateRange>[0]) {
+    const r = presetToDateRange(preset);
+    return substituteDateParams("SELECT 1 WHERE f BETWEEN :curr_from AND :curr_to", {
+      curr: r,
+    });
+  }
+
+  it("semana anterior llega como lunes-domingo, no domingo-domingo", () => {
+    // Miércoles 2026-08-26: la semana anterior es del lunes 17 al domingo 23.
+    vi.setSystemTime(new Date(2026, 7, 26, 12, 0, 0));
+    expect(sqlDe("last_week")).toContain("'2026-08-17' AND '2026-08-23'");
+  });
+
+  it("un domingo no devuelve la semana en curso", () => {
+    // Domingo 2026-08-30 -> semana anterior = lunes 17 a domingo 23.
+    vi.setSystemTime(new Date(2026, 7, 30, 12, 0, 0));
+    expect(sqlDe("last_week")).toContain("'2026-08-17' AND '2026-08-23'");
+  });
+
+  it("el mes anterior no se desborda al mes de antes", () => {
+    // 1 de marzo: el mes anterior es febrero completo.
+    vi.setSystemTime(new Date(2026, 2, 1, 12, 0, 0));
+    expect(sqlDe("last_month")).toContain("'2026-02-01' AND '2026-02-28'");
+  });
+
+  it("en enero, el trimestre anterior es el Q4 del año pasado", () => {
+    vi.setSystemTime(new Date(2026, 0, 15, 12, 0, 0));
+    expect(sqlDe("last_quarter")).toContain("'2025-10-01' AND '2025-12-31'");
+  });
+
+  it("el año anterior son sus 365 días", () => {
+    vi.setSystemTime(new Date(2026, 5, 10, 12, 0, 0));
+    expect(sqlDe("last_year")).toContain("'2025-01-01' AND '2025-12-31'");
   });
 });
