@@ -311,7 +311,12 @@ export default function DashboardSurface({
   useEffect(() => {
     if (aplicadoRangoDelSpec.current) return;
     if (appliedUrlRange.current) return;
-    const preset = dashboard?.spec?.default_time_range?.preset;
+    // Al navegar entre paneles sin remontar el componente, `dashboard` sigue
+    // teniendo el ANTERIOR hasta que resuelve el fetch nuevo. Sin esta guarda
+    // se aplicaría el período del panel viejo y se marcaría la bandera, así que
+    // cuando llegase el panel bueno su período ya no se aplicaría nunca.
+    if (!dashboard || String(dashboard.id) !== String(id)) return;
+    const preset = dashboard.spec?.default_time_range?.preset;
     if (!preset) return;
     aplicadoRangoDelSpec.current = true;
     const rango = presetToDateRange(preset);

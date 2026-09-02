@@ -24,7 +24,9 @@ const bloque = fuente.slice(fuente.indexOf("aplicadoRangoDelSpec"));
 
 describe("el período por defecto de la definición se aplica", () => {
   it("se lee del spec del panel", () => {
-    expect(fuente).toMatch(/dashboard\?\.spec\?\.default_time_range\?\.preset/);
+    // Sin atarse a la sintaxis exacta del encadenado opcional: lo que importa
+    // es que el preset salga del spec del panel, no cómo se escriba el acceso.
+    expect(fuente).toMatch(/dashboard[.?]*\.?spec\??\.default_time_range\??\.preset/);
   });
 
   it("se convierte a un rango de fechas de verdad", () => {
@@ -51,6 +53,14 @@ describe("el período por defecto de la definición se aplica", () => {
     // nadie lo hubiera pedido.
     expect(fuente).toContain("if (!preset) return;");
     expect(fuente).toContain("getDefaultDashboardDateRange()");
+  });
+
+  it("no aplica el período de un panel que ya no es el actual", () => {
+    // Navegando de /dashboard/1 a /dashboard/2 sin remontar, `dashboard` sigue
+    // siendo el anterior hasta que resuelve el fetch. Sin esta guarda se
+    // aplicaba SU período y se marcaba la bandera, de modo que el período del
+    // panel nuevo no llegaba a aplicarse nunca. Lo encontró la revisión.
+    expect(bloque).toMatch(/String\(dashboard\.id\) !== String\(id\)/);
   });
 
   it("se reinicia al cambiar de panel", () => {
