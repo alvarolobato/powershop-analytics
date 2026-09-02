@@ -396,7 +396,10 @@ def sync_lineas_ventas(
         - PK and FK floats (RegLineas, NumVentas, NDocumento) converted to Decimal.
     """
     effective_since = since if since is not None else _EPOCH
-    where = f"FechaModifica >= {_date_literal(effective_since)}"
+    # El material se deja fuera EN ORIGEN. Antes se traia, se insertaba y la
+    # limpieza en cascada lo borraba despues: 215.665 filas movidas tres veces
+    # por pasada para acabar donde empezaron. Ver _SIN_MATERIAL.
+    where = f"FechaModifica >= {_date_literal(effective_since)} AND {_SIN_MATERIAL}"
     rows = _sync_table(
         conn_4d,
         conn_pg,
@@ -410,6 +413,24 @@ def sync_lineas_ventas(
     )
     _backfill_entrada_desde_cabecera(conn_pg)
     return rows
+
+
+# Predicado que deja fuera el material (bolsas, perchas: CCRefeJOFACM 'MA*').
+#
+# Se aplica EN ORIGEN, no despues. Antes cada pasada se traia las lineas de
+# material, las insertaba y la limpieza en cascada las borraba a continuacion:
+# 215.665 filas insertadas y borradas por pasada (n_tup_ins 216.164 /
+# n_tup_del 215.589 medidos el 2026-09-02). Trabajo puro de tirar.
+#
+# Coste del filtro, medido contra produccion sobre la tabla entera:
+# COUNT(*) sin filtro 1,368 s -> con filtro 1,447 s. Ochenta milisegundos por
+# no mover 215.665 filas tres veces (traerlas, insertarlas y borrarlas).
+#
+# La limpieza en cascada se queda como red de seguridad: si el filtro fallara,
+# o quedaran filas de antes, sigue habiendo quien las quite.
+_SIN_MATERIAL = (
+    "Codigo NOT IN (SELECT Codigo FROM Articulos WHERE CCRefeJOFACM LIKE 'MA%')"
+)
 
 
 def trae_particion_lineas(conn_4d: Any, mes: int) -> list[dict]:
@@ -429,11 +450,7 @@ def trae_particion_lineas(conn_4d: Any, mes: int) -> list[dict]:
     """
     from etl.db.fourd import safe_fetch
 
-    sql = (
-        f"{_SQL_LINEAS_BASE} WHERE Mes = {int(mes)}"
-        " AND Codigo NOT IN (SELECT Codigo FROM Articulos"
-        " WHERE CCRefeJOFACM LIKE 'MA%')"
-    )
+    sql = f"{_SQL_LINEAS_BASE} WHERE Mes = {int(mes)} AND {_SIN_MATERIAL}"
     filas = safe_fetch(conn_4d, sql, guard_pk="reglineas")
     return [_map_row(r, _LINEAS_MAPPING, _LINEAS_NUMERIC) for r in filas]
 
