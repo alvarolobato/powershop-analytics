@@ -500,6 +500,10 @@ Business rules and field conventions the dashboard LLM must follow when generati
       "¿Serie de tallas?",
       "¿Como se decodifican las tallas?"
     ]
+  },
+  {
+    "instruction": "RENDIMIENTO: al agregar por periodos contra una serie de fechas (generate_series de dias, semanas o meses), el filtro de fecha debe ir DENTRO de la subconsulta, no solo en el ON del LEFT JOIN. Un predicado que vive solo en el ON exterior NO se puede empujar hacia dentro de una tabla derivada, porque esta en el lado nullable del LEFT JOIN: PostgreSQL materializa la tabla derivada ENTERA antes de unirla. Medido en produccion (2026-09): un spark de 7 dias sobre ps_lineas_ventas JOIN ps_ventas sin acotar por dentro hacia Seq Scan de 1.6M x 977K filas, volcaba el hash a disco y tardaba 7145 ms para devolver 7 filas; repitiendo el mismo rango dentro de la subconsulta baja a 163 ms (44x) porque entra idx_lv_fecha_creacion. Patron correcto: repetir el rango COMPLETO de la serie en el WHERE de la subconsulta, ademas del ON. Ej: (SELECT ... FROM ps_lineas_ventas lv JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas WHERE lv.tienda <> '99' AND lv.fecha_creacion >= <inicio_serie> AND lv.fecha_creacion <= <fin_serie>) lv ON lv.fecha_creacion = day::date. El resultado es identico; solo cambia el plan.",
+    "questions": ["Evolucion diaria de los ultimos 7 dias", "Margen por semana de las ultimas 6 semanas", "Ventas por mes del ano", "Serie temporal de margen"]
   }
 ]
 ```
