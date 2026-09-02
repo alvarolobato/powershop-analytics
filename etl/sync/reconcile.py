@@ -225,3 +225,58 @@ def reconciliar(
         "filas_traidas": traidas,
         "filas_borradas": borradas,
     }
+
+
+def _trae_lineas(conn_4d: Any, mes: int) -> list[dict]:
+    """Indireccion perezosa: evita el ciclo de imports con etl.sync.ventas."""
+    from etl.sync.ventas import trae_particion_lineas
+
+    return trae_particion_lineas(conn_4d, mes)
+
+
+# ---------------------------------------------------------------------------
+# Specs
+# ---------------------------------------------------------------------------
+
+# Las lineas de venta son la tabla que mas importa: 1,8 M filas, la que mas
+# sufre las lecturas truncadas y la que alimenta todas las cifras de ingresos.
+#
+# `filtro_4d` NO es opcional aqui. Sin el, 4D declara ~215.000 filas de mas que
+# el espejo (el material, que el ETL excluye a proposito) y salen 80 particiones
+# divergentes cada noche. Verificado contra produccion el 2026-09-02: la
+# diferencia por mes coincidia una a una con el recuento de lineas MA.
+SPEC_LINEAS_VENTAS = ParticionSpec(
+    nombre="lineas_ventas",
+    tabla_4d="LineasVentas",
+    particion_4d="Mes",
+    tabla_pg="ps_lineas_ventas",
+    particion_pg="mes",
+    pk_pg="reg_lineas",
+    pk_4d="RegLineas",
+    trae_particion=_trae_lineas,
+    filtro_4d="Codigo NOT IN (SELECT Codigo FROM Articulos "
+    "WHERE CCRefeJOFACM LIKE 'MA%')",
+)
+
+
+def meses_recientes(n: int = 3, hoy=None) -> tuple[int, set[int]]:
+    """(desde, siempre) para los ultimos `n` meses en formato AAAAMM.
+
+    `desde` acota el censo — la diferencia entre 1,8 s y 67 s.
+
+    `siempre` fuerza a revisar esos meses aunque el censo cuadre, porque un
+    censo que cuadra no prueba que el contenido cuadre: una fila borrada y otra
+    insertada en el mismo mes dan el mismo total. En los meses recientes se
+    concentra casi todo el movimiento, asi que ahi se mira igualmente.
+    """
+    from datetime import date
+
+    hoy = hoy or date.today()
+    meses = []
+    y, m = hoy.year, hoy.month
+    for _ in range(n):
+        meses.append(y * 100 + m)
+        m -= 1
+        if m == 0:
+            y, m = y - 1, 12
+    return min(meses), set(meses)

@@ -198,3 +198,181 @@ class TestElCensoDeOrigenCuentaLoMismoQueElEspejo:
             censo_4d(MagicMock(), _spec())
         sql = " ".join(mock_fetch.call_args[0][1].split())
         assert "WHERE" not in sql, f"no debe haber WHERE vacio: {sql!r}"
+
+
+class TestMesesRecientes:
+    def test_devuelve_los_ultimos_n_meses(self):
+        from datetime import date
+
+        from etl.sync.reconcile import meses_recientes
+
+        desde, siempre = meses_recientes(3, hoy=date(2026, 9, 2))
+        assert siempre == {202609, 202608, 202607}
+        assert desde == 202607
+
+    def test_cruza_el_cambio_de_ano(self):
+        """Enero menos dos meses es noviembre del año anterior, no el mes -1."""
+        from datetime import date
+
+        from etl.sync.reconcile import meses_recientes
+
+        desde, siempre = meses_recientes(3, hoy=date(2026, 1, 15))
+        assert siempre == {202601, 202512, 202511}
+        assert desde == 202511
+
+
+class TestSpecDeLineas:
+    def test_excluye_el_material_en_el_censo(self):
+        """Sin esto la reconciliación "arreglaría" 215.000 filas cada noche."""
+        from etl.sync.reconcile import SPEC_LINEAS_VENTAS
+
+        assert SPEC_LINEAS_VENTAS.filtro_4d, (
+            "el censo de lineas DEBE excluir el material: el espejo lo excluye"
+        )
+        assert "MA%" in SPEC_LINEAS_VENTAS.filtro_4d
+
+    def test_la_particion_traida_tambien_excluye_material(self):
+        """Y al reconstruir la partición, igual.
+
+        Si el fetch trajera material, la reconciliación lo reinsertaría y la
+        limpieza lo borraría después — churn, y las cifras de ventas con bolsas
+        dentro durante el rato intermedio.
+        """
+        from etl.sync.ventas import trae_particion_lineas
+
+        with patch("etl.db.fourd.safe_fetch", return_value=[]) as mock_fetch:
+            trae_particion_lineas(MagicMock(), 202608)
+        sql = " ".join(mock_fetch.call_args[0][1].split())
+        assert "Mes = 202608" in sql
+        assert "CCRefeJOFACM LIKE 'MA%'" in sql, (
+            f"la particion traida debe excluir material: {sql!r}"
+        )
+
+
+class TestEngancheEnElPipeline:
+    """La reconciliación va en la nocturna, no en cada delta horario."""
+
+    def _correr(self, kind: str):
+        from contextlib import ExitStack
+
+        from .test_scheduler import _apply_patches, _make_conn
+
+        conn_4d, conn_pg = _make_conn(), _make_conn()
+        with ExitStack() as stack:
+            _apply_patches(stack, {})
+            stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
+            mock_rec = stack.enter_context(
+                patch(
+                    "etl.sync.reconcile.reconciliar",
+                    return_value={
+                        "tabla": "lineas_ventas",
+                        "particiones_origen": 3,
+                        "particiones_revisadas": 1,
+                        "filas_traidas": 10,
+                        "filas_borradas": 2,
+                    },
+                )
+            )
+            mock_log = stack.enter_context(patch("etl.db.postgres.record_reconcile"))
+            import etl.main as main
+
+            main.run_full_sync(conn_4d, conn_pg, kind=kind)
+        return mock_rec, mock_log
+
+    def test_corre_en_la_nocturna(self):
+        mock_rec, mock_log = self._correr("full")
+        mock_rec.assert_called_once()
+        assert mock_rec.call_args.kwargs["desde"] is not None, (
+            "la nocturna debe ir ACOTADA: sin acotar son 67 s sobre el ERP en vivo"
+        )
+        mock_log.assert_called_once()
+
+    def test_no_corre_en_cada_delta(self):
+        """Un delta es de segundos; meterle un censo lo convierte en otra cosa."""
+        mock_rec, _ = self._correr("delta")
+        mock_rec.assert_not_called()
+
+    def test_un_fallo_no_tumba_la_pasada(self):
+        """El resto del sync ya ha escrito datos buenos: no se tiran."""
+        from contextlib import ExitStack
+
+        from .test_scheduler import _apply_patches, _make_conn
+
+        conn_4d, conn_pg = _make_conn(), _make_conn()
+        with ExitStack() as stack:
+            _apply_patches(stack, {})
+            stack.enter_context(patch("etl.main._cleanup_ma_linked_rows"))
+            stack.enter_context(
+                patch(
+                    "etl.sync.reconcile.reconciliar",
+                    side_effect=RuntimeError("4D se cayo a mitad"),
+                )
+            )
+            mock_log = stack.enter_context(patch("etl.db.postgres.record_reconcile"))
+            import etl.main as main
+
+            main.run_full_sync(conn_4d, conn_pg, kind="full")  # no debe lanzar
+
+        mock_log.assert_called_once()
+        assert mock_log.call_args.kwargs["status"] == "error", (
+            "un fallo debe quedar registrado, no desaparecer"
+        )
+
+
+class TestUnaLecturaTruncadaNoBorraNada:
+    """El camino más peligroso de todo el módulo.
+
+    `reconciliar_particion` borra las filas de la partición cuya PK no vino en
+    el fetch. Si el fetch llega TRUNCADO —el fallo dominante de este ETL, y el
+    que el driver p4d disfraza de final de resultados limpio— eso borraría filas
+    reales del espejo. Una partición son ~27.000 líneas: un truncamiento al 70 %
+    se llevaría 8.000 ventas por delante.
+
+    Hoy no pasa, porque `_fetch_raw` compara con el `rowcount` que declara el
+    servidor y lanza `FetchTruncatedError` (#951) antes de devolver nada. Pero
+    esa protección es IMPLÍCITA: vive en otro módulo y nada aquí la sujetaba. Si
+    alguien la relaja, este test es lo que avisa.
+    """
+
+    def test_si_el_fetch_lanza_no_se_borra(self):
+        from etl.db.fourd import FetchTruncatedError
+
+        def _revienta(conn, parte):
+            raise FetchTruncatedError(
+                "el servidor declaro 27110 filas y llegaron 19000"
+            )
+
+        spec = ParticionSpec(
+            nombre="lineas_ventas",
+            tabla_4d="LineasVentas",
+            particion_4d="Mes",
+            tabla_pg="ps_lineas_ventas",
+            particion_pg="mes",
+            pk_pg="reg_lineas",
+            pk_4d="RegLineas",
+            trae_particion=_revienta,
+        )
+        conn_pg, cur = _conn_pg(rowcount=8000)
+
+        try:
+            reconciliar_particion(MagicMock(), conn_pg, spec, 202608)
+        except FetchTruncatedError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError(
+                "una lectura truncada debe propagarse, no tragarse: si se traga, "
+                "el borrado de abajo se lleva las filas que no llegaron"
+            )
+
+        cur.execute.assert_not_called()
+        conn_pg.commit.assert_not_called()
+
+    def test_el_fetch_de_una_particion_pide_el_guardian_de_pk(self):
+        """safe_fetch(guard_pk=...) es lo que activa la comprobación de D-051."""
+        from etl.sync.ventas import trae_particion_lineas
+
+        with patch("etl.db.fourd.safe_fetch", return_value=[]) as mock_fetch:
+            trae_particion_lineas(MagicMock(), 202608)
+        assert mock_fetch.call_args.kwargs.get("guard_pk") == "reglineas", (
+            "sin guard_pk no se aplica el guardián de filas corruptas de D-051"
+        )

@@ -1063,6 +1063,64 @@ def run_full_sync(
             ma_ok = False
         results.append(ma_ok)
 
+        # ------------------------------------------------------------------
+        # Reconciliacion por particiones (solo en la pasada nocturna).
+        #
+        # Es lo unico que ve lo que el delta NO puede ver: borrados en 4D,
+        # filas con FechaModifica NULL, y filas que descarto el prefiltro de PK
+        # de D-050. El "full" tampoco las veia — para lineas_ventas no hay
+        # TRUNCATE ni DELETE, es un delta con since=2014.
+        #
+        # Acotada a los ultimos 3 meses, que es la diferencia entre 1,8 s y
+        # 67 s de trabajo sobre el ERP en vivo (medido 2026-09-02). El censo
+        # completo se deja para una pasada semanal, que todavia no existe.
+        #
+        # Best-effort igual que la limpieza MA: si falla, el resto de la pasada
+        # ya ha escrito datos buenos y no tiene sentido tirarlos.
+        if kind == "full":
+            from etl.db.postgres import record_reconcile
+            from etl.sync.reconcile import (
+                SPEC_LINEAS_VENTAS,
+                meses_recientes,
+                reconciliar,
+            )
+
+            desde, siempre = meses_recientes(3)
+            rec_start = time.time()
+            try:
+                resumen = reconciliar(
+                    conn_4d,
+                    conn_pg,
+                    SPEC_LINEAS_VENTAS,
+                    desde=desde,
+                    siempre=siempre,
+                )
+                record_reconcile(
+                    conn_pg,
+                    run_id=run_id,
+                    resumen=resumen,
+                    desde=desde,
+                    duration_ms=int((time.time() - rec_start) * 1000),
+                )
+                logger.info(
+                    "reconcile: %d particiones revisadas, %d filas traidas, "
+                    "%d filas borradas",
+                    resumen["particiones_revisadas"],
+                    resumen["filas_traidas"],
+                    resumen["filas_borradas"],
+                )
+            except Exception as exc:
+                logger.exception("reconcile failed; continuing")
+                record_reconcile(
+                    conn_pg,
+                    run_id=run_id,
+                    resumen={"tabla": SPEC_LINEAS_VENTAS.nombre},
+                    desde=desde,
+                    duration_ms=int((time.time() - rec_start) * 1000),
+                    status="error",
+                    error_msg=str(exc)[:2000],
+                )
+
         total_ms = int((time.time() - pipeline_start) * 1000)
         logger.info(
             "=== %s sync completed in %d ms ===",
