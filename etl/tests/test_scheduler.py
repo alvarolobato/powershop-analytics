@@ -9,8 +9,9 @@ Test coverage:
                              mayorista → compras → stock).
 - test_error_continues     : A failure in one sync function does not prevent
                              subsequent functions from running.
-- test_watermark_not_updated_on_error : When a sync function raises, set_watermark
-                             is called with status='error' and rows_synced=0.
+- test_watermark_not_updated_on_error : When a sync function raises, last_sync_at is
+                             NOT advanced — the failure path uses set_watermark_error,
+                             which never writes it.
 """
 
 from __future__ import annotations
@@ -81,6 +82,9 @@ def _apply_patches(stack: ExitStack, side_effects: dict) -> dict:
         patch(f"{_WM_MODULE}.get_watermark", return_value=None)
     )
     mocks["set_watermark"] = stack.enter_context(patch(f"{_WM_MODULE}.set_watermark"))
+    mocks["set_watermark_error"] = stack.enter_context(
+        patch(f"{_WM_MODULE}.set_watermark_error")
+    )
     return mocks
 
 
@@ -202,24 +206,34 @@ def test_watermark_not_updated_on_error():
     with ExitStack() as stack:
         mocks = _apply_patches(stack, side_effects)
         mock_set_wm = mocks["set_watermark"]
+        mock_set_wm_err = mocks["set_watermark_error"]
         from etl.main import run_full_sync
 
         run_full_sync(conn_4d, conn_pg)
 
-    # set_watermark(conn_pg, table_name, last_sync_at, rows_synced, status, error_msg)
-    # args[0]=conn_pg, args[1]=table_name, args[2]=last_sync_at,
-    # args[3]=rows_synced, args[4]=status, args[5]=error_msg
-    articulos_calls = [
-        c for c in mock_set_wm.call_args_list if c.args[1] == "articulos"
-    ]
-    assert articulos_calls, "set_watermark was not called for 'articulos'"
+    # Lo que el nombre de este test siempre prometio: un fallo NO adelanta
+    # last_sync_at. Durante mucho tiempo solo comprobaba status y rows_synced,
+    # asi que pasaba en verde mientras el camino de error llamaba a
+    # set_watermark(..., now(), ...) y adelantaba la marca igual que un exito.
+    # Eso hacia que la ventana del proximo delta arrancara en el ultimo INTENTO
+    # y no en el ultimo EXITO: dos dias de fallos seguidos y las filas de por
+    # medio no se vuelven a mirar nunca. Paso de verdad (run 41, 2026-04-23:
+    # stock y traspasos saltaron del 18 al 23 de abril).
+    articulos_wm = [c for c in mock_set_wm.call_args_list if c.args[1] == "articulos"]
+    assert not articulos_wm, (
+        "El camino de error no debe llamar a set_watermark: escribe last_sync_at "
+        f"incondicionalmente. Llamadas: {articulos_wm!r}"
+    )
 
-    error_call = articulos_calls[0]
-    args = error_call.args
-    assert args[3] == 0, f"Expected rows_synced=0, got {args[3]}"
-    assert args[4] == "error", f"Expected status='error', got {args[4]!r}"
-    assert len(args) > 5, "set_watermark was not called with error_msg"
-    assert "simulated articulos error" in args[5]
+    # set_watermark_error(conn_pg, table_name, error_msg) — sin last_sync_at,
+    # que es justamente el punto.
+    err_calls = [c for c in mock_set_wm_err.call_args_list if c.args[1] == "articulos"]
+    assert err_calls, "set_watermark_error was not called for 'articulos'"
+    args = err_calls[0].args
+    assert len(args) == 3, (
+        f"set_watermark_error no debe recibir last_sync_at; args={args!r}"
+    )
+    assert "simulated articulos error" in args[2]
 
 
 # ---------------------------------------------------------------------------
