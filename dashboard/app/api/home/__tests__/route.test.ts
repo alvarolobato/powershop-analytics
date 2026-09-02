@@ -734,35 +734,57 @@ describe("GET /api/home", () => {
 
   // Regression: a derived table over ps_lineas_ventas whose only date
   // predicate lives in the OUTER join condition (`) lv ON lv.fecha_creacion
-  // = day::date`) cannot have that predicate pushed down — Postgres
-  // materialises the whole 1.6M x 977K lv-to-ventas hash join, spills it to
-  // disk, and then joins the result onto 7 rows. Measured at 7.1 s each on
-  // production; four of them ran concurrently, pinned all 10 pool slots, and
-  // the remaining 23 aggregates of this route died on the pool queue with
-  // "timeout exceeded when trying to connect" — which reads as a dead
-  // database while Postgres sat idle. Every scan of ps_lineas_ventas must
-  // carry its own fecha_creacion bound.
+  // = day::date`). The predicate itself does get pushed down — the fixed
+  // plan shows it as an Index Cond. The problem is selectivity: generate_series
+  // carries no statistics, so the planner uses its default 1000-row estimate,
+  // and with nothing restricting the big table it picks a Hash Join over the
+  // FULL 1.6M x 977K tables, which spills to disk at work_mem=4MB. Measured at
+  // 7.1 s on production to return 7 rows. Four such queries ran concurrently,
+  // pinned all 10 pool slots, and the remaining 23 aggregates of this route
+  // died waiting on the pool queue with "timeout exceeded when trying to
+  // connect" — which reads as a dead database while Postgres sat idle.
+  // Every scan of ps_lineas_ventas must carry its own fecha_creacion bound.
   it("bounds every ps_lineas_ventas scan by fecha_creacion inside the subquery", async () => {
     const { query } = (await import("@/lib/db")) as unknown as {
       query: ReturnType<typeof vi.fn>;
     };
     await GET(makeReq());
 
+    // Smallest parenthesised block enclosing `at`, or null when the position is
+    // at statement level. Depth-counting rather than string-matching on
+    // `") lv ON"`: an alias rename (`) AS lv ON`) or a line break before ON
+    // would slip past a literal scan and let the OUTER predicate satisfy the
+    // assertion — the exact bug this guards.
+    function enclosingBlock(sql: string, at: number): string | null {
+      const stack: number[] = [];
+      let best: [number, number] | null = null;
+      for (let i = 0; i < sql.length; i++) {
+        const c = sql[i];
+        if (c === "(") stack.push(i);
+        else if (c === ")") {
+          const open = stack.pop();
+          if (open !== undefined && open < at && i > at) {
+            if (!best || i - open < best[1] - best[0]) best = [open, i];
+          }
+        }
+      }
+      return best ? sql.slice(best[0] + 1, best[1]) : null;
+    }
+
+    const BOUND = /fecha_creacion\s*(>=|>|<=|<|=|BETWEEN)/;
     const sqls = query.mock.calls.map((c: unknown[]) => c[0] as string);
     const scans = sqls.filter((sql) => sql.includes("FROM ps_lineas_ventas"));
     expect(scans.length).toBeGreaterThan(0);
 
     for (const sql of scans) {
-      // Scope to each scan: from `FROM ps_lineas_ventas` up to the point the
-      // derived table is closed off (`) lv ON`), or the end of the statement.
-      // The bound must sit INSIDE that window — one in the outer ON clause is
-      // exactly the bug this guards.
-      let from = sql.indexOf("FROM ps_lineas_ventas");
-      while (from !== -1) {
-        const close = sql.indexOf(") lv ON", from);
-        const scope = sql.slice(from, close === -1 ? undefined : close);
-        expect(scope).toMatch(/lv\.fecha_creacion\s*(>=|=)/);
-        from = sql.indexOf("FROM ps_lineas_ventas", from + 1);
+      let at = sql.indexOf("FROM ps_lineas_ventas");
+      while (at !== -1) {
+        // A derived table resolves to its own block, so the outer ON sits
+        // outside the scope and cannot satisfy the assertion. A statement-level
+        // FROM has no enclosing block and is checked against the whole query.
+        const scope = enclosingBlock(sql, at) ?? sql;
+        expect(scope).toMatch(BOUND);
+        at = sql.indexOf("FROM ps_lineas_ventas", at + 1);
       }
     }
   });

@@ -825,7 +825,6 @@ export async function GET(req: NextRequest) {
            COALESCE(SUM(CASE WHEN lv.fecha_creacion = ($1::date - INTERVAL '1 year')::date
                             THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
-         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
          WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 days')::date
            AND lv.fecha_creacion <= $1::date`,
@@ -848,7 +847,6 @@ export async function GET(req: NextRequest) {
            COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('week', ($1::date - INTERVAL '1 year'))::date
                               AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
-         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
          WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 weeks')::date
            AND lv.fecha_creacion <= $1::date`,
@@ -871,7 +869,6 @@ export async function GET(req: NextRequest) {
            COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '1 year')::date
                               AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
-         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
          WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '1 year' - INTERVAL '2 months')::date
            AND lv.fecha_creacion <= $1::date`,
@@ -890,7 +887,6 @@ export async function GET(req: NextRequest) {
            COALESCE(SUM(CASE WHEN lv.fecha_creacion >= DATE_TRUNC('year', $1::date - INTERVAL '1 year')::date
                               AND lv.fecha_creacion <= ($1::date - INTERVAL '1 year')::date THEN lv.total_coste_si END), 0)::numeric AS cost_ly
          FROM ps_lineas_ventas lv
-         JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
          WHERE lv.tienda<>'99'
            AND lv.fecha_creacion >= ($1::date - INTERVAL '2 years')::date
            AND lv.fecha_creacion <= $1::date`,
