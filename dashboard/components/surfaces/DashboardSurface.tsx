@@ -10,6 +10,7 @@ import { DataFreshnessBanner } from "@/components/DataFreshnessBanner";
 import ChatSidebar from "@/components/ChatSidebar";
 import type { ChatMessage } from "@/components/ChatSidebar";
 import AnalyzeLauncher from "@/components/AnalyzeLauncher";
+import { presetToDateRange } from "@/lib/time-range";
 import {
   DateRangePicker,
   computeComparisonRange,
@@ -284,6 +285,45 @@ export default function DashboardSurface({
   useEffect(() => {
     if (dashboard) latestSpecRef.current = dashboard.spec;
   }, [dashboard]);
+
+  /**
+   * Aplica el período por defecto que trae la definición del panel.
+   *
+   * `default_time_range` existía en el esquema, se validaba, y las revisiones
+   * semanales lo sembraban — pero NADIE lo leía. `defaultTimeRangeToDateRange`
+   * sólo aparecía en su propio test. El panel abría siempre en el mes actual,
+   * fijado a fuego en `getDefaultDashboardDateRange`, así que un informe
+   * semanal se abría mostrando el mes.
+   *
+   * Precedencia, de más fuerte a menos:
+   *   1. El rango de la URL (enlace profundo de una revisión) — si ya se aplicó,
+   *      aquí no se toca nada.
+   *   2. Lo que el usuario elija a mano después (esto sólo corre al cargar).
+   *   3. `default_time_range` de la definición.
+   *   4. El mes actual, que es el comportamiento de siempre para los paneles
+   *      que no lo fijan. Se conserva a propósito: cambiarlo movería el
+   *      período de todos los paneles guardados sin que nadie lo pidiera.
+   */
+  const aplicadoRangoDelSpec = useRef(false);
+  useEffect(() => {
+    aplicadoRangoDelSpec.current = false;
+  }, [id]);
+  useEffect(() => {
+    if (aplicadoRangoDelSpec.current) return;
+    if (appliedUrlRange.current) return;
+    // Al navegar entre paneles sin remontar el componente, `dashboard` sigue
+    // teniendo el ANTERIOR hasta que resuelve el fetch nuevo. Sin esta guarda
+    // se aplicaría el período del panel viejo y se marcaría la bandera, así que
+    // cuando llegase el panel bueno su período ya no se aplicaría nunca.
+    if (!dashboard || String(dashboard.id) !== String(id)) return;
+    const preset = dashboard.spec?.default_time_range?.preset;
+    if (!preset) return;
+    aplicadoRangoDelSpec.current = true;
+    const rango = presetToDateRange(preset);
+    setDateRange(rango);
+    setComparisonRange(defaultComparisonRangeFor(rango));
+    setRefreshKey((k) => k + 1);
+  }, [dashboard, id]);
 
   useEffect(() => {
     if (editingName) {
