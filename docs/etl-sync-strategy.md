@@ -500,6 +500,10 @@ Business rules and field conventions the dashboard LLM must follow when generati
       "¿Serie de tallas?",
       "¿Como se decodifican las tallas?"
     ]
+  },
+  {
+    "instruction": "RENDIMIENTO: al agregar por periodos contra una serie de fechas (generate_series de dias, semanas o meses), repite SIEMPRE el rango completo de la serie en el WHERE de la subconsulta, no lo dejes solo en el ON del LEFT JOIN. Motivo real (verificado con EXPLAIN en produccion, 2026-09): no es que el predicado no se pueda empujar --de hecho se empuja como Index Cond-- sino que generate_series no tiene estadisticas y el planificador le asigna su estimacion por defecto de 1000 filas; sin ningun WHERE que restrinja la tabla grande, se queda sin selectividad y elige Hash Join sobre las tablas COMPLETAS, que con work_mem pequeno vuelca a disco. Dandole el rango, el plan pasa a nested loop con indice. Medido sobre ps_lineas_ventas (1,6 M) unida a ps_ventas (977 K): el spark de 7 dias baja de 7145 ms a 163 ms; los de semana/mes/ano bajan menos porque su ventana es mayor, asi que no esperes 163 ms en todos. Patron correcto: (SELECT ... FROM ps_lineas_ventas lv WHERE lv.tienda <> '99' AND lv.fecha_creacion >= <inicio_serie> AND lv.fecha_creacion <= <fin_serie>) lv ON lv.fecha_creacion = day::date. El resultado es identico; solo cambia el plan.",
+    "questions": ["Evolucion diaria de los ultimos 7 dias", "Margen por semana de las ultimas 6 semanas", "Ventas por mes del ano", "Serie temporal de margen"]
   }
 ]
 ```
