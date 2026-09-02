@@ -148,6 +148,7 @@ def _run_sync(
     kind: str = "full",
     target_table: str | None = None,
     lookback_days: int = 1,
+    error_sink: list | None = None,
 ) -> tuple[int, bool]:
     """Run a single sync function with timing, watermark management, and error handling.
 
@@ -248,6 +249,10 @@ def _run_sync(
             duration_ms = int((time.time() - start) * 1000)
             ok = False
             err = str(exc)[:2000]
+            # El llamante necesita la excepcion, no solo el texto, para poder
+            # decidir si el socket de 4D quedo inservible (ver _s).
+            if error_sink is not None:
+                error_sink.append(exc)
             # OJO: no se toca last_sync_at. Adelantar la marca en un fallo
             # hace que la ventana del proximo delta arranque en el ultimo
             # INTENTO en vez del ultimo EXITO, y las filas de por medio no se
@@ -608,6 +613,7 @@ def run_full_sync(
     *,
     force_flags: tuple[bool, list[str], str | None] | None = None,
     lookback_days: int = 1,
+    config=None,
 ) -> None:
     """Execute all sync tasks in topological order.
 
@@ -864,10 +870,20 @@ def run_full_sync(
         def _s(name, fn, *, wm=False):
             """Dispatch one sync. In delta runs, non-watermark modules are skipped
             — they cover catalog/master/full-refresh-only data that doesn't need
-            per-hour refresh and would needlessly wipe + reinsert their tables."""
-            nonlocal total_rows
+            per-hour refresh and would needlessly wipe + reinsert their tables.
+
+            Si el fallo deja el socket de 4D inservible, se reconecta y se
+            reintenta ESTA tabla una vez. Sin esto, un socket muerto se llevaba
+            por delante todas las tablas siguientes: el 2026-09-02, `ventas`
+            murio por lectura incompleta y detras cayeron 16 tablas en 0 ms con
+            el error vacio. Reintentar solo una vez es deliberado — si la
+            reconexion tampoco arregla la tabla, el problema no es el socket y
+            el delta de la hora siguiente volvera a intentarlo con su ventana
+            intacta (D-065)."""
+            nonlocal total_rows, conn_4d
             if kind == "delta" and not wm:
                 return
+            errores: list[BaseException] = []
             rows, ok = _run_sync(
                 name,
                 fn,
@@ -878,7 +894,44 @@ def run_full_sync(
                 kind=kind,
                 target_table=SYNC_TARGET_TABLE.get(name),
                 lookback_days=lookback_days,
+                error_sink=errores,
             )
+            if (
+                not ok
+                and config is not None
+                and errores
+                and _es_error_de_conexion(errores[0])
+            ):
+                logger.warning(
+                    "%s fallo con un error de conexion (%s); reconectando a 4D "
+                    "y reintentando esta tabla una vez",
+                    name,
+                    type(errores[0]).__name__,
+                )
+                nueva, err_conn = _refresh_4d_connection(conn_4d, config)
+                if nueva is None:
+                    # 4D no acepta conexion todavia: suele estar digiriendo la
+                    # consulta abandonada. No se insiste aqui — dejarlo para el
+                    # siguiente ciclo es mas barato que bloquear el run entero.
+                    logger.error(
+                        "No se pudo reconectar a 4D tras el fallo de %s: %s",
+                        name,
+                        err_conn,
+                    )
+                    conn_4d = None
+                else:
+                    conn_4d = nueva
+                    rows, ok = _run_sync(
+                        name,
+                        fn,
+                        conn_4d,
+                        conn_pg,
+                        uses_watermark=wm,
+                        run_id=run_id,
+                        kind=kind,
+                        target_table=SYNC_TARGET_TABLE.get(name),
+                        lookback_days=lookback_days,
+                    )
             results.append(ok)
             # Accumulate row counts for etl_sync_runs.total_rows_synced so the
             # Monitor ETL "Filas sincronizadas" KPI reflects the real sum across
@@ -1017,6 +1070,48 @@ def run_full_sync(
 # ---------------------------------------------------------------------------
 # Scheduler loop (extracted for testability)
 # ---------------------------------------------------------------------------
+
+
+def _es_error_de_conexion(exc: BaseException) -> bool:
+    """¿Este fallo deja el socket de 4D inservible para las tablas siguientes?
+
+    El modo de fallo que esto ataca esta capturado en produccion (run 1580,
+    2026-09-02): `ventas` murio con "lectura incompleta: el servidor declaro
+    977019 filas y llegaron 784000" y, acto seguido, DIECISEIS tablas mas
+    fallaron en 0 ms con el error vacio `b''`. No es que fallaran de verdad: es
+    que `run_full_sync` seguia usando el mismo socket muerto para todas.
+
+    El driver p4d no lanza al enviar sobre una conexion rota — devuelve
+    `ProgrammingError(b'')` a cada consulta. De ahi que el sintoma sea "todo
+    fallo instantaneamente y sin mensaje", que es justo lo que describe el
+    docstring de `_refresh_4d_connection`... que solo se llamaba al entrar al
+    job, nunca a mitad.
+
+    Se clasifican como de conexion:
+
+    - `FetchTruncatedError` / `FetchShrankError`: el servidor declaro N filas y
+      llegaron menos. La consulta queda a medias en el lado de 4D.
+    - Un error del driver con mensaje vacio: la firma del socket muerto.
+    - Errores de socket/red de la biblioteca estandar.
+
+    Todo lo demas (una columna que no existe, una violacion de FK, un fallo de
+    Postgres) es un problema de ESA tabla y no toca el socket: se deja pasar
+    con el comportamiento de siempre.
+    """
+    import socket
+
+    from etl.db.fourd import FetchShrankError, FetchTruncatedError
+
+    if isinstance(exc, (FetchTruncatedError, FetchShrankError)):
+        return True
+    if isinstance(exc, (socket.error, ConnectionError, TimeoutError)):
+        return True
+    # p4d.ProgrammingError(b'') y parientes: el nombre del tipo viene del
+    # driver, asi que se mira el texto en vez de importar clases concretas.
+    texto = str(exc).strip()
+    if texto in ("", "b''", 'b""') and type(exc).__module__.startswith("p4d"):
+        return True
+    return False
 
 
 def _try_connect_4d(config) -> tuple[object, str | None]:
@@ -1188,6 +1283,9 @@ def _run_scheduler_loop(
                 trigger="scheduled",
                 kind=kind,
                 lookback_days=lookback_days,
+                # Con config, _s puede reconectar a mitad de pasada en vez de
+                # arrastrar un socket muerto por las tablas restantes.
+                config=config,
             )
         except Exception:
             logger.exception(
@@ -1300,6 +1398,7 @@ def _run_scheduler_loop(
                             kind=manual_kind,
                             force_flags=flags,
                             lookback_days=lookback_days,
+                            config=config,
                         )
                     except Exception:
                         logger.exception(
@@ -1403,7 +1502,7 @@ def main() -> None:
 
     try:
         if args.once:
-            run_full_sync(conn_4d, conn_pg, trigger="cli", kind="full")
+            run_full_sync(conn_4d, conn_pg, trigger="cli", kind="full", config=config)
         else:
             logger.info(
                 "Scheduler mode: hourly delta at :%02d, nightly full at %02d:%02d, lookback_days=%d",
