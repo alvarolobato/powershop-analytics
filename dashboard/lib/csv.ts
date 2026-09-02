@@ -48,13 +48,13 @@ export function escaparCelda(valor: unknown): string {
   const texto = String(valor);
 
   // Postgres devuelve NUMERIC y BIGINT como TEXTO, no como number de JS.
-  // Comprobado contra produccion: `SELECT total_si, unidades` da
-  // `["0.00","1.00"]`, y solo los int4 (como un COUNT(*)::int) llegan como
+  // Comprobado contra producción: `SELECT total_si, unidades` da
+  // `["0.00","1.00"]`, y sólo los int4 (como un COUNT(*)::int) llegan como
   // number. Sin esto, todas las columnas de dinero y cantidades salian con
-  // punto decimal y el Excel espanol las leia como TEXTO NO SUMABLE -- que es
+  // punto decimal y el Excel español las leía como TEXTO NO SUMABLE -- que es
   // exactamente lo que este modulo dice venir a evitar.
   //
-  // Se convierten SOLO las que llevan parte decimal. Un entero en texto ya se
+  // Se convierten SÓLO las que llevan parte decimal. Un entero en texto ya se
   // escribe igual convertido o no, y dejarlo intacto protege a las referencias
   // que son todo digitos: convertirlas no cambiaria el CSV, pero la regla mas
   // estrecha es la que menos sorpresas da.

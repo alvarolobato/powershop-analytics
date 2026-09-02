@@ -280,7 +280,29 @@ def _compress_index_ranges(indices: list[int]) -> str:
 #: Medido contra el 4D de produccion sobre Articulos (42.275 filas): 27,8 s con
 #: 100, 26,9 s con 5000, lectura integra en ambos casos. NO se gana velocidad
 #: -- la diferencia es ruido --; se gana superficie de fallo.
-_P4D_FETCH_PAGE_SIZE = int(os.environ.get("P4D_PAGE_SIZE", "5000"))
+def _leer_pagina_de_entorno() -> int:
+    """Tamano de pagina desde el entorno, con suelo.
+
+    Sin validar, un `P4D_PAGE_SIZE` vacio, no numerico o <= 0 dejaba el cursor
+    en un estado invalido y ademas escribia evidencias de anomalia enganosas
+    (el `page_size` que se guarda saldria de ahi). Lo senalo una revision de
+    Copilot que nadie habia leido.
+    """
+    crudo = os.environ.get("P4D_PAGE_SIZE", "").strip()
+    if not crudo:
+        return 5000
+    try:
+        n = int(crudo)
+    except ValueError:
+        logger.warning("P4D_PAGE_SIZE=%r no es un entero; se usa 5000", crudo)
+        return 5000
+    if n < 1:
+        logger.warning("P4D_PAGE_SIZE=%d no es valido; se usa 1", n)
+        return 1
+    return n
+
+
+_P4D_FETCH_PAGE_SIZE = _leer_pagina_de_entorno()
 
 #: Tamano de pagina para el ANALISIS de anomalias, que es cosa distinta del
 #: tamano que se pide al servidor.
@@ -600,12 +622,28 @@ def safe_fetch_streaming(
                     break
                 anomalias = scan_rows_for_anomalies(columns, trozo, guard_pk)
                 if anomalias:
+                    # Los indices de `scan_rows_for_anomalies` son relativos
+                    # AL TROZO, y `_build_evidence` los usa para indexar dentro
+                    # de ese mismo trozo -- asi que hay que construirla con
+                    # ellos tal cual. Pero guardados asi mienten: apuntan a
+                    # 0..chunk_size en vez de a la posicion real dentro del
+                    # resultado, y el "idx X-Y" de etl_sync_run_tables.error_msg
+                    # es justo el dato con el que se diagnostica. Lo senalo una
+                    # revision de Copilot que nadie habia leido.
+                    #
+                    # Se anota el desplazamiento del trozo para poder pasar de
+                    # relativo a absoluto, y el mensaje del error ya va en
+                    # absoluto, que es lo que lee una persona.
                     evidencia = _build_evidence(sql, trozo, anomalias)
+                    evidencia["chunk_offset"] = leidas
+                    primero_abs = anomalias[0].index + leidas
+                    ultimo_abs = anomalias[-1].index + leidas
                     evidencia["refetch_outcome"] = "streaming_abort"
                     _anomaly_log.append(evidencia)
                     raise FetchAnomalyError(
                         f"lectura troceada abortada: {len(anomalias)} fila(s) "
-                        f"anomala(s) en el trozo que empieza en la fila {leidas}. "
+                        f"anomala(s) en las posiciones {primero_abs}-{ultimo_abs} "
+                        f"del resultado (trozo que empieza en {leidas}). "
                         f"En modo troceado no se refetchea -- las filas ya "
                         f"entregadas no se pueden retirar -- asi que se aborta y "
                         f"la transaccion de carga se deshace entera. "

@@ -225,7 +225,16 @@ export function TableWidget({
 
   // El spec manda; si no dice nada, se decide por el número de columnas
   // numéricas. Ver `MAX_COLUMNAS_CON_BARRAS` arriba.
-  const columnasNumericas = colIsNumericRight.filter(Boolean).length;
+  // Se cuentan sólo las columnas que DE VERDAD pintarían una barra, no todas
+  // las numéricas: `margin_pct` se renderiza con su propio formato de
+  // porcentaje y nunca usa `HeatCell`, y una columna cuyo máximo es 0 tampoco
+  // (por eso la "85 V" del panel del dueño salía estrecha). Contarlas inflaba
+  // el total y podía apagar las barras sin que el ancho creciera. Lo señaló una
+  // revisión de Copilot que nadie había leído.
+  const columnasNumericas = colIsNumericRight.filter(
+    (esNumerica, idx) =>
+      esNumerica && colFormats[idx] !== "margin_pct" && colMaxValues[idx] > 0,
+  ).length;
   const conBarras = widget.heat ?? columnasNumericas <= MAX_COLUMNAS_CON_BARRAS;
 
   return (

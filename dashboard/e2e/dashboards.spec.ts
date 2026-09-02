@@ -292,11 +292,25 @@ test("las tablas ofrecen exportar a CSV y el fichero sale bien formado", async (
         },
       ],
     };
-    const filas = await cli.query(
-      "INSERT INTO dashboards (name, spec) VALUES ($1, $2::jsonb) RETURNING id",
-      ["e2e - exportacion CSV", JSON.stringify(spec)],
-    );
-    idPanel = Number(filas.rows[0].id);
+    // Reutiliza el panel si ya existe en vez de insertar otro: `init-test-db.sh`
+    // no limpia `dashboards`, asi que ejecutando en local contra la misma base
+    // se iban acumulando filas y el entorno dejaba de ser reproducible. Lo
+    // senalo una revision de Copilot que nadie habia leido.
+    const NOMBRE = "e2e - exportacion CSV";
+    const existente = await cli.query("SELECT id FROM dashboards WHERE name = $1 LIMIT 1", [NOMBRE]);
+    if (existente.rows.length > 0) {
+      idPanel = Number(existente.rows[0].id);
+      await cli.query("UPDATE dashboards SET spec = $1::jsonb WHERE id = $2", [
+        JSON.stringify(spec),
+        idPanel,
+      ]);
+    } else {
+      const filas = await cli.query(
+        "INSERT INTO dashboards (name, spec) VALUES ($1, $2::jsonb) RETURNING id",
+        [NOMBRE, JSON.stringify(spec)],
+      );
+      idPanel = Number(filas.rows[0].id);
+    }
   } finally {
     await cli.end();
   }

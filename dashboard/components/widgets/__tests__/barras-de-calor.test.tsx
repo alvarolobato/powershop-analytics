@@ -22,9 +22,17 @@ function datos(nCols: number, filas = 3) {
   return { columns, rows };
 }
 
-/** Las barras se pintan como un div absoluto dentro de la celda. */
+/**
+ * Cuenta las celdas que llevan barra.
+ *
+ * Se identifica por el `min-width: 120px` del envoltorio de `HeatCell`, que es
+ * lo que reserva el ancho y por tanto lo que se está midiendo. Antes se
+ * contaba cualquier `div` absoluto dentro de un `td`, y eso daría falsos
+ * positivos en cuanto alguien añada otro overlay o un tooltip. Lo señaló una
+ * revisión de Copilot que nadie había leído.
+ */
 function cuentaBarras(container: HTMLElement): number {
-  return container.querySelectorAll('td div[style*="position: absolute"]').length;
+  return container.querySelectorAll('td div[style*="min-width: 120px"]').length;
 }
 
 const widget = { type: "table" as const, title: "T", sql: "SELECT 1" };
@@ -70,5 +78,21 @@ describe("barras de calor en las columnas numéricas", () => {
     render(<TableWidget widget={{ ...widget, heat: false }} data={datos(3)} />);
     // el primer valor de la primera fila es (0+0+1)*2 = 2
     expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+  });
+});
+
+
+describe("el umbral cuenta sólo las columnas que pintan barra", () => {
+  const widget = { type: "table" as const, title: "T", sql: "SELECT 1" };
+
+  it("una columna toda a ceros no gasta cupo", () => {
+    // `colMax === 0` -> nunca se pinta HeatCell, así que no reserva ancho.
+    // Contarla apagaba las barras sin que la tabla creciera.
+    const columns = ["Ref", ...Array.from({ length: 12 }, (_, i) => `C${i}`)];
+    const rows = [["R", ...Array.from({ length: 12 }, () => 0)]];
+    const { container } = render(<TableWidget widget={widget} data={{ columns, rows }} />);
+    // Doce columnas numéricas, pero ninguna con valores: cero barras y, sobre
+    // todo, el umbral no se dispara por columnas que no ocupan nada.
+    expect(cuentaBarras(container)).toBe(0);
   });
 });

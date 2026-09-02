@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 /**
  * Los eventos `thinking` y `token` llevan el texto acumulado ENTERO, no el

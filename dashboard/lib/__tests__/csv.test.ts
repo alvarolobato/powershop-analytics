@@ -87,7 +87,7 @@ describe("aCsv", () => {
   });
 
   it("una tabla vacía sigue exportando la cabecera", () => {
-    expect(aCsv(["a", "b"], [])).toBe("﻿a;b");
+    expect(aCsv(["a", "b"], [])).toBe("\uFEFFa;b");
   });
 
   it("una fila TAL CUAL la devuelve /api/query", () => {
