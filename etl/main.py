@@ -407,6 +407,12 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
 
     Line tables covered:
         ps_lineas_ventas, ps_stock_tienda, ps_gc_lin_albarane, ps_gc_lin_facturas
+
+    Ademas borra de ps_ventas los tickets que se quedan SIN lineas: son ventas
+    de solo material (una bolsa) y, si se dejan, cuentan como ticket en los
+    recuentos y en el denominador del ticket medio. Ver el comentario largo
+    junto al DELETE para la comprobacion contra 4D y por que hay corte por
+    antiguedad.
     """
     from etl.sync.articulos import get_ma_article_codes
 
@@ -438,6 +444,38 @@ def _cleanup_ma_linked_rows(conn_4d, conn_pg) -> None:
                 cur.execute(stmt, (ma_codes_list,))
                 deleted = cur.rowcount
                 logger.info("MA cleanup: deleted %d rows from %s", deleted, table)
+
+            # Tickets que solo vendian material: la cabecera se queda sin
+            # lineas y cuenta como ticket en cualquier recuento y en el
+            # denominador del ticket medio.
+            #
+            # Verificado contra 4D el 2026-09-02 antes de borrar nada: los
+            # 7.397 tickets sin lineas del espejo tenian todos importe (8.308,61
+            # EUR en total, mediana 0,08 EUR), y consultando 4D directamente
+            # cada uno tenia exactamente UNA linea, siempre una bolsa —
+            # MABOLMED1, MABOLGRAN1, MABAG37X48... El espejo no habia perdido
+            # nada: eran ventas de solo bolsa.
+            #
+            # El corte por antiguedad evita la carrera real del pipeline:
+            # `ventas` se sincroniza ANTES que `lineas_ventas`, asi que un
+            # ticket creado entre ambos fetch tiene cabecera y aun no tiene
+            # lineas. Sin el corte lo borrariamos y el upsert lo repondria en la
+            # pasada siguiente — inofensivo pero absurdo. Con dos dias de margen
+            # solo se tocan tickets cuyas lineas ya deberian estar hace mucho.
+            cur.execute(
+                """
+                DELETE FROM ps_ventas v
+                 WHERE v.fecha_creacion < (CURRENT_DATE - INTERVAL '2 days')
+                   AND NOT EXISTS (
+                         SELECT 1 FROM ps_lineas_ventas lv
+                          WHERE lv.num_ventas = v.reg_ventas
+                       )
+                """
+            )
+            logger.info(
+                "MA cleanup: deleted %d line-less tickets from ps_ventas",
+                cur.rowcount,
+            )
         conn_pg.commit()
     except Exception:
         conn_pg.rollback()
@@ -1006,21 +1044,24 @@ def run_full_sync(
         # MA articles (CCRefeJOFACM starting with 'MA') are excluded from
         # ps_articulos at the source query level.  Here we cascade that exclusion
         # to line-item tables whose rows reference MA article codes via `codigo`.
-        # This is necessary because line tables use delta/upsert strategies that
-        # may have inserted MA-linked rows in previous sync runs before this filter.
         # Failures are logged but do not abort the pipeline (consistent with _run_sync).
-        # Skipped on delta runs: it scans every line-item table and the MA set
-        # only changes on full runs (when ps_articulos is fully reloaded).
-        if kind == "full":
-            ma_ok = True
-            try:
-                _cleanup_ma_linked_rows(conn_4d, conn_pg)
-            except Exception:
-                logger.exception(
-                    "MA cleanup failed; continuing with pipeline completion"
-                )
-                ma_ok = False
-            results.append(ma_ok)
+        #
+        # Corre TAMBIEN en los deltas. Antes era solo en los full, con el
+        # razonamiento de que el conjunto MA solo cambia al recargar
+        # ps_articulos. Cierto, pero lo que cambia cada hora son las LINEAS: el
+        # delta horario reinserta lineas de material y nada las quitaba hasta el
+        # siguiente full. Medido el 2026-09-02: 296 lineas en ps_lineas_ventas
+        # cuyo `codigo` no existe en ps_articulos, o sea bolsas y perchas
+        # contando como venta en cualquier consulta de ingresos o unidades
+        # durante horas. El DELETE va por `codigo`, que tiene indice
+        # (idx_lv_codigo), asi que en un delta es practicamente gratis.
+        ma_ok = True
+        try:
+            _cleanup_ma_linked_rows(conn_4d, conn_pg)
+        except Exception:
+            logger.exception("MA cleanup failed; continuing with pipeline completion")
+            ma_ok = False
+        results.append(ma_ok)
 
         total_ms = int((time.time() - pipeline_start) * 1000)
         logger.info(
