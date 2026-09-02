@@ -128,9 +128,15 @@ jobs:
 
           LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
             --json labels --jq '[.labels[].name] | join(",")')
-          if echo ",$LABELS," | grep -q ",fact-cp-after-1," \
-             && echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
-            echo "PR #$PR_NUMBER already has fact-cp-after-1 + fact-o-after-1 — D-021 converged."
+          # D-021 revisado (2026-09-02): la revisión es SÓLO de Opus. Antes se
+          # exigía Copilot primero (`fact-cp-after-1`) y Opus se saltaba si no
+          # estaba, lo que en la práctica dejaba PRs sin ninguna revisión cuando
+          # nadie podía pedir Copilot: hace falta un PAT específico que no todo
+          # el mundo tiene, y `GITHUB_TOKEN` descarta esas peticiones EN SILENCIO.
+          # Una puerta que bloquea la única revisión que sí se puede hacer no
+          # protege nada.
+          if echo ",$LABELS," | grep -q ",fact-o-after-1,"; then
+            echo "PR #$PR_NUMBER ya tiene fact-o-after-1 — la ronda de Opus está hecha."
             # Always clean up phase labels (cosmetic; safe).
             # REST API — see #611.
             for l in fact-ready-for-review fact-phase-copilot fact-phase-opus; do
@@ -152,23 +158,11 @@ jobs:
               # REST API — see #611 (gh pr edit exits non-zero on projectCards deprecation).
               gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
               gh pr comment "$PR_NUMBER" --repo "$REPO" \
-                --body "ℹ️ **AI Factory**: D-021 — both Copilot and Opus rounds already addressed (\`fact-cp-after-1\` + \`fact-o-after-1\`). Skipping additional review. Awaiting owner merge decision." || true
+                --body "ℹ️ **AI Factory**: D-021 — la ronda de Opus ya está atendida (\`fact-o-after-1\`). No se repite. A la espera de que el dueño decida el merge." || true
             else
               gh pr comment "$PR_NUMBER" --repo "$REPO" \
-                --body "ℹ️ **AI Factory**: D-021 — both rounds already addressed. Skipping additional review. **Not marking \`ai-awaiting-owner\`** because CI is \`$CI_STATE\`." || true
+                --body "ℹ️ **AI Factory**: D-021 — la ronda de Opus ya está atendida. No se repite. **No se marca \`ai-awaiting-owner\`** porque el CI está \`$CI_STATE\`." || true
             fi
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          elif ! echo ",$LABELS," | grep -q ",fact-cp-after-1,"; then
-            # fact-cp-after-1 is absent: Copilot hasn't been reviewed+addressed yet.
-            # Running Opus now would invert the D-021 order (Copilot → address → Opus).
-            # Re-request Copilot and bail out so the correct sequence can complete.
-            echo "PR #$PR_NUMBER: fact-cp-after-1 not set — Copilot round not done. Re-requesting Copilot and skipping Opus."
-            post_result=$(GH_TOKEN="${COPILOT_PAT:-$GH_TOKEN}" \
-              gh api "repos/$REPO/pulls/$PR_NUMBER/requested_reviewers" \
-              --method POST -f 'reviewers[]=copilot-pull-request-reviewer[bot]' 2>&1 || true)
-            echo "Copilot re-request result: $post_result"
-            gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "⏳ **AI Factory**: Skipping Opus review — Copilot round (D-021 step 1) has not been addressed yet (\`fact-cp-after-1\` absent). Re-requested Copilot review. Opus will run after Copilot + address-feedback completes." || true
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
@@ -378,11 +372,13 @@ jobs:
             exit 0
           fi
 
-          echo "Opus left no inline comments — converging inline (D-021 both rounds done)."
-          # Mark the Opus round complete and clear in-flight phase labels. REST
-          # API (gh pr edit exits non-zero on the projectCards deprecation, #611).
+          echo "Opus no dejó comentarios en línea — se converge aquí (D-021: única ronda hecha)."
+          # Marca la ronda de Opus como hecha y limpia las etiquetas de fase.
+          # REST API (gh pr edit sale con error por la deprecación de
+          # projectCards, #611). Ya NO se pone `fact-cp-after-1`: no hay ronda
+          # de Copilot que marcar.
           gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" \
-            -f 'labels[]=fact-cp-after-1' -f 'labels[]=fact-o-after-1' >/dev/null || true
+            -f 'labels[]=fact-o-after-1' >/dev/null || true
           for l in fact-phase-copilot fact-phase-opus fact-ready-for-review; do
             gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/$l" >/dev/null 2>&1 || true
           done

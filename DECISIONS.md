@@ -16,7 +16,7 @@
 | [D-012](docs/decisions/D-012-no-reusable-workflows.md) | Build workflows in-repo. Don't extract to a reusable-action library until there's a second consumer. |
 | [D-013](docs/decisions/D-013-humans-approve-merges.md) | Humans approve PR merges. No auto-merge for AI-generated PRs until trust is established per area. |
 | [D-014](docs/decisions/D-014-label-driven-ai.md) | `ai-work` triggers the worker; `ai-blocked` pauses it; `no-ai` excludes the issue; priority labels (`p0`/`p1`/`p2`/`p3`) order work. |
-| [D-021](docs/decisions/D-021-two-review-rounds.md) | Every PR gets exactly two review rounds, each once: Copilot, then Opus from a clean Claude Code context. No third round; escalate to owner if blocked. |
+| [D-021](docs/decisions/D-021-two-review-rounds.md) | Cada PR lleva UNA ronda de revisión: Opus desde contexto limpio. Copilot se retiró (2026-09-02). Sin tercera ronda; si se bloquea, al dueño. |
 | [D-028](docs/decisions/D-028-weekly-business-review.md) | Weekly business-review issues carry `needs-human-approval` and never `ai-work` — the factory may triage and plan, never implement, until a human authorises. |
 | [D-029](docs/decisions/D-029-no-worker-workflows.md) | El worker no escribe workflows: propone el YAML en el PR. El dueño en sesión sí. Nunca `workflows: write`. |
 | [D-030](docs/decisions/D-030-watchdog-cadence.md) | Watchdog cron is `*/30` + `pull_request_review:[submitted]` + `pull_request:[closed]` to compensate for GitHub schedule queue saturation. |
