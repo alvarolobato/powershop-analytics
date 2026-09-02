@@ -100,3 +100,61 @@ class TestLimpiezaMA:
         assert "fecha_creacion <" in stmt and "INTERVAL" in stmt.upper(), (
             f"falta el corte por antigüedad; era: {stmt!r}"
         )
+
+
+class TestElMaterialSeFiltraEnOrigen:
+    """No traer lo que se va a borrar.
+
+    Antes cada pasada se traía las líneas de material de 4D, las insertaba y la
+    limpieza en cascada las borraba a continuación: **215.665 filas movidas tres
+    veces por pasada** para acabar donde empezaron (`n_tup_ins` 216.164 /
+    `n_tup_del` 215.589, medidos el 2026-09-02).
+
+    Coste del filtro, medido contra producción sobre la tabla entera:
+    `COUNT(*)` sin filtro 1,368 s → con filtro 1,447 s. Ochenta milisegundos.
+    """
+
+    def _sql_del_fetch(self, since):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        from etl.sync.ventas import sync_lineas_ventas
+
+        with (
+            patch("etl.db.fourd.safe_fetch", return_value=[]) as mock_fetch,
+            patch("etl.db.postgres.upsert", return_value=0),
+            patch("etl.sync.ventas._backfill_entrada_desde_cabecera", return_value=0),
+        ):
+            sync_lineas_ventas(
+                MagicMock(),
+                MagicMock(),
+                since=datetime(2026, 9, 1, tzinfo=timezone.utc) if since else None,
+            )
+        return " ".join(mock_fetch.call_args[0][1].split())
+
+    def test_la_pasada_completa_no_se_trae_material(self):
+        sql = self._sql_del_fetch(since=False)
+        assert "CCRefeJOFACM LIKE 'MA%'" in sql, (
+            f"la completa debe filtrar material en origen: {sql!r}"
+        )
+
+    def test_el_delta_tampoco(self):
+        """El delta horario era justo el que reinsertaba material cada hora."""
+        sql = self._sql_del_fetch(since=True)
+        assert "CCRefeJOFACM LIKE 'MA%'" in sql, (
+            f"el delta debe filtrar material en origen: {sql!r}"
+        )
+        assert "FechaModifica >=" in sql and " AND " in sql, (
+            f"las dos condiciones deben convivir: {sql!r}"
+        )
+
+    def test_la_limpieza_sigue_existiendo_como_red(self):
+        """Filtrar en origen no sustituye a la limpieza.
+
+        Si el filtro fallara, o quedaran filas de antes del cambio, tiene que
+        seguir habiendo quien las quite.
+        """
+        borrados = _borrados(_correr("delta"))
+        assert any("ps_lineas_ventas" in s for s in borrados), (
+            f"la limpieza en cascada debe seguir corriendo: {borrados!r}"
+        )
