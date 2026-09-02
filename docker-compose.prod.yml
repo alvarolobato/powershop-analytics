@@ -98,15 +98,36 @@ services:
     # Sin limite, macOS mata lo que le parece cuando falta memoria:
     # el ETL murio asi 104 veces sin dejar traza (ExitCode=0, sin OOMKilled).
     # Con limite, Docker mata al que se pasa y lo dice.
-    mem_limit: 2g
+    # 4g (antes 2g): con los 128MB de shared_buffers por defecto, el conjunto de
+    # trabajo (ps_lineas_ventas 1084 MB + ps_ventas 399 MB) no cabia ni de lejos
+    # y todo se leia de disco — 77.939 bloques leidos contra 10.202 en cache en
+    # la consulta que tumbo el inicio (#961).
+    mem_limit: 4g
     image: postgres:16-alpine
     # Default Docker /dev/shm is 64 MB; parallel-query workers (heavy home /
     # dashboard aggregations) exhaust it and fail with "could not resize shared
     # memory segment ... No space left on device". Must stay in sync with the
     # dev docker-compose.yml. Do NOT drop this — `ps prod update` overwrites the
     # prod compose from this file, so a missing line silently breaks production.
-    shm_size: 1gb
-    command: postgres -c shared_preload_libraries=pg_stat_statements -c pg_stat_statements.track=all
+    # 2gb ahora, para no quedar por debajo de shared_buffers.
+    shm_size: 2gb
+    # Afinado en #965. shared_buffers 1GB = 25 % del mem_limit, la regla habitual.
+    # work_mem 32MB: con 4MB cada hash volcaba a disco (Batches: 32,
+    # temp written=18712). Es POR NODO Y POR CONEXION, asi que con el pool de 10
+    # del dashboard el peor caso realista son ~1 GB, que caben en los 4g.
+    # jit=off: el JIT se comia entre 1,1 y 2,2 s (Optimization 980 ms + Emission
+    # 830 ms en el spark de ano) en consultas de pocos segundos — compilar salia
+    # mas caro que interpretar.
+    # Medido: el fan-out del inicio pasa de 13,4/13,0 s a 10,4/11,6 s.
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c shared_buffers=1GB
+      -c work_mem=32MB
+      -c maintenance_work_mem=256MB
+      -c effective_cache_size=3GB
+      -c jit=off
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}

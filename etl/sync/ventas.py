@@ -326,6 +326,56 @@ def sync_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> in
     )
 
 
+def _backfill_entrada_desde_cabecera(conn_pg: Any) -> int:
+    """Rellena ps_lineas_ventas.entrada desde la cabecera cuando 4D la deja vacia.
+
+    `LineasVentas.Entrada` coincide al 100 % con la cabecera DONDE EXISTE, pero
+    el origen la deja NULL en unas pocas lineas (34 de 463.335 en los ultimos 2
+    anos, todas de agosto de 2026, 550,61 EUR). Traerla del origen no lo arregla:
+    viene vacia de 4D, asi que una resincronizacion no cambia nada.
+
+    Esas filas obligaban a que toda consulta que necesite el signo venta/devolucion
+    volviera a unir con ps_ventas — un hash join de 977 K filas que costaba ~1,9 s
+    por consulta y era la mitad del presupuesto de la pantalla de inicio. Con la
+    columna completa, el signo se resuelve en la propia linea.
+
+    Se ejecuta en su propia transaccion: si falla, los datos ya cargados no se
+    deshacen. La cabecera se sincroniza ANTES que las lineas (ver el orden de
+    `_s(...)` en etl/main.py), asi que ps_ventas ya esta al dia aqui.
+
+    Returns:
+        Numero de filas rellenadas.
+    """
+    try:
+        with conn_pg.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE ps_lineas_ventas lv
+                   SET entrada = v.entrada
+                  FROM ps_ventas v
+                 WHERE lv.num_ventas = v.reg_ventas
+                   AND lv.entrada IS NULL
+                   AND v.entrada IS NOT NULL
+                """
+            )
+            filled = cur.rowcount
+        conn_pg.commit()
+        if filled:
+            logger.info(
+                "sync_lineas_ventas: entrada rellenada desde la cabecera en %d filas",
+                filled,
+            )
+        return filled
+    except Exception as exc:
+        conn_pg.rollback()
+        logger.warning(
+            "sync_lineas_ventas: el relleno de entrada fallo "
+            "(los datos ya estan cargados): %s",
+            exc,
+        )
+        return 0
+
+
 def sync_lineas_ventas(
     conn_4d: Any, conn_pg: Any, since: datetime | None = None
 ) -> int:
@@ -347,7 +397,7 @@ def sync_lineas_ventas(
     """
     effective_since = since if since is not None else _EPOCH
     where = f"FechaModifica >= {_date_literal(effective_since)}"
-    return _sync_table(
+    rows = _sync_table(
         conn_4d,
         conn_pg,
         sql_base=_SQL_LINEAS_BASE,
@@ -358,6 +408,8 @@ def sync_lineas_ventas(
         mapping=_LINEAS_MAPPING,
         numeric_keys=_LINEAS_NUMERIC,
     )
+    _backfill_entrada_desde_cabecera(conn_pg)
+    return rows
 
 
 def sync_pagos_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> int:
