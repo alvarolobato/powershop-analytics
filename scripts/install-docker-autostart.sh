@@ -12,7 +12,7 @@ SCRIPT="$REPO_ROOT/scripts/start-docker-daemon.sh"
 PLANTILLA="$REPO_ROOT/scripts/launchd/com.powershop.docker-autostart.plist.template"
 DESTINO="/Library/LaunchDaemons/com.powershop.docker-autostart.plist"
 USUARIO="${SUDO_USER:-$(whoami)}"
-HOGAR="$(eval echo "~$USUARIO")"
+HOGAR="$(dscl . -read /Users/"$USUARIO" NFSHomeDirectory | awk '{print $2}')"
 
 [ -x "$SCRIPT" ] || { echo "ERROR: falta $SCRIPT o no es ejecutable"; exit 1; }
 [ -f "$PLANTILLA" ] || { echo "ERROR: falta $PLANTILLA"; exit 1; }
