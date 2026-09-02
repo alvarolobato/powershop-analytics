@@ -1,5 +1,9 @@
 # AI Factory — User Guide
 
+> **Desde el 2026-09-02 la revisión es sólo de Opus.** Copilot se retiró
+> ([D-021](decisions/D-021-two-review-rounds.md)). Lo que este documento cuenta
+> sobre la ronda de Copilot y su secuencia ya no aplica; el resto sigue vigente.
+
 > The AI Factory is an autonomous development pipeline for PowerShop Analytics. It uses Claude (via GitHub Actions) to discover work, plan implementations, write code, review PRs, and manage deployments. This guide explains **how humans use it**.
 
 ## What the AI Factory Does For You
