@@ -731,4 +731,39 @@ describe("GET /api/home", () => {
     expect(byCode["608"].status).toBe("ok");
     queryMock.mockRestore();
   });
+
+  // Regression: a derived table over ps_lineas_ventas whose only date
+  // predicate lives in the OUTER join condition (`) lv ON lv.fecha_creacion
+  // = day::date`) cannot have that predicate pushed down — Postgres
+  // materialises the whole 1.6M x 977K lv-to-ventas hash join, spills it to
+  // disk, and then joins the result onto 7 rows. Measured at 7.1 s each on
+  // production; four of them ran concurrently, pinned all 10 pool slots, and
+  // the remaining 23 aggregates of this route died on the pool queue with
+  // "timeout exceeded when trying to connect" — which reads as a dead
+  // database while Postgres sat idle. Every scan of ps_lineas_ventas must
+  // carry its own fecha_creacion bound.
+  it("bounds every ps_lineas_ventas scan by fecha_creacion inside the subquery", async () => {
+    const { query } = (await import("@/lib/db")) as unknown as {
+      query: ReturnType<typeof vi.fn>;
+    };
+    await GET(makeReq());
+
+    const sqls = query.mock.calls.map((c: unknown[]) => c[0] as string);
+    const scans = sqls.filter((sql) => sql.includes("FROM ps_lineas_ventas"));
+    expect(scans.length).toBeGreaterThan(0);
+
+    for (const sql of scans) {
+      // Scope to each scan: from `FROM ps_lineas_ventas` up to the point the
+      // derived table is closed off (`) lv ON`), or the end of the statement.
+      // The bound must sit INSIDE that window — one in the outer ON clause is
+      // exactly the bug this guards.
+      let from = sql.indexOf("FROM ps_lineas_ventas");
+      while (from !== -1) {
+        const close = sql.indexOf(") lv ON", from);
+        const scope = sql.slice(from, close === -1 ? undefined : close);
+        expect(scope).toMatch(/lv\.fecha_creacion\s*(>=|=)/);
+        from = sql.indexOf("FROM ps_lineas_ventas", from + 1);
+      }
+    }
+  });
 });

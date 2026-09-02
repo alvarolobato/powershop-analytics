@@ -1,7 +1,19 @@
 import type { PoolConfig } from "pg";
 
 const STATEMENT_TIMEOUT_MS = 30_000;
-const CONNECTION_TIMEOUT_MS = 5_000;
+
+/**
+ * Budget for acquiring a pooled connection.
+ *
+ * In `pg` this covers the wait for a free *pool slot*, not just the TCP
+ * connect — a route that fans out more queries than `max` legitimately
+ * queues here. `/api/home` issues 33 aggregates against a 10-slot pool,
+ * so at 5 s the tail of that fan-out failed with "timeout exceeded when
+ * trying to connect" whenever the leading queries ran long, which reads
+ * as "the database is down" when the database is perfectly healthy.
+ * Individual queries stay bounded by STATEMENT_TIMEOUT_MS.
+ */
+const CONNECTION_TIMEOUT_MS = 20_000;
 
 /**
  * Build a pg PoolConfig from env vars, with caller-specified pool size.

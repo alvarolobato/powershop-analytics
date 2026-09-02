@@ -915,6 +915,8 @@ export async function GET(req: NextRequest) {
            FROM ps_lineas_ventas lv
            JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
            WHERE lv.tienda <> '99'
+             AND lv.fecha_creacion >= ($1::date - INTERVAL '6 days')::date
+             AND lv.fecha_creacion <= $1::date
          ) lv ON lv.fecha_creacion = day::date
          GROUP BY day ORDER BY day`,
         [asOfDate],
@@ -946,6 +948,8 @@ export async function GET(req: NextRequest) {
            FROM ps_lineas_ventas lv
            JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
            WHERE lv.tienda <> '99'
+             AND lv.fecha_creacion >= DATE_TRUNC('week', $1::date - INTERVAL '5 weeks')::date
+             AND lv.fecha_creacion <  (DATE_TRUNC('week', $1::date) + INTERVAL '1 week')::date
          ) lv ON lv.fecha_creacion >= w.week_start
               AND lv.fecha_creacion <  (w.week_start + INTERVAL '1 week')::date
          GROUP BY w.week_start ORDER BY w.week_start`,
@@ -978,6 +982,8 @@ export async function GET(req: NextRequest) {
            FROM ps_lineas_ventas lv
            JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
            WHERE lv.tienda <> '99'
+             AND lv.fecha_creacion >= DATE_TRUNC('month', $1::date - INTERVAL '4 months')::date
+             AND lv.fecha_creacion <  (DATE_TRUNC('month', $1::date) + INTERVAL '1 month')::date
          ) lv ON lv.fecha_creacion >= m.month_start
               AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
          GROUP BY m.month_start ORDER BY m.month_start`,
@@ -1010,6 +1016,8 @@ export async function GET(req: NextRequest) {
            FROM ps_lineas_ventas lv
            JOIN ps_ventas v ON lv.num_ventas = v.reg_ventas
            WHERE lv.tienda <> '99'
+             AND lv.fecha_creacion >= DATE_TRUNC('year', $1::date)::date
+             AND lv.fecha_creacion <  (DATE_TRUNC('month', $1::date) + INTERVAL '1 month')::date
          ) lv ON lv.fecha_creacion >= m.month_start
               AND lv.fecha_creacion <  (m.month_start + INTERVAL '1 month')::date
          GROUP BY m.month_start ORDER BY m.month_start`,
