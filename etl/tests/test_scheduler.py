@@ -590,3 +590,74 @@ class TestDeltaLookbackWindow:
         assert captured_since[0] is None, (
             f"With no watermark, since should remain None, got {captured_since[0]!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Test: the startup sync is a DELTA, never a full
+# ---------------------------------------------------------------------------
+
+
+class _StopLoop(BaseException):
+    """Breaks out of _run_scheduler_loop's `while True`.
+
+    Derives from BaseException on purpose: _job wraps run_full_sync in
+    `except Exception`, so an Exception-derived sentinel would be swallowed
+    and the loop would spin forever.
+    """
+
+
+def test_startup_sync_is_delta_not_full():
+    """A container restart must not kick off a 3-hour full refresh.
+
+    Arrancar con un full costaba ~3 h de reescritura en cada `ps prod update`
+    y en cada muerte por memoria — y como morir dispara otro arranque, que
+    dispara otro full, se realimentaba. Entre el 28-08 y el 02-09 hubo 18
+    despliegues contra 3 en todo junio, y la maquina se paso media jornada
+    haciendo fulls de arranque que nadie pidio, compitiendo por el mismo
+    Postgres que sirve el dashboard.
+
+    Los watermarks viven en Postgres y sobreviven al reinicio, asi que el
+    delta pone al dia desde donde se quedo. El full nocturno no se toca.
+    """
+    from contextlib import ExitStack
+    from datetime import datetime, timezone
+    from unittest.mock import MagicMock, patch
+
+    import pytest
+
+    import etl.main as main
+
+    kinds: list[str] = []
+
+    def _capture(conn_4d, conn_pg, *, trigger, kind, lookback_days, **kw):
+        kinds.append(kind)
+        return None
+
+    # Pick a cron hour that is NOT the current one, so _job's wall-clock guard
+    # (which drops a delta colliding with the nightly full slot) stays out of
+    # the way and the test can't flake once an hour.
+    other_hour = (datetime.now(timezone.utc).hour + 5) % 24
+
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(main, "run_full_sync", _capture))
+        stack.enter_context(patch.object(main, "_is_run_active", return_value=False))
+        stack.enter_context(
+            patch.object(
+                main, "_refresh_4d_connection", return_value=(MagicMock(), None)
+            )
+        )
+        import schedule
+
+        stack.enter_context(
+            patch.object(schedule, "run_pending", side_effect=_StopLoop)
+        )
+
+        with pytest.raises(_StopLoop):
+            main._run_scheduler_loop(
+                MagicMock(), MagicMock(), MagicMock(), cron_hour=other_hour
+            )
+
+    assert kinds == ["delta"], (
+        f"El sync de arranque debe ser delta, no {kinds!r}. Un full al arrancar "
+        f"cuesta ~3 h y se realimenta con los reinicios."
+    )
