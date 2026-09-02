@@ -1010,13 +1010,25 @@ def release_run_lock(conn) -> None:
             pass
 
 
-def create_run(conn, trigger: str, kind: str = "full") -> int:
+def create_run(conn, trigger: str, kind: str) -> int:
     """Insert an etl_sync_runs record with status='running' and return its id.
 
     `kind` is the run's mode — 'delta' for the hourly watermark-only sweep
     or 'full' for the nightly everything-pass. Stored as-is so the dashboard
     can render a Delta/Completa pill without recomputing it from per-table
     methods.
+
+    `kind` es OBLIGATORIO a proposito. Antes tenia `= "full"` por defecto, y
+    `_record_connection_failure` no lo pasaba: cada job HORARIO que no alcanzaba
+    4D quedaba registrado como una COMPLETA fallida. En el panel de ETL eso se
+    lee como "el repaso pesado no se hizo" cuando en realidad era un delta que
+    se arreglaba solo a la hora siguiente. Tambien envenenaba cualquier metrica
+    de "cuantas completas fallan": las 84 filas de "SQL Server is not running"
+    del 18 al 21 de agosto eran una por hora durante cuatro dias, todas deltas.
+
+    Y el defecto estaba del reves: si `kind` fuera a tener uno, deberia ser el
+    barato y comun, nunca el caro y alarmante. Se quita para que ningun sitio
+    nuevo pueda heredarlo por descuido.
     """
     if kind not in ("delta", "full"):
         raise ValueError(f"Invalid run kind: {kind!r} (expected 'delta' or 'full')")

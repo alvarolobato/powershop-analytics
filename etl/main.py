@@ -1156,6 +1156,7 @@ def _record_connection_failure(
     trigger: str,
     trigger_id: int | None,
     err_msg: str,
+    kind: str,
 ) -> int | None:
     """Create a visible failed run when 4D could not be reached.
 
@@ -1174,7 +1175,7 @@ def _record_connection_failure(
     )
 
     try:
-        run_id = create_run(conn_pg, trigger)
+        run_id = create_run(conn_pg, trigger, kind)
     except Exception:
         logger.exception(
             "Could not create failed-run row; trigger will not be visible in dashboard"
@@ -1273,7 +1274,7 @@ def _run_scheduler_loop(
         conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
         if conn_4d is None:
             _record_connection_failure(
-                conn_pg, "scheduled", None, err_msg or "4D unreachable"
+                conn_pg, "scheduled", None, err_msg or "4D unreachable", kind
             )
             return
         try:
@@ -1365,6 +1366,12 @@ def _run_scheduler_loop(
                         "manual",
                         trigger_id,
                         f"Could not read trigger force flags: {exc}"[:2000],
+                        # No se pudieron leer las banderas, asi que no se sabe
+                        # si el operador pidio forzar. Se registra como delta,
+                        # que es lo que hace "Sincronizar ahora" por defecto:
+                        # ante la duda, el tipo barato. El mensaje de error ya
+                        # explica que no se pudo determinar.
+                        "delta",
                     )
                     time.sleep(10)
                     continue
@@ -1383,7 +1390,11 @@ def _run_scheduler_loop(
                 conn_4d, err_msg = _refresh_4d_connection(conn_4d, config)
                 if conn_4d is None:
                     _record_connection_failure(
-                        conn_pg, "manual", trigger_id, err_msg or "4D unreachable"
+                        conn_pg,
+                        "manual",
+                        trigger_id,
+                        err_msg or "4D unreachable",
+                        manual_kind,
                     )
                 else:
                     try:
