@@ -56,6 +56,7 @@
 | [D-059](docs/decisions/D-059-tablas-grandes-troceadas.md) | Toda tabla de más de 100.000 filas usa `truncate_and_insert_streaming`, nunca `truncate_and_insert`, que materializa la lista entera. |
 | [D-063](docs/decisions/D-063-una-carga-corta-es-perdida-de-datos.md) | Un full refresh que encoge >10 % aborta sin tocar la tabla (`allow_shrink` para lo legítimo); un refetch más corto que el fetch lanza. |
 | [D-064](docs/decisions/D-064-temporadas-sin-formato-fijo.md) | `clave_temporada` es texto opaco sin formato fijo: búscala en `ps_temporadas` con LEFT JOIN, nunca la deduzcas del nombre. |
+| [D-065](docs/decisions/D-065-watermark-solo-avanza-con-exito.md) | El watermark sólo avanza en una pasada correcta: el camino de error escribe `status`/`error_msg` y nunca toca `last_sync_at`. |
 
 ## Dashboard App
 

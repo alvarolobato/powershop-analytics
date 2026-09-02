@@ -1371,6 +1371,64 @@ def update_trigger_run_id(conn, trigger_id: int, run_id: int) -> None:
         raise
 
 
+def set_watermark_error(
+    conn,
+    table_name: str,
+    error_msg: str | None = None,
+) -> None:
+    """Record a FAILED sync attempt without moving ``last_sync_at``.
+
+    Esta funcion existe por una razon concreta: el camino de error llamaba a
+    :func:`set_watermark` con ``last_sync_at = now()``, y el ON CONFLICT lo
+    escribe igual que en el camino correcto. O sea que un intento FALLIDO
+    adelantaba la marca igual que uno bueno.
+
+    La consecuencia es perdida de datos silenciosa y permanente. El delta
+    siguiente calcula ``since = last_sync_at - lookback_days``, asi que la
+    ventana arranca en el ultimo INTENTO, no en el ultimo EXITO. Si una tabla
+    falla dos dias seguidos sin que se cuele un barrido con ``since=None``, las
+    filas modificadas en esos dias no se vuelven a mirar JAMAS: el delta nunca
+    retrocede.
+
+    No es teorico. En el run 41 (2026-04-23) ``stock`` y ``traspasos`` se
+    recuperaron tras fallar desde el 18 de abril y su ventana empezo el 23:
+    cinco dias de modificaciones saltados, rescatados solo por el siguiente
+    barrido completo. Auditando los 16.144 deltas correctos del historico
+    aparecen esos dos como unicos casos, porque hoy el "full" nocturno
+    (``since=2014-01-01``) tapa el agujero cada noche. Es decir: la seguridad
+    del delta depende hoy del mismo run que falla 114 de 151 veces.
+
+    Por eso ``last_sync_at`` NO esta en el DO UPDATE SET. Un fallo deja la
+    marca donde estaba y el proximo intento vuelve a cubrir la ventana entera.
+
+    Si la tabla no tiene marca todavia (primer sync de su vida, y fallo), se
+    inserta con la epoca: ``get_watermark`` devolvera 1970 y el siguiente
+    intento se traera todo, que es justo lo que hace falta.
+
+    Commits on success; rolls back and re-raises on failure.
+    """
+    try:
+        _ensure_watermarks_table(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_watermarks
+                    (table_name, last_sync_at, rows_synced, status, error_msg, updated_at)
+                VALUES (%s, TIMESTAMPTZ 'epoch', 0, 'error', %s, NOW())
+                ON CONFLICT (table_name) DO UPDATE SET
+                    rows_synced = 0,
+                    status      = 'error',
+                    error_msg   = EXCLUDED.error_msg,
+                    updated_at  = NOW()
+                """,
+                (table_name, error_msg),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+
+
 def set_watermark(
     conn,
     table_name: str,

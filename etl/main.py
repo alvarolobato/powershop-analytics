@@ -176,7 +176,12 @@ def _run_sync(
     2026-08-28 incident review, only retain a few months of history).
     """
     from etl.db.fourd import drain_anomaly_log
-    from etl.db.postgres import drain_skip_log, get_watermark, set_watermark
+    from etl.db.postgres import (
+        drain_skip_log,
+        get_watermark,
+        set_watermark,
+        set_watermark_error,
+    )
 
     _tracer = _otel_trace.get_tracer("powershop.etl")
 
@@ -243,9 +248,12 @@ def _run_sync(
             duration_ms = int((time.time() - start) * 1000)
             ok = False
             err = str(exc)[:2000]
-            wm_to = datetime.now(timezone.utc)
+            # OJO: no se toca last_sync_at. Adelantar la marca en un fallo
+            # hace que la ventana del proximo delta arranque en el ultimo
+            # INTENTO en vez del ultimo EXITO, y las filas de por medio no se
+            # vuelven a mirar nunca. Ver set_watermark_error.
             try:
-                set_watermark(conn_pg, name, wm_to, 0, "error", err)
+                set_watermark_error(conn_pg, name, err)
             except Exception as wm_exc:
                 logger.error("Failed to write error watermark for %s: %s", name, wm_exc)
             logger.error("%s FAILED duration_ms=%d: %s", name, duration_ms, exc)
