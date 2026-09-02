@@ -1010,6 +1010,61 @@ def release_run_lock(conn) -> None:
             pass
 
 
+def record_reconcile(
+    conn,
+    *,
+    run_id: int | None,
+    resumen: dict,
+    desde: int | None,
+    duration_ms: int,
+    status: str = "ok",
+    error_msg: str | None = None,
+) -> None:
+    """Deja constancia de una pasada de reconciliacion en etl_reconcile_log.
+
+    Esto es lo que hace auditable el espejo. Hasta ahora la unica senal de que
+    una pasada habia ido bien era su duracion, y "3h 37m, completado" se lee
+    como una buena noche de trabajo cuando en realidad fue reupsertar filas que
+    el delta ya tenia frescas. Lo que dice que el espejo esta CORRECTO es
+    cuantas particiones no cuadraban y cuantas filas se corrigieron.
+
+    Una pasada que no reconcilia nada en cuatro minutos es una pasada PERFECTA,
+    y hasta ahora era indistinguible de una que no hizo nada porque se murio.
+
+    Best-effort: si esto falla, no se aborta el sync — el dato ya esta
+    reconciliado, lo que se pierde es la traza.
+    """
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO etl_reconcile_log
+                    (run_id, tabla, desde, particiones_origen, particiones_revisadas,
+                     filas_traidas, filas_borradas, duration_ms, status, error_msg)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    run_id,
+                    resumen.get("tabla"),
+                    desde,
+                    resumen.get("particiones_origen"),
+                    resumen.get("particiones_revisadas"),
+                    resumen.get("filas_traidas"),
+                    resumen.get("filas_borradas"),
+                    duration_ms,
+                    status,
+                    error_msg,
+                ),
+            )
+        conn.commit()
+    except Exception as exc:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        logger.warning("No se pudo registrar la reconciliacion: %s", exc)
+
+
 def create_run(conn, trigger: str, kind: str) -> int:
     """Insert an etl_sync_runs record with status='running' and return its id.
 

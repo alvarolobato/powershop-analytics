@@ -841,6 +841,31 @@ CREATE TABLE IF NOT EXISTS etl_fetch_anomalies (
 ALTER TABLE etl_fetch_anomalies ADD COLUMN IF NOT EXISTS run_start_mod_100 INTEGER;
 ALTER TABLE etl_fetch_anomalies ADD COLUMN IF NOT EXISTS run_end_mod_100   INTEGER;
 
+-- Resultado de la reconciliacion por particiones.
+--
+-- Es lo que hace auditable el espejo: no "el sync tardo 3h37m y dijo que fue
+-- bien", sino "se revisaron 12 particiones, 1 no cuadraba, se borraron 3 filas
+-- que ya no estaban en 4D". Una pasada que no reconcilia nada en cuatro minutos
+-- es una pasada PERFECTA, y hasta ahora no habia forma de distinguirla de una
+-- que no hizo nada porque se murio.
+CREATE TABLE IF NOT EXISTS etl_reconcile_log (
+    id                     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    occurred_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    run_id                 BIGINT,
+    tabla                  TEXT NOT NULL,
+    -- Rango mirado: NULL en `desde` = censo completo (el semanal).
+    desde                  BIGINT,
+    particiones_origen     INTEGER,
+    particiones_revisadas  INTEGER,
+    filas_traidas          INTEGER,
+    filas_borradas         INTEGER,
+    duration_ms            INTEGER,
+    status                 TEXT NOT NULL DEFAULT 'ok',
+    error_msg              TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_etl_reconcile_log_occurred_at
+    ON etl_reconcile_log (occurred_at DESC);
+
 -- Transport channel: dashboard writes a row here; ETL polls and picks it up.
 CREATE TABLE IF NOT EXISTS etl_manual_trigger (
     id           SERIAL       PRIMARY KEY,

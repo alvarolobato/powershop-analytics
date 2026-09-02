@@ -412,6 +412,32 @@ def sync_lineas_ventas(
     return rows
 
 
+def trae_particion_lineas(conn_4d: Any, mes: int) -> list[dict]:
+    """Trae UNA particion (un `Mes`) de LineasVentas, ya mapeada al espejo.
+
+    La usa la reconciliacion (`etl/sync/reconcile.py`) para bajar solo a por los
+    meses que no cuadran, en vez de traerse 1,8 M filas para comprobar.
+
+    Se excluye el material (MA) aqui igual que lo excluye la limpieza en
+    cascada, para que la particion reconstruida contenga exactamente lo que el
+    espejo debe tener. Si no, la reconciliacion reinsertaria material que la
+    limpieza volveria a borrar despues — churn pura, y ademas dejaria las cifras
+    de ventas con bolsas dentro durante el rato intermedio.
+
+    `Mes` esta indexado en 4D, asi que una particion son ~27.000 filas por un
+    barrido de indice, no un escaneo de la tabla.
+    """
+    from etl.db.fourd import safe_fetch
+
+    sql = (
+        f"{_SQL_LINEAS_BASE} WHERE Mes = {int(mes)}"
+        " AND Codigo NOT IN (SELECT Codigo FROM Articulos"
+        " WHERE CCRefeJOFACM LIKE 'MA%')"
+    )
+    filas = safe_fetch(conn_4d, sql, guard_pk="reglineas")
+    return [_map_row(r, _LINEAS_MAPPING, _LINEAS_NUMERIC) for r in filas]
+
+
 def sync_pagos_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> int:
     """Upsert-delta sync PagosVentas → ps_pagos_ventas.
 
