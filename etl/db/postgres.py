@@ -30,6 +30,7 @@ even built), so there is no overlap between the two logs to double-report.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 import math
 from datetime import datetime
 from decimal import Decimal
@@ -585,22 +586,38 @@ def _guard_full_refresh_shrink_streaming(conn, table: str, filas_origen: int) ->
     anterior = fila[0] if fila else None
     if anterior is None or anterior < _SHRINK_GUARD_MIN_ROWS:
         return
-    # `filas_origen` es el crudo y `anterior` el destino ya expandido, asi que
-    # solo se puede detectar un desplome grosero, no un ajuste fino. Con un
-    # mapper que expande, filas_origen < anterior es lo NORMAL; lo que no es
-    # normal es que el crudo se quede por debajo del 10 % de lo que la tabla
-    # llego a tener cuando ese mapper no contrae.
-    if filas_origen == 0:
+    # `filas_origen` es el crudo y `anterior` el destino YA EXPANDIDO, asi que
+    # no son magnitudes comparables y esta guarda solo detecta desplomes
+    # groseros. Es deliberadamente floja, y conviene saber cuanto: en
+    # ps_lin_albaranes el origen son 45.967 lineas y el destino 291.068 filas
+    # (15,8 %), asi que un umbral del 10 % del destino solo salta si el origen
+    # cae por debajo de ~29.000 -- una perdida de mas del 35 %.
+    #
+    # La deteccion FINA no vive aqui, vive en `_fetch_raw`: el servidor 4D
+    # declara cuantas filas tiene el statement y una lectura truncada revienta
+    # antes de llegar a este punto (D-063). Esto es defensa en profundidad.
+    #
+    # El comentario anterior prometia el 10 % y el codigo solo abortaba con
+    # cero, asi que una lectura al 5 % pasaba: lo senalo una revision de Copilot
+    # que nadie habia leido.
+    if filas_origen < anterior * _MAX_SHRINK_RATIO:
         raise FullRefreshShrankError(
-            f"{table}: la lectura de origen vino VACIA y la ultima pasada dejo "
-            f"{anterior} filas. Se aborta sin tocar la tabla."
+            f"{table}: la lectura de origen trajo {filas_origen} filas y la "
+            f"ultima pasada dejo {anterior} en destino. Con un mapper que "
+            f"expande, un origen por debajo del "
+            f"{_MAX_SHRINK_RATIO:.0%} del destino anterior es un desplome, no "
+            f"una variacion. Se aborta sin tocar la tabla. Si el encogimiento "
+            f"es legitimo, pasa allow_shrink=True tras confirmar el origen."
         )
 
 
 def truncate_and_insert_streaming(
     conn,
     table: str,
-    raw_rows: list,
+    # `Iterable`, no `list`: desde que la lectura tambien va troceada esto
+    # recibe el iterador de `safe_fetch_streaming`. El hint decia `list` y
+    # contradecia el uso real.
+    raw_rows: "Iterable",
     mapper,
     *,
     chunk_size: int = 50_000,
@@ -775,8 +792,9 @@ def _guard_full_refresh_shrink(conn, table: str, incoming: int) -> None:
         f"{table}: el full refresh traia {incoming} filas y la tabla tiene "
         f"{actual} ({perdidas} menos, {100 * perdidas / actual:.1f} %). "
         f"Se aborta sin tocar la tabla: una carga corta es perdida de datos, "
-        f"no un refresh. Si el encogimiento es legitimo, resincroniza con "
-        f"force_full tras confirmar el origen."
+        f"no un refresh. Si el encogimiento es LEGITIMO, el escape es "
+        f"allow_shrink=True en la llamada; force_full NO sirve, porque vuelve "
+        f"a lanzar el mismo full refresh y choca con esta misma guarda."
     )
 
 
