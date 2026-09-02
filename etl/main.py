@@ -1200,10 +1200,23 @@ def _run_scheduler_loop(
     # drops this one so we don't get a full+delta pair in the same tick.
     schedule.every().hour.at(f":{delta_minute:02d}").do(_job, kind="delta")
 
-    # Initial sync at startup so we don't wait an hour the first time. Use a
-    # full sync so the operator gets a clean baseline immediately after deploy.
-    logger.info("Running initial full sync on startup ...")
-    _job(kind="full")
+    # Initial sync at startup so we don't wait an hour the first time.
+    #
+    # DELTA, not full. Arrancar con un full costaba ~3 horas de reescritura
+    # cada vez que se recreaba el contenedor — y el contenedor se recrea en
+    # cada `ps prod update` y en cada muerte por memoria. Entre el 28-08 y el
+    # 02-09 hubo 18 despliegues (contra 3 en todo junio), asi que la maquina
+    # se paso media jornada haciendo fulls de arranque que nadie pidio, y cada
+    # uno competia por el mismo Postgres que sirve el dashboard. Peor: un full
+    # tiene mas probabilidad de morir por memoria, y morir dispara otro
+    # arranque, que dispara otro full.
+    #
+    # Un contenedor recien levantado no necesita un repaso completo para ser
+    # util: los watermarks siguen en Postgres, sobreviven al reinicio, y el
+    # delta pone al dia desde donde se quedo en segundos. El full nocturno
+    # sigue en su hora.
+    logger.info("Running initial delta sync on startup ...")
+    _job(kind="delta")
 
     while True:
         schedule.run_pending()
