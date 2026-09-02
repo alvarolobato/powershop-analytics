@@ -317,3 +317,62 @@ class TestEngancheEnElPipeline:
         assert mock_log.call_args.kwargs["status"] == "error", (
             "un fallo debe quedar registrado, no desaparecer"
         )
+
+
+class TestUnaLecturaTruncadaNoBorraNada:
+    """El camino más peligroso de todo el módulo.
+
+    `reconciliar_particion` borra las filas de la partición cuya PK no vino en
+    el fetch. Si el fetch llega TRUNCADO —el fallo dominante de este ETL, y el
+    que el driver p4d disfraza de final de resultados limpio— eso borraría filas
+    reales del espejo. Una partición son ~27.000 líneas: un truncamiento al 70 %
+    se llevaría 8.000 ventas por delante.
+
+    Hoy no pasa, porque `_fetch_raw` compara con el `rowcount` que declara el
+    servidor y lanza `FetchTruncatedError` (#951) antes de devolver nada. Pero
+    esa protección es IMPLÍCITA: vive en otro módulo y nada aquí la sujetaba. Si
+    alguien la relaja, este test es lo que avisa.
+    """
+
+    def test_si_el_fetch_lanza_no_se_borra(self):
+        from etl.db.fourd import FetchTruncatedError
+
+        def _revienta(conn, parte):
+            raise FetchTruncatedError(
+                "el servidor declaro 27110 filas y llegaron 19000"
+            )
+
+        spec = ParticionSpec(
+            nombre="lineas_ventas",
+            tabla_4d="LineasVentas",
+            particion_4d="Mes",
+            tabla_pg="ps_lineas_ventas",
+            particion_pg="mes",
+            pk_pg="reg_lineas",
+            pk_4d="RegLineas",
+            trae_particion=_revienta,
+        )
+        conn_pg, cur = _conn_pg(rowcount=8000)
+
+        try:
+            reconciliar_particion(MagicMock(), conn_pg, spec, 202608)
+        except FetchTruncatedError:
+            pass
+        else:  # pragma: no cover
+            raise AssertionError(
+                "una lectura truncada debe propagarse, no tragarse: si se traga, "
+                "el borrado de abajo se lleva las filas que no llegaron"
+            )
+
+        cur.execute.assert_not_called()
+        conn_pg.commit.assert_not_called()
+
+    def test_el_fetch_de_una_particion_pide_el_guardian_de_pk(self):
+        """safe_fetch(guard_pk=...) es lo que activa la comprobación de D-051."""
+        from etl.sync.ventas import trae_particion_lineas
+
+        with patch("etl.db.fourd.safe_fetch", return_value=[]) as mock_fetch:
+            trae_particion_lineas(MagicMock(), 202608)
+        assert mock_fetch.call_args.kwargs.get("guard_pk") == "reglineas", (
+            "sin guard_pk no se aplica el guardián de filas corruptas de D-051"
+        )
