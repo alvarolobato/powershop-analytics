@@ -696,14 +696,33 @@ def main() -> None:
         None,
         "Apertura",
         "Inventario Parcial",
+        # 'Autoreposicion' faltaba, y es justo lo que filtra el widget
+        # `stock-traspasos-recientes` del panel de stock. Sin ella ese widget
+        # devolvia CERO filas en TODAS las ejecuciones y pintaba "Sin datos" —
+        # el mismo estado vacio que el spec trata como fallo. O sea que el
+        # widget que se anadio al sembrado precisamente para cubrirlo nunca
+        # llego a ejercitarse con datos.
+        #
+        # Rompe la promesa que este mismo generador hace en su cabecera: "every
+        # widget still returns data".
+        "Autoreposicion",
     ]
     tr_rows = []
     for i in range(1, 201):
         offset = rng.randint(0, 13)
+        # Las diez primeras se fuerzan a Autoreposicion de HOY. El widget filtra
+        # por tipo Y por el periodo seleccionado, asi que dejarlo al azar sobre
+        # 14 dias significa que a principio de mes —cuando el periodo por
+        # defecto arranca el dia 1— casi todas las filas caen fuera de la
+        # ventana y el panel vuelve a quedarse vacio. Con filas de hoy, cualquier
+        # ventana que incluya hoy tiene datos.
+        forzada = i <= 10
         salida, entrada_t = rng.sample(retail_stores, 2)
         codigo = sql_str(rng.choice(articulos)[1])
         talla = sql_str(rng.choice(TALLAS))
-        tipo = rng.choice(TIPOS_TRASPASO)
+        tipo = "Autoreposicion" if forzada else rng.choice(TIPOS_TRASPASO)
+        if forzada:
+            offset = 0
         us = rng.randint(1, 6)
         ue = rng.randint(1, 6)
         common = [
@@ -719,6 +738,22 @@ def main() -> None:
         ]
         tr_rows.append(", ".join([f"{600000 + i * 2 - 1}.99"] + common + ["false"]))
         tr_rows.append(", ".join([f"{600000 + i * 2}.99"] + common + ["true"]))
+    # Autocomprobacion. La cabecera de este fichero promete que "every widget
+    # still returns data", y esa promesa se rompio en silencio: el widget
+    # `stock-traspasos-recientes` filtra por tipo 'Autoreposicion' y el
+    # generador no producia ninguna, asi que pintaba "Sin datos" en todas las
+    # ejecuciones. Un e2e que trata el estado vacio como fallo no puede
+    # depender de que alguien se acuerde de mirar esto.
+    _autorep_hoy = [
+        r for r in tr_rows if "'Autoreposicion'" in r and "CURRENT_DATE," in r
+    ]
+    if not _autorep_hoy:
+        raise SystemExit(
+            "generate_seed: no hay traspasos 'Autoreposicion' con fecha de hoy. "
+            "El widget stock-traspasos-recientes se quedaria vacio y el e2e "
+            "fallaria de forma intermitente."
+        )
+
     emit_insert(
         out,
         "ps_traspasos",
