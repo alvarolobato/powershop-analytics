@@ -51,7 +51,7 @@ class TestCreateRun:
     def test_create_run_returns_id(self, pg_conn):
         """create_run returns a positive integer run_id and inserts a running row."""
         _apply_monitoring_schema(pg_conn)
-        run_id = postgres.create_run(pg_conn, "manual")
+        run_id = postgres.create_run(pg_conn, "manual", "full")
         try:
             assert isinstance(run_id, int), f"Expected int, got {type(run_id)}"
             assert run_id > 0
@@ -73,8 +73,8 @@ class TestFailOrphanRunningRuns:
     def test_marks_all_running_rows_failed(self, pg_conn):
         """fail_orphan_running_runs closes stuck running rows (e.g. after a worker crash)."""
         _apply_monitoring_schema(pg_conn)
-        run_id_a = postgres.create_run(pg_conn, "scheduled")
-        run_id_b = postgres.create_run(pg_conn, "manual")
+        run_id_a = postgres.create_run(pg_conn, "scheduled", "full")
+        run_id_b = postgres.create_run(pg_conn, "manual", "full")
         try:
             n = postgres.fail_orphan_running_runs(pg_conn)
             assert n == 2
@@ -95,7 +95,7 @@ class TestFailOrphanRunningRuns:
     @_requires_monitoring
     def test_no_rows_updated_when_nothing_running(self, pg_conn):
         _apply_monitoring_schema(pg_conn)
-        run_id = postgres.create_run(pg_conn, "scheduled")
+        run_id = postgres.create_run(pg_conn, "scheduled", "full")
         try:
             postgres.finish_run(
                 pg_conn,
@@ -116,7 +116,7 @@ class TestFinishRun:
     def test_finish_run_updates_status(self, pg_conn):
         """finish_run sets status, finished_at, and duration_ms in the DB."""
         _apply_monitoring_schema(pg_conn)
-        run_id = postgres.create_run(pg_conn, "scheduled")
+        run_id = postgres.create_run(pg_conn, "scheduled", "full")
         try:
             postgres.finish_run(
                 pg_conn,
@@ -159,7 +159,7 @@ class TestRecordTableSync:
     def test_record_table_sync_inserts_row(self, pg_conn):
         """record_table_sync inserts one row with correct fields in etl_sync_run_tables."""
         _apply_monitoring_schema(pg_conn)
-        run_id = postgres.create_run(pg_conn, "scheduled")
+        run_id = postgres.create_run(pg_conn, "scheduled", "full")
         try:
             started = datetime.now(timezone.utc)
             finished = datetime.now(timezone.utc)
@@ -209,7 +209,7 @@ class TestRecordTableSync:
     def test_record_table_sync_failure_row_with_new_fields(self, pg_conn):
         """record_table_sync persists watermark_from, watermark_to, and error_msg for failed rows."""
         _apply_monitoring_schema(pg_conn)
-        run_id = postgres.create_run(pg_conn, "scheduled")
+        run_id = postgres.create_run(pg_conn, "scheduled", "full")
         try:
             wm_from = datetime.now(timezone.utc)
             wm_to = datetime.now(timezone.utc)
@@ -249,7 +249,7 @@ class TestPartialStatus:
     def test_failed_run_sets_partial_status(self, pg_conn):
         """When tables_failed > 0, finish_run persists status=partial in the DB."""
         _apply_monitoring_schema(pg_conn)
-        run_id = postgres.create_run(pg_conn, "scheduled")
+        run_id = postgres.create_run(pg_conn, "scheduled", "full")
         try:
             postgres.finish_run(
                 pg_conn,
