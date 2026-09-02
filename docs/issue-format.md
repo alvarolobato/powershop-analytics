@@ -1,5 +1,9 @@
 # Issue and PR format
 
+> **Desde el 2026-09-02 la revisión es sólo de Opus.** Copilot se retiró
+> ([D-021](decisions/D-021-two-review-rounds.md)). Lo que este documento cuenta
+> sobre la ronda de Copilot y su secuencia ya no aplica; el resto sigue vigente.
+
 All GitHub issues in this project follow a single standard format. When creating issues, always use this template exactly.
 
 > **Why this lives here, not in AGENTS.md:** the template + phasing rules are ~200 lines of reference that the planner reads once when decomposing work, but every Claude session in the repo doesn't need them in the always-loaded context chain. AGENTS.md keeps a short summary and links here.

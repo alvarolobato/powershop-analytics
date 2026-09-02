@@ -1,3 +1,16 @@
+## STATUS: retirada (2026-09-02) — sustituida por D-021
+
+Copilot se retiró del proceso de revisión, así que la secuencia estricta
+«Copilot → address → Opus → address → merge» que fija esta decisión ya no
+existe. Cada PR lleva una única ronda: Opus.
+
+Se conserva el fichero para arqueología. Lo que sigue siendo válido de aquí:
+`ai-pr-review.yml` dispara sólo con la etiqueta de revisión (no con
+`pull_request_review`), y no se ponen `|| true` en los despachos críticos —
+esos dos aprendizajes sobrevieron a la retirada.
+
+---
+
 ---
 id: D-031
 title: Strict Copilot → address → Opus → address sequencing

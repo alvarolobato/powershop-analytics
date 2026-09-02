@@ -62,7 +62,7 @@ jobs:
     env:
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
     steps:
-      # D-021 enforcement: if both Copilot and Opus rounds have already been
+      # D-021 enforcement: if la ronda de Opus have already been
       # addressed, this PR is converged. Don't run a third review — it will
       # surface nit-picks that loop with address-feedback (PRs #493 / #495
       # had 4+ Copilot rounds and 5+ Opus rounds before this guard existed).
@@ -87,7 +87,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
         run: |
           set -euo pipefail
           HEAD_SHA=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefOid --jq .headRefOid)
@@ -263,7 +262,7 @@ jobs:
           gh api -X DELETE "repos/${{ github.repository }}/issues/$PR_NUMBER/labels/fact-ready-for-review" >/dev/null 2>&1 || true
           # Don't re-request Copilot here — the dispatcher already did. Just
           # explain why Claude can't review this PR so nobody thinks it failed.
-          MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. **Copilot review still runs** (no such restriction). Merge with human + Copilot review."
+          MSG="ℹ️ **AI Factory**: Skipping Claude PR review — this PR modifies files under \`.github/workflows/\`. The Claude Code Action's OIDC app-token exchange validates that workflow files on the PR branch match \`main\`, so self-reviewing a workflow change is blocked by design. Merge tras revision humana: esta PR toca workflows y la revision automatica no puede correr sobre ella."
           gh pr comment "$PR_NUMBER" --repo "${{ github.repository }}" --body "$MSG" || true
 
       - name: Use role-specific CLAUDE.md
@@ -291,14 +290,7 @@ jobs:
         if: steps.d021.outputs.skip != 'true' && steps.cap.outputs.skip != 'true'
         uses: anthropics/claude-code-action@v1
         env:
-          # Default gh auth for every Claude-side call EXCEPT the Copilot
-          # reviewer POST; the prompt below switches to $COPILOT_PAT only for
-          # that single call.
           GH_TOKEN: ${{ github.token }}
-          # PAT for assigning copilot-pull-request-reviewer[bot]; GITHUB_TOKEN
-          # silently drops Copilot reviewer requests. Claude must use this
-          # specifically when calling requested_reviewers (see prompt below).
-          COPILOT_PAT: ${{ secrets.COPILOT_PAT }}
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           # Headless review: tool approvals stall the run; default cap was 35 turns.
@@ -395,15 +387,15 @@ jobs:
             gh api -X DELETE "repos/$REPO/issues/$PR_NUMBER/labels/fact-ci-failing" >/dev/null 2>&1 || true
             gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=ai-awaiting-owner" >/dev/null
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus) — no changes required. PR is ready for human merge decision." || true
+              --body "✅ **AI Factory**: Revision automatica completa (Opus) — no changes required. PR is ready for human merge decision." || true
           elif [ "$CI_STATE" = "failing" ]; then
             gh api -X POST "repos/$REPO/issues/$PR_NUMBER/labels" -f "labels[]=fact-ci-failing" >/dev/null 2>&1 || true
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus), but **CI is failing** on the head SHA — not marking \`ai-awaiting-owner\`. AI CI remediation will run." || true
+              --body "✅ **AI Factory**: Revision automatica completa (Opus), but **CI is failing** on the head SHA — not marking \`ai-awaiting-owner\`. AI CI remediation will run." || true
             gh workflow run ai-ci-remediation.yml --repo "$REPO" --field pr_number="$PR_NUMBER" || true
           else
             gh pr comment "$PR_NUMBER" --repo "$REPO" \
-              --body "✅ **AI Factory**: Automated reviews complete (Copilot + Opus). **Not marking \`ai-awaiting-owner\`** yet — CI is \`$CI_STATE\`. The watchdog reconcile hands off once CI greens (\`fact-o-after-1\` + CI ready)." || true
+              --body "✅ **AI Factory**: Revision automatica completa (Opus). **Not marking \`ai-awaiting-owner\`** yet — CI is \`$CI_STATE\`. The watchdog reconcile hands off once CI greens (\`fact-o-after-1\` + CI ready)." || true
           fi
 
       - name: Handle failure
