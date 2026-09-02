@@ -41,6 +41,7 @@
 | [D-042](docs/decisions/D-042-otel-head-sampling.md) | ETL/dashboard use SDK head sampling (`parentbased_traceidratio`, default 0.1); the pinned elastic-agent collector lacks `tail_sampling`/`zpages` — don't re-add without switching images. |
 | [D-058](docs/decisions/D-058-wrenai-retirado.md) | WrenAI sale de producción y del compose (con qdrant, ibis-server, wren-engine y bootstrap). El conocimiento vive sólo en el bundle del dashboard. |
 | [D-061](docs/decisions/D-061-heap-del-dashboard-explicito.md) | El heap de Node del dashboard se fija con `NODE_OPTIONS=--max-old-space-size`, nunca se hereda del `mem_limit`: derivarlo dio 524 MB y 13 reinicios. |
+| [D-065](docs/decisions/D-065-docker-arranca-solo.md) | Docker arranca por LaunchDaemon (no por sesión de usuario) tras un reinicio; no levanta contenedores: `restart: unless-stopped` ya lo hace. |
 
 ## Data / ETL
 
