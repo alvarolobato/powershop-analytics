@@ -137,6 +137,39 @@ def _get_table_row_estimate(conn_pg, table_name: str) -> int | None:
         return None
 
 
+# Tablas con watermark a las que la pasada "completa" NO les aporta nada, asi
+# que usan su watermark tambien en la nocturna.
+#
+# El docstring de run_full_sync dice que un full hace "truncate-and-reinsert (so
+# hard-deletes in 4D are reflected)". Para estas cuatro es FALSO: ninguna tiene
+# TRUNCATE ni DELETE, asi que su "full" es literalmente un delta con
+# since=2014-01-01. Reupserta filas que el delta ya tiene frescas y no reconcilia
+# nada. Medido en el run 1594 (2026-09-03): 76,4 de los 207 minutos.
+#
+# Que no aportan nada esta verificado, no supuesto:
+#
+#   - Borrados: comparando PKs contra 4D el 2026-09-03, ventas y traspasos dieron
+#     CERO. lineas_ventas (34) y pagos_ventas (32) SI tienen, y por eso ahora los
+#     cubre la reconciliacion por particiones, que ademas si borra.
+#   - Filas con FechaModifica NULL, invisibles al delta: cero en las tres que la
+#     tienen. `ps_traspasos` ni siquiera tiene esa columna, y su sync documenta
+#     que es append-only por FechaS.
+#
+# `stock` NO esta en la lista, aunque son 81 minutos y tampoco trunca: su sync
+# hace `include_nulls = since is None`, o sea que la pasada completa es lo unico
+# que trae las filas con FechaModifica NULL. Hay 599 en el espejo. Quitarle el
+# barrido exige antes que el delta incluya esos nulos.
+#
+# El resto de tablas conservan el barrido porque SI truncan, y truncar es lo
+# unico que refleja borrados de verdad.
+#
+# Sigue habiendo dos caminos al barrido completo: una tabla sin watermark (carga
+# inicial) y "Forzar resync", que borra los watermarks antes de arrancar.
+SIN_BARRIDO_COMPLETO = frozenset(
+    {"ventas", "lineas_ventas", "pagos_ventas", "traspasos"}
+)
+
+
 def _run_sync(
     name: str,
     sync_fn,
@@ -226,8 +259,11 @@ def _run_sync(
     ) as span:
         try:
             if uses_watermark:
-                since = None if kind == "full" else get_watermark(conn_pg, name)
-                if since is not None and kind == "delta" and lookback_days > 0:
+                barre = kind == "full" and name not in SIN_BARRIDO_COMPLETO
+                # Un watermark ausente (carga inicial, o "Forzar resync" que los
+                # borra) devuelve None y cae igualmente en la carga completa.
+                since = None if barre else get_watermark(conn_pg, name)
+                if since is not None and lookback_days > 0:
                     since = since - timedelta(days=lookback_days)
                 wm_from = since
                 rows = sync_fn(conn_4d, conn_pg, since)

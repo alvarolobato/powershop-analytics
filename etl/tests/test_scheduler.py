@@ -675,3 +675,100 @@ def test_startup_sync_is_delta_not_full():
         f"El sync de arranque debe ser delta, no {kinds!r}. Un full al arrancar "
         f"cuesta ~3 h y se realimenta con los reinicios."
     )
+
+
+# ---------------------------------------------------------------------------
+# Test: el barrido since=2014 sólo donde aporta algo
+# ---------------------------------------------------------------------------
+
+
+class TestBarridoCompleto:
+    """Un «full» que no borra nada es un delta caro.
+
+    El docstring de `run_full_sync` dice que un full hace «truncate-and-reinsert
+    (so hard-deletes in 4D are reflected)». Para `ventas`, `lineas_ventas`,
+    `pagos_ventas` y `traspasos` es FALSO: ninguna tiene TRUNCATE ni DELETE, así
+    que su «full» es un delta con `since=2014-01-01`. Son 76,4 de los 207
+    minutos del run 1594 reupsertando filas que el delta ya tenía frescas.
+
+    Verificado antes de quitarlo, no supuesto: cero borrados en `ventas` y
+    `traspasos` comparando PKs contra 4D; los de `lineas_ventas` (34) y
+    `pagos_ventas` (32) los cubre ahora la reconciliación, que sí borra; y cero
+    filas con `FechaModifica` NULL en las tres que tienen esa columna.
+    """
+
+    def _since_de(self, name: str, kind: str, watermark):
+        from contextlib import ExitStack
+        from unittest.mock import MagicMock, patch
+
+        from etl.main import _run_sync
+
+        visto = []
+
+        def _fn(conn_4d, conn_pg, since):
+            visto.append(since)
+            return 0
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(f"{_WM_MODULE}.get_watermark", return_value=watermark)
+            )
+            stack.enter_context(patch(f"{_WM_MODULE}.set_watermark"))
+            stack.enter_context(patch(f"{_WM_MODULE}.record_table_sync"))
+            _run_sync(
+                name,
+                _fn,
+                MagicMock(),
+                MagicMock(),
+                uses_watermark=True,
+                kind=kind,
+                lookback_days=0,
+            )
+        return visto[0]
+
+    def test_las_cuatro_usan_su_watermark_en_la_nocturna(self):
+        from datetime import datetime, timezone
+
+        wm = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        for name in ("ventas", "lineas_ventas", "pagos_ventas", "traspasos"):
+            assert self._since_de(name, "full", wm) == wm, (
+                f"{name} no debe barrer desde 2014 en la nocturna: no borra nada"
+            )
+
+    def test_las_que_truncan_siguen_barriendo(self):
+        """Truncar es lo único que refleja borrados de verdad: no se toca."""
+        from datetime import datetime, timezone
+
+        wm = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        for name in ("articulos", "clientes", "gc_lin_albarane", "stock"):
+            assert self._since_de(name, "full", wm) is None, (
+                f"{name} debe seguir haciendo la pasada completa"
+            )
+
+    def test_stock_conserva_el_barrido_por_los_nulos(self):
+        """`sync_stock` hace `include_nulls = since is None`.
+
+        La pasada completa es lo ÚNICO que trae las filas con `FechaModifica`
+        NULL — hay 599 en el espejo. Quitárselo exige antes que el delta las
+        incluya, así que de momento se queda aunque sean 81 minutos.
+        """
+        from datetime import datetime, timezone
+
+        assert (
+            self._since_de("stock", "full", datetime(2026, 9, 1, tzinfo=timezone.utc))
+            is None
+        )
+
+    def test_sin_watermark_se_carga_todo_igual(self):
+        """Carga inicial y «Forzar resync» (que borra los watermarks)."""
+        for name in ("ventas", "lineas_ventas"):
+            assert self._since_de(name, "full", None) is None, (
+                f"{name} sin watermark debe cargar entero"
+            )
+
+    def test_el_delta_no_cambia(self):
+        from datetime import datetime, timezone
+
+        wm = datetime(2026, 9, 1, tzinfo=timezone.utc)
+        assert self._since_de("ventas", "delta", wm) == wm
+        assert self._since_de("articulos", "delta", wm) == wm
