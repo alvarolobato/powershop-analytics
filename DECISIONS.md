@@ -57,6 +57,7 @@
 | [D-063](docs/decisions/D-063-una-carga-corta-es-perdida-de-datos.md) | Un full refresh que encoge >10 % aborta sin tocar la tabla (`allow_shrink` para lo legítimo); un refetch más corto que el fetch lanza. |
 | [D-064](docs/decisions/D-064-temporadas-sin-formato-fijo.md) | `clave_temporada` es texto opaco sin formato fijo: búscala en `ps_temporadas` con LEFT JOIN, nunca la deduzcas del nombre. |
 | [D-065](docs/decisions/D-065-watermark-solo-avanza-con-exito.md) | El watermark sólo avanza en una pasada correcta: el camino de error escribe `status`/`error_msg` y nunca toca `last_sync_at`. |
+| [D-066](docs/decisions/D-066-las-tablas-upsert-no-tienen-full.md) | Las tablas upsert no tienen «full» programado: se reconcilian por particiones, que sí borra. `since=2014` sólo en carga inicial o «Forzar resync». |
 
 ## Dashboard App
 
