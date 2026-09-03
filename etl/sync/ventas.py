@@ -455,6 +455,27 @@ def trae_particion_lineas(conn_4d: Any, mes: int) -> list[dict]:
     return [_map_row(r, _LINEAS_MAPPING, _LINEAS_NUMERIC) for r in filas]
 
 
+def trae_particion_pagos(conn_4d: Any, mes: str) -> list[dict]:
+    """Trae UNA particion (un `Mes`) de PagosVentas, ya mapeada al espejo.
+
+    OJO con el tipo: `PagosVentas.Mes` es TEXTO (tipo 10, longitud 12 en
+    `_USER_COLUMNS`), no un entero como `LineasVentas.Mes` (tipo 4, longitud 4).
+    `WHERE Mes = 202608` falla con "Failed to execute statement"; hay que
+    comillarlo. Verificado el 2026-09-03: `Mes = '202608'` devuelve 16.810
+    filas, exactamente lo mismo que el rango de fechas equivalente, asi que la
+    columna concuerda con FechaCreacion y sirve de particion.
+
+    Aqui no se filtra material: `PagosVentas` no tiene `Codigo`, los pagos van a
+    nivel de ticket. Un ticket de solo material sigue teniendo su pago, y el
+    espejo lo conserva — es la linea lo que se excluye, no el cobro.
+    """
+    from etl.db.fourd import safe_fetch
+
+    sql = f"{_SQL_PAGOS_BASE} WHERE Mes = '{str(mes)[:12]}'"
+    filas = safe_fetch(conn_4d, sql, guard_pk="regpagos")
+    return [_map_row(r, _PAGOS_MAPPING, _PAGOS_NUMERIC) for r in filas]
+
+
 def sync_pagos_ventas(conn_4d: Any, conn_pg: Any, since: datetime | None = None) -> int:
     """Upsert-delta sync PagosVentas → ps_pagos_ventas.
 
