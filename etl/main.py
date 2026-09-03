@@ -1081,45 +1081,49 @@ def run_full_sync(
             from etl.db.postgres import record_reconcile
             from etl.sync.reconcile import (
                 SPEC_LINEAS_VENTAS,
+                SPEC_PAGOS_VENTAS,
                 meses_recientes,
                 reconciliar,
             )
 
             desde, siempre = meses_recientes(3)
-            rec_start = time.time()
-            try:
-                resumen = reconciliar(
-                    conn_4d,
-                    conn_pg,
-                    SPEC_LINEAS_VENTAS,
-                    desde=desde,
-                    siempre=siempre,
-                )
-                record_reconcile(
-                    conn_pg,
-                    run_id=run_id,
-                    resumen=resumen,
-                    desde=desde,
-                    duration_ms=int((time.time() - rec_start) * 1000),
-                )
-                logger.info(
-                    "reconcile: %d particiones revisadas, %d filas traidas, "
-                    "%d filas borradas",
-                    resumen["particiones_revisadas"],
-                    resumen["filas_traidas"],
-                    resumen["filas_borradas"],
-                )
-            except Exception as exc:
-                logger.exception("reconcile failed; continuing")
-                record_reconcile(
-                    conn_pg,
-                    run_id=run_id,
-                    resumen={"tabla": SPEC_LINEAS_VENTAS.nombre},
-                    desde=desde,
-                    duration_ms=int((time.time() - rec_start) * 1000),
-                    status="error",
-                    error_msg=str(exc)[:2000],
-                )
+            # Solo estas dos. Comparando PKs contra 4D el 2026-09-03, `ventas`,
+            # `traspasos` y `stock` dieron CERO borrados —todas las candidatas
+            # resultaron existir en origen—, asi que reconciliarlas seria pagar
+            # un censo cada noche para no encontrar nada.
+            for spec in (SPEC_LINEAS_VENTAS, SPEC_PAGOS_VENTAS):
+                rec_start = time.time()
+                try:
+                    resumen = reconciliar(
+                        conn_4d, conn_pg, spec, desde=desde, siempre=siempre
+                    )
+                    record_reconcile(
+                        conn_pg,
+                        run_id=run_id,
+                        resumen=resumen,
+                        desde=desde,
+                        duration_ms=int((time.time() - rec_start) * 1000),
+                    )
+                    logger.info(
+                        "reconcile[%s]: %d particiones revisadas, %d traidas, "
+                        "%d borradas",
+                        spec.nombre,
+                        resumen["particiones_revisadas"],
+                        resumen["filas_traidas"],
+                        resumen["filas_borradas"],
+                    )
+                except Exception as exc:
+                    # Una tabla que falla no debe impedir reconciliar la otra.
+                    logger.exception("reconcile[%s] failed; continuing", spec.nombre)
+                    record_reconcile(
+                        conn_pg,
+                        run_id=run_id,
+                        resumen={"tabla": spec.nombre},
+                        desde=desde,
+                        duration_ms=int((time.time() - rec_start) * 1000),
+                        status="error",
+                        error_msg=str(exc)[:2000],
+                    )
 
         total_ms = int((time.time() - pipeline_start) * 1000)
         logger.info(

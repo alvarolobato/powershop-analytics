@@ -279,13 +279,18 @@ class TestEngancheEnElPipeline:
             main.run_full_sync(conn_4d, conn_pg, kind=kind)
         return mock_rec, mock_log
 
-    def test_corre_en_la_nocturna(self):
+    def test_corre_en_la_nocturna_para_las_dos_tablas(self):
         mock_rec, mock_log = self._correr("full")
-        mock_rec.assert_called_once()
-        assert mock_rec.call_args.kwargs["desde"] is not None, (
-            "la nocturna debe ir ACOTADA: sin acotar son 67 s sobre el ERP en vivo"
+        assert mock_rec.call_count == 2, (
+            f"se reconcilian lineas_ventas y pagos_ventas; llamadas: {mock_rec.call_count}"
         )
-        mock_log.assert_called_once()
+        nombres = {c.args[2].nombre for c in mock_rec.call_args_list}
+        assert nombres == {"lineas_ventas", "pagos_ventas"}, nombres
+        for c in mock_rec.call_args_list:
+            assert c.kwargs["desde"] is not None, (
+                "la nocturna debe ir ACOTADA: sin acotar son 67 s sobre el ERP en vivo"
+            )
+        assert mock_log.call_count == 2
 
     def test_no_corre_en_cada_delta(self):
         """Un delta es de segundos; meterle un censo lo convierte en otra cosa."""
@@ -313,10 +318,13 @@ class TestEngancheEnElPipeline:
 
             main.run_full_sync(conn_4d, conn_pg, kind="full")  # no debe lanzar
 
-        mock_log.assert_called_once()
-        assert mock_log.call_args.kwargs["status"] == "error", (
-            "un fallo debe quedar registrado, no desaparecer"
-        )
+        # Las dos tablas fallan (el mock revienta siempre), y las dos quedan
+        # registradas: que una falle no puede impedir reconciliar la otra.
+        assert mock_log.call_count == 2
+        for c in mock_log.call_args_list:
+            assert c.kwargs["status"] == "error", (
+                "un fallo debe quedar registrado, no desaparecer"
+            )
 
 
 class TestUnaLecturaTruncadaNoBorraNada:
@@ -375,4 +383,96 @@ class TestUnaLecturaTruncadaNoBorraNada:
             trae_particion_lineas(MagicMock(), 202608)
         assert mock_fetch.call_args.kwargs.get("guard_pk") == "reglineas", (
             "sin guard_pk no se aplica el guardián de filas corruptas de D-051"
+        )
+
+
+class TestParticionDeTexto:
+    """`Mes` está tipado distinto según la tabla, y 4D no convierte solo.
+
+    Verificado en `_USER_COLUMNS` el 2026-09-03:
+
+        LineasVentas.Mes   tipo 4,  long 4   -> entero
+        PagosVentas.Mes    tipo 10, long 12  -> TEXTO
+        Ventas             no tiene Mes
+
+    `WHERE Mes = 202608` contra PagosVentas falla con «Failed to execute
+    statement»; con `'202608'` devuelve 16.810 filas, exactamente lo mismo que
+    el rango de fechas equivalente. Sin esto el censo de pagos ni se ejecuta.
+    """
+
+    def test_el_censo_comilla_la_cota_si_la_particion_es_texto(self):
+        from etl.sync.reconcile import censo_4d
+
+        spec = ParticionSpec(
+            nombre="pagos_ventas",
+            tabla_4d="PagosVentas",
+            particion_4d="Mes",
+            tabla_pg="ps_pagos_ventas",
+            particion_pg="TO_CHAR(fecha_creacion, 'YYYYMM')",
+            pk_pg="reg_pagos",
+            pk_4d="RegPagos",
+            trae_particion=lambda c, p: [],
+            particion_es_texto=True,
+        )
+        with patch("etl.db.fourd.safe_fetch", return_value=[]) as mock_fetch:
+            censo_4d(MagicMock(), spec, desde=202607)
+        sql = " ".join(mock_fetch.call_args[0][1].split())
+        assert "Mes >= '202607'" in sql, (
+            f"la cota debe ir comillada o 4D rechaza la sentencia: {sql!r}"
+        )
+
+    def test_la_particion_entera_no_se_comilla(self):
+        from etl.sync.reconcile import censo_4d
+
+        with patch("etl.db.fourd.safe_fetch", return_value=[]) as mock_fetch:
+            censo_4d(MagicMock(), _spec(), desde=202607)
+        sql = " ".join(mock_fetch.call_args[0][1].split())
+        assert "Mes >= 202607" in sql and "'202607'" not in sql, (
+            f"LineasVentas.Mes es entero: {sql!r}"
+        )
+
+    def test_reconciliar_normaliza_el_tipo(self):
+        """Quien llama pasa enteros; la conversión es cosa del módulo."""
+        from etl.sync.reconcile import SPEC_PAGOS_VENTAS, reconciliar
+
+        vistos = {}
+
+        def _censo_4d(conn, spec, desde=None):
+            vistos["desde"] = desde
+            return {}
+
+        conn_pg, _ = _conn_pg()
+        with (
+            patch("etl.sync.reconcile.censo_4d", _censo_4d),
+            patch("etl.sync.reconcile.censo_pg", return_value={}),
+        ):
+            reconciliar(
+                MagicMock(),
+                conn_pg,
+                SPEC_PAGOS_VENTAS,
+                desde=202607,
+                siempre={202608},
+            )
+        assert vistos["desde"] == "202607", (
+            f"para una particion de texto debe convertirse a str, fue {vistos['desde']!r}"
+        )
+
+
+class TestQueTablasSeReconcilian:
+    def test_solo_las_que_tienen_borrados_demostrados(self):
+        """`ventas`, `traspasos` y `stock` dieron CERO borrados al comparar PKs.
+
+        Reconciliarlas sería pagar un censo cada noche para no encontrar nunca
+        nada. Este test existe para que añadir una spec exija justificarla.
+        """
+        import etl.sync.reconcile as rec
+
+        specs = {
+            n
+            for n in dir(rec)
+            if n.startswith("SPEC_") and isinstance(getattr(rec, n), ParticionSpec)
+        }
+        assert specs == {"SPEC_LINEAS_VENTAS", "SPEC_PAGOS_VENTAS"}, (
+            f"specs definidas: {specs}. Sólo lineas_ventas (34 borrados en 3 meses) "
+            "y pagos_ventas (32 en un mes) tienen borrados verificados contra 4D."
         )

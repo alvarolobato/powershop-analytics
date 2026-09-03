@@ -61,6 +61,19 @@ class ParticionSpec:
         pk_4d:           La misma clave en origen.
         trae_particion:  Devuelve las filas de UNA partición, ya mapeadas para
                          el upsert. Se le pasa (conn_4d, valor_de_particion).
+        particion_es_texto: La misma idea de "mes" esta tipada distinto segun la
+                         tabla, y 4D no convierte solo. Verificado en
+                         `_USER_COLUMNS` el 2026-09-03:
+
+                             LineasVentas.Mes   tipo 4,  long 4   -> entero
+                             PagosVentas.Mes    tipo 10, long 12  -> TEXTO
+                             Ventas             no tiene Mes
+
+                         `WHERE Mes = 202608` contra PagosVentas falla con
+                         "Failed to execute statement"; con `'202608'` devuelve
+                         16.810 filas, que es exactamente lo que da el rango de
+                         fechas equivalente. Sin esta bandera el censo de pagos
+                         no se ejecutaria siquiera.
         filtro_4d:       Predicado extra en el censo de origen, para que cuente
                          LO MISMO que el espejo.
 
@@ -87,6 +100,7 @@ class ParticionSpec:
     pk_4d: str
     trae_particion: Callable[[Any, Any], list[dict]]
     filtro_4d: str | None = None
+    particion_es_texto: bool = False
 
 
 def censo_4d(conn_4d: Any, spec: ParticionSpec, desde: int | None = None) -> dict:
@@ -99,7 +113,8 @@ def censo_4d(conn_4d: Any, spec: ParticionSpec, desde: int | None = None) -> dic
 
     condiciones = []
     if desde is not None:
-        condiciones.append(f"{spec.particion_4d} >= {int(desde)}")
+        cota = f"'{desde}'" if spec.particion_es_texto else str(int(desde))
+        condiciones.append(f"{spec.particion_4d} >= {cota}")
     if spec.filtro_4d:
         condiciones.append(spec.filtro_4d)
     where = f" WHERE {' AND '.join(condiciones)}" if condiciones else ""
@@ -198,6 +213,14 @@ def reconciliar(
     siempre: set | None = None,
 ) -> dict:
     """Reconcilia una tabla y devuelve el resumen para `etl_reconcile_log`."""
+    # `meses_recientes` habla en enteros; una particion de texto necesita el
+    # mismo AAAAMM comillado. Se normaliza aqui para que quien llama no tenga
+    # que saber de que tipo es la columna en 4D — que ademas cambia por tabla
+    # (LineasVentas.Mes entero, PagosVentas.Mes texto).
+    if spec.particion_es_texto:
+        desde = None if desde is None else str(desde)
+        siempre = None if siempre is None else {str(x) for x in siempre}
+
     origen = censo_4d(conn_4d, spec, desde)
     espejo = censo_pg(conn_pg, spec, desde)
     pendientes = particiones_divergentes(origen, espejo, siempre=siempre)
@@ -280,3 +303,40 @@ def meses_recientes(n: int = 3, hoy=None) -> tuple[int, set[int]]:
         if m == 0:
             y, m = y - 1, 12
     return min(meses), set(meses)
+
+
+def _trae_pagos(conn_4d: Any, mes) -> list[dict]:
+    """Indireccion perezosa, igual que _trae_lineas."""
+    from etl.sync.ventas import trae_particion_pagos
+
+    return trae_particion_pagos(conn_4d, mes)
+
+
+# Pagos: la unica tabla ADEMAS de lineas_ventas donde se han verificado
+# borrados reales en 4D. El 2026-09-03, comparando PKs de agosto: 32 filas que
+# el espejo tenia y 4D no, confirmadas una a una por valor numerico
+# (`RegPagos IN (...)` -> 0 filas). Nada las limpiaba: ni el delta, que solo
+# hace upsert, ni el "full" nocturno, que tampoco borra.
+#
+# `ventas`, `traspasos` y `stock` NO llevan spec a proposito: el mismo test dio
+# cero borrados en las tres (todas las candidatas resultaron existir en 4D, y
+# las diferencias eran artefactos de comparar PKs como texto —el espejo escribe
+# 10087687.990 donde 4D escribe 10087687.99—). Reconciliarlas seria pagar un
+# censo cada noche para no encontrar nunca nada.
+#
+# Sin `filtro_4d`: PagosVentas no tiene `Codigo`, el pago es del ticket. Un
+# ticket de solo material conserva su cobro; lo que se excluye es la linea.
+SPEC_PAGOS_VENTAS = ParticionSpec(
+    nombre="pagos_ventas",
+    tabla_4d="PagosVentas",
+    particion_4d="Mes",
+    tabla_pg="ps_pagos_ventas",
+    # El espejo no replica `Mes`, asi que se deriva de la fecha. Da el mismo
+    # AAAAMM: verificado que `Mes = '202608'` y el rango de fechas de agosto
+    # devuelven las dos 16.810 filas.
+    particion_pg="TO_CHAR(fecha_creacion, 'YYYYMM')",
+    pk_pg="reg_pagos",
+    pk_4d="RegPagos",
+    trae_particion=_trae_pagos,
+    particion_es_texto=True,
+)
