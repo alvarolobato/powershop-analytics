@@ -23,11 +23,11 @@ El vigía solo toca descriptores registrados dentro de un bloque vigilado, y reg
 - *Timeout global por consulta*: no hay umbral bueno, porque hay lecturas legítimas de 20 minutos (`GCLinF`). Y un hilo Python no puede interrumpir una llamada C: habría que matar el proceso.
 - *`SO_RCVTIMEO` / keepalive*: no cubren el fin de fichero, que es justo este caso.
 
-**Limits** (from the review of PR #982, reproduced in C):
-- The reconnect-and-retry isn't guaranteed. If 4D's close lands in the middle of a text field's 4-byte length, after the cut p4d does `calloc` with a negative length, gets NULL and writes to it: segfault. The container restarts (`unless-stopped`), so nothing freezes, but that table doesn't get its retry. That's why the vigia writes and flushes its log BEFORE the cut: the crash leaves a trace.
-- After the cut the driver itself can close the descriptor number without forgetting it. `vigilar` sets `connptr.socket = -1` so that a later `conn.close()` never writes to a recycled descriptor.
-- A peer that disappears without a FIN still blocks in `recv` forever. This doesn't cover that; it isn't what happened.
+**Límites** (de la revisión del PR #982, reproducidos en C):
+- El reconectar y reintentar no está garantizado. Si el cierre de 4D cae a mitad de los 4 bytes de longitud de un campo de texto, tras el corte p4d hace `calloc` con una longitud negativa, recibe NULL y escribe en él: segfault. El contenedor se reinicia (`unless-stopped`), así que nada se congela, pero esa tabla se queda sin su reintento. Por eso el vigía escribe y vacía su log ANTES del corte: la caída deja rastro.
+- Tras el corte el propio driver puede cerrar el número de descriptor sin olvidarlo. `vigilar` pone `connptr.socket = -1` para que un `conn.close()` posterior nunca escriba en un descriptor reciclado.
+- Un extremo que desaparece sin FIN sigue bloqueando `recv` para siempre. Esto no lo cubre; no es lo que pasó.
 
-**Rationale**: Detectar el fin de fichero no da falsos positivos: con el otro extremo cerrado y nada en el buffer, esa lectura ya no puede terminar. Cutting with `dup2` rather than `close` keeps the descriptor number from being recycled while the driver is still using it.
+**Rationale**: Detectar el fin de fichero no da falsos positivos: con el otro extremo cerrado y nada en el buffer, esa lectura ya no puede terminar. Cortar con `dup2` en vez de `close` evita que el número del descriptor se recicle mientras el driver aún lo usa.
 
 **See**: `etl/db/vigia.py`, `etl/db/fourd.py`, `etl/tests/test_vigia_socket_cerrado.py`, `docs/skills/data-access.md` (gotcha de p4d), [D-051](D-051-fetch-anomaly-guard.md).
