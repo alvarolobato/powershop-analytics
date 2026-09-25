@@ -115,12 +115,40 @@ def _romper(v: _Vigilada) -> None:
         os.close(nulo)
 
 
+def _vaciar_logs() -> None:
+    for h in logging.getLogger().handlers:
+        try:
+            h.flush()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _olvidar_socket(conn) -> None:
+    """Deja la conexion sin descriptor tras un corte.
+
+    Tras el corte el propio driver puede cerrar el numero de descriptor (su
+    siguiente `send` falla y `socket_disconnect` hace `closesocket`) sin
+    olvidarlo. Si otro hilo reutiliza ese numero, el `LOGOUT` de un
+    `conn.close()` posterior iria a parar a un socket ajeno. Con -1 cualquier
+    operacion posterior falla con EBADF y no toca nada. Si el driver no lo
+    habia cerrado, se pierde un descriptor a /dev/null: irrelevante.
+    """
+    try:
+        conn.connptr.socket = -1
+    except Exception:  # noqa: BLE001 - mejor esfuerzo
+        pass
+
+
 def _revisar() -> None:
     with _cerrojo:
         for v in _activas.values():
             if v.rota or not _cerrado_por_el_otro_lado(v.fd):
                 continue
-            _romper(v)
+            # El log va ANTES del corte y se vacia: tras el `dup2` el driver
+            # puede reventar (segfault) en microsegundos -- p.ej. si el cierre
+            # cayo a mitad del campo de longitud de un texto, `calloc` de una
+            # longitud negativa da NULL y lo escribe --, y sin esto la caida
+            # volveria a no dejar ni una linea.
             logger.error(
                 "vigia: 4D cerro la conexion a mitad de una lectura (%.0f s "
                 "dentro); se corta el socket para que el driver no gire para "
@@ -128,6 +156,8 @@ def _revisar() -> None:
                 time.monotonic() - v.desde,
                 v.sql[:200],
             )
+            _vaciar_logs()
+            _romper(v)
 
 
 def _bucle() -> None:
@@ -168,6 +198,7 @@ def vigilar(conn, sql: str) -> Iterator[None]:
         yield
     except Exception as exc:
         if v.rota:
+            _olvidar_socket(conn)
             raise ConexionCerradaPor4D(
                 f"4D cerro la conexion a mitad de la lectura. SQL: {sql[:200]}"
             ) from exc
@@ -176,6 +207,7 @@ def vigilar(conn, sql: str) -> Iterator[None]:
         with _cerrojo:
             _activas.pop(clave, None)
     if v.rota:
+        _olvidar_socket(conn)
         # El driver puede volver "bien" con un resultado corto: tras el corte
         # no hay forma de saber si lo leido esta completo.
         raise ConexionCerradaPor4D(

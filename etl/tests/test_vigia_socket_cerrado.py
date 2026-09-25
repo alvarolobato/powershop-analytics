@@ -100,3 +100,15 @@ def test_fuera_del_bloque_el_vigia_no_toca_el_descriptor():
 def test_conexion_sin_socket_pasa_sin_vigilancia():
     with vigilar(object(), "SELECT 1"):
         pass
+
+
+def test_tras_el_corte_la_conexion_olvida_su_descriptor():
+    """Un close() posterior no puede escribir en un descriptor reciclado."""
+    cliente, remoto = _par_tcp()
+    remoto.close()
+    conn = _conn_con_socket(cliente)
+    with pytest.raises(ConexionCerradaPor4D):
+        with vigilar(conn, "SELECT 1"):
+            _como_frecv(cliente, 4)
+    assert conn.connptr.socket == -1
+    cliente.close()
