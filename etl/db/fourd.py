@@ -24,6 +24,9 @@ Gotchas handled here:
   discriminate a transient glitch from real source data before returning.
   See ``scan_rows_for_anomalies()``, ``drain_anomaly_log()``, and
   ``docs/decisions/D-051-fetch-anomaly-guard.md``.
+- **Socket cerrado por 4D a mitad de lectura**: p4d gira para siempre al 100 %
+  de CPU. Toda llamada bloqueante al driver va dentro de ``vigilar()``
+  (``etl/db/vigia.py``), que corta el socket y lanza ``ConexionCerradaPor4D``.
 """
 
 from __future__ import annotations
@@ -36,6 +39,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
+
+from etl.db.vigia import vigilar
 
 if TYPE_CHECKING:
     from etl.config import Config
@@ -391,7 +396,8 @@ def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
     cursor = conn.cursor()
     try:
         _fijar_pagina(cursor)
-        cursor.execute(sql)
+        with vigilar(conn, sql):
+            cursor.execute(sql)
         if cursor.description is None:
             raise RuntimeError(
                 f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
@@ -408,7 +414,8 @@ def _fetch_raw(conn, sql: str) -> tuple[list[str], list[tuple]]:
         # corre; esto solo evita que un cursor atipico rompa la carga.
         declaradas = getattr(cursor, "rowcount", None)
 
-        rows = cursor.fetchall()
+        with vigilar(conn, sql):
+            rows = cursor.fetchall()
     finally:
         cursor.close()
 
@@ -582,7 +589,8 @@ def safe_fetch_streaming(
     cursor = conn.cursor()
     try:
         _fijar_pagina(cursor)
-        cursor.execute(sql)
+        with vigilar(conn, sql):
+            cursor.execute(sql)
         if cursor.description is None:
             raise RuntimeError(
                 f"Query returned no column metadata (non-SELECT or p4d quirk): {sql[:200]}"
@@ -613,11 +621,15 @@ def safe_fetch_streaming(
                 # `fetchmany` revienta SIEMPRE en el ultimo trozo. Comprobado
                 # contra el driver instalado en produccion.
                 trozo = []
-                for _ in range(chunk_size):
-                    fila = cursor.fetchone()
-                    if fila is None:
-                        break
-                    trozo.append(fila)
+                # Vigilado por trozo, no por toda la iteracion: entre trozos el
+                # generador cede el control y el vigia no debe quedar apuntando
+                # a un descriptor que el llamador podria cerrar.
+                with vigilar(conn, sql):
+                    for _ in range(chunk_size):
+                        fila = cursor.fetchone()
+                        if fila is None:
+                            break
+                        trozo.append(fila)
                 if not trozo:
                     break
                 anomalias = scan_rows_for_anomalies(columns, trozo, guard_pk)
@@ -811,7 +823,8 @@ def get_queryable_columns(conn, table_name: str) -> list[str]:
     )
     cursor = conn.cursor()
     try:
-        cursor.execute(sql)
-        return [row[0] for row in cursor.fetchall()]
+        with vigilar(conn, sql):
+            cursor.execute(sql)
+            return [row[0] for row in cursor.fetchall()]
     finally:
         cursor.close()

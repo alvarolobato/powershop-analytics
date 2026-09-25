@@ -74,6 +74,7 @@ conn = p4d.connect(
         row.append(float(output))
     ```
     An empty `Real` field appends `None` **and then unconditionally falls through** to `float(output)` — `float(b'')` raises `ValueError`, crashing `fetchone()` mid-row instead of returning a clean `None`. Plausibly responsible for some of the 25 "other" ETL failures referenced in D-050's incident review. See `docs/decisions/D-051-fetch-anomaly-guard.md`.
+- **p4d spins forever at 100 % CPU if 4D closes the socket mid-read (D-067)**: `frecv()` (`lib4d_sql/communication.c:42`) loops on `recv()` until it has `len` bytes and only exits on `< 0`; EOF returns `0`, so it never ends. No exception, no log, and `SO_RCVTIMEO` doesn't help. Signature: ETL process at 100 % CPU, no log lines, the 4D socket in `CLOSE_WAIT` (`cat /proc/net/tcp` inside the container, state `08` on remote port `4D64`), Postgres idle. Happened on 2026-09-24 and froze the mirror for 28 h. Every blocking p4d call must go inside `vigilar()` (`etl/db/vigia.py`), which detects the EOF and cuts the socket so the retry in `main.py` takes over.
 
 ### CLI usage
 
