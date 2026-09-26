@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.powershop.docker-autostart</string>
+
+  <!-- DAEMON, no agent. Un LaunchAgent corre por sesión de usuario, así que no
+       serviría: el caso que hay que cubrir es precisamente que NADIE inicie
+       sesión tras un reinicio. Un daemon lo carga launchd al arrancar la
+       máquina, antes y con independencia de cualquier login. -->
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__SCRIPT__</string>
+  </array>
+
+  <!-- El motor de Docker corre como el usuario dueño de ~/.docker, no como
+       root: su socket vive en el home de ese usuario. -->
+  <key>UserName</key>
+  <string>__USER__</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Reintento periódico. Si el disco o la red no están listos en el primer
+       intento tras el arranque, el siguiente lo recoge; y si alguien para
+       Docker a mano, en 5 minutos vuelve. El script sale sin hacer nada cuando
+       el motor ya responde, así que repetirlo es barato. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/powershop-docker-autostart.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/powershop-docker-autostart.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+  </dict>
+</dict>
+</plist>
