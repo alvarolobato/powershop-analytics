@@ -63,8 +63,8 @@ Ninguna.
 - [x] `shellcheck scripts/sync-fotos.sh`
 - [x] `npm run build:knowledge` + `git diff --exit-code lib/knowledge.ts`
 - [x] Verificación manual con fotos reales (ver abajo)
-- [ ] PR abierto contra `main`
-- [ ] Lazo detenido
+- [x] PR abierto contra `main`: #984
+- [x] Lazo detenido (CronDelete cbca1d81)
 
 ## Verificación manual — qué comprobé y qué vi
 
@@ -153,3 +153,4 @@ indicadores, 0 miniaturas, 0 peticiones de imagen, 0 errores**; `/api/health` si
   borrados, servidor dev parado, contenedores postgres/otel parados (no estaban levantados
   antes), Postgres de e2e eliminado. `FOTOS_SMB_URL` añadido al .env centralizado (copia previa
   en `.env.pre-fotos`). OJO: `/tmp/psfotos` quedó como montaje zombi tras el unmount forzado.
+- 2026-10-09 — PR #984 abierto. Criterio de terminado cumplido. Lazo detenido.
