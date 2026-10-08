@@ -62,14 +62,57 @@ Ninguna.
 - [x] `npx playwright test` — 48 pasan con e2e-stub + 5 de llm-integration con mock (como CI). Falla 1 AJENO: `conversation-ui.spec.ts` llama a `/api/dashboard` (no existe; es `/api/dashboards`) y nunca estuvo en CI
 - [x] `shellcheck scripts/sync-fotos.sh`
 - [x] `npm run build:knowledge` + `git diff --exit-code lib/knowledge.ts`
-- [ ] Verificación manual con fotos reales (132374 → 1; 144750 → 3; 169 → sin foto, sin
-      indicador y sin petición de imagen; desmontar el share con la app levantada)
+- [x] Verificación manual con fotos reales (ver abajo)
 - [ ] PR abierto contra `main`
 - [ ] Lazo detenido
 
 ## Verificación manual — qué comprobé y qué vi
 
-(pendiente)
+Hecha el 2026-10-08/09 con el share real montado en solo lectura (`mount_smbfs -o ro,nobrowse`,
+acceso de invitado) en `/tmp/psfotos`, `FOTOS_DIR=/tmp/psfotos/PS_Ficheros/Imagenes`.
+
+**Cómo corrió la app.** El dashboard corrió con `npm run dev` EN EL HOST contra el PostgreSQL del
+compose, no en contenedor: `docker compose up dashboard` con `FOTOS_HOST_DIR` apuntando al
+montaje SMB se queda colgado (contenedor en `Created` más de 10 min; Docker Desktop no puede
+hacer bind mount de una ruta que vive sobre smbfs). La opción 2 de la §8 del plan, tal como
+está escrita, no funciona en esta máquina. El `sharp` de la imagen real sí se probó, pero con
+fotos sintéticas (ver fase 2).
+
+**Datos.** El PostgreSQL de dev tiene `ps_articulos` VACÍO (0 filas; solo esquema). Inserté tres
+filas temporales con el código, referencia y descripción reales leídos de 4D con `ps sql query`
+(169 / 132374 / 144750) y las borré al terminar, junto con los paneles de prueba.
+
+| Caso | Qué vi |
+|---|---|
+| En el share, por ruta directa | `1/132374.jpg` 150 KB; `144750` en 1, 2 y 3 (520/507/590 KB), no en 4; `169` en ninguno de los 4 |
+| `POST /api/articulos/fotos` | `132374 → [1]`, `144750 → [1,2,3]`, `169 → []`; por referencia, lo mismo (0,86 s en frío) |
+| `GET /api/fotos/132374/1` | 200 `image/jpeg`, 150.212 bytes |
+| `?w=256` / `?w=1024` | 200 `image/webp`, 7,7 KB / 78,6 KB. Primera vez 2,5 s (lee del share); segunda 7 ms (caché) |
+| `144750/4`, `169/1` | 404 |
+| **132374** en la tabla | Indicador en código, referencia y descripción. Hover → foto, sin contador (1 foto) |
+| **144750** | Hover sobre la DESCRIPCIÓN → foto con `1/3`. Click → lightbox; flechas `1/3 → 2/3 → 3/3 → 1/3`, cada una con su slot real (800×1037 px); pie `I26530116 · CAMISA M/LARGA CUADRADOS`; Escape cierra |
+| **169** | **Sin indicador** en ninguna de las tres tablas. Hover: ningún tooltip y **0 peticiones** a `/api/fotos/169/…` en toda la sesión |
+| Tabla solo con Referencia | Indicador en 2 de 3 filas; el click abre `/api/fotos/144750/1` (traducción ref → código correcta) |
+| `mostrar_fotos: true` | Columna «Foto» con 2 miniaturas (`?w=160`) y la celda del 169 vacía. Son las ÚNICAS peticiones de imagen al cargar la página |
+| Móvil (iPhone 13) | El toque abre el lightbox directamente; no aparece tooltip |
+| Errores | 0 superficies de error, 0 errores de consola, 0 líneas de error en el log del servidor |
+
+**Desmontar el share con la app levantada.** `umount` normal dio «Resource busy»; lo forcé con
+`diskutil unmount force`, que lo dejó a medias (sigue en `mount` pero ya no deja leer: peor que
+un desmontaje limpio, y más parecido a una VPN caída). Con la app sin reiniciar:
+lote → 200 con todos los slots vacíos en 26 ms (no se cuelga); bytes → 404, también los que
+estaban en la caché de miniaturas; la página carga las tres tablas con sus 9 filas, **0
+indicadores, 0 miniaturas, 0 peticiones de imagen, 0 errores**; `/api/health` sigue `ok`.
+
+**Lo que NO se probó**
+- `scripts/sync-fotos.sh` contra el share real (EC-1, la copia de 3,5 GB / ~4,6 h) ni con un host
+  inexistente (EC-2). Sí con un origen local simulado: 13 tests pytest.
+- `scripts/check-fotos-paths.py` contra el 4D real (EC-4) y su ejecución dentro del contenedor `etl`.
+- El job launchd y su instalador (solo `plutil -lint` y shellcheck): son de producción.
+- El contenedor del dashboard leyendo el espejo real. En prod el espejo es disco local, no SMB,
+  así que el cuelgue de Docker Desktop no aplica, pero no está visto.
+- La imagen completa en amd64 (solo `npm i sharp` suelto en `node:20-alpine` amd64).
+- Que el LLM real rellene `articulo_codigo_col` al generar un panel (los e2e van con stub).
 
 ## Bitácora
 
@@ -106,3 +149,7 @@ Ninguna.
   producción (comprobado con `grep -c`, sin leer valores). No voy a adivinar host/share.
 - 2026-10-08 — **Fase 3 commiteada.** Suite Playwright completa pasada. Siguiente: verificación
   manual con fotos reales (montar el share ro en /tmp/psfotos, levantar el stack) y abrir el PR.
+- 2026-10-09 — Verificación manual hecha y anotada. Limpieza: filas y paneles de prueba
+  borrados, servidor dev parado, contenedores postgres/otel parados (no estaban levantados
+  antes), Postgres de e2e eliminado. `FOTOS_SMB_URL` añadido al .env centralizado (copia previa
+  en `.env.pre-fotos`). OJO: `/tmp/psfotos` quedó como montaje zombi tras el unmount forzado.

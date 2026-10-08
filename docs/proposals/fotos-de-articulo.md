@@ -453,6 +453,8 @@ En esta fase **solo** se engancha `TableWidget`: es donde viven los códigos y r
    mount_smbfs -o ro,nobrowse "$FOTOS_SMB_URL" /tmp/psfotos
    # FOTOS_HOST_DIR=/tmp/psfotos/PS_Ficheros/Imagenes
    ```
+   > **Comprobado al implementar (2026-10-09)**: esto vale para una app que corre **en el host** (`npm run dev` con `FOTOS_DIR` apuntando al montaje). Con el dashboard **en contenedor** no: Docker Desktop se queda colgado al hacer bind mount de una ruta que vive sobre smbfs (contenedor en `Created` más de 10 minutos). En producción no aplica, porque el espejo es disco local.
+
    Funciona (verificado como invitado), pero con las latencias de §3.4: el primer hover de cada foto puede tardar segundos. Sirve para validar visualmente, no para medir rendimiento.
 3. **Espejo parcial en dev**: copiar a mano unos cientos de fotos si hace falta trabajar con volumen realista.
 
