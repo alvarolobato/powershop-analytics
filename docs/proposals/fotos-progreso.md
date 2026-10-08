@@ -33,13 +33,13 @@ Ninguna.
 ## Fase 2 — API (un commit)
 
 - [x] **ANTES DE NADA**: `sharp` funciona en `node:20-alpine` (musl): 0.35.5 OK en arm64 y amd64 (`npm i sharp` + JPEG→WebP en contenedor). Falta comprobarlo en la imagen real (standalone de Next)
-- [ ] `dashboard/package.json` + lock (`sharp`)
-- [ ] `dashboard/lib/fotos.ts`
-- [ ] `POST /api/articulos/fotos`
-- [ ] `GET /api/fotos/[codigo]/[slot]`
-- [ ] Tests vitest (rutaFoto, path traversal, lote, bytes, FOTOS_DIR ausente)
-- [ ] `scripts/seed-fotos-dev.sh`
-- [ ] Commit de la fase 2
+- [x] `dashboard/package.json` + lock (`sharp`)
+- [x] `dashboard/lib/fotos.ts`
+- [x] `POST /api/articulos/fotos`
+- [x] `GET /api/fotos/[codigo]/[slot]`
+- [x] Tests vitest (rutaFoto, path traversal, lote, bytes, FOTOS_DIR ausente)
+- [x] `scripts/seed-fotos-dev.sh`
+- [x] Commit de la fase 2
 
 ## Fase 3 — UI (un commit)
 
@@ -83,3 +83,10 @@ Ninguna.
   (el del plan podía borrar 1..3 antes de descubrir que 4 falla) y usa `find -quit` en vez de
   `ls | grep` (shellcheck SC2010); (e) `FOTOS_SRC_DIR` salta el montaje → 13 tests pytest sin VPN.
   `scripts/tests/test_wren_push_metadata.py` tiene 10 fallos PREVIOS, ajenos a esto.
+- 2026-10-08 — **Fase 2 hecha.** `sharp` 0.35.5 comprobado en la IMAGEN REAL del dashboard
+  (`docker build ./dashboard`, standalone de Next, Alpine musl arm64, uid 1001): original 200
+  image/jpeg, `?w=256` 200 image/webp, `?w=999` 400, `..%2f..%2fetc%2fpasswd` 400, slot 9 400,
+  inexistente 404, y la caché se escribe en el bind mount. amd64 solo probado con `npm i sharp`
+  suelto en `node:20-alpine`, no con la imagen entera. 101 tests vitest nuevos; suite completa
+  3122 en verde. Desviación: las funciones de `lib/fotos.ts` son ASYNC (el plan las firmaba
+  síncronas): con `statSync` un lote sobre el share SMB de dev bloquearía el event loop segundos.

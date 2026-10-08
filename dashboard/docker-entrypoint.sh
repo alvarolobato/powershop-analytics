@@ -48,4 +48,21 @@ else
   echo "[context-store] Fix on host: mkdir -p ./data/dashboard/conversations && chown -R 1001:1001 ./data/dashboard/conversations"
 fi
 
+# Fotos de articulo (D-068). El espejo es de solo lectura y puede no existir
+# (solo produccion lo tiene); la cache de miniaturas es lo unico escribible.
+# Best-effort: sin espejo no hay fotos, y sin cache se generan en cada peticion.
+if [ -n "$FOTOS_DIR" ]; then
+  if [ -d "$FOTOS_DIR/1" ]; then
+    echo "[fotos] espejo montado en $FOTOS_DIR"
+  else
+    echo "[fotos] $FOTOS_DIR no tiene fotos — el dashboard funciona igual, sin ellas."
+  fi
+  # Se prueba escribiendo de verdad: en Docker Desktop `[ -w ]` da falso sobre
+  # un bind mount en el que luego las escrituras funcionan.
+  if [ -n "$FOTOS_CACHE_DIR" ] && ! { mkdir -p "$FOTOS_CACHE_DIR" 2>/dev/null && : 2>/dev/null > "$FOTOS_CACHE_DIR/.probe" && rm -f "$FOTOS_CACHE_DIR/.probe"; }; then
+    echo "[fotos] WARNING: $FOTOS_CACHE_DIR is not writable by uid $(id -u) — las miniaturas no se cachean."
+    echo "[fotos] Fix on host: mkdir -p ./data/dashboard/fotos-cache && chown -R 1001:1001 ./data/dashboard/fotos-cache"
+  fi
+fi
+
 exec "$@"
