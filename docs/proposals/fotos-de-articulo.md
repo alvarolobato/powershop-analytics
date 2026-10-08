@@ -193,6 +193,10 @@ printf '{"last_sync":"%s","ficheros":%d}\n' \
     "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$copiados" > "$FOTOS_DEST/.last-sync.json"
 ```
 
+> **El servidor no necesita rsync ni ningún software.** `rsync` se ejecuta en el Mac y copia entre dos rutas locales: el punto de montaje SMB y el espejo. El servidor solo ve lecturas de fichero por SMB. Verificado copiando el directorio 4 (67 ficheros, 27,7 MB) de esta forma. Solo haría falta rsync en el otro extremo si se usara sobre SSH, cosa que no hacemos (y SSH está cerrado).
+>
+> **Transportes alternativos, por si algún día hace falta**: el servidor tiene **FTP (21) y FTPS implícito (990)** con FileZilla Server 1.3.0, pero **no SFTP** (22 y 2222 cerrados). El FTP rechaza tanto el acceso anónimo como las credenciales del 4D, así que usarlo exigiría credenciales nuevas y medir si de verdad es más rápido que los 0,21 MB/s de SMB. No merece la pena hoy: SMB funciona y la copia inicial es un coste único ya aceptado. Queda como plan B si el acceso SMB se retirase, y entonces la herramienta sería `lftp mirror`, que hace el incremental por tamaño y fecha igual que rsync.
+
 Puntos que no son negociables:
 
 - **`rsync -rt`, no `-a`**: compara tamaño + mtime, que es la señal incremental correcta. Nada de `--checksum`: releería los 3,5 GB por VPN cada noche.
