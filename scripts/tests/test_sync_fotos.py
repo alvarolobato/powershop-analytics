@@ -1,0 +1,138 @@
+"""Tests de scripts/sync-fotos.sh (espejo de fotos, D-068).
+
+Usan FOTOS_SRC_DIR para saltarse el montaje SMB: ni VPN ni share. Lo que se
+prueba es lo que protege el espejo, sobre todo el guard previo al --delete.
+"""
+
+import json
+import os
+import pathlib
+import shutil
+import subprocess
+
+import pytest
+
+SCRIPT = pathlib.Path(__file__).parent.parent / "sync-fotos.sh"
+
+pytestmark = pytest.mark.skipif(
+    shutil.which("rsync") is None, reason="rsync no esta instalado"
+)
+
+
+def _run(src: pathlib.Path, dest: pathlib.Path, **extra):
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(dest.parent),
+        "FOTOS_SRC_DIR": str(src),
+        "FOTOS_DEST": str(dest),
+        # Que no lea el .env real de la maquina.
+        "FOTOS_ENV_FILE": str(dest.parent / "no-existe.env"),
+        **extra,
+    }
+    return subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+
+
+def _origen(tmp_path: pathlib.Path) -> pathlib.Path:
+    src = tmp_path / "share"
+    for d in "1234":
+        (src / d).mkdir(parents=True)
+        (src / d / "144750.jpg").write_bytes(b"jpeg-" + d.encode())
+    (src / "1" / "132374.JPG").write_bytes(b"mayusculas")
+    (src / "1" / "200.jpeg").write_bytes(b"jpeg largo")
+    (src / "1" / "Thumbs.db").write_bytes(b"basura")
+    (src / "1" / "copiar.cmd").write_bytes(b"basura")
+    # Carpetas de trabajo de quien edita las fotos: no se recorren.
+    (src / "1NO").mkdir()
+    (src / "1NO" / "132705.jpg").write_bytes(b"original")
+    (src / "1" / "procesadas").mkdir()
+    (src / "1" / "procesadas" / "x.jpg").write_bytes(b"x")
+    return src
+
+
+def test_copia_solo_jpeg_de_1_a_4_y_escribe_el_marcador(tmp_path):
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+
+    r = _run(src, dest)
+
+    assert r.returncode == 0, r.stderr
+    assert sorted(p.name for p in (dest / "1").iterdir()) == [
+        "132374.JPG",
+        "144750.jpg",
+        "200.jpeg",
+    ]
+    assert (dest / "4" / "144750.jpg").read_bytes() == b"jpeg-4"
+    assert not (dest / "1NO").exists()
+    marcador = json.loads((dest / ".last-sync.json").read_text())
+    assert marcador["ficheros"] == 6
+    assert marcador["last_sync"].endswith("Z")
+
+
+def test_borra_del_espejo_lo_que_desaparece_del_origen(tmp_path):
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    assert _run(src, dest).returncode == 0
+
+    (src / "1" / "200.jpeg").unlink()
+    r = _run(src, dest)
+
+    assert r.returncode == 0, r.stderr
+    assert not (dest / "1" / "200.jpeg").exists()
+    assert (dest / "1" / "144750.jpg").exists()
+
+
+@pytest.mark.parametrize("rotura", ["vacio", "ausente"])
+def test_origen_roto_no_toca_el_espejo_ni_el_marcador(tmp_path, rotura):
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    assert _run(src, dest).returncode == 0
+    marcador_antes = (dest / ".last-sync.json").read_text()
+    antes = sorted(str(p.relative_to(dest)) for p in dest.rglob("*.jp*g"))
+
+    # Share caido a medias: el ULTIMO directorio falla. Los tres primeros no
+    # deben haberse sincronizado (y borrado) antes de descubrirlo.
+    shutil.rmtree(src / "4")
+    if rotura == "vacio":
+        (src / "4").mkdir()
+    (src / "1" / "144750.jpg").unlink()
+
+    r = _run(src, dest)
+
+    assert r.returncode != 0
+    assert "aborto sin tocar el espejo" in r.stderr
+    assert sorted(str(p.relative_to(dest)) for p in dest.rglob("*.jp*g")) == antes
+    assert (dest / ".last-sync.json").read_text() == marcador_antes
+
+
+def test_sin_url_ni_origen_falla_con_mensaje(tmp_path):
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "FOTOS_DEST": str(tmp_path / "espejo"),
+        "FOTOS_ENV_FILE": str(tmp_path / "no-existe.env"),
+    }
+    r = subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode != 0
+    assert "FOTOS_SMB_URL" in r.stderr
+    assert not (tmp_path / "espejo").exists()
+
+
+def test_lee_las_claves_del_env_file(tmp_path):
+    src, dest = _origen(tmp_path), tmp_path / "desde-env"
+    envfile = tmp_path / "stack.env"
+    envfile.write_text(
+        'CLAUDE_CODE_OAUTH_TOKEN=\'{"a": "$(no se evalua)"}\'\n'
+        f'FOTOS_DEST="{dest}"   # comentario de cola\n'
+    )
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "FOTOS_SRC_DIR": str(src),
+        "FOTOS_ENV_FILE": str(envfile),
+    }
+    r = subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode == 0, r.stderr
+    assert (dest / "1" / "144750.jpg").exists()

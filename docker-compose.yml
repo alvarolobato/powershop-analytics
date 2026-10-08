@@ -233,6 +233,10 @@ services:
       # written to files under this dir; the DB stores only the pointer. The dir is
       # a bind-mounted volume (below) so the logs survive container recreation.
       DASHBOARD_CONTEXT_DIR: /app/data/conversations
+      # Fotos de articulo (D-068). FOTOS_DIR es el espejo, montado solo lectura;
+      # FOTOS_CACHE_DIR guarda las miniaturas WebP generadas bajo demanda.
+      FOTOS_DIR: /fotos
+      FOTOS_CACHE_DIR: /app/data/fotos-cache
     volumes:
       # Mount centralized config directory (read-write; dashboard writes config.yaml)
       - ${POWERSHOP_CONFIG_DIR:-${HOME}/.config/powershop-analytics}:/config:rw
@@ -245,6 +249,12 @@ services:
       - ./etl/schema/init.sql:/app/schema/init.sql:ro
       # Per-turn conversation context logs (D-002 bind mount; survives restarts).
       - ./data/dashboard/conversations:/app/data/conversations:rw
+      # Espejo de fotos de articulo (D-068), solo lectura. Solo produccion lo
+      # espeja; en dev esta vacio o sembrado con scripts/seed-fotos-dev.sh, y la
+      # app funciona igual sin fotos.
+      - ${FOTOS_HOST_DIR:-./data/fotos}:/fotos:ro
+      # Cache de miniaturas: lo unico escribible de las fotos.
+      - ./data/dashboard/fotos-cache:/app/data/fotos-cache:rw
       # Note: CLAUDE_CODE_OAUTH_TOKEN is passed via env (above). No file mount needed.
     ports:
       - "${DASHBOARD_PORT:-4000}:4000"
