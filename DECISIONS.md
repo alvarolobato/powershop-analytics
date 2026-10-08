@@ -60,6 +60,7 @@
 | [D-065](docs/decisions/D-065-watermark-solo-avanza-con-exito.md) | El watermark sólo avanza en una pasada correcta: el camino de error escribe `status`/`error_msg` y nunca toca `last_sync_at`. |
 | [D-066](docs/decisions/D-066-las-tablas-upsert-no-tienen-full.md) | Las tablas upsert no tienen «full» programado: se reconcilian por particiones, que sí borra. `since=2014` sólo en carga inicial o «Forzar resync». |
 | [D-067](docs/decisions/D-067-vigia-del-socket-de-4d.md) | Toda llamada bloqueante a p4d va dentro de `vigilar()`: si 4D cierra el socket, `frecv` gira para siempre al 100 % de CPU y congela todo el ETL. |
+| [D-068](docs/decisions/D-068-fotos-por-convencion-de-ruta.md) | Las fotos de artículo se resuelven por ruta derivada del código sobre un espejo local diario: sin tabla ni ETL. `Articulos.Path*`/`TieneImagen` no se usan: mienten. |
 
 ## Dashboard App
 

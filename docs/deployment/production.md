@@ -189,6 +189,55 @@ tail -n 10 ~/Library/Logs/com.powershop.claude-token-sync.log
 
 The log should show a successful sync with no errors.
 
+### Step 3b — Install the article-photo mirror (optional)
+
+Article photos ([D-068](../decisions/D-068-fotos-por-convencion-de-ruta.md)) are served from a local mirror of the PowerShop file share, kept at `~/powershop/data/fotos/{1,2,3,4}/{codigo}.jpg`. The mirror exists **only in production**. Without it the dashboard works exactly the same, just with no photos.
+
+1. Add the share to `~/powershop/.env` (the value is in the owner's notes; it never goes in the repo):
+
+   ```bash
+   FOTOS_SMB_URL=//usuario:clave@HOST/SHARE
+   ```
+
+2. Install the launchd agent from a repo checkout. It **copies** its three scripts into `~/powershop/scripts/`, so the checkout can be deleted afterwards:
+
+   ```bash
+   git clone --depth 1 https://github.com/alvarolobato/powershop-analytics.git /tmp/ps-repo
+   bash /tmp/ps-repo/scripts/install-fotos-sync-launchd.sh ~/powershop
+   rm -rf /tmp/ps-repo
+   ```
+
+3. Run the first copy by hand, with the VPN up, and let it finish. It moves ~3.5 GB at ~0.21 MB/s: **about 4.6 hours**. `rsync` is resumable, so an interrupted run just continues on the next one.
+
+   ```bash
+   launchctl kickstart gui/$(id -u)/com.powershop.fotos-sync
+   tail -f ~/Library/Logs/com.powershop.fotos-sync.log
+   ```
+
+4. Recreate the dashboard so it picks up the mount: `ps prod update`.
+
+After that the agent runs **daily at 01:00** (~15 min, nearly all of it enumerating). Each run does two independent things, both of which need the VPN:
+
+| Step | Script | On failure |
+|------|--------|------------|
+| Mirror dirs `1..4` with `rsync -rt --delete` | `sync-fotos.sh` | Aborts **before** deleting anything if any source dir is missing or lists empty; `.last-sync.json` is not updated |
+| Check `Articulos.Path..Path4` still follow the convention | `check-fotos-paths.py` (runs inside the `etl` container, which has `p4d` and the 4D credentials) | Logs the deviating articles; those would stop showing that photo |
+
+Verify:
+
+```bash
+cat ~/powershop/data/fotos/.last-sync.json                   # today's date, ~12,700 files
+find ~/powershop/data/fotos -name '*.jpg' | wc -l
+grep check-fotos-paths ~/Library/Logs/com.powershop.fotos-sync.log | tail -n 1   # "OK — ... siguen la convencion"
+```
+
+Notes:
+
+- Freshness is 24 h: a photo uploaded today shows up tomorrow. For 6-hourly runs, turn `StartCalendarInterval` in the plist into an array of four entries.
+- It is a LaunchAgent, so it only runs while the user is logged in — same as the token-sync agent.
+- Thumbnails are generated on first view and cached in `~/powershop/data/dashboard/fotos-cache/` (worst case ~380 MB). The cache is disposable: delete it any time.
+- To uninstall: `launchctl bootout gui/$(id -u)/com.powershop.fotos-sync && rm ~/Library/LaunchAgents/com.powershop.fotos-sync.plist`.
+
 ### Step 4 — Verify the full stack
 
 ```bash
@@ -254,6 +303,7 @@ See [prod-cli.md](prod-cli.md) for the full reference. Quick-reference:
 | `~/powershop/data/qdrant/` | Qdrant vector store | Cold only |
 | `~/powershop/data/wren/` | WrenAI SQLite + config | Cold only |
 | `~/powershop/.env` | All credentials | Copy to secure off-host storage |
+| `~/powershop/data/fotos/` | Article-photo mirror (~3.5 GB) | **No backup needed** — re-created from the share by `sync-fotos.sh` (~4.6 h) |
 
 The macOS Keychain entry `Claude Code-credentials` is **not** in `data/` and cannot be backed up as a file. On a Mac OS reinstall or migration you must run `claude /login` again.
 

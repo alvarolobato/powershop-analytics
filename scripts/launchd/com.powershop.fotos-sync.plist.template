@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.powershop.fotos-sync</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__SCRIPTS_DIR__/fotos-sync-job.sh</string>
+  </array>
+
+  <!-- Diario a la 01:00. No depende del ETL (02:00) ni lo bloquea. Sin
+       RunAtLoad a proposito: la primera copia son ~4,6 h y se lanza a mano;
+       cargar el agente no debe dispararla. Para subir la frescura a cada 6 h,
+       sustituir este dict por un array de cuatro. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>1</integer>
+    <key>Minute</key>
+    <integer>0</integer>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/Library/Logs/com.powershop.fotos-sync.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/Library/Logs/com.powershop.fotos-sync.log</string>
+
+  <!-- PATH explicito: mount_smbfs esta en /sbin, rsync en /usr/bin y docker en
+       /usr/local/bin o /opt/homebrew/bin. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin</string>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>POWERSHOP_STACK_DIR</key>
+    <string>__STACK_DIR__</string>
+    <key>FOTOS_ENV_FILE</key>
+    <string>__STACK_DIR__/.env</string>
+    <key>FOTOS_DEST</key>
+    <string>__STACK_DIR__/data/fotos</string>
+  </dict>
+</dict>
+</plist>
