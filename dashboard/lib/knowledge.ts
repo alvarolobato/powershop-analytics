@@ -645,6 +645,17 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
+      "FOTOS DE ARTICULO: solo el 16 % de los artículos tiene foto, y se resuelven por codigo (no hay tabla de fotos: el fichero existe o no; NO existe ninguna columna de foto, ruta o imagen que consultar en ps_articulos). Cuando un widget de tipo table muestre artículos, incluye SIEMPRE la columna codigo de ps_articulos (alias \"codigo\") además de la Referencia y la Descripción, y rellena articulo_codigo_col con el nombre exacto de esa columna en el resultado. Si la tabla agrupa por modelo u otra cosa que no es un artículo concreto, no pongas articulo_codigo_col. Pon mostrar_fotos: true SOLO si el usuario pide explícitamente ver las fotos; por defecto solo hay hover al pasar el ratón. La descripción NO identifica un artículo (no es única): nunca intentes resolver una foto solo por descripción.",
+    questions: [
+      "¿Top artículos más vendidos?",
+      "Enséñame las fotos de los artículos",
+      "¿Qué artículos tienen foto?",
+      "Añade la foto a la tabla de artículos",
+      "Muéstrame los artículos con su imagen",
+    ],
+  },
+  {
+    instruction:
       "Los nombres de tablas y columnas de PowerShop estan en espanol. Equivalencias basicas: Ventas=tickets de venta, LineasVentas=lineas de ticket, PagosVentas=cobros, Compras=pedidos de compra, Albaranes=albaranes, Facturas=facturas, Traspasos=movimientos entre tiendas, Tienda=tienda, Cajero=cajero, Proveedor=proveedor, Articulo=producto, Unidades=cantidad, Importe=importe monetario, Abono=nota de credito o devolucion.",
     questions: [
       "que significa LineasVentas",

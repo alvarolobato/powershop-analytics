@@ -1,6 +1,6 @@
 # Propuesta: fotos de artículo en el dashboard (hover + ampliar)
 
-**Estado**: plan aprobado por el dueño, pendiente de implementar.
+**Estado**: implementado (rama `feat/fotos-de-articulo`). Lo que quedó distinto del plan está en [D-068](../decisions/D-068-fotos-por-convencion-de-ruta.md) y en la descripción del PR.
 **Dónde se implementa**: en la máquina de **desarrollo** (otra distinta de la de producción).
 **Decisión asociada**: D-068 (siguiente ID libre; ojo, existe un `D-065` duplicado heredado — comprobar el rango antes de crear el fichero).
 

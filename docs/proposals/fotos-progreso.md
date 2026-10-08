@@ -12,9 +12,9 @@ Ninguna.
 
 ## Bloqueos (no son parada dura)
 
-- 2026-10-08 — `FOTOS_SMB_URL` **no está** en `~/.config/powershop-analytics/.env` de esta
-  máquina (0 líneas con `FOTOS`). Bloquea solo la verificación manual con fotos reales.
-  Avisado al dueño. Todo lo demás sigue.
+- Ninguno. El dueño dio el dato que faltaba (2026-10-08): el share es `Compartido` en
+  10.0.1.35, accesible como invitado y alcanzable desde esta máquina (445 abierto). El valor
+  completo de `FOTOS_SMB_URL` va SOLO en `~/.config/powershop-analytics/.env`.
 
 ## Fase 1 — Espejo + alerta (un commit)
 
@@ -43,25 +43,25 @@ Ninguna.
 
 ## Fase 3 — UI (un commit)
 
-- [ ] `dashboard/lib/schema.ts` (`articulo_codigo_col`, `articulo_ref_col`, `mostrar_fotos`)
-- [ ] `dashboard/components/widgets/articulo.ts` (`detectArticleColumns`)
-- [ ] `dashboard/lib/use-article-photos.ts`
-- [ ] `dashboard/components/ArticlePhotoHover.tsx`
-- [ ] `dashboard/components/PhotoLightbox.tsx`
-- [ ] Enganche en `TableWidget.tsx` (envolver, stopPropagation, táctil, columna Foto)
-- [ ] Regla `FOTOS DE ARTICULO` en `## LLM:rules` + `build:knowledge` + commit de `knowledge.ts`
-- [ ] Tests vitest de la fase 3
-- [ ] `dashboard/e2e/article-photos.spec.ts`
-- [ ] Commit de la fase 3
+- [x] `dashboard/lib/schema.ts` (`articulo_codigo_col`, `articulo_ref_col`, `mostrar_fotos`)
+- [x] `dashboard/components/widgets/articulo.ts` (`detectArticleColumns`)
+- [x] `dashboard/lib/use-article-photos.ts`
+- [x] `dashboard/components/ArticlePhotoHover.tsx`
+- [x] `dashboard/components/PhotoLightbox.tsx`
+- [x] Enganche en `TableWidget.tsx` (envolver, stopPropagation, táctil, columna Foto)
+- [x] Regla `FOTOS DE ARTICULO` en `## LLM:rules` + `build:knowledge` + commit de `knowledge.ts`
+- [x] Tests vitest de la fase 3
+- [x] `dashboard/e2e/article-photos.spec.ts`
+- [x] Commit de la fase 3
 
 ## Criterio de terminado
 
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm test`
-- [ ] `npx playwright test`
+- [x] `npm run lint`
+- [x] `npm run typecheck`
+- [x] `npm test`
+- [x] `npx playwright test` — 48 pasan con e2e-stub + 5 de llm-integration con mock (como CI). Falla 1 AJENO: `conversation-ui.spec.ts` llama a `/api/dashboard` (no existe; es `/api/dashboards`) y nunca estuvo en CI
 - [x] `shellcheck scripts/sync-fotos.sh`
-- [ ] `npm run build:knowledge` + `git diff --exit-code lib/knowledge.ts`
+- [x] `npm run build:knowledge` + `git diff --exit-code lib/knowledge.ts`
 - [ ] Verificación manual con fotos reales (132374 → 1; 144750 → 3; 169 → sin foto, sin
       indicador y sin petición de imagen; desmontar el share con la app levantada)
 - [ ] PR abierto contra `main`
@@ -90,3 +90,19 @@ Ninguna.
   suelto en `node:20-alpine`, no con la imagen entera. 101 tests vitest nuevos; suite completa
   3122 en verde. Desviación: las funciones de `lib/fotos.ts` son ASYNC (el plan las firmaba
   síncronas): con `statSync` un lote sobre el share SMB de dev bloquearía el event loop segundos.
+- 2026-10-08 — Fase 3 implementada, pendiente de commit hasta ver la suite completa de
+  Playwright. e2e nuevo 10/10. Entorno e2e local (NO va al repo): Postgres desechable
+  `docker run --name ps-e2e-pg -p 55432:5432 postgres:16-alpine` + `/tmp/ps-e2e-bin/env.sh`
+  (exporta POSTGRES_*, DASHBOARD_PORT=4010, e2e-stub) + shim `/tmp/ps-e2e-bin/psql` porque esta
+  máquina no tiene psql. Para repetir: `. /tmp/ps-e2e-bin/env.sh && npx playwright test`.
+  El e2e cazó un bug real: con el foco dentro del lightbox ni Escape ni las flechas hacían nada
+  (el stopPropagation de React paraba el evento antes de `window`). Arreglado con listener en
+  captura + test de regresión que falla sin el arreglo.
+  Desviaciones de la fase 3: tooltip y lightbox van en portal a <body> (el contenedor de la
+  tabla tiene overflow y recorta un tooltip absolute); la visibilidad del tooltip es por estado,
+  no group-hover; un `codigo` a secas solo cuenta como de artículo si hay Referencia o lo dice
+  el spec (evita enseñar la foto del artículo 169 sobre el código de una tienda).
+- 2026-10-08 — `FOTOS_SMB_URL` sigue sin estar: ni en el .env de esta máquina ni en los de
+  producción (comprobado con `grep -c`, sin leer valores). No voy a adivinar host/share.
+- 2026-10-08 — **Fase 3 commiteada.** Suite Playwright completa pasada. Siguiente: verificación
+  manual con fotos reales (montar el share ro en /tmp/psfotos, levantar el stack) y abrir el PR.

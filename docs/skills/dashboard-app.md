@@ -130,6 +130,36 @@ Rules when writing widget SQL for these templates:
 Users interact with these filters through `FilterCombobox` (Headless UI
 Combobox multi/single select with client-side search, chips, and "Limpiar").
 
+## Fotos de artículo (D-068)
+
+No hay tabla de fotos ni paso de ETL: la foto de un artículo se encuentra **derivando la ruta de su código**, `{FOTOS_DIR}/{slot}/{codigo}.jpg` (slot 1..4 = 1ª..4ª foto), sobre un espejo local del share de PowerShop que solo existe en producción. Decisión completa: [D-068](../decisions/D-068-fotos-por-convencion-de-ruta.md).
+
+| Pieza | Fichero | Qué hace |
+|-------|---------|----------|
+| Acceso a disco | `lib/fotos.ts` | El **único** módulo que toca el filesystem. Valida el código con regex antes de componer la ruta y comprueba que cae dentro de `FOTOS_DIR`. Nunca lista un directorio. |
+| Lote | `POST /api/articulos/fotos` | `{codigos?, refs?}` (máx. 200) → qué slots existen. Los códigos son `stat` locales; las refs se traducen a código con una consulta. |
+| Bytes | `GET /api/fotos/{codigo}/{slot}` | Original, o miniatura WebP con `?w=` ∈ {160, 256, 512, 1024}. ETag + 304. Caché en `FOTOS_CACHE_DIR` con el mtime en la clave. |
+| Columnas | `components/widgets/articulo.ts` | Qué columna identifica el artículo: el spec (`articulo_codigo_col` / `articulo_ref_col`) o, si no, una heurística por nombre. |
+| Datos | `lib/use-article-photos.ts` | Una petición de lote por widget; caché de módulo (10 min) compartida entre widgets. |
+| Hover | `components/ArticlePhotoHover.tsx` | Glifo de cámara + tooltip con la foto a los 250 ms. La `<img>` no existe hasta el primer hover. |
+| Ampliar | `components/PhotoLightbox.tsx` | Diálogo con las hasta 4 fotos, flechas, Escape y focus trap. |
+
+Reglas que no se negocian:
+
+1. **Por defecto no se muestran fotos**, solo el hover. La columna de miniaturas sale únicamente con `mostrar_fotos: true` en el spec, que el LLM pone solo si el usuario lo pide.
+2. **La descripción no identifica un artículo.** Recibe hover, pero resuelto por el código (o la referencia) de su misma fila. Sin código ni referencia no hay hover.
+3. **Un `codigo` a secas no es de artículo** salvo que la tabla traiga también una Referencia o que el spec lo diga: puede ser el código de una tienda o de una familia, y hay artículos con códigos como `169`.
+4. **Las fotos son un adorno.** Sin espejo, con el share caído o con el endpoint fallando, la app se ve igual pero sin fotos. Nunca un error en pantalla.
+5. `Articulos.Path*` y `TieneImagen` no se consultan: no dicen nada sobre qué fotos existen.
+
+Trampas que ya costaron un rato:
+
+- El contenedor de `TableWidget` tiene `overflow`: un tooltip `absolute` dentro de la celda sale recortado en las primeras filas. Por eso tooltip y lightbox van en un portal a `<body>`.
+- Los eventos de React suben por el árbol de componentes **aunque el DOM esté en un portal**, y arriba está el `onClick` de la fila (drill-down). El lightbox corta la propagación de clicks y teclas.
+- Ese mismo `stopPropagation` detiene el evento nativo en la raíz de React, así que un listener de teclado en `window` tiene que ir en fase de **captura** o no ve ninguna tecla pulsada con el foco dentro del diálogo. Lo cazó el e2e, no los tests de jsdom.
+
+En desarrollo no hay espejo: `scripts/seed-fotos-dev.sh` siembra `./data/fotos` con JPEG sintéticos para códigos del PostgreSQL local. Los e2e usan su propio directorio (`e2e/fotos-fixture.ts`).
+
 ## Testing
 
 - Unit tests: widget components render correct Tremor elements

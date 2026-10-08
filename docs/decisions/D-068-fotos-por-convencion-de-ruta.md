@@ -47,6 +47,7 @@ La cola de 5 s no depende del tamaño del fichero: es varianza del enlace.
 7. **Por defecto no se muestran fotos.** Solo hover; una columna de miniaturas aparece únicamente si el spec trae `mostrar_fotos: true`, que el LLM pone solo cuando el usuario lo pide.
 8. **La descripción no identifica un artículo.** Una foto se resuelve por código, o por referencia traducida a código; nunca por descripción sola.
 9. **Alerta de desviación en vez de sincronizar los paths.** Los `PATH IMAGEM` son campos editables en PowerShop. `scripts/check-fotos-paths.py` corre en el mismo job, extrae los ~172.000 valores y avisa si alguno deja de seguir la convención.
+10. **Un `codigo` a secas no es de artículo.** Sin metadato en el spec, la heurística por nombre de columna solo toma una columna `codigo`/`cod` como código de artículo si la tabla trae además una Referencia. Una tabla de tiendas o de familias también tiene un "Código", y hay artículos con códigos como `169`: sin esta condición se enseñaría la foto de un artículo sobre el código de una tienda. `codigo_articulo` y una columna `referencia` valen por sí solas; el spec (`articulo_codigo_col`) legitima cualquier nombre.
 
 **Alternatives rejected**:
 
