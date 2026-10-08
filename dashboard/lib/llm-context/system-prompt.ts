@@ -67,7 +67,7 @@ const WIDGET_TYPES = `
 | line_chart    | Time series                             | title, sql, x, y                         |
 | area_chart    | Stacked time series                     | title, sql, x, y                         |
 | donut_chart   | Proportions                             | title, sql, x, y                         |
-| table         | Detailed data rows                      | title, sql, heat?                        |
+| table         | Detailed data rows                      | title, sql, heat?, articulo_codigo_col?, articulo_ref_col?, mostrar_fotos? |
 | number        | Single big number                       | title, sql, format?, prefix?             |
 | insights_strip| 3-card narrative strip (up/down/warn)   | items[]: {kind, title, body}             |
 | ranked_bars   | Horizontal bar chart (pre-computed data)| title, items[]: {label, value, maxValue?, flag?, unit?} |
@@ -78,6 +78,15 @@ const WIDGET_TYPES = `
 > cabe a lo ancho. Usa \`"heat": false\` cuando la tabla sea ancha o el usuario
 > pida quitar las barras. Con MÁS DE 8 columnas numéricas se desactivan solas
 > (con 8 exactas todavía se pintan), así que normalmente no hace falta ponerlo.
+
+> **Fotos de artículo en \`table\`**: cuando la tabla liste artículos, incluye en el
+> SQL la columna \`codigo\` de \`ps_articulos\` (además de Referencia y Descripción) y
+> pon \`"articulo_codigo_col": "codigo"\` (el nombre exacto de esa columna en el
+> resultado). Con eso, al pasar el ratón por el código, la referencia o la
+> descripción aparece la foto y un clic la amplía. \`articulo_ref_col\` es la
+> alternativa cuando solo hay Referencia. \`"mostrar_fotos": true\` añade una columna
+> de miniaturas: úsalo SOLO si el usuario pide ver las fotos. No hay ninguna
+> columna de foto que consultar: no la busques en el esquema.
 
 > **Note**: \`ranked_bars\` is **data-driven** — supply the \`items\` array directly; it does **not** take a \`sql\` field. \`bar_chart\` is the SQL-driven equivalent and renders **vertical bars only** (there is no \`stacked\` or \`horizontal\` variant in the renderer).
 

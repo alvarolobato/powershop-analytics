@@ -7,6 +7,10 @@ import { EMPTY_MESSAGE } from "./types";
 import { applyGlossary } from "@/lib/glossary";
 import { toTitleCase } from "./format";
 import { ExportButton } from "./ExportButton";
+import { celdaACodigo, celdaARef, resolveArticleColumns } from "./articulo";
+import { useArticlePhotos, type Slot } from "@/lib/use-article-photos";
+import { ArticlePhotoHover } from "@/components/ArticlePhotoHover";
+import { urlFoto } from "@/components/PhotoLightbox";
 
 interface TableWidgetProps {
   widget: TableWidgetSpec;
@@ -18,6 +22,16 @@ interface TableWidgetProps {
 }
 
 type SortDir = "asc" | "desc";
+
+/** El artículo de una fila, si tiene foto (D-068). */
+interface FotoDeFila {
+  codigo: string;
+  slots: Slot[];
+  referencia?: string;
+  descripcion?: string;
+}
+
+const SIN_TEXTOS: string[] = [];
 
 function isNullish(v: unknown): boolean {
   return v === null || v === undefined || v === "";
@@ -164,6 +178,63 @@ export function TableWidget({
     });
   }, [data]);
 
+  // Fotos de artículo (D-068). Qué columnas identifican el artículo de cada
+  // fila, y una sola pregunta al servidor por widget para saber cuáles tienen
+  // foto. Sin columnas de artículo las listas van vacías y no se pregunta nada.
+  const articulo = useMemo(
+    () =>
+      resolveArticleColumns(data?.columns ?? [], {
+        articulo_codigo_col: widget.articulo_codigo_col,
+        articulo_ref_col: widget.articulo_ref_col,
+      }),
+    [data, widget.articulo_codigo_col, widget.articulo_ref_col],
+  );
+  const { codigosVisibles, refsVisibles } = useMemo(() => {
+    const { codigoIdx, refIdx } = articulo;
+    if (!data || (codigoIdx === null && refIdx === null)) {
+      return { codigosVisibles: SIN_TEXTOS, refsVisibles: SIN_TEXTOS };
+    }
+    const codigos = new Set<string>();
+    const refs = new Set<string>();
+    for (const row of data.rows) {
+      const codigo = codigoIdx !== null ? celdaACodigo(row[codigoIdx]) : null;
+      if (codigo) {
+        codigos.add(codigo);
+        continue;
+      }
+      // La referencia solo se pregunta para las filas sin código.
+      const ref = refIdx !== null ? celdaARef(row[refIdx]) : null;
+      if (ref) refs.add(ref);
+    }
+    return { codigosVisibles: [...codigos], refsVisibles: [...refs] };
+  }, [data, articulo]);
+  const fotos = useArticlePhotos(codigosVisibles, refsVisibles);
+
+  /** El artículo de la fila, solo si tiene alguna foto. */
+  function fotoDeFila(row: unknown[]): FotoDeFila | null {
+    const { codigoIdx, refIdx, descIdx } = articulo;
+    const referencia = refIdx !== null ? (celdaARef(row[refIdx]) ?? undefined) : undefined;
+    let codigo = codigoIdx !== null ? celdaACodigo(row[codigoIdx]) : null;
+    let slots: Slot[] = [];
+    if (codigo) {
+      slots = fotos.slotsDeCodigo(codigo);
+    } else if (referencia) {
+      const deRef = fotos.deRef(referencia);
+      if (deRef) {
+        codigo = deRef.codigo;
+        slots = deRef.slots;
+      }
+    }
+    if (!codigo || slots.length === 0) return null;
+    const desc = descIdx !== null ? row[descIdx] : null;
+    return {
+      codigo,
+      slots,
+      referencia,
+      descripcion: typeof desc === "string" && desc.trim() ? desc.trim() : undefined,
+    };
+  }
+
   if (!data || data.rows.length === 0) {
     return (
       <div
@@ -202,6 +273,8 @@ export function TableWidget({
   // left-aligned by design; `margin_pct` is always numeric.
   const colIsNumericRight = data.columns.map((_col, idx) => {
     const fmt = colFormats[idx];
+    // Un código de artículo es un identificador aunque sea todo dígitos.
+    if (idx === articulo.codigoIdx) return false;
     if (fmt === "ref" || fmt === "tag") return false;
     if (fmt === "margin_pct") return true;
     let total = 0;
@@ -277,6 +350,26 @@ export function TableWidget({
         >
           <thead>
             <tr>
+              {widget.mostrar_fotos && (
+                <th
+                  className="table-widget-cell"
+                  style={{
+                    textAlign: "left",
+                    paddingTop: 10,
+                    paddingBottom: 10,
+                    fontWeight: 500,
+                    borderBottom: "1px solid var(--border)",
+                    fontFamily: "var(--font-inter, sans-serif)",
+                    fontSize: 11,
+                    letterSpacing: "0.04em",
+                    color: "var(--fg-subtle)",
+                    whiteSpace: "nowrap",
+                    width: 56,
+                  }}
+                >
+                  Foto
+                </th>
+              )}
               {data.columns.map((col, idx) => (
                 <th
                   key={`${idx}-${col}`}
@@ -334,7 +427,26 @@ export function TableWidget({
             </tr>
           </thead>
           <tbody>
-            {sortedRows.map((row, rIdx) => (
+            {sortedRows.map((row, rIdx) => {
+              const foto = fotoDeFila(row);
+              // Envuelve el contenido de las celdas que identifican el
+              // artículo (código, referencia y, anclada a ellas, descripción).
+              // No sustituye cómo se pinta la celda: lo envuelve.
+              const conFoto = (cIdx: number, contenido: React.ReactNode) =>
+                foto &&
+                (cIdx === articulo.codigoIdx || cIdx === articulo.refIdx || cIdx === articulo.descIdx) ? (
+                  <ArticlePhotoHover
+                    codigo={foto.codigo}
+                    slots={foto.slots}
+                    referencia={foto.referencia}
+                    descripcion={foto.descripcion}
+                  >
+                    {contenido}
+                  </ArticlePhotoHover>
+                ) : (
+                  contenido
+                );
+              return (
               <tr
                 key={rIdx}
                 style={{
@@ -360,11 +472,67 @@ export function TableWidget({
                   (e.currentTarget as HTMLTableRowElement).style.background = "";
                 }}
               >
+                {widget.mostrar_fotos && (
+                  <td
+                    className="table-widget-cell"
+                    data-testid="article-photo-cell"
+                    style={{ paddingTop: 4, paddingBottom: 4, width: 56 }}
+                  >
+                    {foto && (
+                      <ArticlePhotoHover
+                        codigo={foto.codigo}
+                        slots={foto.slots}
+                        referencia={foto.referencia}
+                        descripcion={foto.descripcion}
+                        glifo={false}
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element -- miniatura servida y cacheada por /api/fotos */}
+                        <img
+                          src={urlFoto(foto.codigo, foto.slots[0], 160)}
+                          alt={`Foto del artículo ${foto.referencia ?? foto.codigo}`}
+                          width={40}
+                          height={40}
+                          loading="lazy"
+                          style={{
+                            width: 40,
+                            height: 40,
+                            objectFit: "cover",
+                            borderRadius: 4,
+                            display: "block",
+                            background: "var(--bg-2)",
+                          }}
+                        />
+                      </ArticlePhotoHover>
+                    )}
+                  </td>
+                )}
                 {row.map((cell, cIdx) => {
                   const fmt = colFormats[cIdx];
                   const colMax = colMaxValues[cIdx];
                   const numVal = Number(cell);
                   const isNumeric = !isNullish(cell) && Number.isFinite(numVal);
+
+                  // Código de artículo: un identificador, tal cual. Sin esto un
+                  // código todo dígitos caería en la columna de ranking o en
+                  // una barra de calor, y "144750" saldría como "144.750".
+                  if (cIdx === articulo.codigoIdx) {
+                    return (
+                      <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10 }}>
+                        {conFoto(
+                          cIdx,
+                          <span
+                            style={{
+                              fontFamily: "var(--font-jetbrains, monospace)",
+                              color: "var(--fg-muted)",
+                              fontSize: 11,
+                            }}
+                          >
+                            {isNullish(cell) ? "—" : String(cell)}
+                          </span>,
+                        )}
+                      </td>
+                    );
+                  }
 
                   // Rank column (first column, integer-looking)
                   if (cIdx === 0 && isNumeric && numVal >= 0 && numVal < 1000) {
@@ -390,15 +558,18 @@ export function TableWidget({
                   if (fmt === "ref") {
                     return (
                       <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10 }}>
-                        <span
-                          style={{
-                            fontFamily: "var(--font-jetbrains, monospace)",
-                            color: "var(--accent)",
-                            fontSize: 11,
-                          }}
-                        >
-                          {String(cell ?? "")}
-                        </span>
+                        {conFoto(
+                          cIdx,
+                          <span
+                            style={{
+                              fontFamily: "var(--font-jetbrains, monospace)",
+                              color: "var(--accent)",
+                              fontSize: 11,
+                            }}
+                          >
+                            {String(cell ?? "")}
+                          </span>,
+                        )}
                       </td>
                     );
                   }
@@ -483,12 +654,13 @@ export function TableWidget({
                   const looksLikeWords = str.length > 3 && !/^\d+/.test(str) && /[A-Za-z]/.test(str);
                   return (
                     <td key={cIdx} className="table-widget-cell" style={{ paddingTop: 10, paddingBottom: 10, color: "var(--fg)" }}>
-                      {looksLikeWords ? toTitleCase(str) : formatCellValue(cell)}
+                      {conFoto(cIdx, looksLikeWords ? toTitleCase(str) : formatCellValue(cell))}
                     </td>
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

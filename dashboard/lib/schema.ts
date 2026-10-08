@@ -141,6 +141,20 @@ const TableWidgetSchema = z.object({
    * Ponerlo a `false` deja los números desnudos y compactos.
    */
   heat: z.boolean().optional(),
+  /**
+   * Fotos de artículo (D-068). Nombre de la columna del resultado que contiene
+   * `ps_articulos.codigo`. Activa el hover con la foto en las celdas de código,
+   * referencia y descripción de esa fila. Sin él, `TableWidget` cae en una
+   * heurística por nombre de columna (`widgets/articulo.ts`).
+   */
+  articulo_codigo_col: optStr,
+  /** Ídem para la Referencia (`ccrefejofacm`), que se traduce a código. */
+  articulo_ref_col: optStr,
+  /**
+   * `true` SOLO si el usuario pidió ver las fotos: añade una columna de
+   * miniaturas. Por defecto no se muestra ninguna foto, solo el hover.
+   */
+  mostrar_fotos: z.boolean().optional(),
 }).strict();
 
 const NumberWidgetSchema = z.object({
