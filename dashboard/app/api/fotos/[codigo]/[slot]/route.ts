@@ -1,0 +1,84 @@
+/**
+ * GET /api/fotos/{codigo}/{slot} — bytes de una foto de artículo (D-068).
+ *
+ *   /api/fotos/144750/1          → original (image/jpeg)
+ *   /api/fotos/144750/1?w=256    → miniatura WebP
+ *
+ * El código viene del usuario: se valida antes de construir ninguna ruta, y
+ * `w` solo admite la lista de anchos. Todo el acceso a disco está en
+ * `lib/fotos.ts`.
+ *
+ *   400 — código, slot o ancho no válidos
+ *   404 — el artículo no tiene esa foto
+ *   304 — If-None-Match coincide
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import {
+  ANCHOS,
+  esAncho,
+  esCodigoValido,
+  esSlot,
+  leerOriginal,
+  localizarFoto,
+  miniatura,
+  type Ancho,
+} from "@/lib/fotos";
+
+export const dynamic = "force-dynamic";
+
+function mal(detalle: string): NextResponse {
+  return NextResponse.json({ error: detalle, code: "VALIDATION" }, { status: 400 });
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { codigo: string; slot: string } },
+): Promise<NextResponse> {
+  const { codigo } = params;
+  if (!esCodigoValido(codigo)) return mal("Código de artículo no válido.");
+
+  const slot = /^[1-4]$/.test(params.slot) ? Number(params.slot) : NaN;
+  if (!esSlot(slot)) return mal("El slot debe ser 1, 2, 3 o 4.");
+
+  let w: Ancho | null = null;
+  const wRaw = request.nextUrl.searchParams.get("w");
+  if (wRaw !== null) {
+    const n = /^\d{1,5}$/.test(wRaw) ? Number(wRaw) : NaN;
+    if (!esAncho(n)) return mal(`\`w\` debe ser uno de: ${ANCHOS.join(", ")}.`);
+    w = n;
+  }
+
+  const foto = await localizarFoto(codigo, slot);
+  if (!foto) {
+    return NextResponse.json({ error: "Sin foto.", code: "NOT_FOUND" }, { status: 404 });
+  }
+
+  const etag = `"${foto.bytes}-${foto.mtimeMs}${w ? `-w${w}` : ""}"`;
+  const comunes = {
+    ETag: etag,
+    "Cache-Control": "public, max-age=86400",
+  };
+  if (request.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, { status: 304, headers: comunes });
+  }
+
+  let imagen;
+  try {
+    imagen = w ? await miniatura(foto, codigo, slot, w) : await leerOriginal(foto);
+  } catch {
+    // El fichero desapareció entre el stat y la lectura (rsync --delete, o el
+    // share de dev desmontado).
+    return NextResponse.json({ error: "Sin foto.", code: "NOT_FOUND" }, { status: 404 });
+  }
+
+  return new NextResponse(new Uint8Array(imagen.data), {
+    status: 200,
+    headers: {
+      ...comunes,
+      "Content-Type": imagen.tipo,
+      "Content-Length": String(imagen.data.length),
+      "X-Content-Type-Options": "nosniff",
+    },
+  });
+}
