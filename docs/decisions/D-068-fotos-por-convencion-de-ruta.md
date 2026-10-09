@@ -32,17 +32,31 @@ Latencias del share por VPN, con acceso directo por ruta y sin listar:
 |---|---|---|
 | `stat` de una foto que existe | 57 ms | 65 ms |
 | leer el JPEG completo en frío | 346 ms | **5,25 s** |
-| `rsync` sobre el montaje | 0,21 MB/s | |
+| `rsync` sobre el montaje SMB | 0,21 MB/s | |
+| `rclone` por SMB, sin montar | **0,68 MB/s** | |
 
 La cola de 5 s no depende del tamaño del fichero: es varianza del enlace.
+
+**macOS no deja a un job de launchd leer un volumen de red montado.** Esto se descubrió en producción, el 2026-10-09, cuando la primera copia abortó con «enumera vacío». El diagnóstico, ejecutando el mismo script bajo launchd y comparándolo con una shell interactiva:
+
+| Operación bajo launchd | Resultado |
+|---|---|
+| `mount_smbfs` | rc=0, monta bien |
+| `stat` de una foto | funciona, devuelve el tamaño real |
+| listar un directorio | **`Operation not permitted`** |
+| `cp` de una foto | **`Operation not permitted`**, 0 bytes |
+
+Es TCC (privacidad de macOS) sobre volúmenes de red. Los metadatos pasan y el contenido no, así que ni siquiera sirve el apaño de «copiar por ruta derivada sin listar». Concederlo exige dar «Acceso total al disco» a `/bin/bash` desde la pantalla física del Mac: no se puede automatizar, y es un permiso desproporcionado para un job de copia.
+
+**`rclone` esquiva el problema de raíz**: habla el protocolo SMB por TCP y no monta ningún volumen, así que TCC no le aplica. Verificado bajo launchd: lista, cuenta y copia. De propina es mejor en todo lo demás — 3,2× más rápido copiando, y listar el directorio de 6.900 fotos baja de más de 2 minutos a **1,6 s**.
 
 **Decision**:
 
 1. **La ruta se deriva, nunca se consulta**: `{FOTOS_DIR}/{slot}/{codigo}.jpg`, con `slot` 1..4 = 1ª..4ª foto. Saber si un artículo tiene foto es un `lstat()` local: un enlace simbólico dentro del espejo no cuenta como foto, porque la comprobación de que la ruta cae dentro de `FOTOS_DIR` es léxica y no vería adónde apunta. El único punto que toca el filesystem es `dashboard/lib/fotos.ts`.
 2. **No hay tabla de fotos ni paso de ETL.** No se tocan `etl/schema/init.sql`, `etl/main.py`, `etl/sync/*` ni `config/schema.yaml`. `Articulos.Path*` y `TieneImagen` no se leen desde la app.
-3. **Espejo local diario, solo en producción.** Un job launchd (`com.powershop.fotos-sync`, 01:00) monta el share en solo lectura y hace `rsync -rt --delete` de los directorios `1..4` a `FOTOS_HOST_DIR` (por defecto `<stack>/data/fotos`). El contenedor del dashboard lo ve en `/fotos`, montado `:ro`.
+3. **Espejo local diario, solo en producción.** Un job launchd (`com.powershop.fotos-sync`, 01:00) copia los directorios `1..4` a `FOTOS_HOST_DIR` (por defecto `<stack>/data/fotos`) con **`rclone sync` por SMB, sin montar nada** (ver arriba: un volumen de red montado es ilegible desde launchd). El contenedor del dashboard lo ve en `/fotos`, montado `:ro`. `rclone` es un requisito de la máquina de producción: `brew install rclone`.
 4. **Nunca se lista un directorio en el camino de una petición.** Solo acceso directo por ruta derivada.
-5. **El espejo no se vacía por un share caído.** `scripts/sync-fotos.sh` comprueba los cuatro orígenes antes del primer `rsync --delete` y cada uno otra vez justo antes del suyo: que existe, que enumera algo y que no lista más de un 10 % (y más de 20 fotos) menos que el espejo. Es el criterio de [D-063](D-063-una-carga-corta-es-perdida-de-datos.md): un origen que encoge es pérdida de datos, no una actualización; `FOTOS_ALLOW_SHRINK=1` lo permite cuando el borrado es real. El espejo se escribe en `FOTOS_HOST_DIR`, la misma variable que monta el contenedor, para que no puedan apuntar a sitios distintos. El marcador `.last-sync.json` solo se escribe si todo fue bien, igual que el watermark del ETL ([D-065](D-065-watermark-solo-avanza-con-exito.md)).
+5. **El espejo no se vacía por un share caído.** `scripts/sync-fotos.sh` comprueba los cuatro orígenes antes del primer borrado y cada uno otra vez justo antes del suyo: que existe, que enumera algo y que no lista más de un 10 % (y más de 20 fotos) menos que el espejo. Es el criterio de [D-063](D-063-una-carga-corta-es-perdida-de-datos.md): un origen que encoge es pérdida de datos, no una actualización; `FOTOS_ALLOW_SHRINK=1` lo permite cuando el borrado es real. El espejo se escribe en `FOTOS_HOST_DIR`, la misma variable que monta el contenedor, para que no puedan apuntar a sitios distintos. El marcador `.last-sync.json` solo se escribe si todo fue bien, igual que el watermark del ETL ([D-065](D-065-watermark-solo-avanza-con-exito.md)).
 6. **Miniaturas WebP bajo demanda**, con `sharp`, cacheadas en `FOTOS_CACHE_DIR` con el `mtime` del original en la clave: una foto sobrescrita invalida su miniatura sola y no hace falta ningún job de limpieza.
 7. **Por defecto no se muestran fotos.** Solo hover; una columna de miniaturas aparece únicamente si el spec trae `mostrar_fotos: true`, que el LLM pone solo cuando el usuario lo pide.
 8. **La descripción no identifica un artículo.** Una foto se resuelve por código, o por referencia traducida a código; nunca por descripción sola.
@@ -57,9 +71,10 @@ La cola de 5 s no depende del tamaño del fichero: es varianza del enlace.
 - **Leer del share en vivo desde la app.** Un hover podría tardar 5 s, y la app dependería de la VPN en cada petición.
 - **Inventario de fotos en PostgreSQL** (tabla nueva alimentada por el ETL). Innecesario con el espejo local: un `stat` cuesta microsegundos y nunca está desfasado respecto al fichero que se va a servir. Añadiría un paso al ETL, que ya es la pieza más frágil del sistema.
 - **Sincronizar `Path..Path4` a `ps_articulos`.** Son 171.928 valores idénticos a lo que se deduce del código, rellenos incluso cuando no hay fichero. Queda como salida si las desviaciones llegaran a ser frecuentes: 4 columnas y traducir `W:\` a la raíz del espejo.
-- **`rsync -a` o `--checksum`.** `-a` arrastra permisos y propietarios que en SMB no significan nada; `--checksum` releería los 3,5 GB por VPN cada noche. Tamaño + mtime (`-rt`) es la señal incremental correcta.
+- **`rsync` sobre el share montado.** Era el diseño original y no funciona: TCC se lo impide a launchd (ver arriba). Tampoco `-a` ni `--checksum` en el modo local que queda para los tests: `-a` arrastra permisos y propietarios que en SMB no significan nada y `--checksum` releería los 3,5 GB cada noche. Tamaño + mtime es la señal incremental correcta, y es la que usan tanto `rsync -rt` como `rclone sync`.
 - **Generar las miniaturas al copiar.** Solo se piden las de los artículos que alguien mira; el 84 % del catálogo no tiene foto.
-- **FTP/FTPS** (el servidor lo expone, no SFTP). Exigiría credenciales nuevas sin saber si mejora los 0,21 MB/s. Plan B si se retirase el acceso SMB, con `lftp mirror`.
+- **Dar «Acceso total al disco» a `/bin/bash`.** Resolvería el TCC, pero hay que hacerlo a mano en la pantalla del Mac, no se puede automatizar ni reproducir en una máquina nueva, y es un permiso desproporcionado para un job de copia.
+- **FTP/FTPS** (el servidor lo expone, no SFTP). Exigiría credenciales nuevas: el FTP rechaza el acceso anónimo y las del 4D. Plan B si se retirase el acceso SMB, con `lftp mirror`.
 
 **Rationale**:
 

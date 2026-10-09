@@ -375,3 +375,64 @@ def test_el_lock_se_libera_al_terminar_bien_o_mal(tmp_path):
     shutil.rmtree(src / "4")
     assert _run(src, dest).returncode != 0
     assert not os.path.lexists(tmp_path / "psfotos-sync.lock")
+
+
+# --- modo SMB (rclone): se prueban los caminos que no necesitan red ---------
+
+
+def _run_smb(tmp_path: pathlib.Path, url: str, **extra):
+    """Ejecuta el script en modo SMB (sin FOTOS_SRC_DIR), que es el de produccion."""
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "FOTOS_LOCK": str(tmp_path / "psfotos-sync.lock"),
+        "FOTOS_DEST": str(tmp_path / "espejo"),
+        "FOTOS_ENV_FILE": str(tmp_path / "no-existe.env"),
+        "FOTOS_SMB_URL": url,
+        **extra,
+    }
+    return subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+
+
+def test_sin_rclone_lo_dice_en_vez_de_fallar_raro(tmp_path):
+    # rclone es el cliente SMB del espejo: si falta, el mensaje debe decirlo.
+    r = _run_smb(tmp_path, "//guest@servidor/share", FOTOS_RCLONE="/no/existe/rclone")
+
+    assert r.returncode == 1
+    assert "falta rclone" in r.stderr
+    assert not (tmp_path / "espejo" / ".last-sync.json").exists()
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "basura",  # ni // ni host ni share
+        "//servidor",  # host sin share
+        "//usuario@servidor",  # con credenciales pero sin share
+    ],
+)
+def test_una_url_smb_mal_formada_para_antes_de_tocar_nada(tmp_path, url):
+    # Un rclone que existe pero que no se debe llegar a invocar: si la URL no
+    # se valida antes, el fallo seria un error de rclone y no uno legible.
+    falso = tmp_path / "bin"
+    falso.mkdir()
+    (falso / "rclone").write_text("#!/bin/sh\necho 'NO DEBERIA EJECUTARSE' >&2\nexit 0\n")
+    (falso / "rclone").chmod(0o755)
+
+    r = _run_smb(tmp_path, url, FOTOS_RCLONE=str(falso / "rclone"))
+
+    assert r.returncode == 1
+    assert "FOTOS_SMB_URL mal formada" in r.stderr
+    assert "NO DEBERIA EJECUTARSE" not in r.stderr
+    assert not (tmp_path / "espejo" / ".last-sync.json").exists()
+
+
+def test_el_lock_se_libera_aunque_la_url_sea_invalida(tmp_path):
+    # El guard mas facil de romper: salir por error dejando el lock puesto
+    # congelaria el espejo todas las noches siguientes.
+    r = _run_smb(tmp_path, "basura")
+
+    assert r.returncode == 1
+    assert not (tmp_path / "psfotos-sync.lock").exists()
