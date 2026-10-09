@@ -190,7 +190,22 @@ else
         echo "sync-fotos: FOTOS_SMB_URL mal formada; se espera //[usuario[:clave]@]HOST/SHARE" >&2
         exit 1
     fi
-    RC_ARGS=(--smb-host="$SMB_HOST" --smb-user="${SMB_USER:-guest}")
+    # Timeouts explicitos. Sin ellos, una sesion SMB que muere a mitad —y
+    # muere: el enlace da "connection reset by peer" cada pocos miles de
+    # ficheros— deja a rclone esperando para SIEMPRE. El job tiene su tope de
+    # 8 h, pero mientras tanto retiene el lock y todas las noches siguientes
+    # salen con "ya hay una sincronizacion en curso". Paso el 2026-10-09: un
+    # `lsf` que tarda 1,6 s se quedo colgado indefinidamente.
+    #
+    # --retries 3 reintenta la pasada entera; es barato porque lo ya copiado
+    # no se vuelve a traer.
+    RC_ARGS=(
+        --smb-host="$SMB_HOST" --smb-user="${SMB_USER:-guest}"
+        --timeout "${FOTOS_TIMEOUT:-5m}"
+        --contimeout "${FOTOS_CONTIMEOUT:-30s}"
+        --retries 3
+        --low-level-retries 5
+    )
     # La clave NO va en argv: la linea de comandos de un rclone que corre horas
     # la ve cualquiera con `ps`, y la forma ofuscada de rclone es reversible.
     # Via variable de entorno (rclone acepta RCLONE_<FLAG>) y ofuscando por
