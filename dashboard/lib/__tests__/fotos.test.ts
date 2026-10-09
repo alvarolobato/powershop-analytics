@@ -113,6 +113,9 @@ describe("rutaFoto", () => {
     poner(1, "200.jpeg");
     expect(await rutaFoto("200", 1)).toMatch(/200\.jpeg$/);
 
+    poner(2, "201.JPEG");
+    expect(await rutaFoto("201", 2)).toMatch(/201\.jpeg$/i);
+
     poner(1, "132374.JPG");
     const ruta = await rutaFoto("132374", 1);
     expect(ruta).not.toBeNull();
@@ -163,6 +166,32 @@ describe("escape de directorio", () => {
   });
 });
 
+describe("enlaces simbólicos", () => {
+  it("un symlink dentro del espejo que apunta fuera NO es una foto", async () => {
+    // El cinturón de ruta es léxico: sin lstat, esto serviría el fichero de fuera.
+    const secreto = path.join(raiz, "config.yaml");
+    fs.writeFileSync(secreto, "admin_api_key: secreto");
+    fs.symlinkSync(secreto, path.join(fotosDir, "1", "169.jpg"));
+
+    expect(await localizarFoto("169", 1)).toBeNull();
+    expect(await slotsDeFoto("169")).toEqual([]);
+  });
+
+  it("tampoco un symlink a otra foto del propio espejo", async () => {
+    poner(1, "144750.jpg");
+    fs.symlinkSync(path.join(fotosDir, "1", "144750.jpg"), path.join(fotosDir, "2", "144750.jpg"));
+    expect(await slotsDeFoto("144750")).toEqual([1]);
+  });
+
+  it("que FOTOS_DIR sea él mismo un symlink sí vale (un volumen externo enlazado)", async () => {
+    poner(1, "144750.jpg");
+    const enlace = path.join(raiz, "enlace-al-espejo");
+    fs.symlinkSync(fotosDir, enlace);
+    vi.stubEnv("FOTOS_DIR", enlace);
+    expect(await slotsDeFoto("144750")).toEqual([1]);
+  });
+});
+
 describe("slotsDeFoto / slotsDeFotos", () => {
   it("devuelve los slots que existen, en orden", async () => {
     poner(1, "144750.jpg");
@@ -177,16 +206,20 @@ describe("slotsDeFoto / slotsDeFotos", () => {
     expect(await slotsDeFoto("169")).toEqual([]);
   });
 
-  it("resuelve un lote, deduplica y da [] a los no válidos", async () => {
+  it("resuelve un lote, deduplica y descarta los no válidos", async () => {
     poner(1, "144750.jpg");
     poner(3, "144750.jpg");
-    const codigos = ["144750", "169", "144750", "../144750", ""];
-    expect(await slotsDeFotos(codigos)).toEqual({
-      "144750": [1, 3],
-      "169": [],
-      "../144750": [],
-      "": [],
-    });
+    const codigos = ["144750", "169", "144750", "../144750", "", "x".repeat(5000)];
+    expect({ ...(await slotsDeFotos(codigos)) }).toEqual({ "144750": [1, 3], "169": [] });
+  });
+
+  it("claves como __proto__ o constructor no tocan el prototipo del resultado", async () => {
+    poner(1, "constructor.jpg");
+    const out = await slotsDeFotos(["__proto__", "constructor", "toString"]);
+    expect(Object.getPrototypeOf(out)).toBeNull();
+    expect(Object.keys(out).sort()).toEqual(["__proto__", "constructor", "toString"]);
+    expect(out["constructor"]).toEqual([1]);
+    expect(out["__proto__"]).toEqual([]);
   });
 
   it("aguanta un lote de 200", async () => {
@@ -271,6 +304,35 @@ describe("miniatura", () => {
     const meta = await sharp((await miniatura(nueva, "132705", 1, 256)).data).metadata();
     expect(meta.height).toBe(256); // la cuadrada nueva, no la 4:3 vieja
     expect(fs.readdirSync(cacheDir)).toHaveLength(2);
+  });
+
+  it("no genera más de 3 miniaturas a la vez", async () => {
+    // Endpoint sin autenticación: pedir muchas distintas de golpe no debe
+    // lanzar tantas conversiones como peticiones.
+    const codigos = Array.from({ length: 12 }, (_, i) => String(300 + i));
+    for (const c of codigos) poner(1, `${c}.jpg`);
+    const fotos = await Promise.all(codigos.map((c) => localizarFoto(c, 1)));
+
+    let enVuelo = 0;
+    let pico = 0;
+    const real = fs.promises.writeFile;
+    vi.spyOn(fs.promises, "writeFile").mockImplementation(async (...args) => {
+      // La escritura ocurre dentro del turno de generación.
+      enVuelo++;
+      pico = Math.max(pico, enVuelo);
+      await new Promise((r) => setTimeout(r, 15));
+      try {
+        return await real(...(args as Parameters<typeof real>));
+      } finally {
+        enVuelo--;
+      }
+    });
+
+    const out = await Promise.all(codigos.map((c, i) => miniatura(fotos[i]!, c, 1, 160)));
+
+    expect(out.every((o) => o.tipo === "image/webp")).toBe(true);
+    expect(pico).toBeGreaterThan(0);
+    expect(pico).toBeLessThanOrEqual(3);
   });
 
   it("no deja temporales en la caché", async () => {

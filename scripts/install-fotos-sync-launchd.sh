@@ -64,7 +64,8 @@ fi
 echo "Installed launchd agent: $LABEL"
 echo "  Plist:      $PLIST"
 echo "  Scripts:    $STACK_DIR/scripts"
-echo "  Espejo:     $STACK_DIR/data/fotos"
+echo "  Espejo:     FOTOS_HOST_DIR de $STACK_DIR/.env (por defecto $STACK_DIR/data/fotos),"
+echo "              el mismo directorio que monta el contenedor del dashboard"
 echo "  Log file:   $HOME/Library/Logs/$LABEL.log"
 echo "  Cadencia:   diario a la 01:00"
 echo

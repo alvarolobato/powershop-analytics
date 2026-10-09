@@ -235,6 +235,11 @@ export function TableWidget({
     };
   }
 
+  const colsArticulo = [articulo.codigoIdx, articulo.refIdx, articulo.descIdx].filter(
+    (i): i is number => i !== null,
+  );
+  const primeraColArticulo = colsArticulo.length > 0 ? Math.min(...colsArticulo) : -1;
+
   if (!data || data.rows.length === 0) {
     return (
       <div
@@ -436,6 +441,13 @@ export function TableWidget({
                 foto &&
                 (cIdx === articulo.codigoIdx || cIdx === articulo.refIdx || cIdx === articulo.descIdx) ? (
                   <ArticlePhotoHover
+                    // Las filas van por índice: sin esta clave, al reordenar
+                    // la instancia heredaría el estado (tooltip armado, foto
+                    // cargada, lightbox abierto) del artículo anterior.
+                    key={foto.codigo}
+                    // Una sola parada de Tab por fila: la miniatura si la
+                    // hay, y si no la primera celda del artículo.
+                    enfocable={!widget.mostrar_fotos && cIdx === primeraColArticulo}
                     codigo={foto.codigo}
                     slots={foto.slots}
                     referencia={foto.referencia}
@@ -480,6 +492,7 @@ export function TableWidget({
                   >
                     {foto && (
                       <ArticlePhotoHover
+                        key={foto.codigo}
                         codigo={foto.codigo}
                         slots={foto.slots}
                         referencia={foto.referencia}
@@ -488,6 +501,7 @@ export function TableWidget({
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element -- miniatura servida y cacheada por /api/fotos */}
                         <img
+                          key={foto.codigo}
                           src={urlFoto(foto.codigo, foto.slots[0], 160)}
                           alt={`Foto del artículo ${foto.referencia ?? foto.codigo}`}
                           width={40}

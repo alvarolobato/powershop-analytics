@@ -72,10 +72,14 @@ export async function GET(
     return NextResponse.json({ error: "Sin foto.", code: "NOT_FOUND" }, { status: 404 });
   }
 
+  // Se pidió miniatura y salió el original (sharp falló): que nadie guarde 24 h
+  // un JPEG de 500 KB como si fuera la miniatura. Sin ETag, sin caché.
+  const degradada = w !== null && imagen.tipo !== "image/webp";
+
   return new NextResponse(new Uint8Array(imagen.data), {
     status: 200,
     headers: {
-      ...comunes,
+      ...(degradada ? { "Cache-Control": "no-store" } : comunes),
       "Content-Type": imagen.tipo,
       "Content-Length": String(imagen.data.length),
       "X-Content-Type-Options": "nosniff",

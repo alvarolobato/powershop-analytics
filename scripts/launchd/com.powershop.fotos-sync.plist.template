@@ -40,8 +40,6 @@
     <string>__STACK_DIR__</string>
     <key>FOTOS_ENV_FILE</key>
     <string>__STACK_DIR__/.env</string>
-    <key>FOTOS_DEST</key>
-    <string>__STACK_DIR__/data/fotos</string>
   </dict>
 </dict>
 </plist>

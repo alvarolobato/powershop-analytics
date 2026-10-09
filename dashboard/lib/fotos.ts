@@ -37,7 +37,16 @@ const CODIGO_RE = /^[A-Za-z0-9._-]{1,40}$/;
 
 /** El share mezcla mayúsculas en la extensión. En el espejo de producción
  *  (APFS, case-insensitive) la primera basta; no se da por garantizado. */
-const EXTENSIONES = [".jpg", ".JPG", ".jpeg"] as const;
+const EXTENSIONES = [".jpg", ".JPG", ".jpeg", ".JPEG"] as const;
+
+/** Tope de un `stat`. Sobre disco local tarda microsegundos; un montaje SMB
+ *  colgado (solo en dev) no falla, se queda esperando, y sin tope la petición
+ *  no terminaría nunca. */
+const STAT_TIMEOUT_MS = 3000;
+
+/** Miniaturas generándose a la vez. Los endpoints van sin autenticación: sin
+ *  tope, pedir muchas distintas de golpe ocuparía toda la CPU. */
+const MAX_GENERANDO = 3;
 
 /** `stat` simultáneos por lote. Sobre disco local sobra; sobre un share SMB
  *  montado en dev los metadatos no paralelizan y más hilos solo encolan. */
@@ -77,6 +86,14 @@ function cacheDir(): string | null {
   return dir ? path.resolve(dir) : null;
 }
 
+function conTope<T>(promesa: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const tope = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("timeout")), ms);
+  });
+  return Promise.race([promesa, tope]).finally(() => clearTimeout(timer));
+}
+
 /** Localiza la foto en el espejo. `null` si el código o el slot no son
  *  válidos, o si no existe. Nunca lanza. */
 export async function localizarFoto(codigo: string, slot: number): Promise<Foto | null> {
@@ -91,7 +108,9 @@ export async function localizarFoto(codigo: string, slot: number): Promise<Foto 
     // 3. Cinturón redundante: la ruta resuelta cae dentro del espejo.
     if (!ruta.startsWith(raiz + path.sep)) return null;
     try {
-      const st = await fs.stat(ruta);
+      // lstat, no stat: un enlace simbólico dentro del espejo NO es una foto.
+      // El cinturón de arriba es léxico y no vería adónde apunta.
+      const st = await conTope(fs.lstat(ruta), STAT_TIMEOUT_MS);
       if (st.isFile()) return { ruta, bytes: st.size, mtimeMs: Math.trunc(st.mtimeMs) };
     } catch {
       // ENOENT es lo normal (el 84 % de los artículos no tiene foto). Cualquier
@@ -115,10 +134,12 @@ export async function slotsDeFoto(codigo: string): Promise<Slot[]> {
 }
 
 /** Igual, para muchos códigos; lo usa el endpoint de lote. Los códigos no
- *  válidos salen con `[]`. */
+ *  válidos se descartan: no se consultan ni se devuelven. */
 export async function slotsDeFotos(codigos: string[]): Promise<Record<string, Slot[]>> {
-  const unicos = [...new Set(codigos)];
-  const out: Record<string, Slot[]> = {};
+  const unicos = [...new Set(codigos)].filter(esCodigoValido);
+  // Sin prototipo: las claves vienen del usuario y "__proto__" o "constructor"
+  // son códigos sintácticamente válidos.
+  const out: Record<string, Slot[]> = Object.create(null);
   let siguiente = 0;
   async function obrero(): Promise<void> {
     while (siguiente < unicos.length) {
@@ -139,6 +160,20 @@ export async function leerOriginal(foto: Foto): Promise<Imagen> {
 const enCurso = new Map<string, Promise<Imagen>>();
 
 let cacheAvisada = false;
+
+let generando = 0;
+const enEspera: (() => void)[] = [];
+
+async function conTurno<T>(tarea: () => Promise<T>): Promise<T> {
+  if (generando >= MAX_GENERANDO) await new Promise<void>((r) => enEspera.push(r));
+  generando++;
+  try {
+    return await tarea();
+  } finally {
+    generando--;
+    enEspera.shift()?.();
+  }
+}
 
 async function generar(foto: Foto, destino: string | null, w: Ancho): Promise<Imagen> {
   let data: Buffer;
@@ -211,7 +246,7 @@ export async function miniatura(
   const clave = destino ?? `${foto.ruta}|${w}|${foto.mtimeMs}`;
   let pendiente = enCurso.get(clave);
   if (!pendiente) {
-    pendiente = generar(foto, destino, w).finally(() => enCurso.delete(clave));
+    pendiente = conTurno(() => generar(foto, destino, w)).finally(() => enCurso.delete(clave));
     enCurso.set(clave, pendiente);
   }
   return pendiente;

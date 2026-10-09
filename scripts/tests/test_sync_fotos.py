@@ -23,6 +23,8 @@ def _run(src: pathlib.Path, dest: pathlib.Path, **extra):
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(dest.parent),
+        # El lock vive en TMPDIR: cada test el suyo.
+        "TMPDIR": str(dest.parent),
         "FOTOS_SRC_DIR": str(src),
         "FOTOS_DEST": str(dest),
         # Que no lea el .env real de la maquina.
@@ -107,6 +109,7 @@ def test_sin_url_ni_origen_falla_con_mensaje(tmp_path):
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
+        "TMPDIR": str(tmp_path),
         "FOTOS_DEST": str(tmp_path / "espejo"),
         "FOTOS_ENV_FILE": str(tmp_path / "no-existe.env"),
     }
@@ -118,16 +121,21 @@ def test_sin_url_ni_origen_falla_con_mensaje(tmp_path):
     assert not (tmp_path / "espejo").exists()
 
 
-def test_lee_las_claves_del_env_file(tmp_path):
-    src, dest = _origen(tmp_path), tmp_path / "desde-env"
-    envfile = tmp_path / "stack.env"
+def test_el_destino_es_el_FOTOS_HOST_DIR_que_monta_compose(tmp_path):
+    # El espejo tiene que acabar en el MISMO directorio que monta el contenedor.
+    # Relativo, se resuelve contra el directorio del .env, como hace Compose.
+    src = _origen(tmp_path)
+    stack = tmp_path / "stack"
+    stack.mkdir()
+    envfile = stack / ".env"
     envfile.write_text(
         'CLAUDE_CODE_OAUTH_TOKEN=\'{"a": "$(no se evalua)"}\'\n'
-        f'FOTOS_DEST="{dest}"   # comentario de cola\n'
+        'FOTOS_HOST_DIR="./datos/fotos"   # comentario de cola\n'
     )
     env = {
         "PATH": os.environ["PATH"],
         "HOME": str(tmp_path),
+        "TMPDIR": str(tmp_path),
         "FOTOS_SRC_DIR": str(src),
         "FOTOS_ENV_FILE": str(envfile),
     }
@@ -135,4 +143,70 @@ def test_lee_las_claves_del_env_file(tmp_path):
         ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
     )
     assert r.returncode == 0, r.stderr
-    assert (dest / "1" / "144750.jpg").exists()
+    assert (stack / "datos" / "fotos" / "1" / "144750.jpg").exists()
+    assert (stack / "datos" / "fotos" / ".last-sync.json").exists()
+
+
+def test_sin_FOTOS_HOST_DIR_el_destino_es_data_fotos_del_stack(tmp_path):
+    src = _origen(tmp_path)
+    stack = tmp_path / "stack"
+    stack.mkdir()
+    (stack / ".env").write_text("OTRA=1\n")
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": str(tmp_path),
+        "TMPDIR": str(tmp_path),
+        "FOTOS_SRC_DIR": str(src),
+        "FOTOS_ENV_FILE": str(stack / ".env"),
+    }
+    r = subprocess.run(
+        ["bash", str(SCRIPT)], env=env, capture_output=True, text=True, timeout=60
+    )
+    assert r.returncode == 0, r.stderr
+    assert (stack / "data" / "fotos" / "1" / "144750.jpg").exists()
+
+
+def test_un_origen_que_lista_muchas_menos_fotos_no_borra_nada(tmp_path):
+    # Share a medio caer: el directorio existe y lista ALGO, pero solo una
+    # parte. Sin este guard, --delete borraria el resto del espejo.
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    for i in range(60):
+        (src / "2" / f"{200000 + i}.jpg").write_bytes(b"x")
+    assert _run(src, dest).returncode == 0
+    marcador_antes = (dest / ".last-sync.json").read_text()
+
+    for i in range(40):
+        (src / "2" / f"{200000 + i}.jpg").unlink()
+    r = _run(src, dest)
+
+    assert r.returncode != 0
+    assert "aborto sin borrar nada" in r.stderr
+    assert len(list((dest / "2").iterdir())) == 61
+    assert (dest / ".last-sync.json").read_text() == marcador_antes
+
+    # Si el borrado es real, se dice explicitamente.
+    r = _run(src, dest, FOTOS_ALLOW_SHRINK="1")
+    assert r.returncode == 0, r.stderr
+    assert len(list((dest / "2").iterdir())) == 21
+
+
+def test_no_se_solapan_dos_ejecuciones(tmp_path):
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    (tmp_path / "psfotos-sync.lock").mkdir()
+
+    r = _run(src, dest)
+
+    assert r.returncode != 0
+    assert "ya hay una sincronizacion en curso" in r.stderr
+    assert not dest.exists()
+    # Y no se lleva por delante el lock de la otra ejecucion.
+    assert (tmp_path / "psfotos-sync.lock").exists()
+
+
+def test_el_lock_se_libera_al_terminar_bien_o_mal(tmp_path):
+    src, dest = _origen(tmp_path), tmp_path / "espejo"
+    assert _run(src, dest).returncode == 0
+    assert not (tmp_path / "psfotos-sync.lock").exists()
+    shutil.rmtree(src / "4")
+    assert _run(src, dest).returncode != 0
+    assert not (tmp_path / "psfotos-sync.lock").exists()

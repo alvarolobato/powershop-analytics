@@ -8,7 +8,10 @@
 # Variables:
 #   FOTOS_SMB_URL     //usuario:clave@HOST/SHARE. Obligatoria salvo con FOTOS_SRC_DIR.
 #   FOTOS_SMB_SUBDIR  ruta de Imagenes dentro del share (def. PS_Ficheros/Imagenes).
-#   FOTOS_DEST        raiz del espejo (def. ~/powershop/data/fotos).
+#   FOTOS_HOST_DIR    raiz del espejo: la MISMA variable que monta docker-compose
+#                     (def. ./data/fotos, relativa al directorio del .env).
+#   FOTOS_DEST        fuerza otro destino (tests, pruebas a mano).
+#   FOTOS_ALLOW_SHRINK=1  permite que el espejo encoja mas de un 10 %.
 #   FOTOS_ENV_FILE    .env del que leer las anteriores si no vienen en el entorno.
 #   FOTOS_SRC_DIR     origen ya montado: salta el mount_smbfs. Lo usan los tests
 #                     y sirve para reintentar a mano contra un montaje existente.
@@ -37,34 +40,68 @@ if [ -z "${FOTOS_ENV_FILE:-}" ]; then
         fi
     done
 fi
+STACK_DIR="$HOME/powershop"
 if [ -n "${FOTOS_ENV_FILE:-}" ] && [ -f "$FOTOS_ENV_FILE" ]; then
+    STACK_DIR="$(cd "$(dirname "$FOTOS_ENV_FILE")" && pwd)"
     : "${FOTOS_SMB_URL:=$(leer_env FOTOS_SMB_URL "$FOTOS_ENV_FILE")}"
     : "${FOTOS_SMB_SUBDIR:=$(leer_env FOTOS_SMB_SUBDIR "$FOTOS_ENV_FILE")}"
-    : "${FOTOS_DEST:=$(leer_env FOTOS_DEST "$FOTOS_ENV_FILE")}"
+    : "${FOTOS_HOST_DIR:=$(leer_env FOTOS_HOST_DIR "$FOTOS_ENV_FILE")}"
 fi
 
 FOTOS_SMB_SUBDIR="${FOTOS_SMB_SUBDIR:-PS_Ficheros/Imagenes}"
-FOTOS_DEST="${FOTOS_DEST:-$HOME/powershop/data/fotos}"
+
+# El destino es EL MISMO directorio que monta el contenedor: FOTOS_HOST_DIR, la
+# variable que lee docker-compose. Una ruta relativa se resuelve contra el
+# directorio del stack, igual que hace Compose. Si el espejo se escribiera en
+# un sitio y el contenedor montara otro, no habria fotos ni error.
+if [ -z "${FOTOS_DEST:-}" ]; then
+    FOTOS_DEST="${FOTOS_HOST_DIR:-./data/fotos}"
+    case "$FOTOS_DEST" in
+        /*) ;;
+        *) FOTOS_DEST="$STACK_DIR/${FOTOS_DEST#./}" ;;
+    esac
+fi
+
+# Una sola ejecucion a la vez: la primera copia dura horas y el job diario (o
+# un lanzamiento a mano) no debe solaparse con ella. mkdir es atomico.
+LOCK="${TMPDIR:-/tmp}/psfotos-sync.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "sync-fotos: ya hay una sincronizacion en curso ($LOCK). Si no es asi, borra ese directorio." >&2
+    exit 1
+fi
+MOUNT_POINT=""
+cleanup() {
+    if [ -n "$MOUNT_POINT" ]; then
+        umount "$MOUNT_POINT" 2>/dev/null \
+            || diskutil unmount force "$MOUNT_POINT" >/dev/null 2>&1 \
+            || echo "sync-fotos: no se pudo desmontar $MOUNT_POINT; desmontalo a mano" >&2
+        rmdir "$MOUNT_POINT" 2>/dev/null || true
+    fi
+    rmdir "$LOCK" 2>/dev/null || true
+}
+trap cleanup EXIT
 
 if [ -n "${FOTOS_SRC_DIR:-}" ]; then
     SRC="$FOTOS_SRC_DIR"
 else
     FOTOS_SMB_URL="${FOTOS_SMB_URL:?define FOTOS_SMB_URL en el .env (ver .env.example)}"
-
     MOUNT_POINT="$(mktemp -d /tmp/psfotos.XXXXXX)"
-    cleanup() {
-        umount "$MOUNT_POINT" 2>/dev/null || true
-        rmdir "$MOUNT_POINT" 2>/dev/null || true
-    }
-    trap cleanup EXIT
-
     mount_smbfs -o ro,nobrowse "$FOTOS_SMB_URL" "$MOUNT_POINT"
     SRC="$MOUNT_POINT/$FOTOS_SMB_SUBDIR"
 fi
 
-# GUARD: los cuatro origenes se comprueban ANTES del primer rsync con --delete.
-# Sin esto, un share caido o a medio montar vaciaria el espejo entero.
-for d in 1 2 3 4; do
+contar_fotos() {
+    find "$1" -mindepth 1 -maxdepth 1 -type f \
+        \( -name '*.jpg' -o -name '*.JPG' -o -name '*.jpeg' -o -name '*.JPEG' \) 2>/dev/null | wc -l | tr -d ' '
+}
+
+# GUARD de un directorio. Aborta si el origen no esta, enumera vacio o trae
+# bastantes menos fotos que el espejo: un share a medio caer que lista solo una
+# parte haria que --delete borrase el resto. Mismo criterio que D-063 para las
+# cargas del ETL: una carga que encoge mas de un 10 % es perdida de datos, no
+# una actualizacion. FOTOS_ALLOW_SHRINK=1 lo permite cuando el borrado es real.
+guard() {
+    local d="$1" en_origen en_espejo
     if [ ! -d "$SRC/$d" ]; then
         echo "sync-fotos: $SRC/$d no existe — aborto sin tocar el espejo" >&2
         exit 1
@@ -73,10 +110,30 @@ for d in 1 2 3 4; do
         echo "sync-fotos: $SRC/$d enumera vacio — aborto sin tocar el espejo" >&2
         exit 1
     fi
+    [ -d "$FOTOS_DEST/$d" ] || return 0
+    en_espejo="$(contar_fotos "$FOTOS_DEST/$d")"
+    [ "$en_espejo" -gt 0 ] || return 0
+    en_origen="$(contar_fotos "$SRC/$d")"
+    # Las dos condiciones: mas de un 10 % Y mas de 20 fotos. Sin el suelo
+    # absoluto, retirar 2 fotos de un directorio con 15 pararia el job.
+    if [ "${FOTOS_ALLOW_SHRINK:-0}" != "1" ] \
+        && [ $((en_origen * 10)) -lt $((en_espejo * 9)) ] \
+        && [ $((en_espejo - en_origen)) -gt 20 ]; then
+        echo "sync-fotos: $SRC/$d lista $en_origen fotos y el espejo tiene $en_espejo (mas de un 10 % y de 20 fotos menos) — aborto sin borrar nada. Si el borrado es real: FOTOS_ALLOW_SHRINK=1" >&2
+        exit 1
+    fi
+}
+
+# Los cuatro origenes se comprueban ANTES del primer rsync con --delete, y cada
+# uno otra vez justo antes del suyo: la primera copia dura horas y el share
+# puede degradarse a mitad.
+for d in 1 2 3 4; do
+    guard "$d"
 done
 
 copiados=0
 for d in 1 2 3 4; do
+    guard "$d"
     mkdir -p "$FOTOS_DEST/$d"
     # -rt y no -a: tamano + mtime es la senal incremental correcta. Nada de
     # --checksum, que releeria los 3,5 GB por VPN cada noche.

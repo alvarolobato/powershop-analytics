@@ -233,6 +233,9 @@ grep check-fotos-paths ~/Library/Logs/com.powershop.fotos-sync.log | tail -n 1  
 
 Notes:
 
+- The mirror is written to `FOTOS_HOST_DIR` from `~/powershop/.env` — the same variable Compose uses for the container mount — defaulting to `~/powershop/data/fotos`. Move the mirror by setting that one variable; do not set `FOTOS_DEST`.
+- If a run aborts with "lista N fotos y el espejo tiene M", the share listed far fewer photos than the mirror holds (more than 10 % and more than 20 fewer). That is the guard against a half-dead share wiping the mirror. If photos really were deleted on the server, run once by hand with `FOTOS_ALLOW_SHRINK=1 bash ~/powershop/scripts/sync-fotos.sh`.
+- Only one sync runs at a time (lock at `$TMPDIR/psfotos-sync.lock`). If a run was killed hard and the next one says "ya hay una sincronizacion en curso", remove that directory.
 - Freshness is 24 h: a photo uploaded today shows up tomorrow. For 6-hourly runs, turn `StartCalendarInterval` in the plist into an array of four entries.
 - It is a LaunchAgent, so it only runs while the user is logged in — same as the token-sync agent.
 - Thumbnails are generated on first view and cached in `~/powershop/data/dashboard/fotos-cache/` (worst case ~380 MB). The cache is disposable: delete it any time.
