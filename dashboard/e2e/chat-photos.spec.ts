@@ -28,13 +28,21 @@ const BASE = `http://localhost:${process.env.DASHBOARD_PORT ?? "4000"}`;
 const CON_FOTO = Object.keys(FOTOS_SEMBRADAS)[0]; // ART00001, 3 slots
 const SIN = SIN_FOTO[0]; // ART00003, ninguna
 
-/** Crea una conversación con su primer mensaje y la abre. */
+/** Crea una conversación, envía el primer turno y la abre. */
 async function conversacionCon(page: Page, texto: string): Promise<void> {
   const res = await page.request.post(`${BASE}/api/conversations`, {
-    data: { mode: "chat", first_user_prompt: texto },
+    data: { mode: "chat" },
   });
   expect(res.ok()).toBeTruthy();
   const { id } = await res.json();
+
+  // POST the first turn explicitly — the page only auto-sends via sessionStorage
+  // (NewConversationDialog path) so an API-created conversation needs this step.
+  const turnRes = await page.request.post(`${BASE}/api/conversations/${id}/turns`, {
+    data: { content: texto },
+  });
+  expect(turnRes.ok()).toBeTruthy();
+
   await page.goto(`${BASE}/conversations/${id}`);
   // El stub contesta al instante haciendo eco.
   await page.waitForSelector('[data-testid="assistant-bubble"]', { timeout: 30_000 });
