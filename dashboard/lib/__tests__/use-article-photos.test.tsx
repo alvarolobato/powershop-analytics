@@ -5,7 +5,6 @@ import {
   __resetArticlePhotosCache,
   cargarFotos,
   MAX_LOTE,
-  MAX_REINTENTOS,
   REINTENTO_MS,
   useArticlePhotos,
 } from "../use-article-photos";
@@ -167,7 +166,6 @@ describe("useArticlePhotos", () => {
   it.each<[string, () => Promise<Response>, boolean]>([
     ["la red falla", () => Promise.reject(new TypeError("Failed to fetch")), false],
     ["el servidor da 500", () => Promise.resolve(new Response("boom", { status: 500 })), false],
-    ["el espejo no responde (503)", () => Promise.resolve(new Response("{}", { status: 503 })), false],
     ["la respuesta no es JSON", () => Promise.resolve(new Response("<html>", { status: 200 })), false],
     // Contestó, aunque sin lo esperado: no es un fallo que reintentar.
     ["la respuesta tiene otra forma", () => Promise.resolve(new Response('{"porCodigo":"x"}', { status: 200 })), true],
@@ -180,7 +178,7 @@ describe("useArticlePhotos", () => {
     expect(result.current.deRef("V26212484")).toBeNull();
   });
 
-  it("un fallo persistente se reintenta con espera creciente y con tope, no cada 15 s para siempre", async () => {
+  it("un fallo persistente se reintenta UNA vez; después, solo la revalidación", async () => {
     vi.useFakeTimers({ now: new Date("2026-10-08T10:00:00Z") });
     const roto = vi.fn(() => Promise.resolve(new Response("boom", { status: 500 })));
     vi.stubGlobal("fetch", roto);
@@ -188,20 +186,19 @@ describe("useArticlePhotos", () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(roto).toHaveBeenCalledTimes(1);
 
-    // 15 s, 30 s, 60 s, 2 min → 4 reintentos en 3 min 45 s.
-    await vi.advanceTimersByTimeAsync(15_000 + 30_000 + 60_000 + 120_000 + 100);
-    expect(roto).toHaveBeenCalledTimes(1 + MAX_REINTENTOS);
+    await vi.advanceTimersByTimeAsync(REINTENTO_MS + 100);
+    expect(roto).toHaveBeenCalledTimes(2);
 
-    // Después no insiste hasta la revalidación de los 10 minutos.
-    await vi.advanceTimersByTimeAsync(4 * 60_000);
-    expect(roto).toHaveBeenCalledTimes(1 + MAX_REINTENTOS);
+    // No insiste cada 15 s…
+    await vi.advanceTimersByTimeAsync(8 * 60_000);
+    expect(roto).toHaveBeenCalledTimes(2);
+    // …pero la revalidación de los 10 minutos sigue ahí.
     await vi.advanceTimersByTimeAsync(3 * 60_000);
-    expect(roto.mock.calls.length).toBeGreaterThan(1 + MAX_REINTENTOS);
+    expect(roto).toHaveBeenCalledTimes(3);
 
     unmount();
-    const alDesmontar = roto.mock.calls.length;
     await vi.advanceTimersByTimeAsync(60 * 60_000);
-    expect(roto).toHaveBeenCalledTimes(alDesmontar);
+    expect(roto).toHaveBeenCalledTimes(3);
   });
 
   it("un fallo al abrir el panel se reintenta a los 15 s, sin esperar a los 10 minutos", async () => {

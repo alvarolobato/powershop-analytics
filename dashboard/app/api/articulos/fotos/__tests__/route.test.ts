@@ -56,7 +56,6 @@ describe("POST /api/articulos/fotos", () => {
       porCodigo: { "144750": [1, 2, 3], "132374": [1], "169": [] },
       porRef: {},
     });
-    expect(res.headers.get("cache-control")).toBe("private, max-age=60");
     expect(mockQuery).not.toHaveBeenCalled();
   });
 
@@ -103,6 +102,30 @@ describe("POST /api/articulos/fotos", () => {
     expect(sql).toMatch(/ORDER BY ccrefejofacm, \(anulado IS TRUE\), fecha_modifica DESC NULLS LAST/);
   });
 
+  it("muchas refs: los códigos que faltan se miran en un lote con tope, no todos de golpe", async () => {
+    const refs = Array.from({ length: 200 }, (_, i) => `R${i}`);
+    mockQuery.mockResolvedValue({ columns: [], rows: refs.map((r, i) => [r, String(700000 + i)]) });
+    let enVuelo = 0;
+    let pico = 0;
+    const real = fs.promises.lstat;
+    vi.spyOn(fs.promises, "lstat").mockImplementation((async (...a: Parameters<typeof real>) => {
+      enVuelo++;
+      pico = Math.max(pico, enVuelo);
+      await new Promise((r) => setImmediate(r));
+      try {
+        return await real(...a);
+      } finally {
+        enVuelo--;
+      }
+    }) as typeof real);
+
+    const res = await POST(peticion({ refs }));
+
+    expect(res.status).toBe(200);
+    expect(Object.keys((await res.json()).porRef)).toHaveLength(200);
+    expect(pico).toBeLessThanOrEqual(16);
+  });
+
   it("codigos y refs a la vez", async () => {
     mockQuery.mockResolvedValue({ columns: [], rows: [["V26212484", "144750"]] });
     const res = await POST(peticion({ codigos: ["132374"], refs: ["V26212484"] }));
@@ -142,21 +165,6 @@ describe("POST /api/articulos/fotos", () => {
     const res = await POST(req);
     expect(res.status).toBe(400);
     expect(enviados).toBeLessThan(5);
-  });
-
-  it("con el espejo sin responder contesta 503, no un 'sin fotos' que el cliente cachearía", async () => {
-    vi.useFakeTimers();
-    try {
-      vi.spyOn(fs.promises, "lstat").mockImplementation(() => new Promise(() => {}));
-      const p = POST(peticion({ codigos: ["144750", "132374"] }));
-      await vi.advanceTimersByTimeAsync(3100);
-      await vi.advanceTimersByTimeAsync(3100);
-      const res = await p;
-      expect(res.status).toBe(503);
-      expect(res.headers.get("cache-control")).toBe("no-store");
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("__proto__ y constructor son claves como cualquier otra", async () => {

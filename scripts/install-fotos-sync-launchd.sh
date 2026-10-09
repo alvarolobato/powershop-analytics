@@ -33,7 +33,7 @@ if [ ! -f "$STACK_DIR/docker-compose.yml" ]; then
 fi
 STACK_DIR=$(cd "$STACK_DIR" && pwd)
 
-if ! grep -q '^FOTOS_SMB_URL=' "$STACK_DIR/.env" 2>/dev/null; then
+if ! grep -qE '^(export[[:space:]]+)?FOTOS_SMB_URL=' "$STACK_DIR/.env" 2>/dev/null; then
   echo "AVISO: $STACK_DIR/.env no define FOTOS_SMB_URL; el job fallara hasta que se anada." >&2
 fi
 

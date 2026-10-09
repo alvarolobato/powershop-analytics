@@ -66,7 +66,9 @@ export function PhotoLightbox({
   const [pos, setPos] = useState(() => Math.max(0, inicial ? slots.indexOf(inicial) : 0));
   const [estado, setEstado] = useState<"cargando" | "lista" | "error">("cargando");
   const varias = slots.length > 1;
-  const slot = slots[pos] ?? slots[0];
+  // Una revalidación puede quitar un slot con el diálogo abierto.
+  const posReal = Math.min(pos, slots.length - 1);
+  const slot = slots[posReal];
 
   const ir = useCallback(
     (delta: number) => {
@@ -141,7 +143,7 @@ export function PhotoLightbox({
   // Precarga de la siguiente, para que la flecha no espere a la red.
   useEffect(() => {
     if (slots.length < 2) return;
-    const siguiente = slots[(pos + 1) % slots.length];
+    const siguiente = slots[(Math.min(pos, slots.length - 1) + 1) % slots.length];
     const img = new window.Image();
     img.src = urlFoto(codigo, siguiente, 1024);
   }, [codigo, pos, slots]);
@@ -160,8 +162,6 @@ export function PhotoLightbox({
         onClose();
       }}
       onKeyDown={parar}
-      onMouseEnter={parar}
-      onMouseLeave={parar}
       style={{
         position: "fixed",
         top: 0,
@@ -202,7 +202,7 @@ export function PhotoLightbox({
               fontFamily: "var(--font-jetbrains, monospace)",
             }}
           >
-            {varias ? `${pos + 1}/${slots.length}` : ""}
+            {varias ? `${posReal + 1}/${slots.length}` : ""}
           </span>
           <button
             type="button"
@@ -256,7 +256,7 @@ export function PhotoLightbox({
             <img
               key={slot}
               src={urlFoto(codigo, slot, 1024)}
-              alt={`Foto ${pos + 1} de ${slots.length} del artículo ${referencia ?? codigo}`}
+              alt={`Foto ${posReal + 1} de ${slots.length} del artículo ${referencia ?? codigo}`}
               onLoad={() => setEstado("lista")}
               onError={() => setEstado("error")}
               style={{

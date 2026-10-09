@@ -16,10 +16,23 @@ echo "=== fotos-sync $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 
 rc=0
 
-bash "$AQUI/sync-fotos.sh" || {
+# Tope de reloj. Un share colgado no falla: deja al rsync esperando para siempre
+# con el lock cogido, y todas las noches siguientes saldrian con "ya hay una
+# sincronizacion en curso". 8 h cubre de sobra la primera copia (~4,6 h).
+TOPE_S="${FOTOS_SYNC_TIMEOUT_S:-28800}"
+bash "$AQUI/sync-fotos.sh" &
+SYNC_PID=$!
+(
+    sleep "$TOPE_S"
+    echo "fotos-sync: el espejo lleva mas de ${TOPE_S}s; lo corto" >&2
+    kill "$SYNC_PID" 2>/dev/null
+) &
+VIGIA_PID=$!
+wait "$SYNC_PID" || {
     echo "fotos-sync: el espejo fallo (el anterior queda intacto)" >&2
     rc=1
 }
+kill "$VIGIA_PID" 2>/dev/null || true
 
 # p4d y las credenciales de 4D viven en el contenedor del ETL, no en el host.
 if (cd "$STACK_DIR" && docker compose exec -T etl python - < "$AQUI/check-fotos-paths.py"); then

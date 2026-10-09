@@ -186,9 +186,16 @@ test.describe("fotos de artículo — escritorio", () => {
     // Sin foto: ninguno.
     await expect(fila(page, "Artículos con hover", SIN_FOTO[0]).getByTestId("article-photo-glyph")).toHaveCount(0);
 
-    // Las únicas imágenes pedidas son las de la tabla que las pidió explícitamente.
-    const deHover = peticiones.filter((r) => !r.url().includes("w=160"));
-    expect(deHover.map((r) => r.url())).toEqual([]);
+    // Sin hover no se ha pedido NINGUNA foto de hover (256) ni de lightbox
+    // (1024), y las miniaturas (160) que haya son exactamente los <img> de la
+    // tabla que las pidió, no de esta.
+    expect(peticiones.filter((r) => !r.url().includes("w=160")).map((r) => r.url())).toEqual([]);
+    const pedidas = tabla(page, "Artículos con fotos a la vista").locator("td img");
+    const srcs = await pedidas.evaluateAll((imgs) => imgs.map((i) => new URL((i as HTMLImageElement).src).pathname + new URL((i as HTMLImageElement).src).search));
+    // Subconjunto, no igualdad: llevan loading="lazy" y puede que aún no se hayan pedido.
+    for (const r of peticiones) {
+      expect(srcs).toContain(new URL(r.url()).pathname + new URL(r.url()).search);
+    }
 
     await sinSuperficieDeError(page);
   });

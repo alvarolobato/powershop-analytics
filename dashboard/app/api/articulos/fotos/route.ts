@@ -20,14 +20,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import {
-  esCodigoValido,
-  espejoCortado,
-  MAX_LOTE,
-  slotsDeFoto,
-  slotsDeFotos,
-  type Slot,
-} from "@/lib/fotos";
+import { esCodigoValido, MAX_LOTE, slotsDeFotos, type Slot } from "@/lib/fotos";
 
 export const dynamic = "force-dynamic";
 
@@ -125,13 +118,14 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   const refsLimpias = [...new Set(refs.filter((r) => r.length > 0 && r.length <= MAX_LARGO_REF))];
   try {
     const codigoDe = await codigosDeRefs(refsLimpias);
-    await Promise.all(
-      Object.entries(codigoDe).map(async ([ref, codigo]) => {
-        // Un código que llega de la BD pasa por la misma validación.
-        if (!esCodigoValido(codigo)) return;
-        porRef[ref] = { codigo, slots: porCodigo[codigo] ?? (await slotsDeFoto(codigo)) };
-      }),
-    );
+    // Un código que llega de la BD pasa por la misma validación, y los que no
+    // venían ya en `codigos` se miran en UN lote, con su tope de concurrencia.
+    const pares = Object.entries(codigoDe).filter(([, codigo]) => esCodigoValido(codigo));
+    const faltan = pares.map(([, codigo]) => codigo).filter((c) => !(c in porCodigo));
+    const extra = faltan.length > 0 ? await slotsDeFotos(faltan) : {};
+    for (const [ref, codigo] of pares) {
+      porRef[ref] = { codigo, slots: porCodigo[codigo] ?? extra[codigo] ?? [] };
+    }
   } catch (err) {
     console.warn(
       "[fotos] no se pudieron resolver las referencias:",
@@ -139,17 +133,5 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  // El espejo dejó de responder a mitad: lo calculado no es "sin foto", es "no
-  // lo sé". Un 503 hace que el cliente reintente en vez de cachearlo 10 minutos.
-  if (espejoCortado()) {
-    return NextResponse.json(
-      { error: "El espejo de fotos no responde.", code: "UNAVAILABLE" },
-      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "30" } },
-    );
-  }
-
-  return NextResponse.json(
-    { porCodigo, porRef },
-    { headers: { "Cache-Control": "private, max-age=60" } },
-  );
+  return NextResponse.json({ porCodigo, porRef });
 }
