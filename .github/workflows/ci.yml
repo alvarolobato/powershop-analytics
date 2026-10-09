@@ -67,6 +67,13 @@ jobs:
     services:
       postgres:
         image: postgres:15
+        # El runner descarga el contenedor de SERVICIO antes de ejecutar
+        # ningun paso, asi que un docker/login-action no llega a tiempo: la
+        # unica via de autenticarlo es esta. Sin ella el job muere en 13 s con
+        # "unauthenticated pull rate limit" cuando Docker Hub aprieta la cuota.
+        credentials:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
         env:
           POSTGRES_USER: powershop
           POSTGRES_PASSWORD: powershop
