@@ -21,7 +21,23 @@ rc=0
 # sincronizacion en curso". 8 h cubre de sobra la primera copia (~1,5 h a los
 # 0,75 MB/s medidos con rclone).
 TOPE_S="${FOTOS_SYNC_TIMEOUT_S:-28800}"
-bash "$AQUI/sync-fotos.sh" &
+
+# Se ejecuta una COPIA del script, no el original.
+#
+# bash lee el fichero a trozos segun avanza: si alguien actualiza
+# sync-fotos.sh mientras corre —un despliegue a mitad de la primera copia, que
+# dura una hora y media— los desplazamientos se mueven bajo sus pies y el
+# proceso acaba con un error de sintaxis a medio camino, dejando el espejo
+# incompleto y sin marcador. Paso en produccion el 2026-10-09.
+# El prefijo "sync-fotos" NO es decorativo: lock_vivo() en sync-fotos.sh mira
+# la linea de comandos del proceso duenno del lock y solo lo cuenta como vivo
+# si encuentra *sync-fotos*. Cambiar el prefijo haria que un lock legitimo se
+# considerase huerfano y dos copias corrieran a la vez.
+COPIA_SCRIPT="$(mktemp -t sync-fotos)"
+cp "$AQUI/sync-fotos.sh" "$COPIA_SCRIPT"
+trap 'rm -f "$COPIA_SCRIPT"' EXIT
+
+bash "$COPIA_SCRIPT" &
 SYNC_PID=$!
 (
     sleep "$TOPE_S"
