@@ -37,6 +37,16 @@ if ! grep -qE '^(export[[:space:]]+)?FOTOS_SMB_URL=' "$STACK_DIR/.env" 2>/dev/nu
   echo "AVISO: $STACK_DIR/.env no define FOTOS_SMB_URL; el job fallara hasta que se anada." >&2
 fi
 
+# rclone es el cliente SMB del espejo, no un extra: sin el, la instalacion
+# diria "listo" y el job fallaria a la 01:00 sin que nadie lo mire. Se busca en
+# el mismo PATH que usa el plist, no en el del instalador, que en una shell
+# interactiva suele ser mas rico.
+if ! PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin" \
+     command -v rclone >/dev/null 2>&1; then
+  echo "ERROR: falta rclone, que es con lo que el espejo habla SMB. Instalalo con: brew install rclone" >&2
+  exit 1
+fi
+
 mkdir -p "$STACK_DIR/scripts" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
 for f in $JOB_FILES; do
   # Instalando desde el propio stack no hay nada que copiar.

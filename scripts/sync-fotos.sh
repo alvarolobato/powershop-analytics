@@ -172,23 +172,34 @@ else
         exit 1
     }
     # //[usuario[:clave]@]HOST/SHARE
+    # Se corta por el ULTIMO @, no por el primero: una clave puede llevar @ y
+    # con %%@* el host saldria partido por la mitad.
     _u="${FOTOS_SMB_URL#//}"
-    _cred="${_u%%@*}"
-    if [ "$_cred" = "$_u" ]; then _cred=""; _resto="$_u"; else _resto="${_u#*@}"; fi
+    case "$_u" in
+        *@*) _cred="${_u%@*}"; _resto="${_u##*@}" ;;
+        *) _cred=""; _resto="$_u" ;;
+    esac
     SMB_HOST="${_resto%%/*}"
     SMB_SHARE="${_resto#*/}"
     SMB_USER="${_cred%%:*}"
     SMB_PASS="${_cred#*:}"
     [ "$SMB_PASS" = "$_cred" ] && SMB_PASS=""
-    [ -n "$SMB_HOST" ] && [ "$SMB_SHARE" != "$_resto" ] || {
+    # El share tiene que existir y no estar vacio: //HOST/ a secas daria
+    # ":smb:/PS_Ficheros/..." y abortaria mas tarde con un "no existe" enganoso.
+    if [ -z "$SMB_HOST" ] || [ "$SMB_SHARE" = "$_resto" ] || [ -z "$SMB_SHARE" ]; then
         echo "sync-fotos: FOTOS_SMB_URL mal formada; se espera //[usuario[:clave]@]HOST/SHARE" >&2
         exit 1
-    }
-    RC_ARGS=(--smb-host="$SMB_HOST" --smb-user="${SMB_USER:-guest}")
-    # rclone quiere la clave ofuscada; vacia (invitado) se omite.
-    if [ -n "$SMB_PASS" ]; then
-        RC_ARGS+=(--smb-pass="$("$RCLONE" obscure "$SMB_PASS")")
     fi
+    RC_ARGS=(--smb-host="$SMB_HOST" --smb-user="${SMB_USER:-guest}")
+    # La clave NO va en argv: la linea de comandos de un rclone que corre horas
+    # la ve cualquiera con `ps`, y la forma ofuscada de rclone es reversible.
+    # Via variable de entorno (rclone acepta RCLONE_<FLAG>) y ofuscando por
+    # stdin, que tampoco deja el texto plano en argv.
+    if [ -n "$SMB_PASS" ]; then
+        RCLONE_SMB_PASS="$(printf '%s' "$SMB_PASS" | "$RCLONE" obscure -)"
+        export RCLONE_SMB_PASS
+    fi
+    unset SMB_PASS _cred
     SRC=":smb:$SMB_SHARE/$FOTOS_SMB_SUBDIR"
 fi
 
@@ -202,11 +213,14 @@ contar_fotos() {
 }
 
 # Las tres operaciones sobre el ORIGEN, cada una en sus dos modos.
+# El stderr de rclone NO se tira: una VPN caida o unas credenciales malas se
+# verian si no como "enumera vacio", que es exactamente el callejon sin salida
+# diagnostico que motivo este cambio de transporte.
 origen_existe() {
     if [ "$MODO" = "local" ]; then
         [ -d "$SRC/$1" ]
     else
-        "$RCLONE" "${RC_ARGS[@]}" lsjson --stat "$SRC/$1" >/dev/null 2>&1
+        "$RCLONE" "${RC_ARGS[@]}" lsjson --stat "$SRC/$1" >/dev/null
     fi
 }
 
@@ -214,7 +228,8 @@ origen_vacio() {
     if [ "$MODO" = "local" ]; then
         [ -z "$(find "$SRC/$1" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]
     else
-        [ -z "$("$RCLONE" "${RC_ARGS[@]}" lsf --files-only "$SRC/$1" 2>/dev/null | head -1)" ]
+        # Sin `| head`: con pipefail, el SIGPIPE a rclone haria fallar al script.
+        [ -z "$("$RCLONE" "${RC_ARGS[@]}" lsf --files-only --max-depth 1 "$SRC/$1")" ]
     fi
 }
 
@@ -222,7 +237,7 @@ origen_contar_fotos() {
     if [ "$MODO" = "local" ]; then
         contar_fotos "$SRC/$1"
     else
-        "$RCLONE" "${RC_ARGS[@]}" "${RC_FILTROS[@]}" lsf --files-only "$SRC/$1" | wc -l | tr -d ' '
+        "$RCLONE" "${RC_ARGS[@]}" "${RC_FILTROS[@]}" lsf --files-only --max-depth 1 "$SRC/$1" | wc -l | tr -d ' '
     fi
 }
 
@@ -286,7 +301,10 @@ for d in 1 2 3 4; do
         # el guard del 10 % cubriendo el caso del share a medio caer. Compara
         # tamano + mtime, igual que rsync -rt. --transfers 16 medido: 0,68 MB/s
         # frente a 0,54 con los 4 por defecto.
-        "$RCLONE" "${RC_ARGS[@]}" "${RC_FILTROS[@]}" sync \
+        # --max-depth 1: los --include de rclone NO estan anclados y casan a
+        # cualquier profundidad, asi que sin esto bajaria a los subdirectorios
+        # de trabajo de quien edita las fotos. rsync los podaba con --exclude.
+        "$RCLONE" "${RC_ARGS[@]}" "${RC_FILTROS[@]}" sync --max-depth 1 \
             --transfers="${FOTOS_TRANSFERS:-16}" --checkers="${FOTOS_TRANSFERS:-16}" \
             --stats=0 --stats-one-line \
             "$SRC/$d" "$FOTOS_DEST/$d" &

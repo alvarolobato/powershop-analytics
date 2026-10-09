@@ -432,7 +432,18 @@ def test_una_url_smb_mal_formada_para_antes_de_tocar_nada(tmp_path, url):
 def test_el_lock_se_libera_aunque_la_url_sea_invalida(tmp_path):
     # El guard mas facil de romper: salir por error dejando el lock puesto
     # congelaria el espejo todas las noches siguientes.
-    r = _run_smb(tmp_path, "basura")
+    #
+    # FOTOS_RCLONE apunta a un rclone de mentira a proposito: sin el, en una
+    # maquina sin rclone (CI) el script saldria en la comprobacion del binario
+    # y el test pasaria sin llegar nunca al camino que dice probar.
+    falso = tmp_path / "bin"
+    falso.mkdir()
+    (falso / "rclone").write_text("#!/bin/sh\nexit 0\n")
+    (falso / "rclone").chmod(0o755)
+
+    r = _run_smb(tmp_path, "basura", FOTOS_RCLONE=str(falso / "rclone"))
 
     assert r.returncode == 1
-    assert not (tmp_path / "psfotos-sync.lock").exists()
+    # lexists y no exists: el lock es un enlace simbolico a un PID, asi que
+    # exists() sigue el enlace y da False tanto si quedo puesto como si no.
+    assert not os.path.lexists(str(tmp_path / "psfotos-sync.lock"))
