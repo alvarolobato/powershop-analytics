@@ -68,17 +68,21 @@ jobs:
         with:
           ref: ${{ steps.rel.outputs.tag }}
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
+      # El login va EL PRIMERO de los tres, y no es cosmetico. setup-qemu
+      # descarga tonistiigi/binfmt de Docker Hub: estando detras del login lo
+      # hacia como anonimo y el job moria en 8 s con "unauthenticated pull
+      # rate limit", sin llegar a construir nada. Paso al cortar la v0.15.0.
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Compute tags
         id: tags
