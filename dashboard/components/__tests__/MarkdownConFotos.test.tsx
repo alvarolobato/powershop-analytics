@@ -144,4 +144,59 @@ describe("MarkdownConFotos", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(document.querySelector("[data-testid='article-photo-trigger']")).toBeNull();
   });
+
+  // --- canal explícito: [texto](articulo:ID) -------------------------------
+
+  it("un enlace articulo: pone la foto sobre la DESCRIPCIÓN, que sola no identifica", async () => {
+    fetchMock.mockResolvedValue(respuesta({ "144750": UN_ARTICULO }));
+    render(
+      <MarkdownConFotos>
+        {"El más vendido es [PARKA REVERSIBLE](articulo:144750) este mes."}
+      </MarkdownConFotos>,
+    );
+
+    const trigger = await screen.findByTestId("article-photo-trigger");
+    expect(trigger).toHaveTextContent("PARKA REVERSIBLE");
+    // Y no queda ningún enlace con un esquema que el navegador no entiende.
+    expect(document.querySelector('a[href^="articulo:"]')).toBeNull();
+  });
+
+  it("pide el identificador del enlace aunque no tenga forma de token", async () => {
+    render(<MarkdownConFotos>{"Ver [la parka](articulo:ART00001)."}</MarkdownConFotos>);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.tokens).toContain("ART00001");
+  });
+
+  it("un identificador inventado por el LLM no enseña nada ni deja enlace roto", async () => {
+    // La BD no lo reconoce: lo que el modelo afirma no se cree a ciegas.
+    fetchMock.mockResolvedValue(respuesta({}));
+    render(<MarkdownConFotos>{"Mira la [BLUSA](articulo:NOEXISTE9)."}</MarkdownConFotos>);
+
+    expect(await screen.findByText(/BLUSA/)).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(document.querySelector("[data-testid='article-photo-trigger']")).toBeNull();
+    expect(document.querySelector('a[href^="articulo:"]')).toBeNull();
+  });
+
+  it("los enlaces normales siguen funcionando y respetan al renderer del consumidor", async () => {
+    fetchMock.mockResolvedValue(respuesta({}));
+    render(
+      <MarkdownConFotos
+        components={{
+          a: ({ children: c, ...p }) => (
+            <a data-testid="enlace-del-consumidor" {...p}>
+              {c}
+            </a>
+          ),
+        }}
+      >
+        {"Ver [la documentación](https://example.com)."}
+      </MarkdownConFotos>,
+    );
+
+    const enlace = await screen.findByTestId("enlace-del-consumidor");
+    expect(enlace).toHaveAttribute("href", "https://example.com");
+  });
 });

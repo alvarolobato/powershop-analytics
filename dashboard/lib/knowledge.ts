@@ -645,6 +645,16 @@ export const INSTRUCTIONS: Instruction[] = [
   },
   {
     instruction:
+      "FOTOS DE ARTICULO EN EL CHAT: cuando respondas con texto (no con un widget) y menciones articulos CONCRETOS, enlazalos en markdown con el esquema articulo: y su identificador, asi: [PARKA REVERSIBLE](articulo:144750). Vale tanto el codigo (ps_articulos.codigo) como la Referencia (ps_articulos.ccrefejofacm); usa el que tengas. Eso hace que al pasar el raton se vea la foto, y funciona aunque el texto visible sea la descripcion o el modelo, que por si solos no identifican un articulo. Para poder escribirlo, incluye codigo o ccrefejofacm en el SELECT aunque no lo muestres en la tabla. NO enlaces agrupaciones (un modelo, una familia, una tienda) ni inventes nunca un identificador que no venga de la consulta: si no lo tienes, escribe el texto sin enlace. Un identificador que no exista no ensena nada, pero uno equivocado ensena la foto de otro articulo.",
+    questions: [
+      "¿Cuáles son los artículos más vendidos?",
+      "Dame la ficha de un artículo",
+      "¿Qué artículos tienen más stock?",
+      "Enséñame los artículos de esta temporada",
+    ],
+  },
+  {
+    instruction:
       "FOTOS DE ARTICULO: solo el 16 % de los artículos tiene foto y se localizan a partir del artículo (no hay tabla de fotos: el fichero existe o no; NO existe ninguna columna de foto, ruta o imagen que consultar en ps_articulos). Para que la foto pueda resolverse, un widget de tipo table que liste artículos concretos debe traer AL MENOS UNO de sus dos identificadores: la Referencia (ps_articulos.ccrefejofacm) o el codigo (ps_articulos.codigo). NO es obligatorio añadir codigo: si la tabla ya muestra la Referencia, con eso basta; rellena articulo_ref_col con el nombre exacto de esa columna en el resultado. Si la tabla incluye codigo, rellena articulo_codigo_col con el nombre exacto de esa columna (y si trae los dos, rellena ambos). Si la tabla agrupa por modelo u otra cosa que no es un artículo concreto, no pongas ninguno de los dos. Pon mostrar_fotos: true SOLO si el usuario pide explícitamente ver las fotos; por defecto solo hay hover al pasar el ratón. La descripción NO identifica un artículo (no es única): nunca dejes una tabla de artículos solo con la descripción.",
     questions: [
       "¿Top artículos más vendidos?",

@@ -47,11 +47,41 @@ function esRuido(tok: string): boolean {
  * Se salta los bloques de código cercados: ahí vive el SQL de la respuesta, y
  * sus nombres de columna y literales no son artículos.
  */
+/**
+ * Enlaces explícitos que pone el LLM: `[texto](articulo:144750)`.
+ *
+ * Es el canal sin ambigüedad, y el único que permite poner la foto sobre un
+ * texto que NO es un identificador — una descripción, un modelo. Se extraen
+ * aparte porque el identificador puede no tener forma de token (y porque
+ * entran siempre, antes que los candidatos adivinados).
+ */
+const ENLACE = /\]\(\s*articulo:([^)\s]{1,40})\s*\)/gi;
+
+/** Prefijo del esquema, compartido con el renderer. */
+export const ESQUEMA_ARTICULO = "articulo:";
+
+/** El identificador de un href `articulo:X`, o null si no es de los nuestros. */
+export function idDeEnlace(href: string | undefined): string | null {
+  if (!href) return null;
+  const limpio = href.trim();
+  if (!limpio.toLowerCase().startsWith(ESQUEMA_ARTICULO)) return null;
+  const id = limpio.slice(ESQUEMA_ARTICULO.length).trim();
+  return id.length > 0 && id.length <= 40 ? id : null;
+}
+
 export function extraerTokens(markdown: string): string[] {
   if (!markdown) return [];
   let limpio = markdown.replace(/```[\s\S]*?(?:```|$)/g, " ");
-  for (const f of FECHAS) limpio = limpio.replace(f, " ");
   const vistos = new Set<string>();
+
+  // Primero los enlaces explícitos: son los que el LLM afirma, y nunca se
+  // quedan fuera por el tope ni por no tener forma de identificador.
+  for (const m of limpio.matchAll(ENLACE)) {
+    vistos.add(m[1]);
+    if (vistos.size >= MAX_TOKENS_POR_MENSAJE) return [...vistos];
+  }
+
+  for (const f of FECHAS) limpio = limpio.replace(f, " ");
   for (const m of limpio.matchAll(TOKEN)) {
     const tok = m[0];
     if (esRuido(tok)) continue;

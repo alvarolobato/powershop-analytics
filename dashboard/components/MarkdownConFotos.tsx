@@ -23,13 +23,15 @@ import {
   Fragment,
   isValidElement,
   useMemo,
+  type AnchorHTMLAttributes,
   type HTMLAttributes,
+  type ElementType,
   type ReactNode,
 } from "react";
-import ReactMarkdown, { type Components } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ArticlePhotoHover } from "./ArticlePhotoHover";
-import { extraerTokens } from "@/lib/articulo-tokens";
+import { ESQUEMA_ARTICULO, extraerTokens, idDeEnlace } from "@/lib/articulo-tokens";
 import {
   useArticlePhotoTokens,
   type ArticuloConFoto,
@@ -50,7 +52,7 @@ function etiquetaDe(a: ArticuloConFoto): string | undefined {
  * Envuelve un token con su hover. Para un grupo, el disparador es el primer
  * artículo y el recorrido del lightbox son todas las fotos del grupo.
  */
-function envolver(tok: string, articulos: ArticuloConFoto[], key: string): ReactNode {
+function envolver(contenido: ReactNode, articulos: ArticuloConFoto[], key: string): ReactNode {
   const primero = articulos[0];
   const fotos = articulos.flatMap((a) =>
     a.slots.map((slot) => ({ codigo: a.codigo, slot, etiqueta: etiquetaDe(a) })),
@@ -69,7 +71,7 @@ function envolver(tok: string, articulos: ArticuloConFoto[], key: string): React
           : (primero.descripcion ?? undefined)
       }
     >
-      {tok}
+      {contenido}
     </ArticlePhotoHover>
   );
 }
@@ -119,6 +121,44 @@ function decorarHijos(hijos: ReactNode, porToken: FotosPorToken, re: RegExp | nu
   return hijos;
 }
 
+/**
+ * Renderer de enlaces. Se queda con el esquema `articulo:` que pone el LLM y
+ * delega el resto en el renderer del consumidor (o en un <a> normal).
+ *
+ * Es el canal SIN ambigüedad: el identificador viaja aparte del texto visible,
+ * así que la foto puede colgar de una descripción o de un modelo, que por sí
+ * solos no identifican nada.
+ *
+ * Lo que el LLM afirma NO se cree a ciegas: el identificador se resuelve
+ * contra la base de datos como cualquier otro. Uno inventado no enseña nada —
+ * se pinta el texto a secas, sin enlace, porque `articulo:` no es un esquema
+ * que el navegador entienda y un enlace roto sería peor que ninguno.
+ */
+function enlaceArticulo(
+  porToken: FotosPorToken,
+  original: Components["a"],
+): NonNullable<Components["a"]> {
+  type Props = AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown };
+  const Enlace = ({ children: hijos, node: _node, href, ...props }: Props) => {
+    const id = idDeEnlace(href);
+    if (id === null) {
+      // `node` no se reenvía: es del parser, no un atributo del DOM.
+      const Original = (original ?? "a") as ElementType;
+      return (
+        <Original href={href} {...props}>
+          {hijos}
+        </Original>
+      );
+    }
+    const articulos = porToken[id];
+    // Identificador que la BD no reconoce: el texto, sin enlace.
+    if (!articulos || articulos.length === 0) return <>{hijos}</>;
+    return envolver(hijos, articulos, `enlace-${id}`);
+  };
+  Enlace.displayName = "EnlaceArticulo";
+  return Enlace;
+}
+
 export interface MarkdownConFotosProps {
   children: string;
   /** Renderers extra o sobreescrituras del consumidor. */
@@ -145,7 +185,11 @@ export function MarkdownConFotos({
   }, [porToken]);
 
   const conFotos: Components = useMemo(() => {
-    if (!re) return components ?? {};
+    // El renderer de enlaces va SIEMPRE, también cuando no hay ningún token
+    // resuelto: si no, un `articulo:` que la BD no reconoce se pintaría como
+    // un enlace roto con un esquema que el navegador no entiende.
+    const a = enlaceArticulo(porToken, components?.a);
+    if (!re) return { ...components, a };
     type Etiqueta = "td" | "th" | "p" | "li" | "strong" | "em" | "code";
     // Atributos comunes a todas: las siete etiquetas solo reciben los
     // genéricos de HTML. `node` es el nodo de hast de react-markdown y no debe
@@ -166,6 +210,10 @@ export function MarkdownConFotos({
       em: envoltorio("em"),
       code: envoltorio("code"),
       ...components,
+      // El enlace va DESPUÉS del spread, no antes: tiene que ganar al renderer
+      // del consumidor para poder quedarse con el esquema `articulo:`. Para lo
+      // demás delega en él, así que no le quita nada.
+      a,
     };
   }, [re, porToken, components]);
 
@@ -174,6 +222,14 @@ export function MarkdownConFotos({
       remarkPlugins={[remarkGfm]}
       components={conFotos}
       allowedElements={allowedElements}
+      // react-markdown sanea las URLs y deja solo http/https/mailto/tel, asi
+      // que `articulo:` llegaba vacio al renderer. Se deja pasar SOLO ese
+      // esquema y todo lo demas sigue pasando por el saneado de siempre, que
+      // es lo que para un `javascript:`. Nuestro renderer nunca lo pone en el
+      // DOM: o lo convierte en el disparador de la foto, o deja el texto solo.
+      urlTransform={(url) =>
+        url.toLowerCase().startsWith(ESQUEMA_ARTICULO) ? url : defaultUrlTransform(url)
+      }
     >
       {children}
     </ReactMarkdown>
