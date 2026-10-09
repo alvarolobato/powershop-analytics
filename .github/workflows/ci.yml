@@ -122,7 +122,9 @@ jobs:
         # Explicit files (not substring filters): the conversation-engine suite,
         # the #800 home/dashboards suites, and the #804 chat/conversations
         # suites. conversation-ui is a pre-existing spec never wired into CI.
-        run: npx playwright test e2e/conversation-engine.spec.ts e2e/home.spec.ts e2e/dashboards.spec.ts e2e/chat-dashboard.spec.ts e2e/conversations-screen.spec.ts
+        # article-photos (D-068) siembra su propio FOTOS_DIR sintetico; el
+        # servidor lo recibe por `webServer.env` de playwright.config.ts.
+        run: npx playwright test e2e/conversation-engine.spec.ts e2e/home.spec.ts e2e/dashboards.spec.ts e2e/chat-dashboard.spec.ts e2e/conversations-screen.spec.ts e2e/article-photos.spec.ts
       - name: Run LLM-integration e2e (mock provider)
         # Separate step: the provider is read from the server env at launch, so
         # this starts a fresh dev server with the scripted mock adapter active.
