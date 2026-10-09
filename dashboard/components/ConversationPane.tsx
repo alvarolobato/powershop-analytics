@@ -7,8 +7,6 @@ import {
   useCallback,
   type KeyboardEvent,
 } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import type {
   ConversationWithMessages,
   ConversationMessage,
@@ -19,6 +17,7 @@ import { InitialContextPanel } from "@/components/InitialContextPanel";
 import LogBlock, { type LogLine } from "@/components/LogBlock";
 import type { DashboardSpec } from "@/lib/schema";
 import { ecoYaPersistido } from "@/lib/conversation-echo";
+import { MarkdownConFotos } from "./MarkdownConFotos";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -290,8 +289,7 @@ function AssistantBubble({
         {isError ? (
           <span style={{ whiteSpace: "pre-wrap" }}>{text}</span>
         ) : (
-          <ReactMarkdown
-            remarkPlugins={[remarkGfm]}
+          <MarkdownConFotos
             allowedElements={[
               "p", "br", "strong", "em", "ul", "ol", "li",
               "code", "pre", "blockquote", "a",
@@ -339,7 +337,7 @@ function AssistantBubble({
             }}
           >
             {text}
-          </ReactMarkdown>
+          </MarkdownConFotos>
         )}
       </div>
     </div>

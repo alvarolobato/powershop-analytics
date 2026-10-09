@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+import { MarkdownConFotos } from "../MarkdownConFotos";
 import type {
   ConversationWithMessages,
   ConversationMessage,
@@ -165,7 +164,7 @@ function AssistantBubble({ content }: { content: AssistantMessageContent }) {
         )}
         {text && (
           <div className="prose prose-sm dark:prose-invert max-w-none">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+            <MarkdownConFotos>{text}</MarkdownConFotos>
           </div>
         )}
         {hasError && detailsOpen && errorResponse && (

@@ -68,6 +68,63 @@ function listaDeTextos(valor: unknown): string[] | null {
 }
 
 /**
+ * Forma de un identificador de artículo suelto, para el modo `tokens`.
+ *
+ * Alfanumérico, de 4 a 20, y con AL MENOS UN DÍGITO. El dígito es lo que deja
+ * fuera las palabras de las descripciones ("CAMISA", "PANTALON"), que si no
+ * llegarían a la consulta por centenares. No pretende acertar qué es un
+ * identificador: solo evita preguntar por lo que seguro que no lo es. Quien
+ * decide es la base de datos.
+ */
+const FORMA_TOKEN = /^(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{4,20}$/;
+
+/** Variantes devueltas por un modelo. Un modelo con 40 colores no cabe en un tooltip. */
+const MAX_VARIANTES = 12;
+
+export interface ArticuloDeToken {
+  codigo: string;
+  referencia: string | null;
+  descripcion: string | null;
+  color: string | null;
+  slots: Slot[];
+}
+
+/**
+ * Resuelve texto suelto contra la BD: código, Referencia, o MODELO.
+ *
+ * El modelo es la Referencia sin los dos últimos caracteres y es lo que el
+ * chat suele enseñar ("I263002" por "I26300201"). Agrupa varios artículos, uno
+ * por color, así que un token puede devolver varias fotos: son hermanos de
+ * verdad, no una adivinanza.
+ */
+async function articulosDeTokens(tokens: string[]): Promise<Map<string, ArticuloDeToken[]>> {
+  const out = new Map<string, ArticuloDeToken[]>();
+  if (tokens.length === 0) return out;
+  const res = await query(
+    `SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color
+       FROM unnest($1::text[]) AS t(tok)
+       JOIN ps_articulos a
+         ON a.codigo = t.tok
+         OR a.ccrefejofacm = t.tok
+         OR (length(a.ccrefejofacm) = length(t.tok) + 2
+             AND left(a.ccrefejofacm, length(t.tok)) = t.tok)
+      WHERE a.codigo IS NOT NULL AND a.codigo <> ''
+      ORDER BY t.tok, (a.anulado IS TRUE), a.ccrefejofacm, a.codigo`,
+    [tokens],
+  );
+  for (const fila of res.rows as [string, string, string | null, string | null, string | null][]) {
+    const [tok, codigo, referencia, descripcion, color] = fila;
+    if (!esCodigoValido(codigo)) continue;
+    const lista = out.get(tok) ?? [];
+    if (lista.length >= MAX_VARIANTES) continue;
+    if (lista.some((a) => a.codigo === codigo)) continue;
+    lista.push({ codigo, referencia, descripcion, color, slots: [] });
+    out.set(tok, lista);
+  }
+  return out;
+}
+
+/**
  * Referencia → código. Es prácticamente 1:1 (42.962 referencias para 42.982
  * filas); si una referencia da varios códigos gana el no anulado con
  * `fecha_modifica` más reciente.
@@ -102,13 +159,19 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return mal("El cuerpo debe ser un objeto.");
   }
 
-  const { codigos: codigosRaw, refs: refsRaw } = body as Record<string, unknown>;
+  const {
+    codigos: codigosRaw,
+    refs: refsRaw,
+    tokens: tokensRaw,
+  } = body as Record<string, unknown>;
   const codigos = listaDeTextos(codigosRaw);
   const refs = listaDeTextos(refsRaw);
+  const tokens = listaDeTextos(tokensRaw);
   if (codigos === null) return mal("`codigos` debe ser una lista de textos.");
   if (refs === null) return mal("`refs` debe ser una lista de textos.");
-  if (codigos.length > MAX_LOTE || refs.length > MAX_LOTE) {
-    return mal(`Máximo ${MAX_LOTE} códigos y ${MAX_LOTE} referencias por petición.`);
+  if (tokens === null) return mal("`tokens` debe ser una lista de textos.");
+  if (codigos.length > MAX_LOTE || refs.length > MAX_LOTE || tokens.length > MAX_LOTE) {
+    return mal(`Máximo ${MAX_LOTE} elementos por lista y petición.`);
   }
 
   const porCodigo = await slotsDeFotos(codigos);
@@ -133,5 +196,31 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  return NextResponse.json({ porCodigo, porRef });
+  // Modo `tokens`: texto suelto del chat, donde no hay nombres de columna de
+  // los que fiarse. Solo salen los que la BD reconoce Y ademas tienen foto: el
+  // cliente decora exactamente lo que va a poder enseñar.
+  const porToken: Record<string, ArticuloDeToken[]> = Object.create(null);
+  const tokensLimpios = [...new Set(tokens.filter((t) => FORMA_TOKEN.test(t)))];
+  try {
+    const candidatos = await articulosDeTokens(tokensLimpios);
+    const sinMirar = [
+      ...new Set(
+        [...candidatos.values()].flat().map((a) => a.codigo).filter((c) => !(c in porCodigo)),
+      ),
+    ];
+    const extra = sinMirar.length > 0 ? await slotsDeFotos(sinMirar) : {};
+    for (const [tok, articulos] of candidatos) {
+      const conFoto = articulos
+        .map((a) => ({ ...a, slots: porCodigo[a.codigo] ?? extra[a.codigo] ?? [] }))
+        .filter((a) => a.slots.length > 0);
+      if (conFoto.length > 0) porToken[tok] = conFoto;
+    }
+  } catch (err) {
+    console.warn(
+      "[fotos] no se pudieron resolver los tokens:",
+      err instanceof Error ? err.message : err,
+    );
+  }
+
+  return NextResponse.json({ porCodigo, porRef, porToken });
 }

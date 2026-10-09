@@ -25,12 +25,18 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Slot } from "@/lib/use-article-photos";
-import { PhotoLightbox, urlFoto } from "./PhotoLightbox";
+import { PhotoLightbox, urlFoto, type FotoRef } from "./PhotoLightbox";
 
 export interface ArticlePhotoHoverProps {
   codigo: string;
   /** Slots con foto. Vacío → se renderiza `children` sin más. */
   slots: Slot[];
+  /**
+   * Recorrido completo para el lightbox cuando las fotos no son todas del
+   * mismo artículo. Lo usa el chat con los «modelos», que agrupan un artículo
+   * por color. El tooltip sigue enseñando la primera de `codigo`/`slots`.
+   */
+  fotos?: FotoRef[];
   referencia?: string;
   descripcion?: string;
   /** `false` para envolver algo que ya es una foto (la columna de miniaturas). */
@@ -84,6 +90,7 @@ function CameraGlyph() {
 export function ArticlePhotoHover({
   codigo,
   slots,
+  fotos,
   referencia,
   descripcion,
   glifo = true,
@@ -313,6 +320,7 @@ export function ArticlePhotoHover({
         <PhotoLightbox
           codigo={codigo}
           slots={slots}
+          fotos={fotos}
           referencia={referencia}
           descripcion={descripcion}
           onClose={() => {

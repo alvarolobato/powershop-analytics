@@ -16,14 +16,29 @@
  *    `onClick` de la fila que abre el drill-down.
  */
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { Slot } from "@/lib/use-article-photos";
+
+/** Una foto concreta de un artículo concreto. */
+export interface FotoRef {
+  codigo: string;
+  slot: Slot;
+  /** Qué distingue a esta foto de las demás del grupo (el color, normalmente). */
+  etiqueta?: string;
+}
 
 export interface PhotoLightboxProps {
   codigo: string;
   /** Slots con foto, en orden. Al menos uno. */
   slots: Slot[];
+  /**
+   * Recorrido explícito, cuando las fotos no son todas del mismo artículo.
+   * Lo usa el chat: ahí un «modelo» agrupa un artículo por color, y verlos
+   * todos seguidos es justo lo que se quiere. Si viene, manda sobre
+   * `codigo`/`slots`, que siguen sirviendo de rótulo.
+   */
+  fotos?: FotoRef[];
   /** Slot que se muestra al abrir. Por defecto el primero. */
   inicial?: Slot;
   referencia?: string;
@@ -56,6 +71,7 @@ const botonNav: React.CSSProperties = {
 export function PhotoLightbox({
   codigo,
   slots,
+  fotos: fotosProp,
   inicial,
   referencia,
   descripcion,
@@ -63,20 +79,28 @@ export function PhotoLightbox({
 }: PhotoLightboxProps) {
   const tituloId = useId();
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const [pos, setPos] = useState(() => Math.max(0, inicial ? slots.indexOf(inicial) : 0));
+  // Un único recorrido, venga de `fotos` o de `codigo` + `slots`.
+  const fotos: FotoRef[] = useMemo(
+    () => (fotosProp && fotosProp.length > 0 ? fotosProp : slots.map((s) => ({ codigo, slot: s }))),
+    [fotosProp, codigo, slots],
+  );
+  const [pos, setPos] = useState(() =>
+    Math.max(0, inicial ? fotos.findIndex((f) => f.slot === inicial && f.codigo === codigo) : 0),
+  );
   const [estado, setEstado] = useState<"cargando" | "lista" | "error">("cargando");
-  const varias = slots.length > 1;
+  const varias = fotos.length > 1;
   // Una revalidación puede quitar un slot con el diálogo abierto.
-  const posReal = Math.min(pos, slots.length - 1);
-  const slot = slots[posReal];
+  const posReal = Math.min(Math.max(pos, 0), fotos.length - 1);
+  const foto = fotos[posReal];
+  const slot = foto?.slot;
 
   const ir = useCallback(
     (delta: number) => {
-      if (slots.length < 2) return;
+      if (fotos.length < 2) return;
       setEstado("cargando");
-      setPos((p) => (p + delta + slots.length) % slots.length);
+      setPos((p) => (p + delta + fotos.length) % fotos.length);
     },
-    [slots.length],
+    [fotos.length],
   );
 
   // Foco: al abrir entra en el diálogo; al cerrar vuelve a donde estaba.
@@ -142,13 +166,13 @@ export function PhotoLightbox({
 
   // Precarga de la siguiente, para que la flecha no espere a la red.
   useEffect(() => {
-    if (slots.length < 2) return;
-    const siguiente = slots[(Math.min(pos, slots.length - 1) + 1) % slots.length];
+    if (fotos.length < 2) return;
+    const siguiente = fotos[(Math.min(Math.max(pos, 0), fotos.length - 1) + 1) % fotos.length];
     const img = new window.Image();
-    img.src = urlFoto(codigo, siguiente, 1024);
-  }, [codigo, pos, slots]);
+    img.src = urlFoto(siguiente.codigo, siguiente.slot, 1024);
+  }, [pos, fotos]);
 
-  if (typeof document === "undefined" || slot === undefined) return null;
+  if (typeof document === "undefined" || foto === undefined || slot === undefined) return null;
 
   const parar = (e: React.SyntheticEvent) => e.stopPropagation();
 
@@ -202,7 +226,8 @@ export function PhotoLightbox({
               fontFamily: "var(--font-jetbrains, monospace)",
             }}
           >
-            {varias ? `${posReal + 1}/${slots.length}` : ""}
+            {varias ? `${posReal + 1}/${fotos.length}` : ""}
+            {foto.etiqueta ? ` · ${foto.etiqueta}` : ""}
           </span>
           <button
             type="button"
@@ -254,9 +279,9 @@ export function PhotoLightbox({
           ) : (
             // eslint-disable-next-line @next/next/no-img-element -- next/image no aporta nada aquí: el redimensionado y la caché son de /api/fotos
             <img
-              key={slot}
-              src={urlFoto(codigo, slot, 1024)}
-              alt={`Foto ${posReal + 1} de ${slots.length} del artículo ${referencia ?? codigo}`}
+              key={`${foto.codigo}-${slot}`}
+              src={urlFoto(foto.codigo, slot, 1024)}
+              alt={`Foto ${posReal + 1} de ${fotos.length} del artículo ${foto.etiqueta ?? referencia ?? foto.codigo}`}
               onLoad={() => setEstado("lista")}
               onError={() => setEstado("error")}
               style={{
