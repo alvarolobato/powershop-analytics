@@ -97,12 +97,10 @@ export function PhotoLightbox({
         onClose();
         return;
       }
-      if (e.key === "ArrowRight") {
-        ir(1);
-        return;
-      }
-      if (e.key === "ArrowLeft") {
-        ir(-1);
+      if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+        // Que las flechas no desplacen la página que hay detrás.
+        e.preventDefault();
+        ir(e.key === "ArrowRight" ? 1 : -1);
         return;
       }
       if (e.key === "Tab" && dialogRef.current) {
@@ -130,6 +128,15 @@ export function PhotoLightbox({
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
   }, [ir, onClose]);
+
+  // La página de detrás no se desplaza mientras el diálogo está abierto.
+  useEffect(() => {
+    const anterior = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = anterior;
+    };
+  }, []);
 
   // Precarga de la siguiente, para que la flecha no espere a la red.
   useEffect(() => {

@@ -7,7 +7,8 @@
  *   porRef:    { "V26212484": { codigo: "144750", slots: [1, 2, 3] } }
  * }
  *
- * `codigos` son solo `stat` sobre el espejo local: no toca PostgreSQL.
+ * `codigos` son solo `stat` sobre el espejo local: no toca PostgreSQL. Los que
+ * no tienen forma de código de artículo se descartan y no aparecen en la respuesta.
  * `refs` necesita una consulta para traducir Referencia → código.
  *
  * No existe `descripciones[]` y no debe existir: la descripción no identifica
@@ -19,12 +20,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { MAX_LOTE, slotsDeFoto, slotsDeFotos, type Slot } from "@/lib/fotos";
+import { esCodigoValido, MAX_LOTE, slotsDeFoto, slotsDeFotos, type Slot } from "@/lib/fotos";
 
 export const dynamic = "force-dynamic";
 
 /** Una Referencia cabe de sobra; el tope solo evita cadenas absurdas. */
 const MAX_LARGO_REF = 80;
+
+/** 200 códigos + 200 referencias caben en ~25 KB. Más que esto no es un lote. */
+const MAX_CUERPO_BYTES = 64 * 1024;
 
 function mal(detalle: string): NextResponse {
   return NextResponse.json({ error: detalle, code: "VALIDATION" }, { status: 400 });
@@ -53,7 +57,7 @@ async function codigosDeRefs(refs: string[]): Promise<Record<string, string>> {
       ORDER BY ccrefejofacm, (anulado IS TRUE), fecha_modifica DESC NULLS LAST, codigo`,
     [refs],
   );
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
   for (const [ref, codigo] of res.rows as [string, string][]) {
     if (!(ref in out)) out[ref] = codigo;
   }
@@ -63,7 +67,11 @@ async function codigosDeRefs(refs: string[]): Promise<Record<string, string>> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let body: unknown;
   try {
-    body = await request.json();
+    // Se lee como texto para poder medirlo: el endpoint va sin autenticación y
+    // Content-Length puede faltar o mentir.
+    const texto = await request.text();
+    if (texto.length > MAX_CUERPO_BYTES) return mal("Cuerpo demasiado grande.");
+    body = JSON.parse(texto);
   } catch {
     return mal("Cuerpo JSON no válido.");
   }
@@ -82,12 +90,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
   const porCodigo = await slotsDeFotos(codigos);
 
-  const porRef: Record<string, { codigo: string; slots: Slot[] }> = {};
+  // Sin prototipo: las claves son texto del usuario.
+  const porRef: Record<string, { codigo: string; slots: Slot[] }> = Object.create(null);
   const refsLimpias = [...new Set(refs.filter((r) => r.length > 0 && r.length <= MAX_LARGO_REF))];
   try {
     const codigoDe = await codigosDeRefs(refsLimpias);
     await Promise.all(
       Object.entries(codigoDe).map(async ([ref, codigo]) => {
+        // Un código que llega de la BD pasa por la misma validación.
+        if (!esCodigoValido(codigo)) return;
         porRef[ref] = { codigo, slots: porCodigo[codigo] ?? (await slotsDeFoto(codigo)) };
       }),
     );

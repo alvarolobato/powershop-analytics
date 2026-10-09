@@ -150,6 +150,15 @@ describe("GET /api/fotos/[codigo]/[slot]", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/jpeg");
     expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("no soy un jpeg");
+    // El original servido en lugar de la miniatura no se cachea como miniatura.
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("etag")).toBeNull();
+  });
+
+  it("un symlink en el espejo no se sirve", async () => {
+    fs.writeFileSync(path.join(raiz, "config.yaml"), "secreto");
+    fs.symlinkSync(path.join(raiz, "config.yaml"), path.join(fotosDir, "3", "169.jpg"));
+    expect((await pedir("169", "3")).status).toBe(404);
   });
 
   it("sin espejo (FOTOS_DIR inexistente) → 404, no 500", async () => {

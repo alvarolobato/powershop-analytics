@@ -131,6 +131,37 @@ describe("useArticlePhotos", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("con el widget montado, lo caducado se sigue viendo y se revalida solo", async () => {
+    // Regresión de la revisión: el lector aplicaba el TTL, así que a los 10
+    // minutos cualquier re-render (ordenar la tabla) borraba todos los
+    // indicadores y nadie volvía a pedirlos.
+    vi.useFakeTimers({ now: new Date("2026-10-08T10:00:00Z") });
+    const { result, rerender } = renderHook(() => useArticlePhotos(["144750", "169"], []));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(result.current.slotsDeCodigo("144750")).toEqual([1, 2, 3]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Pasan 10 min y medio SIN que se dispare aún la revalidación… el dato sigue.
+    vi.setSystemTime(new Date("2026-10-08T10:10:30Z"));
+    rerender();
+    expect(result.current.slotsDeCodigo("144750")).toEqual([1, 2, 3]);
+
+    // …y el temporizador vuelve a preguntar: la 169 ahora tiene foto.
+    vi.stubGlobal("fetch", servidor({ "169": [2] }));
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 1000);
+    expect(result.current.slotsDeCodigo("169")).toEqual([2]);
+    expect(result.current.slotsDeCodigo("144750")).toEqual([1, 2, 3]);
+  });
+
+  it("al desmontar deja de revalidar", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-08T10:00:00Z") });
+    const { unmount } = renderHook(() => useArticlePhotos(["144750"], []));
+    await vi.advanceTimersByTimeAsync(0);
+    unmount();
+    await vi.advanceTimersByTimeAsync(60 * 60 * 1000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["la red falla", () => Promise.reject(new TypeError("Failed to fetch"))],
     ["el servidor da 500", () => Promise.resolve(new Response("boom", { status: 500 }))],

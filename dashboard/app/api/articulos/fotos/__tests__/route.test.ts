@@ -110,16 +110,32 @@ describe("POST /api/articulos/fotos", () => {
     });
   });
 
-  it("un código manipulado no es un error: simplemente no tiene foto", async () => {
-    const res = await POST(peticion({ codigos: ["../1/144750", "144750"] }));
+  it("un código manipulado no es un error: se descarta y no vuelve en la respuesta", async () => {
+    const res = await POST(peticion({ codigos: ["../1/144750", "144750", "x".repeat(3000)] }));
     expect(res.status).toBe(200);
-    expect((await res.json()).porCodigo).toEqual({ "../1/144750": [], "144750": [1, 2, 3] });
+    expect((await res.json()).porCodigo).toEqual({ "144750": [1, 2, 3] });
+  });
+
+  it("un cuerpo enorme se rechaza sin procesarlo", async () => {
+    const res = await POST(peticion({ codigos: Array.from({ length: 200 }, () => "A".repeat(1000)) }));
+    expect(res.status).toBe(400);
+    expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it("__proto__ y constructor son claves como cualquier otra", async () => {
+    mockQuery.mockResolvedValue({ columns: [], rows: [["constructor", "144750"]] });
+    const res = await POST(peticion({ codigos: ["__proto__", "constructor"], refs: ["constructor"] }));
+    expect(res.status).toBe(200);
+    const body = JSON.parse(await res.text());
+    expect(Object.keys(body.porCodigo).sort()).toEqual(["__proto__", "constructor"]);
+    expect(body.porRef.constructor).toEqual({ codigo: "144750", slots: [1, 2, 3] });
   });
 
   it("un código que llega de la BD también pasa por la validación", async () => {
     mockQuery.mockResolvedValue({ columns: [], rows: [["REFMALA", "../1/144750"]] });
     const res = await POST(peticion({ refs: ["REFMALA"] }));
-    expect((await res.json()).porRef).toEqual({ REFMALA: { codigo: "../1/144750", slots: [] } });
+    // Un código que no es un código no se devuelve: el cliente lo usaría en una URL.
+    expect((await res.json()).porRef).toEqual({});
   });
 
   it("cuerpo vacío → 200 sin nada", async () => {

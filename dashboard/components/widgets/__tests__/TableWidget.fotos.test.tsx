@@ -196,6 +196,60 @@ describe("TableWidget — hover de fotos", () => {
     expect(disparadores(fila("V26000169"))).toHaveLength(0);
   });
 
+  it("reordenar después de un hover no arrastra el estado al artículo que ocupa esa fila", async () => {
+    // Las filas van por índice. Sin clave por artículo, la instancia de la
+    // fila 1 (ya con la <img> montada) pasaría a ser la de OTRO artículo y
+    // descargaría su foto sin que nadie pasara el ratón.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const dos: WidgetData = { columns: articulos.columns, rows: articulos.rows.slice(0, 2) };
+      render(<TableWidget widget={{ ...base, articulo_codigo_col: "codigo" }} data={dos} />);
+      await cargado();
+
+      // Orden inicial: 144750 arriba. Hover sobre su referencia.
+      fireEvent.mouseEnter(screen.getByText("V26212484").closest('[data-testid="article-photo-trigger"]')!);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(document.querySelectorAll("img")).toHaveLength(1);
+      expect(document.querySelector("img")).toHaveAttribute("src", "/api/fotos/144750/1?w=256");
+
+      // Por unidades ascendente, la fila de arriba pasa a ser 132374, que
+      // también tiene foto.
+      fireEvent.click(screen.getByRole("button", { name: /Unidades/ }));
+      expect(screen.getAllByRole("row")[1]).toHaveTextContent("132374");
+
+      const srcs = [...document.querySelectorAll("img")].map((i) => i.getAttribute("src"));
+      // Ninguna foto del 132374, que nadie ha mirado.
+      expect(srcs.filter((s) => s?.includes("/132374/"))).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("una sola parada de Tab por fila, no una por celda", async () => {
+    render(<TableWidget widget={{ ...base, articulo_codigo_col: "codigo" }} data={articulos} />);
+    await cargado();
+
+    const enFila = disparadores(fila("V26212484"));
+    expect(enFila).toHaveLength(3);
+    expect(enFila.filter((t) => t.getAttribute("tabindex") === "0")).toHaveLength(1);
+    // La enfocable es la primera celda del artículo (el código).
+    expect(enFila[0]).toHaveAttribute("tabindex", "0");
+    // En toda la tabla: 2 artículos con foto → 2 paradas.
+    expect(
+      screen.getAllByTestId("article-photo-trigger").filter((t) => t.getAttribute("tabindex") === "0"),
+    ).toHaveLength(2);
+  });
+
+  it("con mostrar_fotos la parada de Tab es la miniatura", async () => {
+    render(
+      <TableWidget widget={{ ...base, articulo_codigo_col: "codigo", mostrar_fotos: true }} data={articulos} />,
+    );
+    await cargado();
+    const enFila = disparadores(fila("V26212484"));
+    expect(enFila).toHaveLength(4);
+    expect(enFila.map((t) => t.getAttribute("tabindex"))).toEqual(["0", "-1", "-1", "-1"]);
+  });
+
   it("si el endpoint falla la tabla se pinta igual, sin fotos y sin error", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))));
     render(<TableWidget widget={{ ...base, articulo_codigo_col: "codigo" }} data={articulos} />);

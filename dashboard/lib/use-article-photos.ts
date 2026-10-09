@@ -47,9 +47,7 @@ const enVuelo = new Map<string, Promise<void>>();
 
 function vigente<T>(cache: Map<string, Entrada<T>>, clave: string): Entrada<T> | undefined {
   const e = cache.get(clave);
-  if (e && e.caduca > Date.now()) return e;
-  if (e) cache.delete(clave);
-  return undefined;
+  return e && e.caduca > Date.now() ? e : undefined;
 }
 
 function trocear<T>(lista: T[], n: number): T[][] {
@@ -146,9 +144,13 @@ export function __resetArticlePhotosCache(): void {
   enVuelo.clear();
 }
 
+// El lector NO aplica el TTL: lo caducado se sigue enseñando hasta que la
+// revalidación lo sustituya. Si lo aplicara, a los 10 minutos un simple
+// reordenado de la tabla borraría todos los indicadores sin volver a pedirlos.
+// El TTL solo decide cuándo `cargarFotos` vuelve a preguntar.
 const LECTOR: ArticlePhotos = {
-  slotsDeCodigo: (codigo) => vigente(cacheCodigos, codigo)?.valor ?? SIN_SLOTS,
-  deRef: (ref) => vigente(cacheRefs, ref)?.valor ?? null,
+  slotsDeCodigo: (codigo) => cacheCodigos.get(codigo)?.valor ?? SIN_SLOTS,
+  deRef: (ref) => cacheRefs.get(ref)?.valor ?? null,
 };
 
 /**
@@ -167,11 +169,17 @@ export function useArticlePhotos(codigos: string[], refs: string[]): ArticlePhot
     const [cs, rs] = JSON.parse(clave) as [string[], string[]];
     if (cs.length === 0 && rs.length === 0) return;
     let vivo = true;
-    void cargarFotos(cs, rs).then(() => {
-      if (vivo) setVersion((v) => v + 1);
-    });
+    const cargar = () =>
+      void cargarFotos(cs, rs).then(() => {
+        if (vivo) setVersion((v) => v + 1);
+      });
+    cargar();
+    // Un panel abierto todo el día se entera de las fotos nuevas (y de las
+    // borradas) cuando caduca la caché, sin recargar la página.
+    const revalidar = setInterval(cargar, TTL_MS + 1000);
     return () => {
       vivo = false;
+      clearInterval(revalidar);
     };
   }, [clave]);
 

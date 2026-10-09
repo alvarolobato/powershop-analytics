@@ -177,6 +177,57 @@ describe("ArticlePhotoHover", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("al desplazar la página o la tabla el tooltip se oculta: no queda flotando sobre otra fila", () => {
+    pintar();
+    fireEvent.mouseEnter(screen.getByTestId("article-photo-trigger"));
+    avanzar(HOVER_DELAY_MS);
+    expect(screen.getByRole("tooltip")).toHaveAttribute("data-visible", "true");
+
+    fireEvent.scroll(document.body);
+    expect(screen.getByTestId("article-photo-tooltip")).toHaveAttribute("data-visible", "false");
+  });
+
+  it("si la foto da error (la borró el espejo) el tooltip desaparece en vez de quedarse cargando", () => {
+    pintar();
+    fireEvent.mouseEnter(screen.getByTestId("article-photo-trigger"));
+    avanzar(HOVER_DELAY_MS);
+    const tooltip = screen.getByTestId("article-photo-tooltip");
+    fireEvent.error(tooltip.querySelector("img")!);
+    expect(tooltip).toHaveStyle({ visibility: "hidden" });
+  });
+
+  it("al cerrar el lightbox el foco vuelve al indicador SIN reabrir el tooltip", () => {
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => (cb(0), 1));
+    pintar();
+    const trigger = screen.getByTestId("article-photo-trigger");
+    trigger.focus();
+    avanzar(0);
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    avanzar(50);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+    expect(screen.getByTestId("article-photo-tooltip")).toHaveAttribute("data-visible", "false");
+
+    // Y el siguiente foco de teclado sí lo muestra.
+    avanzar(200);
+    trigger.blur();
+    trigger.focus();
+    avanzar(0);
+    expect(screen.getByTestId("article-photo-tooltip")).toHaveAttribute("data-visible", "true");
+  });
+
+  it("enfocable={false} lo saca del orden de tabulación pero sigue respondiendo al ratón", () => {
+    pintar({ enfocable: false });
+    const trigger = screen.getByTestId("article-photo-trigger");
+    expect(trigger).toHaveAttribute("tabindex", "-1");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("glifo={false} envuelve sin añadir la cámara", () => {
     pintar({ glifo: false });
     expect(screen.queryByTestId("article-photo-glyph")).toBeNull();

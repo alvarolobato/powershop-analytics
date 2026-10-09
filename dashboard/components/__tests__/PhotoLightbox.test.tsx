@@ -100,6 +100,20 @@ describe("PhotoLightbox", () => {
     expect(screen.getByTestId("photo-lightbox-counter")).toHaveTextContent("3/3");
   });
 
+  it("las flechas no desplazan la página de detrás, y el body no hace scroll mientras está abierto", () => {
+    document.body.style.overflow = "auto";
+    const { unmount } = abrir();
+    expect(document.body.style.overflow).toBe("hidden");
+
+    const ev = new KeyboardEvent("keydown", { key: "ArrowRight", cancelable: true, bubbles: true });
+    window.dispatchEvent(ev);
+    expect(ev.defaultPrevented).toBe(true);
+
+    unmount();
+    expect(document.body.style.overflow).toBe("auto");
+    document.body.style.overflow = "";
+  });
+
   it("usa los slots reales, no 1..n: con fotos en 1 y 3 salta el 2", () => {
     abrir({ slots: [1, 3] });
     fireEvent.keyDown(window, { key: "ArrowRight" });

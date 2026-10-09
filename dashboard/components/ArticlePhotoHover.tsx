@@ -35,6 +35,12 @@ export interface ArticlePhotoHoverProps {
   descripcion?: string;
   /** `false` para envolver algo que ya es una foto (la columna de miniaturas). */
   glifo?: boolean;
+  /**
+   * `false` saca el disparador del orden de tabulación (sigue respondiendo al
+   * ratón). Una fila envuelve hasta tres celdas con la misma acción: solo una
+   * debe ser parada de Tab, o cruzar una tabla larga con teclado son cientos.
+   */
+  enfocable?: boolean;
   children: ReactNode;
 }
 
@@ -81,6 +87,7 @@ export function ArticlePhotoHover({
   referencia,
   descripcion,
   glifo = true,
+  enfocable = true,
   children,
 }: ArticlePhotoHoverProps) {
   const tooltipId = useId();
@@ -90,6 +97,10 @@ export function ArticlePhotoHover({
   const [armed, setArmed] = useState(false);
   const [visible, setVisible] = useState(false);
   const [cargada, setCargada] = useState(false);
+  // La foto dio error (la borró el espejo con la caché de slots aún viva).
+  const [rota, setRota] = useState(false);
+  // Al cerrar el lightbox el foco vuelve aquí: ese foco no debe reabrir el tooltip.
+  const ignorarFoco = useRef(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [abierto, setAbierto] = useState(false);
 
@@ -134,6 +145,18 @@ export function ArticlePhotoHover({
     setAbierto(true);
   }, [ocultar]);
 
+  // La posición es `fixed` y se calcula al mostrar: si la página o la tabla se
+  // desplazan, el tooltip se quedaría flotando sobre otra fila.
+  useEffect(() => {
+    if (!visible) return;
+    window.addEventListener("scroll", ocultar, true);
+    window.addEventListener("resize", ocultar);
+    return () => {
+      window.removeEventListener("scroll", ocultar, true);
+      window.removeEventListener("resize", ocultar);
+    };
+  }, [visible, ocultar]);
+
   if (slots.length === 0) return <>{children}</>;
 
   const primero = slots[0];
@@ -145,12 +168,18 @@ export function ArticlePhotoHover({
         ref={triggerRef}
         data-testid="article-photo-trigger"
         role="button"
-        tabIndex={0}
+        tabIndex={enfocable ? 0 : -1}
         aria-haspopup="dialog"
         aria-describedby={armed ? tooltipId : undefined}
         onMouseEnter={() => programar(HOVER_DELAY_MS)}
         onMouseLeave={ocultar}
-        onFocus={() => programar(0)}
+        onFocus={() => {
+          if (ignorarFoco.current) {
+            ignorarFoco.current = false;
+            return;
+          }
+          programar(0);
+        }}
         onBlur={ocultar}
         onClick={(e) => {
           // La fila tiene su propio click (drill-down): este no debe llegarle.
@@ -192,8 +221,8 @@ export function ArticlePhotoHover({
               border: "1px solid var(--border, rgba(0,0,0,0.15))",
               boxShadow: "0 8px 24px rgba(0,0,0,0.28)",
               pointerEvents: "none",
-              opacity: visible ? 1 : 0,
-              visibility: visible ? "visible" : "hidden",
+              opacity: visible && !rota ? 1 : 0,
+              visibility: visible && !rota ? "visible" : "hidden",
               transition: "opacity 0.12s",
               display: "block",
             }}
@@ -225,6 +254,7 @@ export function ArticlePhotoHover({
                 width={LADO}
                 height={LADO}
                 onLoad={() => setCargada(true)}
+                onError={() => setRota(true)}
                 style={{
                   position: "relative",
                   width: LADO,
@@ -264,7 +294,15 @@ export function ArticlePhotoHover({
           slots={slots}
           referencia={referencia}
           descripcion={descripcion}
-          onClose={() => setAbierto(false)}
+          onClose={() => {
+            ignorarFoco.current = true;
+            setAbierto(false);
+            // Si el foco no vuelve aquí (se abrió con el ratón desde otra
+            // celda), que la marca no se coma el siguiente foco de teclado.
+            setTimeout(() => {
+              ignorarFoco.current = false;
+            }, 100);
+          }}
         />
       )}
     </>
