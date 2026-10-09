@@ -12,6 +12,7 @@ const { mockQuery } = vi.hoisted(() => ({ mockQuery: vi.fn() }));
 vi.mock("@/lib/db", () => ({ query: mockQuery }));
 
 import { POST } from "../route";
+import { __resetFotos } from "@/lib/fotos";
 
 let fotosDir: string;
 
@@ -28,6 +29,7 @@ function peticion(body: unknown): NextRequest {
 }
 
 beforeEach(() => {
+  __resetFotos();
   fotosDir = fs.mkdtempSync(path.join(os.tmpdir(), "fotos-lote-"));
   for (const s of [1, 2, 3, 4]) fs.mkdirSync(path.join(fotosDir, String(s)));
   vi.stubEnv("FOTOS_DIR", fotosDir);
@@ -120,6 +122,41 @@ describe("POST /api/articulos/fotos", () => {
     const res = await POST(peticion({ codigos: Array.from({ length: 200 }, () => "A".repeat(1000)) }));
     expect(res.status).toBe(400);
     expect(mockQuery).not.toHaveBeenCalled();
+  });
+
+  it("un cuerpo enorme sin Content-Length (chunked) se corta al leerlo, no después", async () => {
+    let enviados = 0;
+    const cuerpo = new ReadableStream<Uint8Array>({
+      pull(c) {
+        enviados++;
+        // 1 MB por trozo, sin fin: si la ruta lo leyera entero no terminaría nunca.
+        c.enqueue(new Uint8Array(1024 * 1024).fill(65));
+      },
+    });
+    const req = new NextRequest("http://localhost/api/articulos/fotos", {
+      method: "POST",
+      body: cuerpo,
+      // @ts-expect-error duplex es necesario para un cuerpo en stream
+      duplex: "half",
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(enviados).toBeLessThan(5);
+  });
+
+  it("con el espejo sin responder contesta 503, no un 'sin fotos' que el cliente cachearía", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(fs.promises, "lstat").mockImplementation(() => new Promise(() => {}));
+      const p = POST(peticion({ codigos: ["144750", "132374"] }));
+      await vi.advanceTimersByTimeAsync(3100);
+      await vi.advanceTimersByTimeAsync(3100);
+      const res = await p;
+      expect(res.status).toBe(503);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("__proto__ y constructor son claves como cualquier otra", async () => {

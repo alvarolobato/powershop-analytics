@@ -13,6 +13,7 @@
 #   FOTOS_DEST        fuerza otro destino (tests, pruebas a mano).
 #   FOTOS_ALLOW_SHRINK=1  permite que el espejo encoja mas de un 10 %.
 #   FOTOS_ENV_FILE    .env del que leer las anteriores si no vienen en el entorno.
+#   FOTOS_LOCK        ruta del lock (def. /tmp/psfotos-sync.lock). Solo para tests.
 #   FOTOS_SRC_DIR     origen ya montado: salta el mount_smbfs. Lo usan los tests
 #                     y sirve para reintentar a mano contra un montaje existente.
 set -euo pipefail
@@ -22,7 +23,9 @@ set -euo pipefail
 # (un JSON entre comillas, por ejemplo) que bash no tiene por que saber evaluar.
 leer_env() {
     local clave="$1" fichero="$2" linea
-    linea="$(grep -E "^${clave}=" "$fichero" 2>/dev/null | tail -n 1)" || return 0
+    # Compose acepta tambien `export CLAVE=valor`.
+    linea="$(grep -E "^(export[[:space:]]+)?${clave}=" "$fichero" 2>/dev/null | tail -n 1)" || return 0
+    linea="${linea%$'\r'}"
     linea="${linea#*=}"
     # Sin comentario de cola ni comillas envolventes.
     linea="${linea%%[[:space:]]#*}"
@@ -62,8 +65,10 @@ if [ -z "${FOTOS_DEST:-}" ]; then
     case "$FOTOS_DEST" in
         "~") FOTOS_DEST="$HOME" ;;
         "~/"*) FOTOS_DEST="$HOME/${FOTOS_DEST#"~/"}" ;;
-        '${HOME}'*) FOTOS_DEST="$HOME${FOTOS_DEST#'${HOME}'}" ;;
-        '$HOME'*) FOTOS_DEST="$HOME${FOTOS_DEST#'$HOME'}" ;;
+        # Solo la variable HOME exacta: "$HOMEDIR/x" es OTRA variable y cae
+        # en el aborto de abajo.
+        '${HOME}' | '${HOME}/'*) FOTOS_DEST="$HOME${FOTOS_DEST#'${HOME}'}" ;;
+        '$HOME' | '$HOME/'*) FOTOS_DEST="$HOME${FOTOS_DEST#'$HOME'}" ;;
     esac
     case "$FOTOS_DEST" in
         *'$'* | *'~'*)
@@ -78,23 +83,67 @@ if [ -z "${FOTOS_DEST:-}" ]; then
 fi
 
 # Una sola ejecucion a la vez: la primera copia dura horas y el job diario (o
-# un lanzamiento a mano) no debe solaparse con ella. mkdir es atomico. Ruta
-# fija y no $TMPDIR: launchd y una shell por ssh ven TMPDIR distintos y no se
-# excluirian. El lock lleva el PID de su dueno: si ese proceso ya no existe
-# (kill -9, apagon), se reclama en vez de dejar el espejo congelado para siempre.
+# un lanzamiento a mano) no debe solaparse con ella.
+#
+# El lock es un ENLACE SIMBOLICO cuyo destino es el PID del dueno: `ln -s` es
+# atomico y el PID esta desde el primer instante (con un directorio + fichero
+# habia una ventana sin PID). Ruta fija y no $TMPDIR: launchd y una shell por
+# ssh ven TMPDIR distintos y no se excluirian. Nunca se hace `rm -rf` sobre el
+# lock: una ruta mal puesta en FOTOS_LOCK no puede borrar un directorio.
 LOCK="${FOTOS_LOCK:-/tmp/psfotos-sync.lock}"
-if ! mkdir "$LOCK" 2>/dev/null; then
-    dueno="$(cat "$LOCK/pid" 2>/dev/null || true)"
-    if [ -n "$dueno" ] && kill -0 "$dueno" 2>/dev/null; then
+
+# Un lock cuyo dueno ya no existe (kill -9, apagon) se reclama, en vez de dejar
+# el espejo congelado para siempre. El PID puede haberlo heredado otro proceso:
+# solo cuenta como vivo si ademas es un sync-fotos.
+lock_vivo() {
+    local pid="$1"
+    [ -n "$pid" ] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    case "$(ps -p "$pid" -o command= 2>/dev/null)" in
+        *sync-fotos*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+if [ -e "$LOCK" ] && [ ! -L "$LOCK" ]; then
+    echo "sync-fotos: $LOCK existe y no es un lock mio; no lo toco. Revisa FOTOS_LOCK." >&2
+    exit 1
+fi
+if ! ln -s "$$" "$LOCK" 2>/dev/null; then
+    dueno="$(readlink "$LOCK" 2>/dev/null || true)"
+    if lock_vivo "$dueno"; then
+        echo "sync-fotos: ya hay una sincronizacion en curso (pid $dueno, $LOCK)" >&2
+        exit 1
+    fi
+    # Reclamar es una seccion critica: dos arranques que ven el mismo lock
+    # muerto no pueden quitarlo los dos (el segundo se llevaria el lock recien
+    # puesto por el primero). Un segundo enlace, tambien atomico, la protege, y
+    # DENTRO se vuelve a mirar quien es el dueno.
+    if ! ln -s "$$" "$LOCK.reclamo" 2>/dev/null; then
+        otro="$(readlink "$LOCK.reclamo" 2>/dev/null || true)"
+        # Un reclamo que quedo a medias (se muere en esta ventana de
+        # microsegundos) se limpia para la siguiente ejecucion.
+        lock_vivo "$otro" || rm -f "$LOCK.reclamo"
+        echo "sync-fotos: otra ejecucion esta reclamando el lock; salgo" >&2
+        exit 1
+    fi
+    dueno="$(readlink "$LOCK" 2>/dev/null || true)"
+    if lock_vivo "$dueno"; then
+        rm -f "$LOCK.reclamo"
         echo "sync-fotos: ya hay una sincronizacion en curso (pid $dueno, $LOCK)" >&2
         exit 1
     fi
     echo "sync-fotos: lock huerfano de un proceso que ya no existe (pid ${dueno:-desconocido}); lo reclamo" >&2
-    rm -rf "$LOCK"
-    mkdir "$LOCK"
+    rm -f "$LOCK"
+    if ! ln -s "$$" "$LOCK" 2>/dev/null; then
+        rm -f "$LOCK.reclamo"
+        echo "sync-fotos: no pude tomar el lock $LOCK; salgo" >&2
+        exit 1
+    fi
+    rm -f "$LOCK.reclamo"
 fi
-echo "$$" > "$LOCK/pid"
 MOUNT_POINT=""
+MONTADO=0
 RSYNC_PID=""
 cleanup() {
     # Si nos matan a mitad, el rsync hijo no debe seguir escribiendo sin lock
@@ -103,13 +152,18 @@ cleanup() {
         kill "$RSYNC_PID" 2>/dev/null || true
         wait "$RSYNC_PID" 2>/dev/null || true
     fi
-    if [ -n "$MOUNT_POINT" ]; then
+    if [ "$MONTADO" = "1" ]; then
         umount "$MOUNT_POINT" 2>/dev/null \
             || diskutil unmount force "$MOUNT_POINT" >/dev/null 2>&1 \
             || echo "sync-fotos: no se pudo desmontar $MOUNT_POINT; desmontalo a mano" >&2
+    fi
+    if [ -n "$MOUNT_POINT" ]; then
         rmdir "$MOUNT_POINT" 2>/dev/null || true
     fi
-    rm -rf "$LOCK"
+    # Solo si el lock sigue siendo mio.
+    if [ "$(readlink "$LOCK" 2>/dev/null || true)" = "$$" ]; then
+        rm -f "$LOCK"
+    fi
 }
 trap cleanup EXIT
 trap 'exit 143' TERM
@@ -121,6 +175,7 @@ else
     FOTOS_SMB_URL="${FOTOS_SMB_URL:?define FOTOS_SMB_URL en el .env (ver .env.example)}"
     MOUNT_POINT="$(mktemp -d /tmp/psfotos.XXXXXX)"
     mount_smbfs -o ro,nobrowse "$FOTOS_SMB_URL" "$MOUNT_POINT"
+    MONTADO=1
     SRC="$MOUNT_POINT/$FOTOS_SMB_SUBDIR"
 fi
 

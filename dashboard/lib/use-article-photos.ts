@@ -34,6 +34,8 @@ export interface ArticlePhotos {
 const TTL_MS = 10 * 60 * 1000;
 export const MAX_LOTE = 200;
 export const REINTENTO_MS = 15_000;
+/** 15 s, 30 s, 60 s, 2 min: después se espera a la revalidación. */
+export const MAX_REINTENTOS = 4;
 const SIN_SLOTS: Slot[] = [];
 
 interface Entrada<T> {
@@ -174,17 +176,24 @@ export function useArticlePhotos(codigos: string[], refs: string[]): ArticlePhot
     if (cs.length === 0 && rs.length === 0) return;
     let vivo = true;
     let reintento: ReturnType<typeof setTimeout> | null = null;
+    let fallos = 0;
     const cargar = () =>
       void cargarFotos(cs, rs).then((ok) => {
         if (!vivo) return;
         setVersion((v) => v + 1);
         // Un 500 o un corte de red al abrir el panel no debe dejarlo sin
         // indicadores hasta la revalidación de los 10 minutos.
-        if (!ok && reintento === null) {
+        // Con espera creciente y tope: un servidor caído no debe recibir un
+        // POST por widget cada 15 s para siempre. La revalidación periódica
+        // sigue ahí como último recurso.
+        if (ok) {
+          fallos = 0;
+        } else if (reintento === null && fallos < MAX_REINTENTOS) {
+          fallos++;
           reintento = setTimeout(() => {
             reintento = null;
             cargar();
-          }, REINTENTO_MS);
+          }, REINTENTO_MS * 2 ** (fallos - 1));
         }
       });
     cargar();

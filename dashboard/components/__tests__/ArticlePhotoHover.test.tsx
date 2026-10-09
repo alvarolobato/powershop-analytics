@@ -206,6 +206,15 @@ describe("ArticlePhotoHover", () => {
     fireEvent.error(screen.getByTestId("article-photo-tooltip").querySelector("img")!);
     expect(screen.getByTestId("article-photo-tooltip")).toHaveStyle({ visibility: "hidden" });
 
+    // Volver a pasar el ratón reintenta la misma foto (un 503 pasajero)…
+    fireEvent.mouseLeave(trigger);
+    fireEvent.mouseEnter(trigger);
+    avanzar(HOVER_DELAY_MS);
+    expect(screen.getByTestId("article-photo-tooltip")).toHaveStyle({ visibility: "visible" });
+    // …y esta vez carga: sin esqueleto.
+    fireEvent.load(screen.getByTestId("article-photo-tooltip").querySelector("img")!);
+    expect(screen.queryByTestId("article-photo-skeleton")).toBeNull();
+
     rerender(
       <ArticlePhotoHover codigo="144750" slots={[2]}>
         <span>ref</span>
