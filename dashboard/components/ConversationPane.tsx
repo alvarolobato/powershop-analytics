@@ -1012,7 +1012,7 @@ export function ConversationPane({
           );
         }
 
-        if (turnData && turnData.logs.length > 0) {
+        if (turnData && turnData.logs.length > 0 && turnId !== pendingTurnId) {
           items.push(
             <div
               key={`log-${msgId}`}
