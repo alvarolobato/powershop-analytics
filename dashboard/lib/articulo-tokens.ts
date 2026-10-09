@@ -13,8 +13,21 @@
  * no lo reconoce y la celda se queda como estaba.
  */
 
-/** Alfanumérico de 4 a 20 con al menos un dígito. */
-const TOKEN = /\b(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{4,20}\b/g;
+/**
+ * Candidato implícito: de 4 a 20, y con AL MENOS UNA LETRA Y UN DÍGITO.
+ *
+ * Exigir las dos cosas es lo que deja fuera la clase de falso positivo
+ * peligrosa: las cifras sueltas. Una respuesta está llena de cantidades, años
+ * e importes, y los códigos de artículo son numéricos — si "2026" o "1234"
+ * entraran y existiera ese código con foto, pasar el ratón por encima de una
+ * cantidad enseñaría una foto absurda. Las referencias y los modelos, que es
+ * lo que el chat enseña de verdad, SIEMPRE mezclan letra y dígito
+ * ("V26212484", "I263002", "ART00001").
+ *
+ * Un código puramente numérico sigue teniendo foto por el canal explícito
+ * `[texto](articulo:144750)`, que no pasa por aquí.
+ */
+const TOKEN = /\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{4,20}\b/g;
 
 /**
  * Tope por mensaje. Una respuesta de chat enseña decenas de artículos, no

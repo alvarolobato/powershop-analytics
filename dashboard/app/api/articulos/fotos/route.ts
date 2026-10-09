@@ -68,15 +68,21 @@ function listaDeTextos(valor: unknown): string[] | null {
 }
 
 /**
- * Forma de un identificador de artículo suelto, para el modo `tokens`.
+ * Forma de un identificador de artículo, para el modo `tokens`.
  *
- * Alfanumérico, de 4 a 20, y con AL MENOS UN DÍGITO. El dígito es lo que deja
- * fuera las palabras de las descripciones ("CAMISA", "PANTALON"), que si no
- * llegarían a la consulta por centenares. No pretende acertar qué es un
- * identificador: solo evita preguntar por lo que seguro que no lo es. Quien
- * decide es la base de datos.
+ * Aquí llegan dos cosas: los candidatos que el cliente saca del texto (ya
+ * filtrados por él, que exige letra y dígito) y los identificadores de los
+ * enlaces `articulo:` que pone el LLM. Estos últimos pueden ser un código
+ * corto y numérico como "169", así que NO se puede exigir una longitud
+ * mínima — tirarlos dejaría sin foto justo al canal que existe para no tener
+ * ambigüedad.
+ *
+ * Lo que sí se exige es al menos un DÍGITO: todo identificador de artículo lo
+ * tiene, y es lo que descarta las palabras de una descripción ("CAMISA",
+ * "PANTALON") si alguien llama al endpoint a mano. No decide qué es un
+ * artículo: solo acota la entrada. Quien decide es la base de datos.
  */
-const FORMA_TOKEN = /^(?=[A-Za-z0-9]*\d)[A-Za-z0-9]{4,20}$/;
+const FORMA_TOKEN = /^(?=[A-Za-z0-9._-]*\d)[A-Za-z0-9._-]{1,40}$/;
 
 /** Variantes devueltas por un modelo. Un modelo con 40 colores no cabe en un tooltip. */
 const MAX_VARIANTES = 12;
@@ -100,16 +106,29 @@ export interface ArticuloDeToken {
 async function articulosDeTokens(tokens: string[]): Promise<Map<string, ArticuloDeToken[]>> {
   const out = new Map<string, ArticuloDeToken[]>();
   if (tokens.length === 0) return out;
+  // TRES joins de IGUALDAD unidos, no un OR con length()/left().
+  //
+  // El OR obliga al planificador a un bucle anidado: una pasada entera por
+  // ps_articulos POR CADA token. Medido con 200 tokens: 2.886 ms (8,5 millones
+  // de comparaciones). Con joins de igualdad hace un hash join por rama — tres
+  // pasadas en total, da igual cuántos tokens vengan: 118 ms, 24 veces menos.
+  // Importa porque el endpoint va sin autenticación.
   const res = await query(
-    `SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color
-       FROM unnest($1::text[]) AS t(tok)
-       JOIN ps_articulos a
-         ON a.codigo = t.tok
-         OR a.ccrefejofacm = t.tok
-         OR (length(a.ccrefejofacm) = length(t.tok) + 2
-             AND left(a.ccrefejofacm, length(t.tok)) = t.tok)
-      WHERE a.codigo IS NOT NULL AND a.codigo <> ''
-      ORDER BY t.tok, (a.anulado IS TRUE), a.ccrefejofacm, a.codigo`,
+    `WITH toks AS (SELECT DISTINCT tok FROM unnest($1::text[]) AS t(tok))
+     SELECT tok, codigo, ccrefejofacm, descripcion, color FROM (
+         SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color, a.anulado
+           FROM ps_articulos a JOIN toks t ON t.tok = a.codigo
+       UNION ALL
+         SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color, a.anulado
+           FROM ps_articulos a JOIN toks t ON t.tok = a.ccrefejofacm
+       UNION ALL
+         -- El modelo: la Referencia sin los dos últimos caracteres.
+         SELECT t.tok, a.codigo, a.ccrefejofacm, a.descripcion, a.color, a.anulado
+           FROM ps_articulos a
+           JOIN toks t ON t.tok = left(a.ccrefejofacm, length(a.ccrefejofacm) - 2)
+     ) u
+      WHERE codigo IS NOT NULL AND codigo <> ''
+      ORDER BY tok, (anulado IS TRUE), ccrefejofacm, codigo`,
     [tokens],
   );
   for (const fila of res.rows as [string, string, string | null, string | null, string | null][]) {

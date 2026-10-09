@@ -19,10 +19,15 @@
  */
 
 import {
+  createContext,
   createElement,
   Fragment,
   isValidElement,
+  useContext,
+  useEffect,
   useMemo,
+  useRef,
+  useState,
   type AnchorHTMLAttributes,
   type HTMLAttributes,
   type ElementType,
@@ -134,29 +139,110 @@ function decorarHijos(hijos: ReactNode, porToken: FotosPorToken, re: RegExp | nu
  * se pinta el texto a secas, sin enlace, porque `articulo:` no es un esquema
  * que el navegador entienda y un enlace roto sería peor que ninguno.
  */
-function enlaceArticulo(
-  porToken: FotosPorToken,
-  original: Components["a"],
-): NonNullable<Components["a"]> {
-  type Props = AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown };
-  const Enlace = ({ children: hijos, node: _node, href, ...props }: Props) => {
-    const id = idDeEnlace(href);
-    if (id === null) {
-      // `node` no se reenvía: es del parser, no un atributo del DOM.
-      const Original = (original ?? "a") as ElementType;
-      return (
-        <Original href={href} {...props}>
-          {hijos}
-        </Original>
-      );
-    }
-    const articulos = porToken[id];
-    // Identificador que la BD no reconoce: el texto, sin enlace.
-    if (!articulos || articulos.length === 0) return <>{hijos}</>;
-    return envolver(hijos, articulos, `enlace-${id}`);
+function EnlaceArticulo({
+  children: hijos,
+  node: _node,
+  href,
+  ...props
+}: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
+  const { porToken, components } = useContext(CtxFotos);
+  const id = idDeEnlace(href);
+  if (id === null) {
+    // Un `articulo:` que no se pudo interpretar (vacío, o más largo de lo
+    // aceptable) NO se pinta: el navegador no entiende el esquema y quedaría
+    // un enlace muerto. Se deja el texto.
+    if (href?.trim().toLowerCase().startsWith(ESQUEMA_ARTICULO)) return <>{hijos}</>;
+    // `node` no se reenvía: es del parser, no un atributo del DOM.
+    const Original = (components?.a ?? "a") as ElementType;
+    return (
+      <Original href={href} {...props}>
+        {hijos}
+      </Original>
+    );
+  }
+  const articulos = porToken[id];
+  // Identificador que la BD no reconoce: el texto, sin enlace.
+  if (!articulos || articulos.length === 0) return <>{hijos}</>;
+  return envolver(hijos, articulos, `enlace-${id}`);
+}
+
+/**
+ * Estado que ven los renderers. Va por contexto, y no capturado en closures,
+ * por una razón concreta: los componentes que recibe ReactMarkdown tienen que
+ * ser SIEMPRE los mismos objetos. Si se recrean cuando llegan las fotos, React
+ * ve componentes nuevos, desmonta el mensaje entero y lo vuelve a montar —
+ * parpadeo y pérdida del foco a mitad de una conversación.
+ */
+interface EstadoFotos {
+  porToken: FotosPorToken;
+  re: RegExp | null;
+  components?: Components;
+}
+
+const CtxFotos = createContext<EstadoFotos>({ porToken: {}, re: null });
+
+type Etiqueta = "td" | "th" | "p" | "li" | "strong" | "em" | "code";
+type PropsEtiqueta = HTMLAttributes<HTMLElement> & { node?: unknown; className?: string };
+
+/**
+ * COMPONE con el renderer del consumidor; ni lo sustituye ni se deja
+ * sustituir. Dárselo a ReactMarkdown detrás de `...components` haría ganar a
+ * los suyos y no se decoraría nada (ConversationPane trae el suyo para `p`);
+ * delante sin más haría desaparecer los suyos. Aquí los suyos reciben los
+ * hijos ya decorados.
+ */
+function hacerEtiqueta(Tag: Etiqueta) {
+  const Decorado = ({ children: hijos, node: _node, ...props }: PropsEtiqueta) => {
+    const { porToken, re, components } = useContext(CtxFotos);
+    const Consumidor = components?.[Tag] as ElementType | undefined;
+    // Un bloque cercado es `pre > code.language-*`: ahí vive el SQL de la
+    // respuesta y no se toca. El `code` en línea sí.
+    const enBloque = Tag === "code" && typeof props.className === "string";
+    const contenido = enBloque ? hijos : decorarHijos(hijos, porToken, re);
+    return createElement((Consumidor ?? Tag) as ElementType, props, contenido);
   };
-  Enlace.displayName = "EnlaceArticulo";
-  return Enlace;
+  Decorado.displayName = `ConFotos(${Tag})`;
+  return Decorado;
+}
+
+/** Se crean UNA vez, al cargar el módulo. Identidad estable para siempre. */
+const ETIQUETAS: Components = {
+  td: hacerEtiqueta("td"),
+  th: hacerEtiqueta("th"),
+  p: hacerEtiqueta("p"),
+  li: hacerEtiqueta("li"),
+  strong: hacerEtiqueta("strong"),
+  em: hacerEtiqueta("em"),
+  code: hacerEtiqueta("code"),
+  a: EnlaceArticulo,
+};
+
+/**
+ * Mantiene quieta la lista de tokens mientras el texto crece.
+ *
+ * Una respuesta en streaming se re-renderiza con cada fragmento, y cada
+ * prefijo de una referencia es un candidato distinto: "I263", "I2630",
+ * "I26300"... Sin esto, una sola respuesta dispara ~100 peticiones y llena la
+ * caché de basura. El primer valor se usa tal cual (los mensajes del historial
+ * ya están completos y no deben esperar); solo los cambios posteriores, que
+ * son los del streaming, esperan a que el texto se calme.
+ */
+function useTokensEstables(tokens: string[], msEspera = 400): string[] {
+  const clave = tokens.join(" ");
+  const [estable, setEstable] = useState(clave);
+  const primera = useRef(true);
+
+  useEffect(() => {
+    if (primera.current) {
+      primera.current = false;
+      setEstable(clave);
+      return;
+    }
+    const t = setTimeout(() => setEstable(clave), msEspera);
+    return () => clearTimeout(t);
+  }, [clave, msEspera]);
+
+  return useMemo(() => (estable ? estable.split(" ") : []), [estable]);
 }
 
 export interface MarkdownConFotosProps {
@@ -172,8 +258,8 @@ export function MarkdownConFotos({
   components,
   allowedElements,
 }: MarkdownConFotosProps) {
-  const tokens = useMemo(() => extraerTokens(children), [children]);
-  const porToken = useArticlePhotoTokens(tokens);
+  const candidatos = useMemo(() => extraerTokens(children), [children]);
+  const porToken = useArticlePhotoTokens(useTokensEstables(candidatos));
 
   const re = useMemo(() => {
     const claves = Object.keys(porToken);
@@ -184,54 +270,31 @@ export function MarkdownConFotos({
     return new RegExp(`\\b(?:${claves.map(escapar).join("|")})\\b`, "g");
   }, [porToken]);
 
-  const conFotos: Components = useMemo(() => {
-    // El renderer de enlaces va SIEMPRE, también cuando no hay ningún token
-    // resuelto: si no, un `articulo:` que la BD no reconoce se pintaría como
-    // un enlace roto con un esquema que el navegador no entiende.
-    const a = enlaceArticulo(porToken, components?.a);
-    if (!re) return { ...components, a };
-    type Etiqueta = "td" | "th" | "p" | "li" | "strong" | "em" | "code";
-    // Atributos comunes a todas: las siete etiquetas solo reciben los
-    // genéricos de HTML. `node` es el nodo de hast de react-markdown y no debe
-    // llegar al DOM, por eso se desestructura y se tira.
-    type Props = HTMLAttributes<HTMLElement> & { node?: unknown };
-    const envoltorio = (Tag: Etiqueta) => {
-      const Decorado = ({ children: hijos, node: _node, ...props }: Props) =>
-        createElement(Tag, props, decorarHijos(hijos, porToken, re));
-      Decorado.displayName = `ConFotos(${Tag})`;
-      return Decorado;
-    };
-    return {
-      td: envoltorio("td"),
-      th: envoltorio("th"),
-      p: envoltorio("p"),
-      li: envoltorio("li"),
-      strong: envoltorio("strong"),
-      em: envoltorio("em"),
-      code: envoltorio("code"),
-      ...components,
-      // El enlace va DESPUÉS del spread, no antes: tiene que ganar al renderer
-      // del consumidor para poder quedarse con el esquema `articulo:`. Para lo
-      // demás delega en él, así que no le quita nada.
-      a,
-    };
-  }, [re, porToken, components]);
+  const estado = useMemo<EstadoFotos>(
+    () => ({ porToken, re, components }),
+    [porToken, re, components],
+  );
+  // Los renderers del consumidor para etiquetas que no decoramos (h1, pre...)
+  // siguen valiendo; las que sí, las recibe `hacerEtiqueta` por contexto.
+  const conFotos = useMemo<Components>(() => ({ ...components, ...ETIQUETAS }), [components]);
 
   return (
-    <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      components={conFotos}
-      allowedElements={allowedElements}
-      // react-markdown sanea las URLs y deja solo http/https/mailto/tel, asi
-      // que `articulo:` llegaba vacio al renderer. Se deja pasar SOLO ese
-      // esquema y todo lo demas sigue pasando por el saneado de siempre, que
-      // es lo que para un `javascript:`. Nuestro renderer nunca lo pone en el
-      // DOM: o lo convierte en el disparador de la foto, o deja el texto solo.
-      urlTransform={(url) =>
-        url.toLowerCase().startsWith(ESQUEMA_ARTICULO) ? url : defaultUrlTransform(url)
-      }
-    >
-      {children}
-    </ReactMarkdown>
+    <CtxFotos.Provider value={estado}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={conFotos}
+        allowedElements={allowedElements}
+        // react-markdown sanea las URLs y deja solo http/https/mailto/tel, así
+        // que `articulo:` llegaba vacío al renderer. Se deja pasar SOLO ese
+        // esquema y todo lo demás sigue pasando por el saneado de siempre, que
+        // es lo que para un `javascript:`. Nuestro renderer nunca lo pone en el
+        // DOM: o lo convierte en el disparador de la foto, o deja el texto solo.
+        urlTransform={(url) =>
+          url.toLowerCase().startsWith(ESQUEMA_ARTICULO) ? url : defaultUrlTransform(url)
+        }
+      >
+        {children}
+      </ReactMarkdown>
+    </CtxFotos.Provider>
   );
 }

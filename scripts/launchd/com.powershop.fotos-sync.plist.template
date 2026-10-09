@@ -12,7 +12,7 @@
   </array>
 
   <!-- Diario a la 01:00. No depende del ETL (02:00) ni lo bloquea. Sin
-       RunAtLoad a proposito: la primera copia son ~4,6 h y se lanza a mano;
+       RunAtLoad a proposito: la primera copia son ~1,5 h y se lanza a mano;
        cargar el agente no debe dispararla. Para subir la frescura a cada 6 h,
        sustituir este dict por un array de cuatro. -->
   <key>StartCalendarInterval</key>
@@ -28,7 +28,7 @@
   <key>StandardErrorPath</key>
   <string>__HOME__/Library/Logs/com.powershop.fotos-sync.log</string>
 
-  <!-- PATH explicito: mount_smbfs esta en /sbin, rsync en /usr/bin y docker en
+  <!-- PATH explicito: rclone esta en /opt/homebrew/bin y docker en
        /usr/local/bin o /opt/homebrew/bin. -->
   <key>EnvironmentVariables</key>
   <dict>

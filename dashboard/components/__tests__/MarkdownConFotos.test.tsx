@@ -199,4 +199,67 @@ describe("MarkdownConFotos", () => {
     const enlace = await screen.findByTestId("enlace-del-consumidor");
     expect(enlace).toHaveAttribute("href", "https://example.com");
   });
+
+  // --- regresiones de la revisión --------------------------------------
+
+  it("decora aunque el consumidor traiga su propio renderer de <p>", async () => {
+    // ConversationPane trae el suyo. Si se compusiera mal, el suyo ganaría y
+    // en el chat REAL no se decoraria nada — el fallo que se colo en la
+    // primera version y que los tests no veian por no pasar components.
+    fetchMock.mockResolvedValue(respuesta({ I263002: UN_ARTICULO }));
+    render(
+      <MarkdownConFotos
+        components={{
+          p: ({ children: c, ...p }) => (
+            <p data-testid="parrafo-del-consumidor" {...p}>
+              {c}
+            </p>
+          ),
+        }}
+      >
+        {"El más vendido es I263002."}
+      </MarkdownConFotos>,
+    );
+
+    // Las dos cosas a la vez: el renderer del consumidor Y la decoración.
+    expect(await screen.findByTestId("parrafo-del-consumidor")).toBeInTheDocument();
+    expect(await screen.findByTestId("article-photo-trigger")).toHaveTextContent("I263002");
+  });
+
+  it("no toca los bloques de código, donde va el SQL de la respuesta", async () => {
+    fetchMock.mockResolvedValue(respuesta({ I263002: UN_ARTICULO }));
+    const md = ["El modelo I263002.", "", "```sql", "SELECT 'I263002'", "```"].join("\n");
+    render(<MarkdownConFotos>{md}</MarkdownConFotos>);
+
+    await screen.findByTestId("article-photo-trigger");
+    // Uno solo: el de la prosa. Dentro del bloque no se inyecta nada.
+    expect(screen.getAllByTestId("article-photo-trigger")).toHaveLength(1);
+    expect(document.querySelector("pre code")?.textContent).toContain("SELECT 'I263002'");
+    expect(document.querySelector("pre code")?.textContent).not.toContain("ver foto");
+  });
+
+  it("dos mensajes con el mismo artículo se decoran los dos", async () => {
+    // El segundo encuentra la petición del primero en vuelo. Si no la
+    // esperase, leería una caché vacía y se quedaría sin foto para siempre.
+    fetchMock.mockResolvedValue(respuesta({ I263002: UN_ARTICULO }));
+    render(
+      <>
+        <MarkdownConFotos>{"Primero: I263002."}</MarkdownConFotos>
+        <MarkdownConFotos>{"Segundo: I263002."}</MarkdownConFotos>
+      </>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("article-photo-trigger")).toHaveLength(2),
+    );
+  });
+
+  it("un id de enlace demasiado largo no deja un enlace muerto", async () => {
+    fetchMock.mockResolvedValue(respuesta({}));
+    const largo = "X".repeat(60);
+    render(<MarkdownConFotos>{`Ver [la blusa](articulo:${largo}).`}</MarkdownConFotos>);
+
+    expect(await screen.findByText(/la blusa/)).toBeInTheDocument();
+    expect(document.querySelector('a[href^="articulo:"]')).toBeNull();
+  });
 });

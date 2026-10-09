@@ -39,8 +39,20 @@ describe("extraerTokens", () => {
   });
 
   it("recoge también lo que va en prosa, negrita o `código`", () => {
-    const md = "El **V26212484** y el `144750` se venden juntos.";
-    expect(extraerTokens(md).sort()).toEqual(["144750", "V26212484"]);
+    const md = "El **V26212484** y el **I263002** se venden juntos.";
+    expect(extraerTokens(md).sort()).toEqual(["I263002", "V26212484"]);
+  });
+
+  it("NO recoge una cifra suelta, aunque pudiera ser un código", () => {
+    // Los códigos de artículo son numéricos, así que una cantidad o un año
+    // podrían existir como código y tener foto. Enseñarla sobre «302
+    // unidades» sería absurdo, así que un candidato implícito necesita letra
+    // Y dígito. Un código numérico llega por el canal explícito.
+    expect(extraerTokens("Vendió 1234 unidades por 56789 euros en 2026")).toEqual([]);
+  });
+
+  it("un código numérico SÍ entra si va en un enlace explícito", () => {
+    expect(extraerTokens("Mira la [BLUSA](articulo:144750).")).toEqual(["144750"]);
   });
 
   it("corta en el tope por mensaje", () => {

@@ -74,24 +74,36 @@ async function pedirLote(tokens: string[]): Promise<void> {
 /** Pide lo que falte o esté caducado. Devuelve true si algo cambió en la caché. */
 export async function cargarTokens(tokens: string[]): Promise<boolean> {
   const ahora = Date.now();
-  const faltan = tokens.filter((t) => {
+  const caducado = (t: string) => {
     const e = cache.get(t);
-    return (!e || e.caduca <= ahora) && !enVuelo.has(t);
-  });
-  if (faltan.length === 0) return false;
+    return !e || e.caduca <= ahora;
+  };
+  // Lo que ya pidió otro consumidor NO se vuelve a pedir, pero SÍ se espera:
+  // salir sin esperarlo dejaba al segundo mensaje con el mismo artículo
+  // leyendo una caché vacía y sin nada que lo despertara después.
+  const esperando = [...new Set(tokens.filter((t) => caducado(t) && enVuelo.has(t)))].map(
+    (t) => enVuelo.get(t)!,
+  );
+  const faltan = tokens.filter((t) => caducado(t) && !enVuelo.has(t));
+  if (faltan.length === 0) {
+    if (esperando.length === 0) return false;
+    await Promise.all(esperando);
+    return true;
+  }
 
   const lotes: string[][] = [];
   for (let i = 0; i < faltan.length; i += MAX_LOTE) lotes.push(faltan.slice(i, i + MAX_LOTE));
 
-  await Promise.all(
-    lotes.map((lote) => {
+  await Promise.all([
+    ...esperando,
+    ...lotes.map((lote) => {
       const p = pedirLote(lote).finally(() => {
         for (const t of lote) enVuelo.delete(t);
       });
       for (const t of lote) enVuelo.set(t, p);
       return p;
     }),
-  );
+  ]);
   return true;
 }
 

@@ -18,7 +18,8 @@ rc=0
 
 # Tope de reloj. Un share colgado no falla: deja a la copia esperando para siempre
 # con el lock cogido, y todas las noches siguientes saldrian con "ya hay una
-# sincronizacion en curso". 8 h cubre de sobra la primera copia (~4,6 h).
+# sincronizacion en curso". 8 h cubre de sobra la primera copia (~1,5 h a los
+# 0,75 MB/s medidos con rclone).
 TOPE_S="${FOTOS_SYNC_TIMEOUT_S:-28800}"
 bash "$AQUI/sync-fotos.sh" &
 SYNC_PID=$!
