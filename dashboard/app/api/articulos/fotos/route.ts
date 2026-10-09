@@ -20,7 +20,14 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
-import { esCodigoValido, MAX_LOTE, slotsDeFoto, slotsDeFotos, type Slot } from "@/lib/fotos";
+import {
+  esCodigoValido,
+  espejoCortado,
+  MAX_LOTE,
+  slotsDeFoto,
+  slotsDeFotos,
+  type Slot,
+} from "@/lib/fotos";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +36,31 @@ const MAX_LARGO_REF = 80;
 
 /** 200 códigos + 200 referencias caben en ~25 KB. Más que esto no es un lote. */
 const MAX_CUERPO_BYTES = 64 * 1024;
+
+/**
+ * Lee el cuerpo como texto, cortando en cuanto pasa del tope. `null` si se
+ * pasa. No se fía de Content-Length, que puede faltar (chunked) o mentir, y no
+ * carga en memoria más de lo que acepta: el endpoint va sin autenticación.
+ */
+async function leerCuerpo(request: NextRequest): Promise<string | null> {
+  const declarado = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declarado) && declarado > MAX_CUERPO_BYTES) return null;
+  if (!request.body) return "";
+  const lector = request.body.getReader();
+  const trozos: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lector.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_CUERPO_BYTES) {
+      await lector.cancel().catch(() => {});
+      return null;
+    }
+    trozos.push(value);
+  }
+  return Buffer.concat(trozos).toString("utf8");
+}
 
 function mal(detalle: string): NextResponse {
   return NextResponse.json({ error: detalle, code: "VALIDATION" }, { status: 400 });
@@ -67,12 +99,8 @@ async function codigosDeRefs(refs: string[]): Promise<Record<string, string>> {
 export async function POST(request: NextRequest): Promise<NextResponse> {
   let body: unknown;
   try {
-    // Se lee como texto para poder medirlo: el endpoint va sin autenticación y
-    // Content-Length puede faltar o mentir.
-    const declarado = Number(request.headers.get("content-length") ?? "0");
-    if (declarado > MAX_CUERPO_BYTES) return mal("Cuerpo demasiado grande.");
-    const texto = await request.text();
-    if (Buffer.byteLength(texto) > MAX_CUERPO_BYTES) return mal("Cuerpo demasiado grande.");
+    const texto = await leerCuerpo(request);
+    if (texto === null) return mal("Cuerpo demasiado grande.");
     body = JSON.parse(texto);
   } catch {
     return mal("Cuerpo JSON no válido.");
@@ -108,6 +136,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     console.warn(
       "[fotos] no se pudieron resolver las referencias:",
       err instanceof Error ? err.message : err,
+    );
+  }
+
+  // El espejo dejó de responder a mitad: lo calculado no es "sin foto", es "no
+  // lo sé". Un 503 hace que el cliente reintente en vez de cachearlo 10 minutos.
+  if (espejoCortado()) {
+    return NextResponse.json(
+      { error: "El espejo de fotos no responde.", code: "UNAVAILABLE" },
+      { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "30" } },
     );
   }
 

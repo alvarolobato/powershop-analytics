@@ -9,6 +9,7 @@ import path from "path";
 import sharp from "sharp";
 import { NextRequest } from "next/server";
 import { GET } from "../route";
+import { __resetFotos } from "@/lib/fotos";
 
 let raiz: string;
 let fotosDir: string;
@@ -23,6 +24,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  __resetFotos();
   raiz = fs.mkdtempSync(path.join(os.tmpdir(), "fotos-bytes-"));
   fotosDir = path.join(raiz, "espejo");
   for (const s of [1, 2, 3, 4]) fs.mkdirSync(path.join(fotosDir, String(s)), { recursive: true });
@@ -153,6 +155,23 @@ describe("GET /api/fotos/[codigo]/[slot]", () => {
     // El original servido en lugar de la miniatura no se cachea como miniatura.
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(res.headers.get("etag")).toBeNull();
+  });
+
+  it("con el espejo sin responder contesta 503 sin caché, no un 404", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.spyOn(fs.promises, "lstat").mockImplementation(() => new Promise(() => {}));
+      for (const esperado of [404, 503]) {
+        const p = pedir("144750", "1", "?w=256");
+        await vi.advanceTimersByTimeAsync(3100);
+        const res = await p;
+        // El primer timeout aún no corta: esa foto es un 404 puntual.
+        expect(res.status).toBe(esperado);
+        if (esperado === 503) expect(res.headers.get("cache-control")).toBe("no-store");
+      }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("un symlink en el espejo no se sirve", async () => {

@@ -11,6 +11,7 @@ import path from "path";
 import sharp from "sharp";
 import {
   __resetFotos,
+  espejoCortado,
   estadoEspejo,
   esCodigoValido,
   leerOriginal,
@@ -256,29 +257,95 @@ describe("sin espejo la app sigue funcionando", () => {
 });
 
 describe("espejo que no responde", () => {
-  it("tras un stat colgado deja de tocar el disco un rato, en vez de agotar el pool de hilos", async () => {
+  it("tras dos stat colgados deja de tocar el disco un rato, en vez de agotar el pool de hilos", async () => {
     poner(1, "144750.jpg");
     vi.useFakeTimers();
     try {
       // Un montaje colgado no falla: no contesta nunca.
       const lstat = vi.spyOn(fs.promises, "lstat").mockImplementation(() => new Promise(() => {}));
 
+      // Un timeout: "no lo sé" para esa foto, pero todavía no corta.
       const primera = localizarFoto("144750", 1);
-      await vi.advanceTimersByTimeAsync(3001);
+      await vi.advanceTimersByTimeAsync(3100);
       expect(await primera).toBeNull();
-      expect(lstat).toHaveBeenCalledTimes(1); // no prueba las otras 3 extensiones
+      expect(lstat).toHaveBeenCalledTimes(1); // no insiste con las otras extensiones
+      expect(espejoCortado()).toBe(false);
+
+      // El segundo seguido, sí.
+      const segunda = localizarFoto("132374", 1);
+      await vi.advanceTimersByTimeAsync(3100);
+      expect(await segunda).toBeNull();
+      expect(lstat).toHaveBeenCalledTimes(2);
+      expect(espejoCortado()).toBe(true);
 
       // Un lote entero, y el estado del espejo: ni una llamada más a disco.
       const leer = vi.spyOn(fs.promises, "readFile");
-      expect(await slotsDeFotos(["144750", "132374", "169"])).toEqual({ "144750": [], "132374": [], "169": [] });
+      expect({ ...(await slotsDeFotos(["144750", "132374", "169"])) }).toEqual({
+        "144750": [],
+        "132374": [],
+        "169": [],
+      });
       expect(await estadoEspejo()).toEqual({ last_sync: null, horas: null, ficheros: null });
-      expect(lstat).toHaveBeenCalledTimes(1);
+      expect(lstat).toHaveBeenCalledTimes(2);
       expect(leer).not.toHaveBeenCalled();
 
       // Pasado el corte, vuelve a mirar (y el espejo ya responde).
       lstat.mockRestore();
+      leer.mockRestore();
       await vi.advanceTimersByTimeAsync(30_001);
+      expect(espejoCortado()).toBe(false);
       expect(await slotsDeFoto("144750")).toEqual([1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("un único stat lento no corta el espejo", async () => {
+    poner(1, "144750.jpg");
+    vi.useFakeTimers();
+    try {
+      const real = fs.promises.lstat;
+      let llamadas = 0;
+      vi.spyOn(fs.promises, "lstat").mockImplementation(((...a: Parameters<typeof real>) =>
+        ++llamadas === 1 ? new Promise(() => {}) : real(...a)) as typeof real);
+
+      const p = localizarFoto("144750", 1);
+      await vi.advanceTimersByTimeAsync(3100);
+      await vi.runAllTimersAsync();
+      await p;
+
+      expect(espejoCortado()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("un bucle de eventos bloqueado no se confunde con un disco colgado", async () => {
+    // Regresión de la revisión: tras 3 s de bloqueo (una pausa de GC, un
+    // render pesado) el timer salta ANTES que el callback de un lstat que ya
+    // había terminado. Sin la comprobación, eso abría el corte con el disco sano.
+    poner(1, "144750.jpg");
+    const p = localizarFoto("144750", 1);
+    const hasta = Date.now() + 3200;
+    while (Date.now() < hasta) {
+      /* bloquea el hilo */
+    }
+    expect(await p).not.toBeNull();
+    expect(espejoCortado()).toBe(false);
+  });
+
+  it("el estado del espejo no cachea un 'no lo sé'", async () => {
+    fs.writeFileSync(path.join(fotosDir, ".last-sync.json"), JSON.stringify({ last_sync: "2026-10-08T01:10:00Z", ficheros: 7 }));
+    vi.useFakeTimers({ now: new Date("2026-10-08T12:00:00Z") });
+    try {
+      const leer = vi.spyOn(fs.promises, "readFile").mockImplementation((() => new Promise(() => {})) as never);
+      const p = estadoEspejo();
+      await vi.advanceTimersByTimeAsync(3100);
+      expect((await p)!.last_sync).toBeNull();
+
+      // En cuanto el disco contesta, se ve el dato real: no hay un minuto de "nunca sincronizado".
+      leer.mockRestore();
+      expect((await estadoEspejo())!.ficheros).toBe(7);
     } finally {
       vi.useRealTimers();
     }

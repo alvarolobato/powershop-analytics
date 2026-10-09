@@ -11,9 +11,10 @@
  *  - Nunca se lista un directorio. Solo acceso directo por ruta derivada.
  *  - Nada del usuario llega a una ruta sin pasar antes por `CODIGO_RE`.
  *
- * Si `FOTOS_DIR` no está definido, no existe o deja de responder (el espejo
- * solo vive en producción; en dev puede ser un share que se desmonta), todo
- * aquí contesta "no hay foto" y la app sigue funcionando sin ellas.
+ * Si `FOTOS_DIR` no está definido o no existe (el espejo solo vive en
+ * producción), todo aquí contesta "no hay foto" y la app sigue funcionando sin
+ * ellas. Si deja de RESPONDER (un share colgado en dev), salta el
+ * cortacircuitos y los endpoints contestan 503 hasta que vuelva.
  */
 
 import { promises as fs } from "fs";
@@ -91,35 +92,62 @@ class Timeout extends Error {}
 /**
  * Cortacircuitos del espejo. `conTope` deja de ESPERAR una llamada de disco
  * colgada, pero no la cancela: sigue ocupando uno de los 4 hilos del pool de
- * libuv. Con un montaje colgado (solo pasa en dev, con FOTOS_DIR sobre un
- * share) cuatro llamadas bastarían para congelar todo `fs` y `dns` del
- * proceso, y el healthcheck las lanza cada 15 s. Por eso, tras el primer
- * timeout, durante un rato se contesta "sin espejo" sin tocar el disco.
+ * libuv. Con un montaje colgado (FOTOS_DIR sobre un share, en dev) cuatro
+ * llamadas bastarían para congelar todo `fs` y `dns` del proceso, y el
+ * healthcheck las lanza cada 15 s. Por eso, tras DOS timeouts seguidos, durante
+ * un rato no se toca el disco.
+ *
+ * Mientras está cortado los endpoints contestan 503, no "sin foto": el cliente
+ * cachea 10 minutos un "sin foto", y un corte es "no lo sé".
  */
 const CORTE_MS = 30_000;
+const TIMEOUTS_PARA_CORTAR = 2;
+let timeoutsSeguidos = 0;
 let espejoCortadoHasta = 0;
 
-function espejoCortado(): boolean {
+/** `true` mientras el espejo se da por no disponible. */
+export function espejoCortado(): boolean {
   return Date.now() < espejoCortadoHasta;
 }
 
 /** Solo para tests. */
 export function __resetFotos(): void {
   espejoCortadoHasta = 0;
+  timeoutsSeguidos = 0;
   estadoCache = null;
 }
 
 function conTope<T>(promesa: Promise<T>, ms: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
+  let terminada = false;
+  const vigilada = promesa.finally(() => {
+    terminada = true;
+  });
+  // Si llega después del tope, que su rechazo no quede sin manejar.
+  vigilada.catch(() => {});
   const tope = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      espejoCortadoHasta = Date.now() + CORTE_MS;
-      reject(new Timeout("timeout"));
+      // Si el bucle de eventos estuvo bloqueado (una pausa de GC, un render
+      // pesado), este timer salta ANTES que el callback de una llamada que ya
+      // había terminado. Se le da una vuelta al bucle: si para entonces está
+      // resuelta, el disco no tenía nada que ver.
+      setImmediate(() => {
+        if (terminada) return;
+        timeoutsSeguidos++;
+        if (timeoutsSeguidos >= TIMEOUTS_PARA_CORTAR) {
+          espejoCortadoHasta = Date.now() + CORTE_MS;
+        }
+        reject(new Timeout("timeout"));
+      });
     }, ms);
   });
-  // La llamada original puede rechazar más tarde, ya sin nadie escuchando.
-  promesa.catch(() => {});
-  return Promise.race([promesa, tope]).finally(() => clearTimeout(timer));
+  return Promise.race([vigilada, tope]).finally(() => clearTimeout(timer));
+}
+
+/** Una llamada de disco que contesta (aunque sea "no existe") prueba que el
+ *  espejo responde. */
+function espejoResponde(): void {
+  timeoutsSeguidos = 0;
 }
 
 /** Localiza la foto en el espejo. `null` si el código o el slot no son
@@ -140,18 +168,20 @@ export async function localizarFoto(codigo: string, slot: number): Promise<Foto 
       // lstat, no stat: un enlace simbólico dentro del espejo NO es una foto.
       // El cinturón de arriba es léxico y no vería adónde apunta.
       const st = await conTope(fs.lstat(ruta), STAT_TIMEOUT_MS);
+      espejoResponde();
       if (st.isFile()) return { ruta, bytes: st.size, mtimeMs: Math.trunc(st.mtimeMs) };
     } catch (err) {
       // ENOENT es lo normal (el 84 % de los artículos no tiene foto). Cualquier
       // otro error (share desmontado, permisos) también es "no hay foto".
       if (err instanceof Timeout) return null;
+      espejoResponde();
     }
   }
   return null;
 }
 
 /** Ruta absoluta de la foto, o `null` si el código/slot no son válidos o no
- *  existe. Prueba `.jpg`, `.JPG` y `.jpeg`. */
+ *  existe. Prueba `.jpg`, `.JPG`, `.jpeg` y `.JPEG`. */
 export async function rutaFoto(codigo: string, slot: number): Promise<string | null> {
   return (await localizarFoto(codigo, slot))?.ruta ?? null;
 }
@@ -205,26 +235,31 @@ export async function estadoEspejo(): Promise<EstadoEspejo | null> {
   if (estadoCache && estadoCache.raiz === raiz && estadoCache.hasta > Date.now()) {
     return estadoCache.valor;
   }
-  const valor = await leerEstadoEspejo(raiz);
-  estadoCache = { raiz, hasta: Date.now() + 60_000, valor };
-  return valor;
+  const leido = await leerEstadoEspejo(raiz);
+  // "No lo sé" (corte o timeout) no se cachea: se confundiría con "nunca
+  // sincronizado" durante un minuto.
+  if (leido.fiable) estadoCache = { raiz, hasta: Date.now() + 60_000, valor: leido.valor };
+  return leido.valor;
 }
 
-async function leerEstadoEspejo(raiz: string): Promise<EstadoEspejo> {
+async function leerEstadoEspejo(raiz: string): Promise<{ valor: EstadoEspejo; fiable: boolean }> {
   const vacio: EstadoEspejo = { last_sync: null, horas: null, ficheros: null };
-  if (espejoCortado()) return vacio;
+  if (espejoCortado()) return { valor: vacio, fiable: false };
   try {
     const texto = await conTope(fs.readFile(path.join(raiz, ".last-sync.json"), "utf8"), STAT_TIMEOUT_MS);
     const j = JSON.parse(texto.slice(0, 1000)) as { last_sync?: unknown; ficheros?: unknown };
     const t = typeof j.last_sync === "string" ? Date.parse(j.last_sync) : NaN;
-    if (!Number.isFinite(t)) return vacio;
+    if (!Number.isFinite(t)) return { valor: vacio, fiable: true };
     return {
-      last_sync: new Date(t).toISOString(),
-      horas: Math.max(0, Math.round((Date.now() - t) / 360_000) / 10),
-      ficheros: typeof j.ficheros === "number" ? j.ficheros : null,
+      fiable: true,
+      valor: {
+        last_sync: new Date(t).toISOString(),
+        horas: Math.max(0, Math.round((Date.now() - t) / 360_000) / 10),
+        ficheros: typeof j.ficheros === "number" ? j.ficheros : null,
+      },
     };
-  } catch {
-    return vacio;
+  } catch (err) {
+    return { valor: vacio, fiable: !(err instanceof Timeout) };
   }
 }
 

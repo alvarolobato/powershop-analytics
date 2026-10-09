@@ -11,6 +11,7 @@
  *   400 — código, slot o ancho no válidos
  *   404 — el artículo no tiene esa foto
  *   304 — If-None-Match coincide
+ *   503 — el espejo no responde (no se sabe si la foto existe)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -18,6 +19,7 @@ import {
   ANCHOS,
   esAncho,
   esCodigoValido,
+  espejoCortado,
   esSlot,
   leerOriginal,
   localizarFoto,
@@ -51,6 +53,13 @@ export async function GET(
 
   const foto = await localizarFoto(codigo, slot);
   if (!foto) {
+    // Con el espejo sin responder no se sabe si la foto existe: 503, no 404.
+    if (espejoCortado()) {
+      return NextResponse.json(
+        { error: "El espejo de fotos no responde.", code: "UNAVAILABLE" },
+        { status: 503, headers: { "Cache-Control": "no-store", "Retry-After": "30" } },
+      );
+    }
     return NextResponse.json({ error: "Sin foto.", code: "NOT_FOUND" }, { status: 404 });
   }
 

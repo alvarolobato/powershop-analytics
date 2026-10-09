@@ -96,21 +96,23 @@ export function ArticlePhotoHover({
   // `armed`: ya hubo un hover o focus, así que la <img> puede existir.
   const [armed, setArmed] = useState(false);
   const [visible, setVisible] = useState(false);
-  const [cargada, setCargada] = useState(false);
-  // La foto dio error (la borró el espejo con la caché de slots aún viva).
-  const [rota, setRota] = useState(false);
+  // Lo que se sabe de LA FOTO que se está enseñando: si cargó o si dio error
+  // (la borró el espejo con la caché de slots aún viva, o un 503 pasajero).
+  // Va con su clave: si la foto cambia, o se reintenta, lo anterior no vale. Un
+  // efecto que reiniciara dos booleanos llegaría tarde: el `load` de una
+  // imagen en caché puede dispararse antes de que el efecto corra.
+  const [intento, setIntento] = useState(0);
+  const claveFoto = `${codigo}/${slots[0] ?? 0}/${intento}`;
+  const [estadoFoto, setEstadoFoto] = useState({ clave: "", cargada: false, rota: false });
+  const cargada = estadoFoto.clave === claveFoto && estadoFoto.cargada;
+  const rota = estadoFoto.clave === claveFoto && estadoFoto.rota;
+  const rotaRef = useRef(false);
+  rotaRef.current = rota;
   // Al cerrar el lightbox el foco vuelve aquí: ese foco no debe reabrir el tooltip.
   const ignorarFoco = useRef(false);
   const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const [abierto, setAbierto] = useState(false);
 
-  // Otra foto (cambió el primer slot tras una revalidación): lo que se sabía de
-  // la anterior, que cargó o que dio error, ya no vale.
-  const primerSlot = slots[0];
-  useEffect(() => {
-    setCargada(false);
-    setRota(false);
-  }, [codigo, primerSlot]);
   const mostradoEn = useRef(0);
 
   const cancelar = useCallback(() => {
@@ -132,6 +134,8 @@ export function ArticlePhotoHover({
     const left = Math.max(MARGEN, Math.min(centro, window.innerWidth - ANCHO - MARGEN));
     setPos({ top, left });
     setArmed(true);
+    // Un error no es para siempre: cada vez que se vuelve a mostrar se reintenta.
+    if (rotaRef.current) setIntento((n) => n + 1);
     setVisible(true);
     mostradoEn.current = Date.now();
   }, []);
@@ -265,13 +269,13 @@ export function ArticlePhotoHover({
               )}
               {/* eslint-disable-next-line @next/next/no-img-element -- next/image no aporta nada aquí: el redimensionado y la caché son de /api/fotos */}
               <img
-                key={`${codigo}/${primero}`}
+                key={claveFoto}
                 src={urlFoto(codigo, primero, 256)}
                 alt={`Foto del artículo ${etiqueta}`}
                 width={LADO}
                 height={LADO}
-                onLoad={() => setCargada(true)}
-                onError={() => setRota(true)}
+                onLoad={() => setEstadoFoto({ clave: claveFoto, cargada: true, rota: false })}
+                onError={() => setEstadoFoto({ clave: claveFoto, cargada: false, rota: true })}
                 style={{
                   position: "relative",
                   width: LADO,

@@ -5,6 +5,7 @@ import {
   __resetArticlePhotosCache,
   cargarFotos,
   MAX_LOTE,
+  MAX_REINTENTOS,
   REINTENTO_MS,
   useArticlePhotos,
 } from "../use-article-photos";
@@ -163,18 +164,44 @@ describe("useArticlePhotos", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it.each([
-    ["la red falla", () => Promise.reject(new TypeError("Failed to fetch"))],
-    ["el servidor da 500", () => Promise.resolve(new Response("boom", { status: 500 }))],
-    ["la respuesta no es JSON", () => Promise.resolve(new Response("<html>", { status: 200 }))],
-    ["la respuesta tiene otra forma", () => Promise.resolve(new Response('{"porCodigo":"x"}', { status: 200 }))],
-  ])("si %s no hay fotos y no se lanza nada", async (_n, respuesta) => {
+  it.each<[string, () => Promise<Response>, boolean]>([
+    ["la red falla", () => Promise.reject(new TypeError("Failed to fetch")), false],
+    ["el servidor da 500", () => Promise.resolve(new Response("boom", { status: 500 })), false],
+    ["el espejo no responde (503)", () => Promise.resolve(new Response("{}", { status: 503 })), false],
+    ["la respuesta no es JSON", () => Promise.resolve(new Response("<html>", { status: 200 })), false],
+    // Contestó, aunque sin lo esperado: no es un fallo que reintentar.
+    ["la respuesta tiene otra forma", () => Promise.resolve(new Response('{"porCodigo":"x"}', { status: 200 })), true],
+  ])("si %s no hay fotos y no se lanza nada", async (_n, respuesta, ok) => {
     vi.stubGlobal("fetch", vi.fn(respuesta));
     const { result } = renderHook(() => useArticlePhotos(["144750"], ["V26212484"]));
 
-    await expect(cargarFotos(["144750"], ["V26212484"])).resolves.toEqual(expect.any(Boolean));
+    await expect(cargarFotos(["144750"], ["V26212484"])).resolves.toBe(ok);
     expect(result.current.slotsDeCodigo("144750")).toEqual([]);
     expect(result.current.deRef("V26212484")).toBeNull();
+  });
+
+  it("un fallo persistente se reintenta con espera creciente y con tope, no cada 15 s para siempre", async () => {
+    vi.useFakeTimers({ now: new Date("2026-10-08T10:00:00Z") });
+    const roto = vi.fn(() => Promise.resolve(new Response("boom", { status: 500 })));
+    vi.stubGlobal("fetch", roto);
+    const { unmount } = renderHook(() => useArticlePhotos(["144750"], []));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(roto).toHaveBeenCalledTimes(1);
+
+    // 15 s, 30 s, 60 s, 2 min → 4 reintentos en 3 min 45 s.
+    await vi.advanceTimersByTimeAsync(15_000 + 30_000 + 60_000 + 120_000 + 100);
+    expect(roto).toHaveBeenCalledTimes(1 + MAX_REINTENTOS);
+
+    // Después no insiste hasta la revalidación de los 10 minutos.
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(roto).toHaveBeenCalledTimes(1 + MAX_REINTENTOS);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(roto.mock.calls.length).toBeGreaterThan(1 + MAX_REINTENTOS);
+
+    unmount();
+    const alDesmontar = roto.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+    expect(roto).toHaveBeenCalledTimes(alDesmontar);
   });
 
   it("un fallo al abrir el panel se reintenta a los 15 s, sin esperar a los 10 minutos", async () => {

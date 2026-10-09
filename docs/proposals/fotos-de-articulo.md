@@ -149,6 +149,8 @@ Las dos plantillas launchd y su instalador se calcan de los que ya existen en `s
 
 ### `scripts/sync-fotos.sh`
 
+> **Histórico.** Este es el script tal como se planeó. El que se implementó (`scripts/sync-fotos.sh`) difiere: el destino es `FOTOS_HOST_DIR`, el guard se repite antes de cada `rsync` y vigila que el origen no encoja, y hay un lock. La referencia vigente es D-068.
+
 ```bash
 #!/usr/bin/env bash
 # Espeja las fotos de articulo del share de PowerShop a disco local.
